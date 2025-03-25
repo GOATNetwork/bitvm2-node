@@ -11,7 +11,7 @@ stateDiagram-v2
         state Middleware {
             [*] --> Identity 
             Identity --> Store
-            Store --> MessageHandler
+            Identity --> MessageHandler
         }
     }
        
