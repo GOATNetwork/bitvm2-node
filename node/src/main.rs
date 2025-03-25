@@ -1,10 +1,19 @@
 use std::{error::Error, time::Duration};
 
 use tracing_subscriber::EnvFilter;
-use libp2p::{noise, tcp, yamux, ping, swarm::SwarmEvent};
 use libp2p::futures::StreamExt;
+use libp2p::{
+    kad,
+    kad::{store::MemoryStore, Mode},
+    mdns, noise,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux, ping,
+};
 
 use bitvm2_lib::actors::Actor;
+
+mod middleware;
+pub use middleware::{actor, authenticator, store};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

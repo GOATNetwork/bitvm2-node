@@ -45,7 +45,7 @@ There are three main roles in this protocol, Federation, Operator and Challenger
 | Role   | Functions                                                                                                                                                                                                                                                                                  |
 |--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Federation | N-of-n signers for the presign transactions                                                                                                                                                                                                                                                |
-| Operator | Anyone can be an operator. <br>1. Exchange PeggleBTC to native BTC with users <br>2. Kickoff the reimbursement from Federation <br> 3. Generate the preimage of the hash time lock to each watchtower                                                                                      |
+| Operator | Anyone can be an operator. <br>1. Exchange PeggleBTC to native BTC with users <br>2. Kickoff the reimbursement from Federation <br> 3. Generate the preimage of the hash time lock to each watchtower <br>4. Exchange PegBTC to BTC with end-user via AtomicSwap                           |
 | Challenger | Anyone can be a challenger <br>1. Verify the valid of the reimbursement from operators offchain <br>2. Submit the challenge transaction on Bitcoin to force the kick off to unhappy path                                                                                                   
 | Watchtower | A special kind of challenger, selected from the Sequencer candidates, maintains the longest chain headers and spends the Watchtower output of the Kickoff transaction.                                                                                                                     
 | Verifier | Another kind of challenger. Once the kickoff is on the unhappy path, and the operator unveils all the execution trace(Circuit F below), verify finds the flow in the execution trace, and can spend the UTXO from Assert transaction, and stop the operator to continue the reimbursement. 
@@ -198,10 +198,10 @@ Federation n-of-n: musig2 (secp256k1)
 | BitVM2 instance  | BitVM2 transaction graph      | string          | 
 
 
-### Message Handler
-
-All the handlers are implemented by the actors.
-
 ### Middleware
 
-Filter the message coming and authenticate the messages. 
+Define all the behaviours.
+
+* Peer discovery protocol: KAD
+* Basic behaviours
+* Custom behaviours 

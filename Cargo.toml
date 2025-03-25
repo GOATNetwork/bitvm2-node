@@ -6,12 +6,11 @@ resolver = 3
 [workspace]
 members = [
     "crates/bitvm2",
-    "node/src/middleware",
     "cli", "crates/store", "crates/identity", "node",
 ]
 
 [workspace.dependencies]
-libp2p = { version = "0.55.0", features = ["tokio", "dns", "kad", "noise", "tcp", "yamux", "rsa", "ping"] }
+libp2p = { version = "0.55.0", features = ["tokio", "dns", "kad", "noise", "tcp", "yamux", "rsa", "ping", "mdns"] }
 once_cell = "1.5"
 log = "0.4"
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
