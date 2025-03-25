@@ -1,0 +1,8 @@
+[package]
+name = "goat-bitvm2-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+libp2p = { workspace = true }

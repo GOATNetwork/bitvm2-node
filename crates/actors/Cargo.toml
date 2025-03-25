@@ -1,0 +1,6 @@
+[package]
+name = "bitvm2-actors"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
