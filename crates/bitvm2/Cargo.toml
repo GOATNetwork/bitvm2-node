@@ -1,5 +1,5 @@
 [package]
-name = "bitvm2-actors"
+name = "bitvm2-lib"
 edition = { workspace = true }
 version = { workspace = true }
 

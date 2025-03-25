@@ -34,6 +34,8 @@ sequenceDiagram
     F->>L2: Submit pegin txid & graph info
 ```
 
+**Message Type**
+
 ### Kick-Off
 
 ```mermaid
@@ -50,6 +52,8 @@ sequenceDiagram
     Note over L2: Burn locked pegBTC & update state
 ```
 
+**Message Type**
+
 ### Claim
 ```mermaid
 sequenceDiagram
@@ -65,6 +69,8 @@ sequenceDiagram
     O->>L2: Submit Take-1 tx
     Note over L2: Update contract state
 ```
+
+**Message Type**
 
 ### Challenge
 
@@ -97,12 +103,25 @@ sequenceDiagram
     Note over L2: Update state
 ```
 
+**Message Type**
+
 ## Node 
 
-### Life-cycle 
+### Run a node
+
+```bash
+./target/debug/goat-bitvm2-node
+```
+It should print out the address to listen on.
+
+In another console, run 
+```bash
+./target/debug/goat-bitvm2-node /ip4/127.0.0.1/tcp/50022
+```
+Replace the peer address with above.
 
 #### Operation
-**Join**
+**Requirement** 
 
 Federation Member: need approval from all federation members
 
@@ -110,11 +129,19 @@ Challenger: anyone can be a challenger
 
 Operator: anyone who holds PeggledBTC can be an operator 
 
+**Operation**
+
+1. Generate identity
+2. Configure the bootnode and launch the node
+
 **Unjoin**
 
 #### Identity and Authentication
 
+Generate the identity by cli.
+
 P2P: ed25519
+
 Federation n-of-n: musig2 (secp256k1)  
 
 ### Store
@@ -134,9 +161,4 @@ Federation n-of-n: musig2 (secp256k1)
 | BitVM2 instance  | BitVM2 transaction graph      | string          | 
 
 
-### Message Handler 
-
-#### Handler Chain
-
-#### Message Type
-
+### Message Handler

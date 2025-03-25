@@ -63,3 +63,5 @@ derive_more = "2.0"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 anyhow = "1.0.97"
+
+bitvm2-lib = { path = "crates/bitvm2" }
