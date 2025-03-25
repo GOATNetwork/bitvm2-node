@@ -1,6 +1,37 @@
 # GOAT Bitvm2 Node
 A universal node and client for Operator, Challenger and Federation Signer.
 
+## Architecture Overview
+
+```mermaid
+stateDiagram-v2
+    [*] --> RPC 
+
+    state RPC {
+        [*] --> Middleware 
+
+        state Middleware {
+            [*] --> authenticator 
+            authenticator --> Identity
+            
+            state Identity {
+                [*] --> cli/node,p2p,musig2
+            }
+        }
+        state MessageHandler {
+            [*] --> actors
+        }
+        Middleware --> MessageHandler
+        Middleware --> Store
+    }
+
+    state Store {
+        [*] --> store
+    }
+    
+    RPC --> Store
+```
+
 ## Roles
 
 There are three main roles in this protocol, Federation, Operator and Challenger.
@@ -162,3 +193,9 @@ Federation n-of-n: musig2 (secp256k1)
 
 
 ### Message Handler
+
+All the handlers are implemented by the actors.
+
+### Middleware
+
+Filter the message coming and authenticate the messages. 
