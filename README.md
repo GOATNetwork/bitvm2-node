@@ -5,31 +5,37 @@ A universal node and client for Operator, Challenger and Federation Signer.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> RPC 
+    [*] --> RPCServer 
 
-    state RPC {
-        [*] --> Middleware 
-
+    state RPCServer {
         state Middleware {
-            [*] --> authenticator 
-            authenticator --> Identity
-            
-            state Identity {
-                [*] --> cli/node,p2p,musig2
-            }
+            [*] --> Identity 
+            Identity --> Store
+            Store --> MessageHandler
         }
-        state MessageHandler {
-            [*] --> actors
-        }
-        Middleware --> MessageHandler
-        Middleware --> Store
+    }
+       
+    state MessageHandler {
+        [*] --> message 
+        message --> Actor 
+    }
+    state Actor {
+        [*] --> Federation 
+        [*] --> Operator 
+        [*] --> Challenger
+        [*] --> More... 
+    }
+    
+    state Identity {
+        [*] --> cli/node
+        [*] --> p2p
+        [*] --> p2p,musig2
     }
 
     state Store {
-        [*] --> store
-    }
-    
-    RPC --> Store
+        [*] --> LocalDB 
+        [*] --> MemDB 
+}
 ```
 
 ## Roles
