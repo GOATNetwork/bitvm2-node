@@ -57,6 +57,7 @@ There are three main roles in this protocol, Federation, Operator and Challenger
 
 ### Peg-in
 <!-- https://mermaid.js.org/syntax/stateDiagram.html#state-diagrams -->
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -67,9 +68,9 @@ sequenceDiagram
 
     U->>B: Broadcast incomplete Peg-in tx
     F->>All: Generate & broadcast keypair + Musig2 Nonce
-    O->>F: Generate BitVM bridge tx graph & Challenge tx input[0] sig
-    F->>All: Presign complete tx
-    U->>B: Sign & broadcast final tx
+    O->>F: Generate BitVM2 tx graph & Presign Challenge 
+    F->>All: Presign Take1/Take2/Disprove/Assert tx
+    U->>B: Sign & broadcast pegin tx
     Note over B: Transaction confirmation
     F->>L2: Submit pegin txid & graph info
 ```
