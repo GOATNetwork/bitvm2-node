@@ -1,10 +1,11 @@
-use std::{error::Error, time::Duration};
+use std::{error::Error, time::Duration, net::Ipv4Addr};
 use clap::Parser;
 use libp2p::futures::StreamExt;
 use libp2p::{
     kad,
     noise,
     swarm::{NetworkBehaviour, SwarmEvent},
+    multiaddr::{Multiaddr, Protocol},
     tcp, yamux,
 };
 
@@ -20,6 +21,7 @@ use zeroize::Zeroizing;
 use bitvm2_lib::actors::Actor;
 
 mod middleware;
+mod rpc_service;
 mod metrics_service;
 mod config;
 
@@ -58,7 +60,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .try_init();
 
     let opt = Opts::parse();
-    let config = Zeroizing::new(config::Config::from_file(opt.config.as_path())?);
+    //let config = Zeroizing::new(config::Config::from_file(opt.config.as_path())?);
 
     let mut metric_registry = Registry::default();
 
@@ -90,8 +92,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let metrics = Metrics::new(&mut metric_registry);
     tokio::spawn(metrics_service::metrics_server(metric_registry));
 
-    // TODO: run a http server for front-end
-    // https://github.com/tokio-rs/tokio/blob/master/examples/tinyhttp.rs#L36
+    // run a http server for front-end
+
+    let address = loop {
+        if let SwarmEvent::NewListenAddr { address, .. } = swarm.select_next_some().await {
+            if address
+                .iter()
+                .any(|e| e == Protocol::Ip4(Ipv4Addr::LOCALHOST))
+            {
+                tracing::debug!(
+                    "Ignoring localhost address to make sure the example works in Firefox"
+                );
+                continue;
+            }
+
+            tracing::info!(%address, "Listening");
+
+            break address;
+        }
+    };
+
+    let addr = address.with(Protocol::P2p(*swarm.local_peer_id()));
+    tokio::spawn(rpc_service::serve(addr));
+
 
     loop {
         match swarm.select_next_some().await {
