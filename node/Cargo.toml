@@ -4,8 +4,40 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-libp2p = { workspace = true }
+libp2p = { workspace = true, features = [
+    "autonat",
+    "dns",
+    "tokio",
+    "noise",
+    "tcp",
+    "yamux",
+    "identify",
+    "kad",
+    "ping",
+    "relay",
+    "metrics",
+    "rsa",
+    "macros",
+    "quic",
+    "websocket",
+] }
+libp2p-swarm-derive = { workspace = true }
+libp2p-metrics = { workspace = true }
+libp2p-core = { workspace = true }
 futures = { workspace = true }
-tokio = { workspace = true }
-tracing-subscriber = { workspace = true }
 bitvm2-lib = { workspace = true }
+clap = { workspace = true }
+zeroize = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+
+opentelemetry = { version = "0.27.0", features = ["metrics"] }
+opentelemetry-otlp = { version = "0.27.0", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.27.0", features = ["rt-tokio", "metrics"] }
+prometheus-client = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-opentelemetry = "0.28.0"
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

@@ -9,10 +9,12 @@ stateDiagram-v2
 
     state RPCServer {
         state Middleware {
-            [*] --> Identity 
-            Identity --> Store
-            Identity --> MessageHandler
+            [*] --> Identity
+            Identity --> behaviour
+            [*] --> MetricServer 
         }
+        behaviour --> Store
+        behaviour --> MessageHandler
     }
        
     state MessageHandler {
@@ -27,15 +29,16 @@ stateDiagram-v2
     }
     
     state Identity {
-        [*] --> cli/node
-        [*] --> p2p
-        [*] --> p2p,musig2
+        [*] --> client
+        [*] --> p2p(KAD)
+        [*] --> musig2
     }
 
     state Store {
-        [*] --> LocalDB 
-        [*] --> MemDB 
-}
+        [*] --> payload 
+        payload --> LocalDB(Mem)
+        payload --> IPFS
+    }
 ```
 
 ## Roles
@@ -200,7 +203,7 @@ Federation n-of-n: musig2 (secp256k1)
 
 ### Middleware
 
-Define all the behaviours.
+Define all the behaviours and [metrics server](https://github.com/libp2p/rust-libp2p/blob/e1bba263070194282cad48f07fb4aa0c87d03b55/examples/metrics/src/http_service.rs#L32).
 
 * Peer discovery protocol: KAD
 * Basic behaviours
