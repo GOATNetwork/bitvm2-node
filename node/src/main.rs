@@ -59,11 +59,6 @@ struct Opts {
 #[derive(Subcommand, Debug, Clone)]
 enum Commands {
     Key(KeyArg),
-    Set {
-        key: String,
-        value: String,
-        is_true: bool
-    },
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -93,7 +88,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let mut fs = std::fs::File::open(&key_arg.path)?;
                     let mut key_encoded = vec![];
                     fs.read_to_end(&mut key_encoded)?;
-                    let key = libp2p::identity::Keypair::from_protobuf_encoding(&key_encoded)?;
+                    let key = Keypair::from_protobuf_encoding(&key_encoded)?;
                     println!("{:?}", key);
                 }
                 KeyCommands::Gen => {
@@ -104,12 +99,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             return Ok(());
         }
-        Some(Commands::Set { key, value, is_true }) => {
-            return Ok(());
-        }
         _ => {
             if ! opt.daemon {
-                println!("help!");
+                // TODO
+                println!("Help");
                 return Ok(());
             }
         },
