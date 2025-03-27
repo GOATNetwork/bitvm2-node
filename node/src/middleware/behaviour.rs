@@ -26,8 +26,8 @@ pub struct AllBehaviours {
 
     kademlia: kad::Behaviour<MemoryStore>,
     //mdns: mdns::tokio::Behaviour,
-    client: super::authenticator::client::ClientBehaviour,
-    musig: super::authenticator::musig::MusigBehaviour,
+    //client: super::authenticator::client::ClientBehaviour,
+    //musig: super::authenticator::musig::MusigBehaviour,
 
     // TODO: bitvm2 actors behaviours
 }
@@ -44,8 +44,8 @@ impl AllBehaviours {
         let musig = MusigBehaviour::default();
        Self {
            kademlia,
-           client,
-           musig,
+    //       client,
+    //       musig,
        }
     }
 }

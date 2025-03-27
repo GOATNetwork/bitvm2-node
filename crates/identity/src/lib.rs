@@ -12,7 +12,7 @@ use libp2p::{
 };
 use tracing_subscriber::EnvFilter;
 
-fn generate_local_key() -> identity::Keypair {
+pub fn generate_local_key() -> identity::Keypair {
     identity::Keypair::generate_ed25519()
 }
 

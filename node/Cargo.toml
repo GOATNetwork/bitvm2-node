@@ -1,5 +1,5 @@
 [package]
-name = "goat-bitvm2-node"
+name = "bitvm2-noded"
 version.workspace = true
 edition.workspace = true
 
@@ -25,7 +25,10 @@ libp2p-swarm-derive = { workspace = true }
 libp2p-metrics = { workspace = true }
 libp2p-core = { workspace = true }
 futures = { workspace = true }
+
 bitvm2-lib = { workspace = true }
+identity = { workspace = true }
+
 clap = { workspace = true }
 zeroize = { workspace = true }
 axum = { workspace = true }
