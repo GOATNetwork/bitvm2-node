@@ -1,8 +1,10 @@
 use base64::Engine;
 use clap::{Parser, Subcommand};
+use libp2p::bytes::BufMut;
 use libp2p::PeerId;
 use libp2p::futures::StreamExt;
 use libp2p::identity::Keypair;
+use std::ops::Add;
 use libp2p::{
     kad, mdns,
     multiaddr::{Multiaddr, Protocol},
@@ -14,7 +16,7 @@ use libp2p_metrics::{Metrics, Registry};
 use std::io::{Read, Write};
 use std::str::FromStr;
 use std::thread::LocalKey;
-use std::{error::Error, net::Ipv4Addr, time::Duration};
+use std::{error::Error, net::Ipv4Addr, time::{Duration, Instant}};
 
 use opentelemetry::{KeyValue, trace::TracerProvider as _};
 use opentelemetry_otlp::SpanExporter;
@@ -43,8 +45,8 @@ struct Opts {
     #[arg(short)]
     daemon: bool,
 
-    // #[arg(long)]
-    // bootnodes: Vec<String>,
+    #[arg(long)]
+    bootnodes: Vec<String>,
 
     // #[arg(long)]
     // local_peer_id: Option<String>,
@@ -70,6 +72,7 @@ struct Opts {
 #[derive(Subcommand, Debug, Clone)]
 enum Commands {
     Key(KeyArg),
+    Peer(PeerArg)
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -78,6 +81,21 @@ struct KeyArg {
     kind: String,
     #[command(subcommand)]
     cmd: KeyCommands,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct PeerArg {
+    #[clap(subcommand)]
+    peer_cmd: PeerCommands,
+}
+
+#[derive(Parser, Debug, Clone)]
+enum PeerCommands {
+    GetPeers {
+        #[clap(long)]
+        peer_id: Option<PeerId>,
+    },
+    PutPkRecord {},
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -100,7 +118,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             return Ok(());
-        }
+        },
         _ => {
             if !opt.daemon {
                 // TODO
@@ -136,7 +154,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         keypair
     };
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
+    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()
         .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
         .with_bandwidth_metrics(&mut metric_registry)
@@ -167,8 +185,46 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let addr = address.with(Protocol::P2p(*swarm.local_peer_id()));
-    println!("Static file listening on {}", addr);
+    println!("RPC service listening on {}", addr);
     tokio::spawn(rpc_service::serve(addr));
+
+    // Add the bootnodes to the local routing table. `libp2p-dns` built
+    // into the `transport` resolves the `dnsaddr` when Kademlia tries
+    // to dial these nodes.
+    for peer in &opt.bootnodes {
+        swarm
+            .behaviour_mut().kademlia
+            .add_address(&peer.parse()?, "/dnsaddr/bootstrap.libp2p.io".parse()?);
+    }
+
+
+    match opt.cmd {
+        Some(Commands::Peer(key_arg)) => match key_arg.peer_cmd {
+            PeerCommands::GetPeers { peer_id } => {
+                let peer_id = peer_id.unwrap_or(PeerId::random());
+                println!("Searching for the closest peers to {peer_id}");
+                swarm.behaviour_mut().kademlia.get_closest_peers(peer_id);
+            }
+            PeerCommands::PutPkRecord {} => {
+                println!("Putting PK record into the DHT");
+
+                let mut pk_record_key = vec![];
+                pk_record_key.put_slice("/pk/".as_bytes());
+                pk_record_key.put_slice(swarm.local_peer_id().to_bytes().as_slice());
+
+                let mut pk_record =
+                    kad::Record::new(pk_record_key, local_key.public().encode_protobuf());
+                pk_record.publisher = Some(*swarm.local_peer_id());
+                pk_record.expires = Some(Instant::now().add(Duration::from_secs(60)));
+
+                swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .put_record(pk_record, kad::Quorum::N(std::num::NonZeroUsize::new(3).unwrap()))?;
+            }
+        },
+        _ =>  {}
+    }
 
     loop {
         match swarm.select_next_some().await {
