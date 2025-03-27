@@ -10,9 +10,7 @@ pub enum Failure {
     /// The peer does not support the ping protocol.
     Unsupported,
     /// The ping failed for reasons other than a timeout.
-    Other {
-        error: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
+    Other { error: Box<dyn std::error::Error + Send + Sync + 'static> },
 }
 
 impl Failure {

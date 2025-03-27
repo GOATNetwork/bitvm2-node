@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-sqlx = "0.8.3"
+sqlx = {  version = "0.8.3", features = [ "sqlite"] }

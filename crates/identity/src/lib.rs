@@ -5,7 +5,7 @@ use std::{
 
 use futures::StreamExt;
 use libp2p::{
-    core::{multiaddr::Protocol, Multiaddr},
+    core::{Multiaddr, multiaddr::Protocol},
     identify, identity, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux,

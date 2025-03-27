@@ -1,5 +1,5 @@
-use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
-#[derive(Clone, FromRow, Debug)]
+use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
+#[derive(Clone, Debug)]
 pub enum CovenantStep {
     PegIn,
     KickOff,

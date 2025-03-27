@@ -1,14 +1,14 @@
-use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool, Pool, Sqlite};
+use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::path::PathBuf;
 
 pub struct LocalDB {
     path: String,
     is_mem: bool,
-    conn: Pool<Sqlite>,
+    conn: SqlitePool,
 }
 
 impl LocalDB {
-    async fn new (path: &str, is_mem: bool) -> LocalDB {
+    async fn new(path: &str, is_mem: bool) -> LocalDB {
         if !Sqlite::database_exists(path).await.unwrap_or(false) {
             println!("Creating database {}", path);
             match Sqlite::create_database(path).await {
@@ -20,22 +20,15 @@ impl LocalDB {
         }
 
         let conn = SqlitePool::connect(path).await.unwrap();
-        Self{
-            path: path.to_string(),
-            is_mem,
-            conn,
-        }
+        Self { path: path.to_string(), is_mem, conn }
     }
 
     async fn migrate(&self) {
         let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
         let migrations = std::path::Path::new(&crate_dir).join("./migrations");
 
-        let migration_results = sqlx::migrate::Migrator::new(migrations)
-            .await
-            .unwrap()
-            .run(&self.conn)
-            .await;
+        let migration_results =
+            sqlx::migrate::Migrator::new(migrations).await.unwrap().run(&self.conn).await;
 
         match migration_results {
             Ok(_) => println!("Migration success"),

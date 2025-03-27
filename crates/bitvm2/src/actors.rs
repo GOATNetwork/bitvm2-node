@@ -1,5 +1,5 @@
-use std::str::FromStr;
 use std::convert::TryFrom;
+use std::str::FromStr;
 #[derive(Debug)]
 pub enum Actor {
     FEDERATION,
