@@ -1,3 +1,5 @@
 mod ipfs;
-mod localdb;
+pub mod localdb;
 mod schema;
+
+pub use schema::*;

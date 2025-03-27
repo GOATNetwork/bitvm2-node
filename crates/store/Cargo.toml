@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 sqlx = {  version = "0.8.3", features = [ "sqlite"] }
+serde = { version = "1.0.219", features = ["derive"] }

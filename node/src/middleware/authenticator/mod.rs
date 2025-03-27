@@ -1,4 +1,3 @@
-pub mod client;
 pub mod musig;
 
 /// An outbound ping failure.

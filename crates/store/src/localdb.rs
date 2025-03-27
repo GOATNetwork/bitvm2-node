@@ -1,14 +1,16 @@
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::path::PathBuf;
+use crate::Covenant;
 
+#[derive(Clone)]
 pub struct LocalDB {
-    path: String,
-    is_mem: bool,
-    conn: SqlitePool,
+    pub path: String,
+    pub is_mem: bool,
+    pub conn: SqlitePool,
 }
 
 impl LocalDB {
-    async fn new(path: &str, is_mem: bool) -> LocalDB {
+    pub async fn new(path: &str, is_mem: bool) -> LocalDB {
         if !Sqlite::database_exists(path).await.unwrap_or(false) {
             println!("Creating database {}", path);
             match Sqlite::create_database(path).await {
@@ -39,4 +41,8 @@ impl LocalDB {
     }
 
     // TODO define sql for table in schema
+    pub async fn create_covenant(&self, covenant: Covenant) {
+        println!("save covenant {:?}", covenant);
+        // TODO
+    }
 }

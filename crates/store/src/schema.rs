@@ -1,13 +1,15 @@
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
-#[derive(Clone, Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub enum CovenantStep {
-    PegIn,
+    #[default] PegIn = 1,
     KickOff,
     Challenge,
     Assert,
     Disprove,
 }
-#[derive(Clone, FromRow, Debug)]
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Covenant {
     pub pegin_txid: String,
     pub operator: String,
