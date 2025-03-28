@@ -21,16 +21,11 @@ use tower_http::cors::{Any, CorsLayer};
 async fn root() -> &'static str {
     "Hello, World!"
 }
-pub(crate) async fn serve(libp2p_transport: Multiaddr) {
-    let server = Router::new()
-        .route("/", get(root))
-        //        .route("/:path", get(get_static_file))
-        .layer(
-            // allow cors
-            CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]),
-        );
+pub(crate) async fn serve(addr: String) {
+    let server = Router::new().route("/", get(root)).layer(
+        // allow cors
+        CorsLayer::new().allow_origin(Any).allow_methods([Method::GET]),
+    );
 
-    axum::serve(TcpListener::bind("127.0.0.1:8080").await.unwrap(), server.into_make_service())
-        .await
-        .unwrap();
+    axum::serve(TcpListener::bind(addr).await.unwrap(), server.into_make_service()).await.unwrap();
 }

@@ -1,10 +1,10 @@
-use crate::authenticator::client::ClientBehaviour;
+#![feature(trivial_bounds)]
 use crate::authenticator::musig::MusigBehaviour;
 use futures::stream::StreamExt;
 use libp2p::core::transport::upgrade::Authenticate;
 use libp2p::identity::Keypair;
 use libp2p::{
-    kad,
+    gossipsub, kad,
     kad::{Mode, store::MemoryStore},
     mdns, noise,
     swarm::{StreamProtocol, SwarmEvent},
@@ -25,9 +25,8 @@ pub struct AllBehaviours {
     // TODO: add bootnodes
     pub kademlia: kad::Behaviour<MemoryStore>,
     pub mdns: mdns::tokio::Behaviour,
-    //pub client: super::authenticator::client::ClientBehaviour,
-    //pub musig: super::authenticator::musig::MusigBehaviour,
-
+    pub gossipsub: gossipsub::Behaviour,
+    pub musig: MusigBehaviour,
     // TODO: bitvm2 actors behaviours
 }
 
@@ -39,14 +38,19 @@ impl AllBehaviours {
         let kademlia = kad::Behaviour::with_config(key.public().to_peer_id(), store, cfg);
         let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())
             .unwrap();
-        let client = ClientBehaviour::default();
+
+        let gossipsub_config = gossipsub::ConfigBuilder::default()
+            .max_transmit_size(262144)
+            .build()
+            .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))
+            .unwrap();
+        let gossipsub = gossipsub::Behaviour::new(
+            gossipsub::MessageAuthenticity::Signed(key.clone()),
+            gossipsub_config,
+        )
+        .expect("Valid configuration");
         let musig = MusigBehaviour::default();
-        Self {
-            kademlia,
-            mdns,
-            //       client,
-            //       musig,
-        }
+        Self { kademlia, mdns, gossipsub, musig }
     }
 }
 
