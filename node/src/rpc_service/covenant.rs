@@ -1,13 +1,9 @@
 use axum::extract::State;
+use axum::{Json, http::StatusCode};
+use serde::Deserialize;
 use std::default::Default;
-use std::sync::LazyLock;
-use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use store::Covenant;
-use axum::{
-    routing::{get, post},
-    http::StatusCode,
-    Json, Router,
-};
 use store::localdb::LocalDB;
 // NOTE: combine sqlx and axum: https://github.com/tokio-rs/axum/blob/main/examples/sqlx-postgres/src/main.rs
 
@@ -18,16 +14,11 @@ pub struct CreateCovenant {
 }
 
 pub async fn create_covenant(
-    // this argument tells axum to parse the request body
-    // as JSON into a `CreateUser` type
-    State(local_db): State<LocalDB>,
+    State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<CreateCovenant>,
 ) -> (StatusCode, Json<Covenant>) {
     // insert your application logic here
-    let covenant = Covenant {
-        pegin_txid: payload.pegin_txid,
-        ..Default::default()
-    };
+    let covenant = Covenant { pegin_txid: payload.pegin_txid, ..Default::default() };
     local_db.create_covenant(covenant.clone()).await;
     (StatusCode::CREATED, Json(covenant))
 }

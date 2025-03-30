@@ -1,9 +1,10 @@
-use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub enum CovenantStep {
-    #[default] PegIn = 1,
+    #[default]
+    PegIn = 1,
     KickOff,
     Challenge,
     Assert,
@@ -41,4 +42,17 @@ pub struct AssertTx {
 pub struct DisproveTx {
     pub id: u64,
     pub disprove_witness_data_ipfs_url: Vec<String>,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize)]
+pub struct Node {
+    pub peer_id: String,
+    pub role: String,
+    pub update_at: std::time::SystemTime,
+}
+
+#[derive(Clone, FromRow, Debug)]
+pub struct Transaction {
+    pub bridge_path: String,
+    // TODO
 }

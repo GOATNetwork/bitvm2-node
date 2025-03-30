@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::str::FromStr;
-#[derive(Debug)]
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Actor {
     FEDERATION,
     OPERATOR,
@@ -30,5 +32,13 @@ impl TryFrom<&str> for Actor {
             "Challenger" => Ok(Actor::CHALLENGER),
             _ => Err(()),
         }
+    }
+}
+
+impl std::fmt::Display for Actor {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+        // or, alternatively:
+        // fmt::Debug::fmt(self, f)
     }
 }
