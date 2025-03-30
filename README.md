@@ -3,8 +3,7 @@ A universal node for Operator, Challenger and Covenant Signer.
 
 ## Tutorial
 
-```{include} node/README.md
-```
+See [Node](node/README.md).
 
 ## Architecture Overview
 
