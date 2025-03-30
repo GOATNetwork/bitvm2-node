@@ -51,7 +51,7 @@ pub struct Node {
     pub update_at: std::time::SystemTime,
 }
 
-#[derive(Clone, FromRow, Debug)]
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize)]
 pub struct Transaction {
     pub bridge_path: String,
     // TODO
