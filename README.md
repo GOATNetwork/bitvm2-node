@@ -1,5 +1,10 @@
 # GOAT Bitvm2 Node
-A universal node and client for Operator, Challenger and Federation Signer.
+A universal node for Operator, Challenger and Covenant Signer.
+
+## Tutorial
+
+```{include} node/README.md
+```
 
 ## Architecture Overview
 
