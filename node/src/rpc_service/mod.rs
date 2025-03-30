@@ -38,8 +38,7 @@ async fn root() -> &'static str {
 }
 
 pub(crate) async fn serve(addr: String) {
-    tracing_subscriber::fmt::init();
-    let localdb = Arc::new(LocalDB::new("~/.bitvm2-node.db", true).await);
+    let localdb = Arc::new(LocalDB::new("sqlite:/tmp/.bitvm2-node.db", true).await);
     let server = Router::new()
         .route("/", get(root))
         .route("/covenants", post(create_covenant))
@@ -49,6 +48,6 @@ pub(crate) async fn serve(addr: String) {
         .with_state(localdb);
 
     let listener = TcpListener::bind(addr).await.unwrap();
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    println!("RPC listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, server).await.unwrap();
 }
