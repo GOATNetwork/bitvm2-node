@@ -1,53 +1,18 @@
-use crate::rpc_service::current_time_secs;
-use axum::extract::State;
-use axum::{Json, http::StatusCode};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use std::default::Default;
-use std::sync::Arc;
-use store::localdb::LocalDB;
-use store::{BridgeInStatus, Graph, GraphStatus, Instance};
+use store::{Instance, Graph, GraphStatus, BridgeInStatus, BridgeOutStatus};
 
 // the input to our `create_user` handler
-#[axum::debug_handler]
-pub async fn create_instance(
-    State(local_db): State<Arc<LocalDB>>,
-    Json(payload): Json<BridgeInTransactionPrepare>,
-) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
-    // insert your application logic here
-    let tx = Instance {
-        instance_id: payload.instance_id,
-        bridge_path: payload.bridge_path,
-        from: payload.from,
-        to: payload.to,
-        // in sat
-        amount: payload.amount,
-        created_at: current_time_secs(),
-
-        // updating time
-        eta_at: current_time_secs(),
-
-        // BridgeInStatus | BridgeOutStutus
-        status: BridgeInStatus::Submitted.to_string(),
-
-        ..Default::default() //pub goat_txid: String,
-                             //pub btc_txid: String,
-    };
-
-    local_db.create_instance(tx.clone()).await;
-
-    let resp = BridgeInTransactionPrepareResponse {};
-    (StatusCode::OK, Json(resp))
-}
 #[derive(Deserialize, Serialize)]
 pub struct UTXO {
-    txid: String,
-    vout: u32,
+    pub txid: String,
+    pub vout: u32,
     //.. others
 }
 
 /// bridge-in: step1 & step2.1
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct BridgeInTransactionPrepare {
     /// UUID
     pub instance_id: String,
@@ -176,7 +141,6 @@ pub struct BridgeOutUserClaimResponse {
 #[derive(Deserialize)]
 pub struct InstanceListRequest {
     pub user_address: String,
-
     pub offset: u32,
     pub limit: u32,
 }
@@ -198,7 +162,6 @@ pub struct InstanceGetResponse {
 }
 
 /// graph_overview
-
 // All fields can be optional
 // if all are none, we fetch all the graph list order by timestamp desc.
 #[derive(Deserialize)]
