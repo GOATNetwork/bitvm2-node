@@ -7,4 +7,5 @@ pub use api::{
     generate_partial_scripts,
     generate_disprove_scripts,
     sign_proof,
+    generate_bitvm_graph,
 };
