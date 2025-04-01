@@ -3,6 +3,7 @@ use bitvm::chunk::api::{
 };
 use bitvm::signatures::signing_winternitz::{WinternitzPublicKey, WinternitzSecret};
 use goat::commitments::NUM_KICKOFF;
+use rand::{distributions::Alphanumeric, Rng};
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
@@ -25,3 +26,10 @@ pub type WotsPublicKeys = (
     Groth16WotsPublicKeys,
 );
 
+pub fn random_string(len: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}

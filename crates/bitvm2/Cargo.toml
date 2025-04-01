@@ -10,3 +10,6 @@ serde = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-bn254 = { workspace = true }
 sha2 = { workspace = true }
+rand = { workspace = true }
+bitcoin = { workspace = true }
+musig2 = { workspace = true }
