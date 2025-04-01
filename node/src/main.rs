@@ -255,6 +255,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                         }
                     }
+                    SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::RoutingUpdated{ peer, addresses,..})) => {
+                        println!("routing updated: {:?}", peer);
+                    }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Mdns(mdns::Event::Expired(list))) => {
                         println!("expired: {:?}", list);
                     }
