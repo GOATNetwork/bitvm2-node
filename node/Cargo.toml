@@ -54,3 +54,6 @@ mime_guess = "2.0.5"
 base64 = "0.22.1"
 anyhow = { workspace = true }
 musig2 = { version = "0.1.0", features = ["serde", "rand"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12.15", features = ["json"]}
