@@ -26,7 +26,7 @@ stateDiagram-v2
         message --> Actor 
     }
     state Actor {
-        [*] --> Federation 
+        [*] --> Committee 
         [*] --> Operator 
         [*] --> Challenger
         [*] --> More... 
@@ -47,15 +47,15 @@ stateDiagram-v2
 
 ## Roles
 
-There are three main roles in this protocol, Federation, Operator and Challenger.
+There are three main roles in this protocol, Committee, Operator and Challenger.
 
-| Role   | Functions                                                                                                                                                                                                                                                                                  |
-|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Federation | N-of-n signers for the presign transactions                                                                                                                                                                                                                                                |
-| Operator | Anyone can be an operator. <br>1. Exchange PeggleBTC to native BTC with users <br>2. Kickoff the reimbursement from Federation <br> 3. Generate the preimage of the hash time lock to each watchtower <br>4. Exchange PegBTC to BTC with end-user via AtomicSwap                           |
+| Role       | Functions                                                                                                                                                                                                                                                                                  |
+|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Committee  | N-of-n signers for the presign transactions                                                                                                                                                                                                                                                |
+| Operator   | Anyone can be an operator. <br>1. Exchange PeggleBTC to native BTC with users <br>2. Kickoff the reimbursement from Committee <br> 3. Generate the preimage of the hash time lock to each watchtower <br>4. Exchange PegBTC to BTC with end-user via AtomicSwap                            |
 | Challenger | Anyone can be a challenger <br>1. Verify the valid of the reimbursement from operators offchain <br>2. Submit the challenge transaction on Bitcoin to force the kick off to unhappy path                                                                                                   
 | Watchtower | A special kind of challenger, selected from the Sequencer candidates, maintains the longest chain headers and spends the Watchtower output of the Kickoff transaction.                                                                                                                     
-| Verifier | Another kind of challenger. Once the kickoff is on the unhappy path, and the operator unveils all the execution trace(Circuit F below), verify finds the flow in the execution trace, and can spend the UTXO from Assert transaction, and stop the operator to continue the reimbursement. 
+| Verifier   | Another kind of challenger. Once the kickoff is on the unhappy path, and the operator unveils all the execution trace(Circuit F below), verify finds the flow in the execution trace, and can spend the UTXO from Assert transaction, and stop the operator to continue the reimbursement. 
 
 ## BitVM2 protocol
 
@@ -65,7 +65,7 @@ There are three main roles in this protocol, Federation, Operator and Challenger
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant F as Federation
+    participant F as Committee 
     participant O as Operator
     participant B as Bitcoin Network
     participant L2 as Layer 2
@@ -168,7 +168,7 @@ Replace the peer address with above.
 #### Operation
 **Requirement** 
 
-Federation Member: need approval from all federation members
+Committee Member: need approval from all committee members
 
 Challenger: anyone can be a challenger
 
@@ -187,7 +187,7 @@ Generate the identity by cli.
 
 P2P: ed25519
 
-Federation n-of-n: musig2 (secp256k1)  
+Committee n-of-n: musig2 (secp256k1)  
 
 ### Store
 

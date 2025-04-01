@@ -162,10 +162,10 @@ pub fn generate_bitvm_graph(
 
     // Pegin
     let network = params.network;
-    let federation_taproot_pubkey = params.federation_taproot_pubkey;
+    let committee_taproot_pubkey = params.committee_taproot_pubkey;
     let connector_0 = Connector0::new(
         network,
-        &federation_taproot_pubkey,
+        &committee_taproot_pubkey,
     );
     let pegin = PegInTransaction::new_for_validation(
         &connector_0, 
@@ -204,7 +204,7 @@ pub fn generate_bitvm_graph(
     let connector_a = ConnectorA::new(
         network,
         &operator_taproot_pubkey,
-        &federation_taproot_pubkey,
+        &committee_taproot_pubkey,
     );
     let connector_b = ConnectorB::new(
         network,
@@ -284,7 +284,7 @@ pub fn generate_bitvm_graph(
     let assert_wots_pubkeys = &params.operator_wots_pubkeys.1;
     let connector_d = ConnectorD::new(
         network,
-        &federation_taproot_pubkey,
+        &committee_taproot_pubkey,
     );
     let all_assert_commit_connectors_e = AllCommitConnectorsE::new(
         network,
@@ -336,7 +336,7 @@ pub fn generate_bitvm_graph(
     );
     let connector_5 = Connector5::new(
         network,
-        &federation_taproot_pubkey,
+        &committee_taproot_pubkey,
     );
     let connector_c = ConnectorC::new_from_scripts(
         network,
@@ -447,7 +447,7 @@ pub fn generate_bitvm_graph(
 
     Ok(Bitvm2Graph {
         operator_pre_signed: false,
-        federation_pre_signed: false,
+        committee_pre_signed: false,
         parameters: params,
         pegin,
         pre_kickoff,

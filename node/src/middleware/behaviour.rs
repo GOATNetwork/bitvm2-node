@@ -1,5 +1,5 @@
 #![feature(trivial_bounds)]
-use crate::authenticator::musig::MusigBehaviour;
+use crate::authenticator::musig2::MusigBehaviour;
 use futures::stream::StreamExt;
 use libp2p::core::transport::upgrade::Authenticate;
 use libp2p::identity::Keypair;

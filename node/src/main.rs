@@ -54,6 +54,9 @@ struct Opts {
     #[arg(long, default_value = "0.0.0.0:8080")]
     pub rpc_addr: String,
 
+    #[arg(long, default_value = "/tmp/bitvm2-node.db")]
+    pub db_path: String,
+
     #[arg(long)]
     bootnodes: Vec<String>,
 
@@ -130,7 +133,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     // load role
     let actor =
-        Actor::try_from(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
+        Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
             .unwrap();
 
     let local_key = std::env::var("KEY").expect("KEY is missing");
@@ -216,7 +219,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("RPC service listening on {}", &opt.rpc_addr);
     let rpc_addr = opt.rpc_addr.clone();
-    tokio::spawn(rpc_service::serve(rpc_addr));
+    let db_path = opt.db_path.clone();
+    tokio::spawn(rpc_service::serve(rpc_addr, db_path));
 
     // Read full lines from stdin
     let mut stdin = io::BufReader::new(io::stdin()).lines();

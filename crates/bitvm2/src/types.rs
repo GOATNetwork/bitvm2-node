@@ -54,14 +54,14 @@ pub struct Bitvm2Parameters {
     pub pegin_amount: Amount,
     pub stake_amount: Amount,
     pub challenge_amount: Amount,
-    pub federation_taproot_pubkey: XOnlyPublicKey,
+    pub committee_taproot_pubkey: XOnlyPublicKey,
     pub operator_pubkey: PublicKey,
     pub operator_wots_pubkeys: WotsPublicKeys,
 }
 
 pub struct Bitvm2Graph {
     pub operator_pre_signed: bool,
-    pub federation_pre_signed: bool,
+    pub committee_pre_signed: bool,
     pub parameters: Bitvm2Parameters,
     pub pegin: PegInTransaction,
     pub pre_kickoff: PreKickoffTransaction,

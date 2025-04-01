@@ -1,4 +1,4 @@
-use crate::{Covenant, Node, Transaction};
+use crate::{Instance, Node};
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::path::PathBuf;
 
@@ -41,23 +41,14 @@ impl LocalDB {
     }
 
     // TODO define sql for table in schema
-    pub async fn create_covenant(&self, covenant: Covenant) {
-        println!("save covenant {:?}", covenant);
+    pub async fn create_instance(&self, instance: Instance) {
+        println!("save covenant {:?}", instance);
         // TODO
     }
 
     /// Insert or update node
     pub async fn update_node(&self, node: Node) {
         println!("update node {:?}", node);
-        // TODO
-    }
-    /// Insert or update node
-    pub async fn create_transaction(&self, tx: Transaction) {
-        println!("create tx {:?}", tx);
-        // TODO
-    }
-    pub async fn get_transaction(&self, tx: Transaction) {
-        println!("get tx {:?}", tx);
         // TODO
     }
 }
