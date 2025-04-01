@@ -4,4 +4,8 @@ edition = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+goat = { workspace = true }
+bitvm = { workspace = true }
 serde = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-bn254 = { workspace = true }

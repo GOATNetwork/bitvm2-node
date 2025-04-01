@@ -10,6 +10,8 @@ members = [
 ]
 
 [workspace.dependencies]
+bitvm = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test" }
+goat = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test" }
 libp2p = { version = "0.55.0", features = ["tokio", "dns", "kad", "noise", "tcp", "yamux", "rsa", "ping", "mdns"] }
 libp2p-swarm-derive = "0.35.0"
 libp2p-metrics = "0.16.0"
