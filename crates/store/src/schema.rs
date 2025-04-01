@@ -19,7 +19,7 @@ pub struct Instance {
     pub created_at: u64,
 
     // updating time
-    pub eta_at: u64,
+    pub update_at: u64,
 
     // BridgeInStatus | BridgeOutStutus
     pub status: String,

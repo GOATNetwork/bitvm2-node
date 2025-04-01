@@ -61,7 +61,7 @@ pub struct GraphGenerateResponse {
 #[derive(Deserialize)]
 pub struct GraphPresign {
     pub instance_id: String,
-    pub graph_id: String,
+    // pub graph_id: String,
     // the root directory of all graph_ipfs_* files
     pub graph_ipfs_base_url: String,
 }
@@ -93,7 +93,7 @@ pub struct GraphPresignCheckResponse {
 /// handler: relayer
 #[derive(Deserialize)]
 pub struct PegBTCMint {
-    pub instance_id: String,
+    // pub instance_id: String,
     pub graph_id: Vec<String>,
     pub pegin_txid: String,
     // TODO: https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/contracts/Gateway.sol#L43
@@ -107,7 +107,7 @@ pub struct PegBTCMintResponse {
 /// bridge-out step2
 #[derive(Deserialize)]
 pub struct BridgeOutTransactionPrepare {
-    pub instance_id: String,
+    // pub instance_id: String,
     // GOAT txid
     pub pegout_txid: String,
     // For double check with operator selected in peg out txn
@@ -125,7 +125,7 @@ pub struct BridgeOutTransactionPrepareResponse {
 // handler: committee
 #[derive(Deserialize)]
 pub struct BridgeOutUserClaimRequest {
-    pub instance_id: String,
+    // pub instance_id: String,
     // hex
     pub pegout_txid: String,
     pub signed_claim_txn: String,
@@ -166,7 +166,7 @@ pub struct InstanceGetResponse {
 // if all are none, we fetch all the graph list order by timestamp desc.
 #[derive(Deserialize)]
 pub struct GraphListRequest {
-    pub role: String,
+    // pub role: String,
     pub status: GraphStatus,
     pub operator: String,
     pub pegin_txid: String,

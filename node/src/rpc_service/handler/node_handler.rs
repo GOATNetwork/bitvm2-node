@@ -1,13 +1,16 @@
-use crate::rpc_service::node::{NodeDesc, NodeListRequest, NodeListResponse, UpdateOrInsertNode};
+use crate::rpc_service::node::{
+    NodeDesc, NodeListRequest, NodeListResponse, NodeQueryParams, UpdateOrInsertNode,
+};
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use http::StatusCode;
+use serde::Deserialize;
 use std::sync::Arc;
 use store::Node;
 use store::localdb::LocalDB;
 
 #[axum::debug_handler]
-pub async fn update_node(
+pub async fn create_node(
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<UpdateOrInsertNode>,
 ) -> (StatusCode, Json<Node>) {
@@ -22,21 +25,27 @@ pub async fn update_node(
 }
 
 #[axum::debug_handler]
-pub async fn node_list(
+pub async fn get_nodes(
+    Query(query_params): Query<NodeQueryParams>,
     State(local_db): State<Arc<LocalDB>>,
-    Json(payload): Json<NodeListRequest>,
 ) -> (StatusCode, Json<NodeListResponse>) {
-    let _ = local_db.node_list(&payload.role, payload.offset, payload.limit).await;
+    let role = match query_params.role {
+        Some(role) => {
+            let _ = local_db.node_list(&role, query_params.offset, query_params.limit).await;
+            role
+        }
+        None => "COMMITTEE".to_string(),
+    };
     //TODO
     let node_list = NodeListResponse {
         nodes: vec![
             NodeDesc {
                 peer_id: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN".to_string(),
-                role: payload.role,
+                role,
                 update_at: std::time::SystemTime::now(),
                 status: "online".to_string(),
             };
-            payload.limit as usize
+            query_params.limit
         ],
     };
 

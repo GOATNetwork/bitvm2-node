@@ -57,7 +57,7 @@ impl LocalDB {
             "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c".to_string();
         instance.status = "BridgeInStatus | BridgeOutStutus".to_string();
         instance.amount = 1000000;
-        instance.eta_at = 200000;
+        instance.update_at = 200000;
         instance.goat_txid =
             "34f36ee1e8ee298f1aa37b43afefc4e7ea56e36fd56f8bc62e9db932b03babc1".to_string();
         Ok(instance)
@@ -95,7 +95,7 @@ impl LocalDB {
         graph.amount = 10000;
         graph.status = GraphStatus::CommitteePresigned;
         graph.graph_ipfs_base_url =
-            "https://ipfs.io/ipfs/QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco".to_string();
+            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/".to_string();
         graph.created_at = std::time::SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("duration time")
@@ -150,8 +150,8 @@ impl LocalDB {
     pub async fn node_list(
         &self,
         role: &str,
-        offset: u32,
-        limit: u32,
+        offset: usize,
+        limit: usize,
     ) -> anyhow::Result<Vec<Node>> {
         println!("query  node list by {role}, {offset}, {limit}");
         Ok(vec![
@@ -160,7 +160,7 @@ impl LocalDB {
                 role: role.to_string(),
                 update_at: std::time::SystemTime::now(),
             };
-            limit as usize
+            limit
         ])
 
         // //TODO

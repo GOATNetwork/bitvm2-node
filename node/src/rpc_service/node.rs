@@ -18,6 +18,13 @@ pub struct NodeListRequest {
     pub limit: u32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct NodeQueryParams {
+    pub role: Option<String>,
+    pub offset: usize,
+    pub limit: usize,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct NodeListResponse {
     pub nodes: Vec<NodeDesc>,

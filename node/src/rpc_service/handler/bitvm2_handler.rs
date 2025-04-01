@@ -1,7 +1,7 @@
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::current_time_secs;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use http::StatusCode;
 use std::collections::HashMap;
 use std::default::Default;
@@ -25,13 +25,13 @@ pub async fn create_instance(
         created_at: current_time_secs(),
 
         // updating time
-        eta_at: current_time_secs(),
+        update_at: current_time_secs(),
 
         // BridgeInStatus | BridgeOutStutus
         status: BridgeInStatus::Submitted.to_string(),
 
         ..Default::default() //pub goat_txid: String,
-                             //pub btc_txid: String,
+        //pub btc_txid: String,
     };
 
     local_db.create_instance(tx.clone()).await;
@@ -41,7 +41,7 @@ pub async fn create_instance(
 }
 
 #[axum::debug_handler]
-pub async fn graph_generate(
+pub async fn create_graph(
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<GraphGenerate>,
 ) -> (StatusCode, Json<GraphGenerateResponse>) {
@@ -57,21 +57,22 @@ pub async fn graph_generate(
         instance_id: payload.instance_id,
         graph_id: payload.graph_id,
         graph_ipfs_unsigned_txns:
-            "https://ipfs.io/ipfs/QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco/unsigned_txn"
-                .to_string(),
+        "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+            .to_string(),
         graph_ipfs_operator_sig:
-            "https://ipfs.io/ipfs/QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco/operator_sign"
-                .to_string(),
+        "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+            .to_string(),
     };
     (StatusCode::OK, Json(resp))
 }
 
 #[axum::debug_handler]
 pub async fn graph_presign(
+    Path(graph_id): Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<GraphPresign>,
 ) -> (StatusCode, Json<GraphPresignResponse>) {
-    let graph = local_db.get_graph(&payload.graph_id).await.expect("get_graph");
+    let graph = local_db.get_graph(&graph_id).await.expect("get_graph");
     let instance = local_db.get_instance(&payload.instance_id).await.expect("get_graph");
     /// TODO create graph_ipfs_committee_sig
     local_db.update_instance(instance.clone()).await;
@@ -80,8 +81,8 @@ pub async fn graph_presign(
         instance_id: instance.instance_id,
         graph_id: graph.graph_id,
         graph_ipfs_committee_sig:
-            "https://ipfs.io/ipfs/QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco/committe_sign"
-                .to_string(),
+        "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+            .to_string(),
     };
     (StatusCode::OK, Json(resp))
 }
@@ -111,23 +112,26 @@ pub async fn graph_presign_check(
 
 #[axum::debug_handler]
 pub async fn peg_btc_mint(
+    Path(instance_id) :Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<PegBTCMint>,
 ) -> (StatusCode, Json<PegBTCMintResponse>) {
     let graphs = local_db.get_graphs(&payload.graph_id).await.expect("get_graphs");
-    let instance = local_db.get_instance(&payload.instance_id).await.expect("get_instance");
+    let instance = local_db.get_instance(&instance_id).await.expect("get_instance");
     /// TODO create graph_ipfs_committee_sig
     local_db.update_instance(instance.clone()).await;
+    // local_db.update_graph(graphs.clone()).await;
     let resp = PegBTCMintResponse {};
     (StatusCode::OK, Json(resp))
 }
 
 #[axum::debug_handler]
 pub async fn bridge_out_tx_prepare(
+    Path(instance_id) :Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeOutTransactionPrepare>,
 ) -> (StatusCode, Json<BridgeOutTransactionPrepareResponse>) {
-    let mut instance = local_db.get_instance(&payload.instance_id).await.expect("get_instance");
+    let mut instance = local_db.get_instance(&instance_id).await.expect("get_instance");
     instance.goat_txid = payload.pegout_txid.clone();
     /// TODO create graph_ipfs_committee_sig
     local_db.update_instance(instance.clone()).await;
@@ -144,28 +148,29 @@ pub async fn bridge_out_tx_prepare(
 
 #[axum::debug_handler]
 pub async fn bridge_out_user_claim(
+    Path(instance_id) :Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeOutUserClaimRequest>,
 ) -> (StatusCode, Json<BridgeOutUserClaimResponse>) {
-    let mut instance = local_db.get_instance(&payload.instance_id).await.expect("get_instance");
+    let mut instance = local_db.get_instance(&instance_id).await.expect("get_instance");
     instance.goat_txid = payload.pegout_txid.clone();
     /// TODO create graph_ipfs_committee_sig
     local_db.update_instance(instance.clone()).await;
     let resp = BridgeOutUserClaimResponse {
-        instance_id: payload.instance_id.to_string(),
+        instance_id: instance_id.to_string(),
         claim_txid: "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c".to_string(),
     };
     (StatusCode::OK, Json(resp))
 }
 
 #[axum::debug_handler]
-pub async fn user_instance_list(
+pub async fn get_instances_with_query_params(
+    Query(params): Query<InstanceListRequest>,
     State(local_db): State<Arc<LocalDB>>,
-    Json(payload): Json<InstanceListRequest>,
 ) -> (StatusCode, Json<InstanceListResponse>) {
     ///TODO
     let mut instances = local_db
-        .get_instance_by_user(&payload.user_address, payload.offset, payload.limit)
+        .get_instance_by_user(&params.user_address, params.offset, params.limit)
         .await
         .expect("get_instance_by_user");
     let resp = InstanceListResponse { instances };
@@ -174,11 +179,11 @@ pub async fn user_instance_list(
 
 #[axum::debug_handler]
 pub async fn get_instance(
+    Path(instance_id): Path<String>,
     State(local_db): State<Arc<LocalDB>>,
-    Json(payload): Json<InstanceGetRequest>,
 ) -> (StatusCode, Json<InstanceGetResponse>) {
     ///TODO
-    let mut instance = local_db.get_instance(&payload.instance_id).await.expect("get_instance");
+    let mut instance = local_db.get_instance(&instance_id).await.expect("get_instance");
     let resp = InstanceGetResponse { instance };
     (StatusCode::OK, Json(resp))
 }
