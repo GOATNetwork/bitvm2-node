@@ -9,6 +9,8 @@ members = [
     "crates/store", "crates/identity", "node",
 ]
 
+default-members = ["node"]
+
 [workspace.dependencies]
 libp2p = { version = "0.55.0", features = ["tokio", "dns", "kad", "noise", "tcp", "yamux", "rsa", "ping", "mdns"] }
 libp2p-swarm-derive = "0.35.0"

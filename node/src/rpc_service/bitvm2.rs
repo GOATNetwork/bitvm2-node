@@ -1,15 +1,12 @@
 use crate::rpc_service::current_time_secs;
 use axum::extract::State;
-use axum::{Json, Router, http::StatusCode};
-use bitvm2_lib::actors::Actor;
+use axum::{Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
 use store::localdb::LocalDB;
-use store::{BridgeInStatus, BridgeOutStatus, Graph, GraphStatus, Instance};
-use tracing_subscriber::fmt::time;
+use store::{BridgeInStatus, Graph, GraphStatus, Instance};
 
 // the input to our `create_user` handler
 #[axum::debug_handler]

@@ -29,6 +29,7 @@ pub fn recv_and_dispatch(
         id,
         peer_id
     );
+    // TODO: filter the message and dispatch message to different handlers
 
     Ok(())
 }

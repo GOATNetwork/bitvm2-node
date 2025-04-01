@@ -39,8 +39,6 @@ mod metrics_service;
 mod middleware;
 mod rpc_service;
 
-pub use middleware::authenticator;
-
 use crate::middleware::behaviour::AllBehavioursEvent;
 use anyhow::{Result, bail};
 use middleware::AllBehaviours;
@@ -248,11 +246,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic})) => {
                         println!("subscribed: {:?}, {:?}", peer_id, topic);
                     }
+                    SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Unsubscribed { peer_id, topic})) => {
+                        println!("unsubscribed: {:?}, {:?}", peer_id, topic);
+                    }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Mdns(mdns::Event::Discovered(list))) => {
                         for (peer_id, multiaddr) in list {
                             println!("add peer: {:?}: {:?}", peer_id, multiaddr);
                             swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                         }
+                    }
+                    SwarmEvent::Behaviour(AllBehavioursEvent::Mdns(mdns::Event::Expired(list))) => {
+                        println!("expired: {:?}", list);
                     }
 
                     SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::OutboundQueryProgressed {
@@ -269,7 +273,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                         //return Ok(());
                     }
-
+                    SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::InboundRequest {request})) => {
+                        println!("kademlia: {:?}", request);
+                    }
+                    SwarmEvent::NewExternalAddrOfPeer {peer_id, address} => {
+                        println!("new external address of peer: {} {}", peer_id, address);
+                    }
+                    SwarmEvent::ConnectionEstablished {peer_id, connection_id,endpoint, .. } => {
+                        println!("connected to {peer_id}: {connection_id}");
+                    }
                     e => {
                         println!("Unhandled {:?}", e);
                     }

@@ -1,7 +1,4 @@
 #![feature(trivial_bounds)]
-use crate::authenticator::musig2::MusigBehaviour;
-use futures::stream::StreamExt;
-use libp2p::core::transport::upgrade::Authenticate;
 use libp2p::identity::Keypair;
 use libp2p::{
     gossipsub, kad,
@@ -22,12 +19,9 @@ use tracing_subscriber::EnvFilter;
 // We create a custom network behaviour that combines Kademlia and mDNS.
 #[derive(NetworkBehaviour)]
 pub struct AllBehaviours {
-    // TODO: add bootnodes
     pub kademlia: kad::Behaviour<MemoryStore>,
     pub mdns: mdns::tokio::Behaviour,
     pub gossipsub: gossipsub::Behaviour,
-    pub musig: MusigBehaviour,
-    // TODO: bitvm2 actors behaviours
 }
 
 impl AllBehaviours {
@@ -49,8 +43,7 @@ impl AllBehaviours {
             gossipsub_config,
         )
         .expect("Valid configuration");
-        let musig = MusigBehaviour::default();
-        Self { kademlia, mdns, gossipsub, musig }
+        Self { kademlia, mdns, gossipsub }
     }
 }
 
