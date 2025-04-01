@@ -4,8 +4,8 @@ use bitvm2_lib::actors::Actor;
 use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::sync::Arc;
+use store::Node;
 use store::localdb::LocalDB;
-use store::{Node};
 use tracing_subscriber::fmt::time;
 
 // the input to our `create_user` handler

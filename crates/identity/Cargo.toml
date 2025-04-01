@@ -10,3 +10,4 @@ libp2p = { workspace = true, features = ["identify"] }
 musig2 = { workspace = true, features = ["k256"] }
 secp256k1 = { workspace = true }
 rand = { workspace = true }
+tokio = { workspace = true, features = ["full"]}

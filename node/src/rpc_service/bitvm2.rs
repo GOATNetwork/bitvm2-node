@@ -1,15 +1,15 @@
-use std::collections::HashMap;
+use crate::rpc_service::current_time_secs;
 use axum::extract::State;
 use axum::{Json, Router, http::StatusCode};
 use bitvm2_lib::actors::Actor;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use store::localdb::LocalDB;
-use store::{Instance, Graph, GraphStatus, BridgeInStatus, BridgeOutStatus};
+use store::{BridgeInStatus, BridgeOutStatus, Graph, GraphStatus, Instance};
 use tracing_subscriber::fmt::time;
-use crate::rpc_service::current_time_secs;
 
 // the input to our `create_user` handler
 #[axum::debug_handler]
@@ -33,14 +33,13 @@ pub async fn create_instance(
         // BridgeInStatus | BridgeOutStutus
         status: BridgeInStatus::Submitted.to_string(),
 
-        ..Default::default()
-        //pub goat_txid: String,
-        //pub btc_txid: String,
+        ..Default::default() //pub goat_txid: String,
+                             //pub btc_txid: String,
     };
 
     local_db.create_instance(tx.clone()).await;
 
-    let resp = BridgeInTransactionPrepareResponse{};
+    let resp = BridgeInTransactionPrepareResponse {};
     (StatusCode::OK, Json(resp))
 }
 #[derive(Deserialize, Serialize)]
@@ -69,8 +68,7 @@ pub struct BridgeInTransactionPrepare {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct BridgeInTransactionPrepareResponse {
-}
+pub struct BridgeInTransactionPrepareResponse {}
 
 /// bridge-in step2.2
 
@@ -82,7 +80,6 @@ pub struct GraphGenerate {
     pub instance_id: String,
     // UUID
     pub graph_id: String,
-
     //calculate staking amount according to the peg-in amount
 }
 
@@ -178,7 +175,6 @@ pub struct BridgeOutUserClaimResponse {
     pub claim_txid: String,
 }
 
-
 /// get tx detail
 #[derive(Deserialize)]
 pub struct InstanceListRequest {
@@ -203,7 +199,6 @@ pub struct InstanceGetRequest {
 pub struct InstanceGetResponse {
     pub instance: Instance,
 }
-
 
 /// graph_overview
 
