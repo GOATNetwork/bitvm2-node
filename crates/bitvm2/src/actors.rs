@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize)]

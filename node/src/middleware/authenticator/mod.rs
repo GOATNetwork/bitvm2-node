@@ -1,4 +1,4 @@
-pub mod musig;
+pub mod musig2;
 
 /// An outbound ping failure.
 #[derive(Debug)]

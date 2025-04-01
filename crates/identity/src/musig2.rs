@@ -170,6 +170,7 @@ pub mod tests {
             .map(|s| s.second_round_send())
             .collect::<Vec<PartialSignature>>();
 
+        // step 2.2
         let second_round_complete = signer_state_machine
             .iter_mut()
             .enumerate()

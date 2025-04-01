@@ -41,8 +41,8 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-pub(crate) async fn serve(addr: String) {
-    let localdb = Arc::new(LocalDB::new("sqlite:/tmp/.bitvm2-node.db", true).await);
+pub(crate) async fn serve(addr: String, db_path: String) {
+    let localdb = Arc::new(LocalDB::new(&format!("sqlite:{db_path}"), true).await);
     let server = Router::new()
         .route("/", get(root))
         .route("/nodes", post(update_node))
