@@ -11,8 +11,8 @@ use tracing_subscriber::fmt::format;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GOATMessage {
-    actor: Actor,
-    content: Vec<u8>,
+    pub actor: Actor,
+    pub content: Vec<u8>,
 }
 
 pub(crate) fn send(

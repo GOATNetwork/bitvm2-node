@@ -1,6 +1,6 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, command};
 use libp2p::PeerId;
 use libp2p::bytes::BufMut;
 use libp2p::futures::StreamExt;
@@ -40,10 +40,12 @@ mod metrics_service;
 mod middleware;
 mod rpc_service;
 
+use crate::action::GOATMessage;
 use crate::middleware::behaviour::AllBehavioursEvent;
 use anyhow::{Result, bail};
-use libp2p::gossipsub::Topic;
+use libp2p::gossipsub::{MessageId, Topic};
 use middleware::AllBehaviours;
+use tokio::time::interval;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -229,22 +231,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(rpc_service::serve(rpc_addr, db_path));
 
     // Read full lines from stdin
+    let mut interval = interval(Duration::from_secs(2));
     let mut stdin = io::BufReader::new(io::stdin()).lines();
     loop {
         select! {
                 // For testing only
                 Ok(Some(line)) = stdin.next_line() => {
-                    let command = line.split(":").collect::<Vec<&str>>();
+                    let actor_str = actor.to_string();
 
-                    if let Some(gossipsub_topic) = topics.get(command[0]) {
+                    if let Some(gossipsub_topic) = topics.get(actor_str.as_str()) {
                         if let Err(e) = swarm
                             .behaviour_mut()
                             .gossipsub
-                            .publish(gossipsub_topic.clone(), command[1].as_bytes())
+                            .publish(gossipsub_topic.clone(), line.as_bytes())
                         {
                             println!("Publish error: {e:?}");
                         }
                     }
+                },
+                ticker = interval.tick() => {
+                    // using a ticker to activate the handler of the asynchronous message in local database
+                    let peer_id = local_key.public().to_peer_id();
+                    let id = MessageId::new(b"__inner_message_id__");
+                    let tick_data = serde_json::to_vec(&GOATMessage{
+                        actor: actor.clone(),
+                        content: "tick".as_bytes().to_vec(),
+                    })?;
+                    action::recv_and_dispatch(&mut swarm, peer_id, id, &tick_data)?
                 },
                 event = swarm.select_next_some() => {
                 match event {
