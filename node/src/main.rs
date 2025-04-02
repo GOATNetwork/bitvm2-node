@@ -170,7 +170,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Add the bootnodes to the local routing table. `libp2p-dns` built
     // into the `transport` resolves the `dnsaddr` when Kademlia tries
     // to dial these nodes.
-    println!("bootnodes: {:?}", opt.bootnodes);
+    tracing::debug!("bootnodes: {:?}", opt.bootnodes);
     for peer in &opt.bootnodes {
         swarm
             .behaviour_mut()
@@ -179,7 +179,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Create a Gosspipsub topic, we create 3 topics: committee, challenger, and operator
-    let topics = [Actor::COMMITTEE, Actor::CHALLENGER, Actor::OPERATOR]
+    let topics = [Actor::Committee, Actor::Challenger, Actor::Operator]
         .iter()
         .map(|a| {
             let topic_name = a.to_string();
@@ -193,14 +193,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Some(Commands::Peer(key_arg)) => match &key_arg.peer_cmd {
             PeerCommands::GetPeers { peer_id } => {
                 let peer_id = peer_id.unwrap_or(PeerId::random());
-                println!("Searching for the closest peers to {peer_id}");
+                tracing::debug!("Searching for the closest peers to {peer_id}");
                 swarm.behaviour_mut().kademlia.get_closest_peers(peer_id);
                 //return Ok(());
             }
         },
         _ => {
             //if !opt.daemon {
-            //    println!("Help");
+            //    tracing::debug!("Help");
             //    return Ok(());
             //}
         }
@@ -225,27 +225,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    println!("RPC service listening on {}", &opt.rpc_addr);
+    tracing::debug!("RPC service listening on {}", &opt.rpc_addr);
     let rpc_addr = opt.rpc_addr.clone();
     let db_path = opt.db_path.clone();
     tokio::spawn(rpc_service::serve(rpc_addr, db_path));
 
     // Read full lines from stdin
-    let mut interval = interval(Duration::from_secs(2));
+    let mut interval = interval(Duration::from_secs(20));
     let mut stdin = io::BufReader::new(io::stdin()).lines();
     loop {
         select! {
                 // For testing only
                 Ok(Some(line)) = stdin.next_line() => {
                     let commands = line.split(":").collect::<Vec<_>>();
+                    if commands.len() < 2 || commands[0].trim().is_empty() {
+                        println!("Message format: actor:message");
+                        continue
+                    }
 
                     if let Some(gossipsub_topic) = topics.get(commands[0]) {
+                        let message = serde_json::to_vec(&GOATMessage{
+                            actor: Actor::from_str(&commands[0]).unwrap(),
+                            content: commands[1].as_bytes().to_vec(),
+                        }).unwrap();
                         if let Err(e) = swarm
                             .behaviour_mut()
                             .gossipsub
-                            .publish(gossipsub_topic.clone(), commands[1].as_bytes())
+                            .publish(gossipsub_topic.clone(), message)
                         {
-                            println!("Publish error: {e:?}");
+                            tracing::debug!("Publish error: {e:?}");
                         }
                     }
                 },
@@ -256,35 +264,41 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         actor: actor.clone(),
                         content: "tick".as_bytes().to_vec(),
                     })?;
-                    action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data)?
+                    match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data){
+                        Ok(_) => {}
+                        Err(e) => { tracing::error!(e) }
+                    }
                 },
                 event = swarm.select_next_some() => {
                 match event {
-                    SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {address:?}"),
+                    SwarmEvent::NewListenAddr { address, .. } => tracing::debug!("Listening on {address:?}"),
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Message {
                                                                   propagation_source: peer_id,
                                                                   message_id: id,
                                                                   message,
                                                               })) => {
-                        action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, id, &message.data)?
+                        match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, id, &message.data) {
+                            Ok(_) => {},
+                            Err(e) => { tracing::error!(e) }
+                        }
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic})) => {
-                        println!("subscribed: {:?}, {:?}", peer_id, topic);
+                        tracing::debug!("subscribed: {:?}, {:?}", peer_id, topic);
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Unsubscribed { peer_id, topic})) => {
-                        println!("unsubscribed: {:?}, {:?}", peer_id, topic);
+                        tracing::debug!("unsubscribed: {:?}, {:?}", peer_id, topic);
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Mdns(mdns::Event::Discovered(list))) => {
                         for (peer_id, multiaddr) in list {
-                            println!("add peer: {:?}: {:?}", peer_id, multiaddr);
+                            tracing::debug!("add peer: {:?}: {:?}", peer_id, multiaddr);
                             swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                         }
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::RoutingUpdated{ peer, addresses,..})) => {
-                        println!("routing updated: {:?}", peer);
+                        tracing::debug!("routing updated: {:?}", peer);
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Mdns(mdns::Event::Expired(list))) => {
-                        println!("expired: {:?}", list);
+                        tracing::debug!("expired: {:?}", list);
                     }
 
                     SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::OutboundQueryProgressed {
@@ -294,24 +308,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         // The example is considered failed as there
                         // should always be at least 1 reachable peer.
                         if ok.peers.is_empty() {
-                            println!("Query finished with no closest peers.");
+                            tracing::debug!("Query finished with no closest peers.");
                         }
 
-                        println!("Query finished with closest peers: {:#?}", ok.peers);
+                        tracing::debug!("Query finished with closest peers: {:#?}", ok.peers);
 
                         //return Ok(());
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::InboundRequest {request})) => {
-                        println!("kademlia: {:?}", request);
+                        tracing::debug!("kademlia: {:?}", request);
                     }
                     SwarmEvent::NewExternalAddrOfPeer {peer_id, address} => {
-                        println!("new external address of peer: {} {}", peer_id, address);
+                        tracing::debug!("new external address of peer: {} {}", peer_id, address);
                     }
                     SwarmEvent::ConnectionEstablished {peer_id, connection_id,endpoint, .. } => {
-                        println!("connected to {peer_id}: {connection_id}");
+                        tracing::debug!("connected to {peer_id}: {connection_id}");
                     }
                     e => {
-                        println!("Unhandled {:?}", e);
+                        tracing::debug!("Unhandled {:?}", e);
                     }
                 }
             }

@@ -32,24 +32,25 @@ pub fn recv_and_dispatch(
     id: MessageId,
     message: &Vec<u8>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::debug!(
+    tracing::info!(
         "Got message: {} with id: {} from peer: {:?}",
         String::from_utf8_lossy(message),
         id,
         peer_id
     );
     let default_message_id = GOATMessage::default_message_id();
-    match id {
-        default_message_id => {
-            println!("Get the running task, and broadcast the task status or result");
-        }
-        _ => {
-            let message: GOATMessage = serde_json::from_slice(&message)?;
-            if message.actor != actor {
-                return Ok(());
-            }
-        }
+    if id == default_message_id {
+        tracing::debug!("Get the running task, and broadcast the task status or result");
+        // TODO
+        return Ok(());
     }
+    let message: GOATMessage = serde_json::from_slice(&message)?;
+    println!("Received message: {:?}", message);
+    if message.actor != actor {
+        return Ok(());
+    }
+    println!("Handle message: {:?}", message);
+    // TODO
     Ok(())
 }
 
