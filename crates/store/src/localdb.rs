@@ -95,7 +95,7 @@ impl LocalDB {
         graph.amount = 10000;
         graph.status = GraphStatus::CommitteePresigned;
         graph.graph_ipfs_base_url =
-            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/".to_string();
+            "https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH".to_string();
         graph.created_at = std::time::SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("duration time")

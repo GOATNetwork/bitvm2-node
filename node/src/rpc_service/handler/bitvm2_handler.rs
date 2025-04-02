@@ -57,11 +57,9 @@ pub async fn create_graph(
         instance_id: payload.instance_id,
         graph_id: payload.graph_id,
         graph_ipfs_unsigned_txns:
-            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
-                .to_string(),
-        graph_ipfs_operator_sig:
-            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
-                .to_string(),
+            "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
+                .to_string()
+
     };
     (StatusCode::OK, Json(resp))
 }
@@ -80,8 +78,8 @@ pub async fn graph_presign(
     let resp = GraphPresignResponse {
         instance_id: instance.instance_id,
         graph_id: graph.graph_id,
-        graph_ipfs_committee_sig:
-            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+        graph_ipfs_committee_txns:
+        "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
                 .to_string(),
     };
     (StatusCode::OK, Json(resp))
