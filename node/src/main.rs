@@ -237,13 +237,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         select! {
                 // For testing only
                 Ok(Some(line)) = stdin.next_line() => {
-                    let actor_str = actor.to_string();
+                    let commands = line.split(":").collect::<Vec<_>>();
 
-                    if let Some(gossipsub_topic) = topics.get(actor_str.as_str()) {
+                    if let Some(gossipsub_topic) = topics.get(commands[0]) {
                         if let Err(e) = swarm
                             .behaviour_mut()
                             .gossipsub
-                            .publish(gossipsub_topic.clone(), line.as_bytes())
+                            .publish(gossipsub_topic.clone(), commands[1].as_bytes())
                         {
                             println!("Publish error: {e:?}");
                         }
@@ -252,12 +252,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 ticker = interval.tick() => {
                     // using a ticker to activate the handler of the asynchronous message in local database
                     let peer_id = local_key.public().to_peer_id();
-                    let id = MessageId::new(b"__inner_message_id__");
                     let tick_data = serde_json::to_vec(&GOATMessage{
                         actor: actor.clone(),
                         content: "tick".as_bytes().to_vec(),
                     })?;
-                    action::recv_and_dispatch(&mut swarm, peer_id, id, &tick_data)?
+                    action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data)?
                 },
                 event = swarm.select_next_some() => {
                 match event {
@@ -267,7 +266,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                                   message_id: id,
                                                                   message,
                                                               })) => {
-                        action::recv_and_dispatch(&mut swarm, peer_id, id, &message.data)?
+                        action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, id, &message.data)?
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic})) => {
                         println!("subscribed: {:?}, {:?}", peer_id, topic);

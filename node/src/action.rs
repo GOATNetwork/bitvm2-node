@@ -2,7 +2,8 @@ use crate::middleware::AllBehaviours;
 use anyhow::Result;
 use axum::body::Body;
 use bitvm2_lib::actors::Actor;
-use libp2p::gossipsub::MessageId;
+use futures::AsyncRead;
+use libp2p::gossipsub::{Message, MessageId};
 use libp2p::{PeerId, Swarm, gossipsub};
 use reqwest::Request;
 use serde::de::DeserializeOwned;
@@ -15,31 +16,50 @@ pub struct GOATMessage {
     pub content: Vec<u8>,
 }
 
-pub(crate) fn send(
+impl GOATMessage {
+    pub fn default_message_id() -> MessageId {
+        MessageId(b"__inner_message_id__".to_vec())
+    }
+}
+
+/// Filter the message and dispatch message to different handlers, like rpc handler, or other peers
+///     * database: inner_rpc: Write or Read.
+///     * peers: send
+pub fn recv_and_dispatch(
+    swarm: &mut Swarm<AllBehaviours>,
+    actor: Actor,
+    peer_id: PeerId,
+    id: MessageId,
+    message: &Vec<u8>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::debug!(
+        "Got message: {} with id: {} from peer: {:?}",
+        String::from_utf8_lossy(message),
+        id,
+        peer_id
+    );
+    let default_message_id = GOATMessage::default_message_id();
+    match id {
+        default_message_id => {
+            println!("Get the running task, and broadcast the task status or result");
+        }
+        _ => {
+            let message: GOATMessage = serde_json::from_slice(&message)?;
+            if message.actor != actor {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn send_to_peer(
     swarm: &mut Swarm<AllBehaviours>,
     message: GOATMessage,
 ) -> Result<MessageId, Box<dyn std::error::Error>> {
     let actor = message.actor.to_string();
     let gossipsub_topic = gossipsub::IdentTopic::new(actor);
     Ok(swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, &*message.content)?)
-}
-
-pub fn recv_and_dispatch(
-    swarm: &mut Swarm<AllBehaviours>,
-    peer_id: PeerId,
-    id: MessageId,
-    message: &Vec<u8>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        "Got message: {} with id: {} from peer: {:?}",
-        String::from_utf8_lossy(message),
-        id,
-        peer_id
-    );
-    // TODO: filter the message and dispatch message to different handlers, like rpc handler, or other peers
-    /// database: inner_rpc: Write or Read. For read
-    /// peers: send
-    Ok(())
 }
 
 ///  call the rpc service
