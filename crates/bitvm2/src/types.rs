@@ -3,6 +3,7 @@ use bitvm::chunk::api::{
     PublicKeys as ApiWotsPublicKeys, NUM_PUBS, NUM_HASH, NUM_U256, Signatures as ApiWotsSignatures,
 };
 use bitvm::signatures::signing_winternitz::{WinternitzPublicKey, WinternitzSecret};
+use goat::contexts::base::BaseContext;
 use rand::{distributions::Alphanumeric, Rng};
 use goat::commitments::NUM_KICKOFF;
 use goat::transactions::{
@@ -18,6 +19,7 @@ use goat::transactions::{
     take_2::Take2Transaction,
     disprove::DisproveTransaction,
 };
+use serde::{Serialize, Deserialize};
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
@@ -48,20 +50,23 @@ pub fn random_string(len: usize) -> String {
         .collect()
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Bitvm2Parameters {
     pub network: Network,
     pub depositor_evm_address: [u8; 20],
     pub pegin_amount: Amount,
     pub stake_amount: Amount,
     pub challenge_amount: Amount,
-    pub committee_taproot_pubkey: XOnlyPublicKey,
+    pub committee_pubkeys: Vec<PublicKey>,
+    pub committee_agg_pubkey: PublicKey,
     pub operator_pubkey: PublicKey,
-    pub operator_wots_pubkeys: WotsPublicKeys,
+    // pub operator_wots_pubkeys: WotsPublicKeys,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Bitvm2Graph {
-    pub operator_pre_signed: bool,
-    pub committee_pre_signed: bool,
+    pub(crate) operator_pre_signed: bool,
+    pub(crate) committee_pre_signed: bool,
     pub parameters: Bitvm2Parameters,
     pub pegin: PegInTransaction,
     pub pre_kickoff: PreKickoffTransaction,
@@ -75,6 +80,15 @@ pub struct Bitvm2Graph {
     pub disprove: DisproveTransaction,
 }
 
+impl Bitvm2Graph {
+    pub fn operator_pre_signed(&self) -> bool {
+        self.operator_pre_signed
+    }
+    pub fn committee_pre_signed(&self) -> bool {
+        self.committee_pre_signed
+    }
+}
+
 pub struct CustomInputs {
     pub inputs: Vec<Input>,
     /// stake amount / pegin_amount
@@ -84,3 +98,19 @@ pub struct CustomInputs {
 }
 
 pub type Error = String;
+
+pub struct BaseBitvmContext {
+    pub network: Network,
+    pub n_of_n_public_keys: Vec<PublicKey>,
+    pub n_of_n_public_key: PublicKey,
+    pub n_of_n_taproot_public_key: XOnlyPublicKey,
+
+}
+
+impl BaseContext for BaseBitvmContext {
+    fn network(&self) -> Network { self.network }
+    fn n_of_n_public_keys(&self) -> &Vec<PublicKey> { &self.n_of_n_public_keys }
+    fn n_of_n_public_key(&self) -> &PublicKey { &self.n_of_n_public_key }
+    fn n_of_n_taproot_public_key(&self) -> &XOnlyPublicKey { &self.n_of_n_taproot_public_key }
+}
+

@@ -1,4 +1,4 @@
-use bitcoin::{Amount, XOnlyPublicKey, OutPoint};
+use bitcoin::{key::Keypair, Amount, XOnlyPublicKey, OutPoint, Witness};
 use bitvm::treepp::*;
 use bitvm::chunk::api::{
     api_generate_partial_script, api_generate_full_tapscripts,
@@ -17,6 +17,7 @@ use sha2::{Sha256, Digest};
 use crate::types::{
     Bitvm2Graph, CustomInputs, Groth16Proof, Groth16WotsPublicKeys, Groth16WotsSignatures, Bitvm2Parameters, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys, Error
 };
+use goat::contexts::operator::OperatorContext;
 use goat::transactions::{
     base::Input,
     pre_signed::PreSignedTransaction,
@@ -133,6 +134,7 @@ pub fn generate_bitvm_graph(
     user_inputs: CustomInputs,
     operator_inputs: CustomInputs,
     params: Bitvm2Parameters,
+    operator_wots_pubkeys: &WotsPublicKeys,
     disprove_scripts_bytes: Vec<Vec<u8>>,
 ) -> Result<Bitvm2Graph, Error> {
     fn inputs_check(inputs: &CustomInputs) -> Option<Error> {
@@ -162,7 +164,7 @@ pub fn generate_bitvm_graph(
 
     // Pegin
     let network = params.network;
-    let committee_taproot_pubkey = params.committee_taproot_pubkey;
+    let committee_taproot_pubkey = XOnlyPublicKey::from(params.committee_agg_pubkey);
     let connector_0 = Connector0::new(
         network,
         &committee_taproot_pubkey,
@@ -180,7 +182,7 @@ pub fn generate_bitvm_graph(
     // Pre-Kickoff
     let operator_pubkey = params.operator_pubkey;
     let operator_taproot_pubkey = XOnlyPublicKey::from(operator_pubkey);
-    let kickoff_wots_commitment_keys = CommitmentMessageId::pubkey_map_for_kickoff(&params.operator_wots_pubkeys.0);
+    let kickoff_wots_commitment_keys = CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
     let connector_6 = Connector6::new(
         network, 
         &operator_taproot_pubkey, 
@@ -281,7 +283,7 @@ pub fn generate_bitvm_graph(
     );
 
     // assert-initial
-    let assert_wots_pubkeys = &params.operator_wots_pubkeys.1;
+    let assert_wots_pubkeys = &operator_wots_pubkeys.1;
     let connector_d = ConnectorD::new(
         network,
         &committee_taproot_pubkey,
@@ -462,3 +464,42 @@ pub fn generate_bitvm_graph(
     })
 }
 
+pub fn operator_pre_sign(
+    operator_keypair: Keypair,
+    graph: &mut Bitvm2Graph,
+) -> Result<Witness, Error> {
+    let network = graph.parameters.network;
+    let operator_public_key = graph.parameters.operator_pubkey;
+    let operator_taproot_public_key = XOnlyPublicKey::from(operator_public_key);
+    let committee_public_key = graph.parameters.committee_agg_pubkey;
+    let committee_taproot_public_key = XOnlyPublicKey::from(committee_public_key);
+    let connector_a = ConnectorA::new(
+        network,
+        &operator_taproot_public_key,
+        &committee_taproot_public_key,
+    );
+    let operator_context = OperatorContext {
+        network,
+        operator_keypair,
+        operator_public_key,
+        operator_taproot_public_key,
+    
+        n_of_n_public_keys: graph.parameters.committee_pubkeys.clone(),
+        n_of_n_public_key: committee_public_key,
+        n_of_n_taproot_public_key: committee_taproot_public_key,
+    };
+    graph.challenge.pre_sign(&operator_context, &connector_a);
+    graph.operator_pre_signed = true;
+    Ok(graph.challenge.tx().input[0].witness.clone())
+}
+
+pub fn push_operator_pre_signature(
+    graph: &mut Bitvm2Graph,
+    signed_witness: &Witness,
+) -> Option<Error> {
+    if graph.operator_pre_signed == true {
+        return Some("already pre-signed by operator".to_string())
+    };
+    graph.challenge.tx_mut().input[0].witness = signed_witness.clone();
+    None
+}

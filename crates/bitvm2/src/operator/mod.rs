@@ -8,4 +8,6 @@ pub use api::{
     generate_disprove_scripts,
     sign_proof,
     generate_bitvm_graph,
+    operator_pre_sign,
+    push_operator_pre_signature,
 };
