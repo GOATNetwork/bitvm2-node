@@ -31,7 +31,7 @@ pub async fn create_instance(
         status: BridgeInStatus::Submitted.to_string(),
 
         ..Default::default() //pub goat_txid: String,
-        //pub btc_txid: String,
+                             //pub btc_txid: String,
     };
 
     local_db.create_instance(tx.clone()).await;
@@ -57,11 +57,11 @@ pub async fn create_graph(
         instance_id: payload.instance_id,
         graph_id: payload.graph_id,
         graph_ipfs_unsigned_txns:
-        "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
-            .to_string(),
+            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+                .to_string(),
         graph_ipfs_operator_sig:
-        "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
-            .to_string(),
+            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+                .to_string(),
     };
     (StatusCode::OK, Json(resp))
 }
@@ -81,8 +81,8 @@ pub async fn graph_presign(
         instance_id: instance.instance_id,
         graph_id: graph.graph_id,
         graph_ipfs_committee_sig:
-        "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
-            .to_string(),
+            "https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+                .to_string(),
     };
     (StatusCode::OK, Json(resp))
 }
@@ -112,7 +112,7 @@ pub async fn graph_presign_check(
 
 #[axum::debug_handler]
 pub async fn peg_btc_mint(
-    Path(instance_id) :Path<String>,
+    Path(instance_id): Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<PegBTCMint>,
 ) -> (StatusCode, Json<PegBTCMintResponse>) {
@@ -127,7 +127,7 @@ pub async fn peg_btc_mint(
 
 #[axum::debug_handler]
 pub async fn bridge_out_tx_prepare(
-    Path(instance_id) :Path<String>,
+    Path(instance_id): Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeOutTransactionPrepare>,
 ) -> (StatusCode, Json<BridgeOutTransactionPrepareResponse>) {
@@ -148,7 +148,7 @@ pub async fn bridge_out_tx_prepare(
 
 #[axum::debug_handler]
 pub async fn bridge_out_user_claim(
-    Path(instance_id) :Path<String>,
+    Path(instance_id): Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeOutUserClaimRequest>,
 ) -> (StatusCode, Json<BridgeOutUserClaimResponse>) {

@@ -84,8 +84,10 @@ mod test {
     async fn test_nodes() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
-        let resp =
-            client.get("http://127.0.0.1:8080/v1/nodes?role=OPERATOR&offset=5&limit=5").send().await?;
+        let resp = client
+            .get("http://127.0.0.1:8080/v1/nodes?role=OPERATOR&offset=5&limit=5")
+            .send()
+            .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         println!("Post Response: {}", res_body);

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::default::Default;
-use store::{Instance, Graph, GraphStatus, BridgeInStatus, BridgeOutStatus};
+use store::{BridgeInStatus, BridgeOutStatus, Graph, GraphStatus, Instance};
 
 // the input to our `create_user` handler
 #[derive(Deserialize, Serialize)]

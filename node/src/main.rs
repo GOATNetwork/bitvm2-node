@@ -13,6 +13,7 @@ use libp2p::{
     tcp, yamux,
 };
 use libp2p_metrics::{Metrics, Registry};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::ops::Add;
 use std::str::FromStr;
@@ -41,6 +42,7 @@ mod rpc_service;
 
 use crate::middleware::behaviour::AllBehavioursEvent;
 use anyhow::{Result, bail};
+use libp2p::gossipsub::Topic;
 use middleware::AllBehaviours;
 
 #[derive(Debug, Parser)]
@@ -174,10 +176,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .add_address(&peer.parse()?, "/dnsaddr/bootstrap.libp2p.io".parse()?);
     }
 
-    // Create a Gosspipsub topic
-    let gossipsub_topic = gossipsub::IdentTopic::new("chat");
-    println!("Subscribing to {gossipsub_topic:?}");
-    swarm.behaviour_mut().gossipsub.subscribe(&gossipsub_topic).unwrap();
+    // Create a Gosspipsub topic, we create 3 topics: committee, challenger, and operator
+    let topics = [Actor::COMMITTEE, Actor::CHALLENGER, Actor::OPERATOR]
+        .iter()
+        .map(|a| {
+            let topic_name = a.to_string();
+            let gossipsub_topic = gossipsub::IdentTopic::new(topic_name.clone());
+            swarm.behaviour_mut().gossipsub.subscribe(&gossipsub_topic).unwrap();
+            (topic_name, gossipsub_topic)
+        })
+        .collect::<HashMap<String, _>>();
 
     match &opt.cmd {
         Some(Commands::Peer(key_arg)) => match &key_arg.peer_cmd {
@@ -224,13 +232,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdin = io::BufReader::new(io::stdin()).lines();
     loop {
         select! {
+                // For testing only
                 Ok(Some(line)) = stdin.next_line() => {
-                    if let Err(e) = swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .publish(gossipsub_topic.clone(), line.as_bytes())
-                    {
-                        println!("Publish error: {e:?}");
+                    let command = line.split(":").collect::<Vec<&str>>();
+
+                    if let Some(gossipsub_topic) = topics.get(command[0]) {
+                        if let Err(e) = swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .publish(gossipsub_topic.clone(), command[1].as_bytes())
+                        {
+                            println!("Publish error: {e:?}");
+                        }
                     }
                 },
                 event = swarm.select_next_some() => {
