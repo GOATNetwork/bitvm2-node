@@ -70,7 +70,7 @@ mod test {
             .post("http://127.0.0.1:8080/v1/nodes")
             .json(&json!({
                 "peer_id": "ffc54e9cf37d9f87e",
-                "role": "COMMITTEE"
+                "role": "Committee"
             }))
             .send()
             .await?;
@@ -128,7 +128,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8080/instances/v1/ffc54e9cf37d9f87e2222")
+            .get("http://127.0.0.1:8080/v1/instances/ffc54e9cf37d9f87e2222")
             .send()
             .await
             .expect("");
