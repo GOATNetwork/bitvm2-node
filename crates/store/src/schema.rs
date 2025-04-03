@@ -19,7 +19,7 @@ pub struct Instance {
     pub created_at: u64,
 
     // updating time
-    pub eta_at: u64,
+    pub update_at: u64,
 
     // BridgeInStatus | BridgeOutStutus
     pub status: String,
@@ -97,7 +97,15 @@ pub struct Graph {
     pub amount: u64,
     pub created_at: u64,
     pub status: GraphStatus,
+    pub challenge_txid: Option<String>,
+    pub disprove_txid: Option<String>,
+}
 
-    challenge_txid: Option<String>,
-    disprove_txid: Option<String>,
+#[derive(Clone, Debug)]
+pub struct FilterGraphsInfo {
+    /// TODO change to option<...>
+    pub status: GraphStatus,
+    pub pegin_txid: String,
+    pub offset: u32,
+    pub limit: u32,
 }

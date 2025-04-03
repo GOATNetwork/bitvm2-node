@@ -9,6 +9,8 @@ members = [
     "crates/store", "crates/identity", "node",
 ]
 
+default-members = ["node"]
+
 [workspace.dependencies]
 bitvm = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test" }
 goat = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test" }

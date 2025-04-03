@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum Actor {
-    COMMITTEE,
-    OPERATOR,
-    CHALLENGER,
+    Committee,
+    Operator,
+    Challenger,
 }
 
 impl FromStr for Actor {
@@ -13,9 +13,9 @@ impl FromStr for Actor {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Committee" => Ok(Actor::COMMITTEE),
-            "Operator" => Ok(Actor::OPERATOR),
-            "Challenger" => Ok(Actor::CHALLENGER),
+            "Committee" => Ok(Actor::Committee),
+            "Operator" => Ok(Actor::Operator),
+            "Challenger" => Ok(Actor::Challenger),
             _ => Err(()),
         }
     }
