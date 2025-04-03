@@ -7,17 +7,17 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use store::localdb::LocalDB;
-use store::{BridgeInStatus, FilterGraphsInfo, Graph, GraphStatus, Instance};
+use store::{BridgeInStatus, BridgePath, FilterGraphsInfo, Graph, GraphStatus, Instance};
 
 #[axum::debug_handler]
-pub async fn create_instance(
+pub async fn bridge_in_tx_prepare(
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeInTransactionPrepare>,
 ) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
     // insert your application logic here
-    let tx = Instance {
+    let instance = Instance {
         instance_id: payload.instance_id,
-        bridge_path: payload.bridge_path,
+        bridge_path: BridgePath::BtcToPGBtc.to_u8(),
         from: payload.from,
         to: payload.to,
         // in sat
@@ -34,7 +34,7 @@ pub async fn create_instance(
                              //pub btc_txid: String,
     };
 
-    local_db.create_instance(tx.clone()).await;
+    local_db.create_instance(instance.clone()).await;
 
     let resp = BridgeInTransactionPrepareResponse {};
     (StatusCode::OK, Json(resp))
@@ -51,15 +51,13 @@ pub async fn create_graph(
         ..Default::default()
     };
     local_db.update_graph(graph).await;
-    ///unsiigned_txns, operator signature, this steps ask operator to publish unsigned txns
     /// TODO
     let resp = GraphGenerateResponse {
         instance_id: payload.instance_id,
         graph_id: payload.graph_id,
         graph_ipfs_unsigned_txns:
             "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
-                .to_string()
-
+                .to_string(),
     };
     (StatusCode::OK, Json(resp))
 }
@@ -79,7 +77,7 @@ pub async fn graph_presign(
         instance_id: instance.instance_id,
         graph_id: graph.graph_id,
         graph_ipfs_committee_txns:
-        "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
+            "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
                 .to_string(),
     };
     (StatusCode::OK, Json(resp))
@@ -125,12 +123,28 @@ pub async fn peg_btc_mint(
 
 #[axum::debug_handler]
 pub async fn bridge_out_tx_prepare(
-    Path(instance_id): Path<String>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeOutTransactionPrepare>,
 ) -> (StatusCode, Json<BridgeOutTransactionPrepareResponse>) {
-    let mut instance = local_db.get_instance(&instance_id).await.expect("get_instance");
-    instance.goat_txid = payload.pegout_txid.clone();
+
+    /// TODO
+    let instance = Instance {
+        instance_id: payload.instance_id,
+        bridge_path: BridgePath::BtcToPGBtc.to_u8(),
+        from: "from_TODO".to_string(),
+        to: "to_TODO".to_string(),
+        // in sat
+        amount: 10000,
+        created_at: current_time_secs(),
+        // updating time
+        update_at: current_time_secs(),
+        // BridgeInStatus | BridgeOutStutus
+        status: BridgeInStatus::Submitted.to_string(),
+        goat_txid : payload.pegout_txid.clone(),
+        ..Default::default()
+    };
+
+    local_db.create_instance(instance.clone()).await;
     /// TODO create graph_ipfs_committee_sig
     local_db.update_instance(instance.clone()).await;
     let resp = BridgeOutTransactionPrepareResponse {
@@ -138,6 +152,7 @@ pub async fn bridge_out_tx_prepare(
         btc_hashed_timelock_utxo: UTXO {
             txid: "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c".to_string(), // for test
             vout: 0,
+            value: 100,
         },
         operator_refund_address: "tb1qkrhp3khxam3hj2kl9y77m2uctj2hkyh248chkp".to_string(), // for test
     };
@@ -181,13 +196,28 @@ pub async fn get_instance(
     State(local_db): State<Arc<LocalDB>>,
 ) -> (StatusCode, Json<InstanceGetResponse>) {
     ///TODO
-    let mut instance = local_db.get_instance(&instance_id).await.expect("get_instance");
-    let resp = InstanceGetResponse { instance };
-    (StatusCode::OK, Json(resp))
+    (
+        StatusCode::OK,
+        Json(InstanceGetResponse {
+            instance: local_db.get_instance(&instance_id).await.expect("get instance"),
+        }),
+    )
 }
 
 #[axum::debug_handler]
+pub async fn get_graph(
+    Path(graph_id): Path<String>,
+    State(local_db): State<Arc<LocalDB>>,
+) -> (StatusCode, Json<GraphGetResponse>) {
+    ///TODO
+    (
+        StatusCode::OK,
+        Json(GraphGetResponse { graph: local_db.get_graph(&graph_id).await.expect("get graph") }),
+    )
+}
+#[axum::debug_handler]
 pub async fn graph_list(
+    Query(pagination): Query<Pagination>,
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<GraphListRequest>,
 ) -> (StatusCode, Json<GraphListResponse>) {
@@ -196,8 +226,8 @@ pub async fn graph_list(
         .filter_graphs(&FilterGraphsInfo {
             status: payload.status,
             pegin_txid: payload.pegin_txid,
-            offset: payload.offset,
-            limit: payload.limit,
+            offset: pagination.offset,
+            limit: pagination.limit,
         })
         .await
         .expect("filter_graphs");

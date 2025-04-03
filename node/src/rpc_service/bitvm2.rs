@@ -8,6 +8,7 @@ use store::{BridgeInStatus, BridgeOutStatus, Graph, GraphStatus, Instance};
 pub struct UTXO {
     pub txid: String,
     pub vout: u32,
+    pub value: u64,
     //.. others
 }
 
@@ -19,20 +20,20 @@ pub struct BridgeInTransactionPrepare {
     /// testnet3 | mainnet
     pub network: String,
     /// pBTC <-> tBTC | BTC
-    pub bridge_path: String,
+    // pub bridge_path: String,
     pub amount: u64,
     pub fee_rate: u64,
     pub utxo: Vec<UTXO>,
 
     // address
-    pub from: String,
-    pub to: String,
+    pub from: String, // BTC /charge
+    pub to: String, // ETH
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct BridgeInTransactionPrepareResponse {}
 
-/// bridge-in step2.2
+/// bridge-in step2.2  BridgeInTransactionPrepare
 
 /// deps: BridgeInTransactionPrepare
 ///  handler: operator
@@ -107,7 +108,7 @@ pub struct PegBTCMintResponse {
 /// bridge-out step2
 #[derive(Deserialize)]
 pub struct BridgeOutTransactionPrepare {
-    // pub instance_id: String,
+    pub instance_id: String,
     // GOAT txid
     pub pegout_txid: String,
     // For double check with operator selected in peg out txn
@@ -161,18 +162,30 @@ pub struct InstanceGetResponse {
     pub instance: Instance,
 }
 
+#[derive(Deserialize)]
+pub struct GraphGetRequest {
+    pub graph_id: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct GraphGetResponse {
+    pub graph: Graph,
+}
+
+#[derive(Deserialize)]
+pub struct Pagination{
+    pub offset: u32,
+    pub limit: u32,
+}
+
 /// graph_overview
 // All fields can be optional
 // if all are none, we fetch all the graph list order by timestamp desc.
 #[derive(Deserialize)]
 pub struct GraphListRequest {
-    // pub role: String,
     pub status: GraphStatus,
     pub operator: String,
     pub pegin_txid: String,
-
-    pub offset: u32,
-    pub limit: u32,
 }
 
 #[derive(Deserialize, Serialize)]

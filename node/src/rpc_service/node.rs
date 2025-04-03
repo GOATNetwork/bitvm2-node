@@ -6,7 +6,7 @@ use std::default::Default;
 #[derive(Deserialize)]
 pub struct UpdateOrInsertNode {
     pub peer_id: String,
-    pub role: Actor,
+    pub actor: Actor,
 }
 
 /// node_overview
@@ -20,7 +20,7 @@ pub struct NodeListRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct NodeQueryParams {
-    pub role: Option<String>,
+    pub actor: Option<String>,
     pub offset: usize,
     pub limit: usize,
 }
@@ -34,7 +34,7 @@ pub struct NodeListResponse {
 pub struct NodeDesc {
     // node
     pub peer_id: String,
-    pub role: String,
+    pub actor: String,
     pub update_at: std::time::SystemTime,
     // dynamic status: online/offline
     pub status: String,

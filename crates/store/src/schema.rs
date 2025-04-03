@@ -3,14 +3,14 @@ use sqlx::{FromRow, SqlitePool, migrate::MigrateDatabase};
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize)]
 pub struct Node {
     pub peer_id: String,
-    pub role: String,
+    pub actor: String,
     pub update_at: std::time::SystemTime,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Instance {
     pub instance_id: String,
-    pub bridge_path: String,
+    pub bridge_path: u8,
     pub from: String,
     pub to: String,
 
@@ -26,6 +26,7 @@ pub struct Instance {
 
     pub goat_txid: String,
     pub btc_txid: String,
+    pub pegin_tx: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -86,8 +87,39 @@ impl std::fmt::Display for GraphStatus {
         write!(f, "{:?}", self)
     }
 }
+
+pub enum BridgePath {
+    BtcToPGBtc = 0,
+    PGBtcToBtc = 1,
+}
+impl BridgePath {
+    pub fn from_u8(n: u8) -> Option<Self> {
+        match n {
+            0 => Some(BridgePath::BtcToPGBtc),
+            1 => Some(BridgePath::PGBtcToBtc),
+            _ => None,
+        }
+    }
+
+    // 枚举 → 数字
+    pub fn to_u8(self) -> u8 {
+        self as u8
+    }
+}
 /// graph detail
-///     A covenant is a graph.
+/// Field `graph_ipfs_base_url` is the IFPS address, which serves as a directory address containing the following files within that directory.
+/// ├── assert-commit0.hex
+/// ├── assert-commit1.hex
+/// ├── assert-commit2.hex
+/// ├── assert-commit3.hex
+/// ├── assert-final.hex
+/// ├── assert-init.hex
+/// ├── challenge.hex
+/// ├── disprove.hex
+/// ├── kickoff.hex
+/// ├── pegin.hex
+/// ├── take1.hex
+/// └── take2.hex
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Graph {
     pub graph_id: String,

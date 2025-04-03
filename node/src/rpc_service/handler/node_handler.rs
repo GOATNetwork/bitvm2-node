@@ -17,7 +17,7 @@ pub async fn create_node(
     // insert your application logic here
     let node = Node {
         peer_id: payload.peer_id,
-        role: payload.role.to_string(),
+        actor: payload.actor.to_string(),
         update_at: std::time::SystemTime::now(),
     };
     local_db.update_node(node.clone()).await;
@@ -29,7 +29,7 @@ pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
     State(local_db): State<Arc<LocalDB>>,
 ) -> (StatusCode, Json<NodeListResponse>) {
-    let role = match query_params.role {
+    let actor = match query_params.actor {
         Some(role) => {
             let _ = local_db.node_list(&role, query_params.offset, query_params.limit).await;
             role
@@ -41,7 +41,7 @@ pub async fn get_nodes(
         nodes: vec![
             NodeDesc {
                 peer_id: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN".to_string(),
-                role,
+                actor: actor,
                 update_at: std::time::SystemTime::now(),
                 status: "online".to_string(),
             };
