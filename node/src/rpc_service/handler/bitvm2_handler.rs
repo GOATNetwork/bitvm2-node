@@ -10,12 +10,12 @@ use store::localdb::LocalDB;
 use store::{BridgeInStatus, BridgePath, FilterGraphsInfo, Graph, GraphStatus, Instance};
 
 #[axum::debug_handler]
-pub async fn create_instance(
+pub async fn bridge_in_tx_prepare(
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeInTransactionPrepare>,
 ) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
     // insert your application logic here
-    let tx = Instance {
+    let instance = Instance {
         instance_id: payload.instance_id,
         bridge_path: BridgePath::BtcToPGBtc.to_u8(),
         from: payload.from,
@@ -34,7 +34,7 @@ pub async fn create_instance(
                              //pub btc_txid: String,
     };
 
-    local_db.create_instance(tx.clone()).await;
+    local_db.create_instance(instance.clone()).await;
 
     let resp = BridgeInTransactionPrepareResponse {};
     (StatusCode::OK, Json(resp))
@@ -126,8 +126,25 @@ pub async fn bridge_out_tx_prepare(
     State(local_db): State<Arc<LocalDB>>,
     Json(payload): Json<BridgeOutTransactionPrepare>,
 ) -> (StatusCode, Json<BridgeOutTransactionPrepareResponse>) {
-    let mut instance = local_db.get_instance(&payload.instance_id).await.expect("get_instance");
-    instance.goat_txid = payload.pegout_txid.clone();
+
+    /// TODO
+    let instance = Instance {
+        instance_id: payload.instance_id,
+        bridge_path: BridgePath::BtcToPGBtc.to_u8(),
+        from: "from_TODO".to_string(),
+        to: "to_TODO".to_string(),
+        // in sat
+        amount: 10000,
+        created_at: current_time_secs(),
+        // updating time
+        update_at: current_time_secs(),
+        // BridgeInStatus | BridgeOutStutus
+        status: BridgeInStatus::Submitted.to_string(),
+        goat_txid : payload.pegout_txid.clone(),
+        ..Default::default()
+    };
+
+    local_db.create_instance(instance.clone()).await;
     /// TODO create graph_ipfs_committee_sig
     local_db.update_instance(instance.clone()).await;
     let resp = BridgeOutTransactionPrepareResponse {

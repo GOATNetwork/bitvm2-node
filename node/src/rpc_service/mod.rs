@@ -34,7 +34,7 @@ async fn root() -> &'static str {
 ///Business
 ///
 ///1.bridge-in:
-///- front end call `create_instance`. step1 & step2.1.
+///- front end call `bridge_in_tx_prepare`. step1 & step2.1.
 ///- backend action:
 ///     - call `create_graph` at step2.2;
 ///     - call `graph_presign` at step 2.3;
@@ -59,11 +59,11 @@ pub(crate) async fn serve(addr: String, db_path: String) {
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
         .route("/v1/nodes", get(get_nodes))
-        .route("/v1/instances", post(create_instance))
         .route("/v1/instances", get(get_instances_with_query_params))
         .route("/v1/instances/{:id}", get(get_instance))
+        .route("/v1/instances/action/bridge_in_tx_prepare", post(bridge_in_tx_prepare))
         .route("/v1/instances/{:id}/bridge_in/peg_gtc_mint", post(peg_btc_mint))
-        .route("/v1/instances/bridge_out/tx_prepare", post(bridge_out_tx_prepare))
+        .route("/v1/instances/action/bridge_out_tx_prepare", post(bridge_out_tx_prepare))
         .route("/v1/instances/{:id}/bridge_out/user_claim", post(bridge_out_user_claim))
         .route("/v1/graphs", post(create_graph))
         .route("/v1/graphs/{:id}", get(get_graph))
@@ -119,11 +119,11 @@ mod test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_instance() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_bridge_in_tx_prepare() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/instances")
+            .post("http://127.0.0.1:8080/v1/instances/action/bridge_in_tx_prepare")
             .json(&json!({
                 "instance_id": "ffc54e9cf37d9f87e",
                 "network": "test3",
@@ -203,7 +203,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/instances/bridge_out/tx_prepare")
+            .post("http://127.0.0.1:8080/v1/instances/action/bridge_out_tx_prepare")
             .json(&json!({
                 "instance_id": "ffc54e9cf37d9f87e2222",
                 "pegout_txid":"58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c",
