@@ -52,7 +52,7 @@ pub struct GraphGenerateResponse {
     pub graph_id: String,
     // unsigned_txns, operator signature, this steps ask operator to publish unsigned txns
     pub graph_ipfs_unsigned_txns: String,
-    pub graph_ipfs_operator_sig: String,
+    // pub graph_ipfs_operator_sig: String,
 }
 
 /// bridge-in step 2.3
@@ -71,7 +71,7 @@ pub struct GraphPresign {
 pub struct GraphPresignResponse {
     pub instance_id: String,
     pub graph_id: String,
-    pub graph_ipfs_committee_sig: String,
+    pub graph_ipfs_committee_txns: String,
 }
 
 #[derive(Deserialize)]

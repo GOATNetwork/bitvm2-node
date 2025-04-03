@@ -70,7 +70,7 @@ mod test {
             .post("http://127.0.0.1:8080/v1/nodes")
             .json(&json!({
                 "peer_id": "ffc54e9cf37d9f87e",
-                "role": "COMMITTEE"
+                "role": "Committee"
             }))
             .send()
             .await?;
@@ -128,7 +128,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8080/instances/v1/ffc54e9cf37d9f87e2222")
+            .get("http://127.0.0.1:8080/v1/instances/ffc54e9cf37d9f87e2222")
             .send()
             .await
             .expect("");
@@ -236,7 +236,7 @@ mod test {
             .post("http://127.0.0.1:8080/v1/graphs/ffc54e9cf37d9f87e1111/presign")
             .json(&json!({
                 "instance_id": "ffc54e9cf37d9f87e1111",
-                "graph_ipfs_base_url":"https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/"
+                "graph_ipfs_base_url":"https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH"
             }))
             .send()
             .await?;
