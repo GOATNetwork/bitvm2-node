@@ -1,23 +1,25 @@
+use bitcoin::Transaction;
 use bitcoin::{key::Keypair, Amount, XOnlyPublicKey, OutPoint, Witness};
 use bitvm::treepp::*;
 use bitvm::chunk::api::{
     api_generate_partial_script, api_generate_full_tapscripts,
     generate_signatures_lit,
-    NUM_PUBS, NUM_HASH, NUM_U256
+    NUM_PUBS, NUM_HASH, NUM_U256,
+    type_conversion_utils::utils_raw_witnesses_from_signatures,
 };
 use bitvm::signatures::{
     wots_api::{wots256, wots_hash},
     signing_winternitz::{
-        WinternitzPublicKey, WinternitzSecret, LOG_D,
+        WinternitzPublicKey, WinternitzSecret, LOG_D, WinternitzSigningInputs,
     },
     winternitz::Parameters, 
 };
 use goat::commitments::{NUM_KICKOFF, KICKOFF_MSG_SIZE, CommitmentMessageId};
+use goat::transactions::base::BaseTransaction;
 use sha2::{Sha256, Digest};
 use crate::types::{
     Bitvm2Graph, CustomInputs, Groth16Proof, Groth16WotsPublicKeys, Groth16WotsSignatures, Bitvm2Parameters, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys, Error
 };
-use goat::contexts::operator::OperatorContext;
 use goat::transactions::{
     base::Input,
     pre_signed::PreSignedTransaction,
@@ -447,10 +449,16 @@ pub fn generate_bitvm_graph(
         disprove_input_1,
     );
 
+    let connector_c_taproot_merkle_root = match connector_c.taproot_merkle_root() {
+        Some(v) => v,
+        _ => return Err("empty connector_c tapscript trie".to_string()),
+    };
+
     Ok(Bitvm2Graph {
         operator_pre_signed: false,
         committee_pre_signed: false,
         parameters: params,
+        connector_c_taproot_merkle_root,
         pegin,
         pre_kickoff,
         kickoff,
@@ -468,26 +476,12 @@ pub fn operator_pre_sign(
     operator_keypair: Keypair,
     graph: &mut Bitvm2Graph,
 ) -> Result<Witness, Error> {
-    let network = graph.parameters.network;
-    let operator_public_key = graph.parameters.operator_pubkey;
-    let operator_taproot_public_key = XOnlyPublicKey::from(operator_public_key);
-    let committee_public_key = graph.parameters.committee_agg_pubkey;
-    let committee_taproot_public_key = XOnlyPublicKey::from(committee_public_key);
+    let operator_context = graph.parameters.get_operator_context(operator_keypair);
     let connector_a = ConnectorA::new(
-        network,
-        &operator_taproot_public_key,
-        &committee_taproot_public_key,
+        operator_context.network,
+        &operator_context.operator_taproot_public_key,
+        &operator_context.n_of_n_taproot_public_key,
     );
-    let operator_context = OperatorContext {
-        network,
-        operator_keypair,
-        operator_public_key,
-        operator_taproot_public_key,
-    
-        n_of_n_public_keys: graph.parameters.committee_pubkeys.clone(),
-        n_of_n_public_key: committee_public_key,
-        n_of_n_taproot_public_key: committee_taproot_public_key,
-    };
     graph.challenge.pre_sign(&operator_context, &connector_a);
     graph.operator_pre_signed = true;
     Ok(graph.challenge.tx().input[0].witness.clone())
@@ -503,3 +497,116 @@ pub fn push_operator_pre_signature(
     graph.challenge.tx_mut().input[0].witness = signed_witness.clone();
     None
 }
+
+pub fn operator_sign_kickoff(
+    operator_keypair: Keypair,
+    graph: &mut Bitvm2Graph,
+    operator_wots_seckeys: &WotsSecretKeys,
+    operator_wots_pubkeys: &WotsPublicKeys,
+    withdraw_evm_txid: [u8; 32],
+) -> Result<Transaction, Error> {
+    let operator_context = graph.parameters.get_operator_context(operator_keypair);
+    let kickoff_wots_commitment_keys = CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
+    let evm_txid_inputs = WinternitzSigningInputs {
+        message: &withdraw_evm_txid.to_vec(),
+        signing_key: &operator_wots_seckeys.0[0],
+    };
+    let connector_6 = Connector6::new(
+        operator_context.network,
+        &operator_context.operator_taproot_public_key,
+        &kickoff_wots_commitment_keys,
+    );
+    graph.kickoff.sign(
+        &operator_context, 
+        &connector_6, 
+        &evm_txid_inputs,
+    );
+    Ok(graph.kickoff.finalize())
+}
+
+pub fn operator_sign_take1(
+    operator_keypair: Keypair,
+    graph: &mut Bitvm2Graph,
+) -> Result<Transaction, Error> {
+    if !graph.committee_pre_signed() {
+        return Err("missing pre-signatures from committee".to_string())
+    };
+    let operator_context = graph.parameters.get_operator_context(operator_keypair);
+    let connector_a = ConnectorA::new(
+        operator_context.network,
+        &operator_context.operator_taproot_public_key,
+        &operator_context.n_of_n_taproot_public_key,
+    );
+    graph.take1.sign_input_1(
+        &operator_context, 
+        &connector_a,
+    );
+    graph.take1.sign_input_2(
+        &operator_context,
+    );
+    Ok(graph.take1.finalize())
+}
+
+pub fn operator_sign_take2(
+    operator_keypair: Keypair,
+    graph: &mut Bitvm2Graph,
+) -> Result<Transaction, Error> {
+    if !graph.committee_pre_signed() {
+        return Err("missing pre-signatures from committee".to_string())
+    };
+    let operator_context = graph.parameters.get_operator_context(operator_keypair);
+    graph.take2.sign_input_1(
+        &operator_context, 
+    );
+    graph.take2.sign_input_3_lit(
+        &operator_context,
+        graph.connector_c_taproot_merkle_root,
+    );
+    Ok(graph.take2.finalize())
+}
+
+// return (assert-init, [assert-commit; 4], assert-final)
+pub fn operator_sign_assert(
+    operator_keypair: Keypair,
+    graph: &mut Bitvm2Graph,
+    operator_wots_pubkeys: &WotsPublicKeys,
+    proof_sigs: Groth16WotsSignatures,
+) -> Result<(Transaction, [Transaction; COMMIT_TX_NUM], Transaction), Error> {
+    if !graph.committee_pre_signed() {
+        return Err("missing pre-signatures from committee".to_string())
+    };
+    let operator_context = graph.parameters.get_operator_context(operator_keypair);
+    let assert_wots_pubkeys = &operator_wots_pubkeys.1;
+    let assert_commit_witness = utils_raw_witnesses_from_signatures(&proof_sigs);
+
+    // sign assert-init 
+    let connector_b = ConnectorB::new(
+        operator_context.network,
+        &operator_context.operator_taproot_public_key,
+    );
+    graph.assert_init.sign_input_0(
+        &operator_context, 
+        &connector_b,
+    );
+
+    // sign assert-commit
+    let all_assert_commit_connectors_e = AllCommitConnectorsE::new(
+        operator_context.network,
+        &operator_context.operator_public_key,
+        &assert_wots_pubkeys,
+    );
+    graph.assert_commit.sign(
+        &all_assert_commit_connectors_e, 
+        assert_commit_witness,
+    );
+
+    // sign assert-final
+    graph.assert_final.sign_commit_inputs(&operator_context);
+
+    Ok((
+        graph.assert_init.finalize(),
+        graph.assert_commit.commit_txns.iter().map(|tx| tx.finalize()).collect::<Vec<Transaction>>().try_into().unwrap(),
+        graph.assert_final.finalize(),
+    ))
+}
+

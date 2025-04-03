@@ -1,21 +1,19 @@
-use bitcoin::{Witness, key::Keypair, hex::FromHex, XOnlyPublicKey, PrivateKey, PublicKey, TapSighashType};
+use bitcoin::{Witness, key::Keypair, hex::FromHex, TapSighashType};
 use goat::transactions::signing_musig2::{generate_aggregated_nonce, generate_taproot_aggregated_signature};
 use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce, SecNonce};
 use sha2::{Sha256, Digest};
-use secp256k1::SECP256K1;
 use goat::transactions::{
     base::BaseTransaction,
     pre_signed::PreSignedTransaction,
     pre_signed_musig2::get_nonce_message,
     signing_musig2::generate_taproot_partial_signature,
 };
-use goat::contexts::verifier::VerifierContext;
 use goat::connectors::{
     connector_0::Connector0,
     connector_5::Connector5,
     connector_d::ConnectorD,
 };
-use crate::types::{BaseBitvmContext, Bitvm2Graph, Error};
+use crate::types::{Bitvm2Graph, Error};
 
 pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;
 
@@ -25,19 +23,7 @@ pub fn committee_pre_sign(
     committee_agg_nonce: [AggNonce; COMMITTEE_PRE_SIGN_NUM],
     graph: &Bitvm2Graph,
 ) -> Result<[PartialSignature; COMMITTEE_PRE_SIGN_NUM], Error> {
-    let network = graph.parameters.network;
-    let committee_public_key = graph.parameters.committee_agg_pubkey;
-    let committee_taproot_public_key = XOnlyPublicKey::from(committee_public_key);
-    let private_key = PrivateKey::new(committee_member_keypair.secret_key(), network);
-    let committee_member_public_key = PublicKey::from_private_key(SECP256K1, &private_key);
-    let verifier_context = VerifierContext {
-        network,
-        verifier_keypair: committee_member_keypair,
-        verifier_public_key: committee_member_public_key,
-        n_of_n_public_keys: graph.parameters.committee_pubkeys.clone(),
-        n_of_n_public_key: committee_public_key,
-        n_of_n_taproot_public_key: committee_taproot_public_key,
-    };
+    let verifier_context = graph.parameters.get_verifier_context(committee_member_keypair);
     let mut res: Vec<PartialSignature> = vec![];
 
     {   // take-1 input-0, use nonce[0]
@@ -157,14 +143,7 @@ pub fn signature_aggregation_and_push(
     let mut res: Vec<Witness> = vec![];
 
     let network = graph.parameters.network;
-    let committee_public_key = graph.parameters.committee_agg_pubkey;
-    let committee_taproot_public_key = XOnlyPublicKey::from(committee_public_key);
-    let context = BaseBitvmContext {
-        network,
-        n_of_n_public_keys: graph.parameters.committee_pubkeys.clone(),
-        n_of_n_public_key: committee_public_key,
-        n_of_n_taproot_public_key: committee_taproot_public_key,
-    };
+    let context = graph.parameters.get_base_context();
 
     let connector_0 = Connector0::new(
         network,

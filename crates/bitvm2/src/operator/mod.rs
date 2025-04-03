@@ -10,4 +10,8 @@ pub use api::{
     generate_bitvm_graph,
     operator_pre_sign,
     push_operator_pre_signature,
+    operator_sign_assert,
+    operator_sign_kickoff,
+    operator_sign_take1,
+    operator_sign_take2,
 };
