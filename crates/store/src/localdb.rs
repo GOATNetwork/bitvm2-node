@@ -157,7 +157,7 @@ impl LocalDB {
         Ok(vec![
             Node {
                 peer_id: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN".to_string(),
-                role: role.to_string(),
+                actor: role.to_string(),
                 update_at: std::time::SystemTime::now(),
             };
             limit

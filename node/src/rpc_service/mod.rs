@@ -31,6 +31,28 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
+///Business
+///
+///1.bridge-in:
+///- front end call `create_instance`. step1 & step2.1.
+///- backend action:
+///     - call `create_graph` at step2.2;
+///     - call `graph_presign` at step 2.3;
+///     - call `peg_btc_mint` at step 3.
+///- front end call `get_instance` to get the latest informationGet the latest information about bridge-in
+///
+///2.bridge-out
+///- front end create hash time lock tx at goat chain. step 1;
+///- front end call `bridge_out_tx_prepare` to request locking btc assert. step 2
+///- front end call `bridge_out_user_claim` to unlock btc assert. step 3
+///- backend send btc tx(unlock btc assert) and unlock goat assert. step 4
+///
+///3.graph_overview: `graph_list` support
+///
+///4.node_overview:  `get_nodes` support
+///
+///5.instance,graph query by id: `get_instance`, `get_graph`
+///
 pub(crate) async fn serve(addr: String, db_path: String) {
     let localdb = Arc::new(LocalDB::new(&format!("sqlite:{db_path}"), true).await);
     let server = Router::new()
@@ -41,9 +63,10 @@ pub(crate) async fn serve(addr: String, db_path: String) {
         .route("/v1/instances", get(get_instances_with_query_params))
         .route("/v1/instances/{:id}", get(get_instance))
         .route("/v1/instances/{:id}/bridge_in/peg_gtc_mint", post(peg_btc_mint))
-        .route("/v1/instances/{:id}/bridge_out/tx_prepare", post(bridge_out_tx_prepare))
+        .route("/v1/instances/bridge_out/tx_prepare", post(bridge_out_tx_prepare))
         .route("/v1/instances/{:id}/bridge_out/user_claim", post(bridge_out_user_claim))
         .route("/v1/graphs", post(create_graph))
+        .route("/v1/graphs/{:id}", get(get_graph))
         .route("/v1/graphs", get(graph_list))
         .route("/v1/graphs/{:id}/presign", post(graph_presign))
         .route("/v1/graphs/presign_check", post(graph_presign_check))
@@ -70,10 +93,11 @@ mod test {
             .post("http://127.0.0.1:8080/v1/nodes")
             .json(&json!({
                 "peer_id": "ffc54e9cf37d9f87e",
-                "role": "Committee"
+                "actor": "Committee"
             }))
             .send()
             .await?;
+        println!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         println!("Post Response: {}", res_body);
@@ -103,13 +127,13 @@ mod test {
             .json(&json!({
                 "instance_id": "ffc54e9cf37d9f87e",
                 "network": "test3",
-                "bridge_path": "pBTC <-> tBTC",
                 "amount": 10000,
                 "fee_rate": 80,
                 "utxo": [
                     {
                         "txid": "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c",
-                        "vout": 0
+                        "vout": 0,
+                        "value": 10000
                     }
                 ],
                 "from": "tb1qsyngu9wf2x46tlexhpjl4nugv0zxmgezsx5erl",
@@ -117,6 +141,7 @@ mod test {
             }))
             .send()
             .await?;
+        println!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         println!("Post Response: {}", res_body);
@@ -132,7 +157,6 @@ mod test {
             .send()
             .await
             .expect("");
-        println!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await.unwrap();
         println!("Post Response: {}", res_body);
@@ -179,8 +203,9 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/instances/ffc54e9cf37d9f87e2222/bridge_out/tx_prepare")
+            .post("http://127.0.0.1:8080/v1/instances/bridge_out/tx_prepare")
             .json(&json!({
+                "instance_id": "ffc54e9cf37d9f87e2222",
                 "pegout_txid":"58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c",
                 "operator": "operator_test"
             }))
@@ -217,9 +242,42 @@ mod test {
         let resp = client
             .post("http://127.0.0.1:8080/v1/graphs")
             .json(&json!({
-                "instance_id": "ffc54e9cf37d9f87e2222",
+              "instance_id": "ffc54e9cf37d9f87e2222",
                 "graph_id": "ffc54e9cf37d9f87e1111",
             }))
+            .send()
+            .await?;
+        assert!(resp.status().is_success());
+        let res_body = resp.text().await?;
+        println!("Post Response: {}", res_body);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_graphs() -> Result<(), Box<dyn std::error::Error>> {
+        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        let client = reqwest::Client::new();
+        let resp = client
+            .get("http://127.0.0.1:8080/v1/graphs?offset=1&limit=5")
+            .json(&json!({
+                "status": "OperatorPresigned",
+                "operator": "ffc54e9cf37d9f87e1111",
+                "pegin_txid":"58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c"
+            }))
+            .send()
+            .await?;
+        assert!(resp.status().is_success());
+        let res_body = resp.text().await?;
+        println!("Post Response: {}", res_body);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_graph() -> Result<(), Box<dyn std::error::Error>> {
+        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        let client = reqwest::Client::new();
+        let resp = client
+            .get("http://127.0.0.1:8080/v1/graphs/ffc54e9cf37d9f87e1111")
             .send()
             .await?;
         assert!(resp.status().is_success());
