@@ -78,10 +78,9 @@ pub(crate) async fn serve(addr: String, db_path: String) {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::rpc_service;
     use serde_json::json;
-    use std::time::Duration;
     const LISTEN_ADDRESS: &str = "127.0.0.1:8080";
     const TMEP_DB_PATH: &str = "sqlite:/tmp/.bitvm2-node.db";
 
@@ -90,7 +89,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/nodes")
+            .post(format!("http://{}/v1/nodes",LISTEN_ADDRESS ))
             .json(&json!({
                 "peer_id": "ffc54e9cf37d9f87e",
                 "actor": "Committee"
@@ -109,7 +108,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8080/v1/nodes?role=OPERATOR&offset=5&limit=5")
+            .get(format!("http://{}/v1/nodes?actor=OPERATOR&offset=5&limit=5",LISTEN_ADDRESS ))
             .send()
             .await?;
         assert!(resp.status().is_success());
@@ -123,7 +122,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/instances/action/bridge_in_tx_prepare")
+            .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare",LISTEN_ADDRESS ))
             .json(&json!({
                 "instance_id": "ffc54e9cf37d9f87e",
                 "network": "test3",
@@ -153,7 +152,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8080/v1/instances/ffc54e9cf37d9f87e2222")
+            .get(format!("http://{}/v1/instances/ffc54e9cf37d9f87e2222",LISTEN_ADDRESS ))
             .send()
             .await
             .expect("");
@@ -168,7 +167,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8080/v1/instances?user_address=miJ19RACTc7Sow64gbznCnCz3p4Ey2NP18&offset=1&limit=5")
+            .get(format!("http://{}/v1/instances?user_address=miJ19RACTc7Sow64gbznCnCz3p4Ey2NP18&offset=1&limit=5",LISTEN_ADDRESS ))
             .send()
             .await?;
         assert!(resp.status().is_success());
@@ -182,7 +181,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/instances/ffc54e9cf37d9f87e2222/bridge_in/peg_gtc_mint")
+            .post(format!("http://{}/v1/instances/ffc54e9cf37d9f87e2222/bridge_in/peg_gtc_mint",LISTEN_ADDRESS ))
             .json(&json!({
                 "graph_id":[
                     "ffc54e9cf37d9f87e1111",
@@ -203,7 +202,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/instances/action/bridge_out_tx_prepare")
+            .post(format!("http://{}/v1/instances/action/bridge_out_tx_prepare",LISTEN_ADDRESS ))
             .json(&json!({
                 "instance_id": "ffc54e9cf37d9f87e2222",
                 "pegout_txid":"58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c",
@@ -222,7 +221,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/instances/ffc54e9cf37d9f87e2222/bridge_out/user_claim")
+            .post(format!("http://{}/v1/instances/ffc54e9cf37d9f87e2222/bridge_out/user_claim",LISTEN_ADDRESS ))
             .json(&json!({
                 "pegout_txid":"58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c",
                 "signed_claim_txn": "58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c"
@@ -240,7 +239,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/graphs")
+            .post(format!("http://{}/v1/graphs",LISTEN_ADDRESS ))
             .json(&json!({
               "instance_id": "ffc54e9cf37d9f87e2222",
                 "graph_id": "ffc54e9cf37d9f87e1111",
@@ -258,7 +257,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8080/v1/graphs?offset=1&limit=5")
+            .get(format!("http://{}/v1/graphs?offset=1&limit=5",LISTEN_ADDRESS ))
             .json(&json!({
                 "status": "OperatorPresigned",
                 "operator": "ffc54e9cf37d9f87e1111",
@@ -277,7 +276,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get("http://127.0.0.1:8080/v1/graphs/ffc54e9cf37d9f87e1111")
+            .get(format!("http://{}/v1/graphs/ffc54e9cf37d9f87e1111",LISTEN_ADDRESS ))
             .send()
             .await?;
         assert!(resp.status().is_success());
@@ -291,7 +290,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/graphs/ffc54e9cf37d9f87e1111/presign")
+            .post(format!("http://{}/v1/graphs/ffc54e9cf37d9f87e1111/presign",LISTEN_ADDRESS ))
             .json(&json!({
                 "instance_id": "ffc54e9cf37d9f87e1111",
                 "graph_ipfs_base_url":"https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH"
@@ -309,7 +308,7 @@ mod test {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post("http://127.0.0.1:8080/v1/graphs/presign_check")
+            .post(format!("http://{}/v1/graphs/presign_check",LISTEN_ADDRESS ))
             .json(&json!(
                 {
                    "instance_id": "ffc54e9cf37d9f87e1111",

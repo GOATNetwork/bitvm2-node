@@ -99,7 +99,7 @@ pub async fn graph_presign_check(
 
     let resp = GraphPresignCheckResponse {
         instance_id: payload.instance_id.to_string(),
-        instace_status: BridgeInStatus::Presigned,
+        instance_status: BridgeInStatus::Presigned,
         graph_status,
         tx: Some(instance),
     };

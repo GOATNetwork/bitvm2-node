@@ -84,7 +84,7 @@ pub struct GraphPresignCheck {
 #[derive(Deserialize, Serialize)]
 pub struct GraphPresignCheckResponse {
     pub instance_id: String,
-    pub instace_status: BridgeInStatus,
+    pub instance_status: BridgeInStatus,
     pub graph_status: HashMap<String, GraphStatus>,
     pub tx: Option<Instance>,
 }
