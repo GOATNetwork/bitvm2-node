@@ -30,9 +30,9 @@ pub async fn get_nodes(
     State(local_db): State<Arc<LocalDB>>,
 ) -> (StatusCode, Json<NodeListResponse>) {
     let actor = match query_params.actor {
-        Some(role) => {
-            let _ = local_db.node_list(&role, query_params.offset, query_params.limit).await;
-            role
+        Some(actor) => {
+            let _ = local_db.node_list(&actor, query_params.offset, query_params.limit).await;
+            actor
         }
         None => "COMMITTEE".to_string(),
     };

@@ -100,8 +100,7 @@ impl BridgePath {
             _ => None,
         }
     }
-
-    // 枚举 → 数字
+    
     pub fn to_u8(self) -> u8 {
         self as u8
     }

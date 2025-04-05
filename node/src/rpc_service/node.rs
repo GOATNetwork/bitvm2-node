@@ -12,7 +12,7 @@ pub struct UpdateOrInsertNode {
 /// node_overview
 #[derive(Serialize, Deserialize)]
 pub struct NodeListRequest {
-    pub role: String,
+    pub actor: String,
     // pub status: String, // online/offline
     pub offset: u32,
     pub limit: u32,
