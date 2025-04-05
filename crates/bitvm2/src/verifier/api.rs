@@ -3,14 +3,15 @@ use bitvm::treepp::*;
 use bitvm::chunk::api::{validate_assertions, NUM_TAPS, type_conversion_utils::{RawWitness, script_to_witness, utils_signatures_from_raw_witnesses}};
 use goat::transactions::base::BaseTransaction;
 use crate::types::{
-    Bitvm2Graph, Error, Groth16WotsPublicKeys, Groth16WotsSignatures, VerifyingKey, WotsPublicKeys
+    Bitvm2Graph, Groth16WotsPublicKeys, Groth16WotsSignatures, VerifyingKey, WotsPublicKeys
 };
 use goat::transactions::assert::utils::*;
 use goat::connectors::connector_c::{ConnectorC, get_commit_from_assert_commit_tx};
+use anyhow::{Result, bail};
 
 pub fn extract_proof_sigs_from_assert_commit_txns(
     assert_commit_txns: [Transaction; COMMIT_TX_NUM]
-) -> Result<Groth16WotsSignatures, Error> {
+) -> Result<Groth16WotsSignatures> {
     let raw_wits: Vec<RawWitness> = assert_commit_txns.iter()
         .flat_map(|tx| get_commit_from_assert_commit_tx(tx)) 
         .collect();
@@ -31,9 +32,9 @@ pub fn verify_proof(
 // get incomplete tx here, add inputs with enough amount, then broadcast it to start challnege progress
 pub fn export_challenge_tx(
     graph: &mut Bitvm2Graph,
-) -> Result<Transaction, Error> {
+) -> Result<Transaction> {
     if !graph.operator_pre_signed() {
-        return Err("missing pre-signatures from operator".to_string())
+        bail!("missing pre-signatures from operator".to_string())
     };
     Ok(graph.challenge.finalize())
 }
@@ -44,9 +45,9 @@ pub fn sign_disprove(
     disprove_scripts_bytes: Vec<Vec<u8>>,
     assert_wots_pubkeys: &Groth16WotsPublicKeys,
     reward_address: Address,
-) -> Result<Transaction, Error> {
+) -> Result<Transaction> {
     if !graph.committee_pre_signed() {
-        return Err("missing pre-signatures from committee".to_string())
+        bail!("missing pre-signatures from committee".to_string())
     };
     let context = graph.parameters.get_base_context();
     let assert_wots_commitment_keys = convert_to_connector_c_commits_public_key(assert_wots_pubkeys);

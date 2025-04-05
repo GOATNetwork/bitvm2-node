@@ -18,7 +18,7 @@ use goat::commitments::{NUM_KICKOFF, KICKOFF_MSG_SIZE, CommitmentMessageId};
 use goat::transactions::base::BaseTransaction;
 use sha2::{Sha256, Digest};
 use crate::types::{
-    Bitvm2Graph, CustomInputs, Groth16Proof, Groth16WotsPublicKeys, Groth16WotsSignatures, Bitvm2Parameters, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys, Error
+    Bitvm2Graph, CustomInputs, Groth16Proof, Groth16WotsPublicKeys, Groth16WotsSignatures, Bitvm2Parameters, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys
 };
 use goat::transactions::{
     base::Input,
@@ -46,6 +46,7 @@ use goat::connectors::{
     connector_c::ConnectorC,
     connector_d::ConnectorD,
 };
+use anyhow::{Result, bail};
 
 pub fn generate_wots_keys(seed: &str) -> (WotsSecretKeys, WotsPublicKeys) {
     let secrets = wots_seed_to_secrets(seed);
@@ -138,30 +139,30 @@ pub fn generate_bitvm_graph(
     params: Bitvm2Parameters,
     operator_wots_pubkeys: &WotsPublicKeys,
     disprove_scripts_bytes: Vec<Vec<u8>>,
-) -> Result<Bitvm2Graph, Error> {
-    fn inputs_check(inputs: &CustomInputs) -> Option<Error> {
+) -> Result<Bitvm2Graph> {
+    fn inputs_check(inputs: &CustomInputs) -> Result<()> {
         let inputs_amount_sum: Amount = inputs.inputs.iter()
             .map(|input| input.amount)
             .sum();
         if inputs_amount_sum < inputs.fee_amount + inputs.input_amount {
-            Some("insufficient inputs amount".to_string())
+            bail!("insufficient inputs amount".to_string())
         } else {
-            None
+            Ok(())
         }
     }
 
     // check inputs amount
-    if let Some(err) = inputs_check(&user_inputs) {
-        return Err(format!("user's inputs did not pass the check: {}", err))
+    if let Err(err) = inputs_check(&user_inputs) {
+        bail!(format!("user's inputs did not pass the check: {}", err))
     }
     if params.pegin_amount != user_inputs.input_amount {
-        return Err("user_inputs_amount and pegin_amount mismatch".to_string())
+        bail!("user_inputs_amount and pegin_amount mismatch".to_string())
     };
-    if let Some(err) = inputs_check(&operator_inputs) {
-        return Err(format!("operator's inputs did not pass the check: {}", err))
+    if let Err(err) = inputs_check(&operator_inputs) {
+        bail!(format!("operator's inputs did not pass the check: {}", err))
     }
     if params.stake_amount != operator_inputs.input_amount {
-        return Err("operator_inputs_amount and stake_amount mismatch ".to_string())
+        bail!("operator_inputs_amount and stake_amount mismatch ".to_string())
     };
 
     // Pegin
@@ -451,7 +452,7 @@ pub fn generate_bitvm_graph(
 
     let connector_c_taproot_merkle_root = match connector_c.taproot_merkle_root() {
         Some(v) => v,
-        _ => return Err("empty connector_c tapscript trie".to_string()),
+        _ => bail!("empty connector_c tapscript trie".to_string()),
     };
 
     Ok(Bitvm2Graph {
@@ -475,7 +476,7 @@ pub fn generate_bitvm_graph(
 pub fn operator_pre_sign(
     operator_keypair: Keypair,
     graph: &mut Bitvm2Graph,
-) -> Result<Witness, Error> {
+) -> Result<Witness> {
     let operator_context = graph.parameters.get_operator_context(operator_keypair);
     let connector_a = ConnectorA::new(
         operator_context.network,
@@ -490,12 +491,12 @@ pub fn operator_pre_sign(
 pub fn push_operator_pre_signature(
     graph: &mut Bitvm2Graph,
     signed_witness: &Witness,
-) -> Option<Error> {
+) -> Result<()> {
     if graph.operator_pre_signed == true {
-        return Some("already pre-signed by operator".to_string())
+        bail!("already pre-signed by operator".to_string())
     };
     graph.challenge.tx_mut().input[0].witness = signed_witness.clone();
-    None
+    Ok(())
 }
 
 pub fn operator_sign_kickoff(
@@ -504,7 +505,7 @@ pub fn operator_sign_kickoff(
     operator_wots_seckeys: &WotsSecretKeys,
     operator_wots_pubkeys: &WotsPublicKeys,
     withdraw_evm_txid: [u8; 32],
-) -> Result<Transaction, Error> {
+) -> Result<Transaction> {
     let operator_context = graph.parameters.get_operator_context(operator_keypair);
     let kickoff_wots_commitment_keys = CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
     let evm_txid_inputs = WinternitzSigningInputs {
@@ -527,9 +528,9 @@ pub fn operator_sign_kickoff(
 pub fn operator_sign_take1(
     operator_keypair: Keypair,
     graph: &mut Bitvm2Graph,
-) -> Result<Transaction, Error> {
+) -> Result<Transaction> {
     if !graph.committee_pre_signed() {
-        return Err("missing pre-signatures from committee".to_string())
+        bail!("missing pre-signatures from committee".to_string())
     };
     let operator_context = graph.parameters.get_operator_context(operator_keypair);
     let connector_a = ConnectorA::new(
@@ -550,9 +551,9 @@ pub fn operator_sign_take1(
 pub fn operator_sign_take2(
     operator_keypair: Keypair,
     graph: &mut Bitvm2Graph,
-) -> Result<Transaction, Error> {
+) -> Result<Transaction> {
     if !graph.committee_pre_signed() {
-        return Err("missing pre-signatures from committee".to_string())
+        bail!("missing pre-signatures from committee".to_string())
     };
     let operator_context = graph.parameters.get_operator_context(operator_keypair);
     graph.take2.sign_input_1(
@@ -571,9 +572,9 @@ pub fn operator_sign_assert(
     graph: &mut Bitvm2Graph,
     operator_wots_pubkeys: &WotsPublicKeys,
     proof_sigs: Groth16WotsSignatures,
-) -> Result<(Transaction, [Transaction; COMMIT_TX_NUM], Transaction), Error> {
+) -> Result<(Transaction, [Transaction; COMMIT_TX_NUM], Transaction)> {
     if !graph.committee_pre_signed() {
-        return Err("missing pre-signatures from committee".to_string())
+        bail!("missing pre-signatures from committee".to_string())
     };
     let operator_context = graph.parameters.get_operator_context(operator_keypair);
     let assert_wots_pubkeys = &operator_wots_pubkeys.1;

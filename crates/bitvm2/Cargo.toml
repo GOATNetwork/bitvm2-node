@@ -16,4 +16,5 @@ bitcoin = { workspace = true }
 musig2 = { workspace = true }
 secp256k1 = { workspace = true }
 bitcoin-script = { workspace = true }
+anyhow = { workspace = true }
 
