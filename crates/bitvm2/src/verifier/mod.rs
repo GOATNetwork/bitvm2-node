@@ -1,14 +1,8 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod api;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use api::{
+    verify_proof,
+    extract_proof_sigs_from_assert_commit_txns,
+    export_challenge_tx,
+    sign_disprove,
+};
