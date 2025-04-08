@@ -1,7 +1,6 @@
 use crate::rpc_service::current_time_secs;
 use bitvm2_lib::actors::Actor;
 use serde::{Deserialize, Serialize};
-use std::default::Default;
 use store::Node;
 
 pub const ALIVE_TIME_JUDGE_THRESHOLD: i64 = 4 * 3600;
@@ -43,7 +42,7 @@ impl From<Node> for NodeDesc {
     fn from(node: Node) -> Self {
         let mut status = "online".to_string();
         let current_time = current_time_secs();
-        if (node.updated_at + ALIVE_TIME_JUDGE_THRESHOLD > current_time) {
+        if node.updated_at + ALIVE_TIME_JUDGE_THRESHOLD < current_time {
             status = "offline".to_string()
         };
         Self { peer_id: node.peer_id, actor: node.actor, updated_at: node.updated_at, status }

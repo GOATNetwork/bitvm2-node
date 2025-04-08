@@ -1,6 +1,7 @@
 use crate::{FilterGraphsInfo, Graph, GraphStatus, Instance, Node};
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
+use sqlx::migrate::Migrator;
 
 #[derive(Clone)]
 pub struct LocalDB {
@@ -8,17 +9,17 @@ pub struct LocalDB {
     pub is_mem: bool,
     pub conn: SqlitePool,
 }
-
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 impl LocalDB {
     pub async fn new(path: &str, is_mem: bool) -> LocalDB {
         if !Sqlite::database_exists(path).await.unwrap_or(false) {
-            log::info!("Creating database {}", path);
+            tracing::info!("Creating database {}", path);
             match Sqlite::create_database(path).await {
                 Ok(_) => println!("Create db success"),
                 Err(error) => panic!("error: {}", error),
             }
         } else {
-            log::info!("Database already exists");
+            tracing::info!("Database already exists");
         }
 
         let conn = SqlitePool::connect(path).await.unwrap();
@@ -26,14 +27,8 @@ impl LocalDB {
     }
 
     pub async fn migrate(&self) {
-        let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let migrations = std::path::Path::new(&crate_dir).join("./migrations");
-
-        let migration_results =
-            sqlx::migrate::Migrator::new(migrations).await.unwrap().run(&self.conn).await;
-
-        match migration_results {
-            Ok(_) => log::info!("Migration success"),
+        match MIGRATOR.run(&self.conn).await{
+            Ok(_) => tracing::info!("Migration success"),
             Err(error) => {
                 panic!("error: {}", error);
             }
@@ -263,7 +258,7 @@ impl LocalDB {
         let time_pri = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
             as i64
             - time_threshold;
-        log::info!("{time_pri}");
+        tracing::info!("{time_pri}");
         let alive = sqlx::query!(
             "SELECT COUNT(peer_id)  as alive FROM node WHERE updated_at  >= ? ",
             time_pri
