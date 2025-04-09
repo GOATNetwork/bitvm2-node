@@ -1,5 +1,6 @@
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::current_time_secs;
+use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use http::StatusCode;
@@ -10,7 +11,6 @@ use store::localdb::LocalDB;
 use store::{
     BridgeInStatus, BridgeOutStatus, BridgePath, FilterGraphsInfo, Graph, GraphStatus, Instance,
 };
-use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 
 #[axum::debug_handler]
 pub async fn bridge_in_tx_prepare(
@@ -32,7 +32,7 @@ pub async fn bridge_in_tx_prepare(
     match local_db.create_instance(instance.clone()).await {
         Ok(_res) => (StatusCode::OK, Json(BridgeInTransactionPrepareResponse {})),
         Err(err) => {
-            log::warn!("bridge_in_tx_prepare, params:{:?} err:{:?}", payload, err);
+            tracing::warn!("bridge_in_tx_prepare, params:{:?} err:{:?}", payload, err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(BridgeInTransactionPrepareResponse {}))
         }
     }
@@ -63,7 +63,7 @@ pub async fn create_graph(
             (StatusCode::OK, Json(resp))
         }
         Err(err) => {
-            log::warn!("create_graph,  params:{:?} err:{:?}", payload, err);
+            tracing::warn!("create_graph,  params:{:?} err:{:?}", payload, err);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(GraphGenerateResponse {
@@ -100,7 +100,7 @@ pub async fn graph_presign(
     match async_fn().await {
         Ok(resp) => (StatusCode::OK, Json(resp)),
         Err(err) => {
-            log::warn!("graph_presign  err:{:?}", err);
+            tracing::warn!("graph_presign  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
         }
     }
@@ -129,7 +129,7 @@ pub async fn graph_presign_check(
     match async_fn().await {
         Ok(resp) => (StatusCode::OK, Json(resp)),
         Err(err) => {
-            log::warn!("graph_presign_check  err:{:?}", err);
+            tracing::warn!("graph_presign_check  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
         }
     }
@@ -150,7 +150,7 @@ pub async fn peg_btc_mint(
     match async_fn().await {
         Ok(resp) => (StatusCode::OK, Json(resp)),
         Err(err) => {
-            log::warn!("peg_btc_mint  err:{:?}", err);
+            tracing::warn!("peg_btc_mint  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(PegBTCMintResponse {}))
         }
     }
@@ -171,7 +171,6 @@ pub async fn bridge_out_tx_prepare(
         created_at: current_time_secs(),
         updated_at: current_time_secs(),
         status: BridgeOutStatus::L2Locked.to_string(),
-        goat_txid: payload.pegout_txid.clone(),
         ..Default::default()
     };
 
@@ -179,50 +178,15 @@ pub async fn bridge_out_tx_prepare(
         Ok(_res) => {
             let resp = BridgeOutTransactionPrepareResponse {
                 instance_id: instance.instance_id.clone(),
-                btc_hashed_timelock_utxo: UTXO {
-                    txid: "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c"
-                        .to_string(), // for test
-                    vout: 0,
-                    value: 100,
-                },
-                operator_refund_address: "tb1qkrhp3khxam3hj2kl9y77m2uctj2hkyh248chkp".to_string(), // for test
             };
             (StatusCode::OK, Json(resp))
         }
         Err(err) => {
-            log::warn!("bridge_out_tx_prepare, params:{:?} err:{:?}", payload, err);
+            tracing::warn!("bridge_out_tx_prepare, params:{:?} err:{:?}", payload, err);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(BridgeOutTransactionPrepareResponse::default()),
             )
-        }
-    }
-}
-
-#[axum::debug_handler]
-pub async fn bridge_out_user_claim(
-    Path(instance_id): Path<String>,
-    State(local_db): State<Arc<LocalDB>>,
-    Json(payload): Json<BridgeOutUserClaimRequest>,
-) -> (StatusCode, Json<BridgeOutUserClaimResponse>) {
-    let resp = BridgeOutUserClaimResponse {
-        instance_id: instance_id.to_string(),
-        claim_txid: "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c".to_string(),
-    };
-
-    let resp_clone = resp.clone();
-    let async_fn = || async move {
-        let mut instance = local_db.get_instance(&instance_id).await?;
-        instance.goat_txid = payload.pegout_txid.clone();
-        // TODO claim btc
-        let _ = local_db.update_instance(instance.clone()).await?;
-        Ok::<BridgeOutUserClaimResponse, Box<dyn std::error::Error>>(resp_clone)
-    };
-    match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
-        Err(err) => {
-            log::warn!("bridge_out_user_claim  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
         }
     }
 }
@@ -235,7 +199,7 @@ pub async fn get_instances_with_query_params(
     match local_db.instance_list(&params.user_address, params.offset, params.limit).await {
         Ok(instances) => (StatusCode::OK, Json(InstanceListResponse { instances })),
         Err(err) => {
-            log::warn!("get_instances_with_query_params,  params:{:?} err:{:?}", params, err);
+            tracing::warn!("get_instances_with_query_params,  params:{:?} err:{:?}", params, err);
             (StatusCode::OK, Json(InstanceListResponse { instances: vec![] }))
         }
     }
@@ -249,7 +213,7 @@ pub async fn get_instance(
     match local_db.get_instance(&instance_id).await {
         Ok(instance) => (StatusCode::OK, Json(InstanceGetResponse { instance })),
         Err(err) => {
-            log::warn!("get_instances, instance_id:{:?} err:{:?}", instance_id, err);
+            tracing::warn!("get_instances, instance_id:{:?} err:{:?}", instance_id, err);
             (StatusCode::OK, Json(InstanceGetResponse { instance: Instance::default() }))
         }
     }
@@ -300,7 +264,7 @@ pub async fn graph_list(
     match async_fn().await {
         Ok(resp) => (StatusCode::OK, Json(resp)),
         Err(err) => {
-            log::warn!("graph_list  err:{:?}", err);
+            tracing::warn!("graph_list  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
         }
     }

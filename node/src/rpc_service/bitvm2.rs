@@ -90,30 +90,30 @@ pub struct PegBTCMintResponse {}
 /// bridge-out step2
 #[derive(Debug, Deserialize)]
 pub struct BridgeOutTransactionPrepareRequest {
+    //TODO
     pub instance_id: String,
-    pub pegout_txid: String, // GOAT txid
-    pub operator: String,    // For double check with operator selected in peg out txn
+    pub operator: String,
 }
 
 #[derive(Deserialize, Serialize, Default)]
 pub struct BridgeOutTransactionPrepareResponse {
+    // TODO
     pub instance_id: String,
-    pub btc_hashed_timelock_utxo: UTXO,
-    pub operator_refund_address: String,
+
 }
 
-// handler: committee
-#[derive(Debug, Deserialize)]
-pub struct BridgeOutUserClaimRequest {
-    pub pegout_txid: String,
-    pub signed_claim_txn: String,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub struct BridgeOutUserClaimResponse {
-    pub instance_id: String,
-    pub claim_txid: String,
-}
+// // handler: committee
+// #[derive(Debug, Deserialize)]
+// pub struct BridgeOutUserClaimRequest {
+//     pub pegout_txid: String,
+//     pub signed_claim_txn: String,
+// }
+//
+// #[derive(Clone, Deserialize, Serialize)]
+// pub struct BridgeOutUserClaimResponse {
+//     pub instance_id: String,
+//     pub claim_txid: String,
+// }
 
 /// get tx detail
 #[derive(Debug, Deserialize)]

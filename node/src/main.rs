@@ -117,10 +117,6 @@ enum KeyCommands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    if std::env::var("RUST_LOG").is_err() {
-        unsafe { std::env::set_var("RUST_LOG", "info"); }
-    }
-    env_logger::try_init().unwrap_or_default();
     let opt = Opts::parse();
     match opt.cmd {
         Some(Commands::Key(key_arg)) => {
@@ -129,8 +125,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let local_key = identity::generate_local_key();
                     let base64_key = base64::engine::general_purpose::STANDARD
                         .encode(&local_key.to_protobuf_encoding()?);
-                    log::info!("export KEY={}", base64_key);
-                    log::info!("export PEER_ID={}", local_key.public().to_peer_id());
+                    tracing::info!("export KEY={}", base64_key);
+                    tracing::info!("export PEER_ID={}", local_key.public().to_peer_id());
                 }
             }
             return Ok(());
@@ -316,7 +312,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
 
                         tracing::debug!("Query finished with closest peers: {:#?}", ok.peers);
-
                         //return Ok(());
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::InboundRequest {request})) => {

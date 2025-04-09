@@ -1,10 +1,9 @@
 use crate::rpc_service::node::{
-    NodeDesc, NodeListRequest, NodeListResponse, NodeQueryParams, UpdateOrInsertNodeRequest,
+    NodeDesc, NodeListResponse, NodeQueryParams, UpdateOrInsertNodeRequest,
 };
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Query, State};
 use http::StatusCode;
-use serde::Deserialize;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use store::Node;
@@ -23,11 +22,11 @@ pub async fn create_node(
     };
     match local_db.update_node(node.clone()).await {
         Ok(res) => {
-            log::info!("create node, db rows affected:{}", res);
+            tracing::info!("create node, db rows affected:{}", res);
             (StatusCode::OK, Json(node))
         }
         Err(err) => {
-            log::warn!("create node:{:?}, error: {}", node, err);
+            tracing::warn!("create node:{:?}, error: {}", node, err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(Node::default()))
         }
     }
@@ -38,14 +37,17 @@ pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
     State(local_db): State<Arc<LocalDB>>,
 ) -> (StatusCode, Json<NodeListResponse>) {
-    match local_db.node_list(query_params.actor.clone(), query_params.offset, query_params.limit).await {
+    match local_db
+        .node_list(query_params.actor.clone(), query_params.offset, query_params.limit)
+        .await
+    {
         Ok(nodes) => {
             let node_desc_list: Vec<NodeDesc> = nodes.into_iter().map(|v| v.into()).collect();
             (StatusCode::OK, Json(NodeListResponse { nodes: node_desc_list }))
         }
         Err(err) => {
-            log::warn!("get_nodes failed, params: {:?}, error:{}", query_params, err);
+            tracing::warn!("get_nodes failed, params: {:?}, error:{}", query_params, err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(NodeListResponse { nodes: vec![] }))
-        },
+        }
     }
 }
