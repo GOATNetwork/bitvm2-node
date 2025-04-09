@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid, disprove_txid, created_at) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "6709c85040a040cf6a55469f23d63057c09aa048bfb1f4b5de5c6e103f219a77"
+}
