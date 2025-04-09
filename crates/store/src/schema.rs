@@ -1,29 +1,23 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool, migrate::MigrateDatabase};
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize)]
+use sqlx::FromRow;
+use std::str::FromStr;
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Node {
     pub peer_id: String,
     pub actor: String,
-    pub update_at: std::time::SystemTime,
+    pub updated_at: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Instance {
     pub instance_id: String,
     pub bridge_path: u8,
-    pub from: String,
-    pub to: String,
-
-    // in sat
-    pub amount: u64,
-    pub created_at: u64,
-
-    // updating time
-    pub update_at: u64,
-
-    // BridgeInStatus | BridgeOutStutus
-    pub status: String,
-
+    pub from_addr: String,
+    pub to_addr: String,
+    pub amount: i64, // in sat
+    pub created_at: i64,
+    pub updated_at: i64, // updating time
+    pub status: String,  // BridgeInStatus | BridgeOutStutus
     pub goat_txid: String,
     pub btc_txid: String,
     pub pegin_tx: Option<String>,
@@ -50,13 +44,9 @@ pub enum BridgeOutStatus {
     L2Locked,
     L1Locked,
     L1Unlocked,
-    L2Unlocked, // success
-
-    // L2Locked -> L2 timeout (operator is offline)
-    L2LockTimeout,
-    // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
-    L1LockTimeout,
-
+    L2Unlocked,    // success
+    L2LockTimeout, // L2Locked -> L2 timeout (operator is offline)
+    L1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
     L1Refunded,
     L2Refunded,
 }
@@ -82,6 +72,23 @@ pub enum GraphStatus {
     Deprecated, // reimbursement by other operators
 }
 
+impl FromStr for GraphStatus {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "OperatorPresigned" => Ok(GraphStatus::OperatorPresigned),
+            "CommitteePresigned" => Ok(GraphStatus::CommitteePresigned),
+            "KickOff" => Ok(GraphStatus::KickOff),
+            "Challenge" => Ok(GraphStatus::Challenge),
+            "Assert" => Ok(GraphStatus::Assert),
+            "Take1" => Ok(GraphStatus::Take1),
+            "Take2" => Ok(GraphStatus::Take2),
+            "Disprove" => Ok(GraphStatus::Disprove),
+            "Deprecated" => Ok(GraphStatus::Deprecated),
+            _ => Err(()),
+        }
+    }
+}
 impl std::fmt::Display for GraphStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self)
@@ -100,7 +107,7 @@ impl BridgePath {
             _ => None,
         }
     }
-    
+
     pub fn to_u8(self) -> u8 {
         self as u8
     }
@@ -124,18 +131,17 @@ pub struct Graph {
     pub graph_id: String,
     pub instance_id: String,
     pub graph_ipfs_base_url: String,
-    pub peg_in_txid: String,
-    pub amount: u64,
-    pub created_at: u64,
-    pub status: GraphStatus,
+    pub pegin_txid: String,
+    pub amount: i64,
+    pub created_at: i64,
+    pub status: String, // GraphStatus
     pub challenge_txid: Option<String>,
     pub disprove_txid: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct FilterGraphsInfo {
-    /// TODO change to option<...>
-    pub status: GraphStatus,
+    pub status: String, // GraphStatus
     pub pegin_txid: String,
     pub offset: u32,
     pub limit: u32,

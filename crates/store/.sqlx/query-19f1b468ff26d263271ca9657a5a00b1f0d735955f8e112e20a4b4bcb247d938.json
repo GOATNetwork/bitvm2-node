@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  status = ? and pegin_txid = ?  LIMIT ? OFFSET ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "instance_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "graph_ipfs_base_url",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "pegin_txid",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "status",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "challenge_txid",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "disprove_txid",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at: i64",
+        "ordinal": 8,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "19f1b468ff26d263271ca9657a5a00b1f0d735955f8e112e20a4b4bcb247d938"
+}

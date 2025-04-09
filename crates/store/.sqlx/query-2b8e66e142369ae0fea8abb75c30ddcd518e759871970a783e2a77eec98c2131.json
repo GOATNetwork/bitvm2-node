@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT peer_id, actor, updated_at as \"updated_at: i64\" FROM node LIMIT ? OFFSET ? ",
+  "describe": {
+    "columns": [
+      {
+        "name": "peer_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at: i64",
+        "ordinal": 2,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2b8e66e142369ae0fea8abb75c30ddcd518e759871970a783e2a77eec98c2131"
+}

@@ -38,7 +38,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { version = "0.12.15", features = ["json"]}
 
-
 opentelemetry = { version = "0.27.0", features = ["metrics"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["metrics"] }
 opentelemetry_sdk = { version = "0.27.0", features = ["rt-tokio", "metrics"] }
@@ -55,5 +54,8 @@ mime_guess = "2.0.5"
 base64 = "0.22.1"
 anyhow = { workspace = true }
 musig2 = { version = "0.1.0", features = ["serde", "rand"] }
+log = { workspace = true }
+env_logger = { workspace = true }
+
 
 [dev-dependencies]

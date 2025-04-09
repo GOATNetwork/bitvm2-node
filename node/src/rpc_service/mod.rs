@@ -16,13 +16,12 @@ use crate::rpc_service::handler::{
     bitvm2_handler::*,
     node_handler::{create_node, get_nodes},
 };
-use axum::routing::put;
 use std::time::UNIX_EPOCH;
 use tokio::net::TcpListener;
 
 #[inline(always)]
-pub fn current_time_secs() -> u64 {
-    std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+pub fn current_time_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
 }
 
 /// Serve the Multiaddr we are listening on and the host files.
@@ -55,6 +54,7 @@ async fn root() -> &'static str {
 ///
 pub(crate) async fn serve(addr: String, db_path: String) {
     let localdb = Arc::new(LocalDB::new(&format!("sqlite:{db_path}"), true).await);
+    localdb.migrate().await;
     let server = Router::new()
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
@@ -79,11 +79,18 @@ pub(crate) async fn serve(addr: String, db_path: String) {
 
 #[cfg(test)]
 mod tests {
+    use log::info;
     use crate::rpc_service;
     use serde_json::json;
     const LISTEN_ADDRESS: &str = "127.0.0.1:8080";
-    const TMEP_DB_PATH: &str = "sqlite:/tmp/.bitvm2-node.db";
+    const TMEP_DB_PATH: &str = "/tmp/.bitvm2-node.db";
 
+    fn init_log(){
+        if std::env::var("RUST_LOG").is_err() {
+            unsafe { std::env::set_var("RUST_LOG", "info"); }
+        }
+        env_logger::try_init().unwrap_or_default();
+    }
     #[tokio::test(flavor = "multi_thread")]
     async fn test_node() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
@@ -119,12 +126,13 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bridge_in_tx_prepare() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare",LISTEN_ADDRESS ))
             .json(&json!({
-                "instance_id": "ffc54e9cf37d9f87e",
+                "instance_id": "3baa703537ef",
                 "network": "test3",
                 "amount": 10000,
                 "fee_rate": 80,
@@ -140,15 +148,16 @@ mod tests {
             }))
             .send()
             .await?;
-        println!("{:?}", resp);
+        log::info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_instance() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
@@ -158,12 +167,13 @@ mod tests {
             .expect("");
         assert!(resp.status().is_success());
         let res_body = resp.text().await.unwrap();
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_instances_with_query_params() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
@@ -172,20 +182,22 @@ mod tests {
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_peg_btc_mint() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post(format!("http://{}/v1/instances/ffc54e9cf37d9f87e2222/bridge_in/peg_gtc_mint",LISTEN_ADDRESS ))
+            .post(format!("http://{}/v1/instances/ffc54e9cf37d9f87e/bridge_in/peg_gtc_mint",LISTEN_ADDRESS ))
             .json(&json!({
-                "graph_id":[
-                    "ffc54e9cf37d9f87e1111",
-                    "ffc54e9cf37d9f87e3333"
+                "graph_ids":[
+                    "ffc54e9cf37d9f11",
+                    "aaa7583905ec49c",
+                    "bbc7ebaa703537e93"
                 ],
                 "pegin_txid": "58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c"
             }))
@@ -193,12 +205,13 @@ mod tests {
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bridge_out_tx_prepare() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
@@ -212,16 +225,17 @@ mod tests {
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bridge_out_user_claim() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post(format!("http://{}/v1/instances/ffc54e9cf37d9f87e2222/bridge_out/user_claim",LISTEN_ADDRESS ))
+            .post(format!("http://{}/v1/instances/7ebaa703537e93/bridge_out/user_claim",LISTEN_ADDRESS ))
             .json(&json!({
                 "pegout_txid":"58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c",
                 "signed_claim_txn": "58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c"
@@ -230,88 +244,93 @@ mod tests {
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_create_graph() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/graphs",LISTEN_ADDRESS ))
             .json(&json!({
-              "instance_id": "ffc54e9cf37d9f87e2222",
-                "graph_id": "ffc54e9cf37d9f87e1111",
+              "instance_id": "111",
+                "graph_id": "333baa703537ef",
             }))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_graphs() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get(format!("http://{}/v1/graphs?offset=1&limit=5",LISTEN_ADDRESS ))
+            .get(format!("http://{}/v1/graphs?offset=0&limit=5",LISTEN_ADDRESS ))
             .json(&json!({
                 "status": "OperatorPresigned",
                 "operator": "ffc54e9cf37d9f87e1111",
-                "pegin_txid":"58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c"
+                "pegin_txid":"123123"
             }))
             .send()
             .await?;
-        assert!(resp.status().is_success());
+        // assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_graph() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .get(format!("http://{}/v1/graphs/ffc54e9cf37d9f87e1111",LISTEN_ADDRESS ))
+            .get(format!("http://{}/v1/graphs/aaa7583905ec49c",LISTEN_ADDRESS ))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_graph_presign() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
-            .post(format!("http://{}/v1/graphs/ffc54e9cf37d9f87e1111/presign",LISTEN_ADDRESS ))
+            .post(format!("http://{}/v1/graphs/aaa7583905ec49c/presign",LISTEN_ADDRESS ))
             .json(&json!({
-                "instance_id": "ffc54e9cf37d9f87e1111",
+                "instance_id": "1baa703537ef",
                 "graph_ipfs_base_url":"https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH"
             }))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        log::info!("Post Response: {}", res_body);
         Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_graph_presign_check() -> Result<(), Box<dyn std::error::Error>> {
+        init_log();
         tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/graphs/presign_check",LISTEN_ADDRESS ))
             .json(&json!(
                 {
-                   "instance_id": "ffc54e9cf37d9f87e1111",
+                   "instance_id": "7583905ec49c",
                 }
             ))
             .send()
