@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO  node (peer_id, actor, updated_at) VALUES ( ?, ?, ?) ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "765b1ef81b1dc1f873ab66295f6c453dacc5670ddcee1dc250a126aa1b09f3ca"
+}

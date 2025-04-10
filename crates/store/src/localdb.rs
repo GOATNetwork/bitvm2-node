@@ -1,6 +1,7 @@
 use crate::{FilterGraphsInfo, Graph, GraphStatus, Instance, Node};
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
+use sqlx::migrate::Migrator;
 
 #[derive(Clone)]
 pub struct LocalDB {
@@ -8,162 +9,263 @@ pub struct LocalDB {
     pub is_mem: bool,
     pub conn: SqlitePool,
 }
-
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 impl LocalDB {
     pub async fn new(path: &str, is_mem: bool) -> LocalDB {
         if !Sqlite::database_exists(path).await.unwrap_or(false) {
-            println!("Creating database {}", path);
+            tracing::info!("Creating database {}", path);
             match Sqlite::create_database(path).await {
                 Ok(_) => println!("Create db success"),
                 Err(error) => panic!("error: {}", error),
             }
         } else {
-            println!("Database already exists");
+            tracing::info!("Database already exists");
         }
 
         let conn = SqlitePool::connect(path).await.unwrap();
         Self { path: path.to_string(), is_mem, conn }
     }
 
-    async fn migrate(&self) {
-        let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let migrations = std::path::Path::new(&crate_dir).join("./migrations");
-
-        let migration_results =
-            sqlx::migrate::Migrator::new(migrations).await.unwrap().run(&self.conn).await;
-
-        match migration_results {
-            Ok(_) => println!("Migration success"),
+    pub async fn migrate(&self) {
+        match MIGRATOR.run(&self.conn).await{
+            Ok(_) => tracing::info!("Migration success"),
             Err(error) => {
                 panic!("error: {}", error);
             }
         }
     }
 
-    // TODO define sql for table in schema
-    pub async fn create_instance(&self, instance: Instance) {
-        println!("save instance {:?}", instance);
-        // TODO
+    pub async fn create_instance(&self, instance: Instance) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            "INSERT INTO  instance (instance_id, bridge_path, from_addr, to_addr, amount, \
+            status, goat_txid, btc_txid ,pegin_tx)  VALUES (?,?,?,?,?,?,?,?,?)",
+            instance.instance_id,
+            instance.bridge_path,
+            instance.from_addr,
+            instance.to_addr,
+            instance.amount,
+            instance.status,
+            instance.goat_txid,
+            instance.btc_txid,
+            instance.pegin_tx,
+        )
+        .execute(&self.conn)
+        .await?;
+        Ok(res.rows_affected() > 0)
     }
 
     pub async fn get_instance(&self, instance_id: &str) -> anyhow::Result<Instance> {
-        println!("query graph  by {instance_id}");
-        // TODO
-        let mut instance = Instance::default();
-        instance.instance_id = instance_id.to_string();
-        instance.from = "tb1qsyngu9wf2x46tlexhpjl4nugv0zxmgezsx5erl".to_string();
-        instance.to = "tb1qkrhp3khxam3hj2kl9y77m2uctj2hkyh248chkp".to_string();
-        instance.btc_txid =
-            "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c".to_string();
-        instance.status = "BridgeInStatus | BridgeOutStutus".to_string();
-        instance.amount = 1000000;
-        instance.update_at = 200000;
-        instance.goat_txid =
-            "34f36ee1e8ee298f1aa37b43afefc4e7ea56e36fd56f8bc62e9db932b03babc1".to_string();
-        Ok(instance)
+        let row = sqlx::query_as!(
+            Instance,
+            "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
+            btc_txid ,pegin_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" \
+            FROM  instance where instance_id = ?",
+            instance_id
+        ).fetch_one(&self.conn)
+            .await?;
+        Ok(row)
     }
-    pub async fn get_instance_by_user(
+    pub async fn instance_list(
         &self,
-        user: &str,
+        user: &Option<String>,
         offset: u32,
         limit: u32,
     ) -> anyhow::Result<Vec<Instance>> {
-        println!("query graph by {user}");
-        let mut instance = Instance::default();
-        let mut instance = self.get_instance("34f36ee1e8e34f36ee1e8e34f36e").await?;
-        instance.from = user.to_string();
-        Ok(vec![instance; limit as usize])
+        let res = match user {
+            Some(user) => {
+                sqlx::query_as!(
+                    Instance,
+                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, \
+                    created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance where from_addr = ? \
+                    ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                    user,
+                    limit,
+                    offset
+                ).fetch_all(&self.conn).await?
+            }
+            None => {
+                sqlx::query_as!(
+                    Instance,
+                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, \
+                     created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance  \
+                     ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                    limit,
+                    offset
+                ).fetch_all(&self.conn).await?
+            }
+        };
+        Ok(res)
     }
 
     /// Update Instance
-    pub async fn update_instance(&self, instance: Instance) {
-        println!("update instance {:?}", instance);
-        // TODO
+    pub async fn update_instance(&self, instance: Instance) -> anyhow::Result<u64> {
+        let row = sqlx::query!(
+            "UPDATE instance SET bridge_path = ?, from_addr= ?, to_addr= ?,  \
+        amount= ?, status= ?, goat_txid= ?, btc_txid= ? ,pegin_tx= ? WHERE instance_id = ?",
+            instance.bridge_path,
+            instance.from_addr,
+            instance.to_addr,
+            instance.amount,
+            instance.status,
+            instance.goat_txid,
+            instance.btc_txid,
+            instance.pegin_tx,
+            instance.instance_id
+        )
+        .execute(&self.conn)
+        .await?;
+        Ok(row.rows_affected())
     }
 
     /// Insert or update graph
-    pub async fn update_graph(&self, graph: Graph) {
-        println!("update graph {:?}", graph);
-        // TODO
+    pub async fn update_graph(&self, graph: Graph) -> anyhow::Result<u64> {
+        let res = sqlx::query!(
+            "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, \
+             amount, status, challenge_txid, disprove_txid, created_at) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+            graph.graph_id,
+            graph.instance_id,
+            graph.graph_ipfs_base_url,
+            graph.pegin_txid,
+            graph.amount,
+            graph.status,
+            graph.challenge_txid,
+            graph.disprove_txid,
+            graph.created_at,
+        ).execute(&self.conn)
+            .await?;
+        Ok(res.rows_affected())
     }
 
     pub async fn get_graph(&self, graph_id: &str) -> anyhow::Result<Graph> {
-        println!("query graph  by {graph_id}");
-        let mut graph = Graph::default();
-        graph.graph_id = graph_id.to_string();
-        graph.instance_id = "34f36ee1e8e34f36ee1e8e34f36e".to_string();
-        graph.amount = 10000;
-        graph.status = GraphStatus::CommitteePresigned;
-        graph.graph_ipfs_base_url =
-            "https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH".to_string();
-        graph.created_at = std::time::SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("duration time")
-            .as_secs();
-        graph.challenge_txid =
-            Some("a73308fecf906f436583b30f8fd6ac56265fba90efb3f788d7c2d18b1ecfd8aa".to_string());
-        graph.disprove_txid =
-            Some("53b737e32d2a5ca18ebc5468b960f511acaab465f3f88f52f17a58404b7ec1ae".to_string());
-        graph.peg_in_txid =
-            "58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c".to_string();
-        // TODO
-        Ok(graph)
+        let res = sqlx::query_as!(
+            Graph,
+            "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+             disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  graph_id = ?",
+            graph_id
+        ).fetch_one(&self.conn).await?;
+        Ok(res)
     }
 
     pub async fn filter_graphs(
         &self,
         filter_graphs_info: &FilterGraphsInfo,
     ) -> anyhow::Result<Vec<Graph>> {
-        let mut grap = self.get_graph("eeeeeee34f36ee1e8e34f36").await?;
-        grap.peg_in_txid = filter_graphs_info.pegin_txid.to_string();
-        grap.status = GraphStatus::CommitteePresigned;
-        Ok(vec![grap; filter_graphs_info.limit as usize])
+        let res = sqlx::query_as!(
+            Graph,
+            "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+             disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  status = ? and pegin_txid = ?  LIMIT ? OFFSET ?",
+            filter_graphs_info.status,
+           filter_graphs_info.pegin_txid,
+           filter_graphs_info.limit,
+            filter_graphs_info.offset,
+        ).fetch_all(&self.conn).await?;
+        Ok(res)
     }
 
     pub async fn get_graphs(&self, graph_ids: &Vec<String>) -> anyhow::Result<Vec<Graph>> {
-        println!("query graph  by {graph_ids:?}");
-        let mut graphs = vec![];
-        for id in graph_ids.into_iter() {
-            let mut graph = self.get_graph(id).await?;
-            graph.graph_id = id.to_string();
-            graphs.push(graph)
+        let placeholders = graph_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect::<Vec<_>>()
+            .join(",");
+        let query_str = format!(
+            "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+             disprove_txid, created_at FROM graph WHERE  graph_id IN ({})",
+            placeholders
+        );
+        let mut query = sqlx::query_as::<_, Graph>(&query_str);
+        for id in graph_ids {
+            query = query.bind(id);
         }
-        // TODO
-        Ok(graphs)
+        let res = query.fetch_all(&self.conn).await?;
+        Ok(res)
     }
 
     pub async fn get_graph_by_instance_id(&self, instance_id: &str) -> anyhow::Result<Vec<Graph>> {
-        println!("query graph  by instance_id {instance_id}");
-        let mut graph = self.get_graph(instance_id).await?;
-        graph.instance_id = instance_id.to_string();
-        // TODO
-        Ok(vec![graph])
+        let res = sqlx::query_as!(
+            Graph,
+            "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+             disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  instance_id = ?",
+            instance_id
+        ).fetch_all(&self.conn).await?;
+        Ok(res)
     }
 
     /// Insert or update node
-    pub async fn update_node(&self, node: Node) {
-        println!("update node {:?}", node);
-        // TODO
+    pub async fn update_node(&self, node: Node) -> anyhow::Result<u64> {
+        let res = sqlx::query!(
+            "INSERT OR REPLACE INTO  node (peer_id, actor, updated_at) VALUES ( ?, ?, ?) ",
+            node.peer_id,
+            node.actor,
+            node.updated_at,
+        )
+        .execute(&self.conn)
+        .await?;
+        Ok(res.rows_affected())
     }
 
     /// Query node list
     pub async fn node_list(
         &self,
-        role: &str,
-        offset: usize,
-        limit: usize,
+        actor: Option<String>,
+        offset: u32,
+        limit: u32,
     ) -> anyhow::Result<Vec<Node>> {
-        println!("query  node list by {role}, {offset}, {limit}");
-        Ok(vec![
-            Node {
-                peer_id: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN".to_string(),
-                actor: role.to_string(),
-                update_at: std::time::SystemTime::now(),
-            };
-            limit
-        ])
+        let res = match actor {
+            Some(actor) => {
+                sqlx::query_as!(
+                    Node,
+                    "SELECT peer_id, actor, updated_at as \"updated_at: i64\" FROM node \
+                     WHERE actor = ? LIMIT ? OFFSET ? ",
+                    actor,
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.conn)
+                .await?
+            }
+            None => {
+                sqlx::query_as!(
+                    Node,
+                    "SELECT peer_id, actor, updated_at as \"updated_at: i64\" FROM node \
+                     LIMIT ? OFFSET ? ",
+                    limit,
+                    offset
+                )
+                .fetch_all(&self.conn)
+                .await?
+            }
+        };
+        Ok(res)
+    }
 
-        // //TODO
-        // Ok(Vec::new())
+    pub async fn get_sum_bridge_in_or_out(&self, bridge_path: u8) -> anyhow::Result<(i64, i64)> {
+        let record = sqlx::query!(
+            "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM instance WHERE bridge_path = ? ",
+            bridge_path
+        )
+        .fetch_one(&self.conn)
+        .await?;
+        Ok((record.total.unwrap_or(0), record.tx_count))
+    }
+
+    pub async fn get_nodes_info(&self, time_threshold: i64) -> anyhow::Result<(i64, i64)> {
+        let total = sqlx::query!("SELECT COUNT(peer_id) as total FROM node")
+            .fetch_one(&self.conn)
+            .await?
+            .total;
+        let time_pri = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+            as i64
+            - time_threshold;
+        tracing::info!("{time_pri}");
+        let alive = sqlx::query!(
+            "SELECT COUNT(peer_id)  as alive FROM node WHERE updated_at  >= ? ",
+            time_pri
+        )
+        .fetch_one(&self.conn)
+        .await?
+        .alive;
+        Ok((total, alive))
     }
 }
