@@ -176,9 +176,8 @@ pub async fn bridge_out_tx_prepare(
 
     match local_db.create_instance(instance.clone()).await {
         Ok(_res) => {
-            let resp = BridgeOutTransactionPrepareResponse {
-                instance_id: instance.instance_id.clone(),
-            };
+            let resp =
+                BridgeOutTransactionPrepareResponse { instance_id: instance.instance_id.clone() };
             (StatusCode::OK, Json(resp))
         }
         Err(err) => {

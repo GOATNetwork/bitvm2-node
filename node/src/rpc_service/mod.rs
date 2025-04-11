@@ -86,7 +86,7 @@ pub(crate) async fn serve(addr: String, db_path: String) {
                         request.headers(),
                         request.headers().get("content-type")
                     );
-                },)
+                })
                 .on_response(
                     |response: &Response<Body>, latency: Duration, _span: &tracing::Span| {
                         tracing::info!(
@@ -95,7 +95,8 @@ pub(crate) async fn serve(addr: String, db_path: String) {
                             latency
                         );
                     },
-                ).on_failure(
+                )
+                .on_failure(
                     |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
                         tracing::error!("API Error: {:?}", error);
                     },

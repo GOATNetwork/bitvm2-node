@@ -1,7 +1,7 @@
 use crate::{FilterGraphsInfo, Graph, GraphStatus, Instance, Node};
+use sqlx::migrate::Migrator;
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
-use sqlx::migrate::Migrator;
 
 #[derive(Clone)]
 pub struct LocalDB {
@@ -27,7 +27,7 @@ impl LocalDB {
     }
 
     pub async fn migrate(&self) {
-        match MIGRATOR.run(&self.conn).await{
+        match MIGRATOR.run(&self.conn).await {
             Ok(_) => tracing::info!("Migration success"),
             Err(error) => {
                 panic!("error: {}", error);

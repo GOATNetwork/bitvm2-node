@@ -99,7 +99,6 @@ pub struct BridgeOutTransactionPrepareRequest {
 pub struct BridgeOutTransactionPrepareResponse {
     // TODO
     pub instance_id: String,
-
 }
 
 // // handler: committee
