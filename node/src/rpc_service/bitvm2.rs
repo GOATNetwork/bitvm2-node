@@ -140,6 +140,14 @@ pub struct InstanceGetResponse {
 }
 
 #[derive(Deserialize)]
+pub struct InstanceUpdateRequest {
+        pub instance: Instance,
+    }
+
+#[derive(Deserialize, Serialize)]
+pub struct InstanceUpdateResponse {}
+
+#[derive(Deserialize)]
 pub struct GraphGetRequest {
     pub graph_id: String,
 }
@@ -148,6 +156,15 @@ pub struct GraphGetRequest {
 pub struct GraphGetResponse {
     pub graph: Graph,
 }
+
+
+#[derive(Deserialize)]
+pub struct GraphUpdateRequest {
+        pub graph: Graph,
+    }
+
+#[derive(Deserialize, Serialize)]
+pub struct GraphUpdateResponse {}
 
 #[derive(Deserialize)]
 pub struct Pagination {

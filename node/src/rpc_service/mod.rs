@@ -21,6 +21,7 @@ use axum::extract::Request;
 use axum::handler::Handler;
 use axum::response::Response;
 use std::time::{Duration, UNIX_EPOCH};
+use axum::routing::put;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
@@ -64,12 +65,14 @@ pub(crate) async fn serve(addr: String, db_path: String) {
         .route("/v1/nodes", post(create_node))
         .route("/v1/nodes", get(get_nodes))
         .route("/v1/instances", get(get_instances_with_query_params))
+        .route("/v1/instances", post(create_instance))
         .route("/v1/instances/{:id}", get(get_instance))
+        .route("/v1/instances/{:id}", put(update_instance))
         .route("/v1/instances/action/bridge_in_tx_prepare", post(bridge_in_tx_prepare))
         .route("/v1/instances/{:id}/bridge_in/peg_gtc_mint", post(peg_btc_mint))
-        .route("/v1/instances/action/bridge_out_tx_prepare", post(bridge_out_tx_prepare))
         .route("/v1/graphs", post(create_graph))
         .route("/v1/graphs/{:id}", get(get_graph))
+        .route("/v1/graphs/{:id}", put(update_graph))
         .route("/v1/graphs", get(graph_list))
         .route("/v1/graphs/{:id}/presign", post(graph_presign))
         .route("/v1/graphs/presign_check", post(graph_presign_check))

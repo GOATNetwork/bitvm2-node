@@ -156,37 +156,70 @@ pub async fn peg_btc_mint(
     }
 }
 
-#[axum::debug_handler]
-pub async fn bridge_out_tx_prepare(
-    State(local_db): State<Arc<LocalDB>>,
-    Json(payload): Json<BridgeOutTransactionPrepareRequest>,
-) -> (StatusCode, Json<BridgeOutTransactionPrepareResponse>) {
-    // TODO
-    let instance = Instance {
-        instance_id: payload.instance_id.clone(),
-        bridge_path: BridgePath::BtcToPGBtc.to_u8(),
-        from_addr: "e38f368dd8187af3af56d1af3ad3125152cfbcf9".to_string(),
-        to_addr: "tb1qkrhp3khxam3hj2kl9y77m2uctj2hkyh248chkp".to_string(),
-        amount: 10000,
-        created_at: current_time_secs(),
-        updated_at: current_time_secs(),
-        status: BridgeOutStatus::L2Locked.to_string(),
-        ..Default::default()
-    };
+// #[axum::debug_handler]
+// pub async fn bridge_out_tx_prepare(
+//     State(local_db): State<Arc<LocalDB>>,
+//     Json(payload): Json<BridgeOutTransactionPrepareRequest>,
+// ) -> (StatusCode, Json<BridgeOutTransactionPrepareResponse>) {
+//     // TODO
+//     let instance = Instance {
+//         instance_id: payload.instance_id.clone(),
+//         bridge_path: BridgePath::BtcToPGBtc.to_u8(),
+//         from_addr: "e38f368dd8187af3af56d1af3ad3125152cfbcf9".to_string(),
+//         to_addr: "tb1qkrhp3khxam3hj2kl9y77m2uctj2hkyh248chkp".to_string(),
+//         amount: 10000,
+//         created_at: current_time_secs(),
+//         updated_at: current_time_secs(),
+//         status: BridgeOutStatus::L2Locked.to_string(),
+//         ..Default::default()
+//     };
+//
+//     match local_db.create_instance(instance.clone()).await {
+//         Ok(_res) => {
+//             let resp = BridgeOutTransactionPrepareResponse {
+//                 instance_id: instance.instance_id.clone(),
+//             };
+//             (StatusCode::OK, Json(resp))
+//         }
+//         Err(err) => {
+//             tracing::warn!("bridge_out_tx_prepare, params:{:?} err:{:?}", payload, err);
+//             (
+//                 StatusCode::INTERNAL_SERVER_ERROR,
+//                 Json(BridgeOutTransactionPrepareResponse::default()),
+//             )
+//         }
+//     }
+// }
 
-    match local_db.create_instance(instance.clone()).await {
-        Ok(_res) => {
-            let resp = BridgeOutTransactionPrepareResponse {
-                instance_id: instance.instance_id.clone(),
-            };
-            (StatusCode::OK, Json(resp))
-        }
+#[axum::debug_handler]
+pub async fn create_instance(
+    State(local_db): State<Arc<LocalDB>>,
+    Json(payload): Json<InstanceUpdateRequest>,
+) -> (StatusCode, Json<InstanceUpdateResponse>) {
+    match local_db.create_instance(payload.instance).await {
+        Ok(_) => (StatusCode::OK, Json(InstanceUpdateResponse {})),
         Err(err) => {
-            tracing::warn!("bridge_out_tx_prepare, params:{:?} err:{:?}", payload, err);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(BridgeOutTransactionPrepareResponse::default()),
-            )
+            tracing::warn!("create_instance  err:{:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceUpdateResponse {}))
+        }
+    }
+}
+
+#[axum::debug_handler]
+pub async fn update_instance(
+    Path(instance_id): Path<String>,
+    State(local_db): State<Arc<LocalDB>>,
+    Json(payload): Json<InstanceUpdateRequest>,
+) -> (StatusCode, Json<InstanceUpdateResponse>) {
+    if instance_id != payload.instance.instance_id {
+        tracing::warn!("instance id in boy and path not match");
+        return (StatusCode::BAD_REQUEST, Json(InstanceUpdateResponse {}));
+    }
+    match local_db.update_instance(payload.instance).await {
+        Ok(_) => (StatusCode::OK, Json(InstanceUpdateResponse {})),
+        Err(err) => {
+            tracing::warn!("update_instance  err:{:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceUpdateResponse {}))
         }
     }
 }
@@ -230,6 +263,26 @@ pub async fn get_graph(
         Json(GraphGetResponse { graph: local_db.get_graph(&graph_id).await.expect("get graph") }),
     )
 }
+
+#[axum::debug_handler]
+pub async fn update_graph(
+    Path(graph_id): Path<String>,
+    State(local_db): State<Arc<LocalDB>>,
+    Json(payload): Json<GraphUpdateRequest>,
+) -> (StatusCode, Json<GraphUpdateResponse>) {
+    if graph_id != payload.graph.graph_id {
+        tracing::warn!("graph id in boy and path not match");
+        return (StatusCode::BAD_REQUEST, Json(GraphUpdateResponse {}));
+    }
+    match local_db.update_graph(payload.graph).await {
+        Ok(_) => (StatusCode::OK, Json(GraphUpdateResponse {})),
+        Err(err) => {
+            tracing::warn!("update_graph  err:{:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(GraphUpdateResponse {}))
+        }
+    }
+}
+
 #[axum::debug_handler]
 pub async fn graph_list(
     Query(pagination): Query<Pagination>,
