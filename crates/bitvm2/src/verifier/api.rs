@@ -1,11 +1,14 @@
 use bitcoin::{Address, Transaction};
 use bitvm::treepp::*;
 use bitvm::chunk::api::{validate_assertions, NUM_TAPS, type_conversion_utils::{RawWitness, script_to_witness, utils_signatures_from_raw_witnesses}};
-use goat::transactions::base::BaseTransaction;
+use goat::transactions::{
+    base::BaseTransaction,
+    pre_signed::PreSignedTransaction,
+    assert::utils::*,
+};
 use crate::types::{
     Bitvm2Graph, Groth16WotsPublicKeys, Groth16WotsSignatures, VerifyingKey, WotsPublicKeys
 };
-use goat::transactions::assert::utils::*;
 use goat::connectors::connector_c::{ConnectorC, get_commit_from_assert_commit_tx};
 use anyhow::{Result, bail};
 
@@ -25,7 +28,7 @@ pub fn verify_proof(
     disprove_scripts: &[Script;NUM_TAPS], 
     wots_pubkeys: &WotsPublicKeys,
 ) -> Option<(usize, Script)> {
-    validate_assertions(&ark_vkey, proof_sigs, wots_pubkeys.1, disprove_scripts)
+    validate_assertions(&ark_vkey, proof_sigs, *wots_pubkeys.1, disprove_scripts)
 }
 
 // challenge has a pre-signed SinglePlusAnyoneCanPay input and output
@@ -36,7 +39,7 @@ pub fn export_challenge_tx(
     if !graph.operator_pre_signed() {
         bail!("missing pre-signatures from operator".to_string())
     };
-    Ok(graph.challenge.finalize())
+    Ok(graph.challenge.tx().clone())
 }
 
 pub fn sign_disprove(
@@ -140,6 +143,9 @@ fn test_extract_proof() {
         committee_pubkeys, 
         committee_agg_pubkey, 
         operator_pubkey, 
+        operator_wots_pubkeys: operator_wots_pubkeys.clone(),
+        user_inputs,
+        operator_inputs,
     };
 
     let mock_script = script!{OP_TRUE};
@@ -147,10 +153,7 @@ fn test_extract_proof() {
     let mock_disprove_scripts_bytes: [Vec<u8>; NUM_TAPS] = std::array::from_fn(|_| mock_script_bytes.clone());
 
     let mut graph = operator::generate_bitvm_graph(
-        user_inputs, 
-        operator_inputs, 
         params, 
-        &operator_wots_pubkeys, 
         mock_disprove_scripts_bytes.to_vec(),
     ).unwrap();
 
