@@ -1,3 +1,4 @@
+use crate::rpc_service::AppState;
 use crate::rpc_service::node::{
     NodeDesc, NodeListResponse, NodeQueryParams, UpdateOrInsertNodeRequest,
 };
@@ -11,7 +12,7 @@ use store::localdb::LocalDB;
 
 #[axum::debug_handler]
 pub async fn create_node(
-    State(local_db): State<Arc<LocalDB>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateOrInsertNodeRequest>,
 ) -> (StatusCode, Json<Node>) {
     let node = Node {
@@ -20,7 +21,7 @@ pub async fn create_node(
         updated_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
             as i64,
     };
-    match local_db.update_node(node.clone()).await {
+    match app_state.local_db.update_node(node.clone()).await {
         Ok(res) => {
             tracing::info!("create node, db rows affected:{}", res);
             (StatusCode::OK, Json(node))
@@ -35,9 +36,10 @@ pub async fn create_node(
 #[axum::debug_handler]
 pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
-    State(local_db): State<Arc<LocalDB>>,
+    State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<NodeListResponse>) {
-    match local_db
+    match app_state
+        .local_db
         .node_list(query_params.actor.clone(), query_params.offset, query_params.limit)
         .await
     {
