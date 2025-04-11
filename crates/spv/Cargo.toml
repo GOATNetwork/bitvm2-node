@@ -16,6 +16,7 @@ bitvm = { workspace = true }
 anyhow = { workspace = true }
 tokio = {workspace = true}
 futures = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 hex-literal = "0.4.1"

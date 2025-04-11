@@ -2,7 +2,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use crate::utils::calculate_double_sha256;
-use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
 pub struct BitcoinMerkleTree {

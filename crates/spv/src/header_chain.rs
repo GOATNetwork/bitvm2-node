@@ -4,7 +4,6 @@ use bitcoin::{
     hashes::Hash,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-use crypto_bigint::{Encoding, U256};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 /// Bitcoin block header.
