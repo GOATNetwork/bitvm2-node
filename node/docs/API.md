@@ -52,7 +52,7 @@ http://127.0.0.1:8080
     {
       "peer_id": "string",
       "actor": "string",
-      "update_at": "string",
+      "updated_at": "string",
       "status": "string"
     }
   ]
@@ -68,21 +68,22 @@ http://127.0.0.1:8080
 - **Path Parameters**:
     - `id`: Instance ID
 - **Response**:
-  ```json
-  {
+```json
+{
     "instance_id": "string",
     "bridge_path": "string",
-    "from": "string",
-    "to": "string",
+    "from_addr": "string",
+    "to_addr": "string",
     "amount": "number",
-    "created_at": "number",     
-    "update_at": "number",     
+    "created_at": "number",
+    "update_at": "number",
     "status": "string",
     "goat_txid": "string",
     "btc_txid": "string",
-    "pegin_tx": "string"
-  }
-  ```
+    "pegin_tx": "string",
+    "kickoff_tx": "string"
+}
+```
 
 #### Filter Instances
 
@@ -133,52 +134,6 @@ http://127.0.0.1:8080
 - **Response**:
   ```json
   {}
-  ```
-
-#### Bridge Out Transaction Prepare
-
-- **Endpoint**: `POST /v1/instances/action/bridge_out_tx_prepare`
-- **Description**: Prepare a bridge-out transaction
-- **Request Body**:
-  ```json
-  {
-    "instance_id": "string",
-    "pegout_txid": "string",
-    "operator": "string"
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "instance_id": "string",
-    "btc_hashed_timelock_utxo": {
-        "txid": "string",
-        "vout": "number",
-        "value": "number"
-      },
-    "operator_refund_address": "string"      
-  }
-  ```
-
-#### Bridge Out User Claim
-
-- **Endpoint**: `POST /v1/instances/{id}/bridge_out/user_claim`
-- **Description**: Submit a user claim for bridge-out operation
-- **Path Parameters**:
-    - `id`: Instance ID
-- **Request Body**:
-  ```json
-  {
-    "pegout_txid": "string",
-    "signed_claim_txn": "string"
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "instance_id": "string", 
-    "claim_txid": "string"      
-  }
   ```
 
 ### 4. Graph Management
@@ -288,17 +243,18 @@ http://127.0.0.1:8080
     "instance_status": "string",
     "graph_status": "json",
     "tx":{
-  "instance_id": "string",
+    "instance_id": "string",
     "bridge_path": "string",
-    "from": "string",
-    "to": "string",
+    "from_addr": "string",
+    "to_addr": "string",
     "amount": "number",
-    "created_at": "number",     
-    "update_at": "number",     
+    "created_at": "number",
+    "update_at": "number",
     "status": "string",
     "goat_txid": "string",
     "btc_txid": "string",
-    "pegin_tx": "string"
+    "pegin_tx": "string",
+    "kickoff_tx": "string"
   } 
   }
   ```

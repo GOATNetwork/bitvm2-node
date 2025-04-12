@@ -11,6 +11,7 @@ CREATE TABLE instance
     `goat_txid`   TEXT      NOT NULL DEFAULT '',
     `btc_txid`    TEXT      NOT NULL DEFAULT '',
     `pegin_tx`    TEXT,
+    `kickoff_tx`  TEXT,
     `created_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`instance_id`)

@@ -38,7 +38,7 @@ impl LocalDB {
     pub async fn create_instance(&self, instance: Instance) -> anyhow::Result<bool> {
         let res = sqlx::query!(
             "INSERT INTO  instance (instance_id, bridge_path, from_addr, to_addr, amount, \
-            status, goat_txid, btc_txid ,pegin_tx)  VALUES (?,?,?,?,?,?,?,?,?)",
+            status, goat_txid, btc_txid ,pegin_tx, kickoff_tx)  VALUES (?,?,?,?,?,?,?,?,?,?)",
             instance.instance_id,
             instance.bridge_path,
             instance.from_addr,
@@ -48,6 +48,7 @@ impl LocalDB {
             instance.goat_txid,
             instance.btc_txid,
             instance.pegin_tx,
+            instance.kickoff_tx,
         )
         .execute(&self.conn)
         .await?;
@@ -58,7 +59,7 @@ impl LocalDB {
         let row = sqlx::query_as!(
             Instance,
             "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
-            btc_txid ,pegin_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" \
+            btc_txid ,pegin_tx, kickoff_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" \
             FROM  instance where instance_id = ?",
             instance_id
         ).fetch_one(&self.conn)
@@ -75,7 +76,7 @@ impl LocalDB {
             Some(user) => {
                 sqlx::query_as!(
                     Instance,
-                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, \
+                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
                     created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance where from_addr = ? \
                     ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                     user,
@@ -86,7 +87,7 @@ impl LocalDB {
             None => {
                 sqlx::query_as!(
                     Instance,
-                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, \
+                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
                      created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance  \
                      ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                     limit,
@@ -101,7 +102,7 @@ impl LocalDB {
     pub async fn update_instance(&self, instance: Instance) -> anyhow::Result<u64> {
         let row = sqlx::query!(
             "UPDATE instance SET bridge_path = ?, from_addr= ?, to_addr= ?,  \
-        amount= ?, status= ?, goat_txid= ?, btc_txid= ? ,pegin_tx= ? WHERE instance_id = ?",
+        amount= ?, status= ?, goat_txid= ?, btc_txid= ?, pegin_tx= ?, kickoff_tx = ? WHERE instance_id = ?",
             instance.bridge_path,
             instance.from_addr,
             instance.to_addr,
@@ -110,6 +111,7 @@ impl LocalDB {
             instance.goat_txid,
             instance.btc_txid,
             instance.pegin_tx,
+            instance.kickoff_tx,
             instance.instance_id
         )
         .execute(&self.conn)

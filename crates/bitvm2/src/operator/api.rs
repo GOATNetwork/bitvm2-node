@@ -63,8 +63,11 @@ pub fn wots_secrets_to_pubkeys(secrets: &WotsSecretKeys) -> WotsPublicKeys {
         let p160 = wots_hash::generate_public_key(&secrets.1[i + NUM_PUBS + NUM_U256]);
         h_arr.push(p160);
     }
-    let g16_wotspubkey: Groth16WotsPublicKeys =
-        (pubins.try_into().unwrap(), fq_arr.try_into().unwrap(), h_arr.try_into().unwrap());
+    let g16_wotspubkey: Groth16WotsPublicKeys = Box::new((
+        pubins.try_into().unwrap(),
+        fq_arr.try_into().unwrap(),
+        h_arr.try_into().unwrap(),
+    ));
 
     let mut kickoff_wotspubkey = vec![];
     for i in 0..NUM_KICKOFF {
@@ -120,11 +123,8 @@ pub fn generate_partial_scripts(ark_vkey: &VerifyingKey) -> Vec<Script> {
     api_generate_partial_script(ark_vkey)
 }
 
-pub fn generate_disprove_scripts(
-    partial_scripts: &Vec<Script>,
-    wots_pubkeys: &WotsPublicKeys,
-) -> Vec<Script> {
-    api_generate_full_tapscripts(wots_pubkeys.1, partial_scripts)
+pub fn generate_disprove_scripts(partial_scripts: &Vec<Script>, wots_pubkeys: &WotsPublicKeys) -> Vec<Script> {
+    api_generate_full_tapscripts(*wots_pubkeys.1, partial_scripts)
 }
 
 pub fn sign_proof(
@@ -137,10 +137,7 @@ pub fn sign_proof(
 }
 
 pub fn generate_bitvm_graph(
-    user_inputs: CustomInputs,
-    operator_inputs: CustomInputs,
     params: Bitvm2Parameters,
-    operator_wots_pubkeys: &WotsPublicKeys,
     disprove_scripts_bytes: Vec<Vec<u8>>,
 ) -> Result<Bitvm2Graph> {
     fn inputs_check(inputs: &CustomInputs) -> Result<()> {
@@ -151,6 +148,9 @@ pub fn generate_bitvm_graph(
             Ok(())
         }
     }
+
+    let user_inputs = params.user_inputs.clone();
+    let operator_inputs = params.operator_inputs.clone();
 
     // check inputs amount
     if let Err(err) = inputs_check(&user_inputs) {
@@ -183,10 +183,12 @@ pub fn generate_bitvm_graph(
     // Pre-Kickoff
     let operator_pubkey = params.operator_pubkey;
     let operator_taproot_pubkey = XOnlyPublicKey::from(operator_pubkey);
-    let kickoff_wots_commitment_keys =
-        CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
-    let connector_6 =
-        Connector6::new(network, &operator_taproot_pubkey, &kickoff_wots_commitment_keys);
+    let kickoff_wots_commitment_keys = CommitmentMessageId::pubkey_map_for_kickoff(&params.operator_wots_pubkeys.0);
+    let connector_6 = Connector6::new(
+        network,
+        &operator_taproot_pubkey,
+        &kickoff_wots_commitment_keys,
+    );
     let pre_kickoff = PreKickoffTransaction::new_unsigned(
         &connector_6,
         operator_inputs.inputs,
@@ -256,10 +258,16 @@ pub fn generate_bitvm_graph(
     );
 
     // assert-initial
-    let assert_wots_pubkeys = &operator_wots_pubkeys.1;
-    let connector_d = ConnectorD::new(network, &committee_taproot_pubkey);
-    let all_assert_commit_connectors_e =
-        AllCommitConnectorsE::new(network, &operator_pubkey, &assert_wots_pubkeys);
+    let assert_wots_pubkeys = &params.operator_wots_pubkeys.1;
+    let connector_d = ConnectorD::new(
+        network,
+        &committee_taproot_pubkey,
+    );
+    let all_assert_commit_connectors_e = AllCommitConnectorsE::new(
+        network,
+        &operator_pubkey,
+        &assert_wots_pubkeys,
+    );
     let assert_init_input_0_vout: usize = 2;
     let assert_init_input_0 = Input {
         outpoint: OutPoint { txid: kickoff_txid, vout: assert_init_input_0_vout as u32 },

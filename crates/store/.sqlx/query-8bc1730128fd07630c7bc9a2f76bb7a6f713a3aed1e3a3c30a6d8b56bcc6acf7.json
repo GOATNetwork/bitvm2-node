@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance  ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+  "query": "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance where from_addr = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -49,18 +49,23 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at: i64",
+        "name": "kickoff_tx",
         "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at: i64",
+        "ordinal": 10,
         "type_info": "Datetime"
       },
       {
         "name": "updated_at: i64",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Datetime"
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 3
     },
     "nullable": [
       false,
@@ -72,9 +77,10 @@
       false,
       false,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "a3184a354f089505444cd84451cb2bd268a4c46e7c0e33ac03164cef9663967d"
+  "hash": "8bc1730128fd07630c7bc9a2f76bb7a6f713a3aed1e3a3c30a6d8b56bcc6acf7"
 }
