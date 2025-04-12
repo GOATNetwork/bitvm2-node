@@ -27,7 +27,7 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 pub static MSG_QUEUE: LazyLock<Arc<Mutex<HashMap<String, MuSig2StateMachine>>>> =
-    { LazyLock::new(|| Arc::new(Mutex::new(HashMap::new()))) };
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub struct MuSig2StateMachine {
     pub ctx: KeyAggContext,

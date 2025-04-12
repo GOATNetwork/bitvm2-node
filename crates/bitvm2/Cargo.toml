@@ -12,7 +12,7 @@ ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
 sha2 = { workspace = true }
 rand = { workspace = true }
-bitcoin = { workspace = true }
+bitcoin = { workspace = true, features = ["serde"] }
 musig2 = { workspace = true }
 secp256k1 = { workspace = true }
 anyhow = { workspace = true }

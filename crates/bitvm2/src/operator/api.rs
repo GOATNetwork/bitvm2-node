@@ -123,7 +123,10 @@ pub fn generate_partial_scripts(ark_vkey: &VerifyingKey) -> Vec<Script> {
     api_generate_partial_script(ark_vkey)
 }
 
-pub fn generate_disprove_scripts(partial_scripts: &Vec<Script>, wots_pubkeys: &WotsPublicKeys) -> Vec<Script> {
+pub fn generate_disprove_scripts(
+    partial_scripts: &Vec<Script>,
+    wots_pubkeys: &WotsPublicKeys,
+) -> Vec<Script> {
     api_generate_full_tapscripts(*wots_pubkeys.1, partial_scripts)
 }
 
@@ -183,12 +186,10 @@ pub fn generate_bitvm_graph(
     // Pre-Kickoff
     let operator_pubkey = params.operator_pubkey;
     let operator_taproot_pubkey = XOnlyPublicKey::from(operator_pubkey);
-    let kickoff_wots_commitment_keys = CommitmentMessageId::pubkey_map_for_kickoff(&params.operator_wots_pubkeys.0);
-    let connector_6 = Connector6::new(
-        network,
-        &operator_taproot_pubkey,
-        &kickoff_wots_commitment_keys,
-    );
+    let kickoff_wots_commitment_keys =
+        CommitmentMessageId::pubkey_map_for_kickoff(&params.operator_wots_pubkeys.0);
+    let connector_6 =
+        Connector6::new(network, &operator_taproot_pubkey, &kickoff_wots_commitment_keys);
     let pre_kickoff = PreKickoffTransaction::new_unsigned(
         &connector_6,
         operator_inputs.inputs,
@@ -259,15 +260,9 @@ pub fn generate_bitvm_graph(
 
     // assert-initial
     let assert_wots_pubkeys = &params.operator_wots_pubkeys.1;
-    let connector_d = ConnectorD::new(
-        network,
-        &committee_taproot_pubkey,
-    );
-    let all_assert_commit_connectors_e = AllCommitConnectorsE::new(
-        network,
-        &operator_pubkey,
-        &assert_wots_pubkeys,
-    );
+    let connector_d = ConnectorD::new(network, &committee_taproot_pubkey);
+    let all_assert_commit_connectors_e =
+        AllCommitConnectorsE::new(network, &operator_pubkey, &assert_wots_pubkeys);
     let assert_init_input_0_vout: usize = 2;
     let assert_init_input_0 = Input {
         outpoint: OutPoint { txid: kickoff_txid, vout: assert_init_input_0_vout as u32 },

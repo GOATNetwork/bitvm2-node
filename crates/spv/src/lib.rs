@@ -2,13 +2,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 mod header_chain;
 pub use header_chain::*;
-mod MMR;
 mod merkle_tree;
+mod mmr;
 mod transaction;
 mod utils;
 
-pub use MMR::*;
 pub use merkle_tree::*;
+pub use mmr::*;
 pub use transaction::*;
 
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]

@@ -1,6 +1,6 @@
-use crate::{FilterGraphsInfo, Graph, GraphStatus, Instance, Node};
+use crate::{FilterGraphsInfo, Graph, Instance, Node};
 use sqlx::migrate::Migrator;
-use sqlx::{FromRow, Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
+use sqlx::{Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -257,9 +257,8 @@ impl LocalDB {
             .fetch_one(&self.conn)
             .await?
             .total;
-        let time_pri = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-            as i64
-            - time_threshold;
+        let time_pri =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 - time_threshold;
         tracing::info!("{time_pri}");
         let alive = sqlx::query!(
             "SELECT COUNT(peer_id)  as alive FROM node WHERE updated_at  >= ? ",

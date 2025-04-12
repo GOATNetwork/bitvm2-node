@@ -28,17 +28,11 @@ pub type Groth16WotsSignatures = ApiWotsSignatures;
 const NUM_SIGS: usize = NUM_PUBS + NUM_HASH + NUM_U256;
 pub type KickoffWotsSecretKeys = Box<[WinternitzSecret; NUM_KICKOFF]>;
 pub type Groth16WotsSecretKeys = Box<[String; NUM_SIGS]>;
-pub type WotsSecretKeys = (
-    KickoffWotsSecretKeys,
-    Groth16WotsSecretKeys,
-);
+pub type WotsSecretKeys = (KickoffWotsSecretKeys, Groth16WotsSecretKeys);
 
 pub type Groth16WotsPublicKeys = Box<ApiWotsPublicKeys>;
 pub type KickoffWotsPublicKeys = Box<[WinternitzPublicKey; NUM_KICKOFF]>;
-pub type WotsPublicKeys = (
-    KickoffWotsPublicKeys,
-    Groth16WotsPublicKeys,
-);
+pub type WotsPublicKeys = (KickoffWotsPublicKeys, Groth16WotsPublicKeys);
 
 pub fn random_string(len: usize) -> String {
     rand::thread_rng().sample_iter(&Alphanumeric).take(len).map(char::from).collect()
@@ -178,12 +172,12 @@ pub fn get_magic_bytes(net: &Network) -> Vec<u8> {
 }
 
 pub mod node_serializer {
-    use serde::{self, Serializer, Deserialize, Deserializer, ser::Error};
+    use serde::{self, Deserialize, Deserializer, Serializer, ser::Error};
     use std::str::FromStr;
 
     pub mod address {
-        use bitcoin::Address;
         use super::*;
+        use bitcoin::Address;
 
         pub fn serialize<S>(addr: &Address, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -199,20 +193,19 @@ pub mod node_serializer {
             let s = String::deserialize(deserializer)?;
             match Address::from_str(&s) {
                 Ok(addr) => Ok(addr.assume_checked()),
-                Err(e) => Err(serde::de::Error::custom(e))
+                Err(e) => Err(serde::de::Error::custom(e)),
             }
         }
     }
 
     pub mod wots_pubkeys {
         use super::*;
-        use std::collections::HashMap;
         use crate::types::WotsPublicKeys;
-        use bitvm::chunk::api::{NUM_PUBS, NUM_HASH, NUM_U256};
-        use bitvm::signatures::wots_api::{wots256, wots_hash};
+        use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bitvm::signatures::signing_winternitz::WinternitzPublicKey;
+        use bitvm::signatures::wots_api::{wots_hash, wots256};
         use goat::commitments::NUM_KICKOFF;
-
+        use std::collections::HashMap;
 
         pub fn serialize<S>(pubkeys: &WotsPublicKeys, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -248,7 +241,6 @@ pub mod node_serializer {
             serializer.serialize_bytes(&map_vec)
         }
 
-
         pub fn deserialize<'de, D>(deserializer: D) -> Result<WotsPublicKeys, D::Error>
         where
             D: Deserializer<'de>,
@@ -260,30 +252,27 @@ pub mod node_serializer {
             const W256_LEN: usize = wots256::N_DIGITS as usize;
             const WHASH_LEN: usize = wots_hash::N_DIGITS as usize;
 
-
             let mut pk0 = Vec::with_capacity(NUM_PUBS);
             let (min, max) = (0, NUM_PUBS);
             for i in min..max {
-                let v = pubkeys_map
-                    .get(&(i as u32))
-                    .ok_or_else(|| serde::de::Error::custom(format!("Missing groth16pk.pub.[{}]", i)))?;
+                let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
+                    serde::de::Error::custom(format!("Missing groth16pk.pub.[{}]", i))
+                })?;
 
                 if v.len() != W256_LEN as usize {
-                    return Err(serde::de::Error::custom("Invalid wots public-key length"))
+                    return Err(serde::de::Error::custom("Invalid wots public-key length"));
                 };
 
                 let mut res = [[0u8; 20]; W256_LEN];
                 for (j, bytes) in v.iter().enumerate() {
-                    res[j] = bytes
-                        .as_slice()
-                        .try_into()
-                        .map_err(|_| serde::de::Error::custom("Invalid 20-byte chunk in wots256::PublicKey"))?;
+                    res[j] = bytes.as_slice().try_into().map_err(|_| {
+                        serde::de::Error::custom("Invalid 20-byte chunk in wots256::PublicKey")
+                    })?;
                 }
 
-                pk0.push(
-                    res.try_into()
-                        .map_err(|_| serde::de::Error::custom("Failed to convert to wots256::PublicKey"))?,
-                );
+                pk0.push(res.try_into().map_err(|_| {
+                    serde::de::Error::custom("Failed to convert to wots256::PublicKey")
+                })?);
             }
             let pk0: [wots256::PublicKey; NUM_PUBS] = pk0
                 .try_into()
@@ -292,26 +281,24 @@ pub mod node_serializer {
             let mut pk1 = Vec::with_capacity(NUM_U256);
             let (min, max) = (max, max + NUM_U256);
             for i in min..max {
-                let v = pubkeys_map
-                    .get(&(i as u32))
-                    .ok_or_else(|| serde::de::Error::custom(format!("Missing groth16pk.wot256.[{}]", i)))?;
+                let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
+                    serde::de::Error::custom(format!("Missing groth16pk.wot256.[{}]", i))
+                })?;
 
                 if v.len() != W256_LEN as usize {
-                    return Err(serde::de::Error::custom("Invalid wots public-key length"))
+                    return Err(serde::de::Error::custom("Invalid wots public-key length"));
                 };
 
                 let mut res = [[0u8; 20]; W256_LEN];
                 for (j, bytes) in v.iter().enumerate() {
-                    res[j] = bytes
-                        .as_slice()
-                        .try_into()
-                        .map_err(|_| serde::de::Error::custom("Invalid 20-byte chunk in wots256::PublicKey"))?;
+                    res[j] = bytes.as_slice().try_into().map_err(|_| {
+                        serde::de::Error::custom("Invalid 20-byte chunk in wots256::PublicKey")
+                    })?;
                 }
 
-                pk1.push(
-                    res.try_into()
-                        .map_err(|_| serde::de::Error::custom("Failed to convert to wots256::PublicKey"))?,
-                );
+                pk1.push(res.try_into().map_err(|_| {
+                    serde::de::Error::custom("Failed to convert to wots256::PublicKey")
+                })?);
             }
             let pk1: [wots256::PublicKey; NUM_U256] = pk1
                 .try_into()
@@ -320,26 +307,24 @@ pub mod node_serializer {
             let mut pk2 = Vec::with_capacity(NUM_HASH);
             let (min, max) = (max, max + NUM_HASH);
             for i in min..max {
-                let v = pubkeys_map
-                    .get(&(i as u32))
-                    .ok_or_else(|| serde::de::Error::custom(format!("Missing groth16pk.wothash.[{}]", i)))?;
+                let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
+                    serde::de::Error::custom(format!("Missing groth16pk.wothash.[{}]", i))
+                })?;
 
                 if v.len() != WHASH_LEN as usize {
-                    return Err(serde::de::Error::custom("Invalid wots public-key length"))
+                    return Err(serde::de::Error::custom("Invalid wots public-key length"));
                 };
 
                 let mut res = [[0u8; 20]; WHASH_LEN];
                 for (j, bytes) in v.iter().enumerate() {
-                    res[j] = bytes
-                        .as_slice()
-                        .try_into()
-                        .map_err(|_| serde::de::Error::custom("Invalid 20-byte chunk in wots_hash::PublicKey"))?;
+                    res[j] = bytes.as_slice().try_into().map_err(|_| {
+                        serde::de::Error::custom("Invalid 20-byte chunk in wots_hash::PublicKey")
+                    })?;
                 }
 
-                pk2.push(
-                    res.try_into()
-                        .map_err(|_| serde::de::Error::custom("Failed to convert to wots_hash::PublicKey"))?,
-                );
+                pk2.push(res.try_into().map_err(|_| {
+                    serde::de::Error::custom("Failed to convert to wots_hash::PublicKey")
+                })?);
             }
             let pk2: [wots_hash::PublicKey; NUM_HASH] = pk2
                 .try_into()
@@ -348,9 +333,9 @@ pub mod node_serializer {
             let mut pk_kickoff: Vec<WinternitzPublicKey> = vec![];
             let (min, max) = (max, max + NUM_KICKOFF);
             for i in min..max {
-                let v = pubkeys_map
-                    .get(&(i as u32))
-                    .ok_or_else(|| serde::de::Error::custom(format!("Missing kickoff_pk.[{}]", i)))?;
+                let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
+                    serde::de::Error::custom(format!("Missing kickoff_pk.[{}]", i))
+                })?;
 
                 if v.len() != NUM_KICKOFF {
                     return Err(serde::de::Error::custom("Invalid kickoff wots public-key number"));
@@ -363,22 +348,23 @@ pub mod node_serializer {
                     pk_kickoff.push(pk);
                 }
             }
-            let pk_kickoff: [WinternitzPublicKey; NUM_KICKOFF] = pk_kickoff.try_into().unwrap_or_else(|_e| panic!("kickoff bitcom keys number not match"));
+            let pk_kickoff: [WinternitzPublicKey; NUM_KICKOFF] = pk_kickoff
+                .try_into()
+                .unwrap_or_else(|_e| panic!("kickoff bitcom keys number not match"));
 
-            Ok((
-                Box::new(pk_kickoff),
-                Box::new((pk0, pk1, pk2)),
-            ))
+            Ok((Box::new(pk_kickoff), Box::new((pk0, pk1, pk2))))
         }
     }
 
     pub mod wots_seckeys {
-        use serde::{Serializer, Deserializer, ser::Error, de::Error as DeError};
-        use serde::ser::SerializeTuple;
         use serde::de::{SeqAccess, Visitor};
+        use serde::ser::SerializeTuple;
+        use serde::{Deserializer, Serializer, de::Error as DeError, ser::Error};
         use std::fmt;
 
-        use crate::types::{NUM_KICKOFF, NUM_SIGS, KickoffWotsSecretKeys, Groth16WotsSecretKeys, WotsSecretKeys};
+        use crate::types::{
+            Groth16WotsSecretKeys, KickoffWotsSecretKeys, NUM_KICKOFF, NUM_SIGS, WotsSecretKeys,
+        };
 
         pub fn serialize<S>(keys: &WotsSecretKeys, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -387,7 +373,9 @@ pub mod node_serializer {
             let mut tuple = serializer.serialize_tuple(2)?;
 
             // kickoff keys: serialize as Vec<Vec<u8>> via serde_json
-            let kickoff_encoded: Vec<Vec<u8>> = keys.0.iter()
+            let kickoff_encoded: Vec<Vec<u8>> = keys
+                .0
+                .iter()
                 .map(|k| serde_json::to_vec(k).map_err(S::Error::custom))
                 .collect::<Result<_, _>>()?;
             tuple.serialize_element(&kickoff_encoded)?;
@@ -454,17 +442,16 @@ pub mod node_serializer {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::types::{WotsSecretKeys, WotsPublicKeys, node_serializer};
     use crate::operator::generate_wots_keys;
-    use serde::{Serialize, Deserialize};
+    use crate::types::{WotsPublicKeys, WotsSecretKeys, node_serializer};
+    use serde::{Deserialize, Serialize};
     use std::fmt::Debug;
 
     fn mock_wots_secret_keys() -> WotsKeys {
         let (secs, pubs) = generate_wots_keys("seed");
-        WotsKeys {secs, pubs}
+        WotsKeys { secs, pubs }
     }
 
     #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

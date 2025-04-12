@@ -1,15 +1,6 @@
-use bitcoin::{Address, Transaction};
-use bitvm::treepp::*;
-use bitvm::chunk::api::{validate_assertions, NUM_TAPS, type_conversion_utils::{RawWitness, script_to_witness, utils_signatures_from_raw_witnesses}};
-use goat::transactions::{
-    base::BaseTransaction,
-    pre_signed::PreSignedTransaction,
-    assert::utils::*,
-};
 use crate::types::{
     Bitvm2Graph, Groth16WotsPublicKeys, Groth16WotsSignatures, VerifyingKey, WotsPublicKeys,
 };
-use goat::connectors::connector_c::{ConnectorC, get_commit_from_assert_commit_tx};
 use anyhow::{Result, bail};
 use bitcoin::{Address, Transaction};
 use bitvm::chunk::api::{
@@ -18,9 +9,12 @@ use bitvm::chunk::api::{
     validate_assertions,
 };
 use bitvm::treepp::*;
+use bitvm::treepp::*;
 use goat::connectors::connector_c::{ConnectorC, get_commit_from_assert_commit_tx};
 use goat::transactions::assert::utils::*;
-use goat::transactions::base::BaseTransaction;
+use goat::transactions::{
+    assert::utils::*, base::BaseTransaction, pre_signed::PreSignedTransaction,
+};
 
 pub fn extract_proof_sigs_from_assert_commit_txns(
     assert_commit_txns: [Transaction; COMMIT_TX_NUM],
@@ -170,11 +164,8 @@ fn test_extract_proof() {
     let mock_disprove_scripts_bytes: [Vec<u8>; NUM_TAPS] =
         std::array::from_fn(|_| mock_script_bytes.clone());
 
-    let mut graph = operator::generate_bitvm_graph(
-        params,
-        mock_disprove_scripts_bytes.to_vec(),
-    )
-    .unwrap();
+    let mut graph =
+        operator::generate_bitvm_graph(params, mock_disprove_scripts_bytes.to_vec()).unwrap();
 
     // opeartor pre-sign
     println!("\nopeartor pre-sign");

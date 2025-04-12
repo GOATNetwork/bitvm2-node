@@ -1,6 +1,6 @@
 use crate::rpc_service::bitvm2::*;
-use crate::rpc_service::{current_time_secs, AppState};
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
+use crate::rpc_service::{AppState, current_time_secs};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use http::StatusCode;
@@ -14,7 +14,7 @@ use store::{
 
 #[axum::debug_handler]
 pub async fn bridge_in_tx_prepare(
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeInTransactionPreparerRequest>,
 ) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
     let instance = Instance {
@@ -40,7 +40,7 @@ pub async fn bridge_in_tx_prepare(
 
 #[axum::debug_handler]
 pub async fn create_graph(
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphGenerateRequest>,
 ) -> (StatusCode, Json<GraphGenerateResponse>) {
     // TODO create graph
@@ -79,7 +79,7 @@ pub async fn create_graph(
 #[axum::debug_handler]
 pub async fn graph_presign(
     Path(graph_id): Path<String>,
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphPresignRequest>,
 ) -> (StatusCode, Json<GraphPresignResponse>) {
     let resp = GraphPresignResponse {
@@ -108,7 +108,7 @@ pub async fn graph_presign(
 
 #[axum::debug_handler]
 pub async fn graph_presign_check(
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphPresignCheckRequest>,
 ) -> (StatusCode, Json<GraphPresignCheckResponse>) {
     let mut resp = GraphPresignCheckResponse {
@@ -138,7 +138,7 @@ pub async fn graph_presign_check(
 #[axum::debug_handler]
 pub async fn peg_btc_mint(
     Path(instance_id): Path<String>,
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<PegBTCMintRequest>,
 ) -> (StatusCode, Json<PegBTCMintResponse>) {
     let async_fn = || async move {
@@ -193,7 +193,7 @@ pub async fn peg_btc_mint(
 
 #[axum::debug_handler]
 pub async fn create_instance(
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<InstanceUpdateRequest>,
 ) -> (StatusCode, Json<InstanceUpdateResponse>) {
     match app_state.local_db.create_instance(payload.instance).await {
@@ -208,7 +208,7 @@ pub async fn create_instance(
 #[axum::debug_handler]
 pub async fn update_instance(
     Path(instance_id): Path<String>,
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<InstanceUpdateRequest>,
 ) -> (StatusCode, Json<InstanceUpdateResponse>) {
     if instance_id != payload.instance.instance_id {
@@ -227,9 +227,10 @@ pub async fn update_instance(
 #[axum::debug_handler]
 pub async fn get_instances_with_query_params(
     Query(params): Query<InstanceListRequest>,
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<InstanceListResponse>) {
-    match app_state.local_db.instance_list(&params.user_address, params.offset, params.limit).await {
+    match app_state.local_db.instance_list(&params.user_address, params.offset, params.limit).await
+    {
         Ok(instances) => (StatusCode::OK, Json(InstanceListResponse { instances })),
         Err(err) => {
             tracing::warn!("get_instances_with_query_params,  params:{:?} err:{:?}", params, err);
@@ -241,7 +242,7 @@ pub async fn get_instances_with_query_params(
 #[axum::debug_handler]
 pub async fn get_instance(
     Path(instance_id): Path<String>,
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<InstanceGetResponse>) {
     match app_state.local_db.get_instance(&instance_id).await {
         Ok(instance) => (StatusCode::OK, Json(InstanceGetResponse { instance })),
@@ -255,19 +256,21 @@ pub async fn get_instance(
 #[axum::debug_handler]
 pub async fn get_graph(
     Path(graph_id): Path<String>,
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<GraphGetResponse>) {
     ///TODO
     (
         StatusCode::OK,
-        Json(GraphGetResponse { graph: app_state.local_db.get_graph(&graph_id).await.expect("get graph") }),
+        Json(GraphGetResponse {
+            graph: app_state.local_db.get_graph(&graph_id).await.expect("get graph"),
+        }),
     )
 }
 
 #[axum::debug_handler]
 pub async fn update_graph(
     Path(graph_id): Path<String>,
-   State(app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphUpdateRequest>,
 ) -> (StatusCode, Json<GraphUpdateResponse>) {
     if graph_id != payload.graph.graph_id {
@@ -293,7 +296,8 @@ pub async fn graph_list(
     let resp = GraphListResponse::default();
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
-        resp_clone.graphs = app_state.local_db
+        resp_clone.graphs = app_state
+            .local_db
             .filter_graphs(&FilterGraphsInfo {
                 status: payload.status.to_string(),
                 pegin_txid: payload.pegin_txid,

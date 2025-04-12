@@ -2,14 +2,6 @@ mod bitvm2;
 mod handler;
 mod node;
 
-use axum::{
-    Router, middleware,
-    response::IntoResponse,
-    routing::{get, post},
-};
-use libp2p::core::Transport;
-use std::sync::{Arc, Mutex};
-use store::localdb::LocalDB;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::{
     bitvm2_handler::*,
@@ -21,10 +13,18 @@ use axum::extract::{Request, State};
 use axum::handler::Handler;
 use axum::response::Response;
 use axum::routing::put;
+use axum::{
+    Router, middleware,
+    response::IntoResponse,
+    routing::{get, post},
+};
 use http::HeaderMap;
+use libp2p::core::Transport;
 use prometheus_client::encoding::text::encode;
 use prometheus_client::registry::Registry;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
+use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};

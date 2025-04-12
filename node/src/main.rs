@@ -17,13 +17,13 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::ops::Add;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::thread::LocalKey;
 use std::{
     error::Error,
     net::Ipv4Addr,
     time::{Duration, Instant},
 };
-use std::sync::{Arc, Mutex};
 use tokio::{io, io::AsyncBufReadExt, select};
 
 use opentelemetry::{KeyValue, trace::TracerProvider as _};
@@ -145,7 +145,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let mut metric_registry = Registry::default();
-
 
     let local_key = {
         let keypair = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
