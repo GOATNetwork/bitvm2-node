@@ -40,7 +40,7 @@ pub fn committee_pre_sign(
             sighash_type,
         ) {
             Ok(v) => res.push(v),
-            Err(e) => bail!(format!("fail to sign {} input-{input_index}: {e}", tx.name())),
+            Err(e) => bail!("fail to sign {} input-{input_index}: {e}", tx.name()),
         };
     }
 
@@ -61,7 +61,7 @@ pub fn committee_pre_sign(
             sighash_type,
         ) {
             Ok(v) => res.push(v),
-            Err(e) => bail!(format!("fail to sign {} input-{input_index}: {e}", tx.name())),
+            Err(e) => bail!("fail to sign {} input-{input_index}: {e}", tx.name()),
         };
     }
 
@@ -82,7 +82,7 @@ pub fn committee_pre_sign(
             sighash_type,
         ) {
             Ok(v) => res.push(v),
-            Err(e) => bail!(format!("fail to sign {} input-{input_index}: {e}", tx.name())),
+            Err(e) => bail!("fail to sign {} input-{input_index}: {e}", tx.name()),
         };
     }
 
@@ -103,7 +103,7 @@ pub fn committee_pre_sign(
             sighash_type,
         ) {
             Ok(v) => res.push(v),
-            Err(e) => bail!(format!("fail to sign {} input-{input_index}: {e}", tx.name())),
+            Err(e) => bail!("fail to sign {} input-{input_index}: {e}", tx.name()),
         };
     }
 
@@ -124,7 +124,7 @@ pub fn committee_pre_sign(
             sighash_type,
         ) {
             Ok(v) => res.push(v),
-            Err(e) => bail!(format!("fail to sign {} input-{input_index}: {e}", tx.name())),
+            Err(e) => bail!("fail to sign {} input-{input_index}: {e}", tx.name()),
         };
     }
 
@@ -166,10 +166,10 @@ pub fn signature_aggregation_and_push(
             partial_sigs[nonce_index].clone(),
         ) {
             Ok(v) => bitcoin::taproot::Signature { signature: v.into(), sighash_type },
-            Err(e) => bail!(format!(
+            Err(e) => bail!(
                 "fail to aggregate partial-signatures of {} input-{input_index}: {e}",
                 tx.name()
-            )),
+            ),
         };
         tx.push_pre_sigs(&connector_0, agg_sig);
         res.push(tx.tx().input[input_index].witness.clone())
@@ -193,10 +193,10 @@ pub fn signature_aggregation_and_push(
             partial_sigs[nonce_index].clone(),
         ) {
             Ok(v) => bitcoin::taproot::Signature { signature: v.into(), sighash_type },
-            Err(e) => bail!(format!(
+            Err(e) => bail!(
                 "fail to aggregate partial-signatures of {} input-{input_index}: {e}",
                 tx.name()
-            )),
+            ),
         };
 
         // take-2 input-2
@@ -215,10 +215,10 @@ pub fn signature_aggregation_and_push(
             partial_sigs[nonce_index].clone(),
         ) {
             Ok(v) => bitcoin::taproot::Signature { signature: v.into(), sighash_type },
-            Err(e) => bail!(format!(
+            Err(e) => bail!(
                 "fail to aggregate partial-signatures of {} input-{input_index}: {e}",
                 tx.name()
-            )),
+            ),
         };
 
         tx.push_pre_sigs(&connector_0, &connector_5, agg_sig_0, agg_sig_2);
@@ -243,10 +243,10 @@ pub fn signature_aggregation_and_push(
             partial_sigs[nonce_index].clone(),
         ) {
             Ok(v) => bitcoin::taproot::Signature { signature: v.into(), sighash_type },
-            Err(e) => bail!(format!(
+            Err(e) => bail!(
                 "fail to aggregate partial-signatures of {} input-{input_index}: {e}",
                 tx.name()
-            )),
+            ),
         };
 
         tx.push_pre_sigs(&connector_d, agg_sig);
@@ -270,10 +270,10 @@ pub fn signature_aggregation_and_push(
             partial_sigs[nonce_index].clone(),
         ) {
             Ok(v) => bitcoin::taproot::Signature { signature: v.into(), sighash_type },
-            Err(e) => bail!(format!(
+            Err(e) => bail!(
                 "fail to aggregate partial-signatures of {} input-{input_index}: {e}",
                 tx.name()
-            )),
+            ),
         };
 
         tx.push_pre_sigs(&connector_5, agg_sig);

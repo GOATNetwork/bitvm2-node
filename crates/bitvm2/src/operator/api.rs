@@ -157,13 +157,13 @@ pub fn generate_bitvm_graph(
 
     // check inputs amount
     if let Err(err) = inputs_check(&user_inputs) {
-        bail!(format!("user's inputs did not pass the check: {}", err))
+        bail!("user's inputs did not pass the check: {}", err)
     }
     if params.pegin_amount != user_inputs.input_amount {
         bail!("user_inputs_amount and pegin_amount mismatch".to_string())
     };
     if let Err(err) = inputs_check(&operator_inputs) {
-        bail!(format!("operator's inputs did not pass the check: {}", err))
+        bail!("operator's inputs did not pass the check: {}", err)
     }
     if params.stake_amount != operator_inputs.input_amount {
         bail!("operator_inputs_amount and stake_amount mismatch ".to_string())
