@@ -1,1 +1,1 @@
-mod fetcher;
+mod checker;

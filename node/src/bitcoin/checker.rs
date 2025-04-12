@@ -7,7 +7,7 @@ use futures::{StreamExt, stream};
 use spv::verify_merkle_proof;
 use spv::{
     BitcoinMerkleTree, BlockInclusionProof, CircuitBlockHeader, CircuitTransaction, MMRGuest,
-    MMRNative, SPV,
+    MMRHost, SPV,
 };
 
 /// Fetch block at specific height
@@ -65,7 +65,7 @@ pub async fn check_pegin_tx(
 
         // 2. do spv check
 
-        let mut mmr_native = MMRNative::new();
+        let mut mmr_native = MMRHost::new();
         let mut mmr_guest = MMRGuest::new();
         let block_headers = blocks
             .iter()
@@ -78,10 +78,7 @@ pub async fn check_pegin_tx(
 
         // find the target block
         let block_pos = blocks.iter().position(|b| {
-            let tx_pos = b.txdata.iter().position(|x| {
-                println!("{} {}", x.compute_txid(), target_txid);
-                x.compute_txid() == target_txid
-            });
+            let tx_pos = b.txdata.iter().position(|x| x.compute_txid() == target_txid);
             tx_pos.is_some()
         });
         if block_pos.is_none() {
@@ -98,11 +95,13 @@ pub async fn check_pegin_tx(
         let bitcoin_merkle_tree = BitcoinMerkleTree::new(txid_list);
         let bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(tx_pos.unwrap() as u32);
 
-        assert!(verify_merkle_proof(
+        if !(verify_merkle_proof(
             target_txid.to_byte_array(),
             &bitcoin_merkle_proof,
-            bitcoin_merkle_tree.root()
-        ));
+            bitcoin_merkle_tree.root(),
+        )) {
+            bail!("Can not verify tx merkle proof");
+        }
 
         let bitcoin_merkle_proofs = vec![bitcoin_merkle_proof];
 
@@ -117,15 +116,21 @@ pub async fn check_pegin_tx(
 
         for j in 0..block_pos.unwrap() {
             let (mmr_leaf, mmr_proof) = mmr_native.generate_proof(j as u32);
-            assert!(mmr_native.verify_proof(mmr_leaf, &mmr_proof));
-            assert_eq!(mmr_leaf, block_headers[j].compute_block_hash());
+            if !mmr_native.verify_proof(mmr_leaf, &mmr_proof) {
+                bail!("Can not verify MMR proof on host side");
+            }
+            if mmr_leaf != block_headers[j].compute_block_hash() {
+                bail!("Can not verify MMR leaf");
+            }
             let spv = SPV::new(
                 txs[j].clone(),
                 bitcoin_merkle_proofs[j].clone(),
                 block_headers[j].clone(),
                 mmr_proof,
             );
-            assert!(spv.verify(&mmr_guest));
+            if !spv.verify(&mmr_guest) {
+                bail!("Can not verify MMR proof on guest side")
+            }
         }
 
         return Ok(true);

@@ -8,14 +8,14 @@ use serde::{Deserialize, Serialize};
 
 /// Represents the MMR for outside zkVM (native).
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
-pub struct MMRNative {
+pub struct MMRHost {
     pub nodes: Vec<Vec<[u8; 32]>>,
 }
 
-impl MMRNative {
+impl MMRHost {
     /// Creates a new MMR for native usage.
     pub fn new() -> Self {
-        MMRNative { nodes: vec![vec![]] }
+        MMRHost { nodes: vec![vec![]] }
     }
 
     /// Appends a new leaf to the MMR.
@@ -187,21 +187,21 @@ mod tests {
     #[test]
     #[should_panic(expected = "MMR is empty")]
     fn test_mmr_native_fail_0() {
-        let mmr = MMRNative::new();
+        let mmr = MMRHost::new();
         let (_leaf, _mmr_proof) = mmr.generate_proof(0);
     }
 
     #[test]
     #[should_panic(expected = "Index out of bounds")]
     fn test_mmr_native_fail_1() {
-        let mut mmr = MMRNative::new();
+        let mut mmr = MMRHost::new();
         mmr.append([0; 32]);
         let (_leaf, _mmr_proof) = mmr.generate_proof(1);
     }
 
     #[test]
     fn test_mmr_native() {
-        let mut mmr = MMRNative::new();
+        let mut mmr = MMRHost::new();
         let mut leaves = vec![];
 
         for i in 0..42 {
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_mmr_crosscheck() {
-        let mut mmr_native = MMRNative::new();
+        let mut mmr_native = MMRHost::new();
         let mut mmr_guest = MMRGuest::new();
         let mut leaves = vec![];
 
