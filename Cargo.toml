@@ -79,3 +79,4 @@ zeroize = "1.8.1"
 bitvm2-lib = { path = "crates/bitvm2" }
 identity = { path = "crates/identity" }
 store = { path = "crates/store" }
+spv = { path = "crates/spv" }

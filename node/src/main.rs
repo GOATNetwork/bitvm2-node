@@ -36,6 +36,7 @@ use bitvm2_lib::actors::Actor;
 use identity;
 
 mod action;
+mod bitcoin;
 mod metrics_service;
 mod middleware;
 mod rpc_service;

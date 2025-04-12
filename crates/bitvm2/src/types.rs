@@ -158,3 +158,10 @@ impl BaseContext for BaseBitvmContext {
         &self.n_of_n_taproot_public_key
     }
 }
+
+pub fn get_magic_bytes(net: &Network) -> Vec<u8> {
+    match net {
+        Network::Bitcoin => hex::encode(b"GTV6").as_bytes().to_vec(),
+        _ => hex::encode(b"GTT6").as_bytes().to_vec(),
+    }
+}
