@@ -1,3 +1,4 @@
+//! Modified from https://github.com/BitVM/BitVM/tree/main/header-chain
 use borsh::{BorshDeserialize, BorshSerialize};
 
 mod header_chain;
