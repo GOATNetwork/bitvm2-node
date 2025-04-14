@@ -147,3 +147,44 @@ pub struct FilterGraphsInfo {
     pub offset: u32,
     pub limit: u32,
 }
+#[derive(Clone, Debug)]
+pub enum MessageState {
+    Pending,
+    Processing,
+    Processed,
+    Failed,
+    Expired,
+    Cancelled,
+}
+
+impl std::fmt::Display for MessageState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl FromStr for MessageState {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Pending" => Ok(MessageState::Pending),
+            "Processing" => Ok(MessageState::Processing),
+            "Processed" => Ok(MessageState::Processed),
+            "Failed" => Ok(MessageState::Failed),
+            "Expired" => Ok(MessageState::Expired),
+            "Cancelled" => Ok(MessageState::Cancelled),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct Message {
+    pub id: i64,
+    pub actor: String,
+    pub from_peer: String,
+    pub msg_type: String,
+    pub content: Vec<u8>,
+    pub state: String,
+}

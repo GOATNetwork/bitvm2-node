@@ -1,4 +1,4 @@
-use crate::{FilterGraphsInfo, Graph, Instance, Node};
+use crate::{FilterGraphsInfo, Graph, Instance, Message, Node};
 use sqlx::migrate::Migrator;
 use sqlx::{Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -269,4 +269,49 @@ impl LocalDB {
         .alive;
         Ok((total, alive))
     }
+
+    pub async fn update_messages_state(&self, ids: &[i64], state: String) -> anyhow::Result<bool> {
+        let query_str = format!(
+            "Update  message Set state = {} WHERE id IN ({})",
+            state,
+            create_place_holders(&ids)
+        );
+        let mut query = sqlx::query(&query_str);
+        for id in ids {
+            query = query.bind(id);
+        }
+
+        let res = query.execute(&self.conn).await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn filter_messages(
+        &self,
+        state: String,
+        expired: i64,
+    ) -> anyhow::Result<Vec<Message>> {
+        let res =  sqlx::query_as!(
+           Message,
+           "SELECT id, from_peer, actor, msg_type, content, state FROM message WHERE state = ? AND  strftime(\"%s\", updated_at) < strftime(?)",
+           state, expired
+        ).fetch_all(&self.conn).await?;
+        Ok(res)
+    }
+
+    pub async fn create_message(&self, msg: Message) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            "INSERT INTO  message (from_peer, actor, msg_type, content, state) VALUES ( ?,?, ?,?,?)",
+            msg.from_peer,
+            msg.actor,
+            msg.msg_type,
+            msg.content,
+            msg.state
+        )
+            .execute(&self.conn)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+}
+fn create_place_holders<T>(inputs: &[T]) -> String {
+    inputs.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect::<Vec<_>>().join(",")
 }

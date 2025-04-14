@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, from_peer, actor, msg_type, content, state FROM message WHERE state = ? AND  strftime(\"%s\", updated_at) < strftime(?)",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "from_peer",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "msg_type",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "content",
+        "ordinal": 4,
+        "type_info": "Blob"
+      },
+      {
+        "name": "state",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ee02b89bc5f58f425afcad3460760c5ba11402718032fffa9baf14bf6b9c4279"
+}
