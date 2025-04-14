@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use bitcoin::blockdata::script::Script;
 use bitcoin::hashes::Hash;
-use bitcoin::{Amount, Block, Transaction, Txid};
+use bitcoin::{Amount, Block, Network, Transaction, Txid};
 use esplora_client::{AsyncClient, Builder, Tx};
 use futures::{StreamExt, stream};
 use spv::verify_merkle_proof;
@@ -36,6 +36,7 @@ pub async fn fetch_block(cli: &AsyncClient, block_hei: u32) -> Result<Block> {
 /// Check pegin_tx is of one the tx in the blocks
 pub async fn check_pegin_tx(
     cli: &AsyncClient,
+    network: &Network,
     blocks: &Vec<Block>,
     pegin_txid: &str,
 ) -> Result<bool> {
@@ -59,7 +60,7 @@ pub async fn check_pegin_tx(
         }
 
         // check evm address
-        if !bitvm2_lib::pegin::check_pegin_opreturn(&tx.output[1].script_pubkey) {
+        if !bitvm2_lib::pegin::check_pegin_opreturn(network, &tx.output[1].script_pubkey) {
             return Ok(false);
         }
 
@@ -161,7 +162,8 @@ pub mod test {
             .await;
 
         let txid = "e413208c6644d51f4f3adf3a5aad425da817ac825e56352e7164de1e2a4d9394";
+        let network = Network::Testnet;
 
-        assert!(check_pegin_tx(&client, &blocks, txid).await.unwrap());
+        assert!(check_pegin_tx(&client, &network, &blocks, txid).await.unwrap());
     }
 }

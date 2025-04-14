@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO  message (from_peer, actor, msg_type, content, state) VALUES ( ?,?, ?,?,?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "a033a3cd9cfb7945f15a074fc3b9787e8902756435f2f112f192ab912d05ffdb"
+}
