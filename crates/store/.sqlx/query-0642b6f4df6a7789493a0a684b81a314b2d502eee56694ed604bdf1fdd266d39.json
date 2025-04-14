@@ -1,15 +1,15 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  status = ? and pegin_txid = ?  LIMIT ? OFFSET ?",
+  "query": "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  graph_id = ?",
   "describe": {
     "columns": [
       {
-        "name": "graph_id",
+        "name": "graph_id:Uuid ",
         "ordinal": 0,
         "type_info": "Text"
       },
       {
-        "name": "instance_id",
+        "name": "instance_id:Uuid ",
         "ordinal": 1,
         "type_info": "Text"
       },
@@ -50,7 +50,7 @@
       }
     ],
     "parameters": {
-      "Right": 4
+      "Right": 1
     },
     "nullable": [
       false,
@@ -64,5 +64,5 @@
       false
     ]
   },
-  "hash": "19f1b468ff26d263271ca9657a5a00b1f0d735955f8e112e20a4b4bcb247d938"
+  "hash": "0642b6f4df6a7789493a0a684b81a314b2d502eee56694ed604bdf1fdd266d39"
 }

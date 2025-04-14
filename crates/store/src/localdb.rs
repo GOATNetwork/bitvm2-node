@@ -1,6 +1,7 @@
 use crate::{FilterGraphsInfo, Graph, Instance, Message, Node};
 use sqlx::migrate::Migrator;
-use sqlx::{Row, Sqlite, SqlitePool, migrate::MigrateDatabase};
+use sqlx::types::Uuid;
+use sqlx::{Sqlite, SqlitePool, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -37,7 +38,7 @@ impl LocalDB {
 
     pub async fn create_instance(&self, instance: Instance) -> anyhow::Result<bool> {
         let res = sqlx::query!(
-            "INSERT INTO  instance (instance_id, bridge_path, from_addr, to_addr, amount, \
+            "INSERT OR REPLACE INTO  instance (instance_id, bridge_path, from_addr, to_addr, amount, \
             status, goat_txid, btc_txid ,pegin_tx, kickoff_tx)  VALUES (?,?,?,?,?,?,?,?,?,?)",
             instance.instance_id,
             instance.bridge_path,
@@ -55,10 +56,10 @@ impl LocalDB {
         Ok(res.rows_affected() > 0)
     }
 
-    pub async fn get_instance(&self, instance_id: &str) -> anyhow::Result<Instance> {
+    pub async fn get_instance(&self, instance_id: &Uuid) -> anyhow::Result<Instance> {
         let row = sqlx::query_as!(
             Instance,
-            "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
+            "SELECT instance_id as \"instance_id:Uuid\", bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
             btc_txid ,pegin_tx, kickoff_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" \
             FROM  instance where instance_id = ?",
             instance_id
@@ -76,7 +77,7 @@ impl LocalDB {
             Some(user) => {
                 sqlx::query_as!(
                     Instance,
-                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
+                    "SELECT instance_id as \"instance_id:Uuid\", bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
                     created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance where from_addr = ? \
                     ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                     user,
@@ -87,7 +88,7 @@ impl LocalDB {
             None => {
                 sqlx::query_as!(
                     Instance,
-                    "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
+                    "SELECT instance_id as \"instance_id:Uuid\" , bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
                      created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance  \
                      ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                     limit,
@@ -138,10 +139,10 @@ impl LocalDB {
         Ok(res.rows_affected())
     }
 
-    pub async fn get_graph(&self, graph_id: &str) -> anyhow::Result<Graph> {
+    pub async fn get_graph(&self, graph_id: &Uuid) -> anyhow::Result<Graph> {
         let res = sqlx::query_as!(
             Graph,
-            "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+            "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
              disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  graph_id = ?",
             graph_id
         ).fetch_one(&self.conn).await?;
@@ -154,7 +155,7 @@ impl LocalDB {
     ) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as!(
             Graph,
-            "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+            "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
              disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  status = ? and pegin_txid = ?  LIMIT ? OFFSET ?",
             filter_graphs_info.status,
            filter_graphs_info.pegin_txid,
@@ -187,7 +188,7 @@ impl LocalDB {
     pub async fn get_graph_by_instance_id(&self, instance_id: &str) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as!(
             Graph,
-            "SELECT  graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+            "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
              disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  instance_id = ?",
             instance_id
         ).fetch_all(&self.conn).await?;

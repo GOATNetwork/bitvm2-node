@@ -1,25 +1,25 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT instance_id, bridge_path, from_addr, to_addr, amount, status, goat_txid,  btc_txid ,pegin_tx, kickoff_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" FROM  instance where instance_id = ?",
+  "query": "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  instance_id = ?",
   "describe": {
     "columns": [
       {
-        "name": "instance_id",
+        "name": "graph_id:Uuid ",
         "ordinal": 0,
         "type_info": "Text"
       },
       {
-        "name": "bridge_path",
+        "name": "instance_id:Uuid ",
         "ordinal": 1,
-        "type_info": "Bool"
+        "type_info": "Text"
       },
       {
-        "name": "from_addr",
+        "name": "graph_ipfs_base_url",
         "ordinal": 2,
         "type_info": "Text"
       },
       {
-        "name": "to_addr",
+        "name": "pegin_txid",
         "ordinal": 3,
         "type_info": "Text"
       },
@@ -34,33 +34,18 @@
         "type_info": "Text"
       },
       {
-        "name": "goat_txid",
+        "name": "challenge_txid",
         "ordinal": 6,
         "type_info": "Text"
       },
       {
-        "name": "btc_txid",
+        "name": "disprove_txid",
         "ordinal": 7,
         "type_info": "Text"
       },
       {
-        "name": "pegin_tx",
-        "ordinal": 8,
-        "type_info": "Text"
-      },
-      {
-        "name": "kickoff_tx",
-        "ordinal": 9,
-        "type_info": "Text"
-      },
-      {
         "name": "created_at: i64",
-        "ordinal": 10,
-        "type_info": "Datetime"
-      },
-      {
-        "name": "updated_at: i64",
-        "ordinal": 11,
+        "ordinal": 8,
         "type_info": "Datetime"
       }
     ],
@@ -74,13 +59,10 @@
       false,
       false,
       false,
-      false,
-      false,
       true,
       true,
-      false,
       false
     ]
   },
-  "hash": "12a27823bafa55370dc731e2d1cea87971197750348ee5b6a5804336f1ef1a3d"
+  "hash": "7cf9f7986898eb00e0a9f0c25c887f81e08e35b7be572b30995cb4ca7321e867"
 }
