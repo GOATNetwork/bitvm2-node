@@ -1,15 +1,18 @@
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
+use crate::types::P2pUserData;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use http::StatusCode;
+use serde_json::json;
 use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use store::localdb::LocalDB;
 use store::{
     BridgeInStatus, BridgeOutStatus, BridgePath, FilterGraphsInfo, Graph, GraphStatus, Instance,
+    Message, MessageState,
 };
 
 #[axum::debug_handler]
@@ -28,11 +31,28 @@ pub async fn bridge_in_tx_prepare(
         status: BridgeInStatus::Submitted.to_string(),
         ..Default::default()
     };
-
-    match app_state.local_db.create_instance(instance.clone()).await {
-        Ok(_res) => (StatusCode::OK, Json(BridgeInTransactionPrepareResponse {})),
+    let async_fn = || async move {
+        let _ = app_state.local_db.create_instance(instance.clone()).await?;
+        let content = serde_json::to_vec::<P2pUserData>(&(&payload).into())?;
+        app_state
+            .local_db
+            .create_message(Message {
+                id: 0,
+                actor: app_state.actor.to_string(),
+                from_peer: app_state.peer_id.clone(),
+                msg_type: "user_data".to_string(),
+                content,
+                state: MessageState::Pending.to_string(),
+            })
+            .await?;
+        Ok::<BridgeInTransactionPrepareResponse, Box<dyn std::error::Error>>(
+            BridgeInTransactionPrepareResponse {},
+        )
+    };
+    match async_fn().await {
+        Ok(resp) => (StatusCode::OK, Json(resp)),
         Err(err) => {
-            tracing::warn!("bridge_in_tx_prepare, params:{:?} err:{:?}", payload, err);
+            tracing::warn!("bridge_in_tx_prepare  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(BridgeInTransactionPrepareResponse {}))
         }
     }

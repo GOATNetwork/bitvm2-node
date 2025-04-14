@@ -1,4 +1,7 @@
 mod bitvm2;
+
+pub use bitvm2::BridgeInTransactionPreparerRequest;
+use std::str::FromStr;
 mod handler;
 mod node;
 
@@ -18,6 +21,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use bitvm2_lib::actors::Actor;
 use http::HeaderMap;
 use libp2p::core::Transport;
 use prometheus_client::encoding::text::encode;
@@ -29,6 +33,7 @@ use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::{Level, Value};
+
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
@@ -38,6 +43,24 @@ pub fn current_time_secs() -> i64 {
 pub struct AppState {
     pub local_db: LocalDB,
     pub metrics_state: MetricsState,
+    pub actor: Actor,
+    pub peer_id: String,
+}
+
+impl AppState {
+    pub async fn create_arc_app_state(
+        db_path: String,
+        registry: Arc<Mutex<Registry>>,
+    ) -> anyhow::Result<Arc<AppState>> {
+        let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+        local_db.migrate().await;
+        let metrics_state = MetricsState::new(registry);
+        let actor =
+            Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
+                .expect("failed to get actor ");
+        let peer_id = std::env::var("PEER_ID").unwrap_or("Self".to_string());
+        Ok(Arc::new(AppState { local_db, metrics_state, actor, peer_id }))
+    }
 }
 
 /// Serve the Multiaddr we are listening on and the host files.
@@ -63,11 +86,12 @@ async fn root() -> &'static str {
 ///4.instance,graph query  and update by api: `get_instance`, `get_graph`, `update_instance`,`update_graph`
 ///
 ///
-pub(crate) async fn serve(addr: String, db_path: String, registry: Arc<Mutex<Registry>>) {
-    let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
-    local_db.migrate().await;
-    let metrics_state = MetricsState::new(registry);
-    let app_state = Arc::new(AppState { local_db, metrics_state });
+pub(crate) async fn serve(
+    addr: String,
+    db_path: String,
+    registry: Arc<Mutex<Registry>>,
+) -> anyhow::Result<()> {
+    let app_state = AppState::create_arc_app_state(db_path, registry).await?;
     let server = Router::new()
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
@@ -119,6 +143,7 @@ pub(crate) async fn serve(addr: String, db_path: String, registry: Arc<Mutex<Reg
     let listener = TcpListener::bind(addr).await.unwrap();
     tracing::info!("RPC listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, server).await.unwrap();
+    Ok(())
 }
 #[cfg(test)]
 mod tests {
@@ -190,19 +215,24 @@ mod tests {
         let resp = client
             .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare", LISTEN_ADDRESS))
             .json(&json!({
-                "instance_id": "3baa703537ef",
-                "network": "test3",
-                "amount": 10000,
+                "instance_id": "44aa03537ef",
+                "network": "testnet",
+                "amount": 15000,
                 "fee_rate": 80,
                 "utxo": [
                     {
                         "txid": "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c",
                         "vout": 0,
                         "value": 10000
+                    },
+                    {
+                        "txid": "ffc54e9cf37d9f87ebaa703537e93e20caece862d9bc1c463c487583905ec49c",
+                        "vout": 1,
+                        "value": 20000
                     }
                 ],
                 "from": "tb1qsyngu9wf2x46tlexhpjl4nugv0zxmgezsx5erl",
-                "to": "tb1qkrhp3khxam3hj2kl9y77m2uctj2hkyh248chkp"
+                "to": "E887312c0595a10aC88e32ebb8e9F660Ad9aB7F7"
             }))
             .send()
             .await?;
