@@ -99,7 +99,6 @@ pub struct BridgeOutTransactionPrepareRequest {
 pub struct BridgeOutTransactionPrepareResponse {
     // TODO
     pub instance_id: String,
-
 }
 
 // // handler: committee
@@ -141,8 +140,8 @@ pub struct InstanceGetResponse {
 
 #[derive(Deserialize)]
 pub struct InstanceUpdateRequest {
-        pub instance: Instance,
-    }
+    pub instance: Instance,
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct InstanceUpdateResponse {}
@@ -157,11 +156,10 @@ pub struct GraphGetResponse {
     pub graph: Graph,
 }
 
-
 #[derive(Deserialize)]
 pub struct GraphUpdateRequest {
-        pub graph: Graph,
-    }
+    pub graph: Graph,
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct GraphUpdateResponse {}
