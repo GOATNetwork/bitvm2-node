@@ -21,6 +21,7 @@ pub struct Instance {
     pub goat_txid: String,
     pub btc_txid: String,
     pub pegin_tx: Option<String>,
+    pub kickoff_tx: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

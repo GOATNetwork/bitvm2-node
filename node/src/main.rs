@@ -23,6 +23,7 @@ use std::{
     net::Ipv4Addr,
     time::{Duration, Instant},
 };
+use std::sync::{Arc, Mutex};
 use tokio::{io, io::AsyncBufReadExt, select};
 
 use opentelemetry::{KeyValue, trace::TracerProvider as _};
@@ -142,8 +143,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let arg_peer_id = std::env::var("PEER_ID").expect("Peer ID is missing");
 
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
-
     let mut metric_registry = Registry::default();
+
 
     let local_key = {
         let keypair = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
@@ -159,6 +160,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         keypair
     };
+
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()
         .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
@@ -209,7 +211,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-    tokio::spawn(metrics_service::metrics_server(metric_registry));
 
     // run a http server for front-end
     let address = loop {
@@ -228,8 +229,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::debug!("RPC service listening on {}", &opt.rpc_addr);
     let rpc_addr = opt.rpc_addr.clone();
     let db_path = opt.db_path.clone();
-    tokio::spawn(rpc_service::serve(rpc_addr, db_path));
 
+    tokio::spawn(rpc_service::serve(rpc_addr, db_path, Arc::new(Mutex::new(metric_registry))));
     // Read full lines from stdin
     let mut interval = interval(Duration::from_secs(20));
     let mut stdin = io::BufReader::new(io::stdin()).lines();

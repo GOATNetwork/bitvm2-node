@@ -3,32 +3,41 @@ mod handler;
 mod node;
 
 use axum::{
-    Router,
+    Router, middleware,
     response::IntoResponse,
     routing::{get, post},
 };
 use libp2p::core::Transport;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use store::localdb::LocalDB;
-
+use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::{
     bitvm2_handler::*,
     node_handler::{create_node, get_nodes},
 };
 use axum::body::Body;
 use axum::body::to_bytes;
-use axum::extract::Request;
+use axum::extract::{Request, State};
 use axum::handler::Handler;
 use axum::response::Response;
+use axum::routing::put;
+use http::HeaderMap;
+use prometheus_client::encoding::text::encode;
+use prometheus_client::registry::Registry;
 use std::time::{Duration, UNIX_EPOCH};
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::{Level, Value};
-
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub local_db: LocalDB,
+    pub metrics_state: MetricsState,
 }
 
 /// Serve the Multiaddr we are listening on and the host files.
@@ -47,33 +56,35 @@ async fn root() -> &'static str {
 ///     - call `peg_btc_mint` at step 3.
 ///- front end call `get_instance` to get the latest informationGet the latest information about bridge-in
 ///
-///2.bridge-out
-/// TDDO
+///2.graph_overview: `graph_list` support
 ///
-///3.graph_overview: `graph_list` support
+///3.node_overview:  `get_nodes` support
 ///
-///4.node_overview:  `get_nodes` support
+///4.instance,graph query  and update by api: `get_instance`, `get_graph`, `update_instance`,`update_graph`
 ///
-///5.instance,graph query by id: `get_instance`, `get_graph`
 ///
-pub(crate) async fn serve(addr: String, db_path: String) {
-    let localdb = Arc::new(LocalDB::new(&format!("sqlite:{db_path}"), true).await);
-    localdb.migrate().await;
+pub(crate) async fn serve(addr: String, db_path: String, registry: Arc<Mutex<Registry>>) {
+    let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+    local_db.migrate().await;
+    let metrics_state = MetricsState::new(registry);
+    let app_state = Arc::new(AppState { local_db, metrics_state });
     let server = Router::new()
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
         .route("/v1/nodes", get(get_nodes))
         .route("/v1/instances", get(get_instances_with_query_params))
+        .route("/v1/instances", post(create_instance))
         .route("/v1/instances/{:id}", get(get_instance))
+        .route("/v1/instances/{:id}", put(update_instance))
         .route("/v1/instances/action/bridge_in_tx_prepare", post(bridge_in_tx_prepare))
         .route("/v1/instances/{:id}/bridge_in/peg_gtc_mint", post(peg_btc_mint))
-        .route("/v1/instances/action/bridge_out_tx_prepare", post(bridge_out_tx_prepare))
         .route("/v1/graphs", post(create_graph))
         .route("/v1/graphs/{:id}", get(get_graph))
+        .route("/v1/graphs/{:id}", put(update_graph))
         .route("/v1/graphs", get(graph_list))
         .route("/v1/graphs/{:id}/presign", post(graph_presign))
         .route("/v1/graphs/presign_check", post(graph_presign_check))
-        .with_state(localdb)
+        .route("/metrics", get(metrics_handler))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
@@ -86,7 +97,7 @@ pub(crate) async fn serve(addr: String, db_path: String) {
                         request.headers(),
                         request.headers().get("content-type")
                     );
-                },)
+                })
                 .on_response(
                     |response: &Response<Body>, latency: Duration, _span: &tracing::Span| {
                         tracing::info!(
@@ -95,12 +106,15 @@ pub(crate) async fn serve(addr: String, db_path: String) {
                             latency
                         );
                     },
-                ).on_failure(
+                )
+                .on_failure(
                     |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
                         tracing::error!("API Error: {:?}", error);
                     },
                 ),
-        );
+        )
+        .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
+        .with_state(app_state);
 
     let listener = TcpListener::bind(addr).await.unwrap();
     tracing::info!("RPC listening on {}", listener.local_addr().unwrap());
@@ -109,7 +123,9 @@ pub(crate) async fn serve(addr: String, db_path: String) {
 #[cfg(test)]
 mod tests {
     use crate::rpc_service;
+    use prometheus_client::registry::Registry;
     use serde_json::json;
+    use std::sync::{Arc, Mutex};
     use tracing::info;
     use tracing_subscriber::EnvFilter;
 
@@ -122,7 +138,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_node() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/nodes", LISTEN_ADDRESS))
@@ -142,7 +162,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_nodes() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .get(format!("http://{}/v1/nodes?actor=OPERATOR&offset=5&limit=5", LISTEN_ADDRESS))
@@ -157,7 +181,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bridge_in_tx_prepare() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare", LISTEN_ADDRESS))
@@ -188,7 +216,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_instance() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .get(format!("http://{}/v1/instances/ffc54e9cf37d9f87e2222", LISTEN_ADDRESS))
@@ -204,7 +236,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_instances_with_query_params() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .get(format!("http://{}/v1/instances?user_address=miJ19RACTc7Sow64gbznCnCz3p4Ey2NP18&offset=1&limit=5", LISTEN_ADDRESS))
@@ -219,7 +255,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_peg_btc_mint() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!(
@@ -245,7 +285,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bridge_out_tx_prepare() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/instances/action/bridge_out_tx_prepare", LISTEN_ADDRESS))
@@ -264,7 +308,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_create_graph() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/graphs", LISTEN_ADDRESS))
@@ -283,7 +331,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_graphs() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .get(format!("http://{}/v1/graphs?offset=0&limit=5", LISTEN_ADDRESS))
@@ -303,7 +355,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_graph() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .get(format!("http://{}/v1/graphs/aaa7583905ec49c", LISTEN_ADDRESS))
@@ -318,7 +374,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_graph_presign() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/graphs/aaa7583905ec49c/presign", LISTEN_ADDRESS))
@@ -337,7 +397,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_graph_presign_check() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        tokio::spawn(rpc_service::serve(LISTEN_ADDRESS.to_string(), TMEP_DB_PATH.to_string()));
+        tokio::spawn(rpc_service::serve(
+            LISTEN_ADDRESS.to_string(),
+            TMEP_DB_PATH.to_string(),
+            Arc::new(Mutex::new(Registry::default())),
+        ));
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("http://{}/v1/graphs/presign_check", LISTEN_ADDRESS))
