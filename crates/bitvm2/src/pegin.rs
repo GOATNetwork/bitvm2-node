@@ -15,7 +15,7 @@ pub fn check_pegin_opreturn(network: &Network, script: &Script) -> bool {
             Ok(script::Instruction::PushBytes(bytes)) => {
                 println!("Data pushed: {}", hex::encode(bytes));
                 let magic_bytes = get_magic_bytes(network);
-                if !bytes.as_bytes().starts_with(&magic_bytes) {
+                if !bytes.as_bytes().starts_with(&magic_bytes) || bytes.len() != magic_bytes.len() + 20 {
                     return false
                 };
                 return true;
@@ -47,15 +47,20 @@ mod tests {
         let evm_address = hex::decode(evm_address).unwrap();
         let network = Network::Bitcoin;
         let magic = get_magic_bytes(&network);
-        let fork_network = Network::Testnet;
-        let misspelled_magic = get_magic_bytes(&fork_network);
-
-        let msg = [magic, evm_address.clone()].concat();
+        let msg = [magic.clone(), evm_address.clone()].concat();
         let script = generate_opreturn_script(msg);
         assert!(check_pegin_opreturn(&network, &script));
 
-        let msg = [misspelled_magic, evm_address].concat();
-        let script = generate_opreturn_script(msg);
-        assert!(!check_pegin_opreturn(&network, &script));
+        let fork_network = Network::Testnet;
+        let misspelled_magic = get_magic_bytes(&fork_network);
+        let msg_misspelled_magic = [misspelled_magic, evm_address].concat();
+        let script_misspelled_magic = generate_opreturn_script(msg_misspelled_magic);
+        assert!(!check_pegin_opreturn(&network, &script_misspelled_magic));
+
+        let suspicious_evm_address = "8943545177806ED17B9F23F0a21ee5948eCaa7";
+        let suspicious_evm_address = hex::decode(suspicious_evm_address).unwrap();
+        let msg_invalid_evm_address = [magic, suspicious_evm_address].concat();
+        let script_invalid_evm_address = generate_opreturn_script(msg_invalid_evm_address);
+        assert!(!check_pegin_opreturn(&network, &script_invalid_evm_address));
     }
 }
