@@ -9,11 +9,10 @@ use bitvm::chunk::api::{
     validate_assertions,
 };
 use bitvm::treepp::*;
-use bitvm::treepp::*;
 use goat::connectors::connector_c::{ConnectorC, get_commit_from_assert_commit_tx};
 use goat::transactions::assert::utils::*;
 use goat::transactions::{
-    assert::utils::*, base::BaseTransaction, pre_signed::PreSignedTransaction,
+    base::BaseTransaction, pre_signed::PreSignedTransaction,
 };
 
 pub fn extract_proof_sigs_from_assert_commit_txns(

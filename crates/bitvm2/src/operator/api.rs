@@ -1,6 +1,5 @@
 use crate::types::{
-    Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, Groth16WotsPublicKeys,
-    Groth16WotsSignatures, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys,
+    get_magic_bytes, Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, Groth16WotsPublicKeys, Groth16WotsSignatures, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys
 };
 use anyhow::{Result, bail};
 use bitcoin::Transaction;
@@ -173,13 +172,14 @@ pub fn generate_bitvm_graph(
     let network = params.network;
     let committee_taproot_pubkey = XOnlyPublicKey::from(params.committee_agg_pubkey);
     let connector_0 = Connector0::new(network, &committee_taproot_pubkey);
+    let pegin_message = [get_magic_bytes(&network), params.depositor_evm_address.to_vec()].concat();
     let pegin = PegInTransaction::new_for_validation(
         &connector_0,
         user_inputs.inputs,
         user_inputs.input_amount,
         user_inputs.fee_amount,
         user_inputs.change_address,
-        params.depositor_evm_address.to_vec(),
+        pegin_message,
     );
     let pegin_txid = pegin.tx().compute_txid();
 

@@ -1,9 +1,10 @@
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Instruction;
-use bitcoin::{Script, script};
+use bitcoin::{Script, script, Network};
 
-// TODO: check magic bytes
-pub fn check_pegin_opreturn(script: &Script) -> bool {
+use crate::types::get_magic_bytes;
+
+pub fn check_pegin_opreturn(network: &Network, script: &Script) -> bool {
     if !script.is_op_return() {
         return false;
     }
@@ -13,10 +14,10 @@ pub fn check_pegin_opreturn(script: &Script) -> bool {
         match instr {
             Ok(script::Instruction::PushBytes(bytes)) => {
                 println!("Data pushed: {}", hex::encode(bytes));
-                // TODO: use crate::types::get_magic_bytes;
-                if bytes.len() != 20 {
-                    return false;
-                }
+                let magic_bytes = get_magic_bytes(network);
+                if !bytes.as_bytes().starts_with(&magic_bytes) {
+                    return false
+                };
                 return true;
             }
             Ok(opcode) => {
@@ -36,15 +37,25 @@ pub fn check_pegin_opreturn(script: &Script) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::pegin::check_pegin_opreturn;
+    use crate::{pegin::check_pegin_opreturn, types::get_magic_bytes};
+    use bitcoin::Network;
     use goat::scripts::generate_opreturn_script;
 
     #[test]
     fn test_peg_opreturn_script() {
         let evm_address = "8943545177806ED17B9F23F0a21ee5948eCaa776";
-        let msg = hex::decode(evm_address).unwrap();
+        let evm_address = hex::decode(evm_address).unwrap();
+        let network = Network::Bitcoin;
+        let magic = get_magic_bytes(&network);
+        let fork_network = Network::Testnet;
+        let misspelled_magic = get_magic_bytes(&fork_network);
 
+        let msg = [magic, evm_address.clone()].concat();
         let script = generate_opreturn_script(msg);
-        assert!(check_pegin_opreturn(&script));
+        assert!(check_pegin_opreturn(&network, &script));
+
+        let msg = [misspelled_magic, evm_address].concat();
+        let script = generate_opreturn_script(msg);
+        assert!(!check_pegin_opreturn(&network, &script));
     }
 }
