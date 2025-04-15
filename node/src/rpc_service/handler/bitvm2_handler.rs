@@ -4,35 +4,56 @@ use crate::rpc_service::{AppState, current_time_secs};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use http::StatusCode;
+use serde_json::json;
 use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use store::localdb::LocalDB;
 use store::{
     BridgeInStatus, BridgeOutStatus, BridgePath, FilterGraphsInfo, Graph, GraphStatus, Instance,
+    Message, MessageState,
 };
+use uuid::Uuid;
 
 #[axum::debug_handler]
 pub async fn bridge_in_tx_prepare(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeInTransactionPreparerRequest>,
 ) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
-    let instance = Instance {
-        instance_id: payload.instance_id.clone(),
-        bridge_path: BridgePath::BtcToPGBtc.to_u8(),
-        from_addr: payload.from.clone(),
-        to_addr: payload.to.clone(),
-        amount: payload.amount,
-        created_at: current_time_secs(),
-        updated_at: current_time_secs(),
-        status: BridgeInStatus::Submitted.to_string(),
-        ..Default::default()
+    let async_fn = || async move {
+        let instance_id = Uuid::parse_str(&payload.instance_id)?;
+        let instance = Instance {
+            instance_id,
+            bridge_path: BridgePath::BtcToPGBtc.to_u8(),
+            from_addr: payload.from.clone(),
+            to_addr: payload.to.clone(),
+            amount: payload.amount,
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+            status: BridgeInStatus::Submitted.to_string(),
+            ..Default::default()
+        };
+        let _ = app_state.local_db.create_instance(instance.clone()).await?;
+        let content = serde_json::to_vec::<P2pUserData>(&(&payload).into())?;
+        app_state
+            .local_db
+            .create_message(Message {
+                id: 0,
+                actor: app_state.actor.to_string(),
+                from_peer: app_state.peer_id.clone(),
+                msg_type: "user_data".to_string(),
+                content,
+                state: MessageState::Pending.to_string(),
+            })
+            .await?;
+        Ok::<BridgeInTransactionPrepareResponse, Box<dyn std::error::Error>>(
+            BridgeInTransactionPrepareResponse {},
+        )
     };
-
-    match app_state.local_db.create_instance(instance.clone()).await {
-        Ok(_res) => (StatusCode::OK, Json(BridgeInTransactionPrepareResponse {})),
+    match async_fn().await {
+        Ok(resp) => (StatusCode::OK, Json(resp)),
         Err(err) => {
-            tracing::warn!("bridge_in_tx_prepare, params:{:?} err:{:?}", payload, err);
+            tracing::warn!("bridge_in_tx_prepare  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(BridgeInTransactionPrepareResponse {}))
         }
     }
@@ -47,9 +68,10 @@ pub async fn create_graph(
     let graph_ipfs_unsigned_txns =
         "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
             .to_string();
+
     let graph = Graph {
-        instance_id: payload.instance_id.clone(),
-        graph_id: payload.graph_id.clone(),
+        instance_id: Uuid::parse_str(&payload.instance_id).unwrap(),
+        graph_id: Uuid::parse_str(&payload.graph_id).unwrap(),
         ..Default::default()
     };
 
@@ -91,8 +113,10 @@ pub async fn graph_presign(
     };
     let resp_clone = resp.clone();
     let async_fn = || async move {
+        let graph_id = Uuid::parse_str(&graph_id)?;
         let graph = app_state.local_db.get_graph(&graph_id).await?;
-        let instance = app_state.local_db.get_instance(&payload.instance_id).await?;
+        let instance_id = Uuid::parse_str(&payload.instance_id)?;
+        let instance = app_state.local_db.get_instance(&instance_id).await?;
         let _ = app_state.local_db.update_instance(instance.clone()).await?;
         let _ = app_state.local_db.update_graph(graph.clone()).await?;
         Ok::<GraphPresignResponse, Box<dyn std::error::Error>>(resp_clone)
@@ -119,11 +143,12 @@ pub async fn graph_presign_check(
     };
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
-        let instance = app_state.local_db.get_instance(&payload.instance_id).await?;
+        let instance_id = Uuid::parse_str(&payload.instance_id)?;
+        let instance = app_state.local_db.get_instance(&instance_id).await?;
         resp_clone.tx = Some(instance);
         let graphs = app_state.local_db.get_graph_by_instance_id(&payload.instance_id).await?;
         resp_clone.graph_status =
-            graphs.into_iter().map(|v| (v.graph_id, GraphStatus::OperatorPresigned)).collect();
+            graphs.into_iter().map(|v| (v.graph_id.to_string(), GraphStatus::OperatorPresigned)).collect();
         Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone)
     };
     match async_fn().await {
@@ -143,6 +168,7 @@ pub async fn peg_btc_mint(
 ) -> (StatusCode, Json<PegBTCMintResponse>) {
     let async_fn = || async move {
         let _graphs: Vec<Graph> = app_state.local_db.get_graphs(&payload.graph_ids).await?;
+        let instance_id = Uuid::parse_str(&instance_id)?;
         let _instance = app_state.local_db.get_instance(&instance_id).await?;
         /// TODO create graph_ipfs_committee_sig
         Ok::<PegBTCMintResponse, Box<dyn std::error::Error>>(PegBTCMintResponse {})
@@ -211,7 +237,7 @@ pub async fn update_instance(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<InstanceUpdateRequest>,
 ) -> (StatusCode, Json<InstanceUpdateResponse>) {
-    if instance_id != payload.instance.instance_id {
+    if instance_id != payload.instance.instance_id.to_string() {
         tracing::warn!("instance id in boy and path not match");
         return (StatusCode::BAD_REQUEST, Json(InstanceUpdateResponse {}));
     }
@@ -244,6 +270,7 @@ pub async fn get_instance(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<InstanceGetResponse>) {
+    let instance_id = Uuid::parse_str(&instance_id).unwrap();
     match app_state.local_db.get_instance(&instance_id).await {
         Ok(instance) => (StatusCode::OK, Json(InstanceGetResponse { instance })),
         Err(err) => {
@@ -258,6 +285,7 @@ pub async fn get_graph(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<GraphGetResponse>) {
+    let graph_id = Uuid::parse_str(&graph_id).unwrap();
     ///TODO
     (
         StatusCode::OK,
@@ -273,7 +301,7 @@ pub async fn update_graph(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphUpdateRequest>,
 ) -> (StatusCode, Json<GraphUpdateResponse>) {
-    if graph_id != payload.graph.graph_id {
+    if graph_id != payload.graph.graph_id.to_string() {
         tracing::warn!("graph id in boy and path not match");
         return (StatusCode::BAD_REQUEST, Json(GraphUpdateResponse {}));
     }

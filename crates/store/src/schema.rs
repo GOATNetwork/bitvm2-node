@@ -1,6 +1,8 @@
+use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use std::str::FromStr;
+use uuid::Uuid;
+
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Node {
     pub peer_id: String,
@@ -10,7 +12,7 @@ pub struct Node {
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Instance {
-    pub instance_id: String,
+    pub instance_id: Uuid,
     pub bridge_path: u8,
     pub from_addr: String,
     pub to_addr: String,
@@ -129,8 +131,8 @@ impl BridgePath {
 /// └── take2.hex
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Graph {
-    pub graph_id: String,
-    pub instance_id: String,
+    pub graph_id: Uuid,
+    pub instance_id: Uuid,
     pub graph_ipfs_base_url: String,
     pub pegin_txid: String,
     pub amount: i64,

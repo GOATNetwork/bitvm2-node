@@ -63,5 +63,8 @@ bitvm = { workspace = true }
 bitcoin = { workspace = true }
 
 spv = { workspace = true }
+goat = { workspace = true }
+web3 = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
