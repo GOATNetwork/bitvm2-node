@@ -44,7 +44,7 @@ pub struct GraphGenerateRequest {
 }
 
 // UI can go next(step2.3) once one operator responds
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Clone, Default)]
 pub struct GraphGenerateResponse {
     pub instance_id: String,
     pub graph_id: String,
@@ -196,7 +196,7 @@ pub struct GraphListResponse {
     pub total_nodes: i64,
 }
 
-const STACK_AMOUNT: Amount = Amount::from_sat(20_000_000);
+// const STACK_AMOUNT: Amount = Amount::from_sat(20_000_000);
 const FEE_AMOUNT: Amount = Amount::from_sat(2000);
 #[derive(Clone, Serialize, Deserialize)]
 pub struct P2pUserData {

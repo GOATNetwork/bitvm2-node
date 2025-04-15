@@ -15,19 +15,21 @@ pub async fn create_node(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateOrInsertNodeRequest>,
 ) -> (StatusCode, Json<Node>) {
-    let node = Node {
-        peer_id: payload.peer_id,
-        actor: payload.actor.to_string(),
-        updated_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-            as i64,
+    let async_fn = || async move {
+        let node = Node {
+            peer_id: payload.peer_id.clone(),
+            actor: payload.actor.to_string(),
+            updated_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+                as i64,
+        };
+        let mut storage_process = app_state.local_db.acquire().await?;
+        let _ = storage_process.update_node(node.clone()).await?;
+        Ok::<Node, Box<dyn std::error::Error>>(node)
     };
-    match app_state.local_db.update_node(node.clone()).await {
-        Ok(res) => {
-            tracing::info!("create node, db rows affected:{}", res);
-            (StatusCode::OK, Json(node))
-        }
+    match async_fn().await {
+        Ok(res) => (StatusCode::OK, Json(res)),
         Err(err) => {
-            tracing::warn!("create node:{:?}, error: {}", node, err);
+            tracing::warn!("create, error: {}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(Node::default()))
         }
     }
@@ -38,17 +40,20 @@ pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<NodeListResponse>) {
-    match app_state
-        .local_db
-        .node_list(query_params.actor.clone(), query_params.offset, query_params.limit)
-        .await
-    {
-        Ok(nodes) => {
-            let node_desc_list: Vec<NodeDesc> = nodes.into_iter().map(|v| v.into()).collect();
-            (StatusCode::OK, Json(NodeListResponse { nodes: node_desc_list }))
-        }
+    let async_fn = || async move {
+        let mut storage_process = app_state.local_db.acquire().await?;
+        let nodes = storage_process
+            .node_list(query_params.actor.clone(), query_params.offset, query_params.limit)
+            .await?;
+        let node_desc_list: Vec<NodeDesc> = nodes.into_iter().map(|v| v.into()).collect();
+        Ok::<NodeListResponse, Box<dyn std::error::Error>>(NodeListResponse {
+            nodes: node_desc_list,
+        })
+    };
+    match async_fn().await {
+        Ok(res) => (StatusCode::OK, Json(res)),
         Err(err) => {
-            tracing::warn!("get_nodes failed, params: {:?}, error:{}", query_params, err);
+            tracing::warn!("get_nodes failed, error:{}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(NodeListResponse { nodes: vec![] }))
         }
     }
