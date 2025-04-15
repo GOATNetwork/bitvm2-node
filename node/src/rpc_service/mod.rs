@@ -11,20 +11,17 @@ use crate::rpc_service::handler::{
     node_handler::{create_node, get_nodes},
 };
 use axum::body::Body;
-use axum::body::to_bytes;
-use axum::extract::{Request, State};
-use axum::handler::Handler;
+use axum::extract::Request;
+use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::put;
 use axum::{
     Router, middleware,
-    response::IntoResponse,
     routing::{get, post},
 };
 use bitvm2_lib::actors::Actor;
-use http::HeaderMap;
-use libp2p::core::Transport;
-use prometheus_client::encoding::text::encode;
+use http::{HeaderMap, StatusCode};
+use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
@@ -32,7 +29,7 @@ use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::{Level, Value};
+use tracing::Level;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -109,6 +106,7 @@ pub(crate) async fn serve(
         .route("/v1/graphs/{:id}/presign", post(graph_presign))
         .route("/v1/graphs/presign_check", post(graph_presign_check))
         .route("/metrics", get(metrics_handler))
+        .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
@@ -145,6 +143,39 @@ pub(crate) async fn serve(
     axum::serve(listener, server).await.unwrap();
     Ok(())
 }
+
+/// This method introduces performance overhead and is temporarily used for debugging with the frontend.
+/// It will be removed afterwards.
+async fn print_req_and_resp_detail(
+    _headers: HeaderMap,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let mut print_str = format!(
+        "API Request: method:{}, uri:{}, content_type:{:?}, body:",
+        req.method(),
+        req.uri(),
+        req.headers().get("content-type")
+    );
+    let (parts, body) = req.into_parts();
+    let bytes = body.collect().await.unwrap().to_bytes();
+    if !bytes.is_empty() {
+        print_str = format!("{} {}", print_str, String::from_utf8_lossy(&bytes));
+    }
+    tracing::info!("{}", print_str);
+    let req = Request::from_parts(parts, axum::body::Body::from(bytes));
+    let resp = next.run(req).await;
+
+    let mut print_str = format!("API Response: status:{}, body:", resp.status(),);
+    let (parts, body) = resp.into_parts();
+    let bytes = body.collect().await.unwrap().to_bytes();
+    if !bytes.is_empty() {
+        print_str = format!("{} {}", print_str, String::from_utf8_lossy(&bytes));
+    }
+    tracing::info!("{}", print_str);
+    Ok(Response::from_parts(parts, axum::body::Body::from(bytes)))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::rpc_service;
@@ -192,7 +223,7 @@ mod tests {
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        info!("Post Response: {}", res_body);
 
         Ok(())
     }
@@ -212,7 +243,7 @@ mod tests {
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        println!("Post Response: {}", res_body);
+        info!("Post Response: {}", res_body);
         Ok(())
     }
 

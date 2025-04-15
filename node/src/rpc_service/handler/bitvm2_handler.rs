@@ -138,7 +138,7 @@ pub async fn graph_presign_check(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphPresignCheckRequest>,
 ) -> (StatusCode, Json<GraphPresignCheckResponse>) {
-    let mut resp = GraphPresignCheckResponse {
+    let resp = GraphPresignCheckResponse {
         instance_id: payload.instance_id.to_string(),
         instance_status: BridgeInStatus::Presigned,
         graph_status: HashMap::new(),
