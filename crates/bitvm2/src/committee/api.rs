@@ -1,7 +1,9 @@
 use crate::types::Bitvm2Graph;
 use anyhow::{Result, bail};
+use bitcoin::PublicKey;
 use bitcoin::{TapSighashType, Witness, hex::FromHex, key::Keypair};
 use goat::connectors::{connector_0::Connector0, connector_5::Connector5, connector_d::ConnectorD};
+use goat::contexts::base::generate_n_of_n_public_key;
 use goat::transactions::signing_musig2::{
     generate_aggregated_nonce, generate_taproot_aggregated_signature,
 };
@@ -13,6 +15,10 @@ use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce, secp256k1::schnorr:
 use sha2::{Digest, Sha256};
 
 pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;
+
+pub fn key_aggregation(pubkeys: &Vec<PublicKey>) -> PublicKey {
+    generate_n_of_n_public_key(pubkeys).0
+}
 
 pub fn committee_pre_sign(
     committee_member_keypair: Keypair,
@@ -133,6 +139,18 @@ pub fn committee_pre_sign(
 
 pub fn nonce_aggregation(pub_nonces: &Vec<PubNonce>) -> AggNonce {
     generate_aggregated_nonce(pub_nonces)
+}
+
+pub fn nonces_aggregation(pub_nonces_vec: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>) -> [AggNonce; COMMITTEE_PRE_SIGN_NUM] {
+    let mut grouped: [Vec<PubNonce>; COMMITTEE_PRE_SIGN_NUM] = Default::default();
+    for pub_nonces in pub_nonces_vec {
+        for (i, nonce) in pub_nonces.into_iter().enumerate() {
+            grouped[i].push(nonce);
+        }
+    };
+    let result: [AggNonce; COMMITTEE_PRE_SIGN_NUM] = std::array::from_fn(|i| nonce_aggregation(&grouped[i]));
+    result
+
 }
 
 pub fn signature_aggregation_and_push(
