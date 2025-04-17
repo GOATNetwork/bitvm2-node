@@ -431,7 +431,6 @@ pub mod todo_funcs {
     ///
     /// These are fetched via the ProofNetwork SDK.
     pub fn get_groth16_proof(instance_id: Uuid, graph_id: Uuid) -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
-        // 从 ProofNetwork 的SDK中取
         Err("TODO".into())
     }
 
