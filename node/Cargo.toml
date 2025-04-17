@@ -67,4 +67,6 @@ goat = { workspace = true }
 web3 = { workspace = true }
 uuid = { workspace = true }
 
+sha2 = { workspace = true }
+
 [dev-dependencies]
