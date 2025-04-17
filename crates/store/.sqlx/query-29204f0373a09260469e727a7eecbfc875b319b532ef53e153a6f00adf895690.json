@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, from_peer, actor, msg_type, content, state FROM message WHERE state = ? AND  strftime(\"%s\", updated_at) < strftime(?)",
+  "query": "SELECT id, from_peer, actor, msg_type, content, state FROM message WHERE state = ? AND updated_at < ?",
   "describe": {
     "columns": [
       {
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "ee02b89bc5f58f425afcad3460760c5ba11402718032fffa9baf14bf6b9c4279"
+  "hash": "29204f0373a09260469e727a7eecbfc875b319b532ef53e153a6f00adf895690"
 }

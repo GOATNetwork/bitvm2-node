@@ -1,8 +1,10 @@
-use crate::{FilterGraphsInfo, Graph, Instance, Message, Node};
+use crate::schema::NODE_STATUS_OFFLINE;
+use crate::schema::NODE_STATUS_ONLINE;
+use crate::{Graph, Instance, Message, Node, NodesOverview};
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
-use sqlx::{Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
+use sqlx::{Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -87,9 +89,10 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn create_instance(&mut self, instance: Instance) -> anyhow::Result<bool> {
         let res = sqlx::query!(
-            "INSERT OR REPLACE INTO  instance (instance_id, bridge_path, from_addr, to_addr, amount, \
-            status, goat_txid, btc_txid ,pegin_tx, kickoff_tx)  VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO  instance (instance_id, network, bridge_path, from_addr, to_addr, amount, \
+            status, goat_txid, btc_txid, pegin_txid, pegin_tx_height, kickoff_tx, input_uxtos, fee, created_at, updated_at)  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             instance.instance_id,
+            instance.network,
             instance.bridge_path,
             instance.from_addr,
             instance.to_addr,
@@ -97,8 +100,13 @@ impl<'a> StorageProcessor<'a> {
             instance.status,
             instance.goat_txid,
             instance.btc_txid,
-            instance.pegin_tx,
+            instance.pegin_txid,
+            instance.pegin_tx_height,
             instance.kickoff_tx,
+            instance.input_uxtos,
+            instance.fee,
+            instance.created_at,
+            instance.updated_at
         )
             .execute(self.conn())
             .await?;
@@ -108,8 +116,8 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<Instance> {
         let row = sqlx::query_as!(
             Instance,
-            "SELECT instance_id as \"instance_id:Uuid\", bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
-            btc_txid ,pegin_tx, kickoff_tx, created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" \
+            "SELECT instance_id as \"instance_id:Uuid\", network,   bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
+            btc_txid ,pegin_txid, pegin_tx_height, kickoff_tx, input_uxtos, fee ,created_at, updated_at \
             FROM  instance where instance_id = ?",
             instance_id
         ).fetch_one(self.conn())
@@ -118,51 +126,62 @@ impl<'a> StorageProcessor<'a> {
     }
     pub async fn instance_list(
         &mut self,
-        user: &Option<String>,
-        offset: u32,
-        limit: u32,
-    ) -> anyhow::Result<Vec<Instance>> {
-        let res = match user {
-            Some(user) => {
-                sqlx::query_as!(
-                    Instance,
-                    "SELECT instance_id as \"instance_id:Uuid\", bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
-                    created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance where from_addr = ? \
-                    ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                    user,
-                    limit,
-                    offset
-                ).fetch_all(self.conn()).await?
-            }
-            None => {
-                sqlx::query_as!(
-                    Instance,
-                    "SELECT instance_id as \"instance_id:Uuid\" , bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid ,pegin_tx, kickoff_tx, \
-                     created_at as \"created_at: i64\", updated_at as \"updated_at: i64\" from instance  \
-                     ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                    limit,
-                    offset
-                ).fetch_all(self.conn()).await?
-            }
-        };
-        Ok(res)
+        from_addr: Option<String>,
+        bridge_path: Option<u8>,
+        offset: Option<u32>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<(Vec<Instance>, i64)> {
+        let mut instance_query_str = "SELECT instance_id, network,  bridge_path, from_addr, to_addr,\
+                     amount, status, goat_txid, btc_txid ,pegin_txid, pegin_tx_height, kickoff_tx, \
+                    created_at, updated_at, input_uxtos, fee FROM instance".to_string();
+        let mut instance_count_str = "SELECT count(*) as total_instances FROM instance".to_string();
+        let mut conditions: Vec<String> = vec![];
+        if let Some(from_addr) = from_addr {
+            conditions.push(format!("from_addr = \'{}\'", from_addr));
+        }
+        if let Some(bridge_path) = bridge_path {
+            conditions.push(format!("operbridge_pathator = {}", bridge_path));
+        }
+        if !conditions.is_empty() {
+            let condition_str = conditions.join(" and ");
+            instance_query_str = format!("{} WHERE {}", instance_query_str, condition_str);
+            instance_count_str = format!("{} WHERE {}", instance_count_str, condition_str);
+        }
+        if let Some(limit) = limit {
+            instance_query_str = format!("{} LIMIT {}", instance_query_str, limit);
+        }
+        if let Some(offset) = offset {
+            instance_query_str = format!("{} OFFSET {}", instance_query_str, offset);
+        }
+        let instances =
+            sqlx::query_as::<_, Instance>(instance_query_str.as_str()).fetch_all(self.conn()).await?;
+        let total_instances =
+            sqlx::query(instance_count_str.as_str()).fetch_one(self.conn()).await?.get::<i64, &str>("total_instances");
+
+        Ok((instances, total_instances))
     }
 
     /// Update Instance
     pub async fn update_instance(&mut self, instance: Instance) -> anyhow::Result<u64> {
         let row = sqlx::query!(
-            "UPDATE instance SET bridge_path = ?, from_addr= ?, to_addr= ?,  \
-        amount= ?, status= ?, goat_txid= ?, btc_txid= ?, pegin_tx= ?, kickoff_tx = ? WHERE instance_id = ?",
+            "UPDATE instance SET bridge_path = ?, from_addr= ?, to_addr= ?,  network =?, \
+        amount= ?, status= ?, goat_txid= ?, btc_txid= ?, pegin_txid= ?,  pegin_tx_height =?, kickoff_tx = ?, input_uxtos = ?,  \
+        fee = ?, updated_at = ? WHERE instance_id = ?",
             instance.bridge_path,
             instance.from_addr,
             instance.to_addr,
+            instance.network,
             instance.amount,
             instance.status,
             instance.goat_txid,
             instance.btc_txid,
-            instance.pegin_tx,
+            instance.pegin_txid,
+            instance.pegin_tx_height,
             instance.kickoff_tx,
-            instance.instance_id
+            instance.instance_id,
+            instance.input_uxtos,
+            instance.fee,
+            instance.updated_at,
         )
             .execute(self.conn())
             .await?;
@@ -173,7 +192,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, \
-             amount, status, challenge_txid, disprove_txid, created_at) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+             amount, status, challenge_txid, disprove_txid, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
             graph.graph_id,
             graph.instance_id,
             graph.graph_ipfs_base_url,
@@ -183,6 +202,7 @@ impl<'a> StorageProcessor<'a> {
             graph.challenge_txid,
             graph.disprove_txid,
             graph.created_at,
+            graph.updated_at,
         ).execute(self.conn())
             .await?;
         Ok(res.rows_affected())
@@ -191,8 +211,8 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Graph> {
         let res = sqlx::query_as!(
             Graph,
-            "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
-             disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  graph_id = ?",
+            "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, \
+             pegin_txid, amount, status, challenge_txid, disprove_txid, operator, created_at, updated_at  FROM graph WHERE  graph_id = ?",
             graph_id
         ).fetch_one(self.conn()).await?;
         Ok(res)
@@ -200,18 +220,49 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn filter_graphs(
         &mut self,
-        filter_graphs_info: &FilterGraphsInfo,
-    ) -> anyhow::Result<Vec<Graph>> {
-        let res = sqlx::query_as!(
-            Graph,
-            "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
-             disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  status = ? and pegin_txid = ?  LIMIT ? OFFSET ?",
-            filter_graphs_info.status,
-           filter_graphs_info.pegin_txid,
-           filter_graphs_info.limit,
-            filter_graphs_info.offset,
-        ).fetch_all(self.conn()).await?;
-        Ok(res)
+        status: Option<String>,
+        operator: Option<String>,
+        pegin_txid: Option<String>,
+        offset: Option<u32>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<(Vec<Graph>, i64)> {
+        let mut graph_query_str =
+            "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
+             disprove_txid, operator, created_at, updated_at FROM graph"
+                .to_string();
+        let mut graph_count_str = "SELECT count(*) as total_graphs FROM graph".to_string();
+
+        let mut conditions: Vec<String> = vec![];
+
+        if let Some(status) = status {
+            conditions.push(format!("status = \'{}\'", status));
+        }
+        if let Some(operator) = operator {
+            conditions.push(format!("operator = \'{}\'", operator));
+        }
+        if let Some(pegin_txid) = pegin_txid {
+            conditions.push(format!("pegin_txid = \'{}\'", pegin_txid));
+        }
+
+        if !conditions.is_empty() {
+            let condition_str = conditions.join(" and ");
+            graph_query_str = format!("{} WHERE {}", graph_query_str, condition_str);
+            graph_count_str = format!("{} WHERE {}", graph_count_str, condition_str);
+        }
+
+        if let Some(limit) = limit {
+            graph_query_str = format!("{} LIMIT {}", graph_query_str, limit);
+        }
+
+        if let Some(offset) = offset {
+            graph_query_str = format!("{} OFFSET {}", graph_query_str, offset);
+        }
+        let graphs =
+            sqlx::query_as::<_, Graph>(graph_query_str.as_str()).fetch_all(self.conn()).await?;
+        let total_graphs =
+            sqlx::query(graph_count_str.as_str()).fetch_one(self.conn()).await?.get::<i64, &str>("total_graphs");
+
+        Ok((graphs,total_graphs))
     }
 
     pub async fn get_graphs(&mut self, graph_ids: &Vec<String>) -> anyhow::Result<Vec<Graph>> {
@@ -223,7 +274,7 @@ impl<'a> StorageProcessor<'a> {
             .join(",");
         let query_str = format!(
             "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
-             disprove_txid, created_at FROM graph WHERE  graph_id IN ({})",
+             disprove_txid, operator, created_at , updated_at FROM graph WHERE  graph_id IN ({})",
             placeholders
         );
         let mut query = sqlx::query_as::<_, Graph>(&query_str);
@@ -236,12 +287,13 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn get_graph_by_instance_id(
         &mut self,
-        instance_id: &str,
+        instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as!(
             Graph,
-            "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
-             disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  instance_id = ?",
+            "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, \
+            pegin_txid, amount, status, challenge_txid,\
+             disprove_txid, operator, created_at, updated_at FROM graph WHERE instance_id = ?",
             instance_id
         ).fetch_all(self.conn()).await?;
         Ok(res)
@@ -250,13 +302,16 @@ impl<'a> StorageProcessor<'a> {
     /// Insert or update node
     pub async fn update_node(&mut self, node: Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            "INSERT OR REPLACE INTO  node (peer_id, actor, updated_at) VALUES ( ?, ?, ?) ",
+            "INSERT OR REPLACE INTO  node (peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?) ",
             node.peer_id,
             node.actor,
+            node.goat_addr,
+            node.btc_pub_key,
+            node.created_at,
             node.updated_at,
         )
-        .execute(self.conn())
-        .await?;
+            .execute(self.conn())
+            .await?;
         Ok(res.rows_affected())
     }
 
@@ -264,34 +319,74 @@ impl<'a> StorageProcessor<'a> {
     pub async fn node_list(
         &mut self,
         actor: Option<String>,
-        offset: u32,
-        limit: u32,
-    ) -> anyhow::Result<Vec<Node>> {
-        let res = match actor {
-            Some(actor) => {
-                sqlx::query_as!(
-                    Node,
-                    "SELECT peer_id, actor, updated_at as \"updated_at: i64\" FROM node \
-                     WHERE actor = ? LIMIT ? OFFSET ? ",
-                    actor,
-                    limit,
-                    offset
-                )
-                .fetch_all(self.conn())
-                .await?
+        goat_addr: Option<String>,
+        offset: Option<u32>,
+        limit: Option<u32>,
+        time_threshold: i64,
+        status_expect: Option<String>,
+    ) -> anyhow::Result<(Vec<Node>, i64)> {
+        let mut nodes_query_str =
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at FROM node"
+                .to_string();
+        let mut nodes_count_str = "SELECT count(*) as total_nodes FROM node".to_string();
+        let mut conditions: Vec<String> = vec![];
+        if let Some(actor) = actor {
+            conditions.push(format!("actor = \'{}\'", actor));
+        }
+        if let Some(goat_addr) = goat_addr {
+            conditions.push(format!("goat_addr = \'{}\'", goat_addr));
+        }
+        if let Some(status_expect) = status_expect {
+            match status_expect.as_str() {
+                NODE_STATUS_ONLINE => conditions.push(format!("updated_at > {}", time_threshold)),
+                NODE_STATUS_OFFLINE => conditions.push(format!("updated_at <= {}", time_threshold)),
+                _ => {}
             }
-            None => {
-                sqlx::query_as!(
-                    Node,
-                    "SELECT peer_id, actor, updated_at as \"updated_at: i64\" FROM node \
-                     LIMIT ? OFFSET ? ",
-                    limit,
-                    offset
-                )
-                .fetch_all(self.conn())
-                .await?
-            }
-        };
+        }
+        if !conditions.is_empty() {
+            let condition_str = conditions.join(" and ");
+            nodes_query_str = format!("{} WHERE {}", nodes_query_str, condition_str);
+            nodes_count_str = format!("{} WHERE {}", nodes_count_str, condition_str);
+        }
+
+        if let Some(limit) = limit {
+            nodes_query_str = format!("{} LIMIT {}", nodes_query_str, limit);
+        }
+        if let Some(offset) = offset {
+            nodes_query_str = format!("{} OFFSET {}", nodes_query_str, offset);
+        }
+        let nodes =
+            sqlx::query_as::<_, Node>(nodes_query_str.as_str()).fetch_all(self.conn()).await?;
+        let total_nodes =
+            sqlx::query(nodes_count_str.as_str()).fetch_one(self.conn()).await?.get::<i64, &str>("total_nodes");;
+        Ok((nodes, total_nodes))
+    }
+
+    pub async fn node_overview(&mut self, time_threshold: i64) -> anyhow::Result<NodesOverview> {
+        let records = sqlx::query!(
+            "SELECT count(*) as total, actor , SUM(CASE WHEN updated_at>= ? THEN 1 ELSE 0 END) AS online,  \
+        SUM(CASE WHEN updated_at< ? THEN 1 ELSE 0 END)  AS offline FROM node GROUP BY actor",
+            time_threshold,
+            time_threshold
+        ).fetch_all(self.conn()).await?;
+
+        let mut res = NodesOverview::default();
+        for record in records {
+            res.total += record.total;
+            match record.actor.as_str() {
+                "Challenger" => {
+                    (res.offline_challenger, res.online_challenger) =
+                        (record.offline, record.online);
+                }
+                "Operator" => {
+                    (res.offline_operator, res.online_operator) = (record.offline, record.online);
+                }
+                "Committee" => {
+                    (res.offline_committee, res.online_committee) = (record.offline, record.online);
+                }
+                _ => {}
+            };
+        }
         Ok(res)
     }
 
@@ -320,9 +415,9 @@ impl<'a> StorageProcessor<'a> {
             "SELECT COUNT(peer_id)  as alive FROM node WHERE updated_at  >= ? ",
             time_pri
         )
-        .fetch_one(self.conn())
-        .await?
-        .alive;
+            .fetch_one(self.conn())
+            .await?
+            .alive;
         Ok((total, alive))
     }
 
@@ -350,9 +445,9 @@ impl<'a> StorageProcessor<'a> {
         state: String,
         expired: i64,
     ) -> anyhow::Result<Vec<Message>> {
-        let res =  sqlx::query_as!(
+        let res = sqlx::query_as!(
            Message,
-           "SELECT id, from_peer, actor, msg_type, content, state FROM message WHERE state = ? AND  strftime(\"%s\", updated_at) < strftime(?)",
+           "SELECT id, from_peer, actor, msg_type, content, state FROM message WHERE state = ? AND updated_at < ?",
            state, expired
         ).fetch_all(self.conn()).await?;
         Ok(res)

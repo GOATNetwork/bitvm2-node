@@ -8,7 +8,7 @@ mod node;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::{
     bitvm2_handler::*,
-    node_handler::{create_node, get_nodes},
+    node_handler::*,
 };
 use axum::body::Body;
 use axum::extract::Request;
@@ -93,16 +93,19 @@ pub(crate) async fn serve(
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
         .route("/v1/nodes", get(get_nodes))
+        .route("/v1/nodes/overview", get(get_nodes_overview))
+        .route("/v1/instance_settings", get(instance_settings))
         .route("/v1/instances", get(get_instances_with_query_params))
         .route("/v1/instances", post(create_instance))
         .route("/v1/instances/{:id}", get(get_instance))
         .route("/v1/instances/{:id}", put(update_instance))
         .route("/v1/instances/action/bridge_in_tx_prepare", post(bridge_in_tx_prepare))
         .route("/v1/instances/{:id}/bridge_in/peg_gtc_mint", post(peg_btc_mint))
+        .route("/v1/instances/overview", get(get_instances_overview))
         .route("/v1/graphs", post(create_graph))
         .route("/v1/graphs/{:id}", get(get_graph))
         .route("/v1/graphs/{:id}", put(update_graph))
-        .route("/v1/graphs", get(graph_list))
+        .route("/v1/graphs", get(get_graphs))
         .route("/v1/graphs/{:id}/presign", post(graph_presign))
         .route("/v1/graphs/presign_check", post(graph_presign_check))
         .route("/metrics", get(metrics_handler))
@@ -206,8 +209,10 @@ mod tests {
         let resp = client
             .post(format!("http://{}/v1/nodes", LISTEN_ADDRESS))
             .json(&json!({
-                "peer_id": "ffc54e9cf37d9f87e",
-                "actor": "Committee"
+                "peer_id": "ffc54e9ssscf37d9f87e",
+                "actor": "Challenger",
+                "btc_pub_key": "aaa58dsss965c464696560fdee91d039da6",
+                "goat_addr": "58de965c464696560fdee91d039da6d49ef7770f30ef0"
             }))
             .send()
             .await?;
@@ -216,34 +221,28 @@ mod tests {
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
 
-        info!("=====>test api: get node");
+        info!("=====>test api: get nodes");
         let resp = client
-            .get(format!("http://{}/v1/nodes?actor=Committee&offset=0&limit=5", LISTEN_ADDRESS))
+            .get(format!(
+               "http://{}/v1/nodes?actor=Committee&status=Offline&offset=0&limit=5",
+                LISTEN_ADDRESS
+            ))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
 
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_nodes() -> Result<(), Box<dyn std::error::Error>> {
-        init_tracing();
-        tokio::spawn(rpc_service::serve(
-            LISTEN_ADDRESS.to_string(),
-            TMEP_DB_PATH.to_string(),
-            Arc::new(Mutex::new(Registry::default())),
-        ));
-        let client = reqwest::Client::new();
+        info!("=====>test api: get nodes overview");
         let resp = client
-            .get(format!("http://{}/v1/nodes?actor=OPERATOR&offset=5&limit=5", LISTEN_ADDRESS))
+            .get(format!("http://{}/v1/nodes/overview", LISTEN_ADDRESS))
             .send()
             .await?;
+        info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
+
         Ok(())
     }
 
@@ -303,8 +302,20 @@ mod tests {
         info!("=====>test api: get_instances_with_query_params");
         let resp = client
             .get(format!(
-                "http://{}/v1/instances?user_address={}&offset=0&limit=5",
+                "http://{}/v1/instances?from_addr={}&offset=0&limit=5",
                 LISTEN_ADDRESS, from_addr
+            ))
+            .send()
+            .await?;
+        assert!(resp.status().is_success());
+        let res_body = resp.text().await?;
+        info!("Post Response: {}", res_body);
+
+        info!("=====>test api: instance overview");
+        let resp = client
+            .get(format!(
+                "http://{}/v1/instances/overview",
+                LISTEN_ADDRESS,
             ))
             .send()
             .await?;
@@ -355,7 +366,9 @@ mod tests {
                     "pegin_txid": pegin_tx,
                     "amount": 1000,
                     "created_at": 1000000,
+                    "updated_at": 1000000,
                     "status": graph_state,
+                    "operator": "dddsdsdsdsdss"
                 }
             }))
             .send()

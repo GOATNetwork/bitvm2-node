@@ -1,14 +1,17 @@
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::{Address, Amount, Network, OutPoint, Txid};
+use bitvm2_lib::types::CustomInputs;
+use goat::transactions::base::Input;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
-use uuid::Uuid;
-use bitcoin::{Address, Amount, Network, OutPoint, Txid};
-use bitcoin::address::NetworkUnchecked;
-use goat::transactions::base::Input;
-use bitvm2_lib::types::CustomInputs;
 use store::{BridgeInStatus, Graph, GraphStatus, Instance};
+use uuid::Uuid;
 
+pub const BTC_MAIN: &str = "main";
+pub const BTC_TEST_BLOCK_INTERVAL: i64 = 10;
+pub const BTC_MAIN_BLOCK_INTERVAL: i64 = 10;
 // the input to our `create_user` handler
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct UTXO {
@@ -18,6 +21,10 @@ pub struct UTXO {
     //.. others
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InstanceSettingResponse {
+    pub bridge_in_amount: Vec<f32>,
+}
 /// bridge-in: step1 & step2.1
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeInTransactionPreparerRequest {
@@ -65,7 +72,7 @@ pub struct GraphPresignRequest {
 pub struct GraphPresignResponse {
     pub instance_id: String,
     pub graph_id: String,
-    pub graph_ipfs_committee_txns: String,
+    pub graph_ipfs_committee_txns: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,15 +130,35 @@ pub struct BridgeOutTransactionPrepareResponse {
 /// get tx detail
 #[derive(Debug, Deserialize)]
 pub struct InstanceListRequest {
-    pub user_address: Option<String>,
-    pub offset: u32,
-    pub limit: u32,
+    pub from_addr: Option<String>,
+    pub bridge_path: Option<u8>,
+    pub offset: Option<u32>,
+    pub limit: Option<u32>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Default)]
+pub struct InstanceWrap {
+    pub instance: Instance,
+    pub utxo: Vec<UTXO>,
+    pub eta: String,
+}
+
+impl InstanceWrap {
+    pub fn from(instance: Instance, current_btc_height: i64, interval: i64) -> Self {
+        let time_left = (instance.pegin_tx_height + 6 - current_btc_height) * interval;
+        let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
+        if time_left > 0 {
+            Self { instance, utxo, eta: format!("Est. wait for {} mins", interval) }
+        } else {
+            Self { instance, utxo, eta: "Est.complited".to_string() }
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Default)]
 pub struct InstanceListResponse {
-    //                               // instance_id -> (txid, bridge_path)
-    pub instances: Vec<Instance>, // HashMap<String, (String, String)>
+    pub instance_wraps: Vec<InstanceWrap>,
+    pub total: i64,
 }
 
 #[derive(Deserialize)]
@@ -141,7 +168,7 @@ pub struct InstanceGetRequest {
 
 #[derive(Deserialize, Serialize)]
 pub struct InstanceGetResponse {
-    pub instance: Instance,
+    pub instance_wrap: InstanceWrap,
 }
 
 #[derive(Deserialize)]
@@ -151,6 +178,21 @@ pub struct InstanceUpdateRequest {
 
 #[derive(Deserialize, Serialize)]
 pub struct InstanceUpdateResponse {}
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct InstanceOverviewResponse {
+    pub instances_overview: InstanceOverview,
+}
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct InstanceOverview {
+    pub total_bridge_in_amount: i64,
+    pub total_bridge_in_txn: i64,
+    pub total_bridge_out_amount: i64,
+    pub total_bridge_out_txn: i64,
+    pub online_nodes: i64,
+    pub total_nodes: i64,
+}
 
 #[derive(Deserialize)]
 pub struct GraphGetRequest {
@@ -176,24 +218,23 @@ pub struct Pagination {
     pub limit: u32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct GraphQueryParams {
+    pub status: Option<String>,
+    pub operator: Option<String>,
+    pub pegin_txid: Option<String>,
+    pub offset: Option<u32>,
+    pub limit: Option<u32>,
+}
+
 /// graph_overview
 // All fields can be optional
 // if all are none, we fetch all the graph list order by timestamp desc.
-#[derive(Deserialize)]
-pub struct GraphListRequest {
-    pub status: GraphStatus,
-    pub pegin_txid: String,
-}
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphListResponse {
     pub graphs: Vec<Graph>,
-    pub total_bridge_in_amount: i64,
-    pub total_bridge_in_txn: i64,
-    pub total_bridge_out_amount: i64,
-    pub total_bridge_out_txn: i64,
-    pub online_nodes: i64,
-    pub total_nodes: i64,
+    pub total: i64,
 }
 
 // const STACK_AMOUNT: Amount = Amount::from_sat(20_000_000);

@@ -10,8 +10,9 @@ CREATE TABLE graph
     `status`              TEXT            NOT NULL DEFAULT '',
     `challenge_txid`      TEXT,
     `disprove_txid`       TEXT,
-    `created_at`          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `operator`            TEXT            NOT NULL DEFAULT '',
+    `created_at`          BIGINT          NOT NULL DEFAULT 0,
+    `updated_at`          BIGINT          NOT NULL DEFAULT 0,
     PRIMARY KEY (`graph_id`),
     FOREIGN KEY (instance_id) REFERENCES instance (instance_id)
         ON DELETE CASCADE

@@ -1,29 +1,51 @@
-use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::str::FromStr;
 use uuid::Uuid;
+
+pub const NODE_STATUS_ONLINE: &str = "Online";
+pub const NODE_STATUS_OFFLINE: &str = "Offline";
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Node {
     pub peer_id: String,
     pub actor: String,
+    pub goat_addr: String,
+    pub btc_pub_key: String,
     pub updated_at: i64,
+    pub created_at: i64,
+}
+
+/// tem query data
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct NodesOverview {
+    pub total: i64,
+    pub online_operator: i64,
+    pub offline_operator: i64,
+    pub online_challenger: i64,
+    pub offline_challenger: i64,
+    pub online_committee: i64,
+    pub offline_committee: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Instance {
     pub instance_id: Uuid,
+    pub network: String,
     pub bridge_path: u8,
     pub from_addr: String,
     pub to_addr: String,
-    pub amount: i64, // in sat
-    pub created_at: i64,
-    pub updated_at: i64, // updating time
-    pub status: String,  // BridgeInStatus | BridgeOutStutus
+    pub amount: i64,    // in sat
+    pub status: String, // BridgeInStatus | BridgeOutStutus
     pub goat_txid: String,
     pub btc_txid: String,
-    pub pegin_tx: Option<String>,
+    pub pegin_txid: Option<String>,
+    pub pegin_tx_height: i64,
     pub kickoff_tx: Option<String>,
+    pub input_uxtos: String,
+    pub fee: i64,
+    pub created_at: i64,
+    pub updated_at: i64, // updating time
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -137,18 +159,13 @@ pub struct Graph {
     pub pegin_txid: String,
     pub amount: i64,
     pub created_at: i64,
+    pub updated_at: i64,
     pub status: String, // GraphStatus
     pub challenge_txid: Option<String>,
     pub disprove_txid: Option<String>,
+    pub operator: String,
 }
 
-#[derive(Clone, Debug)]
-pub struct FilterGraphsInfo {
-    pub status: String, // GraphStatus
-    pub pegin_txid: String,
-    pub offset: u32,
-    pub limit: u32,
-}
 #[derive(Clone, Debug)]
 pub enum MessageState {
     Pending,

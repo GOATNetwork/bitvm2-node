@@ -10,11 +10,18 @@ use std::default::Default;
 use std::sync::Arc;
 use store::localdb::{ConnectionHolder, LocalDB, StorageProcessor};
 use store::{
-    BridgeInStatus, BridgeOutStatus, BridgePath, FilterGraphsInfo, Graph, GraphStatus, Instance,
-    Message, MessageState,
+    BridgeInStatus, BridgeOutStatus, BridgePath, Graph, GraphStatus, Instance, Message,
+    MessageState,
 };
+use tokio::time::interval;
 use uuid::Uuid;
 
+#[axum::debug_handler]
+pub async fn instance_settings(
+    State(_app_state): State<Arc<AppState>>,
+) -> (StatusCode, Json<InstanceSettingResponse>) {
+    (StatusCode::OK, Json(InstanceSettingResponse { bridge_in_amount: vec![1.0, 0.5, 0.2, 0.1] }))
+}
 #[axum::debug_handler]
 pub async fn bridge_in_tx_prepare(
     State(app_state): State<Arc<AppState>>,
@@ -24,6 +31,7 @@ pub async fn bridge_in_tx_prepare(
         let instance_id = Uuid::parse_str(&payload.instance_id)?;
         let instance = Instance {
             instance_id,
+            network: payload.network.clone(),
             bridge_path: BridgePath::BtcToPGBtc.to_u8(),
             from_addr: payload.from.clone(),
             to_addr: payload.to.clone(),
@@ -31,6 +39,7 @@ pub async fn bridge_in_tx_prepare(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             status: BridgeInStatus::Submitted.to_string(),
+            input_uxtos: serde_json::to_string(&payload.utxo)?,
             ..Default::default()
         };
 
@@ -81,6 +90,8 @@ pub async fn create_graph(
         let graph = Graph {
             instance_id: Uuid::parse_str(&payload.instance_id)?,
             graph_id: Uuid::parse_str(&payload.graph_id)?,
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
             ..Default::default()
         };
         let mut storage_process = app_state.local_db.acquire().await?;
@@ -105,9 +116,9 @@ pub async fn graph_presign(
     let resp = GraphPresignResponse {
         instance_id: payload.instance_id.clone(),
         graph_id: graph_id.clone(),
-        graph_ipfs_committee_txns:
-            "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
-                .to_string(),
+        graph_ipfs_committee_txns: vec![
+            "https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex".to_string(),
+        ],
     };
     let resp_clone = resp.clone();
     let async_fn = || async move {
@@ -150,7 +161,7 @@ pub async fn graph_presign_check(
         let mut storage_process = app_state.local_db.acquire().await?;
         let instance = storage_process.get_instance(&instance_id).await?;
         resp_clone.tx = Some(instance);
-        let graphs = storage_process.get_graph_by_instance_id(&payload.instance_id).await?;
+        let graphs = storage_process.get_graph_by_instance_id(&instance_id).await?;
         resp_clone.graph_status = graphs
             .into_iter()
             .map(|v| (v.graph_id.to_string(), GraphStatus::OperatorPresigned))
@@ -233,6 +244,19 @@ pub async fn update_instance(
     }
 }
 
+pub async fn get_btc_height(_network: &str) -> anyhow::Result<i64> {
+    /// TODO
+    Ok(0)
+}
+
+pub fn get_btc_block_interval(network: &str) -> i64 {
+    let mut interval = BTC_TEST_BLOCK_INTERVAL;
+    if network == BTC_MAIN {
+        interval = BTC_MAIN_BLOCK_INTERVAL;
+    }
+    interval
+}
+
 #[axum::debug_handler]
 pub async fn get_instances_with_query_params(
     Query(params): Query<InstanceListRequest>,
@@ -240,16 +264,35 @@ pub async fn get_instances_with_query_params(
 ) -> (StatusCode, Json<InstanceListResponse>) {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        let instances = storage_process
-            .instance_list(&params.user_address, params.offset, params.limit)
+        let (instances, total) = storage_process
+            .instance_list(params.from_addr, params.bridge_path, params.offset, params.limit)
             .await?;
-        Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse { instances })
+
+        if instances.is_empty() {
+            tracing::warn!("get_instances_with_query_params instance is empty: total {}", total);
+            return Ok::<InstanceListResponse, Box<dyn std::error::Error>>(
+                InstanceListResponse::default(),
+            );
+        }
+        let network = instances[0].network.clone();
+        let current_height = get_btc_height(network.as_str()).await?;
+        let interval = get_btc_block_interval(network.as_str());
+
+        let items: Vec<InstanceWrap> = instances
+            .into_iter()
+            .map(|v| InstanceWrap::from(v, current_height, interval))
+            .collect();
+
+        Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
+            instance_wraps: items,
+            total,
+        })
     };
     match async_fn().await {
         Ok(res) => (StatusCode::OK, Json(res)),
         Err(err) => {
             tracing::warn!("get_instances_with_query_params err:{:?}", err);
-            (StatusCode::OK, Json(InstanceListResponse { instances: vec![] }))
+            (StatusCode::OK, Json(InstanceListResponse::default()))
         }
     }
 }
@@ -263,13 +306,49 @@ pub async fn get_instance(
         let instance_id = Uuid::parse_str(&instance_id)?;
         let mut storage_process = app_state.local_db.acquire().await?;
         let instance = storage_process.get_instance(&instance_id).await?;
-        Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse { instance })
+        let network = instance.network.clone();
+        let current_height = get_btc_height(network.as_str()).await?;
+        let interval = get_btc_block_interval(network.as_str());
+
+        Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
+            instance_wrap: InstanceWrap::from(instance, current_height, interval),
+        })
     };
     match async_fn().await {
         Ok(res) => (StatusCode::OK, Json(res)),
         Err(err) => {
             tracing::warn!("get_instances, err:{:?}", err);
-            (StatusCode::OK, Json(InstanceGetResponse { instance: Instance::default() }))
+            (StatusCode::OK, Json(InstanceGetResponse { instance_wrap: InstanceWrap::default() }))
+        }
+    }
+}
+
+pub async fn get_instances_overview(
+    State(app_state): State<Arc<AppState>>,
+) -> (StatusCode, Json<InstanceOverviewResponse>) {
+    let async_fn = || async move {
+        let mut storage_process = app_state.local_db.acquire().await?;
+        let (pegin_sum, pegin_count) =
+            storage_process.get_sum_bridge_in_or_out(BridgePath::BtcToPGBtc.to_u8()).await?;
+        let (pegout_sum, pegout_count) =
+            storage_process.get_sum_bridge_in_or_out(BridgePath::PGBtcToBtc.to_u8()).await?;
+        let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
+        Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
+            instances_overview: InstanceOverview {
+                total_bridge_in_amount: pegin_sum,
+                total_bridge_in_txn: pegin_count,
+                total_bridge_out_amount: pegout_sum,
+                total_bridge_out_txn: pegout_count,
+                online_nodes: alive,
+                total_nodes: total,
+            },
+        })
+    };
+    match async_fn().await {
+        Ok(resp) => (StatusCode::OK, Json(resp)),
+        Err(err) => {
+            tracing::warn!("graph_list  err:{:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceOverviewResponse::default()))
         }
     }
 }
@@ -318,36 +397,24 @@ pub async fn update_graph(
         }
     }
 }
-
 #[axum::debug_handler]
-pub async fn graph_list(
-    Query(pagination): Query<Pagination>,
+pub async fn get_graphs(
+    Query(params): Query<GraphQueryParams>,
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GraphListRequest>,
 ) -> (StatusCode, Json<GraphListResponse>) {
     let resp = GraphListResponse::default();
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        resp_clone.graphs = storage_process
-            .filter_graphs(&FilterGraphsInfo {
-                status: payload.status.to_string(),
-                pegin_txid: payload.pegin_txid,
-                offset: pagination.offset,
-                limit: pagination.limit,
-            })
+        (resp_clone.graphs, resp_clone.total) = storage_process
+            .filter_graphs(
+                params.status,
+                params.operator,
+                params.pegin_txid,
+                params.offset,
+                params.limit,
+            )
             .await?;
-        let (pegin_sum, pegin_count) =
-            storage_process.get_sum_bridge_in_or_out(BridgePath::BtcToPGBtc.to_u8()).await?;
-        let (pegout_sum, pegout_count) =
-            storage_process.get_sum_bridge_in_or_out(BridgePath::PGBtcToBtc.to_u8()).await?;
-        let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
-        resp_clone.total_bridge_in_amount = pegin_sum;
-        resp_clone.total_bridge_in_txn = pegin_count;
-        resp_clone.total_bridge_out_amount = pegout_sum;
-        resp_clone.total_bridge_out_txn = pegout_count;
-        resp_clone.total_nodes = total;
-        resp_clone.online_nodes = alive;
         Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone)
     };
     match async_fn().await {

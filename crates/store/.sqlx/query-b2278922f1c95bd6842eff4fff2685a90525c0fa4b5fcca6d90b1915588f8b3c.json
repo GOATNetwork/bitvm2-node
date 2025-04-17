@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,disprove_txid, created_at as \"created_at: i64\" FROM graph WHERE  graph_id = ?",
+  "query": "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,disprove_txid, operator, created_at, updated_at FROM graph WHERE instance_id = ?",
   "describe": {
     "columns": [
       {
@@ -44,9 +44,19 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at: i64",
+        "name": "operator",
         "ordinal": 8,
-        "type_info": "Datetime"
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 10,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -61,8 +71,10 @@
       false,
       true,
       true,
+      false,
+      false,
       false
     ]
   },
-  "hash": "0642b6f4df6a7789493a0a684b81a314b2d502eee56694ed604bdf1fdd266d39"
+  "hash": "b2278922f1c95bd6842eff4fff2685a90525c0fa4b5fcca6d90b1915588f8b3c"
 }
