@@ -94,7 +94,7 @@ pub(crate) async fn serve(
         .route("/v1/nodes", post(create_node))
         .route("/v1/nodes", get(get_nodes))
         .route("/v1/nodes/overview", get(get_nodes_overview))
-        .route("/v1/instance_settings", get(instance_settings))
+        .route("/v1/instances/settings", get(instance_settings))
         .route("/v1/instances", get(get_instances_with_query_params))
         .route("/v1/instances", post(create_instance))
         .route("/v1/instances/{:id}", get(get_instance))
@@ -204,7 +204,6 @@ mod tests {
             Arc::new(Mutex::new(Registry::default())),
         ));
         let client = reqwest::Client::new();
-
         info!("=====>test api: create node");
         let resp = client
             .post(format!("http://{}/v1/nodes", LISTEN_ADDRESS))
@@ -254,12 +253,23 @@ mod tests {
             TMEP_DB_PATH.to_string(),
             Arc::new(Mutex::new(Registry::default())),
         ));
-        info!("=====>test api: test_bridge_in_tx_prepare");
         let instance_id = Uuid::new_v4().to_string();
         let graph_id = Uuid::new_v4().to_string();
         let from_addr = "tb1qsyngu9wf2x46tlexhpjl4nugv0zxmgezsx5erl";
         let pegin_tx = "58de965c464696560fdee91d039da6d49ef7770f30ef07d892e21d8a80a16c2c";
         let client = reqwest::Client::new();
+
+        info!("=====>test api:/v1/instances/settings");
+        let resp = client
+            .get(format!("http://{}/v1/instances/settings", LISTEN_ADDRESS))
+            .send()
+            .await?;
+        info!("{:?}", resp);
+        assert!(resp.status().is_success());
+        let res_body = resp.text().await?;
+        info!("Post Response: {}", res_body);
+
+        info!("=====>test api: test_bridge_in_tx_prepare");
         let resp = client
             .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare", LISTEN_ADDRESS))
             .json(&json!({
