@@ -6,7 +6,7 @@ resolver = 3
 [workspace]
 members = [
     "crates/bitvm2",
-    "crates/store", "crates/identity", "node", "crates/spv",
+    "crates/store", "crates/identity", "node", "crates/spv", "crates/client",
 ]
 
 default-members = ["node"]
