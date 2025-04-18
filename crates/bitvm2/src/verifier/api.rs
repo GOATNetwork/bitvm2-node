@@ -11,9 +11,7 @@ use bitvm::chunk::api::{
 use bitvm::treepp::*;
 use goat::connectors::connector_c::{ConnectorC, get_commit_from_assert_commit_tx};
 use goat::transactions::assert::utils::*;
-use goat::transactions::{
-    base::BaseTransaction, pre_signed::PreSignedTransaction,
-};
+use goat::transactions::{base::BaseTransaction, pre_signed::PreSignedTransaction};
 
 pub fn extract_proof_sigs_from_assert_commit_txns(
     assert_commit_txns: [Transaction; COMMIT_TX_NUM],

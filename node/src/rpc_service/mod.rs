@@ -6,10 +6,7 @@ mod handler;
 mod node;
 
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
-use crate::rpc_service::handler::{
-    bitvm2_handler::*,
-    node_handler::*,
-};
+use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
@@ -224,7 +221,7 @@ mod tests {
         info!("=====>test api: get nodes");
         let resp = client
             .get(format!(
-               "http://{}/v1/nodes?actor=Committee&status=Offline&offset=0&limit=5",
+                "http://{}/v1/nodes?actor=Committee&status=Offline&offset=0&limit=5",
                 LISTEN_ADDRESS
             ))
             .send()
@@ -234,10 +231,8 @@ mod tests {
         info!("Post Response: {}", res_body);
 
         info!("=====>test api: get nodes overview");
-        let resp = client
-            .get(format!("http://{}/v1/nodes/overview", LISTEN_ADDRESS))
-            .send()
-            .await?;
+        let resp =
+            client.get(format!("http://{}/v1/nodes/overview", LISTEN_ADDRESS)).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
@@ -312,13 +307,8 @@ mod tests {
         info!("Post Response: {}", res_body);
 
         info!("=====>test api: instance overview");
-        let resp = client
-            .get(format!(
-                "http://{}/v1/instances/overview",
-                LISTEN_ADDRESS,
-            ))
-            .send()
-            .await?;
+        let resp =
+            client.get(format!("http://{}/v1/instances/overview", LISTEN_ADDRESS,)).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);

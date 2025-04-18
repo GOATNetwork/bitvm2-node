@@ -117,7 +117,8 @@ pub async fn graph_presign(
         instance_id: payload.instance_id.clone(),
         graph_id: graph_id.clone(),
         graph_ipfs_committee_txns: vec![
-            "https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex".to_string(),
+            "https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex"
+                .to_string(),
         ],
     };
     let resp_clone = resp.clone();

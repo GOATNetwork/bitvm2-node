@@ -1,6 +1,6 @@
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Instruction;
-use bitcoin::{Script, script, Network};
+use bitcoin::{Network, Script, script};
 
 use crate::types::get_magic_bytes;
 
@@ -15,8 +15,10 @@ pub fn check_pegin_opreturn(network: &Network, script: &Script) -> bool {
             Ok(script::Instruction::PushBytes(bytes)) => {
                 println!("Data pushed: {}", hex::encode(bytes));
                 let magic_bytes = get_magic_bytes(network);
-                if !bytes.as_bytes().starts_with(&magic_bytes) || bytes.len() != magic_bytes.len() + 20 {
-                    return false
+                if !bytes.as_bytes().starts_with(&magic_bytes)
+                    || bytes.len() != magic_bytes.len() + 20
+                {
+                    return false;
                 };
                 return true;
             }

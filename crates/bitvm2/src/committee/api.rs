@@ -141,16 +141,18 @@ pub fn nonce_aggregation(pub_nonces: &Vec<PubNonce>) -> AggNonce {
     generate_aggregated_nonce(pub_nonces)
 }
 
-pub fn nonces_aggregation(pub_nonces_vec: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>) -> [AggNonce; COMMITTEE_PRE_SIGN_NUM] {
+pub fn nonces_aggregation(
+    pub_nonces_vec: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>,
+) -> [AggNonce; COMMITTEE_PRE_SIGN_NUM] {
     let mut grouped: [Vec<PubNonce>; COMMITTEE_PRE_SIGN_NUM] = Default::default();
     for pub_nonces in pub_nonces_vec {
         for (i, nonce) in pub_nonces.into_iter().enumerate() {
             grouped[i].push(nonce);
         }
-    };
-    let result: [AggNonce; COMMITTEE_PRE_SIGN_NUM] = std::array::from_fn(|i| nonce_aggregation(&grouped[i]));
+    }
+    let result: [AggNonce; COMMITTEE_PRE_SIGN_NUM] =
+        std::array::from_fn(|i| nonce_aggregation(&grouped[i]));
     result
-
 }
 
 pub fn signature_aggregation_and_push(

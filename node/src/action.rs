@@ -1,14 +1,16 @@
 use crate::middleware::AllBehaviours;
 use anyhow::Result;
 use axum::body::Body;
+use bitcoin::{Amount, Network, OutPoint, Txid, key::Keypair};
 use bitcoin::{PublicKey, XKeyIdentifier};
 use bitvm2_lib::actors::Actor;
-use bitvm2_lib::verifier::export_challenge_tx;
-use futures::AsyncRead;
-use goat::transactions::{
-    assert::utils::COMMIT_TX_NUM,
-    pre_signed::PreSignedTransaction,
+use bitvm2_lib::types::{
+    Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey,
 };
+use bitvm2_lib::verifier::export_challenge_tx;
+use bitvm2_lib::{committee::*, operator::*, verifier::*};
+use futures::AsyncRead;
+use goat::transactions::{assert::utils::COMMIT_TX_NUM, pre_signed::PreSignedTransaction};
 use libp2p::gossipsub::{Message, MessageId};
 use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
@@ -17,10 +19,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::fmt::format;
 use uuid::Uuid;
-use bitcoin::{key::Keypair, Amount, Network, OutPoint, Txid};
-use bitvm2_lib::types::{Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey};
-use bitvm2_lib::{operator::*, committee::*, verifier::*};
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GOATMessage {
@@ -177,15 +175,15 @@ impl GOATMessage {
     }
 }
 
-pub mod  bitvm_key_derivation {
+pub mod bitvm_key_derivation {
     use super::*;
     use bitvm2_lib::{
-        committee::{generate_keypair_from_seed, generate_nonce_from_seed, COMMITTEE_PRE_SIGN_NUM}, 
+        committee::{COMMITTEE_PRE_SIGN_NUM, generate_keypair_from_seed, generate_nonce_from_seed},
         operator::generate_wots_keys,
         types::{WotsPublicKeys, WotsSecretKeys},
     };
     use musig2::{PubNonce, SecNonce, secp256k1::schnorr::Signature};
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
 
     fn derive_secret(master_key: &Keypair, domain: &Vec<u8>) -> String {
         let secret_key = master_key.secret_key();
@@ -201,12 +199,22 @@ pub mod  bitvm_key_derivation {
             CommitteeMasterKey(inner)
         }
         pub fn keypair_for_instance(&self, instance_id: Uuid) -> Keypair {
-            let domain = vec![b"committee_bitvm_key".to_vec(), instance_id.as_bytes().to_vec()].concat();
+            let domain =
+                vec![b"committee_bitvm_key".to_vec(), instance_id.as_bytes().to_vec()].concat();
             let instance_seed = derive_secret(&self.0, &domain);
             generate_keypair_from_seed(instance_seed)
         }
-        pub fn nonces_for_graph(&self, instance_id: Uuid, graph_id: Uuid) -> [(SecNonce, PubNonce, Signature); COMMITTEE_PRE_SIGN_NUM] {
-            let domain = vec![b"committee_bitvm_nonces".to_vec(), instance_id.as_bytes().to_vec(), graph_id.as_bytes().to_vec()].concat();
+        pub fn nonces_for_graph(
+            &self,
+            instance_id: Uuid,
+            graph_id: Uuid,
+        ) -> [(SecNonce, PubNonce, Signature); COMMITTEE_PRE_SIGN_NUM] {
+            let domain = vec![
+                b"committee_bitvm_nonces".to_vec(),
+                instance_id.as_bytes().to_vec(),
+                graph_id.as_bytes().to_vec(),
+            ]
+            .concat();
             let nonce_seed = derive_secret(&self.0, &domain);
             let signer_keypair = self.keypair_for_instance(instance_id);
             generate_nonce_from_seed(nonce_seed, graph_id.as_u128() as usize, signer_keypair)
@@ -218,14 +226,15 @@ pub mod  bitvm_key_derivation {
         pub fn new(inner: Keypair) -> Self {
             OperatorMasterKey(inner)
         }
-        pub fn master_keypair(&self) -> Keypair { 
+        pub fn master_keypair(&self) -> Keypair {
             self.0
         }
         pub fn keypair_for_graph(&self, _graph_id: Uuid) -> Keypair {
             self.master_keypair()
         }
         pub fn wots_keypair_for_graph(&self, graph_id: Uuid) -> (WotsSecretKeys, WotsPublicKeys) {
-            let domain = vec![b"operator_bitvm_wots_key".to_vec(), graph_id.as_bytes().to_vec()].concat();
+            let domain =
+                vec![b"operator_bitvm_wots_key".to_vec(), graph_id.as_bytes().to_vec()].concat();
             let wot_seed = derive_secret(&self.0, &domain);
             generate_wots_keys(&wot_seed)
         }
@@ -235,18 +244,18 @@ pub mod  bitvm_key_derivation {
 #[allow(unused_variables, dead_code)]
 pub mod todo_funcs {
     use super::*;
-    use bitcoin::{Transaction, Address};
-    use std::str::FromStr;
-    use goat::transactions::base::Input;
-    use goat::scripts::generate_burn_script_address;
+    use bitcoin::{Address, Transaction};
     use bitvm::treepp::*;
+    use goat::scripts::generate_burn_script_address;
+    use goat::transactions::base::Input;
+    use std::str::FromStr;
 
     pub fn get_bitvm_key() -> Result<Keypair, Box<dyn std::error::Error>> {
         let bitvm_secret = std::env::var("BITVM_SECRET").expect("BITVM_SECRET is missing");
         Ok(Keypair::from_seckey_str_global(&bitvm_secret)?)
     }
 
-    /// Returns the number of committee members 
+    /// Returns the number of committee members
     /// Require to reach consensus.
     pub fn committee_member_num() -> usize {
         3
@@ -262,49 +271,82 @@ pub mod todo_funcs {
         true
     }
 
-
     /// Checks whether the given graph belongs to the current operator node.
     ///
-    /// Require to store which graphs were generated by current operator node 
+    /// Require to store which graphs were generated by current operator node
     pub fn is_my_graph(instance_id: Uuid, graph_id: Uuid) -> bool {
         true
     }
 
     /// Database related
-    pub fn store_committee_pubkeys(instance_id: Uuid, pubkey: PublicKey) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn store_committee_pubkeys(
+        instance_id: Uuid,
+        pubkey: PublicKey,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
-    pub fn get_committee_pubkeys(instance_id: Uuid) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
+    pub fn get_committee_pubkeys(
+        instance_id: Uuid,
+    ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
         Ok(vec![])
     }
-    pub fn store_committee_pub_nonces(instance_id: Uuid, graph_id: Uuid, committee_pubkey: PublicKey, pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn store_committee_pub_nonces(
+        instance_id: Uuid,
+        graph_id: Uuid,
+        committee_pubkey: PublicKey,
+        pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
-    pub fn get_committee_pub_nonces(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
+    pub fn get_committee_pub_nonces(
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
         Ok(vec![])
     }
-    pub fn store_committee_partial_sigs(instance_id: Uuid, graph_id: Uuid, committee_pubkey: PublicKey, partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn store_committee_partial_sigs(
+        instance_id: Uuid,
+        graph_id: Uuid,
+        committee_pubkey: PublicKey,
+        partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
-    pub fn get_committee_partial_sigs(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
+    pub fn get_committee_partial_sigs(
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
         Ok(vec![])
     }
-    pub fn store_graph(instance_id: Uuid, graph_id: Uuid, graph: &Bitvm2Graph) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn store_graph(
+        instance_id: Uuid,
+        graph_id: Uuid,
+        graph: &Bitvm2Graph,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
-    pub fn update_graph(instance_id: Uuid, graph_id: Uuid, graph: &Bitvm2Graph) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn update_graph(
+        instance_id: Uuid,
+        graph_id: Uuid,
+        graph: &Bitvm2Graph,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
-    pub fn get_graph(instance_id: Uuid, graph_id: Uuid) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
+    pub fn get_graph(
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
         Err("TODO".into())
     }
-    /// Returns a list of all graph IDs and their corresponding instance IDs 
+    /// Returns a list of all graph IDs and their corresponding instance IDs
     /// that were generated by the given operator public key.
     ///
     /// Two possible ways:
-    /// - store in database 
+    /// - store in database
     /// - in-memory data during the pegin phase, and queried from the L2 contract during the pegout phase
-    pub fn get_graph_ids_by_operator_pubkey(operator_pubkey: PublicKey) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
+    pub fn get_graph_ids_by_operator_pubkey(
+        operator_pubkey: PublicKey,
+    ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
         Ok(vec![])
     }
 
@@ -355,7 +397,10 @@ pub mod todo_funcs {
     pub fn select_operator_inputs(stake_amount: Amount) -> CustomInputs {
         let mock_input = Input {
             outpoint: OutPoint {
-                txid: Txid::from_str("a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d").unwrap(),
+                txid: Txid::from_str(
+                    "a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d",
+                )
+                .unwrap(),
                 vout: 0,
             },
             amount: Amount::from_btc(10000.0).unwrap(),
@@ -387,9 +432,11 @@ pub mod todo_funcs {
 
     /// Signs and broadcasts pre-kickoff transaction.
     ///
-    /// The transaction must be signed using the operator's private key 
+    /// The transaction must be signed using the operator's private key
     /// before broadcasting it to the network.
-    pub fn sign_and_broadcast_prekickoff_tx(tx: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn sign_and_broadcast_prekickoff_tx(
+        tx: Transaction,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
 
@@ -402,7 +449,9 @@ pub mod todo_funcs {
     ///
     /// Notes:
     /// - The challenge node must have pre-funded a P2WSH address during startup.
-    pub fn complete_and_broadcast_challenge_tx(challenge_tx: Transaction) -> Result<Txid, Box<dyn std::error::Error>> {
+    pub fn complete_and_broadcast_challenge_tx(
+        challenge_tx: Transaction,
+    ) -> Result<Txid, Box<dyn std::error::Error>> {
         Ok(Txid::from_str("a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d")?)
     }
 
@@ -417,7 +466,11 @@ pub mod todo_funcs {
     /// A kickoff transaction is considered invalid if:
     /// - It has already been broadcast on Layer 1,
     /// - But the corresponding graph status on Layer 2 is not `Initialized`.
-    pub fn validate_kickoff(instance_id: Uuid, graph_id: Uuid, kickoff_txid: Txid) -> Result<bool, Box<dyn std::error::Error>> {
+    pub fn validate_kickoff(
+        instance_id: Uuid,
+        graph_id: Uuid,
+        kickoff_txid: Txid,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
         Ok(true)
     }
 
@@ -426,11 +479,14 @@ pub mod todo_funcs {
         Ok(true)
     }
 
-    /// Retrieves the Groth16 proof, public inputs, and verifying key 
+    /// Retrieves the Groth16 proof, public inputs, and verifying key
     /// for the given graph.
     ///
     /// These are fetched via the ProofNetwork SDK.
-    pub fn get_groth16_proof(instance_id: Uuid, graph_id: Uuid) -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
+    pub fn get_groth16_proof(
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
         Err("TODO".into())
     }
 
@@ -443,7 +499,9 @@ pub mod todo_funcs {
     /// Returns:
     /// - `Ok(None)` if the assert is valid,
     /// - `Ok(Some((index, disprove_script)))` if invalid, providing the witness info for later disprove.
-    pub fn validate_assert(assert_commit_txns: [Txid; COMMIT_TX_NUM]) -> Result<Option<(usize, Script)>, Box<dyn std::error::Error>> {
+    pub fn validate_assert(
+        assert_commit_txns: [Txid; COMMIT_TX_NUM],
+    ) -> Result<Option<(usize, Script)>, Box<dyn std::error::Error>> {
         Err("TODO".into())
     }
 }
@@ -481,7 +539,8 @@ pub fn recv_and_dispatch(
     match (content, actor) {
         (GOATMessageContent::CreateInstance(receive_data), Actor::Committee) => {
             let instance_id = receive_data.instance_id;
-            let master_key = bitvm_key_derivation::CommitteeMasterKey::new(todo_funcs::get_bitvm_key()?);
+            let master_key =
+                bitvm_key_derivation::CommitteeMasterKey::new(todo_funcs::get_bitvm_key()?);
             let keypair = master_key.keypair_for_instance(instance_id);
             let message_content = GOATMessageContent::CreateGraphPrepare(CreateGraphPrepare {
                 instance_id,
@@ -492,22 +551,32 @@ pub fn recv_and_dispatch(
                 committee_member_pubkey: keypair.public_key().into(),
                 committee_members_num: todo_funcs::committee_member_num(),
             });
-            todo_funcs::store_committee_pubkeys(receive_data.instance_id, keypair.public_key().into())?;
+            todo_funcs::store_committee_pubkeys(
+                receive_data.instance_id,
+                keypair.public_key().into(),
+            )?;
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
-        },
+        }
         (GOATMessageContent::CreateGraphPrepare(receive_data), Actor::Operator) => {
-            todo_funcs::store_committee_pubkeys(receive_data.instance_id, receive_data.committee_member_pubkey)?;
+            todo_funcs::store_committee_pubkeys(
+                receive_data.instance_id,
+                receive_data.committee_member_pubkey,
+            )?;
             let collected_keys = todo_funcs::get_committee_pubkeys(receive_data.instance_id)?;
-            if  todo_funcs::should_generate_graph(&receive_data) 
+            if todo_funcs::should_generate_graph(&receive_data)
                 && collected_keys.len() == receive_data.committee_members_num
             {
                 let graph_id = Uuid::new_v4();
-                let master_key = bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
+                let master_key =
+                    bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
                 let keypair = master_key.keypair_for_graph(graph_id);
                 let (_, operator_wots_pubkeys) = master_key.wots_keypair_for_graph(graph_id);
                 let committee_agg_pubkey = key_aggregation(&collected_keys);
-                let disprove_scripts = generate_disprove_scripts(&todo_funcs::get_partial_scripts(), &operator_wots_pubkeys);
+                let disprove_scripts = generate_disprove_scripts(
+                    &todo_funcs::get_partial_scripts(),
+                    &operator_wots_pubkeys,
+                );
                 let params = Bitvm2Parameters {
                     network: receive_data.network,
                     depositor_evm_address: receive_data.depositor_evm_address,
@@ -516,12 +585,15 @@ pub fn recv_and_dispatch(
                     stake_amount: todo_funcs::get_stake_amount(),
                     challenge_amount: todo_funcs::get_challenge_amount(),
                     committee_pubkeys: collected_keys,
-                    committee_agg_pubkey,   
+                    committee_agg_pubkey,
                     operator_pubkey: keypair.public_key().into(),
                     operator_wots_pubkeys,
-                    operator_inputs: todo_funcs::select_operator_inputs(todo_funcs::get_stake_amount()),
+                    operator_inputs: todo_funcs::select_operator_inputs(
+                        todo_funcs::get_stake_amount(),
+                    ),
                 };
-                let disprove_scripts_bytes = disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
+                let disprove_scripts_bytes =
+                    disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
                 let mut graph = generate_bitvm_graph(params, disprove_scripts_bytes)?;
                 operator_pre_sign(keypair, &mut graph)?;
                 todo_funcs::store_graph(receive_data.instance_id, graph_id, &graph)?;
@@ -532,13 +604,20 @@ pub fn recv_and_dispatch(
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
             };
-        },
+        }
         (GOATMessageContent::CreateGraph(receive_data), Actor::Committee) => {
-            todo_funcs::store_graph(receive_data.instance_id, receive_data.graph_id, &receive_data.graph)?;
-            let master_key = bitvm_key_derivation::CommitteeMasterKey::new(todo_funcs::get_bitvm_key()?);
-            let nonces = master_key.nonces_for_graph(receive_data.instance_id, receive_data.graph_id);
+            todo_funcs::store_graph(
+                receive_data.instance_id,
+                receive_data.graph_id,
+                &receive_data.graph,
+            )?;
+            let master_key =
+                bitvm_key_derivation::CommitteeMasterKey::new(todo_funcs::get_bitvm_key()?);
+            let nonces =
+                master_key.nonces_for_graph(receive_data.instance_id, receive_data.graph_id);
             let keypair = master_key.keypair_for_instance(receive_data.instance_id);
-            let pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM] = std::array::from_fn(|i| nonces[i].1.clone());
+            let pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM] =
+                std::array::from_fn(|i| nonces[i].1.clone());
             let message_content = GOATMessageContent::NonceGeneration(NonceGeneration {
                 instance_id: receive_data.instance_id,
                 graph_id: receive_data.graph_id,
@@ -547,18 +626,30 @@ pub fn recv_and_dispatch(
                 committee_members_num: receive_data.graph.parameters.committee_pubkeys.len(),
             });
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
-        },
+        }
         (GOATMessageContent::NonceGeneration(receive_data), Actor::Committee) => {
-            todo_funcs::store_committee_pub_nonces(receive_data.instance_id, receive_data.graph_id, receive_data.committee_pubkey, receive_data.pub_nonces)?;
+            todo_funcs::store_committee_pub_nonces(
+                receive_data.instance_id,
+                receive_data.graph_id,
+                receive_data.committee_pubkey,
+                receive_data.pub_nonces,
+            )?;
             let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-            let master_key = bitvm_key_derivation::CommitteeMasterKey::new(todo_funcs::get_bitvm_key()?);
+            let master_key =
+                bitvm_key_derivation::CommitteeMasterKey::new(todo_funcs::get_bitvm_key()?);
             let keypair = master_key.keypair_for_instance(receive_data.instance_id);
-            let nonces = master_key.nonces_for_graph(receive_data.instance_id, receive_data.graph_id);
-            let sec_nonces: [SecNonce; COMMITTEE_PRE_SIGN_NUM] = std::array::from_fn(|i| nonces[i].0.clone());
-            let collected_pub_nonces = todo_funcs::get_committee_pub_nonces(receive_data.instance_id, receive_data.graph_id)?;
+            let nonces =
+                master_key.nonces_for_graph(receive_data.instance_id, receive_data.graph_id);
+            let sec_nonces: [SecNonce; COMMITTEE_PRE_SIGN_NUM] =
+                std::array::from_fn(|i| nonces[i].0.clone());
+            let collected_pub_nonces = todo_funcs::get_committee_pub_nonces(
+                receive_data.instance_id,
+                receive_data.graph_id,
+            )?;
             if collected_pub_nonces.len() == receive_data.committee_members_num {
                 let agg_nonces = nonces_aggregation(collected_pub_nonces);
-                let committee_partial_sigs = committee_pre_sign(keypair, sec_nonces, agg_nonces.clone(), &graph)?;
+                let committee_partial_sigs =
+                    committee_pre_sign(keypair, sec_nonces, agg_nonces.clone(), &graph)?;
                 let message_content = GOATMessageContent::CommitteePresign(CommitteePresign {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
@@ -569,21 +660,39 @@ pub fn recv_and_dispatch(
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
             };
-        },
+        }
         (GOATMessageContent::CommitteePresign(receive_data), Actor::Operator) => {
             if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id) {
-                todo_funcs::store_committee_partial_sigs(receive_data.instance_id, receive_data.graph_id, receive_data.committee_pubkey, receive_data.committee_partial_sigs)?;
-                let collected_partial_sigs = todo_funcs::get_committee_partial_sigs(receive_data.instance_id, receive_data.graph_id)?;
+                todo_funcs::store_committee_partial_sigs(
+                    receive_data.instance_id,
+                    receive_data.graph_id,
+                    receive_data.committee_pubkey,
+                    receive_data.committee_partial_sigs,
+                )?;
+                let collected_partial_sigs = todo_funcs::get_committee_partial_sigs(
+                    receive_data.instance_id,
+                    receive_data.graph_id,
+                )?;
                 if collected_partial_sigs.len() == receive_data.committee_members_num {
-                    let mut grouped_partial_sigs: [Vec<PartialSignature>; COMMITTEE_PRE_SIGN_NUM] = Default::default();
+                    let mut grouped_partial_sigs: [Vec<PartialSignature>; COMMITTEE_PRE_SIGN_NUM] =
+                        Default::default();
                     for partial_sigs in collected_partial_sigs {
                         for (i, sig) in partial_sigs.into_iter().enumerate() {
                             grouped_partial_sigs[i].push(sig);
                         }
-                    };
-                    let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-                    signature_aggregation_and_push(&grouped_partial_sigs, &receive_data.agg_nonces, &mut graph)?;
-                    todo_funcs::update_graph(receive_data.instance_id, receive_data.graph_id, &graph)?;
+                    }
+                    let mut graph =
+                        todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+                    signature_aggregation_and_push(
+                        &grouped_partial_sigs,
+                        &receive_data.agg_nonces,
+                        &mut graph,
+                    )?;
+                    todo_funcs::update_graph(
+                        receive_data.instance_id,
+                        receive_data.graph_id,
+                        &graph,
+                    )?;
                     let prekickoff_tx = graph.pre_kickoff.tx().clone();
                     todo_funcs::sign_and_broadcast_prekickoff_tx(prekickoff_tx)?;
                     let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
@@ -591,29 +700,51 @@ pub fn recv_and_dispatch(
                         graph_id: receive_data.graph_id,
                         graph,
                     });
-                    send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
-                    send_to_peer(swarm, GOATMessage::from_typed(Actor::Challenger, &message_content)?)?;
+                    send_to_peer(
+                        swarm,
+                        GOATMessage::from_typed(Actor::Committee, &message_content)?,
+                    )?;
+                    send_to_peer(
+                        swarm,
+                        GOATMessage::from_typed(Actor::Challenger, &message_content)?,
+                    )?;
                 }
             };
-        },
+        }
         (GOATMessageContent::GraphFinalize(receive_data), _) => {
-            todo_funcs::store_graph(receive_data.instance_id, receive_data.graph_id, &receive_data.graph)?;
-        },
+            todo_funcs::store_graph(
+                receive_data.instance_id,
+                receive_data.graph_id,
+                &receive_data.graph,
+            )?;
+        }
 
         // peg-out
         // KickoffReady sent by relayer
         (GOATMessageContent::KickoffReady(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id) 
-                &&  todo_funcs::is_withdraw_initialized_on_l2(receive_data.instance_id, receive_data.graph_id) 
+            if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id)
+                && todo_funcs::is_withdraw_initialized_on_l2(
+                    receive_data.instance_id,
+                    receive_data.graph_id,
+                )
             {
-                let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-                let master_key = bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
+                let mut graph =
+                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+                let master_key =
+                    bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
                 let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                let (operator_wots_seckeys,operator_wots_pubkeys) = master_key.wots_keypair_for_graph(receive_data.graph_id);
+                let (operator_wots_seckeys, operator_wots_pubkeys) =
+                    master_key.wots_keypair_for_graph(receive_data.graph_id);
                 let mut kickoff_commit_data = [0u8; 32];
                 kickoff_commit_data[..16].copy_from_slice(receive_data.instance_id.as_bytes());
                 kickoff_commit_data[16..].copy_from_slice(receive_data.graph_id.as_bytes());
-                let kickoff_tx = operator_sign_kickoff(keypair, &mut graph, &operator_wots_seckeys, &operator_wots_pubkeys, kickoff_commit_data)?;
+                let kickoff_tx = operator_sign_kickoff(
+                    keypair,
+                    &mut graph,
+                    &operator_wots_seckeys,
+                    &operator_wots_pubkeys,
+                    kickoff_commit_data,
+                )?;
                 let kickoff_txid = kickoff_tx.compute_txid();
                 todo_funcs::broadcast_tx(kickoff_tx)?;
                 let message_content = GOATMessageContent::KickoffSent(KickoffSent {
@@ -624,13 +755,15 @@ pub fn recv_and_dispatch(
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Challenger, &message_content)?)?;
             }
-        },
+        }
         // Take1Ready sent by relayer
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id) { 
-                let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id) {
+                let mut graph =
+                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
                 if todo_funcs::is_take1_timelock_expired(graph.take1.tx().compute_txid()) {
-                    let master_key = bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
+                    let master_key =
+                        bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
                     let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                     let take1_tx = operator_sign_take1(keypair, &mut graph)?;
                     let take1_txid = take1_tx.compute_txid();
@@ -640,13 +773,21 @@ pub fn recv_and_dispatch(
                         graph_id: receive_data.graph_id,
                         take1_txid,
                     });
-                    send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
+                    send_to_peer(
+                        swarm,
+                        GOATMessage::from_typed(Actor::Committee, &message_content)?,
+                    )?;
                 }
             }
-        },
+        }
         (GOATMessageContent::KickoffSent(receive_data), Actor::Challenger) => {
-            if !todo_funcs::validate_kickoff(receive_data.instance_id, receive_data.graph_id, receive_data.kickoff_txid)? {
-                let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            if !todo_funcs::validate_kickoff(
+                receive_data.instance_id,
+                receive_data.graph_id,
+                receive_data.kickoff_txid,
+            )? {
+                let mut graph =
+                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
                 let challenge_tx = export_challenge_tx(&mut graph)?;
                 let challenge_txid = todo_funcs::complete_and_broadcast_challenge_tx(challenge_tx)?;
                 let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
@@ -655,27 +796,31 @@ pub fn recv_and_dispatch(
                     challenge_txid,
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
-
             }
-        },
+        }
         (GOATMessageContent::ChallengeSent(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id) 
-                && todo_funcs::validate_challenge(receive_data.challenge_txid)? 
+            if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id)
+                && todo_funcs::validate_challenge(receive_data.challenge_txid)?
             {
-                let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-                let master_key = bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
+                let mut graph =
+                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+                let master_key =
+                    bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
                 let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                let (operator_wots_seckeys,operator_wots_pubkeys) = master_key.wots_keypair_for_graph(receive_data.graph_id);
-                let (proof, pubin, vk) = todo_funcs::get_groth16_proof(receive_data.instance_id, receive_data.graph_id)?;
+                let (operator_wots_seckeys, operator_wots_pubkeys) =
+                    master_key.wots_keypair_for_graph(receive_data.graph_id);
+                let (proof, pubin, vk) =
+                    todo_funcs::get_groth16_proof(receive_data.instance_id, receive_data.graph_id)?;
                 let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
-                let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;
+                let (assert_init_tx, assert_commit_txns, assert_final_tx) =
+                    operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;
                 let assert_init_txid = assert_init_tx.compute_txid();
                 todo_funcs::broadcast_tx(assert_init_tx)?;
                 let mut assert_commit_txids = Vec::with_capacity(COMMIT_TX_NUM);
-                for tx in assert_commit_txns {        
+                for tx in assert_commit_txns {
                     assert_commit_txids.push(tx.compute_txid());
-                    todo_funcs::broadcast_tx(tx)?;    
-                };
+                    todo_funcs::broadcast_tx(tx)?;
+                }
                 let assert_final_txid = assert_final_tx.compute_txid();
                 todo_funcs::broadcast_tx(assert_final_tx)?;
                 let message_content = GOATMessageContent::AssertSent(AssertSent {
@@ -687,13 +832,16 @@ pub fn recv_and_dispatch(
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Challenger, &message_content)?)?;
             }
-        },
+        }
         // Take2Ready sent by relayer
         (GOATMessageContent::Take2Ready(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id) { // checkout timelock
-                let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id) {
+                // checkout timelock
+                let mut graph =
+                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
                 if todo_funcs::is_take2_timelock_expired(graph.assert_final.tx().compute_txid()) {
-                    let master_key = bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
+                    let master_key =
+                        bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
                     let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                     let take2_tx = operator_sign_take2(keypair, &mut graph)?;
                     let take2_txid = take2_tx.compute_txid();
@@ -703,17 +851,33 @@ pub fn recv_and_dispatch(
                         graph_id: receive_data.graph_id,
                         take2_txid,
                     });
-                    send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
+                    send_to_peer(
+                        swarm,
+                        GOATMessage::from_typed(Actor::Committee, &message_content)?,
+                    )?;
                 }
             }
-        },
+        }
         (GOATMessageContent::AssertSent(receive_data), Actor::Challenger) => {
-            if let Some(disprove_witness) = todo_funcs::validate_assert(receive_data.assert_commit_txids)? {
-                let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-                let disprove_scripts = generate_disprove_scripts(&todo_funcs::get_partial_scripts(), &graph.parameters.operator_wots_pubkeys);
-                let disprove_scripts_bytes = disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
+            if let Some(disprove_witness) =
+                todo_funcs::validate_assert(receive_data.assert_commit_txids)?
+            {
+                let mut graph =
+                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+                let disprove_scripts = generate_disprove_scripts(
+                    &todo_funcs::get_partial_scripts(),
+                    &graph.parameters.operator_wots_pubkeys,
+                );
+                let disprove_scripts_bytes =
+                    disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
                 let assert_wots_pubkeys = graph.parameters.operator_wots_pubkeys.1.clone();
-                let disprove_tx = sign_disprove(&mut graph, disprove_witness, disprove_scripts_bytes, &assert_wots_pubkeys, todo_funcs::disprove_reward_address()?)?;
+                let disprove_tx = sign_disprove(
+                    &mut graph,
+                    disprove_witness,
+                    disprove_scripts_bytes,
+                    &assert_wots_pubkeys,
+                    todo_funcs::disprove_reward_address()?,
+                )?;
                 let disprove_txid = disprove_tx.compute_txid();
                 todo_funcs::broadcast_tx(disprove_tx)?;
                 let message_content = GOATMessageContent::DisproveSent(DisproveSent {
@@ -723,7 +887,7 @@ pub fn recv_and_dispatch(
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
             }
-        },
+        }
         _ => {}
     }
     // TODO

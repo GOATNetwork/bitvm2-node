@@ -4,7 +4,7 @@ use crate::{Graph, Instance, Message, Node, NodesOverview};
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
-use sqlx::{Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase, Row};
+use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -131,9 +131,11 @@ impl<'a> StorageProcessor<'a> {
         offset: Option<u32>,
         limit: Option<u32>,
     ) -> anyhow::Result<(Vec<Instance>, i64)> {
-        let mut instance_query_str = "SELECT instance_id, network,  bridge_path, from_addr, to_addr,\
+        let mut instance_query_str =
+            "SELECT instance_id, network,  bridge_path, from_addr, to_addr,\
                      amount, status, goat_txid, btc_txid ,pegin_txid, pegin_tx_height, kickoff_tx, \
-                    created_at, updated_at, input_uxtos, fee FROM instance".to_string();
+                    created_at, updated_at, input_uxtos, fee FROM instance"
+                .to_string();
         let mut instance_count_str = "SELECT count(*) as total_instances FROM instance".to_string();
         let mut conditions: Vec<String> = vec![];
         if let Some(from_addr) = from_addr {
@@ -153,10 +155,13 @@ impl<'a> StorageProcessor<'a> {
         if let Some(offset) = offset {
             instance_query_str = format!("{} OFFSET {}", instance_query_str, offset);
         }
-        let instances =
-            sqlx::query_as::<_, Instance>(instance_query_str.as_str()).fetch_all(self.conn()).await?;
-        let total_instances =
-            sqlx::query(instance_count_str.as_str()).fetch_one(self.conn()).await?.get::<i64, &str>("total_instances");
+        let instances = sqlx::query_as::<_, Instance>(instance_query_str.as_str())
+            .fetch_all(self.conn())
+            .await?;
+        let total_instances = sqlx::query(instance_count_str.as_str())
+            .fetch_one(self.conn())
+            .await?
+            .get::<i64, &str>("total_instances");
 
         Ok((instances, total_instances))
     }
@@ -259,10 +264,12 @@ impl<'a> StorageProcessor<'a> {
         }
         let graphs =
             sqlx::query_as::<_, Graph>(graph_query_str.as_str()).fetch_all(self.conn()).await?;
-        let total_graphs =
-            sqlx::query(graph_count_str.as_str()).fetch_one(self.conn()).await?.get::<i64, &str>("total_graphs");
+        let total_graphs = sqlx::query(graph_count_str.as_str())
+            .fetch_one(self.conn())
+            .await?
+            .get::<i64, &str>("total_graphs");
 
-        Ok((graphs,total_graphs))
+        Ok((graphs, total_graphs))
     }
 
     pub async fn get_graphs(&mut self, graph_ids: &Vec<String>) -> anyhow::Result<Vec<Graph>> {
@@ -357,8 +364,10 @@ impl<'a> StorageProcessor<'a> {
         }
         let nodes =
             sqlx::query_as::<_, Node>(nodes_query_str.as_str()).fetch_all(self.conn()).await?;
-        let total_nodes =
-            sqlx::query(nodes_count_str.as_str()).fetch_one(self.conn()).await?.get::<i64, &str>("total_nodes");;
+        let total_nodes = sqlx::query(nodes_count_str.as_str())
+            .fetch_one(self.conn())
+            .await?
+            .get::<i64, &str>("total_nodes");
         Ok((nodes, total_nodes))
     }
 
@@ -415,9 +424,9 @@ impl<'a> StorageProcessor<'a> {
             "SELECT COUNT(peer_id)  as alive FROM node WHERE updated_at  >= ? ",
             time_pri
         )
-            .fetch_one(self.conn())
-            .await?
-            .alive;
+        .fetch_one(self.conn())
+        .await?
+        .alive;
         Ok((total, alive))
     }
 

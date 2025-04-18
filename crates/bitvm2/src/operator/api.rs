@@ -1,5 +1,7 @@
 use crate::types::{
-    get_magic_bytes, Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, Groth16WotsPublicKeys, Groth16WotsSignatures, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys
+    Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, Groth16WotsPublicKeys,
+    Groth16WotsSignatures, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys,
+    get_magic_bytes,
 };
 use anyhow::{Result, bail};
 use bitcoin::Transaction;
