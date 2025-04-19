@@ -38,6 +38,7 @@ pub struct Objects {
     objects: Vec<Object>,
 }
 
+/// If the name is empty, it's the directory name
 #[derive(Deserialize, Debug, PartialEq, Hash)]
 #[serde(rename_all = "PascalCase")]
 pub struct AddedFile {
