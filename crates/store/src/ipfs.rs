@@ -1,12 +1,15 @@
 use anyhow::{Result, bail};
+use futures::TryStreamExt;
 use reqwest::Client;
+use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
-use serde_json::Value;
+use tokio::fs::File;
+use tokio_util::codec::{BytesCodec, FramedRead};
+use walkdir::WalkDir;
 
 pub struct IPFS {
     pub endpoint: String,
     pub client: Client,
-    pub root: String,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Hash)]
@@ -35,30 +38,43 @@ pub struct Objects {
     objects: Vec<Object>,
 }
 
+#[derive(Deserialize, Debug, PartialEq, Hash)]
+#[serde(rename_all = "PascalCase")]
+pub struct AddedFile {
+    name: String,
+    hash: String,
+    size: String,
+}
+
+// Collects all files and returns relative + absolute paths
+async fn collect_files(base_path: &str) -> Result<Form> {
+    let mut form = Form::new();
+
+    for entry in
+        WalkDir::new(base_path).into_iter().filter_map(Result::ok).filter(|e| e.path().is_file())
+    {
+        let rel_path = entry.path().strip_prefix(base_path)?.to_str().unwrap().replace("\\", "/");
+
+        let file = File::open(entry.path()).await?;
+
+        let stream = FramedRead::new(file, BytesCodec::new())
+            .map_ok(|b| b.freeze())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+
+        let body = reqwest::Body::wrap_stream(stream);
+
+        let part = Part::stream(body).file_name(rel_path.clone());
+
+        form = form.part("file", part);
+    }
+    Ok(form)
+}
+
 impl IPFS {
-    pub fn new(endpoint: &str, root: &str) -> Self {
-        debug_assert!(root.starts_with('/'), "root must start with /");
-        debug_assert!(root.ends_with('/'), "root must end with /");
+    pub fn new(endpoint: &str) -> Self {
         let client = Client::new();
         let endpoint = endpoint.to_string();
-        let root = root.to_string();
-        Self { endpoint, client, root }
-    }
-
-    /// build_rooted_abs_path will build an absolute path with root.
-    ///
-    /// # Rules
-    ///
-    /// - Input root MUST be the format like `/abc/def/`
-    /// - Output will be the format like `/path/to/root/path`.
-    pub fn build_rooted_abs_path(&self, root: &str, path: &str) -> String {
-        let p = self.root.clone();
-        if path == "/" {
-            p
-        } else {
-            debug_assert!(!path.starts_with('/'), "path must not start with /");
-            p + path
-        }
+        Self { endpoint, client }
     }
 
     // list directory
@@ -90,49 +106,27 @@ impl IPFS {
     }
 
     /// Add file to IPFS and return its ipfs url
-    pub async fn add(&self, file_bytes: Vec<u8>) -> Result<String> {
-        let url = format!("{}/api/v0/add", self.endpoint);
-        // Read file bytes
-        let form = reqwest::multipart::Form::new()
-            .part("file", reqwest::multipart::Part::bytes(file_bytes));
+    pub async fn add(&self, base_path: &str) -> Result<Vec<AddedFile>> {
+        let url = format!("{}/api/v0/add?recursive=true&wrap-with-directory=true", self.endpoint);
+
+        let form = collect_files(base_path).await?;
         let response = self.client.post(url).multipart(form).send().await?;
         if response.status().is_success() {
             let response_body = response.text().await?;
-            let ipfs_response: Value = serde_json::from_str(&response_body)?;
-            Ok(ipfs_response["Hash"].to_string())
+            println!("add: {:?}", response_body);
+
+            let shares = response_body.trim().split("\n").collect::<Vec<_>>();
+
+            println!("add: {:?}", shares);
+
+            let added_files =
+                shares.iter().map(|f| serde_json::from_str(f).unwrap()).collect::<Vec<AddedFile>>();
+
+            Ok(added_files)
         } else {
             bail!("IPFS upload failed, {:?}", response)
         }
     }
-
-    /// Add file to IPFS and return its ipfs url
-    pub async fn mfs_mkdir(&self, path: &str) -> Result<String> {
-        let url = format!("{}/api/v0/files/mkdir?arg={}&parents=true", self.endpoint, path);
-        // Read file bytes
-        let response = self.client.post(url).send().await?;
-        if response.status().is_success() {
-            let response_body = response.text().await?;
-            println!("1111111111111: {}", response_body);
-            let ipfs_response: Value = serde_json::from_str(&response_body)?;
-            Ok(ipfs_response["Hash"].to_string())
-        } else {
-            bail!("IPFS mkdir failed, {:?}", response)
-        }
-    }
-
-    // /// Add file to IPFS and return its ipfs url
-    // pub async fn mfs_ls(&self, path: &str) -> Result<String> {
-    //    let url = format!("{}/api/v0/files/ls?arg={}&parents=true", self.endpoint, path);
-    //    // Read file bytes
-    //    let response = self.client.post(url).send().await?;
-    //    if response.status().is_success() {
-    //        let response_body = response.text().await?;
-    //        let ipfs_response: Value = serde_json::from_str(&response_body)?;
-    //        Ok(ipfs_response["Hash"].to_string())
-    //    } else {
-    //        bail!("IPFS mkdir failed, {:?}", response)
-    //    }
-    //}
 }
 
 #[cfg(test)]
@@ -141,9 +135,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_ipfs_add_and_get() {
         println!("connecting to localhost:5001...");
-        let root = "/bitvm";
-        //let client = IPFS::new("http://44.229.236.82:5001", root);
-        let client = IPFS::new("http://localhost:5001", root);
+        let client = IPFS::new("http://44.229.236.82:5001");
+        //let client = IPFS::new("http://localhost:5001");
 
         // Read single file
         match client.cat("QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/assert-commit0.hex").await
@@ -162,21 +155,14 @@ pub mod tests {
             Err(e) => panic!("{}", e),
         }
 
-        match client.mfs_mkdir("/abc-tmp").await {
-            Ok(res) => println!("mkdir: {}", res),
-            Err(e) => panic!("{}", e),
-        }
-
-        /*
         // just skip
-        let content = "!!! hello, world!";
-        match client.add(content.as_bytes().to_vec()).await {
+        let local_path = "/tmp/local_input";
+        match client.add(local_path).await {
             Ok(hash) => {
-                println!("add hash: {}", hash);
+                println!("add hash: {:?}", hash);
                 // FIXME: can not read immidately.
             }
             Err(e) => panic!("error adding file: {}", e),
         }
-        */
     }
 }
