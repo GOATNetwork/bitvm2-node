@@ -2,9 +2,11 @@ use crate::chain::chain::Chain;
 use crate::chain::chain_adaptor::{ChainAdaptor, GoatNetwork, get_chain_adaptor};
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;
-use bitcoin::Address as BtcAddress;
+use anyhow::format_err;
+use bitcoin::hashes::Hash;
+use bitcoin::{Address as BtcAddress, TxMerkleNode, Txid};
 use bitcoin::{Block, Network};
-use esplora_client::{AsyncClient, Builder, TxStatus, Utxo};
+use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 
 pub struct BitVM2Client {
     pub esplora: AsyncClient,
@@ -40,5 +42,41 @@ impl BitVM2Client {
 
     pub async fn fetch_btc_address_utxos(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
         Ok(self.esplora.get_address_utxo(address).await?)
+    }
+
+    pub async fn get_bitc_merkle_proof(
+        &self,
+        tx_id: &Txid,
+    ) -> anyhow::Result<(TxMerkleNode, MerkleProof)> {
+        let proof = self.esplora.get_merkle_proof(tx_id).await?;
+        if let Some(proof) = proof {
+            let block_hash = self.esplora.get_block_hash(proof.block_height).await?;
+            let header = self.esplora.get_header_by_hash(&block_hash).await?;
+            return Ok((header.merkle_root, proof));
+        }
+
+        Err(format_err!("get {} merkle proof is none", tx_id))
+    }
+
+    pub async fn verify_merkle_proof(
+        &self,
+        tx_id: &Txid,
+        root: &TxMerkleNode,
+        proof_info: &MerkleProof,
+    ) -> anyhow::Result<bool> {
+        let root = root.to_byte_array().map(|v| v);
+        let poof: Vec<[u8; 32]> =
+            proof_info.merkle.iter().map(|v| v.to_byte_array().map(|v| v)).collect();
+        let res = self
+            .chain_service
+            .adaptor
+            .verify_merkle_proof(
+                &root,
+                &poof,
+                &tx_id.to_byte_array().map(|v| v),
+                proof_info.pos as u64,
+            )
+            .await?;
+        Ok(res)
     }
 }

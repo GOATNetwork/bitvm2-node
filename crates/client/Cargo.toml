@@ -5,9 +5,11 @@ edition.workspace = true
 
 [dependencies]
 tokio = { workspace = true }
+hex = { workspace = true }
 async-trait = { workspace = true }
 dotenv = { workspace = true }
 alloy = { workspace = true }
+uuid = { workspace = true }
 bitcoin = { workspace = true }
 esplora-client = { workspace = true }
 anyhow = { workspace = true }
