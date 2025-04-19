@@ -6,6 +6,7 @@ use serde_json::Value;
 pub struct IPFS {
     pub endpoint: String,
     pub client: Client,
+    pub root: String,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Hash)]
@@ -35,10 +36,29 @@ pub struct Objects {
 }
 
 impl IPFS {
-    pub fn new(endpoint: &str) -> Self {
+    pub fn new(endpoint: &str, root: &str) -> Self {
+        debug_assert!(root.starts_with('/'), "root must start with /");
+        debug_assert!(root.ends_with('/'), "root must end with /");
         let client = Client::new();
         let endpoint = endpoint.to_string();
-        Self { endpoint, client }
+        let root = root.to_string();
+        Self { endpoint, client, root }
+    }
+
+    /// build_rooted_abs_path will build an absolute path with root.
+    ///
+    /// # Rules
+    ///
+    /// - Input root MUST be the format like `/abc/def/`
+    /// - Output will be the format like `/path/to/root/path`.
+    pub fn build_rooted_abs_path(&self, root: &str, path: &str) -> String {
+        let p = self.root.clone();
+        if path == "/" {
+            p
+        } else {
+            debug_assert!(!path.starts_with('/'), "path must not start with /");
+            p + path
+        }
     }
 
     // list directory
@@ -72,23 +92,47 @@ impl IPFS {
     /// Add file to IPFS and return its ipfs url
     pub async fn add(&self, file_bytes: Vec<u8>) -> Result<String> {
         let url = format!("{}/api/v0/add", self.endpoint);
-
         // Read file bytes
         let form = reqwest::multipart::Form::new()
             .part("file", reqwest::multipart::Part::bytes(file_bytes));
-
         let response = self.client.post(url).multipart(form).send().await?;
-
         if response.status().is_success() {
             let response_body = response.text().await?;
-
             let ipfs_response: Value = serde_json::from_str(&response_body)?;
-
             Ok(ipfs_response["Hash"].to_string())
         } else {
-            bail!("IPFS upload failed")
+            bail!("IPFS upload failed, {:?}", response)
         }
     }
+
+    /// Add file to IPFS and return its ipfs url
+    pub async fn mfs_mkdir(&self, path: &str) -> Result<String> {
+        let url = format!("{}/api/v0/files/mkdir?arg={}&parents=true", self.endpoint, path);
+        // Read file bytes
+        let response = self.client.post(url).send().await?;
+        if response.status().is_success() {
+            let response_body = response.text().await?;
+            println!("1111111111111: {}", response_body);
+            let ipfs_response: Value = serde_json::from_str(&response_body)?;
+            Ok(ipfs_response["Hash"].to_string())
+        } else {
+            bail!("IPFS mkdir failed, {:?}", response)
+        }
+    }
+
+    // /// Add file to IPFS and return its ipfs url
+    // pub async fn mfs_ls(&self, path: &str) -> Result<String> {
+    //    let url = format!("{}/api/v0/files/ls?arg={}&parents=true", self.endpoint, path);
+    //    // Read file bytes
+    //    let response = self.client.post(url).send().await?;
+    //    if response.status().is_success() {
+    //        let response_body = response.text().await?;
+    //        let ipfs_response: Value = serde_json::from_str(&response_body)?;
+    //        Ok(ipfs_response["Hash"].to_string())
+    //    } else {
+    //        bail!("IPFS mkdir failed, {:?}", response)
+    //    }
+    //}
 }
 
 #[cfg(test)]
@@ -97,8 +141,9 @@ pub mod tests {
     #[tokio::test]
     async fn test_ipfs_add_and_get() {
         println!("connecting to localhost:5001...");
-        let client = IPFS::new("http://44.229.236.82:5001");
-        //let client = IPFS::new("http://localhost:5001");
+        let root = "/bitvm";
+        //let client = IPFS::new("http://44.229.236.82:5001", root);
+        let client = IPFS::new("http://localhost:5001", root);
 
         // Read single file
         match client.cat("QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/assert-commit0.hex").await
@@ -117,8 +162,13 @@ pub mod tests {
             Err(e) => panic!("{}", e),
         }
 
+        match client.mfs_mkdir("/abc-tmp").await {
+            Ok(res) => println!("mkdir: {}", res),
+            Err(e) => panic!("{}", e),
+        }
+
         /*
-        // just skip 
+        // just skip
         let content = "!!! hello, world!";
         match client.add(content.as_bytes().to_vec()).await {
             Ok(hash) => {
