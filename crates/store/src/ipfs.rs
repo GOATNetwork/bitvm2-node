@@ -1,3 +1,4 @@
+use std::path::Path;
 use anyhow::{Result, bail};
 use futures::TryStreamExt;
 use reqwest::Client;
@@ -48,24 +49,19 @@ pub struct AddedFile {
 }
 
 // Collects all files and returns relative + absolute paths
-async fn collect_files(base_path: &str) -> Result<Form> {
+async fn collect_files(base_path: &Path) -> Result<Form> {
     let mut form = Form::new();
 
     for entry in
         WalkDir::new(base_path).into_iter().filter_map(Result::ok).filter(|e| e.path().is_file())
     {
         let rel_path = entry.path().strip_prefix(base_path)?.to_str().unwrap().replace("\\", "/");
-
         let file = File::open(entry.path()).await?;
-
         let stream = FramedRead::new(file, BytesCodec::new())
             .map_ok(|b| b.freeze())
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
-
         let body = reqwest::Body::wrap_stream(stream);
-
         let part = Part::stream(body).file_name(rel_path.clone());
-
         form = form.part("file", part);
     }
     Ok(form)
@@ -107,7 +103,7 @@ impl IPFS {
     }
 
     /// Add file to IPFS and return its ipfs url
-    pub async fn add(&self, base_path: &str) -> Result<Vec<AddedFile>> {
+    pub async fn add(&self, base_path: &Path) -> Result<Vec<AddedFile>> {
         let url = format!("{}/api/v0/add?recursive=true&wrap-with-directory=true", self.endpoint);
 
         let form = collect_files(base_path).await?;
@@ -133,6 +129,7 @@ impl IPFS {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use std::io::Write;
     #[tokio::test]
     async fn test_ipfs_add_and_get() {
         println!("connecting to localhost:5001...");
@@ -156,14 +153,20 @@ pub mod tests {
             Err(e) => panic!("{}", e),
         }
 
-        // just skip
-        let local_path = "/tmp/local_input";
-        match client.add(local_path).await {
-            Ok(hash) => {
-                println!("add hash: {:?}", hash);
-                // FIXME: can not read immidately.
-            }
-            Err(e) => panic!("error adding file: {}", e),
-        }
+        // it works, but skip for avoiding creating too much garbage
+        // let base_dir = tempfile::tempdir().unwrap();
+        // vec!["1.txt", "2.txt"].iter().for_each(|name| {
+        //     let mut file = std::fs::File::create(
+        //         base_dir.path().join(name)
+        //     ).unwrap();
+        //     let _ = writeln!(file, "GOAT Network").unwrap();
+        // });
+        // match client.add(base_dir.path()).await {
+        //     Ok(hash) => {
+        //         println!("add hash: {:?}", hash);
+        //         // FIXME: can not read immidately.
+        //     }
+        //     Err(e) => panic!("error adding file: {}", e),
+        // }
     }
 }

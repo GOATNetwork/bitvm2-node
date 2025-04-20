@@ -11,9 +11,11 @@ uuid = { workspace = true }
 tracing = "0.1.41"
 
 futures = { workspace = true }
-futures-util = "0.3"
 tokio = { workspace = true, features = ["full"] }
 reqwest = { version = "0.12.15", features = ["multipart", "json", "stream"]}
 serde_json = { workspace = true }
 walkdir = "2"
 tokio-util = "0.7.14"
+
+[dev-dependencies]
+tempfile = "3.19.1"
