@@ -399,6 +399,15 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
+    pub async fn node_by_id(&mut self, peer_id: &str) -> anyhow::Result<Option<Node>> {
+        let res = sqlx::query_as!(
+            Node,
+            "SELECT peer_id, actor, goat_addr,btc_pub_key, created_at,  updated_at FROM  node WHERE peer_id = ?",
+            peer_id
+        ).fetch_optional(self.conn()).await?;
+        Ok(res)
+    }
+
     pub async fn get_sum_bridge_in_or_out(
         &mut self,
         bridge_path: u8,

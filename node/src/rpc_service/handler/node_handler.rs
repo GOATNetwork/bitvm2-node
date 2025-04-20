@@ -4,7 +4,7 @@ use crate::rpc_service::node::{
 };
 use crate::rpc_service::{AppState, current_time_secs};
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use http::StatusCode;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
@@ -110,6 +110,25 @@ pub async fn get_nodes_overview(
         Err(err) => {
             tracing::warn!("get_nodes failed, error:{}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(NodeOverViewResponse::default()))
+        }
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_node(
+    Path(peer_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> (StatusCode, Json<Option<Node>>) {
+    let async_fn = || async move {
+        let mut storage_process = app_state.local_db.acquire().await?;
+        let res = storage_process.node_by_id(peer_id.as_str()).await?;
+        Ok::<Option<Node>, Box<dyn std::error::Error>>(res)
+    };
+    match async_fn().await {
+        Ok(res) => (StatusCode::OK, Json(res)),
+        Err(err) => {
+            tracing::warn!("get_nodes failed, error:{}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
         }
     }
 }

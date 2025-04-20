@@ -90,6 +90,7 @@ pub(crate) async fn serve(
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
         .route("/v1/nodes", get(get_nodes))
+        .route("/v1/nodes/{:id}", get(get_node))
         .route("/v1/nodes/overview", get(get_nodes_overview))
         .route("/v1/instances/settings", get(instance_settings))
         .route("/v1/instances", get(get_instances_with_query_params))
@@ -201,15 +202,26 @@ mod tests {
             Arc::new(Mutex::new(Registry::default())),
         ));
         let client = reqwest::Client::new();
+        let node_peer = "ddsdssccfsffsafafafa";
         info!("=====>test api: create node");
         let resp = client
             .post(format!("http://{}/v1/nodes", LISTEN_ADDRESS))
             .json(&json!({
-                "peer_id": "ffc54e9ssscf37d9f87e",
+                "peer_id": node_peer,
                 "actor": "Challenger",
                 "btc_pub_key": "aaa58dsss965c464696560fdee91d039da6",
                 "goat_addr": "58de965c464696560fdee91d039da6d49ef7770f30ef0"
             }))
+            .send()
+            .await?;
+        info!("{:?}", resp);
+        assert!(resp.status().is_success());
+        let res_body = resp.text().await?;
+        info!("Post Response: {}", res_body);
+
+        info!("=====>test api: get node");
+        let resp = client
+            .get(format!("http://{}/v1/nodes/{}", LISTEN_ADDRESS, node_peer))
             .send()
             .await?;
         info!("{:?}", resp);
