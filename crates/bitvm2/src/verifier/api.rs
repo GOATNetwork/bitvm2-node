@@ -2,7 +2,7 @@ use crate::types::{
     Bitvm2Graph, Groth16WotsPublicKeys, Groth16WotsSignatures, VerifyingKey, WotsPublicKeys,
 };
 use anyhow::{Result, bail};
-use bitcoin::{Address, Transaction};
+use bitcoin::{Address, Amount, Transaction};
 use bitvm::chunk::api::{
     NUM_TAPS,
     type_conversion_utils::{RawWitness, script_to_witness, utils_signatures_from_raw_witnesses},
@@ -33,11 +33,11 @@ pub fn verify_proof(
 
 // challenge has a pre-signed SinglePlusAnyoneCanPay input and output
 // get incomplete tx here, add inputs with enough amount, then broadcast it to start challnege progress
-pub fn export_challenge_tx(graph: &mut Bitvm2Graph) -> Result<Transaction> {
+pub fn export_challenge_tx(graph: &mut Bitvm2Graph) -> Result<(Transaction, Amount)> {
     if !graph.operator_pre_signed() {
         bail!("missing pre-signatures from operator".to_string())
     };
-    Ok(graph.challenge.tx().clone())
+    Ok((graph.challenge.tx().clone(), Amount::from_sat(graph.challenge.min_crowdfunding_amount())))
 }
 
 pub fn sign_disprove(

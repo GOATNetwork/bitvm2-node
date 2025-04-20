@@ -1,25 +1,22 @@
-#![feature(try_from_fn)]
 use crate::middleware::AllBehaviours;
 use anyhow::Result;
-use axum::body::Body;
 use bitcoin::{Amount, Network, OutPoint, Txid, key::Keypair};
-use bitcoin::{PublicKey, XKeyIdentifier};
+use bitcoin::PublicKey;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::types::{
     Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey,
 };
 use bitvm2_lib::verifier::export_challenge_tx;
 use bitvm2_lib::{committee::*, operator::*, verifier::*};
-use futures::AsyncRead;
+use bitvm_key_derivation::OperatorMasterKey;
 use goat::transactions::{assert::utils::COMMIT_TX_NUM, pre_signed::PreSignedTransaction};
-use libp2p::gossipsub::{Message, MessageId};
+use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
 use reqwest::Request;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use todo_funcs::esplora;
-use tracing_subscriber::fmt::format;
+use statics::*;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -241,31 +238,112 @@ pub mod bitvm_key_derivation {
             generate_wots_keys(&wot_seed)
         }
     }
+
+    pub struct ChallengerMasterKey(Keypair);
+    impl ChallengerMasterKey {
+        pub fn new(inner: Keypair) -> Self {
+            ChallengerMasterKey(inner)
+        }
+        pub fn master_keypair(&self) -> Keypair {
+            self.0
+        }
+    }
 }
 
 pub mod constants {
+    use bitcoin::Network;
+
     pub const COMMITTEE_MEMBER_NUMBER: usize = 3;
+
     pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
+
+    pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
+
+    pub const MAX_CUSTOM_INPUTS: usize = 100;
+
+    pub const MIN_SATKE_AMOUNT: u64 = 20_000_000; // 0.2 BTC
+    pub const STAKE_RATE: u64 = 200; // 2%
+    pub const MIN_CHALLENGE_AMOUNT: u64 = 3_300_000; // 0.033 BTC
+    pub const CHALLENGE_RATE: u64 = 0; // 0%
+    pub const RATE_MULTIPLIER: u64 = 10000;
+
+    pub const DEFAULT_CONFIRMATION_TARGET: u16 = 1;
+
+    // fee estimate
+    pub const CHEKSIG_P2WSH_INPUT_VBYTES: u64 = 100;
+    pub const P2WSH_OUTPUT_VBYTES: u64 = 50;
+    pub const P2TR_OUTPUT_VBYTES: u64 = 50;
+    pub const PRE_KICKOFF_BASE_VBYTES: u64 = 200;
+    pub const PEGIN_BASE_VBYTES: u64 = 200;
+    pub const CHALLENGE_BASE_VBYTES: u64 = 200;
+
+    pub const NETWORK: Network = Network::Testnet;
+}
+
+pub mod statics {
+    use std::sync::Mutex;
+    use once_cell::sync::Lazy;
+    use uuid::Uuid;
+
+    // operator node can only process one graph at a time
+    pub static CURRENT_GRAPH: Lazy<Mutex<Option<(Uuid, Uuid)>>> = Lazy::new(|| Mutex::new(None));
+    pub fn try_start_new_graph(instance_id: Uuid, graph_id: Uuid) -> bool {
+        let mut current = CURRENT_GRAPH.lock().unwrap();
+        if current.is_none() {
+            *current = Some((instance_id, graph_id));
+            true
+        } else {
+            false
+        }
+    }
+    pub fn finish_current_graph_processing(instance_id: Uuid, graph_id: Uuid) {
+        let mut current = CURRENT_GRAPH.lock().unwrap();
+        if *current == Some((instance_id, graph_id)) {
+            *current = None;
+        }
+    }
+    pub fn is_processing_graph() -> bool {
+        CURRENT_GRAPH.lock().unwrap().is_some()
+    }
+    pub fn current_processing_graph() -> Option<(Uuid, Uuid)> {
+        CURRENT_GRAPH.lock().unwrap().clone()
+    }
+    pub fn force_stop_current_graph() {
+        *CURRENT_GRAPH.lock().unwrap() = None;
+    }
+}
+
+pub mod cache {
 
 }
 
 #[allow(unused_variables, dead_code)]
 pub mod todo_funcs {
+    use super::bitvm_key_derivation::{ChallengerMasterKey, OperatorMasterKey};
     use super::*;
-    use bitcoin::{Address, ScriptBuf, Transaction};
+    use super::constants::*;
+    use bitcoin::{Address, EcdsaSighashType, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
     use bitvm::chunk::api::NUM_TAPS;
     use bitvm2_lib::types::WotsPublicKeys;
-    use std::str::FromStr;
+    use goat::constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK};
     use goat::transactions::base::Input;
-    use goat::scripts::generate_burn_script_address;
+    use goat::transactions::signing::populate_p2wsh_witness;
+    use goat::utils::num_blocks_per_network;
     use std::fs::{File, self};
     use std::io::{BufWriter, BufReader};
     use std::path::Path;
     use bitcoin_script::{script, Script};
+    use esplora_client::{BlockingClient, Utxo};
 
     pub fn get_bitvm_key() -> Result<Keypair, Box<dyn std::error::Error>> {
+        // TODO: what if node restart with different BITVM_SECRET ?
         let bitvm_secret = std::env::var("BITVM_SECRET").expect("BITVM_SECRET is missing");
         Ok(Keypair::from_seckey_str_global(&bitvm_secret)?)
+    }
+
+    pub fn get_network() -> Result<Network, Box<dyn std::error::Error>> { 
+        // TODO: constants? env?
+        Ok(constants::NETWORK)
     }
 
     /// Determines whether the operator should participate in generating a new graph.
@@ -274,15 +352,30 @@ pub mod todo_funcs {
     /// - Participation should be attempted as often as possible.
     /// - Only one graph can be generated at a time; generation must be sequential, not parallel.
     /// - If the remaining funds are less than the required stake-amount, operator should not participate.
-    pub fn should_generate_graph(create_graph_prepare_data: &CreateGraphPrepare) -> bool {
-        true
+    pub async fn should_generate_graph(client: &BlockingClient, create_graph_prepare_data: &CreateGraphPrepare) -> Result<bool, Box<dyn std::error::Error>> {
+        if is_processing_graph() {
+            return Ok(false)
+        };
+        let node_pubkey = OperatorMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        let node_address = node_p2wsh_address(get_network()?, &node_pubkey);
+        let utxos = client.get_address_utxo(node_address).await?;
+        let utxo_spent_fee = Amount::from_sat((get_fee_rate(&client)? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64);
+        let total_effective_balance: Amount = utxos.iter().map(|utxo| utxo.value - utxo_spent_fee).sum();
+        Ok(total_effective_balance > get_stake_amount(create_graph_prepare_data.pegin_amount.to_sat()))
     }
 
     /// Checks whether the given graph belongs to the current operator node.
     ///
     /// Require to store which graphs were generated by current operator node 
-    pub fn is_my_graph(instance_id: Uuid, graph_id: Uuid, my_peer_id: &PeerId) -> bool {
-        true
+    pub fn is_my_graph(instance_id: Uuid, graph_id: Uuid) -> Result<bool, Box<dyn std::error::Error>> {
+        if let Some(current) = current_processing_graph() {
+            if current == (instance_id, graph_id) {
+                return Ok(true)
+            }
+        };
+        let node_pubkey = OperatorMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        let all_my_graphs = get_graph_ids_by_operator_pubkey(node_pubkey)?;
+        Ok(all_my_graphs.contains(&(instance_id, graph_id)))
     }
 
     /// Database related
@@ -290,12 +383,12 @@ pub mod todo_funcs {
         instance_id: Uuid,
         pubkey: PublicKey,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        Err("TODO".into())
     }
     pub fn get_committee_pubkeys(
         instance_id: Uuid,
     ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        Err("TODO".into())
     }
     pub fn store_committee_pub_nonces(
         instance_id: Uuid,
@@ -303,13 +396,13 @@ pub mod todo_funcs {
         committee_pubkey: PublicKey,
         pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM],
     ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        Err("TODO".into())
     }
     pub fn get_committee_pub_nonces(
         instance_id: Uuid,
         graph_id: Uuid,
     ) -> Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        Err("TODO".into())
     }
     pub fn store_committee_partial_sigs(
         instance_id: Uuid,
@@ -317,27 +410,27 @@ pub mod todo_funcs {
         committee_pubkey: PublicKey,
         partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
     ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        Err("TODO".into())
     }
     pub fn get_committee_partial_sigs(
         instance_id: Uuid,
         graph_id: Uuid,
     ) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        Err("TODO".into())
     }
     pub fn store_graph(
         instance_id: Uuid,
         graph_id: Uuid,
         graph: &Bitvm2Graph,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        Err("TODO".into())
     }
     pub fn update_graph(
         instance_id: Uuid,
         graph_id: Uuid,
         graph: &Bitvm2Graph,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        Err("TODO".into())
     }
     pub fn get_graph(
         instance_id: Uuid,
@@ -347,52 +440,68 @@ pub mod todo_funcs {
     }
     /// Returns a list of all graph IDs and their corresponding instance IDs
     /// that were generated by the given operator public key.
-    ///
+    /// Returns: Vec<(instance_id, graph_id)>
     /// Two possible ways:
     /// - store in database
     /// - in-memory data during the pegin phase, and queried from the L2 contract during the pegout phase
     pub fn get_graph_ids_by_operator_pubkey(
         operator_pubkey: PublicKey,
     ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        Err("TODO".into())
     }
 
     /// Checks whether the status of the graph (identified by instance ID and graph ID)
     /// on the Layer 2 contract is currently `Initialized`.
-    pub fn is_withdraw_initialized_on_l2(instance_id: Uuid, graph_id: Uuid) -> bool {
-        true
+    pub fn is_withdraw_initialized_on_l2(instance_id: Uuid, graph_id: Uuid) -> Result<bool, Box<dyn std::error::Error>> {
+        Err("TODO".into())
     }
 
     /// Checks whether the timelock for the specified kickoff transaction has expired,
     /// indicating that the `take1` transaction can now be sent.
     ///
     /// The timelock duration is a fixed constant (goat::constants::CONNECTOR_3_TIMELOCK)
-    pub fn is_take1_timelock_expired(kickoff_txid: Txid) -> bool {
-        true
+    pub fn is_take1_timelock_expired(client: &BlockingClient, kickoff_txid: Txid) -> Result<bool, Box<dyn std::error::Error>> {
+        let lock_blocks = num_blocks_per_network(get_network()?, CONNECTOR_3_TIMELOCK);
+        let tx_status = client.get_tx_status(&kickoff_txid)?;
+        match tx_status.block_height {
+            Some(tx_height) => {
+                let current_height = client.get_height()?;
+                Ok(current_height > tx_height + lock_blocks)
+            },
+            _ => Ok(false),
+        }
     }
 
     /// Checks whether the timelock for the specified assert-final transaction has expired,
     /// allowing the `take2` transaction to proceed.
     ///
     /// The timelock duration is a fixed constant (goat::constants::CONNECTOR_4_TIMELOCK)
-    pub fn is_take2_timelock_expired(assert_final_txid: Txid) -> bool {
-        true
+    pub fn is_take2_timelock_expired(client: &BlockingClient, assert_final_txid: Txid) -> Result<bool, Box<dyn std::error::Error>> {
+        let lock_blocks = num_blocks_per_network(get_network()?, CONNECTOR_4_TIMELOCK);
+        let tx_status = client.get_tx_status(&assert_final_txid)?;
+        match tx_status.block_height {
+            Some(tx_height) => {
+                let current_height = client.get_height()?;
+                Ok(current_height > tx_height + lock_blocks)
+            },
+            _ => Ok(false),
+        }
     }
 
     /// Calculates the required stake amount for the operator.
     ///
     /// Formula:
     /// stake_amount = fixed_min_stake_amount + (pegin_amount * stake_rate)
-    pub fn get_stake_amount() -> Amount {
-        Amount::from_sat(20000000)
+    pub fn get_stake_amount(pegin_amount: u64) -> Amount {
+        Amount::from_sat(MIN_SATKE_AMOUNT + pegin_amount * STAKE_RATE / RATE_MULTIPLIER)
     }
 
     /// Calculates the required challenge amount, which is based on the stake amount.
     ///
     /// Formula:
-    /// challenge_amount = stake_amount * challenge_rate
-    pub fn get_challenge_amount() -> Amount {
-        Amount::from_sat(20000000)
+    /// challenge_amount = fixed_min_challenge_amount + (pegin_amount * challenge_rate)
+    pub fn get_challenge_amount(pegin_amount: u64) -> Amount {
+        Amount::from_sat(MIN_CHALLENGE_AMOUNT + pegin_amount * CHALLENGE_RATE / RATE_MULTIPLIER)
     }
 
     /// Selects suitable UTXOs from the operator’s available funds to construct inputs
@@ -401,23 +510,19 @@ pub mod todo_funcs {
     /// Notes:
     /// - UTXOs must be sent to a dedicated P2WSH address, generated at node startup from operator-pubkey
     /// - The same P2WSH address is also used for change output.
-    pub fn select_operator_inputs(stake_amount: Amount) -> CustomInputs {
-        let mock_input = Input {
-            outpoint: OutPoint {
-                txid: Txid::from_str(
-                    "a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d",
-                )
-                .unwrap(),
-                vout: 0,
-            },
-            amount: Amount::from_btc(10000.0).unwrap(),
-        };
-        let mock_user_change_address = generate_burn_script_address(Network::Testnet);
-        CustomInputs {
-            inputs: vec![mock_input.clone()],
-            input_amount: stake_amount,
-            fee_amount: Amount::from_sat(1000),
-            change_address: mock_user_change_address,
+    /// - Returns None if operator does not have enough btc
+    pub async fn select_operator_inputs(client: &BlockingClient, stake_amount: Amount) -> Result<Option<CustomInputs>, Box<dyn std::error::Error>> {
+        let node_pubkey = OperatorMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        let node_address = node_p2wsh_address(get_network()?, &node_pubkey);
+        let fee_rate = get_fee_rate(client)?;
+        match get_proper_utxo_set(client, PRE_KICKOFF_BASE_VBYTES, node_address.clone(), stake_amount, fee_rate).await? {
+            Some((inputs, fee_amount, _)) => Ok(Some(CustomInputs {
+                inputs: inputs,
+                input_amount: stake_amount,
+                fee_amount,
+                change_address: node_address,
+            })),
+            _ => Ok(None),
         }
     }
 
@@ -443,22 +548,41 @@ pub mod todo_funcs {
         }
     }
 
+    pub fn get_fee_rate(client: &BlockingClient) -> Result<f64, Box<dyn std::error::Error>> {
+        let res = client.get_fee_estimates()?;
+        Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(format!("fee for {} confirmation target not found", DEFAULT_CONFIRMATION_TARGET))?)
+    }
+
     /// Broadcasts a raw transaction to the Bitcoin network using the mempool API.
     ///
     /// Requirements:
     /// - The mempool API URL must be configured.
     /// - The transaction should already be fully signed.
-    pub fn broadcast_tx(client: esplora_client::BlockingClient, tx: &Transaction) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn broadcast_tx(client: &BlockingClient, tx: &Transaction) -> Result<(), Box<dyn std::error::Error>> {
         Ok(client.broadcast(tx)?)
     }
 
     /// Signs and broadcasts pre-kickoff transaction.
     ///
-    /// The transaction must be signed using the operator's private key
-    /// before broadcasting it to the network.
+    /// All inputs of pre-kickoff transaction should be utxo belonging to node-address
     pub fn sign_and_broadcast_prekickoff_tx(
-        tx: Transaction,
+        client: &BlockingClient,
+        node_keypair: Keypair,
+        prekickoff_tx: Transaction,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let node_pubkey = OperatorMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        let node_address = node_p2wsh_address(get_network()?, &node_pubkey);
+        let mut prekickoff_tx = prekickoff_tx;
+        for i in 0..prekickoff_tx.input.len() {
+            let prev_outpoint = &prekickoff_tx.input[i].previous_output;
+            let prev_tx = client.get_tx(&prev_outpoint.txid)?.ok_or(format!("previous tx {} not found", prev_outpoint.txid))?;
+            let prev_output = &prev_tx.output.get(prev_outpoint.vout as usize).ok_or(format!("previous tx {} does not have vout {}", prev_outpoint.txid, prev_outpoint.vout))?;
+            if prev_output.script_pubkey != node_address.script_pubkey() {
+                return Err(format!("previous outpoint {}:{} not belong to this node", prev_outpoint.txid, prev_outpoint.vout).into())
+            };
+            node_sign(&mut prekickoff_tx, i, prev_output.value, EcdsaSighashType::All, &node_keypair)?;
+        }
+        broadcast_tx(client, &prekickoff_tx)?;
         Ok(())
     }
 
@@ -471,37 +595,135 @@ pub mod todo_funcs {
     ///
     /// Notes:
     /// - The challenge node must have pre-funded a P2WSH address during startup.
-    pub fn complete_and_broadcast_challenge_tx(
+    pub async fn complete_and_broadcast_challenge_tx(
+        client: &BlockingClient,
+        node_keypair: Keypair,
         challenge_tx: Transaction,
+        challenge_amount: Amount,
     ) -> Result<Txid, Box<dyn std::error::Error>> {
-        Ok(Txid::from_str("a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d")?)
+        let node_pubkey = ChallengerMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        let node_address = node_p2wsh_address(get_network()?, &node_pubkey);
+        let fee_rate = get_fee_rate(client)?;
+        let mut challenge_tx = challenge_tx;
+        match get_proper_utxo_set(client, CHALLENGE_BASE_VBYTES, node_address.clone(), challenge_amount, fee_rate).await? {
+            Some((inputs, _, change_amount)) => {
+                for input in &inputs {
+                    challenge_tx.input.push(TxIn {
+                        previous_output: input.outpoint,
+                        script_sig: ScriptBuf::new(),
+                        sequence: Sequence::MAX,
+                        witness: Witness::default(),
+                    });
+                };
+                if change_amount > Amount::from_sat(DUST_AMOUNT) {
+                    challenge_tx.output.push(TxOut {
+                        script_pubkey: node_address.script_pubkey(),
+                        value: challenge_amount,
+                    });
+                };
+                for i in 0..inputs.len() {
+                    node_sign(&mut challenge_tx, i+1, inputs[i].amount, EcdsaSighashType::All, &node_keypair)?;
+                }
+                broadcast_tx(client, &challenge_tx)?;
+                Ok(challenge_tx.compute_txid())
+            },
+            _ => Err(format!("insufficient btc, please fund {} first", node_address).into()),
+        }
+    }
+
+
+    /// Returns:
+    /// - `Ok(None)` if given address does not have enough btc,
+    /// - `Ok(Some((utxos, fee_amount, change_amount)))` 
+    pub async fn get_proper_utxo_set(client: &BlockingClient, base_vbytes: u64, address: Address, target_amount: Amount, fee_rate: f64) -> Result<Option<(Vec<Input>, Amount, Amount)>, Box<dyn std::error::Error>> {
+        fn estimate_tx_vbytes(base_vbytes: u64, extra_inputs: usize, extra_outputs: usize) -> u64 {
+            // p2wsh inputs/outputs 
+            base_vbytes + (extra_inputs as u64 * CHEKSIG_P2WSH_INPUT_VBYTES) + (extra_outputs as u64 * P2WSH_OUTPUT_VBYTES)
+        }
+        fn to_input(utxos: Vec<Utxo>) -> Vec<Input> {
+            utxos.into_iter()
+                .map(|utxo| Input {
+                    outpoint: OutPoint { txid: utxo.txid, vout: utxo.vout },
+                    amount: utxo.value,
+                }).collect()
+        }
+        
+        let utxos = client.get_address_utxo(address).await?;
+        let mut sorted_utxos = utxos;
+        sorted_utxos.sort_by(|a, b| b.value.cmp(&a.value)); 
+
+        let mut selected = Vec::new();
+        let mut total_value = Amount::ZERO;
+
+        for utxo in sorted_utxos.into_iter().take(MAX_CUSTOM_INPUTS) {
+            selected.push(utxo.clone());
+            total_value += utxo.value;
+
+            let num_inputs = selected.len();
+            let num_outputs = 1; // change
+            let tx_vbytes = estimate_tx_vbytes(base_vbytes, num_inputs, num_outputs);
+            let fee = Amount::from_sat((tx_vbytes as f64 * fee_rate).ceil() as u64);
+
+            if total_value >= target_amount + fee {
+                let change = total_value - target_amount - fee;
+                return Ok(Some((to_input(selected), fee, change)));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Returns the address to receive disprove reward, which is a P2WSH address
     /// generated by the challenge node at startup.
     pub fn disprove_reward_address() -> Result<Address, Box<dyn std::error::Error>> {
-        Err("TODO".into())
+        let node_pubkey = ChallengerMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        Ok(node_p2wsh_address(get_network()?, &node_pubkey))
     }
 
-    pub fn get_peer_pubkey(peer_id: PeerId) -> Result<Option<PublicKey>, Box<dyn std::error::Error>> {
-        Err("TODO".into())
+    pub fn node_p2wsh_script(pubkey: &PublicKey) -> ScriptBuf {
+        script! {
+            { *pubkey }
+            OP_CHECKSIG
+        }
+        .compile()
+    }
+    pub fn node_p2wsh_address(network: Network, pubkey: &PublicKey) -> Address {
+        Address::p2wsh(&node_p2wsh_script(pubkey), network)
+    }
+    pub fn node_sign(tx: &mut Transaction, input_index: usize, input_value: Amount, sighash_type: EcdsaSighashType, node_keypair: &Keypair) -> Result<(), Box<dyn std::error::Error>> {
+        let node_pubkey: PublicKey = OperatorMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        populate_p2wsh_witness(tx, input_index, sighash_type, &node_p2wsh_script(&node_pubkey), input_value, &vec![node_keypair]);
+        Ok(())
     }
 
-    /// Validates the kickoff transaction for a specific graph.
+    /// Determines whether the challenger should challenge a kickoff
+    ///
+    /// Conditions:
+    /// - If kickoff is invalid
+    /// - If challenger has enough fund
+    /// - Participation should be attempted as often as possible.
     ///
     /// A kickoff transaction is considered invalid if:
     /// - It has already been broadcast on Layer 1,
     /// - But the corresponding graph status on Layer 2 is not `Initialized`.
-    pub fn validate_kickoff(
+    pub async fn should_challenge(
+        client: &BlockingClient, 
+        challenge_amount: Amount, 
         instance_id: Uuid,
         graph_id: Uuid,
         kickoff_txid: Txid,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        Ok(true)
+        // TODO: validate kickoff 
+        let node_pubkey = ChallengerMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair().public_key().into();
+        let node_address = node_p2wsh_address(get_network()?, &node_pubkey);
+        let utxos = client.get_address_utxo(node_address).await?;
+        let utxo_spent_fee = Amount::from_sat((get_fee_rate(&client)? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64);
+        let total_effective_balance: Amount = utxos.iter().map(|utxo| utxo.value - utxo_spent_fee).sum();
+        Ok(total_effective_balance > challenge_amount)
     }
 
     /// Validates whether the given challenge transaction has been confirmed on Layer 1.
-    pub fn validate_challenge(client: esplora_client::BlockingClient, kickoff_txid: &Txid, challenge_txid: &Txid) -> Result<bool, Box<dyn std::error::Error>> {
+    pub fn validate_challenge(client: BlockingClient, kickoff_txid: &Txid, challenge_txid: &Txid) -> Result<bool, Box<dyn std::error::Error>> {
         let challenge_tx = client.get_tx(challenge_txid)?.ok_or("")?;
         let expected_challenge_input_0 = OutPoint {
             txid: *kickoff_txid,
@@ -534,7 +756,7 @@ pub mod todo_funcs {
     /// - `Ok(None)` if the assert is valid,
     /// - `Ok(Some((index, disprove_script)))` if invalid, providing the witness info for later disprove.
     /// 
-    pub fn validate_assert(client: esplora_client::BlockingClient, assert_commit_txns: &[Txid; COMMIT_TX_NUM], wots_pubkeys: WotsPublicKeys) -> Result<Option<(usize, Script)>, Box<dyn std::error::Error>> {
+    pub fn validate_assert(client: BlockingClient, assert_commit_txns: &[Txid; COMMIT_TX_NUM], wots_pubkeys: WotsPublicKeys) -> Result<Option<(usize, Script)>, Box<dyn std::error::Error>> {
         let mut txs = Vec::with_capacity(COMMIT_TX_NUM);
         for txid in assert_commit_txns.iter() {
             let tx = client.get_tx(txid)?.ok_or("assert-commit-tx not found")?;
@@ -548,6 +770,7 @@ pub mod todo_funcs {
     }
 
     pub fn esplora() -> esplora_client::BlockingClient {
+        // TODO
         esplora_client::BlockingClient::from_builder(esplora_client::Builder { base_url: "".to_string(), proxy: None, timeout: None, headers: std::collections::HashMap::new(), max_retries: 0 })
     }
 }
@@ -555,7 +778,7 @@ pub mod todo_funcs {
 /// Filter the message and dispatch message to different handlers, like rpc handler, or other peers
 ///     * database: inner_rpc: Write or Read.
 ///     * peers: send
-pub fn recv_and_dispatch(
+pub async fn recv_and_dispatch(
     swarm: &mut Swarm<AllBehaviours>,
     actor: Actor,
     peer_id: PeerId,
@@ -605,47 +828,46 @@ pub fn recv_and_dispatch(
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
         }
         (GOATMessageContent::CreateGraphPrepare(receive_data), Actor::Operator) => {
-            todo_funcs::store_committee_pubkeys(
-                receive_data.instance_id,
-                receive_data.committee_member_pubkey,
-            )?;
+            todo_funcs::store_committee_pubkeys(receive_data.instance_id, receive_data.committee_member_pubkey)?;
             let collected_keys = todo_funcs::get_committee_pubkeys(receive_data.instance_id)?;
-            if todo_funcs::should_generate_graph(&receive_data)
-                && collected_keys.len() == receive_data.committee_members_num
-            {
+            let client = todo_funcs::esplora();
+            if collected_keys.len() == receive_data.committee_members_num
+                && todo_funcs::should_generate_graph(&client, &receive_data).await?
+            {   
                 let graph_id = Uuid::new_v4();
-                let master_key =
-                    bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
-                let keypair = master_key.keypair_for_graph(graph_id);
-                let (_, operator_wots_pubkeys) = master_key.wots_keypair_for_graph(graph_id);
-                let committee_agg_pubkey = key_aggregation(&collected_keys);
-                let disprove_scripts = generate_disprove_scripts(&todo_funcs::get_partial_scripts()?, &operator_wots_pubkeys);
-                let params = Bitvm2Parameters {
-                    network: receive_data.network,
-                    depositor_evm_address: receive_data.depositor_evm_address,
-                    pegin_amount: receive_data.pegin_amount,
-                    user_inputs: receive_data.user_inputs,
-                    stake_amount: todo_funcs::get_stake_amount(),
-                    challenge_amount: todo_funcs::get_challenge_amount(),
-                    committee_pubkeys: collected_keys,
-                    committee_agg_pubkey,
-                    operator_pubkey: keypair.public_key().into(),
-                    operator_wots_pubkeys,
-                    operator_inputs: todo_funcs::select_operator_inputs(
-                        todo_funcs::get_stake_amount(),
-                    ),
+                if try_start_new_graph(receive_data.instance_id, graph_id) {
+                    let master_key =
+                        bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
+                    let keypair = master_key.keypair_for_graph(graph_id);
+                    let (_, operator_wots_pubkeys) = master_key.wots_keypair_for_graph(graph_id);
+                    let committee_agg_pubkey = key_aggregation(&collected_keys);
+                    let disprove_scripts = generate_disprove_scripts(&todo_funcs::get_partial_scripts()?, &operator_wots_pubkeys);
+                    let operator_inputs = todo_funcs::select_operator_inputs(&client, todo_funcs::get_stake_amount(receive_data.pegin_amount.to_sat())).await?.ok_or("operator doesn't have enough fund")?;
+                    let params = Bitvm2Parameters {
+                        network: receive_data.network,
+                        depositor_evm_address: receive_data.depositor_evm_address,
+                        pegin_amount: receive_data.pegin_amount,
+                        user_inputs: receive_data.user_inputs,
+                        stake_amount: todo_funcs::get_stake_amount(receive_data.pegin_amount.to_sat()),
+                        challenge_amount: todo_funcs::get_challenge_amount(receive_data.pegin_amount.to_sat()),
+                        committee_pubkeys: collected_keys,
+                        committee_agg_pubkey,
+                        operator_pubkey: keypair.public_key().into(),
+                        operator_wots_pubkeys,
+                        operator_inputs,
+                    };
+                    let disprove_scripts_bytes =
+                        disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
+                    let mut graph = generate_bitvm_graph(params, disprove_scripts_bytes)?;
+                    operator_pre_sign(keypair, &mut graph)?;
+                    todo_funcs::store_graph(receive_data.instance_id, graph_id, &graph)?;
+                    let message_content = GOATMessageContent::CreateGraph(CreateGraph {
+                        instance_id: receive_data.instance_id,
+                        graph_id,
+                        graph,
+                    });
+                    send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
                 };
-                let disprove_scripts_bytes =
-                    disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
-                let mut graph = generate_bitvm_graph(params, disprove_scripts_bytes)?;
-                operator_pre_sign(keypair, &mut graph)?;
-                todo_funcs::store_graph(receive_data.instance_id, graph_id, &graph)?;
-                let message_content = GOATMessageContent::CreateGraph(CreateGraph {
-                    instance_id: receive_data.instance_id,
-                    graph_id,
-                    graph,
-                });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
             };
         }
         (GOATMessageContent::CreateGraph(receive_data), Actor::Committee) => {
@@ -705,7 +927,8 @@ pub fn recv_and_dispatch(
             };
         }
         (GOATMessageContent::CommitteePresign(receive_data), Actor::Operator) => {
-            if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id, swarm.local_peer_id()) {
+            let client = todo_funcs::esplora();
+            if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id)? {
                 todo_funcs::store_committee_partial_sigs(receive_data.instance_id, receive_data.graph_id, receive_data.committee_pubkey, receive_data.committee_partial_sigs)?;
                 let collected_partial_sigs = todo_funcs::get_committee_partial_sigs(receive_data.instance_id, receive_data.graph_id)?;
                 if collected_partial_sigs.len() == receive_data.committee_members_num {
@@ -729,7 +952,8 @@ pub fn recv_and_dispatch(
                         &graph,
                     )?;
                     let prekickoff_tx = graph.pre_kickoff.tx().clone();
-                    todo_funcs::sign_and_broadcast_prekickoff_tx(prekickoff_tx)?;
+                    let node_keypair = OperatorMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair();
+                    todo_funcs::sign_and_broadcast_prekickoff_tx(&client, node_keypair, prekickoff_tx)?;
                     let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
@@ -743,6 +967,7 @@ pub fn recv_and_dispatch(
                         swarm,
                         GOATMessage::from_typed(Actor::Challenger, &message_content)?,
                     )?;
+                    force_stop_current_graph();
                 }
             };
         }
@@ -757,8 +982,9 @@ pub fn recv_and_dispatch(
         // peg-out
         // KickoffReady sent by relayer
         (GOATMessageContent::KickoffReady(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id,swarm.local_peer_id()) 
-                &&  todo_funcs::is_withdraw_initialized_on_l2(receive_data.instance_id, receive_data.graph_id) 
+            let client = todo_funcs::esplora();
+            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id)? 
+                &&  todo_funcs::is_withdraw_initialized_on_l2(receive_data.instance_id, receive_data.graph_id)?
             {
                 let mut graph =
                     todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
@@ -778,7 +1004,7 @@ pub fn recv_and_dispatch(
                     kickoff_commit_data,
                 )?;
                 let kickoff_txid = kickoff_tx.compute_txid();
-                todo_funcs::broadcast_tx(todo_funcs::esplora(), &kickoff_tx)?;
+                todo_funcs::broadcast_tx(&client, &kickoff_tx)?;
                 let message_content = GOATMessageContent::KickoffSent(KickoffSent {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
@@ -790,15 +1016,16 @@ pub fn recv_and_dispatch(
         }
         // Take1Ready sent by relayer
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id, swarm.local_peer_id()) { 
+            let client = todo_funcs::esplora();
+            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id)? { 
                 let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-                if todo_funcs::is_take1_timelock_expired(graph.take1.tx().compute_txid()) {
+                if todo_funcs::is_take1_timelock_expired(&client, graph.take1.tx().compute_txid())? {
                     let master_key =
                         bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
                     let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                     let take1_tx = operator_sign_take1(keypair, &mut graph)?;
                     let take1_txid = take1_tx.compute_txid();
-                    todo_funcs::broadcast_tx(todo_funcs::esplora(), &take1_tx)?;
+                    todo_funcs::broadcast_tx(&client, &take1_tx)?;
                     let message_content = GOATMessageContent::Take1Sent(Take1Sent {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
@@ -812,15 +1039,12 @@ pub fn recv_and_dispatch(
             }
         }
         (GOATMessageContent::KickoffSent(receive_data), Actor::Challenger) => {
-            if !todo_funcs::validate_kickoff(
-                receive_data.instance_id,
-                receive_data.graph_id,
-                receive_data.kickoff_txid,
-            )? {
-                let mut graph =
-                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-                let challenge_tx = export_challenge_tx(&mut graph)?;
-                let challenge_txid = todo_funcs::complete_and_broadcast_challenge_tx(challenge_tx)?;
+            let client = todo_funcs::esplora();
+            let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            if todo_funcs::should_challenge(&client, Amount::from_sat(graph.challenge.min_crowdfunding_amount()), receive_data.instance_id, receive_data.graph_id, receive_data.kickoff_txid).await? {
+                let (challenge_tx, challenge_amount) = export_challenge_tx(&mut graph)?;
+                let node_keypair = bitvm_key_derivation::ChallengerMasterKey::new(todo_funcs::get_bitvm_key()?).master_keypair();
+                let challenge_txid = todo_funcs::complete_and_broadcast_challenge_tx(&client, node_keypair, challenge_tx, challenge_amount).await?;
                 let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
@@ -830,8 +1054,8 @@ pub fn recv_and_dispatch(
             }
         }
         (GOATMessageContent::ChallengeSent(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id, swarm.local_peer_id()) 
-            {
+            let client = todo_funcs::esplora();
+            if todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id)? {
                 let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
                 if todo_funcs::validate_challenge(todo_funcs::esplora(), &graph.kickoff.tx().compute_txid(), &receive_data.challenge_txid)? {
                     let master_key = bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
@@ -841,14 +1065,14 @@ pub fn recv_and_dispatch(
                     let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
                     let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;
                     let assert_init_txid = assert_init_tx.compute_txid();
-                    todo_funcs::broadcast_tx(todo_funcs::esplora(), &assert_init_tx)?;
+                    todo_funcs::broadcast_tx(&client, &assert_init_tx)?;
                     let mut assert_commit_txids = Vec::with_capacity(COMMIT_TX_NUM);
                     for tx in assert_commit_txns {        
                         assert_commit_txids.push(tx.compute_txid());
-                        todo_funcs::broadcast_tx(todo_funcs::esplora(), &tx)?;    
+                        todo_funcs::broadcast_tx(&client, &tx)?;    
                     };
                     let assert_final_txid = assert_final_tx.compute_txid();
-                    todo_funcs::broadcast_tx(todo_funcs::esplora(), &assert_final_tx)?;
+                    todo_funcs::broadcast_tx(&client, &assert_final_tx)?;
                     let message_content = GOATMessageContent::AssertSent(AssertSent {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
@@ -862,15 +1086,16 @@ pub fn recv_and_dispatch(
         }
         // Take2Ready sent by relayer
         (GOATMessageContent::Take2Ready(receive_data), Actor::Operator) => {
-            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id, swarm.local_peer_id()) { // checkout timelock
+            if  todo_funcs::is_my_graph(receive_data.instance_id, receive_data.graph_id)? { 
+                let client = todo_funcs::esplora();
                 let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
-                if todo_funcs::is_take2_timelock_expired(graph.assert_final.tx().compute_txid()) {
+                if todo_funcs::is_take2_timelock_expired(&client, graph.assert_final.tx().compute_txid())? {
                     let master_key =
                         bitvm_key_derivation::OperatorMasterKey::new(todo_funcs::get_bitvm_key()?);
                     let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                     let take2_tx = operator_sign_take2(keypair, &mut graph)?;
                     let take2_txid = take2_tx.compute_txid();
-                    todo_funcs::broadcast_tx(todo_funcs::esplora(), &take2_tx)?;
+                    todo_funcs::broadcast_tx(&client, &take2_tx)?;
                     let message_content = GOATMessageContent::Take2Sent(Take2Sent {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
@@ -884,6 +1109,7 @@ pub fn recv_and_dispatch(
             }
         }
         (GOATMessageContent::AssertSent(receive_data), Actor::Challenger) => {
+            let client = todo_funcs::esplora();
             let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
             if let Some(disprove_witness) = todo_funcs::validate_assert(todo_funcs::esplora(), &receive_data.assert_commit_txids, graph.parameters.operator_wots_pubkeys)? {
                 let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
@@ -898,7 +1124,7 @@ pub fn recv_and_dispatch(
                     todo_funcs::disprove_reward_address()?,
                 )?;
                 let disprove_txid = disprove_tx.compute_txid();
-                todo_funcs::broadcast_tx(todo_funcs::esplora(), &disprove_tx)?;
+                todo_funcs::broadcast_tx(&client, &disprove_tx)?;
                 let message_content = GOATMessageContent::DisproveSent(DisproveSent {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
@@ -909,7 +1135,6 @@ pub fn recv_and_dispatch(
         }
         _ => {}
     }
-    // TODO
     Ok(())
 }
 

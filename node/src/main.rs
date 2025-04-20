@@ -265,7 +265,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         actor: actor.clone(),
                         content: "tick".as_bytes().to_vec(),
                     })?;
-                    match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data){
+                    match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data).await{
                         Ok(_) => {}
                         Err(e) => { tracing::error!(e) }
                     }
@@ -278,7 +278,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                                   message_id: id,
                                                                   message,
                                                               })) => {
-                        match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, id, &message.data) {
+                        match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, id, &message.data).await {
                             Ok(_) => {},
                             Err(e) => { tracing::error!(e) }
                         }
