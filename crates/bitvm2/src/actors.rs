@@ -6,6 +6,8 @@ pub enum Actor {
     Committee,
     Operator,
     Challenger,
+    Relayer,
+    All,
 }
 
 impl FromStr for Actor {

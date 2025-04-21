@@ -253,12 +253,11 @@ pub mod bitvm_key_derivation {
 pub mod constants {
     use bitcoin::Network;
 
+    // statics
     pub const COMMITTEE_MEMBER_NUMBER: usize = 3;
 
     pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
-
     pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
-
     pub const MAX_CUSTOM_INPUTS: usize = 100;
 
     pub const MIN_SATKE_AMOUNT: u64 = 20_000_000; // 0.2 BTC
@@ -278,6 +277,8 @@ pub mod constants {
     pub const CHALLENGE_BASE_VBYTES: u64 = 200;
 
     pub const NETWORK: Network = Network::Testnet;
+
+    // TODO: env.rs
 }
 
 pub mod statics {
@@ -286,9 +287,9 @@ pub mod statics {
     use uuid::Uuid;
 
     // operator node can only process one graph at a time
-    pub static CURRENT_GRAPH: Lazy<Mutex<Option<(Uuid, Uuid)>>> = Lazy::new(|| Mutex::new(None));
+    pub static OPERATOR_CURRENT_GRAPH: Lazy<Mutex<Option<(Uuid, Uuid)>>> = Lazy::new(|| Mutex::new(None));
     pub fn try_start_new_graph(instance_id: Uuid, graph_id: Uuid) -> bool {
-        let mut current = CURRENT_GRAPH.lock().unwrap();
+        let mut current = OPERATOR_CURRENT_GRAPH.lock().unwrap();
         if current.is_none() {
             *current = Some((instance_id, graph_id));
             true
@@ -297,19 +298,19 @@ pub mod statics {
         }
     }
     pub fn finish_current_graph_processing(instance_id: Uuid, graph_id: Uuid) {
-        let mut current = CURRENT_GRAPH.lock().unwrap();
+        let mut current = OPERATOR_CURRENT_GRAPH.lock().unwrap();
         if *current == Some((instance_id, graph_id)) {
             *current = None;
         }
     }
     pub fn is_processing_graph() -> bool {
-        CURRENT_GRAPH.lock().unwrap().is_some()
+        OPERATOR_CURRENT_GRAPH.lock().unwrap().is_some()
     }
     pub fn current_processing_graph() -> Option<(Uuid, Uuid)> {
-        CURRENT_GRAPH.lock().unwrap().clone()
+        OPERATOR_CURRENT_GRAPH.lock().unwrap().clone()
     }
     pub fn force_stop_current_graph() {
-        *CURRENT_GRAPH.lock().unwrap() = None;
+        *OPERATOR_CURRENT_GRAPH.lock().unwrap() = None;
     }
 }
 
@@ -805,6 +806,7 @@ pub async fn recv_and_dispatch(
     }
     println!("Handle message: {:?}", message);
     let content: GOATMessageContent = message.to_typed()?;
+    // TODO: validate message
     match (content, actor) {
         (GOATMessageContent::CreateInstance(receive_data), Actor::Committee) => {
             let instance_id = receive_data.instance_id;
@@ -946,7 +948,7 @@ pub async fn recv_and_dispatch(
                         &receive_data.agg_nonces,
                         &mut graph,
                     )?;
-                    todo_funcs::update_graph(
+                    todo_funcs::store_graph(
                         receive_data.instance_id,
                         receive_data.graph_id,
                         &graph,
