@@ -13,4 +13,5 @@ uuid = { workspace = true }
 bitcoin = { workspace = true }
 esplora-client = { workspace = true }
 anyhow = { workspace = true }
+store = { workspace = true }
 

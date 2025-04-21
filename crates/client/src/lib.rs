@@ -1,6 +1,6 @@
 pub mod chain;
-mod client;
-mod esplora;
+pub mod client;
+pub mod esplora;
 
 #[cfg(test)]
 mod tests {
@@ -21,7 +21,8 @@ mod tests {
             private_key: None,
             chain_id: 48816_u32,
         };
-        let client = BitVM2Client::new(None, Network::Testnet, GoatNetwork::Test, Some(global_init_config)).await;
+        //  let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+        let client = BitVM2Client::new("/tmp/.bitvm2-node.db".to_string(), None, Network::Testnet, GoatNetwork::Test, Some(global_init_config)).await;
         let tx_id =
             Txid::from_str("a95cb0da04e4b64d7633c34621e31030611ddf2b852ebbc0a293661bad914e2e")
                 .expect("decode txid");

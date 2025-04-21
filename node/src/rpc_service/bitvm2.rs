@@ -145,7 +145,8 @@ pub struct InstanceWrap {
 
 impl InstanceWrap {
     pub fn from(instance: Instance, current_btc_height: i64, interval: i64) -> Self {
-        let time_left = (instance.pegin_tx_height + 6 - current_btc_height) * interval;
+        // let time_left = (instance.pegin_tx_height + 6 - current_btc_height) * interval;
+        let time_left = 6;//TODO
         let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
         if time_left > 0 {
             Self { instance, utxo, eta: format!("Est. wait for {} mins", interval) }

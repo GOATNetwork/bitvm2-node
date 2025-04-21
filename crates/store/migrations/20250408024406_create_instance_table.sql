@@ -12,8 +12,6 @@ CREATE TABLE instance
     `goat_txid`       TEXT            NOT NULL DEFAULT '',
     `btc_txid`        TEXT            NOT NULL DEFAULT '',
     `pegin_txid`      TEXT,
-    `pegin_tx_height` BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    `kickoff_tx`      TEXT,
     `fee`             BIGINT UNSIGNED NOT NULL DEFAULT 0,
     `input_uxtos`     TEXT            NOT NULL DEFAULT '',
     `created_at`      BIGINT          NOT NULL DEFAULT 0,

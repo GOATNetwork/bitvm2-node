@@ -1,5 +1,7 @@
 use crate::chain::chain::Chain;
-use crate::chain::chain_adaptor::{ChainAdaptor, GoatNetwork, get_chain_adaptor};
+use crate::chain::chain_adaptor::{
+    ChainAdaptor, GoatNetwork, OperatorData, PeginData, WithdrawData, get_chain_adaptor,
+};
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;
 use anyhow::format_err;
@@ -7,8 +9,11 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Address as BtcAddress, TxMerkleNode, Txid};
 use bitcoin::{Block, Network};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
+use store::localdb::LocalDB;
+use uuid::Uuid;
 
 pub struct BitVM2Client {
+    pub local_db: LocalDB,
     pub esplora: AsyncClient,
     pub btc_network: Network,
     pub chain_service: Chain,
@@ -17,12 +22,16 @@ pub struct BitVM2Client {
 impl BitVM2Client {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
+        db_path: String,
         esplora_url: Option<&str>,
         btc_network: Network,
         goat_network: GoatNetwork,
         goat_config: Option<GoatInitConfig>,
     ) -> Self {
+        let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+        local_db.migrate().await;
         Self {
+            local_db,
             esplora: Builder::new(esplora_url.unwrap_or(get_esplora_url(btc_network)))
                 .build_async()
                 .expect("Could not build esplora client"),
@@ -78,5 +87,19 @@ impl BitVM2Client {
             )
             .await?;
         Ok(res)
+    }
+
+    pub async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool> {
+        self.chain_service.adaptor.pegin_tx_used(tx_id).await
+    }
+
+    pub async fn get_pegin_data(&self, instance_id: Uuid) -> anyhow::Result<PeginData> {
+        self.chain_service.adaptor.get_pegin_data(instance_id).await
+    }
+    pub async fn is_operator_withdraw(&self, graph_id: Uuid) -> anyhow::Result<bool> {
+        self.chain_service.adaptor.is_operator_withdraw(graph_id).await
+    }
+    pub async fn get_operator_data(&self, graph_id: Uuid) -> anyhow::Result<OperatorData> {
+        self.chain_service.adaptor.get_operator_data(graph_id).await
     }
 }

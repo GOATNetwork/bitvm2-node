@@ -40,8 +40,6 @@ pub struct Instance {
     pub goat_txid: String,
     pub btc_txid: String,
     pub pegin_txid: Option<String>,
-    pub pegin_tx_height: i64,
-    pub kickoff_tx: Option<String>,
     pub input_uxtos: String,
     pub fee: i64,
     pub created_at: i64,
@@ -161,9 +159,16 @@ pub struct Graph {
     pub created_at: i64,
     pub updated_at: i64,
     pub status: String, // GraphStatus
+    pub kickoff_txid: Option<String>,
     pub challenge_txid: Option<String>,
+    pub take1_txid: Option<String>,
+    pub assert_init_txid: Option<String>,
+    pub assert_commit_txids: Option<String>,
+    pub assert_final_txid: Option<String>,
+    pub take2_txid_txid: Option<String>,
     pub disprove_txid: Option<String>,
     pub operator: String,
+    pub raw_data: Option<String>,
 }
 
 #[derive(Clone, Debug)]

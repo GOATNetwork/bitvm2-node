@@ -90,7 +90,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn create_instance(&mut self, instance: Instance) -> anyhow::Result<bool> {
         let res = sqlx::query!(
             "INSERT OR REPLACE INTO  instance (instance_id, network, bridge_path, from_addr, to_addr, amount, \
-            status, goat_txid, btc_txid, pegin_txid, pegin_tx_height, kickoff_tx, input_uxtos, fee, created_at, updated_at)  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            status, goat_txid, btc_txid, pegin_txid,  input_uxtos, fee, created_at, updated_at)  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             instance.instance_id,
             instance.network,
             instance.bridge_path,
@@ -101,8 +101,6 @@ impl<'a> StorageProcessor<'a> {
             instance.goat_txid,
             instance.btc_txid,
             instance.pegin_txid,
-            instance.pegin_tx_height,
-            instance.kickoff_tx,
             instance.input_uxtos,
             instance.fee,
             instance.created_at,
@@ -117,7 +115,7 @@ impl<'a> StorageProcessor<'a> {
         let row = sqlx::query_as!(
             Instance,
             "SELECT instance_id as \"instance_id:Uuid\", network,   bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
-            btc_txid ,pegin_txid, pegin_tx_height, kickoff_tx, input_uxtos, fee ,created_at, updated_at \
+            btc_txid ,pegin_txid, input_uxtos, fee ,created_at, updated_at \
             FROM  instance where instance_id = ?",
             instance_id
         ).fetch_one(self.conn())
@@ -133,7 +131,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<(Vec<Instance>, i64)> {
         let mut instance_query_str =
             "SELECT instance_id, network,  bridge_path, from_addr, to_addr,\
-                     amount, status, goat_txid, btc_txid ,pegin_txid, pegin_tx_height, kickoff_tx, \
+                     amount, status, goat_txid, btc_txid ,pegin_txid, \
                     created_at, updated_at, input_uxtos, fee FROM instance"
                 .to_string();
         let mut instance_count_str = "SELECT count(*) as total_instances FROM instance".to_string();
@@ -170,7 +168,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_instance(&mut self, instance: Instance) -> anyhow::Result<u64> {
         let row = sqlx::query!(
             "UPDATE instance SET bridge_path = ?, from_addr= ?, to_addr= ?,  network =?, \
-        amount= ?, status= ?, goat_txid= ?, btc_txid= ?, pegin_txid= ?,  pegin_tx_height =?, kickoff_tx = ?, input_uxtos = ?,  \
+        amount= ?, status= ?, goat_txid= ?, btc_txid= ?, pegin_txid= ?,  input_uxtos = ?,  \
         fee = ?, updated_at = ? WHERE instance_id = ?",
             instance.bridge_path,
             instance.from_addr,
@@ -181,8 +179,6 @@ impl<'a> StorageProcessor<'a> {
             instance.goat_txid,
             instance.btc_txid,
             instance.pegin_txid,
-            instance.pegin_tx_height,
-            instance.kickoff_tx,
             instance.instance_id,
             instance.input_uxtos,
             instance.fee,
@@ -197,15 +193,24 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, \
-             amount, status, challenge_txid, disprove_txid, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+             amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
+            assert_final_txid, take2_txid_txid, disprove_txid, raw_data, created_at, updated_at)  \
+            VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?) ",
             graph.graph_id,
             graph.instance_id,
             graph.graph_ipfs_base_url,
             graph.pegin_txid,
             graph.amount,
             graph.status,
+            graph.kickoff_txid,
             graph.challenge_txid,
+            graph.take1_txid,
+            graph.assert_init_txid,
+            graph.assert_commit_txids,
+            graph.assert_final_txid,
+            graph.take2_txid_txid,
             graph.disprove_txid,
+            graph.raw_data,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -217,7 +222,8 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query_as!(
             Graph,
             "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, \
-             pegin_txid, amount, status, challenge_txid, disprove_txid, operator, created_at, updated_at  FROM graph WHERE  graph_id = ?",
+             pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
+              assert_final_txid, take2_txid_txid, disprove_txid, operator, raw_data, created_at, updated_at  FROM graph WHERE  graph_id = ?",
             graph_id
         ).fetch_one(self.conn()).await?;
         Ok(res)
@@ -232,8 +238,9 @@ impl<'a> StorageProcessor<'a> {
         limit: Option<u32>,
     ) -> anyhow::Result<(Vec<Graph>, i64)> {
         let mut graph_query_str =
-            "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
-             disprove_txid, operator, created_at, updated_at FROM graph"
+            "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, kickoff_txid,\
+             challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, assert_final_txid, take2_txid_txid,\
+              disprove_txid, operator, raw_data, created_at, updated_at FROM graph"
                 .to_string();
         let mut graph_count_str = "SELECT count(*) as total_graphs FROM graph".to_string();
 
@@ -280,8 +287,9 @@ impl<'a> StorageProcessor<'a> {
             .collect::<Vec<_>>()
             .join(",");
         let query_str = format!(
-            "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, challenge_txid,\
-             disprove_txid, operator, created_at , updated_at FROM graph WHERE  graph_id IN ({})",
+            "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, kickoff_txid, \
+            challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, assert_final_txid, take2_txid_txid, \
+            disprove_txid, operator, raw_data, created_at , updated_at FROM graph WHERE  graph_id IN ({})",
             placeholders
         );
         let mut query = sqlx::query_as::<_, Graph>(&query_str);
@@ -299,8 +307,8 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query_as!(
             Graph,
             "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, \
-            pegin_txid, amount, status, challenge_txid,\
-             disprove_txid, operator, created_at, updated_at FROM graph WHERE instance_id = ?",
+            pegin_txid, amount, status,kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
+             assert_final_txid, take2_txid_txid, disprove_txid, operator, raw_data, created_at, updated_at FROM graph WHERE instance_id = ?",
             instance_id
         ).fetch_all(self.conn()).await?;
         Ok(res)
