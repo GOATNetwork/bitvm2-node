@@ -156,8 +156,6 @@ pub struct Graph {
     pub graph_ipfs_base_url: String,
     pub pegin_txid: String,
     pub amount: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
     pub status: String, // GraphStatus
     pub kickoff_txid: Option<String>,
     pub challenge_txid: Option<String>,
@@ -169,6 +167,57 @@ pub struct Graph {
     pub disprove_txid: Option<String>,
     pub operator: String,
     pub raw_data: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+// query Data
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct GrapRpcQueryData {
+    pub graph_id: Uuid,
+    pub instance_id: Uuid,
+    pub bridge_path: u8,
+    pub network: String,
+    pub from_addr: String,
+    pub to_addr: String,
+    pub amount: i64,
+    pub pegin_txid: String,
+    pub status: String, // GraphStatus
+    pub kickoff_txid: Option<String>,
+    pub challenge_txid: Option<String>,
+    pub take1_txid: Option<String>,
+    pub assert_init_txid: Option<String>,
+    pub assert_commit_txids: Option<String>,
+    pub assert_final_txid: Option<String>,
+    pub take2_txid_txid: Option<String>,
+    pub disprove_txid: Option<String>,
+    pub operator: String,
+    pub updated_at: i64,
+    pub created_at: i64,
+}
+
+impl GrapRpcQueryData {
+    pub fn get_check_tx_param(&self) -> Result<(Option<String>, u32), String> {
+        if self.bridge_path == 0 {
+            return Ok((Some(self.pegin_txid.clone()), 6));
+        }
+        let status = GraphStatus::from_str(&self.status);
+        if status.is_err() {
+            return Err("Graph status is wrong".to_string());
+        }
+        match status.unwrap() {
+            GraphStatus::OperatorPresigned | GraphStatus::CommitteePresigned => {
+                Err("Not start kickOff".to_string())
+            }
+            GraphStatus::KickOff => Ok((self.kickoff_txid.clone(), 6)),
+            GraphStatus::Challenge => Ok((self.challenge_txid.clone(), 6)),
+            GraphStatus::Assert => Ok((self.assert_init_txid.clone(), 18)),
+            GraphStatus::Take1 => Ok((self.take1_txid.clone(), 6)),
+            GraphStatus::Take2 => Ok((self.take2_txid_txid.clone(), 6)),
+            GraphStatus::Disprove => Ok((self.disprove_txid.clone(), 6)),
+            GraphStatus::Deprecated => Err("graph deprecated".to_string()),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

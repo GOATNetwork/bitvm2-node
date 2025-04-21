@@ -1,6 +1,5 @@
 use crate::chain::chain_adaptor::{
-    BitcoinTx, ChainAdaptor, OperatorData, PeginData, PeginStatus, WithdrawData,
-    WithdrawStatus,
+    BitcoinTx, ChainAdaptor, OperatorData, PeginData, PeginStatus, WithdrawData, WithdrawStatus,
 };
 use crate::chain::goat_adaptor::IGateway::IGatewayInstance;
 use alloy::primitives::TxHash;
@@ -555,8 +554,12 @@ impl GoatAdaptor {
                 .expect("Failed to read GATE_CHAIN_ADAPTOR_GOAT_GATE_CREATION variable");
             let to_block = dotenv::var("GATE_CHAIN_ADAPTOR_GOAT_TO_BLOCK");
 
-            let private_key = dotenv::var("GATE_CHAIN_ADAPTOR_GOAT_PRIVATE_KEY");
-            let chain_id = dotenv::var("GATE_CHAIN_ADAPTOR_GOAT_CHAIN_ID");
+            let private_key = match dotenv::var("GATE_CHAIN_ADAPTOR_GOAT_PRIVATE_KEY") {
+                Ok(key) => Some(key),
+                Err(_) => None,
+            };
+            let chain_id = dotenv::var("GATE_CHAIN_ADAPTOR_GOAT_CHAIN_ID")
+                .expect("Failed to read GATE_CHAIN_ADAPTOR_GOAT_CHAIN_ID variable");
 
             let rpc_url = rpc_url_str.parse::<Url>();
             let gateway_address = gateway_address_str.parse::<EvmAddress>();
@@ -568,17 +571,19 @@ impl GoatAdaptor {
                     Ok(block) => Some(BlockNumberOrTag::from_str(block.as_str()).unwrap()),
                     Err(_) => Some(BlockNumberOrTag::Finalized),
                 },
-                private_key: Some(private_key.unwrap()),
-                chain_id: chain_id.unwrap().parse().expect("fail to parse int"),
+                private_key,
+                chain_id: chain_id.parse().expect("fail to parse int"),
             })
         }
     }
 
     fn from_config(config: GoatInitConfig) -> Self {
         let chain_id = ChainId::from(config.chain_id);
-        let signer = if let Some(private_key) = config.private_key{
-            PrivateKeySigner::from_str(private_key.as_str()).expect("create signer").with_chain_id(Some(chain_id))
-        }else{
+        let signer = if let Some(private_key) = config.private_key {
+            PrivateKeySigner::from_str(private_key.as_str())
+                .expect("create signer")
+                .with_chain_id(Some(chain_id))
+        } else {
             PrivateKeySigner::random()
         };
         let provider = ProviderBuilder::new().on_http(config.rpc_url);

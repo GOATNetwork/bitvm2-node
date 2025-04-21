@@ -17,25 +17,27 @@ use axum::{
     routing::{get, post},
 };
 use bitvm2_lib::actors::Actor;
+use client::client::BitVM2Client;
 use http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
+use bitcoin::Network;
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
+use client::chain::chain_adaptor::GoatNetwork;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
 }
 
-#[derive(Clone)]
 pub struct AppState {
-    pub local_db: LocalDB,
+    pub bitvm2_client: BitVM2Client,
     pub metrics_state: MetricsState,
     pub actor: Actor,
     pub peer_id: String,
@@ -46,14 +48,14 @@ impl AppState {
         db_path: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
-        local_db.migrate().await;
+        let bitvm2_client = BitVM2Client::new(db_path, None, Network::Testnet, GoatNetwork::Test, None).await;
         let metrics_state = MetricsState::new(registry);
         let actor =
             Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
                 .expect("failed to get actor ");
         let peer_id = std::env::var("PEER_ID").unwrap_or("Self".to_string());
-        Ok(Arc::new(AppState { local_db, metrics_state, actor, peer_id }))
+
+        Ok(Arc::new(AppState { bitvm2_client, metrics_state, actor, peer_id }))
     }
 }
 
@@ -86,6 +88,7 @@ pub(crate) async fn serve(
     registry: Arc<Mutex<Registry>>,
 ) -> anyhow::Result<()> {
     let app_state = AppState::create_arc_app_state(db_path, registry).await?;
+    let add = app_state.clone();
     let server = Router::new()
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
@@ -93,7 +96,7 @@ pub(crate) async fn serve(
         .route("/v1/nodes/{:id}", get(get_node))
         .route("/v1/nodes/overview", get(get_nodes_overview))
         .route("/v1/instances/settings", get(instance_settings))
-        .route("/v1/instances", get(get_instances_with_query_params))
+        .route("/v1/instances", get(get_instances))
         .route("/v1/instances", post(create_instance))
         .route("/v1/instances/{:id}", get(get_instance))
         .route("/v1/instances/{:id}", put(update_instance))
@@ -220,10 +223,8 @@ mod tests {
         info!("Post Response: {}", res_body);
 
         info!("=====>test api: get node");
-        let resp = client
-            .get(format!("http://{}/v1/nodes/{}", LISTEN_ADDRESS, node_peer))
-            .send()
-            .await?;
+        let resp =
+            client.get(format!("http://{}/v1/nodes/{}", LISTEN_ADDRESS, node_peer)).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
@@ -388,10 +389,10 @@ mod tests {
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
-
+        //
         info!("=====>test api:get_graphs_list");
         let resp = client
-            .get(format!("http://{}/v1/graphs?offset=0&limit=5", LISTEN_ADDRESS))
+            .get(format!("http://{}/v1/graphs?offset=0&limit=1", LISTEN_ADDRESS))
             .json(&json!({
                 "status": graph_state,
                 "pegin_txid":pegin_tx

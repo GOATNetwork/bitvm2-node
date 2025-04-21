@@ -1,6 +1,6 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
-use crate::{Graph, Instance, Message, Node, NodesOverview};
+use crate::{GrapRpcQueryData, Graph, Instance, Message, Node, NodesOverview};
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -184,8 +184,8 @@ impl<'a> StorageProcessor<'a> {
             instance.fee,
             instance.updated_at,
         )
-            .execute(self.conn())
-            .await?;
+        .execute(self.conn())
+        .await?;
         Ok(row.rows_affected())
     }
 
@@ -236,13 +236,16 @@ impl<'a> StorageProcessor<'a> {
         pegin_txid: Option<String>,
         offset: Option<u32>,
         limit: Option<u32>,
-    ) -> anyhow::Result<(Vec<Graph>, i64)> {
+    ) -> anyhow::Result<(Vec<GrapRpcQueryData>, i64)> {
         let mut graph_query_str =
-            "SELECT graph_id, instance_id, graph_ipfs_base_url, pegin_txid, amount, status, kickoff_txid,\
-             challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, assert_final_txid, take2_txid_txid,\
-              disprove_txid, operator, raw_data, created_at, updated_at FROM graph"
-                .to_string();
-        let mut graph_count_str = "SELECT count(*) as total_graphs FROM graph".to_string();
+            "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS  bridge_path, \
+            instance.network AS network, instance.from_addr AS from_addr,  instance.to_addr AS to_addr,  \
+            graph.amount, graph.pegin_txid, graph.status, graph.kickoff_txid, graph.challenge_txid,  \
+            graph.take1_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid,  \
+            graph.take2_txid_txid, graph.disprove_txid, graph.operator,  graph.updated_at, graph.created_at FROM graph  \
+            INNER JOIN  instance ON  graph.instance_id = instance.instance_id".to_string();
+        let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs FROM graph \
+         INNER JOIN  instance ON  graph.instance_id = instance.instance_id".to_string();
 
         let mut conditions: Vec<String> = vec![];
 
@@ -269,8 +272,9 @@ impl<'a> StorageProcessor<'a> {
         if let Some(offset) = offset {
             graph_query_str = format!("{} OFFSET {}", graph_query_str, offset);
         }
-        let graphs =
-            sqlx::query_as::<_, Graph>(graph_query_str.as_str()).fetch_all(self.conn()).await?;
+        let graphs = sqlx::query_as::<_, GrapRpcQueryData>(graph_query_str.as_str())
+            .fetch_all(self.conn())
+            .await?;
         let total_graphs = sqlx::query(graph_count_str.as_str())
             .fetch_one(self.conn())
             .await?

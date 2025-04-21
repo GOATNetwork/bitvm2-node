@@ -8,7 +8,6 @@ use axum::extract::{Path, Query, State};
 use http::StatusCode;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
-use store::localdb::LocalDB;
 use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 
 #[axum::debug_handler]
@@ -27,7 +26,7 @@ pub async fn create_node(
             created_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
                 as i64,
         };
-        let mut storage_process = app_state.local_db.acquire().await?;
+        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let _ = storage_process.update_node(node.clone()).await?;
         Ok::<Node, Box<dyn std::error::Error>>(node)
     };
@@ -46,7 +45,7 @@ pub async fn get_nodes(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<NodeListResponse>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
+        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
         let (nodes, total) = storage_process
             .node_list(
@@ -98,7 +97,7 @@ pub async fn get_nodes_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<NodeOverViewResponse>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
+        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
         let nodes_overview = storage_process.node_overview(time_threshold).await?;
         Ok::<NodeOverViewResponse, Box<dyn std::error::Error>>(NodeOverViewResponse {
@@ -120,7 +119,7 @@ pub async fn get_node(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<Option<Node>>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
+        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let res = storage_process.node_by_id(peer_id.as_str()).await?;
         Ok::<Option<Node>, Box<dyn std::error::Error>>(res)
     };

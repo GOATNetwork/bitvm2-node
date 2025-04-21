@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 #[async_trait]
-pub trait ChainAdaptor {
+pub trait ChainAdaptor: Send + Sync {
     async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool>;
     async fn get_pegin_data(&self, instance_id: Uuid) -> anyhow::Result<PeginData>;
     async fn is_operator_withdraw(&self, graph_id: Uuid) -> anyhow::Result<bool>;

@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
-use store::{BridgeInStatus, Graph, GraphStatus, Instance};
+use store::{BridgeInStatus, GrapRpcQueryData, Graph, GraphStatus, Instance};
 use uuid::Uuid;
 
 pub const BTC_MAIN: &str = "main";
-pub const BTC_TEST_BLOCK_INTERVAL: i64 = 10;
-pub const BTC_MAIN_BLOCK_INTERVAL: i64 = 10;
+pub const BTC_TEST_BLOCK_INTERVAL: u32 = 10;
+pub const BTC_MAIN_BLOCK_INTERVAL: u32 = 10;
 // the input to our `create_user` handler
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct UTXO {
@@ -100,33 +100,6 @@ pub struct PegBTCMintRequest {
 #[derive(Deserialize, Serialize)]
 pub struct PegBTCMintResponse {}
 
-/// bridge-out step2
-#[derive(Debug, Deserialize)]
-pub struct BridgeOutTransactionPrepareRequest {
-    //TODO
-    pub instance_id: String,
-    pub operator: String,
-}
-
-#[derive(Deserialize, Serialize, Default)]
-pub struct BridgeOutTransactionPrepareResponse {
-    // TODO
-    pub instance_id: String,
-}
-
-// // handler: committee
-// #[derive(Debug, Deserialize)]
-// pub struct BridgeOutUserClaimRequest {
-//     pub pegout_txid: String,
-//     pub signed_claim_txn: String,
-// }
-//
-// #[derive(Clone, Deserialize, Serialize)]
-// pub struct BridgeOutUserClaimResponse {
-//     pub instance_id: String,
-//     pub claim_txid: String,
-// }
-
 /// get tx detail
 #[derive(Debug, Deserialize)]
 pub struct InstanceListRequest {
@@ -143,28 +116,10 @@ pub struct InstanceWrap {
     pub eta: String,
 }
 
-impl InstanceWrap {
-    pub fn from(instance: Instance, current_btc_height: i64, interval: i64) -> Self {
-        // let time_left = (instance.pegin_tx_height + 6 - current_btc_height) * interval;
-        let time_left = 6;//TODO
-        let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
-        if time_left > 0 {
-            Self { instance, utxo, eta: format!("Est. wait for {} mins", interval) }
-        } else {
-            Self { instance, utxo, eta: "Est.complited".to_string() }
-        }
-    }
-}
-
 #[derive(Deserialize, Serialize, Default)]
 pub struct InstanceListResponse {
     pub instance_wraps: Vec<InstanceWrap>,
     pub total: i64,
-}
-
-#[derive(Deserialize)]
-pub struct InstanceGetRequest {
-    pub instance_id: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -195,11 +150,6 @@ pub struct InstanceOverview {
     pub total_nodes: i64,
 }
 
-#[derive(Deserialize)]
-pub struct GraphGetRequest {
-    pub graph_id: String,
-}
-
 #[derive(Deserialize, Serialize)]
 pub struct GraphGetResponse {
     pub graph: Graph,
@@ -212,12 +162,6 @@ pub struct GraphUpdateRequest {
 
 #[derive(Deserialize, Serialize)]
 pub struct GraphUpdateResponse {}
-
-#[derive(Deserialize)]
-pub struct Pagination {
-    pub offset: u32,
-    pub limit: u32,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct GraphQueryParams {
@@ -234,8 +178,14 @@ pub struct GraphQueryParams {
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphListResponse {
-    pub graphs: Vec<Graph>,
+    pub graphs: Vec<GrapRpcQueryDataWrap>,
     pub total: i64,
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+pub struct GrapRpcQueryDataWrap {
+    pub graph: GrapRpcQueryData,
+    pub eta: String,
 }
 
 // const STACK_AMOUNT: Amount = Amount::from_sat(20_000_000);

@@ -113,8 +113,6 @@ http://127.0.0.1:8080
       "goat_txid": "string",
       "btc_txid": "string",
       "pegin_txid": null,
-      "pegin_tx_height": "number",
-      "kickoff_tx": null,
       "input_uxtos": "json",
       "fee": "number",
       "created_at": "number",
@@ -159,8 +157,6 @@ http://127.0.0.1:8080
           "goat_txid": "string",
           "btc_txid": "string",
           "pegin_txid": null,
-          "pegin_tx_height": "number",
-          "kickoff_tx": null,
           "input_uxtos": "json",
           "fee": "number",
           "created_at": "number",
@@ -259,16 +255,27 @@ http://127.0.0.1:8080
     - `id`: Graph ID
 - **Response**:
   ```json
-    {
-    "graph_id": "string",
-    "instance_id": "string",
-    "graph_ipfs_base_url": "string",
-    "peg_in_txid": "string",
-    "amount": "number",
-    "created_at": "number",
-    "status": "string",
-    "challenge_txid": "string",
-    "disprove_txid": "number"    
+  {
+    "graph": {
+        "graph_id": "string",
+        "instance_id": "string",
+        "amount": "number",
+        "graph_ipfs_base_url": "string",
+        "pegin_txid": "string",
+        "status": "string",
+        "kickoff_txid": "string",
+        "challenge_txid": "string",
+        "take1_txid": "number",
+        "assert_init_txid": "number",
+        "assert_commit_txids": "number",
+        "assert_final_txid": "string",
+        "take2_txid_txid": "string",
+        "disprove_txid": "string",
+        "operator": "string",
+        "raw_data": "string",
+        "updated_at": "number",
+        "created_at": "number"
+    }
   }
   ```
 
@@ -287,20 +294,33 @@ http://127.0.0.1:8080
   {
     "graphs": [
         {
-            "graph_id": "string",
-            "instance_id": "string",
-            "graph_ipfs_base_url": "string",
-            "pegin_txid": "string",
-            "amount": "number",
-            "created_at": "number",
-            "updated_at": "number",
-            "status": "string",
-            "challenge_txid": "string",
-            "disprove_txid": "string",
-            "operator": "string"
+            "graph": {
+                "graph_id": "string",
+                "instance_id": "string",
+                "bridge_path": "number",
+                "network": "string",
+                "from_addr": "string",
+                "to_addr": "string",
+                "amount": "number",
+                "pegin_txid": "string",
+                "status": "string",
+                "kickoff_txid": "string",
+                "challenge_txid": "string",
+                "take1_txid": "number",
+                "assert_init_txid": "number",
+                "assert_commit_txids": "number",
+                "assert_final_txid": "string",
+                "take2_txid_txid": "string",
+                "disprove_txid": "string",
+                "operator": "string",
+                "updated_at": "number",
+                "created_at": "number"
+            },
+            "eta": "string"
         }
     ],
-    "total": "number"}
+    "total": "number"
+  }
   ```
 
 #### Graph Presign
@@ -354,8 +374,6 @@ http://127.0.0.1:8080
         "goat_txid": "string",
         "btc_txid": "string",
         "pegin_txid": null,
-        "pegin_tx_height": "number",
-        "kickoff_tx": null,
         "input_uxtos": "json",
         "fee": "number",
         "created_at": "number",

@@ -30,6 +30,7 @@ futures = { workspace = true }
 bitvm2-lib = { workspace = true }
 identity = { workspace = true }
 store = { workspace = true }
+client = { workspace = true }
 
 clap = { workspace = true }
 zeroize = { workspace = true }
