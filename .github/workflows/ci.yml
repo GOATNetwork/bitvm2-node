@@ -10,10 +10,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  GOAT_CHAIN_URL: https://rpc.testnet3.goat.network
-  GOAT_GATEWAY_CONTRACT_ADDRESS: 0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df
-  GOAT_GATEWAY_CONTRACT_CREATION: 0
-  GOAT_CHAIN_ID: 48816
 
 jobs:
   fmt:
@@ -51,6 +47,5 @@ jobs:
         toolchain:
           - nightly
     steps:
-      - name: Run UTs
-        uses: actions/checkout@v2
-        run: cargo test -r
+      - uses: actions/checkout@v2
+      - run: GOAT_CHAIN_URL=https://rpc.testnet3.goat.network GOAT_GATEWAY_CONTRACT_ADDRESS=0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df GOAT_GATEWAY_CONTRACT_CREATION=0 GOAT_CHAIN_ID=48816 cargo test -r
