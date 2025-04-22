@@ -235,70 +235,24 @@ pub mod todo_funcs {
     use store::GraphStatus;
 
     /// Database related
-    pub fn store_committee_pubkeys(
+    pub async fn store_committee_pubkeys(
+        client: &BitVM2Client,
         instance_id: Uuid,
         pubkey: PublicKey,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Err("TODO".into())
     }
-    pub fn get_committee_pubkeys(
+    pub async fn get_committee_pubkeys(
+        client: &BitVM2Client,
         instance_id: Uuid,
     ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
         Err("TODO".into())
     }
-    pub fn store_committee_pub_nonces(
-        instance_id: Uuid,
-        graph_id: Uuid,
-        committee_pubkey: PublicKey,
-        pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub fn get_committee_pub_nonces(
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub fn store_committee_partial_sigs(
-        instance_id: Uuid,
-        graph_id: Uuid,
-        committee_pubkey: PublicKey,
-        partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub fn get_committee_partial_sigs(
+    pub async fn get_committee_partial_sigs(
+        client: &BitVM2Client,
         instance_id: Uuid,
         graph_id: Uuid,
     ) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub fn store_graph(
-        instance_id: Uuid,
-        graph_id: Uuid,
-        graph: &Bitvm2Graph,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub fn update_graph(
-        instance_id: Uuid,
-        graph_id: Uuid,
-        graph: &Bitvm2Graph,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub fn get_graph(
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub fn update_graph_status(
-        instance_id: Uuid,
-        graph_id: Uuid,
-        status: GraphStatus,
-    ) -> Result<(), Box<dyn std::error::Error>> {
         Err("TODO".into())
     }
 
@@ -829,17 +783,22 @@ pub async fn recv_and_dispatch(
                 committee_members_num: env::get_committee_member_num(),
             });
             todo_funcs::store_committee_pubkeys(
+                &client,
                 receive_data.instance_id,
                 keypair.public_key().into(),
-            )?;
+            )
+            .await?;
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
         }
         (GOATMessageContent::CreateGraphPrepare(receive_data), Actor::Operator) => {
             todo_funcs::store_committee_pubkeys(
+                &client,
                 receive_data.instance_id,
                 receive_data.committee_member_pubkey,
-            )?;
-            let collected_keys = todo_funcs::get_committee_pubkeys(receive_data.instance_id)?;
+            )
+            .await?;
+            let collected_keys =
+                todo_funcs::get_committee_pubkeys(&client, receive_data.instance_id).await?;
             if collected_keys.len() == receive_data.committee_members_num
                 && todo_funcs::should_generate_graph(&client, &receive_data).await?
             {
@@ -880,7 +839,14 @@ pub async fn recv_and_dispatch(
                         disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
                     let mut graph = generate_bitvm_graph(params, disprove_scripts_bytes)?;
                     operator_pre_sign(keypair, &mut graph)?;
-                    todo_funcs::store_graph(receive_data.instance_id, graph_id, &graph)?;
+                    store_graph(
+                        &client,
+                        receive_data.instance_id,
+                        graph_id,
+                        &graph,
+                        Some(GraphStatus::OperatorPresigned.to_string()),
+                    )
+                    .await?;
                     let message_content = GOATMessageContent::CreateGraph(CreateGraph {
                         instance_id: receive_data.instance_id,
                         graph_id,
@@ -894,11 +860,14 @@ pub async fn recv_and_dispatch(
             };
         }
         (GOATMessageContent::CreateGraph(receive_data), Actor::Committee) => {
-            todo_funcs::store_graph(
+            store_graph(
+                &client,
                 receive_data.instance_id,
                 receive_data.graph_id,
                 &receive_data.graph,
-            )?;
+                Some(GraphStatus::OperatorPresigned.to_string()),
+            )
+            .await?;
             let master_key = CommitteeMasterKey::new(env::get_bitvm_key()?);
             let nonces =
                 master_key.nonces_for_graph(receive_data.instance_id, receive_data.graph_id);
@@ -915,23 +884,24 @@ pub async fn recv_and_dispatch(
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
         }
         (GOATMessageContent::NonceGeneration(receive_data), Actor::Committee) => {
-            todo_funcs::store_committee_pub_nonces(
+            store_committee_pub_nonces(
+                &client,
                 receive_data.instance_id,
                 receive_data.graph_id,
                 receive_data.committee_pubkey,
                 receive_data.pub_nonces,
-            )?;
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            )
+            .await?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             let master_key = CommitteeMasterKey::new(env::get_bitvm_key()?);
             let keypair = master_key.keypair_for_instance(receive_data.instance_id);
             let nonces =
                 master_key.nonces_for_graph(receive_data.instance_id, receive_data.graph_id);
             let sec_nonces: [SecNonce; COMMITTEE_PRE_SIGN_NUM] =
                 std::array::from_fn(|i| nonces[i].0.clone());
-            let collected_pub_nonces = todo_funcs::get_committee_pub_nonces(
-                receive_data.instance_id,
-                receive_data.graph_id,
-            )?;
+            let collected_pub_nonces =
+                get_committee_pub_nonces(&client, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
             if collected_pub_nonces.len() == receive_data.committee_members_num {
                 let agg_nonces = nonces_aggregation(collected_pub_nonces);
                 let committee_partial_sigs =
@@ -951,16 +921,20 @@ pub async fn recv_and_dispatch(
             if Some((receive_data.instance_id, receive_data.graph_id))
                 == statics::current_processing_graph()
             {
-                todo_funcs::store_committee_partial_sigs(
+                store_committee_partial_sigs(
+                    &client,
                     receive_data.instance_id,
                     receive_data.graph_id,
                     receive_data.committee_pubkey,
                     receive_data.committee_partial_sigs,
-                )?;
+                )
+                .await?;
                 let collected_partial_sigs = todo_funcs::get_committee_partial_sigs(
+                    &client,
                     receive_data.instance_id,
                     receive_data.graph_id,
-                )?;
+                )
+                .await?;
                 if collected_partial_sigs.len() == receive_data.committee_members_num {
                     let mut grouped_partial_sigs: [Vec<PartialSignature>; COMMITTEE_PRE_SIGN_NUM] =
                         Default::default();
@@ -970,17 +944,21 @@ pub async fn recv_and_dispatch(
                         }
                     }
                     let mut graph =
-                        todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+                        get_graph(&&client, receive_data.instance_id, receive_data.graph_id)
+                            .await?;
                     signature_aggregation_and_push(
                         &grouped_partial_sigs,
                         &receive_data.agg_nonces,
                         &mut graph,
                     )?;
-                    todo_funcs::store_graph(
+                    store_graph(
+                        &client,
                         receive_data.instance_id,
                         receive_data.graph_id,
                         &graph,
-                    )?;
+                        Some(GraphStatus::CommitteePresigned.to_string()),
+                    )
+                    .await?;
                     let prekickoff_tx = graph.pre_kickoff.tx().clone();
                     let node_keypair =
                         OperatorMasterKey::new(env::get_bitvm_key()?).master_keypair();
@@ -1002,17 +980,21 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::GraphFinalize(receive_data), _) => {
             // TODO: validate graph
-            todo_funcs::store_graph(
+            store_graph(
+                &client,
                 receive_data.instance_id,
                 receive_data.graph_id,
                 &receive_data.graph,
-            )?;
+                Some(GraphStatus::CommitteePresigned.to_string()),
+            )
+            .await?;
         }
 
         // peg-out
         // KickoffReady sent by relayer
         (GOATMessageContent::KickoffReady(receive_data), Actor::Operator) => {
-            let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let mut graph =
+                get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if graph.parameters.operator_pubkey == env::get_node_pubkey()?
                 && todo_funcs::is_withdraw_initialized_on_l2(
                     &client,
@@ -1042,7 +1024,8 @@ pub async fn recv_and_dispatch(
         }
         // KickoffSent sent by relayer
         (GOATMessageContent::KickoffSent(receive_data), Actor::Challenger) => {
-            let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let mut graph =
+                get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::should_challenge(
                 &client,
                 Amount::from_sat(graph.challenge.min_crowdfunding_amount()),
@@ -1067,16 +1050,19 @@ pub async fn recv_and_dispatch(
                     challenge_txid,
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Challenge,
-                )?;
+                    None,
+                    Some(GraphStatus::KickOff.to_string()),
+                )
+                .await?;
             }
         }
         // Take1Ready sent by relayer
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
-            let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let mut graph =
+                get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if graph.parameters.operator_pubkey == env::get_node_pubkey()? {
                 if todo_funcs::is_take1_timelock_expired(&client, graph.take1.tx().compute_txid())
                     .await?
@@ -1092,11 +1078,13 @@ pub async fn recv_and_dispatch(
                         take1_txid,
                     });
                     send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                    todo_funcs::update_graph_status(
-                        receive_data.instance_id,
+                    update_graph_status_or_ipfs_base(
+                        &client,
                         receive_data.graph_id,
-                        store::GraphStatus::Take1,
-                    )?;
+                        None,
+                        Some(GraphStatus::Take1.to_string()),
+                    )
+                    .await?;
                     // NOTE: clean up other graphs?
                 }
             }
@@ -1104,7 +1092,8 @@ pub async fn recv_and_dispatch(
         // ChallengeSent sent by challenger
         // if challenger
         (GOATMessageContent::ChallengeSent(receive_data), Actor::Operator) => {
-            let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let mut graph =
+                get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if graph.parameters.operator_pubkey == env::get_node_pubkey()? {
                 if todo_funcs::validate_challenge(
                     &client,
@@ -1134,11 +1123,13 @@ pub async fn recv_and_dispatch(
                         todo_funcs::broadcast_tx(&client, &tx).await?;
                     }
                     todo_funcs::broadcast_tx(&client, &assert_final_tx).await?;
-                    todo_funcs::update_graph_status(
-                        receive_data.instance_id,
+                    update_graph_status_or_ipfs_base(
+                        &client,
                         receive_data.graph_id,
-                        store::GraphStatus::Assert,
-                    )?;
+                        None,
+                        Some(GraphStatus::Assert.to_string()),
+                    )
+                    .await?;
                     // malicious Operator may not broadcast assert to the p2p network
                     // Relayer will monitor all graphs & broadcast AssertSent
                 }
@@ -1146,7 +1137,8 @@ pub async fn recv_and_dispatch(
         }
         // Take2Ready sent by relayer
         (GOATMessageContent::Take2Ready(receive_data), Actor::Operator) => {
-            let mut graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let mut graph =
+                get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if graph.parameters.operator_pubkey == env::get_node_pubkey()? {
                 if todo_funcs::is_take2_timelock_expired(
                     &client,
@@ -1165,27 +1157,28 @@ pub async fn recv_and_dispatch(
                         take2_txid,
                     });
                     send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                    todo_funcs::update_graph_status(
-                        receive_data.instance_id,
+                    update_graph_status_or_ipfs_base(
+                        &client,
                         receive_data.graph_id,
-                        store::GraphStatus::Take2,
-                    )?;
+                        None,
+                        Some(GraphStatus::Take2.to_string()),
+                    )
+                    .await?;
                     // NOTE: clean up other graphs?
                 }
             }
         }
         // AssertSent sent by relayer
         (GOATMessageContent::AssertSent(receive_data), Actor::Challenger) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let mut graph =
+                get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if let Some(disprove_witness) = todo_funcs::validate_assert(
                 &client,
                 &receive_data.assert_commit_txids,
-                graph.parameters.operator_wots_pubkeys,
+                graph.parameters.operator_wots_pubkeys.clone(),
             )
             .await?
             {
-                let mut graph =
-                    todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
                 let disprove_scripts = generate_disprove_scripts(
                     &todo_funcs::get_partial_scripts()?,
                     &graph.parameters.operator_wots_pubkeys,
@@ -1208,42 +1201,48 @@ pub async fn recv_and_dispatch(
                     disprove_txid,
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Disprove,
-                )?;
+                    None,
+                    Some(GraphStatus::Disprove.to_string()),
+                )
+                .await?;
             }
         }
 
         // Relayer handles
         (GOATMessageContent::Take1Sent(receive_data), Actor::Relayer) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             let take1_txid = graph.take1.tx().compute_txid();
             if todo_funcs::tx_on_chain(&client, &take1_txid).await? {
                 // TODO: call L2: finishWithdrawHappyPath
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Take1,
-                )?;
+                    None,
+                    Some(GraphStatus::Take1.to_string()),
+                )
+                .await?;
                 // NOTE: clean up other graphs?
             }
         }
         (GOATMessageContent::Take2Sent(receive_data), Actor::Relayer) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::tx_on_chain(&client, &graph.take2.tx().compute_txid()).await? {
                 // TODO: call L2: finishWithdrawUnhappyPath
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Take2,
-                )?;
+                    None,
+                    Some(GraphStatus::Take2.to_string()),
+                )
+                .await?;
                 // NOTE: clean up other graphs?
             }
         }
         (GOATMessageContent::DisproveSent(receive_data), Actor::Relayer) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::validate_disprove(
                 &client,
                 &graph.assert_final.tx().compute_txid(),
@@ -1252,28 +1251,32 @@ pub async fn recv_and_dispatch(
             .await?
             {
                 // TODO: call L2: finishWithdrawDisproved
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Disprove,
-                )?;
+                    None,
+                    Some(GraphStatus::Disprove.to_string()),
+                )
+                .await?;
                 // NOTE: clean up other graphs?
             }
         }
 
         // Other participants update graph status
         (GOATMessageContent::KickoffSent(receive_data), _) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::tx_on_chain(&client, &graph.kickoff.tx().compute_txid()).await? {
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::KickOff,
-                )?;
+                    None,
+                    Some(GraphStatus::KickOff.to_string()),
+                )
+                .await?;
             }
         }
         (GOATMessageContent::ChallengeSent(receive_data), _) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::validate_challenge(
                 &client,
                 &graph.kickoff.tx().compute_txid(),
@@ -1281,37 +1284,43 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Challenge,
-                )?;
+                    None,
+                    Some(GraphStatus::Challenge.to_string()),
+                )
+                .await?;
             }
         }
         (GOATMessageContent::Take1Sent(receive_data), _) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::tx_on_chain(&client, &graph.take1.tx().compute_txid()).await? {
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Take1,
-                )?;
+                    None,
+                    Some(GraphStatus::Take1.to_string()),
+                )
+                .await?;
                 // NOTE: clean up other graphs?
             }
         }
         (GOATMessageContent::Take2Sent(receive_data), _) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::tx_on_chain(&client, &graph.take2.tx().compute_txid()).await? {
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Take2,
-                )?;
+                    None,
+                    Some(GraphStatus::Take2.to_string()),
+                )
+                .await?;
                 // NOTE: clean up other graphs?
             }
         }
         (GOATMessageContent::DisproveSent(receive_data), _) => {
-            let graph = todo_funcs::get_graph(receive_data.instance_id, receive_data.graph_id)?;
+            let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::validate_disprove(
                 &client,
                 &graph.assert_final.tx().compute_txid(),
@@ -1319,11 +1328,13 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
-                todo_funcs::update_graph_status(
-                    receive_data.instance_id,
+                update_graph_status_or_ipfs_base(
+                    &client,
                     receive_data.graph_id,
-                    store::GraphStatus::Disprove,
-                )?;
+                    None,
+                    Some(GraphStatus::Disprove.to_string()),
+                )
+                .await?;
                 // NOTE: clean up other graphs?
             }
         }
@@ -1548,10 +1559,4 @@ pub async fn get_graph(
     }
     let res: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
     Ok(res)
-}
-
-pub fn get_graph_ids_by_operator_pubkey(
-    operator_pubkey: PublicKey,
-) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
-    Err("TODO".into())
 }

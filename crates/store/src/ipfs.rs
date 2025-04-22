@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use futures::TryStreamExt;
 use reqwest::multipart::{Form, Part};
 use reqwest::Client;
