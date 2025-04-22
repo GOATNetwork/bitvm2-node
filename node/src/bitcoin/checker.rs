@@ -140,7 +140,7 @@ pub async fn check_pegin_tx(
 }
 
 #[cfg(test)]
-pub mod test {
+mod tests {
     use super::*;
     use futures::{StreamExt, stream};
     #[tokio::test]

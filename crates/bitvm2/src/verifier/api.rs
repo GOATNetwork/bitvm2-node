@@ -69,7 +69,7 @@ pub fn sign_disprove(
 }
 
 #[cfg(test)]
-pub mod test {
+mod tests {
     #[test]
     fn test_extract_proof() {
         use crate::{
