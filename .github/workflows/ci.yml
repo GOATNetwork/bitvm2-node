@@ -47,7 +47,7 @@ jobs:
       GOAT_GATEWAY_CONTRACT_ADDRESS: 0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df
       GOAT_GATEWAY_CONTRACT_CREATION: 0
       GOAT_CHAIN_ID: 48816
-      RUST_LOG: info"
+      RUST_LOG: info
     strategy:
       matrix:
         toolchain:
