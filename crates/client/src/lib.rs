@@ -29,7 +29,7 @@ mod tests {
             None,
             Network::Testnet,
             GoatNetwork::Test,
-            Some(global_init_config),
+            global_init_config,
         )
         .await;
         let tx_id =

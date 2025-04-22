@@ -26,7 +26,7 @@ impl BitVM2Client {
         esplora_url: Option<&str>,
         btc_network: Network,
         goat_network: GoatNetwork,
-        goat_config: Option<GoatInitConfig>,
+        goat_config: GoatInitConfig,
     ) -> Self {
         let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
         local_db.migrate().await;

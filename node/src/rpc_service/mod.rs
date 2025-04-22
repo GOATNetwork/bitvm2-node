@@ -5,6 +5,7 @@ use std::str::FromStr;
 mod handler;
 mod node;
 
+use crate::env::get_bitvm2_client_config;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
 use axum::body::Body;
@@ -20,7 +21,7 @@ use bitcoin::Network;
 use bitvm2_lib::actors::Actor;
 use client::chain::chain_adaptor::GoatNetwork;
 use client::client::BitVM2Client;
-use http::{HeaderMap, StatusCode};
+use http::{HeaderMap, Method, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use std::sync::{Arc, Mutex};
@@ -28,6 +29,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
 
@@ -49,8 +51,14 @@ impl AppState {
         db_path: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let bitvm2_client =
-            BitVM2Client::new(db_path, None, Network::Testnet, GoatNetwork::Test, None).await;
+        let bitvm2_client = BitVM2Client::new(
+            db_path,
+            None,
+            Network::Testnet,
+            GoatNetwork::Test,
+            get_bitvm2_client_config(),
+        )
+        .await;
         let metrics_state = MetricsState::new(registry);
         let actor =
             Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
@@ -113,6 +121,13 @@ pub(crate) async fn serve(
         .route("/v1/graphs/presign_check", post(graph_presign_check))
         .route("/metrics", get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
+        .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ]))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
