@@ -6,17 +6,14 @@ use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
 use esplora_client::AsyncClient;
 use http::StatusCode;
-use serde_json::json;
 use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
-use store::localdb::{ConnectionHolder, LocalDB, StorageProcessor};
 use store::{
-    BridgeInStatus, BridgeOutStatus, BridgePath, Graph, GraphStatus, Instance, Message,
+    BridgeInStatus, BridgePath, Graph, GraphStatus, Instance, Message,
     MessageState,
 };
-use tokio::time::interval;
 use uuid::Uuid;
 
 #[axum::debug_handler]
@@ -138,7 +135,7 @@ pub async fn graph_presign(
         instance.status = BridgeInStatus::Presigned.to_string();
         let _ = tx.update_instance(instance.clone()).await?;
         let _ = tx.update_graph(graph.clone()).await?;
-        let _ = tx.commit().await?;
+        tx.commit().await?;
         Ok::<GraphPresignResponse, Box<dyn std::error::Error>>(resp_clone)
     };
     match async_fn().await {

@@ -58,7 +58,7 @@ pub async fn get_nodes(
             )
             .await?;
 
-        let mut node_desc_list: Vec<NodeDesc> = nodes
+        let node_desc_list: Vec<NodeDesc> = nodes
             .into_iter()
             .map(|v| {
                 let status: String;

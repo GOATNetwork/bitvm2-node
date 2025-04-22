@@ -2,39 +2,30 @@
 use base64::Engine;
 use clap::{Parser, Subcommand, command};
 use libp2p::PeerId;
-use libp2p::bytes::BufMut;
 use libp2p::futures::StreamExt;
-use libp2p::identity::Keypair;
 use libp2p::{
     gossipsub, kad, mdns,
-    multiaddr::{Multiaddr, Protocol},
+    multiaddr::Protocol,
     noise,
-    swarm::{NetworkBehaviour, SwarmEvent},
+    swarm::SwarmEvent,
     tcp, yamux,
 };
-use libp2p_metrics::{Metrics, Registry};
+use libp2p_metrics::Registry;
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::ops::Add;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::thread::LocalKey;
 use std::{
     error::Error,
     net::Ipv4Addr,
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::{io, io::AsyncBufReadExt, select};
 
-use opentelemetry::{KeyValue, trace::TracerProvider as _};
-use opentelemetry_sdk::{runtime, trace::TracerProvider};
-use tracing::log::__private_api::loc;
-use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, Layer, util::SubscriberInitExt};
 
 use zeroize::Zeroizing;
 
 use bitvm2_lib::actors::Actor;
-use identity;
 
 mod action;
 mod bitcoin;
@@ -45,8 +36,7 @@ mod rpc_service;
 
 use crate::action::GOATMessage;
 use crate::middleware::behaviour::AllBehavioursEvent;
-use anyhow::{Result, bail};
-use libp2p::gossipsub::{MessageId, Topic};
+use anyhow::Result;
 use middleware::AllBehaviours;
 use tokio::time::interval;
 
@@ -121,20 +111,17 @@ enum KeyCommands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let opt = Opts::parse();
-    match opt.cmd {
-        Some(Commands::Key(key_arg)) => {
-            match key_arg.cmd {
-                KeyCommands::Gen => {
-                    let local_key = identity::generate_local_key();
-                    let base64_key = base64::engine::general_purpose::STANDARD
-                        .encode(&local_key.to_protobuf_encoding()?);
-                    tracing::info!("export KEY={}", base64_key);
-                    tracing::info!("export PEER_ID={}", local_key.public().to_peer_id());
-                }
+    if let Some(Commands::Key(key_arg)) = opt.cmd {
+        match key_arg.cmd {
+            KeyCommands::Gen => {
+                let local_key = identity::generate_local_key();
+                let base64_key = base64::engine::general_purpose::STANDARD
+                    .encode(&local_key.to_protobuf_encoding()?);
+                tracing::info!("export KEY={}", base64_key);
+                tracing::info!("export PEER_ID={}", local_key.public().to_peer_id());
             }
-            return Ok(());
         }
-        _ => {}
+        return Ok(());
     }
     // load role
     let actor =
@@ -166,7 +153,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_tokio()
         .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
         .with_bandwidth_metrics(&mut metric_registry)
-        .with_behaviour(|key| AllBehaviours::new(key))?
+        .with_behaviour(AllBehaviours::new)?
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(u64::MAX)))
         .build();
 
@@ -247,7 +234,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                     if let Some(gossipsub_topic) = topics.get(commands[0]) {
                         let message = serde_json::to_vec(&GOATMessage{
-                            actor: Actor::from_str(&commands[0]).unwrap(),
+                            actor: Actor::from_str(commands[0]).unwrap(),
                             content: commands[1].as_bytes().to_vec(),
                         }).unwrap();
                         if let Err(e) = swarm
@@ -322,7 +309,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     SwarmEvent::NewExternalAddrOfPeer {peer_id, address} => {
                         tracing::debug!("new external address of peer: {} {}", peer_id, address);
                     }
-                    SwarmEvent::ConnectionEstablished {peer_id, connection_id,endpoint, .. } => {
+                    SwarmEvent::ConnectionEstablished {peer_id, connection_id, .. } => {
                         tracing::debug!("connected to {peer_id}: {connection_id}");
                     }
                     e => {

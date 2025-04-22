@@ -1,6 +1,5 @@
 mod bitvm2;
 
-pub use bitvm2::BridgeInTransactionPreparerRequest;
 use std::str::FromStr;
 mod handler;
 mod node;
@@ -26,7 +25,6 @@ use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
-use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::{Any, CorsLayer};

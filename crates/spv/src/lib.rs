@@ -161,7 +161,7 @@ mod tests {
             .iter()
             .map(|tx| {
                 println!("{:?}", tx);
-                CircuitTransaction(bitcoin::consensus::deserialize(*tx).unwrap())
+                CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap())
             })
             .collect::<Vec<CircuitTransaction>>();
         let mut bitcoin_merkle_proofs: Vec<BlockInclusionProof> = vec![];

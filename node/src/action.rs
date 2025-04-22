@@ -206,7 +206,7 @@ pub mod statics {
         OPERATOR_CURRENT_GRAPH.lock().unwrap().is_some()
     }
     pub fn current_processing_graph() -> Option<(Uuid, Uuid)> {
-        OPERATOR_CURRENT_GRAPH.lock().unwrap().clone()
+        *OPERATOR_CURRENT_GRAPH.lock().unwrap()
     }
     pub fn force_stop_current_graph() {
         *OPERATOR_CURRENT_GRAPH.lock().unwrap() = None;
@@ -232,7 +232,7 @@ pub mod todo_funcs {
     use std::fs::{self, File};
     use std::io::{BufReader, BufWriter};
     use std::path::Path;
-    use store::GraphStatus;
+    
 
     /// Database related
     pub async fn store_committee_pubkeys(
@@ -638,7 +638,7 @@ pub mod todo_funcs {
         let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
         let utxos = client.esplora.get_address_utxo(node_address).await?;
         let utxo_spent_fee = Amount::from_sat(
-            (get_fee_rate(&client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
+            (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
         );
         let total_effective_balance: Amount =
             utxos.iter().map(|utxo| utxo.value - utxo_spent_fee).sum();
@@ -757,7 +757,7 @@ pub async fn recv_and_dispatch(
         // TODO
         return Ok(());
     }
-    let message: GOATMessage = serde_json::from_slice(&message)?;
+    let message: GOATMessage = serde_json::from_slice(message)?;
     println!("Received message: {:?}", message);
     if message.actor != actor && message.actor != Actor::All && actor != Actor::Relayer {
         return Ok(());
@@ -944,7 +944,7 @@ pub async fn recv_and_dispatch(
                         }
                     }
                     let mut graph =
-                        get_graph(&&client, receive_data.instance_id, receive_data.graph_id)
+                        get_graph(&client, receive_data.instance_id, receive_data.graph_id)
                             .await?;
                     signature_aggregation_and_push(
                         &grouped_partial_sigs,
@@ -1063,30 +1063,27 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
             let mut graph =
                 get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()? {
-                if todo_funcs::is_take1_timelock_expired(&client, graph.take1.tx().compute_txid())
-                    .await?
-                {
-                    let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
-                    let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                    let take1_tx = operator_sign_take1(keypair, &mut graph)?;
-                    let take1_txid = take1_tx.compute_txid();
-                    todo_funcs::broadcast_tx(&client, &take1_tx).await?;
-                    let message_content = GOATMessageContent::Take1Sent(Take1Sent {
-                        instance_id: receive_data.instance_id,
-                        graph_id: receive_data.graph_id,
-                        take1_txid,
-                    });
-                    send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                    update_graph_status_or_ipfs_base(
-                        &client,
-                        receive_data.graph_id,
-                        None,
-                        Some(GraphStatus::Take1.to_string()),
-                    )
-                    .await?;
-                    // NOTE: clean up other graphs?
-                }
+            if graph.parameters.operator_pubkey == env::get_node_pubkey()? && todo_funcs::is_take1_timelock_expired(&client, graph.take1.tx().compute_txid())
+                    .await? {
+                let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+                let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+                let take1_tx = operator_sign_take1(keypair, &mut graph)?;
+                let take1_txid = take1_tx.compute_txid();
+                todo_funcs::broadcast_tx(&client, &take1_tx).await?;
+                let message_content = GOATMessageContent::Take1Sent(Take1Sent {
+                    instance_id: receive_data.instance_id,
+                    graph_id: receive_data.graph_id,
+                    take1_txid,
+                });
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                update_graph_status_or_ipfs_base(
+                    &client,
+                    receive_data.graph_id,
+                    None,
+                    Some(GraphStatus::Take1.to_string()),
+                )
+                .await?;
+                // NOTE: clean up other graphs?
             }
         }
         // ChallengeSent sent by challenger
@@ -1094,78 +1091,72 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::ChallengeSent(receive_data), Actor::Operator) => {
             let mut graph =
                 get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()? {
-                if todo_funcs::validate_challenge(
+            if graph.parameters.operator_pubkey == env::get_node_pubkey()? && todo_funcs::validate_challenge(
                     &client,
                     &graph.kickoff.tx().compute_txid(),
                     &receive_data.challenge_txid,
                 )
-                .await?
-                {
-                    let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
-                    let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                    let (operator_wots_seckeys, operator_wots_pubkeys) =
-                        master_key.wots_keypair_for_graph(receive_data.graph_id);
-                    let (proof, pubin, vk) = todo_funcs::get_groth16_proof(
-                        receive_data.instance_id,
-                        receive_data.graph_id,
+                .await? {
+                let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+                let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+                let (operator_wots_seckeys, operator_wots_pubkeys) =
+                    master_key.wots_keypair_for_graph(receive_data.graph_id);
+                let (proof, pubin, vk) = todo_funcs::get_groth16_proof(
+                    receive_data.instance_id,
+                    receive_data.graph_id,
+                )?;
+                let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
+                let (assert_init_tx, assert_commit_txns, assert_final_tx) =
+                    operator_sign_assert(
+                        keypair,
+                        &mut graph,
+                        &operator_wots_pubkeys,
+                        proof_sigs,
                     )?;
-                    let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
-                    let (assert_init_tx, assert_commit_txns, assert_final_tx) =
-                        operator_sign_assert(
-                            keypair,
-                            &mut graph,
-                            &operator_wots_pubkeys,
-                            proof_sigs,
-                        )?;
-                    todo_funcs::broadcast_tx(&client, &assert_init_tx).await?;
-                    for tx in assert_commit_txns {
-                        todo_funcs::broadcast_tx(&client, &tx).await?;
-                    }
-                    todo_funcs::broadcast_tx(&client, &assert_final_tx).await?;
-                    update_graph_status_or_ipfs_base(
-                        &client,
-                        receive_data.graph_id,
-                        None,
-                        Some(GraphStatus::Assert.to_string()),
-                    )
-                    .await?;
-                    // malicious Operator may not broadcast assert to the p2p network
-                    // Relayer will monitor all graphs & broadcast AssertSent
+                todo_funcs::broadcast_tx(&client, &assert_init_tx).await?;
+                for tx in assert_commit_txns {
+                    todo_funcs::broadcast_tx(&client, &tx).await?;
                 }
+                todo_funcs::broadcast_tx(&client, &assert_final_tx).await?;
+                update_graph_status_or_ipfs_base(
+                    &client,
+                    receive_data.graph_id,
+                    None,
+                    Some(GraphStatus::Assert.to_string()),
+                )
+                .await?;
+                // malicious Operator may not broadcast assert to the p2p network
+                // Relayer will monitor all graphs & broadcast AssertSent
             }
         }
         // Take2Ready sent by relayer
         (GOATMessageContent::Take2Ready(receive_data), Actor::Operator) => {
             let mut graph =
                 get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()? {
-                if todo_funcs::is_take2_timelock_expired(
+            if graph.parameters.operator_pubkey == env::get_node_pubkey()? && todo_funcs::is_take2_timelock_expired(
                     &client,
                     graph.assert_final.tx().compute_txid(),
                 )
-                .await?
-                {
-                    let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
-                    let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                    let take2_tx = operator_sign_take2(keypair, &mut graph)?;
-                    let take2_txid = take2_tx.compute_txid();
-                    todo_funcs::broadcast_tx(&client, &take2_tx).await?;
-                    let message_content = GOATMessageContent::Take2Sent(Take2Sent {
-                        instance_id: receive_data.instance_id,
-                        graph_id: receive_data.graph_id,
-                        take2_txid,
-                    });
-                    send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                    update_graph_status_or_ipfs_base(
-                        &client,
-                        receive_data.graph_id,
-                        None,
-                        Some(GraphStatus::Take2.to_string()),
-                    )
-                    .await?;
-                    // NOTE: clean up other graphs?
-                }
+                .await? {
+                let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+                let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+                let take2_tx = operator_sign_take2(keypair, &mut graph)?;
+                let take2_txid = take2_tx.compute_txid();
+                todo_funcs::broadcast_tx(&client, &take2_tx).await?;
+                let message_content = GOATMessageContent::Take2Sent(Take2Sent {
+                    instance_id: receive_data.instance_id,
+                    graph_id: receive_data.graph_id,
+                    take2_txid,
+                });
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                update_graph_status_or_ipfs_base(
+                    &client,
+                    receive_data.graph_id,
+                    None,
+                    Some(GraphStatus::Take2.to_string()),
+                )
+                .await?;
+                // NOTE: clean up other graphs?
             }
         }
         // AssertSent sent by relayer
@@ -1368,7 +1359,7 @@ where
     let client = reqwest::Client::new();
     let url = reqwest::Url::parse(&format!("{addr}/{uri}"))?;
 
-    let mut req = Request::new(method, url);
+    let req = Request::new(method, url);
     let req_builder = reqwest::RequestBuilder::from_parts(client, req);
     let resp = req_builder.json(&params).send().await?;
     let txt = resp.text().await?;
@@ -1392,9 +1383,9 @@ pub async fn store_committee_pub_nonces(
         .store_nonces(
             instance_id,
             graph_id,
-            &vec![nonces_arr],
+            &[nonces_arr],
             committee_pubkey.to_string(),
-            &vec![],
+            &[],
         )
         .await?)
 }
@@ -1451,7 +1442,7 @@ pub async fn store_committee_partial_sigs(
     let signs: Vec<String> = partial_sigs.iter().map(|v| hex::encode(v.serialize())).collect();
 
     Ok(storage_process
-        .store_nonces(instance_id, graph_id, &vec![], committee_pubkey.to_string(), &signs)
+        .store_nonces(instance_id, graph_id, &[], committee_pubkey.to_string(), &signs)
         .await?)
 }
 
@@ -1547,15 +1538,15 @@ pub async fn get_graph(
     if graph.instance_id.ne(&instance_id) {
         return Err(format!(
             "grap with graph_id:{} has instance_id:{} not match expec instance:{}",
-            graph_id.to_string(),
-            graph.instance_id.to_string(),
-            instance_id.to_string()
+            graph_id,
+            graph.instance_id,
+            instance_id
         )
         .into());
     }
 
     if graph.raw_data.is_none() {
-        return Err(format!("grap with graph_id:{} raw data is none", graph_id.to_string()).into());
+        return Err(format!("grap with graph_id:{} raw data is none", graph_id).into());
     }
     let res: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
     Ok(res)

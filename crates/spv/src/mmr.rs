@@ -12,6 +12,12 @@ pub struct MMRHost {
     pub nodes: Vec<Vec<[u8; 32]>>,
 }
 
+impl Default for MMRHost {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MMRHost {
     /// Creates a new MMR for native usage.
     pub fn new() -> Self {
@@ -58,7 +64,7 @@ impl MMRHost {
 
     /// Generates a proof for a given index. Returns the leaf as well.
     pub fn generate_proof(&self, index: u32) -> ([u8; 32], MMRInclusionProof) {
-        if self.nodes[0].len() == 0 {
+        if self.nodes[0].is_empty() {
             panic!("MMR is empty");
         }
         if self.nodes[0].len() <= index as usize {
@@ -74,7 +80,7 @@ impl MMRHost {
             let sibling_index =
                 if current_index % 2 == 0 { current_index + 1 } else { current_index - 1 };
             proof.push(self.nodes[current_level][sibling_index as usize]);
-            current_index = current_index / 2;
+            current_index /= 2;
             current_level += 1;
         }
         let (subroot_idx, internal_idx) = self.get_helpers_from_index(index);
@@ -143,6 +149,12 @@ pub struct MMRGuest {
     pub size: u32,
 }
 
+impl Default for MMRGuest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MMRGuest {
     /// Creates a new MMR for inside zkVM
     pub fn new() -> Self {
@@ -180,10 +192,9 @@ impl MMRGuest {
     }
 }
 
+#[cfg(test)]
 mod tests {
-
     use super::*;
-
     #[test]
     #[should_panic(expected = "MMR is empty")]
     fn test_mmr_native_fail_0() {

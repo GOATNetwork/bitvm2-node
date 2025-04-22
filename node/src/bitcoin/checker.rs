@@ -1,12 +1,11 @@
 use anyhow::{Result, bail};
-use bitcoin::blockdata::script::Script;
 use bitcoin::hashes::Hash;
 use bitcoin::{Amount, Block, Network, Transaction, Txid};
-use esplora_client::{AsyncClient, Builder, Tx};
-use futures::{StreamExt, stream};
+use esplora_client::AsyncClient;
+use futures::StreamExt;
 use spv::verify_merkle_proof;
 use spv::{
-    BitcoinMerkleTree, BlockInclusionProof, CircuitBlockHeader, CircuitTransaction, MMRGuest,
+    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, MMRGuest,
     MMRHost, SPV,
 };
 
@@ -70,7 +69,7 @@ pub async fn check_pegin_tx(
         let mut mmr_guest = MMRGuest::new();
         let block_headers = blocks
             .iter()
-            .map(|b| CircuitBlockHeader::from(b.header.clone()))
+            .map(|b| CircuitBlockHeader::from(b.header))
             .collect::<Vec<CircuitBlockHeader>>();
 
         let target_txid: Txid = pegin_txid.parse()?;
@@ -104,7 +103,7 @@ pub async fn check_pegin_tx(
             bail!("Can not verify tx merkle proof");
         }
 
-        let bitcoin_merkle_proofs = vec![bitcoin_merkle_proof];
+        let bitcoin_merkle_proofs = [bitcoin_merkle_proof];
 
         mmr_native.append(target_block_header.compute_block_hash());
         mmr_guest.append(target_block_header.compute_block_hash());
@@ -143,6 +142,7 @@ pub async fn check_pegin_tx(
 mod tests {
     use super::*;
     use futures::{StreamExt, stream};
+    use esplora_client::Builder;
     #[tokio::test]
     async fn test_check_pegin_tx() {
         // tx: https://mempool.space/testnet/tx/e413208c6644d51f4f3adf3a5aad425da817ac825e56352e7164de1e2a4d9394
@@ -153,7 +153,7 @@ mod tests {
         let block_height_start = 4296464;
         let block_height = block_height_start + 1;
 
-        let blocks = stream::iter((block_height_start..block_height).into_iter())
+        let blocks = stream::iter((block_height_start..block_height))
             .then(|x| {
                 let value = client.clone();
                 async move { fetch_block(&value, x).await.unwrap() }

@@ -17,7 +17,7 @@ pub fn extract_proof_sigs_from_assert_commit_txns(
     assert_commit_txns: [Transaction; COMMIT_TX_NUM],
 ) -> Result<Groth16WotsSignatures> {
     let raw_wits: Vec<RawWitness> =
-        assert_commit_txns.iter().flat_map(|tx| get_commit_from_assert_commit_tx(tx)).collect();
+        assert_commit_txns.iter().flat_map(get_commit_from_assert_commit_tx).collect();
     Ok(utils_signatures_from_raw_witnesses(&raw_wits))
 }
 
@@ -28,7 +28,7 @@ pub fn verify_proof(
     disprove_scripts: &[Script; NUM_TAPS],
     wots_pubkeys: &WotsPublicKeys,
 ) -> Option<(usize, Script)> {
-    validate_assertions(&ark_vkey, proof_sigs, *wots_pubkeys.1, disprove_scripts)
+    validate_assertions(ark_vkey, proof_sigs, *wots_pubkeys.1, disprove_scripts)
 }
 
 // challenge has a pre-signed SinglePlusAnyoneCanPay input and output

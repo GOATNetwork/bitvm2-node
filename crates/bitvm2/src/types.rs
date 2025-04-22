@@ -259,7 +259,7 @@ pub mod node_serializer {
                     serde::de::Error::custom(format!("Missing groth16pk.pub.[{}]", i))
                 })?;
 
-                if v.len() != W256_LEN as usize {
+                if v.len() != W256_LEN {
                     return Err(serde::de::Error::custom("Invalid wots public-key length"));
                 };
 
@@ -285,7 +285,7 @@ pub mod node_serializer {
                     serde::de::Error::custom(format!("Missing groth16pk.wot256.[{}]", i))
                 })?;
 
-                if v.len() != W256_LEN as usize {
+                if v.len() != W256_LEN {
                     return Err(serde::de::Error::custom("Invalid wots public-key length"));
                 };
 
@@ -311,7 +311,7 @@ pub mod node_serializer {
                     serde::de::Error::custom(format!("Missing groth16pk.wothash.[{}]", i))
                 })?;
 
-                if v.len() != WHASH_LEN as usize {
+                if v.len() != WHASH_LEN {
                     return Err(serde::de::Error::custom("Invalid wots public-key length"));
                 };
 

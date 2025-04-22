@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::rpc_service::AppState;
-use axum::middleware::{FromFnLayer, Next};
+use axum::middleware::Next;
 use axum::{
-    Router, extract::Request, extract::State, http::StatusCode, middleware, response::IntoResponse,
+    Router, extract::Request, extract::State, http::StatusCode, response::IntoResponse,
     routing::get,
 };
 use http::HeaderMap;

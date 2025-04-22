@@ -59,7 +59,7 @@ async fn collect_files(base_path: &Path) -> Result<Form> {
         let file = File::open(entry.path()).await?;
         let stream = FramedRead::new(file, BytesCodec::new())
             .map_ok(|b| b.freeze())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+            .map_err(std::io::Error::other);
         let body = reqwest::Body::wrap_stream(stream);
         let part = Part::stream(body).file_name(rel_path.clone());
         form = form.part("file", part);
@@ -129,7 +129,7 @@ impl IPFS {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use std::io::Write;
+    
     #[tokio::test]
     async fn test_ipfs_add_and_get() {
         println!("connecting to localhost:5001...");

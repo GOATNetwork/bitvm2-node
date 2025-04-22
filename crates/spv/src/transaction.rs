@@ -121,9 +121,9 @@ impl From<Transaction> for CircuitTransaction {
     }
 }
 
-impl Into<Transaction> for CircuitTransaction {
-    fn into(self) -> Transaction {
-        self.0
+impl From<CircuitTransaction> for Transaction {
+    fn from(val: CircuitTransaction) -> Self {
+        val.0
     }
 }
 

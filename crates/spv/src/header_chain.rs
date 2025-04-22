@@ -20,17 +20,17 @@ pub struct CircuitBlockHeader {
 impl CircuitBlockHeader {
     pub fn compute_block_hash(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        hasher.update(&self.version.to_le_bytes());
-        hasher.update(&self.prev_block_hash);
-        hasher.update(&self.merkle_root);
-        hasher.update(&self.time.to_le_bytes());
-        hasher.update(&self.bits.to_le_bytes());
-        hasher.update(&self.nonce.to_le_bytes());
+        hasher.update(self.version.to_le_bytes());
+        hasher.update(self.prev_block_hash);
+        hasher.update(self.merkle_root);
+        hasher.update(self.time.to_le_bytes());
+        hasher.update(self.bits.to_le_bytes());
+        hasher.update(self.nonce.to_le_bytes());
         let first_hash_result = hasher.finalize_reset();
 
         hasher.update(first_hash_result);
         let result: [u8; 32] =
-            hasher.finalize().try_into().expect("SHA256 should produce a 32-byte output");
+            hasher.finalize().into();
         result
     }
 }
@@ -48,17 +48,17 @@ impl From<Header> for CircuitBlockHeader {
     }
 }
 
-impl Into<Header> for CircuitBlockHeader {
-    fn into(self) -> Header {
+impl From<CircuitBlockHeader> for Header {
+    fn from(val: CircuitBlockHeader) -> Self {
         Header {
-            version: Version::from_consensus(self.version),
-            prev_blockhash: BlockHash::from_slice(&self.prev_block_hash)
+            version: Version::from_consensus(val.version),
+            prev_blockhash: BlockHash::from_slice(&val.prev_block_hash)
                 .expect("Previous block hash is 32 bytes"),
-            merkle_root: TxMerkleNode::from_slice(&self.merkle_root)
+            merkle_root: TxMerkleNode::from_slice(&val.merkle_root)
                 .expect("Merkle root is 32 bytes"),
-            time: self.time,
-            bits: CompactTarget::from_consensus(self.bits),
-            nonce: self.nonce,
+            time: val.time,
+            bits: CompactTarget::from_consensus(val.bits),
+            nonce: val.nonce,
         }
     }
 }

@@ -309,7 +309,7 @@ pub fn push_committee_pre_signatures(
     graph: &mut Bitvm2Graph,
     signed_witness: &[Witness; COMMITTEE_PRE_SIGN_NUM],
 ) -> Result<()> {
-    if graph.committee_pre_signed == true {
+    if graph.committee_pre_signed {
         bail!("already pre-signed by committee".to_string())
     };
     graph.take1.tx_mut().input[0].witness = signed_witness[0].clone();

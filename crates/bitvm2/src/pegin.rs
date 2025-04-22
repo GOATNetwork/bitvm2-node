@@ -9,8 +9,8 @@ pub fn check_pegin_opreturn(network: &Network, script: &Script) -> bool {
         return false;
     }
     // Display decoded pushes
-    let mut instructions = script.instructions();
-    while let Some(instr) = instructions.next() {
+    let instructions = script.instructions();
+    for instr in instructions {
         match instr {
             Ok(script::Instruction::PushBytes(bytes)) => {
                 println!("Data pushed: {}", hex::encode(bytes));

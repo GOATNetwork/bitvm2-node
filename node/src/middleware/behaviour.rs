@@ -2,19 +2,13 @@
 use libp2p::identity::Keypair;
 use libp2p::{
     gossipsub, kad,
-    kad::{Mode, store::MemoryStore},
-    mdns, noise,
-    swarm::{StreamProtocol, SwarmEvent},
-    tcp, yamux,
+    kad::store::MemoryStore,
+    mdns,
+    swarm::StreamProtocol,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-use std::error::Error;
 use std::time::Duration;
-use tokio::{
-    io::{self, AsyncBufReadExt},
-    select,
-};
-use tracing_subscriber::EnvFilter;
+use tokio::io::{self};
 
 // We create a custom network behaviour that combines Kademlia and mDNS.
 #[derive(NetworkBehaviour)]
@@ -36,7 +30,7 @@ impl AllBehaviours {
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .max_transmit_size(262144)
             .build()
-            .map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))
+            .map_err(io::Error::other)
             .unwrap();
         let gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Signed(key.clone()),

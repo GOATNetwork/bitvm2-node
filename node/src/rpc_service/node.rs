@@ -1,7 +1,6 @@
-use crate::rpc_service::current_time_secs;
 use bitvm2_lib::actors::Actor;
 use serde::{Deserialize, Serialize};
-use store::{Node, NodesOverview};
+use store::NodesOverview;
 
 pub const ALIVE_TIME_JUDGE_THRESHOLD: i64 = 4 * 3600;
 // the input to our `create_user` handler

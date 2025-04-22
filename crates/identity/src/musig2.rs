@@ -1,31 +1,17 @@
-use futures::SinkExt;
 use rand::RngCore;
-use secp256k1::{Message, Secp256k1, SecretKey};
+use secp256k1::{Secp256k1, SecretKey};
 use std::string::String;
-use std::{
-    error::Error,
-    net::{Ipv4Addr, Ipv6Addr},
-};
-use tokio::sync::mpsc::{self, Receiver, Sender};
 
-use libp2p::{
-    core::{Multiaddr, multiaddr::Protocol},
-    identify, identity, noise,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux,
-};
 use musig2::KeyAggContext;
 use musig2::k256::PublicKey;
-use musig2::secp::Scalar;
 use musig2::{
-    AggNonce, CompactSignature, FirstRound, PartialSignature, PubNonce, SecNonce, SecNonceSpices,
+    CompactSignature, FirstRound, PartialSignature, PubNonce, SecNonceSpices,
     SecondRound,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
-use tracing_subscriber::EnvFilter;
 pub static MSG_QUEUE: LazyLock<Arc<Mutex<HashMap<String, MuSig2StateMachine>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
@@ -55,7 +41,7 @@ impl MuSig2StateMachine {
         let mut nonce_seed = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut nonce_seed);
 
-        let mut first_round = FirstRound::new(
+        let first_round = FirstRound::new(
             ctx.clone(),
             nonce_seed,
             signer_index,
@@ -85,7 +71,7 @@ impl MuSig2StateMachine {
 
     pub fn second_round_send(&mut self) -> PartialSignature {
         let first_round = self.first_round.take().unwrap();
-        let mut second_round: SecondRound<String> =
+        let second_round: SecondRound<String> =
             first_round.finalize(self.secret_key.take().unwrap(), self.message.clone()).unwrap();
 
         self.second_round = Some(second_round);
@@ -134,7 +120,7 @@ pub mod tests {
             .enumerate()
             .map(|(idx, s)| {
                 MuSig2StateMachine::new(
-                    s.secret_key().clone(),
+                    s.secret_key(),
                     topic.clone(),
                     message.clone(),
                     idx,
@@ -178,7 +164,7 @@ pub mod tests {
                 let mut is_complete = false;
                 for (i, v) in second_round.iter().enumerate() {
                     if i != idx {
-                        is_complete = s.second_round_receive(i, v.clone());
+                        is_complete = s.second_round_receive(i, *v);
                     }
                 }
                 is_complete

@@ -19,7 +19,6 @@ use alloy::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use dotenv;
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -153,7 +152,7 @@ impl GoatAdaptor {
         // send tx
         let pending_tx =
             self.provider.send_raw_transaction(signed_tx.encoded_2718().as_slice()).await?;
-        Ok(pending_tx.tx_hash().clone())
+        Ok(*pending_tx.tx_hash())
     }
 }
 
@@ -325,7 +324,7 @@ impl ChainAdaptor for GoatAdaptor {
         index: u64,
     ) -> anyhow::Result<()> {
         let proof: Vec<FixedBytes<32>> =
-            proof.into_iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
+            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request: TransactionRequest = self
             .gate_way
             .postPeginData(
@@ -370,9 +369,9 @@ impl ChainAdaptor for GoatAdaptor {
         operator_datas: &[OperatorData],
     ) -> anyhow::Result<()> {
         let graph_ids =
-            graph_ids.into_iter().map(|v| FixedBytes::<16>::from_slice(&v.into_bytes())).collect();
+            graph_ids.iter().map(|v| FixedBytes::<16>::from_slice(&v.into_bytes())).collect();
         let operator_datas: Vec<IGateway::OperatorData> =
-            operator_datas.into_iter().map(|v| (*v).clone().into()).collect();
+            operator_datas.iter().map(|v| (*v).clone().into()).collect();
         let tx_request = self
             .gate_way
             .postOperatorDataBatch(
@@ -422,7 +421,7 @@ impl ChainAdaptor for GoatAdaptor {
         index: u64,
     ) -> anyhow::Result<()> {
         let proof: Vec<FixedBytes<32>> =
-            proof.into_iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
+            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .proceedWithdraw(
@@ -448,7 +447,7 @@ impl ChainAdaptor for GoatAdaptor {
         index: u64,
     ) -> anyhow::Result<()> {
         let proof: Vec<FixedBytes<32>> =
-            proof.into_iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
+            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .finishWithdrawHappyPath(
@@ -474,7 +473,7 @@ impl ChainAdaptor for GoatAdaptor {
         index: u64,
     ) -> anyhow::Result<()> {
         let proof: Vec<FixedBytes<32>> =
-            proof.into_iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
+            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .finishWithdrawUnhappyPath(
@@ -500,7 +499,7 @@ impl ChainAdaptor for GoatAdaptor {
         index: u64,
     ) -> anyhow::Result<()> {
         let proof: Vec<FixedBytes<32>> =
-            proof.into_iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
+            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .finishWithdrawDisproved(
@@ -525,7 +524,7 @@ impl ChainAdaptor for GoatAdaptor {
         index: u64,
     ) -> anyhow::Result<bool> {
         let proof: Vec<FixedBytes<32>> =
-            proof.into_iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
+            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         Ok(self
             .gate_way
             .verifyMerkleProof(
@@ -556,7 +555,7 @@ impl GoatAdaptor {
         };
         let provider = ProviderBuilder::new().on_http(config.rpc_url);
         Self {
-            gateway_address: config.gateway_address.clone(),
+            gateway_address: config.gateway_address,
             gateway_creation_block: config.gateway_creation_block,
             provider: provider.clone(),
             to_block: config.to_block,

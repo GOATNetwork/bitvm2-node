@@ -137,7 +137,7 @@ pub fn sign_proof(
     ark_pubin: PublicInputs,
     wots_sec: &WotsSecretKeys,
 ) -> Groth16WotsSignatures {
-    generate_signatures_lit(ark_proof, ark_pubin, &ark_vkey, wots_sec.1.to_vec()).unwrap()
+    generate_signatures_lit(ark_proof, ark_pubin, ark_vkey, wots_sec.1.to_vec()).unwrap()
 }
 
 pub fn generate_bitvm_graph(
@@ -264,7 +264,7 @@ pub fn generate_bitvm_graph(
     let assert_wots_pubkeys = &params.operator_wots_pubkeys.1;
     let connector_d = ConnectorD::new(network, &committee_taproot_pubkey);
     let all_assert_commit_connectors_e =
-        AllCommitConnectorsE::new(network, &operator_pubkey, &assert_wots_pubkeys);
+        AllCommitConnectorsE::new(network, &operator_pubkey, assert_wots_pubkeys);
     let assert_init_input_0_vout: usize = 2;
     let assert_init_input_0 = Input {
         outpoint: OutPoint { txid: kickoff_txid, vout: assert_init_input_0_vout as u32 },
@@ -424,7 +424,7 @@ pub fn push_operator_pre_signature(
     graph: &mut Bitvm2Graph,
     signed_witness: &Witness,
 ) -> Result<()> {
-    if graph.operator_pre_signed == true {
+    if graph.operator_pre_signed {
         bail!("already pre-signed by operator".to_string())
     };
     graph.challenge.tx_mut().input[0].witness = signed_witness.clone();
@@ -442,7 +442,7 @@ pub fn operator_sign_kickoff(
     let kickoff_wots_commitment_keys =
         CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
     let evm_txid_inputs = WinternitzSigningInputs {
-        message: &withdraw_evm_txid.to_vec(),
+        message: withdraw_evm_txid.as_ref(),
         signing_key: &operator_wots_seckeys.0[0],
     };
     let connector_6 = Connector6::new(
@@ -508,7 +508,7 @@ pub fn operator_sign_assert(
     let all_assert_commit_connectors_e = AllCommitConnectorsE::new(
         operator_context.network,
         &operator_context.operator_public_key,
-        &assert_wots_pubkeys,
+        assert_wots_pubkeys,
     );
     graph.assert_commit.sign(&all_assert_commit_connectors_e, assert_commit_witness);
 
