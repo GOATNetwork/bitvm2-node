@@ -170,7 +170,7 @@ async fn print_req_and_resp_detail(
     let req = Request::from_parts(parts, axum::body::Body::from(bytes));
     let resp = next.run(req).await;
 
-    let mut print_str = format!("API Response: status:{}, body:", resp.status(),);
+    let mut print_str = format!("API Response: status:{}, body:", resp.status(), );
     let (parts, body) = resp.into_parts();
     let bytes = body.collect().await.unwrap().to_bytes();
     if !bytes.is_empty() {
@@ -331,7 +331,7 @@ mod tests {
 
         info!("=====>test api: instance overview");
         let resp =
-            client.get(format!("http://{}/v1/instances/overview", LISTEN_ADDRESS,)).send().await?;
+            client.get(format!("http://{}/v1/instances/overview", LISTEN_ADDRESS, )).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);

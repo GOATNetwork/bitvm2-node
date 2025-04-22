@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 pub const NODE_STATUS_ONLINE: &str = "Online";
 pub const NODE_STATUS_OFFLINE: &str = "Offline";
+pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Node {
@@ -260,4 +261,39 @@ pub struct Message {
     pub msg_type: String,
     pub content: Vec<u8>,
     pub state: String,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct PubKeyCollect {
+    pub instance_id: Uuid,
+    pub pubkeys: String,
+    pub updated_at: i64,
+    pub created_at: i64,
+}
+
+pub struct PubKeyCollectMetaData {
+    pub instance_id: Uuid,
+    pub pubkeys: Vec<String>,
+    pub updated_at: i64,
+    pub created_at: i64,
+}
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct NonceCollect {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub nonces: String,
+    pub committee_pubkey: String,
+    pub partial_sigs: String,
+    pub updated_at: i64,
+    pub created_at: i64,
+}
+
+pub struct NonceCollectMetaData {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
+    pub committee_pubkey: String,
+    pub partial_sigs: Vec<String>,
+    pub updated_at: i64,
+    pub created_at: i64,
 }

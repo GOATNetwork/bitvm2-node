@@ -1,6 +1,10 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
-use crate::{GrapRpcQueryData, Graph, Instance, Message, Node, NodesOverview};
+use crate::{
+    COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, Instance, Message, Node, NodesOverview,
+    NonceCollect, NonceCollectMetaData, PubKeyCollect, PubKeyCollectMetaData,
+};
+use futures::future::ok;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -245,7 +249,8 @@ impl<'a> StorageProcessor<'a> {
             graph.take2_txid_txid, graph.disprove_txid, graph.operator,  graph.updated_at, graph.created_at FROM graph  \
             INNER JOIN  instance ON  graph.instance_id = instance.instance_id".to_string();
         let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs FROM graph \
-         INNER JOIN  instance ON  graph.instance_id = instance.instance_id".to_string();
+         INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
+            .to_string();
 
         let mut conditions: Vec<String> = vec![];
 
@@ -495,6 +500,130 @@ impl<'a> StorageProcessor<'a> {
             .execute(self.conn())
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn store_pubkeys(
+        &mut self,
+        instance_id: Uuid,
+        pubkeys: &Vec<String>,
+    ) -> anyhow::Result<()> {
+        let pubkey_collect = sqlx::query_as!(
+            PubKeyCollect ,
+            "SELECT instance_id as \"instance_id:Uuid\", pubkeys, created_at, updated_at  FROM pubkey_collect WHERE instance_id = ?",
+            instance_id).fetch_optional(self.conn()).await?;
+
+        let mut pubkeys = pubkeys.clone();
+        let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        if let Some(pubkey_collect) = pubkey_collect {
+            let mut stored_pubkeys: Vec<String> = serde_json::from_str(&pubkey_collect.pubkeys)?;
+            pubkeys.append(&mut stored_pubkeys);
+            created_at = pubkey_collect.created_at;
+        }
+
+        let pubkeys_str = serde_json::to_string(&pubkeys)?;
+        let _ = sqlx::query!(
+            "INSERT OR REPLACE INTO  pubkey_collect (instance_id, pubkeys, created_at, updated_at) VALUES ( ?,?, ?,?)",
+            instance_id,
+            pubkeys_str,
+            created_at,
+            updated_at,
+        ).execute(self.conn()).await;
+        Ok(())
+    }
+
+    pub async fn get_pubkeys(
+        &mut self,
+        instance_id: Uuid,
+    ) -> anyhow::Result<Option<PubKeyCollectMetaData>> {
+        let pubkey_collect = sqlx::query_as!(
+            PubKeyCollect ,
+            "SELECT instance_id as \"instance_id:Uuid\", pubkeys, created_at, updated_at  FROM pubkey_collect WHERE instance_id = ?",
+            instance_id).fetch_optional(self.conn()).await?;
+        match pubkey_collect {
+            Some(pubkey_collect) => {
+                let pubkeys: Vec<String> = serde_json::from_str(&pubkey_collect.pubkeys)?;
+                Ok(Some(PubKeyCollectMetaData {
+                    instance_id,
+                    pubkeys,
+                    updated_at: pubkey_collect.updated_at,
+                    created_at: pubkey_collect.created_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn store_nonces(
+        &mut self,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        nonces: &Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
+        committee_pubkey: String,
+        partial_sigs: &Vec<String>,
+    ) -> anyhow::Result<()> {
+        let nonce_collect = sqlx::query_as!(
+            NonceCollect ,
+            "SELECT instance_id as \"instance_id:Uuid\", graph_id as \"graph_id:Uuid\",nonces, committee_pubkey, \
+            partial_sigs, created_at, updated_at  FROM nonce_collect WHERE instance_id = ? AND graph_id = ?",
+            instance_id, graph_id).fetch_optional(self.conn()).await?;
+
+        let mut nonces = nonces.clone();
+        let mut partial_sigs = partial_sigs.clone();
+        let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        if let Some(nonce_collect) = nonce_collect {
+            let mut stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
+                serde_json::from_str(&nonce_collect.nonces)?;
+            let mut stored_sigs: Vec<String> = serde_json::from_str(&nonce_collect.partial_sigs)?;
+            nonces.append(&mut stored_nonces);
+            partial_sigs.append(&mut stored_sigs);
+            created_at = nonce_collect.created_at;
+        }
+
+        let nonce_str = serde_json::to_string(&nonces)?;
+        let signs_str = serde_json::to_string(&partial_sigs)?;
+        let _ = sqlx::query!(
+            "INSERT OR REPLACE INTO  nonce_collect (instance_id, graph_id, nonces, committee_pubkey,\
+             partial_sigs, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?, ?)",
+            instance_id,
+            graph_id,
+            nonce_str,
+            committee_pubkey,
+            signs_str,
+            created_at,
+            updated_at,
+        ).execute(self.conn()).await;
+        Ok(())
+    }
+
+    pub async fn get_nonces(
+        &mut self,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> anyhow::Result<Option<NonceCollectMetaData>> {
+        let nonce_collect = sqlx::query_as!(
+            NonceCollect ,
+            "SELECT instance_id as \"instance_id:Uuid\", graph_id as \"graph_id:Uuid\",nonces, committee_pubkey, \
+            partial_sigs, created_at, updated_at  FROM nonce_collect WHERE instance_id = ? AND graph_id = ?",
+            instance_id, graph_id).fetch_optional(self.conn()).await?;
+        match nonce_collect {
+            Some(nonce_collect) => {
+                let stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
+                    serde_json::from_str(&nonce_collect.nonces)?;
+                let stored_sigs: Vec<String> = serde_json::from_str(&nonce_collect.partial_sigs)?;
+                Ok(Some(NonceCollectMetaData {
+                    instance_id,
+                    graph_id,
+                    nonces: stored_nonces,
+                    committee_pubkey: nonce_collect.committee_pubkey,
+                    updated_at: nonce_collect.updated_at,
+                    created_at: nonce_collect.created_at,
+                    partial_sigs: stored_sigs,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 }
 
