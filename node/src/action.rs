@@ -1521,7 +1521,7 @@ pub async fn store_graph(
             graph_ipfs_base_url: "".to_string(), //TODO
             pegin_txid: graph.pegin.tx().compute_txid().to_string(),
             amount: graph.parameters.pegin_amount.to_sat() as i64,
-            status: status.unwrap_or_else(|_| GraphStatus::OperatorPresigned.to_string()),
+            status: status.unwrap_or_else(|| GraphStatus::OperatorPresigned.to_string()),
             kickoff_txid: Some(graph.kickoff.tx().compute_txid().to_string()),
             challenge_txid: Some(graph.challenge.tx().compute_txid().to_string()),
             take1_txid: Some(graph.take1.tx().compute_txid().to_string()),
