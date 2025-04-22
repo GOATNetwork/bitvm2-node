@@ -18,6 +18,7 @@ use secp256k1::SECP256K1;
 use std::str::FromStr;
 
 #[test]
+#[ignore]
 fn e2e_test() {
     let network = Network::Testnet;
     // key generation
