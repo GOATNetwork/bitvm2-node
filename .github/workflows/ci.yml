@@ -43,10 +43,11 @@ jobs:
     name: Cargo Test
     runs-on: ubuntu-latest
     environment:
-      GATE_CHAIN_ADAPTOR_GOAT_RPC_URL=https://rpc.testnet3.goat.network
-      GATEWAY_CHAIN_ADAPTOR_GOAT_GATE_ADDRESS=0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df
-      GATE_CHAIN_ADAPTOR_GOAT_GATE_CREATION=0
-      GATE_CHAIN_ADAPTOR_GOAT_CHAIN_ID=48816
+      GOAT_CHAIN_URL: https://rpc.testnet3.goat.network
+      GOAT_GATEWAY_CONTRACT_ADDRESS: 0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df
+      GOAT_GATEWAY_CONTRACT_CREATION: 0
+      GOAT_CHAIN_ID: 48816
+      RUST_LOG: info"
     strategy:
       matrix:
         toolchain:

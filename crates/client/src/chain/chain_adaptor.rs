@@ -172,7 +172,7 @@ pub struct BitcoinTx {
 
 pub fn get_chain_adaptor(
     network: GoatNetwork,
-    goat_config: Option<GoatInitConfig>,
+    goat_config: GoatInitConfig,
     mock_adaptor_config: Option<MockAdaptorConfig>,
 ) -> Box<dyn ChainAdaptor> {
     match network {

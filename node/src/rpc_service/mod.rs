@@ -30,6 +30,7 @@ use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
+use crate::env::get_bitvm2_client_config;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -50,7 +51,7 @@ impl AppState {
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
         let bitvm2_client =
-            BitVM2Client::new(db_path, None, Network::Testnet, GoatNetwork::Test, None).await;
+            BitVM2Client::new(db_path, None, Network::Testnet, GoatNetwork::Test, get_bitvm2_client_config()).await;
         let metrics_state = MetricsState::new(registry);
         let actor =
             Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
