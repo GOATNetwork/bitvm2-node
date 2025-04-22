@@ -16,20 +16,20 @@ use axum::{
     Router, middleware,
     routing::{get, post},
 };
+use bitcoin::Network;
 use bitvm2_lib::actors::Actor;
+use client::chain::chain_adaptor::GoatNetwork;
 use client::client::BitVM2Client;
 use http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
-use bitcoin::Network;
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
-use client::chain::chain_adaptor::GoatNetwork;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -37,6 +37,7 @@ pub fn current_time_secs() -> i64 {
 }
 
 pub struct AppState {
+    // TODO unsafe rpc api use bitvm2_client
     pub bitvm2_client: BitVM2Client,
     pub metrics_state: MetricsState,
     pub actor: Actor,
@@ -48,7 +49,8 @@ impl AppState {
         db_path: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let bitvm2_client = BitVM2Client::new(db_path, None, Network::Testnet, GoatNetwork::Test, None).await;
+        let bitvm2_client =
+            BitVM2Client::new(db_path, None, Network::Testnet, GoatNetwork::Test, None).await;
         let metrics_state = MetricsState::new(registry);
         let actor =
             Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
@@ -170,7 +172,7 @@ async fn print_req_and_resp_detail(
     let req = Request::from_parts(parts, axum::body::Body::from(bytes));
     let resp = next.run(req).await;
 
-    let mut print_str = format!("API Response: status:{}, body:", resp.status(), );
+    let mut print_str = format!("API Response: status:{}, body:", resp.status(),);
     let (parts, body) = resp.into_parts();
     let bytes = body.collect().await.unwrap().to_bytes();
     if !bytes.is_empty() {
@@ -268,10 +270,8 @@ mod tests {
         let client = reqwest::Client::new();
 
         info!("=====>test api:/v1/instances/settings");
-        let resp = client
-            .get(format!("http://{}/v1/instances/settings", LISTEN_ADDRESS))
-            .send()
-            .await?;
+        let resp =
+            client.get(format!("http://{}/v1/instances/settings", LISTEN_ADDRESS)).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
@@ -331,7 +331,7 @@ mod tests {
 
         info!("=====>test api: instance overview");
         let resp =
-            client.get(format!("http://{}/v1/instances/overview", LISTEN_ADDRESS, )).send().await?;
+            client.get(format!("http://{}/v1/instances/overview", LISTEN_ADDRESS,)).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);

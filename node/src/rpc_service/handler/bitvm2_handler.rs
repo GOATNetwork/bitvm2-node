@@ -78,6 +78,7 @@ pub async fn create_graph(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphGenerateRequest>,
 ) -> (StatusCode, Json<GraphGenerateResponse>) {
+    // TODO remove
     let resp = GraphGenerateResponse {
         instance_id: payload.instance_id.clone(),
         graph_id: payload.graph_id.clone(),
@@ -116,6 +117,7 @@ pub async fn graph_presign(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphPresignRequest>,
 ) -> (StatusCode, Json<GraphPresignResponse>) {
+    // TODO
     let resp = GraphPresignResponse {
         instance_id: payload.instance_id.clone(),
         graph_id: graph_id.clone(),
@@ -187,6 +189,7 @@ pub async fn peg_btc_mint(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<PegBTCMintRequest>,
 ) -> (StatusCode, Json<PegBTCMintResponse>) {
+    // TODO remove
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let _graphs: Vec<Graph> = storage_process.get_graphs(&payload.graph_ids).await?;

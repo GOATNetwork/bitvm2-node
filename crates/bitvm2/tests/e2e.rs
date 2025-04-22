@@ -247,7 +247,7 @@ fn e2e_test() {
     broadcast_tx(take_1_tx);
 
     // unhappy_path take
-    let (mut challenge_tx,_) = verifier::export_challenge_tx(&mut graph).unwrap();
+    let (mut challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
     let mock_crowdfund_txin = TxIn {
         previous_output: mock_input.outpoint,
         script_sig: ScriptBuf::new(),

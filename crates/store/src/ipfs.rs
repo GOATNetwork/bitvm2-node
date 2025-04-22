@@ -1,9 +1,9 @@
-use std::path::Path;
 use anyhow::{Result, bail};
 use futures::TryStreamExt;
 use reqwest::Client;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
+use std::path::Path;
 use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
 use walkdir::WalkDir;

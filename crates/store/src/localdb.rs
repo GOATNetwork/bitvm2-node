@@ -222,6 +222,29 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    pub async fn update_graph_status_or_ipfs_base(
+        &mut self,
+        graph_id: Uuid,
+        status: Option<String>,
+        ipfs_base_url: Option<String>,
+    ) -> anyhow::Result<()> {
+        let mut update_fields = vec![];
+        if let Some(status) = status {
+            update_fields.push(format!("status = {}", status));
+        }
+        if let Some(ipfs_base_url) = ipfs_base_url {
+            update_fields.push(format!("graph_ipfs_base_url = {}", ipfs_base_url));
+        }
+        if update_fields.is_empty() {
+            return Ok(());
+        }
+        let update_str =
+            format!("UPDATE graph SET {} WHERE graph_id = {}", update_fields.join(" , "), graph_id);
+        let _ = sqlx::query(update_str.as_str()).execute(self.conn()).await?;
+
+        Ok(())
+    }
+
     pub async fn get_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Graph> {
         let res = sqlx::query_as!(
             Graph,

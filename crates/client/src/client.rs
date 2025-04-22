@@ -12,7 +12,6 @@ use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 use store::localdb::LocalDB;
 use uuid::Uuid;
 
-
 pub struct BitVM2Client {
     pub local_db: LocalDB,
     pub esplora: AsyncClient,
