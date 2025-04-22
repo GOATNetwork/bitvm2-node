@@ -4,7 +4,6 @@ use crate::{
     COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, Instance, Message, Node, NodesOverview,
     NonceCollect, NonceCollectMetaData, PubKeyCollect, PubKeyCollectMetaData,
 };
-use futures::future::ok;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -487,7 +486,7 @@ impl<'a> StorageProcessor<'a> {
         let query_str = format!(
             "Update  message Set state = {} WHERE id IN ({})",
             state,
-            create_place_holders(&ids)
+            create_place_holders(ids)
         );
         let mut query = sqlx::query(&query_str);
         for id in ids {
