@@ -37,7 +37,7 @@ pub struct Instance {
     pub from_addr: String,
     pub to_addr: String,
     pub amount: i64,    // in sat
-    pub status: String, // BridgeInStatus | BridgeOutStutus
+    pub status: String, // BridgeInStatus | BridgeOutStatus
     pub goat_txid: String,
     pub btc_txid: String,
     pub pegin_txid: Option<String>,
@@ -120,14 +120,14 @@ impl std::fmt::Display for GraphStatus {
 }
 
 pub enum BridgePath {
-    BtcToPGBtc = 0,
-    PGBtcToBtc = 1,
+    BTCToPgBTC = 0,
+    PgBTCToBTC = 1,
 }
 impl BridgePath {
     pub fn from_u8(n: u8) -> Option<Self> {
         match n {
-            0 => Some(BridgePath::BtcToPGBtc),
-            1 => Some(BridgePath::PGBtcToBtc),
+            0 => Some(BridgePath::BTCToPgBTC),
+            1 => Some(BridgePath::PgBTCToBTC),
             _ => None,
         }
     }

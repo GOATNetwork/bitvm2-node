@@ -17,6 +17,24 @@ http://127.0.0.1:8080
 
 #### Create Node
 
+relate struct 
+```rust
+pub enum NodeActor {
+    Committee,
+    Operator,
+    Challenger,
+    Relayer,
+    All,
+}
+
+pub enum NodeStatus  { 
+  Online,
+  Offline,
+}
+
+```
+
+
 - **Endpoint**: `POST /v1/nodes`
 - **Description**: Create a new node in the network
 - **Request Body**:
@@ -40,14 +58,13 @@ http://127.0.0.1:8080
   "created_at": "number"
 }
 ```
-
 #### Get Nodes
 
 - **Endpoint**: `GET /v1/nodes`
 - **Description**: Retrieve a list of nodes with optional filtering
 - **Query Parameters**:
-    - `actor`: Filter nodes by acotr (e.g., "OPERATOR")
-    - `goat_addr`: Filter nodes by goat address (e.g., "OPERATOR")
+    - `actor`: Filter nodes by acotr (e.g., "Committee")
+    - `goat_addr`: Filter nodes by goat address
     - `status`: Filter nodes by status (e.g., "Online", "Offline")
     - `offset`: Pagination offset
     - `limit`: Number of nodes to return
@@ -90,6 +107,56 @@ http://127.0.0.1:8080
 ```
 
 ### 2. Instance Management
+
+relate struct 
+```rust
+/// 1.instance.network:
+pub enum InstanceNetwork {
+    /// Mainnet Bitcoin.
+    Bitcoin,
+    /// Bitcoin's testnet network. (In future versions this will be combined
+    /// into a single variant containing the version)
+    Testnet,
+    /// Bitcoin's testnet4 network. (In future versions this will be combined
+    /// into a single variant containing the version)
+    Testnet4,
+    /// Bitcoin's signet network.
+    Signet,
+    /// Bitcoin's regtest network.
+    Regtest,
+}
+
+/// 2. instance.bridge_path
+pub enum InstanceBridgePath {
+  BTCToPegBTC = 0,
+  PegBTCToBTC = 1,
+}
+
+///3. instance status: contain two values: InstanceStatusBridgeInStatus or InstanceStatusBridgeOutStatus 
+pub enum InstanceStatusBridgeInStatus {
+  #[default]
+  Submitted,
+  Presigned, // includes operator and Committee presigns
+  L1Broadcasted,
+  L2Minted, // success
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub enum InstanceStatusBridgeOutStatus {
+  #[default]
+  L2Locked,
+  L1Locked,
+  L1Unlocked,
+  L2Unlocked,    // success
+  L2LockTimeout, // L2Locked -> L2 timeout (operator is offline)
+  L1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
+  L1Refunded,
+  L2Refunded,
+}
+
+/// 4.instanct.amount in bitcoin sat
+```
+
 
 #### Get Instance
 
@@ -226,6 +293,32 @@ http://127.0.0.1:8080
   ```
 
 ### 4. Graph Management
+
+relate struct
+```rust
+
+///1.graph.status
+pub enum GraphStatus {
+  #[default]
+  OperatorPresigned,
+  CommitteePresigned,
+  KickOff,
+  Challenge,
+  Assert,
+  Take1,
+  Take2,
+  Disprove,   // fail to reimbursement
+  Deprecated, // reimbursement by other operators
+}
+
+/// graph.bridge_path 
+
+pub enum GraphBridgePath {
+  BTCToPegBTC = 0,
+  PegBTCToBTC = 1,
+}
+
+```
 
 #### Create Graph
 
@@ -381,7 +474,8 @@ http://127.0.0.1:8080
     }
   } 
 ```
-ps:graph_status is map<graph_id>graph_status
+`ps:graph_status is map<graph_id>graph_status` ,The number of `graph_status` should correspond to the number of graphs for the given instance.
+If a graph for the instancce is created, the count must be greater than or equal to 1. 
 
   ## Error Handling
 

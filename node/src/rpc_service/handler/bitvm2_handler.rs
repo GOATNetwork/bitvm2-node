@@ -35,7 +35,7 @@ pub async fn bridge_in_tx_prepare(
         let instance = Instance {
             instance_id,
             network: payload.network.clone(),
-            bridge_path: BridgePath::BtcToPGBtc.to_u8(),
+            bridge_path: BridgePath::BTCToPgBTC.to_u8(),
             from_addr: payload.from.clone(),
             to_addr: payload.to.clone(),
             amount: payload.amount,
@@ -384,9 +384,9 @@ pub async fn get_instances_overview(
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let (pegin_sum, pegin_count) =
-            storage_process.get_sum_bridge_in_or_out(BridgePath::BtcToPGBtc.to_u8()).await?;
+            storage_process.get_sum_bridge_in_or_out(BridgePath::BTCToPgBTC.to_u8()).await?;
         let (pegout_sum, pegout_count) =
-            storage_process.get_sum_bridge_in_or_out(BridgePath::PGBtcToBtc.to_u8()).await?;
+            storage_process.get_sum_bridge_in_or_out(BridgePath::PgBTCToBTC.to_u8()).await?;
         let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
         Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
             instances_overview: InstanceOverview {
