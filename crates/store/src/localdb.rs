@@ -528,14 +528,14 @@ impl<'a> StorageProcessor<'a> {
     pub async fn store_pubkeys(
         &mut self,
         instance_id: Uuid,
-        pubkeys: &Vec<String>,
+        pubkeys: &[String],
     ) -> anyhow::Result<()> {
         let pubkey_collect = sqlx::query_as!(
             PubKeyCollect ,
             "SELECT instance_id as \"instance_id:Uuid\", pubkeys, created_at, updated_at  FROM pubkey_collect WHERE instance_id = ?",
             instance_id).fetch_optional(self.conn()).await?;
 
-        let mut pubkeys = pubkeys.clone();
+        let mut pubkeys = pubkeys.to_owned();
         let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         if let Some(pubkey_collect) = pubkey_collect {
@@ -581,9 +581,9 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         instance_id: Uuid,
         graph_id: Uuid,
-        nonces: &Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
+        nonces: &[[String; COMMITTEE_PRE_SIGN_NUM]],
         committee_pubkey: String,
-        partial_sigs: &Vec<String>,
+        partial_sigs: &[String],
     ) -> anyhow::Result<()> {
         let nonce_collect = sqlx::query_as!(
             NonceCollect ,
@@ -591,8 +591,8 @@ impl<'a> StorageProcessor<'a> {
             partial_sigs, created_at, updated_at  FROM nonce_collect WHERE instance_id = ? AND graph_id = ?",
             instance_id, graph_id).fetch_optional(self.conn()).await?;
 
-        let mut nonces = nonces.clone();
-        let mut partial_sigs = partial_sigs.clone();
+        let mut nonces = nonces.to_owned();
+        let mut partial_sigs = partial_sigs.to_owned();
         let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         if let Some(nonce_collect) = nonce_collect {
