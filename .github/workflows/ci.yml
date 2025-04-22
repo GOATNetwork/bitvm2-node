@@ -1,0 +1,56 @@
+name: Cargo Build & Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - run: rustup component add rustfmt
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - run: rustup component add clippy
+      - run: cargo clippy --all-targets -- -D warnings
+  test:
+    name: Cargo Test
+    runs-on: ubuntu-latest
+    environment:
+      GATE_CHAIN_ADAPTOR_GOAT_RPC_URL=https://rpc.testnet3.goat.network
+      GATEWAY_CHAIN_ADAPTOR_GOAT_GATE_ADDRESS=0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df
+      GATE_CHAIN_ADAPTOR_GOAT_GATE_CREATION=0
+      GATE_CHAIN_ADAPTOR_GOAT_CHAIN_ID=48816
+    strategy:
+      matrix:
+        toolchain:
+          - nightly
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo test -r

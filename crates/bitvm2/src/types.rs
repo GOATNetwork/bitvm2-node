@@ -1,7 +1,7 @@
 use bitcoin::TapNodeHash;
-use bitcoin::{key::Keypair, Address, Amount, Network, PrivateKey, PublicKey, XOnlyPublicKey};
+use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, XOnlyPublicKey, key::Keypair};
 use bitvm::chunk::api::{
-    PublicKeys as ApiWotsPublicKeys, Signatures as ApiWotsSignatures, NUM_HASH, NUM_PUBS, NUM_U256,
+    NUM_HASH, NUM_PUBS, NUM_U256, PublicKeys as ApiWotsPublicKeys, Signatures as ApiWotsSignatures,
 };
 use bitvm::signatures::signing_winternitz::{WinternitzPublicKey, WinternitzSecret};
 use goat::commitments::NUM_KICKOFF;
@@ -15,7 +15,7 @@ use goat::transactions::{
     kick_off::KickOffTransaction, peg_in::peg_in::PegInTransaction,
     peg_out_confirm::PreKickoffTransaction, take_1::Take1Transaction, take_2::Take2Transaction,
 };
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use secp256k1::SECP256K1;
 use serde::{Deserialize, Serialize};
 
@@ -172,7 +172,7 @@ pub fn get_magic_bytes(net: &Network) -> Vec<u8> {
 }
 
 pub mod node_serializer {
-    use serde::{self, ser::Error, Deserialize, Deserializer, Serializer};
+    use serde::{self, Deserialize, Deserializer, Serializer, ser::Error};
     use std::str::FromStr;
 
     pub mod address {
@@ -203,7 +203,7 @@ pub mod node_serializer {
         use crate::types::WotsPublicKeys;
         use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bitvm::signatures::signing_winternitz::WinternitzPublicKey;
-        use bitvm::signatures::wots_api::{wots256, wots_hash};
+        use bitvm::signatures::wots_api::{wots_hash, wots256};
         use goat::commitments::NUM_KICKOFF;
         use std::collections::HashMap;
 
@@ -214,17 +214,17 @@ pub mod node_serializer {
             let mut pubkeys_map: HashMap<u32, Vec<Vec<u8>>> = HashMap::new();
             let mut index = 0;
             // wots pk for groth16 proof
-            for pk in pubkeys.1 .0 {
+            for pk in pubkeys.1.0 {
                 let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
                 pubkeys_map.insert(index, v);
                 index += 1;
             }
-            for pk in pubkeys.1 .1 {
+            for pk in pubkeys.1.1 {
                 let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
                 pubkeys_map.insert(index, v);
                 index += 1;
             }
-            for pk in pubkeys.1 .2 {
+            for pk in pubkeys.1.2 {
                 let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
                 pubkeys_map.insert(index, v);
                 index += 1;
@@ -359,11 +359,11 @@ pub mod node_serializer {
     pub mod wots_seckeys {
         use serde::de::{SeqAccess, Visitor};
         use serde::ser::SerializeTuple;
-        use serde::{de::Error as DeError, ser::Error, Deserializer, Serializer};
+        use serde::{Deserializer, Serializer, de::Error as DeError, ser::Error};
         use std::fmt;
 
         use crate::types::{
-            Groth16WotsSecretKeys, KickoffWotsSecretKeys, WotsSecretKeys, NUM_KICKOFF, NUM_SIGS,
+            Groth16WotsSecretKeys, KickoffWotsSecretKeys, NUM_KICKOFF, NUM_SIGS, WotsSecretKeys,
         };
 
         pub fn serialize<S>(keys: &WotsSecretKeys, serializer: S) -> Result<S::Ok, S::Error>
@@ -445,7 +445,7 @@ pub mod node_serializer {
 #[cfg(test)]
 mod tests {
     use crate::operator::generate_wots_keys;
-    use crate::types::{node_serializer, WotsPublicKeys, WotsSecretKeys};
+    use crate::types::{WotsPublicKeys, WotsSecretKeys, node_serializer};
     use serde::{Deserialize, Serialize};
     use std::fmt::Debug;
 

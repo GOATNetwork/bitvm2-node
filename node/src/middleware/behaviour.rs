@@ -2,7 +2,7 @@
 use libp2p::identity::Keypair;
 use libp2p::{
     gossipsub, kad,
-    kad::{store::MemoryStore, Mode},
+    kad::{Mode, store::MemoryStore},
     mdns, noise,
     swarm::{StreamProtocol, SwarmEvent},
     tcp, yamux,

@@ -1,19 +1,19 @@
 use crate::types::{
-    get_magic_bytes, Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof,
-    Groth16WotsPublicKeys, Groth16WotsSignatures, PublicInputs, VerifyingKey, WotsPublicKeys,
-    WotsSecretKeys,
+    Bitvm2Graph, Bitvm2Parameters, CustomInputs, Groth16Proof, Groth16WotsPublicKeys,
+    Groth16WotsSignatures, PublicInputs, VerifyingKey, WotsPublicKeys, WotsSecretKeys,
+    get_magic_bytes,
 };
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bitcoin::Transaction;
-use bitcoin::{key::Keypair, Amount, OutPoint, Witness, XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, Witness, XOnlyPublicKey, key::Keypair};
 use bitvm::chunk::api::{
-    api_generate_full_tapscripts, api_generate_partial_script, generate_signatures_lit,
-    type_conversion_utils::utils_raw_witnesses_from_signatures, NUM_HASH, NUM_PUBS, NUM_U256,
+    NUM_HASH, NUM_PUBS, NUM_U256, api_generate_full_tapscripts, api_generate_partial_script,
+    generate_signatures_lit, type_conversion_utils::utils_raw_witnesses_from_signatures,
 };
 use bitvm::signatures::{
-    signing_winternitz::{WinternitzPublicKey, WinternitzSecret, WinternitzSigningInputs, LOG_D},
+    signing_winternitz::{LOG_D, WinternitzPublicKey, WinternitzSecret, WinternitzSigningInputs},
     winternitz::Parameters,
-    wots_api::{wots256, wots_hash},
+    wots_api::{wots_hash, wots256},
 };
 use bitvm::treepp::*;
 use goat::commitments::{CommitmentMessageId, KICKOFF_MSG_SIZE, NUM_KICKOFF};
@@ -28,8 +28,8 @@ use goat::transactions::{
     assert::assert_final::AssertFinalTransaction,
     assert::assert_initial::AssertInitialTransaction,
     assert::utils::{
-        convert_to_connector_c_commits_public_key, AllCommitConnectorsE, AssertCommitConnectorsF,
-        COMMIT_TX_NUM,
+        AllCommitConnectorsE, AssertCommitConnectorsF, COMMIT_TX_NUM,
+        convert_to_connector_c_commits_public_key,
     },
     base::Input,
     challenge::ChallengeTransaction,

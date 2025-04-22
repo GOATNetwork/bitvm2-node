@@ -151,7 +151,7 @@ mod tests {
     ];
     #[test]
     fn test_spv() {
-        let mut mmr_native = MMRNative::new();
+        let mut mmr_native = MMRHost::new();
         let mut mmr_guest = MMRGuest::new();
         let block_headers = MAINNET_BLOCK_HEADERS
             .iter()

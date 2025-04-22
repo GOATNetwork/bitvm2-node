@@ -1,4 +1,3 @@
-pub mod challenger;
 pub mod committee;
 pub mod operator;
 pub mod verifier;

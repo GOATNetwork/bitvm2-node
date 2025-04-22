@@ -1,10 +1,10 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
-use clap::{command, Parser, Subcommand};
+use clap::{Parser, Subcommand, command};
+use libp2p::PeerId;
 use libp2p::bytes::BufMut;
 use libp2p::futures::StreamExt;
 use libp2p::identity::Keypair;
-use libp2p::PeerId;
 use libp2p::{
     gossipsub, kad, mdns,
     multiaddr::{Multiaddr, Protocol},
@@ -26,10 +26,10 @@ use std::{
 };
 use tokio::{io, io::AsyncBufReadExt, select};
 
-use opentelemetry::{trace::TracerProvider as _, KeyValue};
+use opentelemetry::{KeyValue, trace::TracerProvider as _};
 use opentelemetry_sdk::{runtime, trace::TracerProvider};
 use tracing::log::__private_api::loc;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 use zeroize::Zeroizing;
 
@@ -45,7 +45,7 @@ mod rpc_service;
 
 use crate::action::GOATMessage;
 use crate::middleware::behaviour::AllBehavioursEvent;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use libp2p::gossipsub::{MessageId, Topic};
 use middleware::AllBehaviours;
 use tokio::time::interval;

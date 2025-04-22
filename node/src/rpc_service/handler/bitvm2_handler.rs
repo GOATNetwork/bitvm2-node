@@ -1,8 +1,8 @@
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
-use crate::rpc_service::{current_time_secs, AppState};
-use axum::extract::{Path, Query, State};
+use crate::rpc_service::{AppState, current_time_secs};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
 use esplora_client::AsyncClient;
 use http::StatusCode;

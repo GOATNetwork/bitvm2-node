@@ -1,4 +1,4 @@
-use bitcoin::{key::Keypair, Network, PublicKey};
+use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::keys::NodeMasterKey;
 
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";

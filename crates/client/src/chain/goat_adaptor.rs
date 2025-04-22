@@ -6,16 +6,16 @@ use alloy::primitives::TxHash;
 use alloy::{
     eips::BlockNumberOrTag,
     network::{
-        eip2718::Encodable2718, Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder,
-        TxSigner, TxSignerSync,
+        Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder, TxSigner, TxSignerSync,
+        eip2718::Encodable2718,
     },
     primitives::{Address as EvmAddress, Bytes, ChainId, FixedBytes, U256},
     providers::{Provider, ProviderBuilder, RootProvider},
     rpc::types::TransactionRequest,
-    signers::{local::PrivateKeySigner, Signer},
+    signers::{Signer, local::PrivateKeySigner},
     sol,
     sol_types::SolEvent,
-    transports::http::{reqwest::Url, Client, Http},
+    transports::http::{Client, Http, reqwest::Url},
 };
 use anyhow::format_err;
 use async_trait::async_trait;
@@ -287,7 +287,7 @@ impl ChainAdaptor for GoatAdaptor {
             .await?;
         Ok(WithdrawData {
             pegin_txid: res._0.0,
-            operator_address: res._1.0 .0,
+            operator_address: res._1.0.0,
             status: res._2.into(),
             instance_id: Uuid::from_slice(res._3.as_slice())?,
             lock_amount: res._4,
