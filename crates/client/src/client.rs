@@ -1,6 +1,6 @@
 use crate::chain::chain::Chain;
 use crate::chain::chain_adaptor::{
-    ChainAdaptor, GoatNetwork, OperatorData, PeginData, WithdrawData, get_chain_adaptor,
+    get_chain_adaptor, ChainAdaptor, GoatNetwork, OperatorData, PeginData, WithdrawData,
 };
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;

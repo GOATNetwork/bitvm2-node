@@ -86,7 +86,7 @@ pub enum GoatNetwork {
     Local,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum PeginStatus {
     None,
     Processing,
@@ -108,7 +108,7 @@ impl From<u8> for PeginStatus {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum WithdrawStatus {
     None,
     Processing,

@@ -1,7 +1,7 @@
 use crate::types::Bitvm2Graph;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use bitcoin::PublicKey;
-use bitcoin::{TapSighashType, Witness, hex::FromHex, key::Keypair};
+use bitcoin::{hex::FromHex, key::Keypair, TapSighashType, Witness};
 use goat::connectors::{connector_0::Connector0, connector_5::Connector5, connector_d::ConnectorD};
 use goat::contexts::base::generate_n_of_n_public_key;
 use goat::transactions::signing_musig2::{
@@ -11,7 +11,7 @@ use goat::transactions::{
     base::BaseTransaction, pre_signed::PreSignedTransaction, pre_signed_musig2::get_nonce_message,
     signing_musig2::generate_taproot_partial_signature,
 };
-use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce, secp256k1::schnorr::Signature};
+use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce, SecNonce};
 use sha2::{Digest, Sha256};
 
 pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;

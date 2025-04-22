@@ -1,10 +1,10 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
-use clap::{Parser, Subcommand, command};
-use libp2p::PeerId;
+use clap::{command, Parser, Subcommand};
 use libp2p::bytes::BufMut;
 use libp2p::futures::StreamExt;
 use libp2p::identity::Keypair;
+use libp2p::PeerId;
 use libp2p::{
     gossipsub, kad, mdns,
     multiaddr::{Multiaddr, Protocol},
@@ -26,10 +26,10 @@ use std::{
 };
 use tokio::{io, io::AsyncBufReadExt, select};
 
-use opentelemetry::{KeyValue, trace::TracerProvider as _};
+use opentelemetry::{trace::TracerProvider as _, KeyValue};
 use opentelemetry_sdk::{runtime, trace::TracerProvider};
 use tracing::log::__private_api::loc;
-use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 use zeroize::Zeroizing;
 
@@ -38,13 +38,14 @@ use identity;
 
 mod action;
 mod bitcoin;
+mod env;
 mod metrics_service;
 mod middleware;
 mod rpc_service;
 
 use crate::action::GOATMessage;
 use crate::middleware::behaviour::AllBehavioursEvent;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use libp2p::gossipsub::{MessageId, Topic};
 use middleware::AllBehaviours;
 use tokio::time::interval;

@@ -1,6 +1,6 @@
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Instruction;
-use bitcoin::{Network, Script, script};
+use bitcoin::{script, Network, Script};
 
 use crate::types::get_magic_bytes;
 

@@ -1,9 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use bitcoin::blockdata::script::Script;
 use bitcoin::hashes::Hash;
 use bitcoin::{Amount, Block, Network, Transaction, Txid};
 use esplora_client::{AsyncClient, Builder, Tx};
-use futures::{StreamExt, stream};
+use futures::{stream, StreamExt};
 use spv::verify_merkle_proof;
 use spv::{
     BitcoinMerkleTree, BlockInclusionProof, CircuitBlockHeader, CircuitTransaction, MMRGuest,
@@ -142,7 +142,7 @@ pub async fn check_pegin_tx(
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use futures::{StreamExt, stream};
+    use futures::{stream, StreamExt};
     #[tokio::test]
     async fn test_check_pegin_tx() {
         // tx: https://mempool.space/testnet/tx/e413208c6644d51f4f3adf3a5aad425da817ac825e56352e7164de1e2a4d9394

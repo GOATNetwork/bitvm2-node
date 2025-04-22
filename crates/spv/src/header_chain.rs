@@ -1,7 +1,7 @@
 use bitcoin::{
-    BlockHash, CompactTarget, TxMerkleNode,
     block::{Header, Version},
     hashes::Hash,
+    BlockHash, CompactTarget, TxMerkleNode,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};

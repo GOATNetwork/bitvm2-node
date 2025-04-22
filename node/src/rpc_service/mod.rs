@@ -5,7 +5,7 @@ use std::str::FromStr;
 mod handler;
 mod node;
 
-use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
+use crate::metrics_service::{metrics_handler, metrics_middleware, MetricsState};
 use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
 use axum::body::Body;
 use axum::extract::Request;
@@ -13,8 +13,9 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::put;
 use axum::{
-    Router, middleware,
+    middleware,
     routing::{get, post},
+    Router,
 };
 use bitcoin::Network;
 use bitvm2_lib::actors::Actor;

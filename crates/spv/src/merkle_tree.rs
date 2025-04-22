@@ -137,9 +137,9 @@ pub fn verify_merkle_proof(
 mod tests {
 
     use crate::transaction::CircuitTransaction;
-    use bitcoin::Block;
     use bitcoin::hashes::Hash;
     use bitcoin::hex::FromHex;
+    use bitcoin::Block;
 
     use super::*;
 

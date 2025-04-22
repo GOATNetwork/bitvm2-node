@@ -9,14 +9,14 @@ use std::{
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use libp2p::{
-    core::{Multiaddr, multiaddr::Protocol},
+    core::{multiaddr::Protocol, Multiaddr},
     identify, identity, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux,
 };
-use musig2::KeyAggContext;
 use musig2::k256::PublicKey;
 use musig2::secp::Scalar;
+use musig2::KeyAggContext;
 use musig2::{
     AggNonce, CompactSignature, FirstRound, PartialSignature, PubNonce, SecNonce, SecNonceSpices,
     SecondRound,
