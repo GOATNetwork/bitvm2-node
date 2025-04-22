@@ -150,7 +150,7 @@ pub mod test {
         let esplora_url = "https://mempool.space/testnet/api"; // Testnet
         let client = Builder::new(esplora_url).build_async().unwrap();
 
-        let  block_height_start = 4296464;
+        let block_height_start = 4296464;
         let block_height = block_height_start + 1;
 
         let blocks = stream::iter((block_height_start..block_height).into_iter())
