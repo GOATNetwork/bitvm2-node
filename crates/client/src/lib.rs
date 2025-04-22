@@ -25,7 +25,7 @@ mod tests {
         };
         //  let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
         let client = BitVM2Client::new(
-            "/tmp/.bitvm2-node.db".to_string(),
+            "/tmp/.bitvm2-node_client_test.db".to_string(),
             None,
             Network::Testnet,
             GoatNetwork::Test,

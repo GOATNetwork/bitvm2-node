@@ -201,24 +201,31 @@ mod tests {
     use prometheus_client::registry::Registry;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use alloy::contract::CallDecoder;
+    use tokio::time::sleep;
     use tracing::info;
     use tracing_subscriber::EnvFilter;
     use uuid::Uuid;
 
-    const LISTEN_ADDRESS: &str = "127.0.0.1:8900";
-    const TMEP_DB_PATH: &str = "/tmp/.bitvm2-node.db";
+    const LISTEN_ADDRESS: &str = "0.0.0.0:8090";
+    const TMEP_DB_PATH: &str = "/tmp/.bitvm2-node_test.db";
 
     fn init_tracing() {
         let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     }
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_nodes_api() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_rpc_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
+
         tokio::spawn(rpc_service::serve(
             LISTEN_ADDRESS.to_string(),
             TMEP_DB_PATH.to_string(),
             Arc::new(Mutex::new(Registry::default())),
         ));
+
+        sleep(Duration::from_secs(1)).await;
+
         let client = reqwest::Client::new();
         let node_peer = "ddsdssccfsffsafafafa";
         info!("=====>test api: create node");
@@ -265,17 +272,8 @@ mod tests {
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
 
-        Ok(())
-    }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_bitvm2_api() -> Result<(), Box<dyn std::error::Error>> {
-        init_tracing();
-        tokio::spawn(rpc_service::serve(
-            LISTEN_ADDRESS.to_string(),
-            TMEP_DB_PATH.to_string(),
-            Arc::new(Mutex::new(Registry::default())),
-        ));
+
         let instance_id = Uuid::new_v4().to_string();
         let graph_id = Uuid::new_v4().to_string();
         let from_addr = "tb1qsyngu9wf2x46tlexhpjl4nugv0zxmgezsx5erl";
