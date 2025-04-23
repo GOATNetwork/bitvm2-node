@@ -12,6 +12,9 @@ use bitvm2_lib::types::{
 use bitvm2_lib::verifier::export_challenge_tx;
 use bitvm2_lib::{committee::*, operator::*, verifier::*};
 use client::client::BitVM2Client;
+use goat::transactions::disprove::DisproveTransaction;
+use goat::transactions::take_1::Take1Transaction;
+use goat::transactions::take_2::Take2Transaction;
 use goat::transactions::{assert::utils::COMMIT_TX_NUM, pre_signed::PreSignedTransaction};
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm, gossipsub};
@@ -1177,7 +1180,7 @@ pub async fn recv_and_dispatch(
             let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             let take1_txid = graph.take1.tx().compute_txid();
             if todo_funcs::tx_on_chain(&client, &take1_txid).await? {
-                // TODO: call L2: finishWithdrawHappyPath
+                finish_withdraw_happy_path(&client, &receive_data.graph_id, &graph.take1).await?;
                 update_graph_status_or_ipfs_base(
                     &client,
                     receive_data.graph_id,
@@ -1191,7 +1194,7 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::Take2Sent(receive_data), Actor::Relayer) => {
             let graph = get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
             if todo_funcs::tx_on_chain(&client, &graph.take2.tx().compute_txid()).await? {
-                // TODO: call L2: finishWithdrawUnhappyPath
+                finish_withdraw_unhappy_path(&client, &receive_data.graph_id, &graph.take2).await?;
                 update_graph_status_or_ipfs_base(
                     &client,
                     receive_data.graph_id,
@@ -1211,7 +1214,7 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
-                // TODO: call L2: finishWithdrawDisproved
+                finish_withdraw_disproved(&client, &receive_data.graph_id, &graph.disprove).await?;
                 update_graph_status_or_ipfs_base(
                     &client,
                     receive_data.graph_id,
@@ -1336,6 +1339,31 @@ where
     Ok(serde_json::from_str(txt.as_str())?)
 }
 
+/// l2 support
+pub async fn finish_withdraw_happy_path(
+    client: &BitVM2Client,
+    graph_id: &Uuid,
+    take1: &Take1Transaction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(client.finish_withdraw_happy_path(graph_id, take1.tx()).await?)
+}
+pub async fn finish_withdraw_unhappy_path(
+    client: &BitVM2Client,
+    graph_id: &Uuid,
+    take2: &Take2Transaction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(client.finish_withdraw_unhappy_path(graph_id, take2.tx()).await?)
+}
+
+pub async fn finish_withdraw_disproved(
+    client: &BitVM2Client,
+    graph_id: &Uuid,
+    disprove: &DisproveTransaction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(client.finish_withdraw_disproved(graph_id, disprove.tx()).await?)
+}
+
+/// db support
 pub async fn store_committee_pub_nonces(
     client: &BitVM2Client,
     instance_id: Uuid,

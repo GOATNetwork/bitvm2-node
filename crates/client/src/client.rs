@@ -1,5 +1,7 @@
 use crate::chain::chain::Chain;
-use crate::chain::chain_adaptor::{GoatNetwork, OperatorData, PeginData, get_chain_adaptor};
+use crate::chain::chain_adaptor::{
+    BitcoinTx, GoatNetwork, OperatorData, PeginData, get_chain_adaptor,
+};
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;
 use anyhow::format_err;
@@ -99,5 +101,75 @@ impl BitVM2Client {
     }
     pub async fn get_operator_data(&self, graph_id: Uuid) -> anyhow::Result<OperatorData> {
         self.chain_service.adaptor.get_operator_data(graph_id).await
+    }
+
+    pub async fn finish_withdraw_happy_path(
+        &self,
+        graph_id: &Uuid,
+        tx: &bitcoin::Transaction,
+    ) -> anyhow::Result<()> {
+        let raw_take1_tx = self.tx_reconstruct(tx);
+        let (_root, proof, _leaf, height, index) =
+            self.get_btc_tx_proof_info(&tx.compute_txid()).await?;
+        Ok(self
+            .chain_service
+            .adaptor
+            .finish_withdraw_happy_path(graph_id, &raw_take1_tx, height, &proof, index)
+            .await?)
+    }
+
+    pub async fn finish_withdraw_unhappy_path(
+        &self,
+        graph_id: &Uuid,
+        tx: &bitcoin::Transaction,
+    ) -> anyhow::Result<()> {
+        let raw_take2_tx = self.tx_reconstruct(tx);
+        let (_root, proof, _leaf, height, index) =
+            self.get_btc_tx_proof_info(&tx.compute_txid()).await?;
+        Ok(self
+            .chain_service
+            .adaptor
+            .finish_withdraw_unhappy_path(graph_id, &raw_take2_tx, height, &proof, index)
+            .await?)
+    }
+
+    pub async fn finish_withdraw_disproved(
+        &self,
+        graph_id: &Uuid,
+        tx: &bitcoin::Transaction,
+    ) -> anyhow::Result<()> {
+        let raw_disprove_tx = self.tx_reconstruct(tx);
+        let (_root, proof, _leaf, height, index) =
+            self.get_btc_tx_proof_info(&tx.compute_txid()).await?;
+        Ok(self
+            .chain_service
+            .adaptor
+            .finish_withdraw_disproved(graph_id, &raw_disprove_tx, height, &proof, index)
+            .await?)
+    }
+
+    pub async fn get_btc_tx_proof_info(
+        &self,
+        tx_id: &Txid,
+    ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64)> {
+        let (root, proof_info) = self.get_bitc_merkle_proof(tx_id).await?;
+        let proof: Vec<[u8; 32]> = proof_info.merkle.iter().map(|v| v.to_byte_array()).collect();
+        let leaf = tx_id.to_byte_array();
+        Ok((
+            root.to_byte_array(),
+            proof,
+            leaf,
+            proof_info.block_height as u64,
+            proof_info.pos as u64,
+        ))
+    }
+
+    fn tx_reconstruct(&self, tx: &bitcoin::Transaction) -> BitcoinTx {
+        BitcoinTx {
+            version: tx.version.0 as u32,
+            lock_time: tx.lock_time.to_consensus_u32(),
+            input_vector: bitcoin::consensus::serialize(&tx.input),
+            output_vector: bitcoin::consensus::serialize(&tx.output),
+        }
     }
 }

@@ -9,7 +9,7 @@ use std::str::FromStr;
 use store::{BridgeInStatus, GrapRpcQueryData, Graph, GraphStatus, Instance};
 use uuid::Uuid;
 
-pub const BTC_MAIN: &str = "main";
+pub const BTC_MAIN: &str = "bitcoin";
 pub const BTC_TEST_BLOCK_INTERVAL: u32 = 10;
 pub const BTC_MAIN_BLOCK_INTERVAL: u32 = 10;
 // the input to our `create_user` handler
