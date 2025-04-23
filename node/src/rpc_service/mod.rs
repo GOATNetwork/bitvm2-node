@@ -201,6 +201,8 @@ mod tests {
     use prometheus_client::registry::Registry;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tokio::time::sleep;
     use tracing::info;
     use tracing_subscriber::EnvFilter;
     use uuid::Uuid;
@@ -228,6 +230,7 @@ mod tests {
             temp_file(),
             Arc::new(Mutex::new(Registry::default())),
         ));
+        sleep(Duration::from_secs(1)).await;
         let client = reqwest::Client::new();
         let node_peer = "ddsdssccfsffsafafafa";
         info!("=====>test api: create node");
@@ -284,6 +287,7 @@ mod tests {
             temp_file(),
             Arc::new(Mutex::new(Registry::default())),
         ));
+        sleep(Duration::from_secs(1)).await;
         let instance_id = Uuid::new_v4().to_string();
         let graph_id = Uuid::new_v4().to_string();
         let from_addr = "tb1qsyngu9wf2x46tlexhpjl4nugv0zxmgezsx5erl";
