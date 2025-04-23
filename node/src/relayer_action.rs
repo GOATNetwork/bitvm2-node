@@ -57,11 +57,19 @@ mod todo_funcs {
     }
 }
 
-pub async fn scan_bridge_in(
+pub async fn scan_bridge_in_prepare(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // scan bridge-in-prepare message & send CreateInstance message
+    Err("TODO".into())
+}
+
+pub async fn scan_bridge_in(
+    swarm: &mut Swarm<AllBehaviours>,
+    client: &BitVM2Client,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // scan bridge-in tx & relay to L2 contract: postPeginData & postOperatorData
     Err("TODO".into())
 }
 
