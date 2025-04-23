@@ -1,7 +1,5 @@
 use crate::chain::chain::Chain;
-use crate::chain::chain_adaptor::{
-    ChainAdaptor, GoatNetwork, OperatorData, PeginData, get_chain_adaptor,
-};
+use crate::chain::chain_adaptor::{GoatNetwork, OperatorData, PeginData, get_chain_adaptor};
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;
 use anyhow::format_err;

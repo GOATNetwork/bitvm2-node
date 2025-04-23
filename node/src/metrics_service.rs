@@ -20,6 +20,7 @@ use tokio::time::Instant;
 
 const METRICS_CONTENT_TYPE: &str = "application/openmetrics-text;charset=utf-8;version=1.0.0";
 
+#[allow(dead_code)]
 pub(crate) async fn metrics_server(registry: Registry) -> Result<(), std::io::Error> {
     // Serve on localhost.
     let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
@@ -33,6 +34,7 @@ pub(crate) async fn metrics_server(registry: Registry) -> Result<(), std::io::Er
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub(crate) struct MetricService {
     reg: Arc<Mutex<Registry>>,
 }
@@ -47,10 +49,12 @@ async fn respond_with_metrics(state: State<MetricService>) -> impl IntoResponse 
 type SharedRegistry = Arc<Mutex<Registry>>;
 
 impl MetricService {
+    #[allow(dead_code)]
     fn new(registry: Registry) -> Self {
         Self { reg: Arc::new(Mutex::new(registry)) }
     }
 
+    #[allow(dead_code)]
     fn get_reg(&self) -> SharedRegistry {
         Arc::clone(&self.reg)
     }

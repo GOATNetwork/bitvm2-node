@@ -10,9 +10,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::{error::Error, net::Ipv4Addr, time::Duration};
 use tokio::{io, io::AsyncBufReadExt, select};
-
-use tracing_subscriber::{EnvFilter, Layer, util::SubscriberInitExt};
-
+use tracing_subscriber::EnvFilter;
 use zeroize::Zeroizing;
 
 use bitvm2_lib::actors::Actor;
@@ -191,7 +189,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     // run a http server for front-end
-    let address = loop {
+    let _address = loop {
         if let SwarmEvent::NewListenAddr { address, .. } = swarm.select_next_some().await {
             if address.iter().any(|e| e == Protocol::Ip4(Ipv4Addr::LOCALHOST)) {
                 tracing::debug!(

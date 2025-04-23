@@ -2,11 +2,11 @@ use anyhow::{Result, bail};
 use bitcoin::hashes::Hash;
 use bitcoin::{Amount, Block, Network, Transaction, Txid};
 use esplora_client::AsyncClient;
-use futures::StreamExt;
 use spv::verify_merkle_proof;
 use spv::{BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, MMRGuest, MMRHost, SPV};
 
 /// Fetch block at specific height
+#[allow(dead_code)]
 pub async fn fetch_block(cli: &AsyncClient, block_hei: u32) -> Result<Block> {
     let dummy_block = match cli.get_block_hash(block_hei).await {
         Ok(bh) => bh,

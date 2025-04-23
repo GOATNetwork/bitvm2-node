@@ -5,16 +5,12 @@ use crate::chain::goat_adaptor::IGateway::IGatewayInstance;
 use alloy::primitives::TxHash;
 use alloy::{
     eips::BlockNumberOrTag,
-    network::{
-        Ethereum, EthereumWallet, NetworkWallet, TransactionBuilder, TxSigner, TxSignerSync,
-        eip2718::Encodable2718,
-    },
+    network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
     primitives::{Address as EvmAddress, Bytes, ChainId, FixedBytes, U256},
     providers::{Provider, ProviderBuilder, RootProvider},
     rpc::types::TransactionRequest,
     signers::{Signer, local::PrivateKeySigner},
     sol,
-    sol_types::SolEvent,
     transports::http::{Client, Http, reqwest::Url},
 };
 use anyhow::format_err;
@@ -112,10 +108,10 @@ pub struct GoatInitConfig {
 }
 pub struct GoatAdaptor {
     chain_id: ChainId,
-    gateway_address: EvmAddress,
-    gateway_creation_block: u64,
+    _gateway_address: EvmAddress,
+    _gateway_creation_block: u64,
     provider: RootProvider<Http<Client>>,
-    to_block: Option<BlockNumberOrTag>,
+    _to_block: Option<BlockNumberOrTag>,
     gate_way: IGatewayInstance<Http<Client>, RootProvider<Http<Client>>>,
     signer: EthereumWallet,
 }
@@ -555,10 +551,10 @@ impl GoatAdaptor {
         };
         let provider = ProviderBuilder::new().on_http(config.rpc_url);
         Self {
-            gateway_address: config.gateway_address,
-            gateway_creation_block: config.gateway_creation_block,
+            _gateway_address: config.gateway_address,
+            _gateway_creation_block: config.gateway_creation_block,
             provider: provider.clone(),
-            to_block: config.to_block,
+            _to_block: config.to_block,
             gate_way: IGateway::new(config.gateway_address, provider),
             signer: EthereumWallet::new(signer),
             chain_id,

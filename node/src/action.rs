@@ -1494,6 +1494,7 @@ pub async fn store_graph(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn update_graph(
     client: &BitVM2Client,
     instance_id: Uuid,
