@@ -582,7 +582,7 @@ impl<'a> StorageProcessor<'a> {
         graph_id: Uuid,
         nonces: &[[String; COMMITTEE_PRE_SIGN_NUM]],
         committee_pubkey: String,
-        partial_sigs: &[String],
+        partial_sigs: &[[String; COMMITTEE_PRE_SIGN_NUM]],
     ) -> anyhow::Result<()> {
         let nonce_collect = sqlx::query_as!(
             NonceCollect ,
@@ -597,7 +597,8 @@ impl<'a> StorageProcessor<'a> {
         if let Some(nonce_collect) = nonce_collect {
             let mut stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
                 serde_json::from_str(&nonce_collect.nonces)?;
-            let mut stored_sigs: Vec<String> = serde_json::from_str(&nonce_collect.partial_sigs)?;
+            let mut stored_sigs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
+                serde_json::from_str(&nonce_collect.partial_sigs)?;
             nonces.append(&mut stored_nonces);
             partial_sigs.append(&mut stored_sigs);
             created_at = nonce_collect.created_at;
@@ -633,7 +634,8 @@ impl<'a> StorageProcessor<'a> {
             Some(nonce_collect) => {
                 let stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
                     serde_json::from_str(&nonce_collect.nonces)?;
-                let stored_sigs: Vec<String> = serde_json::from_str(&nonce_collect.partial_sigs)?;
+                let stored_sigs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
+                    serde_json::from_str(&nonce_collect.partial_sigs)?;
                 Ok(Some(NonceCollectMetaData {
                     instance_id,
                     graph_id,

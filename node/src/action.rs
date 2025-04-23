@@ -233,28 +233,6 @@ pub mod todo_funcs {
     use std::io::{BufReader, BufWriter};
     use std::path::Path;
 
-    /// Database related
-    pub async fn store_committee_pubkeys(
-        client: &BitVM2Client,
-        instance_id: Uuid,
-        pubkey: PublicKey,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub async fn get_committee_pubkeys(
-        client: &BitVM2Client,
-        instance_id: Uuid,
-    ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-    pub async fn get_committee_partial_sigs(
-        client: &BitVM2Client,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
-
     /// Determines whether the operator should participate in generating a new graph.
     ///
     /// Conditions:
@@ -781,23 +759,18 @@ pub async fn recv_and_dispatch(
                 committee_member_pubkey: keypair.public_key().into(),
                 committee_members_num: env::get_committee_member_num(),
             });
-            todo_funcs::store_committee_pubkeys(
-                &client,
-                receive_data.instance_id,
-                keypair.public_key().into(),
-            )
-            .await?;
+            store_committee_pubkeys(&client, receive_data.instance_id, keypair.public_key().into())
+                .await?;
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
         }
         (GOATMessageContent::CreateGraphPrepare(receive_data), Actor::Operator) => {
-            todo_funcs::store_committee_pubkeys(
+            store_committee_pubkeys(
                 &client,
                 receive_data.instance_id,
                 receive_data.committee_member_pubkey,
             )
             .await?;
-            let collected_keys =
-                todo_funcs::get_committee_pubkeys(&client, receive_data.instance_id).await?;
+            let collected_keys = get_committee_pubkeys(&client, receive_data.instance_id).await?;
             if collected_keys.len() == receive_data.committee_members_num
                 && todo_funcs::should_generate_graph(&client, &receive_data).await?
             {
@@ -928,7 +901,7 @@ pub async fn recv_and_dispatch(
                     receive_data.committee_partial_sigs,
                 )
                 .await?;
-                let collected_partial_sigs = todo_funcs::get_committee_partial_sigs(
+                let collected_partial_sigs = get_committee_partial_sigs(
                     &client,
                     receive_data.instance_id,
                     receive_data.graph_id,
@@ -1406,19 +1379,26 @@ pub async fn get_committee_pub_nonces(
     }
 }
 
-pub async fn get_committee_pubkey(
+pub async fn store_committee_pubkeys(
     client: &BitVM2Client,
     instance_id: Uuid,
-    graph_id: Uuid,
-) -> Result<PublicKey, Box<dyn std::error::Error>> {
+    pubkey: PublicKey,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
-    match storage_process.get_nonces(instance_id, graph_id).await? {
-        None => {
-            Err(format!("instance id:{}, graph id:{} not found ", instance_id, graph_id).into())
-        }
-        Some(nonce_collect) => {
-            Ok(PublicKey::from_str(nonce_collect.committee_pubkey.as_str()).expect("decode pubkey"))
-        }
+    Ok(storage_process.store_pubkeys(instance_id, &vec![pubkey.to_string()]).await?)
+}
+pub async fn get_committee_pubkeys(
+    client: &BitVM2Client,
+    instance_id: Uuid,
+) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
+    let mut storage_process = client.local_db.acquire().await?;
+    match storage_process.get_pubkeys(instance_id).await? {
+        None => Ok(vec![]),
+        Some(meta_data) => Ok(meta_data
+            .pubkeys
+            .iter()
+            .map(|v| PublicKey::from_str(v).expect("fail to decode to public key"))
+            .collect()),
     }
 }
 
@@ -1430,10 +1410,14 @@ pub async fn store_committee_partial_sigs(
     partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
-    let signs: Vec<String> = partial_sigs.iter().map(|v| hex::encode(v.serialize())).collect();
+    let signs_vec: Vec<String> = partial_sigs.iter().map(|v| hex::encode(v.serialize())).collect();
+    let signs_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
+        signs_vec.try_into().map_err(|v: Vec<String>| {
+            format!("length wrong: expect {}, real {}", COMMITTEE_PRE_SIGN_NUM, v.len())
+        })?;
 
     Ok(storage_process
-        .store_nonces(instance_id, graph_id, &[], committee_pubkey.to_string(), &signs)
+        .store_nonces(instance_id, graph_id, &[], committee_pubkey.to_string(), &vec![signs_arr])
         .await?)
 }
 
@@ -1441,22 +1425,23 @@ pub async fn get_committee_partial_sigs(
     client: &BitVM2Client,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<[PartialSignature; COMMITTEE_PRE_SIGN_NUM], Box<dyn std::error::Error>> {
+) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
     match storage_process.get_nonces(instance_id, graph_id).await? {
         None => {
             Err(format!("instance id:{}, graph id:{} not found ", instance_id, graph_id).into())
         }
         Some(nonce_collect) => {
-            let signs_vec: Vec<PartialSignature> = nonce_collect
-                .partial_sigs
-                .iter()
-                .map(|v| PartialSignature::from_hex(v).expect("failed to decode partial sigs"))
-                .collect();
-            let res: [PartialSignature; COMMITTEE_PRE_SIGN_NUM] =
-                signs_vec.try_into().map_err(|v: Vec<PartialSignature>| {
+            let mut res: Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]> = vec![];
+            for signs_item in nonce_collect.partial_sigs {
+                let signs_vec: Vec<PartialSignature> = signs_item
+                    .iter()
+                    .map(|v| PartialSignature::from_str(v).expect("fail to decode pub nonce"))
+                    .collect();
+                res.push(signs_vec.try_into().map_err(|v: Vec<PartialSignature>| {
                     format!("length wrong: expect {}, real {}", COMMITTEE_PRE_SIGN_NUM, v.len())
-                })?;
+                })?)
+            }
             Ok(res)
         }
     }

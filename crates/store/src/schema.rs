@@ -293,7 +293,7 @@ pub struct NonceCollectMetaData {
     pub graph_id: Uuid,
     pub nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
     pub committee_pubkey: String,
-    pub partial_sigs: Vec<String>,
+    pub partial_sigs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
     pub updated_at: i64,
     pub created_at: i64,
 }
