@@ -232,7 +232,6 @@ pub mod todo_funcs {
     use std::fs::{self, File};
     use std::io::{BufReader, BufWriter};
     use std::path::Path;
-    
 
     /// Database related
     pub async fn store_committee_pubkeys(
@@ -944,8 +943,7 @@ pub async fn recv_and_dispatch(
                         }
                     }
                     let mut graph =
-                        get_graph(&client, receive_data.instance_id, receive_data.graph_id)
-                            .await?;
+                        get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
                     signature_aggregation_and_push(
                         &grouped_partial_sigs,
                         &receive_data.agg_nonces,
@@ -1063,8 +1061,10 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
             let mut graph =
                 get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()? && todo_funcs::is_take1_timelock_expired(&client, graph.take1.tx().compute_txid())
-                    .await? {
+            if graph.parameters.operator_pubkey == env::get_node_pubkey()?
+                && todo_funcs::is_take1_timelock_expired(&client, graph.take1.tx().compute_txid())
+                    .await?
+            {
                 let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
                 let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                 let take1_tx = operator_sign_take1(keypair, &mut graph)?;
@@ -1091,28 +1091,23 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::ChallengeSent(receive_data), Actor::Operator) => {
             let mut graph =
                 get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()? && todo_funcs::validate_challenge(
+            if graph.parameters.operator_pubkey == env::get_node_pubkey()?
+                && todo_funcs::validate_challenge(
                     &client,
                     &graph.kickoff.tx().compute_txid(),
                     &receive_data.challenge_txid,
                 )
-                .await? {
+                .await?
+            {
                 let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
                 let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                 let (operator_wots_seckeys, operator_wots_pubkeys) =
                     master_key.wots_keypair_for_graph(receive_data.graph_id);
-                let (proof, pubin, vk) = todo_funcs::get_groth16_proof(
-                    receive_data.instance_id,
-                    receive_data.graph_id,
-                )?;
+                let (proof, pubin, vk) =
+                    todo_funcs::get_groth16_proof(receive_data.instance_id, receive_data.graph_id)?;
                 let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
                 let (assert_init_tx, assert_commit_txns, assert_final_tx) =
-                    operator_sign_assert(
-                        keypair,
-                        &mut graph,
-                        &operator_wots_pubkeys,
-                        proof_sigs,
-                    )?;
+                    operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;
                 todo_funcs::broadcast_tx(&client, &assert_init_tx).await?;
                 for tx in assert_commit_txns {
                     todo_funcs::broadcast_tx(&client, &tx).await?;
@@ -1133,11 +1128,13 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::Take2Ready(receive_data), Actor::Operator) => {
             let mut graph =
                 get_graph(&client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()? && todo_funcs::is_take2_timelock_expired(
+            if graph.parameters.operator_pubkey == env::get_node_pubkey()?
+                && todo_funcs::is_take2_timelock_expired(
                     &client,
                     graph.assert_final.tx().compute_txid(),
                 )
-                .await? {
+                .await?
+            {
                 let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
                 let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                 let take2_tx = operator_sign_take2(keypair, &mut graph)?;
@@ -1380,13 +1377,7 @@ pub async fn store_committee_pub_nonces(
             format!("length wrong: expect {}, real {}", COMMITTEE_PRE_SIGN_NUM, v.len())
         })?;
     Ok(storage_process
-        .store_nonces(
-            instance_id,
-            graph_id,
-            &[nonces_arr],
-            committee_pubkey.to_string(),
-            &[],
-        )
+        .store_nonces(instance_id, graph_id, &[nonces_arr], committee_pubkey.to_string(), &[])
         .await?)
 }
 pub async fn get_committee_pub_nonces(
@@ -1538,9 +1529,7 @@ pub async fn get_graph(
     if graph.instance_id.ne(&instance_id) {
         return Err(format!(
             "grap with graph_id:{} has instance_id:{} not match expec instance:{}",
-            graph_id,
-            graph.instance_id,
-            instance_id
+            graph_id, graph.instance_id, instance_id
         )
         .into());
     }

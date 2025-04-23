@@ -129,7 +129,7 @@ impl IPFS {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_ipfs_add_and_get() {
         println!("connecting to localhost:5001...");

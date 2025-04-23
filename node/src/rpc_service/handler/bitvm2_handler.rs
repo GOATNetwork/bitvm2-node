@@ -10,10 +10,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
-use store::{
-    BridgeInStatus, BridgePath, Graph, GraphStatus, Instance, Message,
-    MessageState,
-};
+use store::{BridgeInStatus, BridgePath, Graph, GraphStatus, Instance, Message, MessageState};
 use uuid::Uuid;
 
 #[axum::debug_handler]

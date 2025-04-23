@@ -5,8 +5,7 @@ use std::string::String;
 use musig2::KeyAggContext;
 use musig2::k256::PublicKey;
 use musig2::{
-    CompactSignature, FirstRound, PartialSignature, PubNonce, SecNonceSpices,
-    SecondRound,
+    CompactSignature, FirstRound, PartialSignature, PubNonce, SecNonceSpices, SecondRound,
 };
 use std::collections::HashMap;
 use std::sync::Arc;

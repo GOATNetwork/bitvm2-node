@@ -4,10 +4,7 @@ use bitcoin::{Amount, Block, Network, Transaction, Txid};
 use esplora_client::AsyncClient;
 use futures::StreamExt;
 use spv::verify_merkle_proof;
-use spv::{
-    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, MMRGuest,
-    MMRHost, SPV,
-};
+use spv::{BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, MMRGuest, MMRHost, SPV};
 
 /// Fetch block at specific height
 pub async fn fetch_block(cli: &AsyncClient, block_hei: u32) -> Result<Block> {
@@ -141,8 +138,8 @@ pub async fn check_pegin_tx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::{StreamExt, stream};
     use esplora_client::Builder;
+    use futures::{StreamExt, stream};
     #[tokio::test]
     async fn test_check_pegin_tx() {
         // tx: https://mempool.space/testnet/tx/e413208c6644d51f4f3adf3a5aad425da817ac825e56352e7164de1e2a4d9394

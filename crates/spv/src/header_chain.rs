@@ -29,8 +29,7 @@ impl CircuitBlockHeader {
         let first_hash_result = hasher.finalize_reset();
 
         hasher.update(first_hash_result);
-        let result: [u8; 32] =
-            hasher.finalize().into();
+        let result: [u8; 32] = hasher.finalize().into();
         result
     }
 }

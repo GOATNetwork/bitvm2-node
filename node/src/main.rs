@@ -3,22 +3,12 @@ use base64::Engine;
 use clap::{Parser, Subcommand, command};
 use libp2p::PeerId;
 use libp2p::futures::StreamExt;
-use libp2p::{
-    gossipsub, kad, mdns,
-    multiaddr::Protocol,
-    noise,
-    swarm::SwarmEvent,
-    tcp, yamux,
-};
+use libp2p::{gossipsub, kad, mdns, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
 use libp2p_metrics::Registry;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::{
-    error::Error,
-    net::Ipv4Addr,
-    time::Duration,
-};
+use std::{error::Error, net::Ipv4Addr, time::Duration};
 use tokio::{io, io::AsyncBufReadExt, select};
 
 use tracing_subscriber::{EnvFilter, Layer, util::SubscriberInitExt};

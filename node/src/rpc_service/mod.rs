@@ -46,7 +46,7 @@ pub struct AppState {
 
 impl AppState {
     pub async fn create_arc_app_state(
-        db_path: String,
+        db_path: &str,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
         let bitvm2_client = BitVM2Client::new(
@@ -95,7 +95,7 @@ pub(crate) async fn serve(
     db_path: String,
     registry: Arc<Mutex<Registry>>,
 ) -> anyhow::Result<()> {
-    let app_state = AppState::create_arc_app_state(db_path, registry).await?;
+    let app_state = AppState::create_arc_app_state(&db_path, registry).await?;
     let add = app_state.clone();
     let server = Router::new()
         .route("/", get(root))
@@ -205,25 +205,34 @@ mod tests {
     use tracing_subscriber::EnvFilter;
     use uuid::Uuid;
 
-    const LISTEN_ADDRESS: &str = "127.0.0.1:8900";
-    const TMEP_DB_PATH: &str = "/tmp/.bitvm2-node.db";
-
     fn init_tracing() {
         let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     }
+
+    fn temp_file() -> String {
+        let tmp_db = tempfile::NamedTempFile::new().unwrap();
+        tmp_db.path().as_os_str().to_str().unwrap().to_string()
+    }
+
+    fn available_addr() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().to_string()
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_nodes_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
+        let addr = available_addr();
         tokio::spawn(rpc_service::serve(
-            LISTEN_ADDRESS.to_string(),
-            TMEP_DB_PATH.to_string(),
+            addr.clone(),
+            temp_file(),
             Arc::new(Mutex::new(Registry::default())),
         ));
         let client = reqwest::Client::new();
         let node_peer = "ddsdssccfsffsafafafa";
         info!("=====>test api: create node");
         let resp = client
-            .post(format!("http://{}/v1/nodes", LISTEN_ADDRESS))
+            .post(format!("http://{}/v1/nodes", addr))
             .json(&json!({
                 "peer_id": node_peer,
                 "actor": "Challenger",
@@ -238,8 +247,7 @@ mod tests {
         info!("Post Response: {}", res_body);
 
         info!("=====>test api: get node");
-        let resp =
-            client.get(format!("http://{}/v1/nodes/{}", LISTEN_ADDRESS, node_peer)).send().await?;
+        let resp = client.get(format!("http://{}/v1/nodes/{}", addr, node_peer)).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
@@ -249,7 +257,7 @@ mod tests {
         let resp = client
             .get(format!(
                 "http://{}/v1/nodes?actor=Committee&status=Offline&offset=0&limit=5",
-                LISTEN_ADDRESS
+                addr
             ))
             .send()
             .await?;
@@ -258,8 +266,7 @@ mod tests {
         info!("Post Response: {}", res_body);
 
         info!("=====>test api: get nodes overview");
-        let resp =
-            client.get(format!("http://{}/v1/nodes/overview", LISTEN_ADDRESS)).send().await?;
+        let resp = client.get(format!("http://{}/v1/nodes/overview", addr)).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
@@ -271,9 +278,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bitvm2_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
+        let addr = available_addr();
         tokio::spawn(rpc_service::serve(
-            LISTEN_ADDRESS.to_string(),
-            TMEP_DB_PATH.to_string(),
+            addr.clone(),
+            temp_file(),
             Arc::new(Mutex::new(Registry::default())),
         ));
         let instance_id = Uuid::new_v4().to_string();
@@ -283,8 +291,7 @@ mod tests {
         let client = reqwest::Client::new();
 
         info!("=====>test api:/v1/instances/settings");
-        let resp =
-            client.get(format!("http://{}/v1/instances/settings", LISTEN_ADDRESS)).send().await?;
+        let resp = client.get(format!("http://{}/v1/instances/settings", addr)).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
@@ -292,7 +299,7 @@ mod tests {
 
         info!("=====>test api: test_bridge_in_tx_prepare");
         let resp = client
-            .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare", LISTEN_ADDRESS))
+            .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare", addr))
             .json(&json!({
                 "instance_id": instance_id,
                 "network": "testnet",
@@ -322,7 +329,7 @@ mod tests {
 
         info!("=====>test api: get_instances");
         let resp = client
-            .get(format!("http://{}/v1/instances/{}", LISTEN_ADDRESS, instance_id))
+            .get(format!("http://{}/v1/instances/{}", addr, instance_id))
             .send()
             .await
             .expect("");
@@ -332,10 +339,7 @@ mod tests {
 
         info!("=====>test api: get_instances_with_query_params");
         let resp = client
-            .get(format!(
-                "http://{}/v1/instances?from_addr={}&offset=0&limit=5",
-                LISTEN_ADDRESS, from_addr
-            ))
+            .get(format!("http://{}/v1/instances?from_addr={}&offset=0&limit=5", addr, from_addr))
             .send()
             .await?;
         assert!(resp.status().is_success());
@@ -343,15 +347,14 @@ mod tests {
         info!("Post Response: {}", res_body);
 
         info!("=====>test api: instance overview");
-        let resp =
-            client.get(format!("http://{}/v1/instances/overview", LISTEN_ADDRESS,)).send().await?;
+        let resp = client.get(format!("http://{}/v1/instances/overview", addr)).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
 
         info!("=====>test api: create_graph");
         let resp = client
-            .post(format!("http://{}/v1/graphs", LISTEN_ADDRESS))
+            .post(format!("http://{}/v1/graphs", addr))
             .json(&json!({
               "instance_id": instance_id,
                 "graph_id": graph_id,
@@ -364,10 +367,7 @@ mod tests {
 
         info!("=====>test api: peg_btc_mint");
         let resp = client
-            .post(format!(
-                "http://{}/v1/instances/{}/bridge_in/peg_gtc_mint",
-                LISTEN_ADDRESS, instance_id
-            ))
+            .post(format!("http://{}/v1/instances/{}/bridge_in/peg_gtc_mint", addr, instance_id))
             .json(&json!({
                 "graph_ids":[
                    graph_id
@@ -383,7 +383,7 @@ mod tests {
         let graph_state = "OperatorPresigned";
         info!("=====>test api:update_graphs");
         let resp = client
-            .put(format!("http://{}/v1/graphs/{}", LISTEN_ADDRESS, graph_id))
+            .put(format!("http://{}/v1/graphs/{}", addr, graph_id))
             .json(&json!({
                 "graph":{
                     "graph_id": graph_id,
@@ -405,7 +405,7 @@ mod tests {
         //
         info!("=====>test api:get_graphs_list");
         let resp = client
-            .get(format!("http://{}/v1/graphs?offset=0&limit=1", LISTEN_ADDRESS))
+            .get(format!("http://{}/v1/graphs?offset=0&limit=1", addr))
             .json(&json!({
                 "status": graph_state,
                 "pegin_txid":pegin_tx
@@ -417,15 +417,14 @@ mod tests {
         info!("Post Response: {}", res_body);
 
         info!("=====>test api:get_graph");
-        let resp =
-            client.get(format!("http://{}/v1/graphs/{}", LISTEN_ADDRESS, graph_id)).send().await?;
+        let resp = client.get(format!("http://{}/v1/graphs/{}", addr, graph_id)).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
 
         info!("=====>test api:graph_presign");
         let resp = client
-            .post(format!("http://{}/v1/graphs/{}/presign", LISTEN_ADDRESS, graph_id))
+            .post(format!("http://{}/v1/graphs/{}/presign", addr, graph_id))
             .json(&json!({
                 "instance_id": instance_id,
                 "graph_ipfs_base_url":"https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH"
@@ -438,7 +437,7 @@ mod tests {
 
         info!("=====>test api:graph_presign_check");
         let resp = client
-            .post(format!("http://{}/v1/graphs/presign_check", LISTEN_ADDRESS))
+            .post(format!("http://{}/v1/graphs/presign_check", addr))
             .json(&json!(
                 {
                    "instance_id": instance_id,

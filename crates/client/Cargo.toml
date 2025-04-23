@@ -15,3 +15,6 @@ esplora-client = { workspace = true }
 anyhow = { workspace = true }
 store = { workspace = true }
 
+
+[dev-dependencies]
+tempfile = "3.19.1"

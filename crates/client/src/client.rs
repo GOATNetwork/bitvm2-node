@@ -22,7 +22,7 @@ pub struct BitVM2Client {
 impl BitVM2Client {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
-        db_path: String,
+        db_path: &str,
         esplora_url: Option<&str>,
         btc_network: Network,
         goat_network: GoatNetwork,

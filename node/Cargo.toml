@@ -78,3 +78,4 @@ bitcoin-script = { workspace = true }
 once_cell = { workspace = true }
 
 [dev-dependencies]
+tempfile = "3.19.1"
