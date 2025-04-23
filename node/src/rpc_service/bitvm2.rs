@@ -40,41 +40,6 @@ pub struct BridgeInTransactionPreparerRequest {
 #[derive(Deserialize, Serialize)]
 pub struct BridgeInTransactionPrepareResponse {}
 
-/// bridge-in step2.2  BridgeInTransactionPrepare
-/// deps: BridgeInTransactionPrepare
-///  handler: Operator creates a graph record in database and broadcast the new graph to peers
-/// calculate staking amount according to the peg-in amount
-#[derive(Debug, Deserialize)]
-pub struct GraphGenerateRequest {
-    pub instance_id: String, // UUID
-    pub graph_id: String,
-}
-
-// UI can go next(step2.3) once one operator responds
-#[derive(Deserialize, Serialize, Clone, Default)]
-pub struct GraphGenerateResponse {
-    pub instance_id: String,
-    pub graph_id: String,
-    // unsigned_txns, operator signature, this steps ask operator to publish unsigned txns
-    pub graph_ipfs_unsigned_txns: String,
-}
-
-/// bridge-in step 2.3
-/// handler: committee
-#[derive(Debug, Deserialize)]
-pub struct GraphPresignRequest {
-    pub instance_id: String,
-    pub graph_ipfs_base_url: String, // the root directory of all graph_ipfs_* files
-}
-
-// Committee publishs txn signatures in ipfs url
-#[derive(Clone, Deserialize, Serialize)]
-pub struct GraphPresignResponse {
-    pub instance_id: String,
-    pub graph_id: String,
-    pub graph_ipfs_committee_txns: Vec<String>,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct GraphPresignCheckRequest {
     pub instance_id: String,
@@ -87,18 +52,6 @@ pub struct GraphPresignCheckResponse {
     pub graph_status: HashMap<String, GraphStatus>,
     pub tx: Option<Instance>,
 }
-
-/// bridge-in: step3
-/// handler: relayer
-#[derive(Debug, Deserialize)]
-pub struct PegBTCMintRequest {
-    pub graph_ids: Vec<String>,
-    pub pegin_txid: String,
-    // TODO: https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/contracts/Gateway.sol#L43
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct PegBTCMintResponse {}
 
 /// get tx detail
 #[derive(Debug, Deserialize)]

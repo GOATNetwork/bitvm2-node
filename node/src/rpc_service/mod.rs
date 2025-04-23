@@ -77,26 +77,20 @@ async fn root() -> &'static str {
 ///
 ///1.bridge-in:
 ///- front end call `bridge_in_tx_prepare`. step1 & step2.1.
-///- backend action:
-///     - call `create_graph` at step2.2;
-///     - call `graph_presign` at step 2.3;
-///     - call `peg_btc_mint` at step 3.
+///- backend action create graph, presign graph, peg btc mint.
 ///- front end call `get_instance` to get the latest informationGet the latest information about bridge-in
 ///
 ///2.graph_overview: `graph_list` support
 ///
 ///3.node_overview:  `get_nodes` support
 ///
-///4.instance,graph query  and update by api: `get_instance`, `get_graph`, `update_instance`,`update_graph`
-///
-///
+///4.instance, graph query  and update by api: `get_instance`, `get_graph`, `update_instance`,`update_graph`
 pub(crate) async fn serve(
     addr: String,
     db_path: String,
     registry: Arc<Mutex<Registry>>,
 ) -> anyhow::Result<()> {
     let app_state = AppState::create_arc_app_state(&db_path, registry).await?;
-    let add = app_state.clone();
     let server = Router::new()
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
@@ -109,13 +103,10 @@ pub(crate) async fn serve(
         .route("/v1/instances/{:id}", get(get_instance))
         .route("/v1/instances/{:id}", put(update_instance))
         .route("/v1/instances/action/bridge_in_tx_prepare", post(bridge_in_tx_prepare))
-        .route("/v1/instances/{:id}/bridge_in/peg_gtc_mint", post(peg_btc_mint))
         .route("/v1/instances/overview", get(get_instances_overview))
-        .route("/v1/graphs", post(create_graph))
         .route("/v1/graphs/{:id}", get(get_graph))
         .route("/v1/graphs/{:id}", put(update_graph))
         .route("/v1/graphs", get(get_graphs))
-        .route("/v1/graphs/{:id}/presign", post(graph_presign))
         .route("/v1/graphs/presign_check", post(graph_presign_check))
         .route("/metrics", get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
@@ -356,34 +347,6 @@ mod tests {
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
 
-        info!("=====>test api: create_graph");
-        let resp = client
-            .post(format!("http://{}/v1/graphs", addr))
-            .json(&json!({
-              "instance_id": instance_id,
-                "graph_id": graph_id,
-            }))
-            .send()
-            .await?;
-        assert!(resp.status().is_success());
-        let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
-
-        info!("=====>test api: peg_btc_mint");
-        let resp = client
-            .post(format!("http://{}/v1/instances/{}/bridge_in/peg_gtc_mint", addr, instance_id))
-            .json(&json!({
-                "graph_ids":[
-                   graph_id
-                ],
-                "pegin_txid": pegin_tx
-            }))
-            .send()
-            .await?;
-        assert!(resp.status().is_success());
-        let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
-
         let graph_state = "OperatorPresigned";
         info!("=====>test api:update_graphs");
         let resp = client
@@ -407,7 +370,7 @@ mod tests {
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);
         //
-        info!("=====>test api:get_graphs_list");
+        info!("=====>test api:get_graphs");
         let resp = client
             .get(format!("http://{}/v1/graphs?offset=0&limit=1", addr))
             .json(&json!({
@@ -422,19 +385,6 @@ mod tests {
 
         info!("=====>test api:get_graph");
         let resp = client.get(format!("http://{}/v1/graphs/{}", addr, graph_id)).send().await?;
-        assert!(resp.status().is_success());
-        let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
-
-        info!("=====>test api:graph_presign");
-        let resp = client
-            .post(format!("http://{}/v1/graphs/{}/presign", addr, graph_id))
-            .json(&json!({
-                "instance_id": instance_id,
-                "graph_ipfs_base_url":"https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH"
-            }))
-            .send()
-            .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {}", res_body);

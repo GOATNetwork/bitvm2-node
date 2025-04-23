@@ -97,7 +97,7 @@ impl MuSig2StateMachine {
 // all key pair can be represented by identity::keypair
 pub fn generate_musig2_key() -> secp256k1::Keypair {
     let secp = Secp256k1::new();
-    let (secret_key, _public_key) = secp.generate_keypair(&mut rand::thread_rng());
+    let (secret_key, _) = secp.generate_keypair(&mut rand::thread_rng());
     secp256k1::Keypair::from_secret_key(&secp, &secret_key)
 }
 
