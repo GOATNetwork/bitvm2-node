@@ -1,7 +1,7 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use futures::TryStreamExt;
-use reqwest::Client;
 use reqwest::multipart::{Form, Part};
+use reqwest::Client;
 use serde::Deserialize;
 use std::path::Path;
 use tokio::fs::File;

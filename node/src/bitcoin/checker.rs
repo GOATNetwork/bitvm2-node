@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use bitcoin::hashes::Hash;
 use bitcoin::{Amount, Block, Network, Transaction, Txid};
 use esplora_client::AsyncClient;
@@ -139,7 +139,7 @@ pub async fn check_pegin_tx(
 mod tests {
     use super::*;
     use esplora_client::Builder;
-    use futures::{StreamExt, stream};
+    use futures::{stream, StreamExt};
     #[tokio::test]
     async fn test_check_pegin_tx() {
         // tx: https://mempool.space/testnet/tx/e413208c6644d51f4f3adf3a5aad425da817ac825e56352e7164de1e2a4d9394

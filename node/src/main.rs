@@ -1,8 +1,8 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
-use clap::{Parser, Subcommand, command};
-use libp2p::PeerId;
+use clap::{command, Parser, Subcommand};
 use libp2p::futures::StreamExt;
+use libp2p::PeerId;
 use libp2p::{gossipsub, kad, mdns, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
 use libp2p_metrics::Registry;
 use std::collections::HashMap;
@@ -20,8 +20,8 @@ mod bitcoin;
 mod env;
 mod metrics_service;
 mod middleware;
-mod rpc_service;
 mod relayer_action;
+mod rpc_service;
 
 use crate::action::GOATMessage;
 use crate::middleware::behaviour::AllBehavioursEvent;

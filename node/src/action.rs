@@ -3,7 +3,7 @@ use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use anyhow::Result;
 use bitcoin::PublicKey;
-use bitcoin::{Amount, Network, OutPoint, Txid, key::Keypair};
+use bitcoin::{key::Keypair, Amount, Network, OutPoint, Txid};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::*;
 use bitvm2_lib::types::{
@@ -17,7 +17,7 @@ use goat::transactions::take_1::Take1Transaction;
 use goat::transactions::take_2::Take2Transaction;
 use goat::transactions::{assert::utils::COMMIT_TX_NUM, pre_signed::PreSignedTransaction};
 use libp2p::gossipsub::MessageId;
-use libp2p::{PeerId, Swarm, gossipsub};
+use libp2p::{gossipsub, PeerId, Swarm};
 use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
 use reqwest::Request;
 use serde::de::DeserializeOwned;
@@ -223,7 +223,7 @@ pub mod todo_funcs {
     use bitcoin::{
         Address, EcdsaSighashType, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
     };
-    use bitcoin_script::{Script, script};
+    use bitcoin_script::{script, Script};
     use bitvm::chunk::api::NUM_TAPS;
     use bitvm2_lib::types::WotsPublicKeys;
     use client::chain::chain_adaptor::WithdrawStatus;

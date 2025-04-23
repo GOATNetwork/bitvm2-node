@@ -1,6 +1,6 @@
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::Address as EvmAddress;
-use bitcoin::{Network, PublicKey, key::Keypair};
+use bitcoin::{key::Keypair, Network, PublicKey};
 use bitvm2_lib::keys::NodeMasterKey;
 use client::chain::goat_adaptor::GoatInitConfig;
 use reqwest::Url;

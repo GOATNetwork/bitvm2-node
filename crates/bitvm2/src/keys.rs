@@ -1,10 +1,10 @@
 use super::{
-    committee::{COMMITTEE_PRE_SIGN_NUM, generate_keypair_from_seed, generate_nonce_from_seed},
+    committee::{generate_keypair_from_seed, generate_nonce_from_seed, COMMITTEE_PRE_SIGN_NUM},
     operator::generate_wots_keys,
     types::{WotsPublicKeys, WotsSecretKeys},
 };
 use bitcoin::key::Keypair;
-use musig2::{PubNonce, SecNonce, secp256k1::schnorr::Signature};
+use musig2::{secp256k1::schnorr::Signature, PubNonce, SecNonce};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 

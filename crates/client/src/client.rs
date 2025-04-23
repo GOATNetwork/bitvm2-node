@@ -1,6 +1,6 @@
 use crate::chain::chain::Chain;
 use crate::chain::chain_adaptor::{
-    BitcoinTx, GoatNetwork, OperatorData, PeginData, get_chain_adaptor,
+    get_chain_adaptor, BitcoinTx, GoatNetwork, OperatorData, PeginData,
 };
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;

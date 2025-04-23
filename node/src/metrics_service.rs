@@ -6,15 +6,15 @@ use std::{
 use crate::rpc_service::AppState;
 use axum::middleware::Next;
 use axum::{
-    Router, extract::Request, extract::State, http::StatusCode, response::IntoResponse,
-    routing::get,
+    extract::Request, extract::State, http::StatusCode, response::IntoResponse, routing::get,
+    Router,
 };
 use http::HeaderMap;
 use libp2p_metrics::Registry;
 use prometheus_client::encoding::text::encode;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
-use prometheus_client::metrics::histogram::{Histogram, exponential_buckets};
+use prometheus_client::metrics::histogram::{exponential_buckets, Histogram};
 use tokio::net::TcpListener;
 use tokio::time::Instant;
 
