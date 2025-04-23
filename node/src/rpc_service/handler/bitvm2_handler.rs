@@ -68,83 +68,6 @@ pub async fn bridge_in_tx_prepare(
 }
 
 #[axum::debug_handler]
-pub async fn create_graph(
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GraphGenerateRequest>,
-) -> (StatusCode, Json<GraphGenerateResponse>) {
-    // TODO remove
-    let resp = GraphGenerateResponse {
-        instance_id: payload.instance_id.clone(),
-        graph_id: payload.graph_id.clone(),
-        graph_ipfs_unsigned_txns: "".to_string(),
-    };
-    let mut resp_clone = resp.clone();
-    let async_fn = || async move {
-        // TODO create graph
-        resp_clone.graph_ipfs_unsigned_txns =
-            "[https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex]"
-                .to_string();
-
-        let graph = Graph {
-            instance_id: Uuid::parse_str(&payload.instance_id)?,
-            graph_id: Uuid::parse_str(&payload.graph_id)?,
-            created_at: current_time_secs(),
-            updated_at: current_time_secs(),
-            ..Default::default()
-        };
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        storage_process.update_graph(graph).await?;
-        Ok::<GraphGenerateResponse, Box<dyn std::error::Error>>(resp_clone)
-    };
-    match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
-        Err(err) => {
-            tracing::warn!("create_graph  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
-        }
-    }
-}
-
-#[axum::debug_handler]
-pub async fn graph_presign(
-    Path(graph_id): Path<String>,
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GraphPresignRequest>,
-) -> (StatusCode, Json<GraphPresignResponse>) {
-    // TODO
-    let resp = GraphPresignResponse {
-        instance_id: payload.instance_id.clone(),
-        graph_id: graph_id.clone(),
-        graph_ipfs_committee_txns: vec![
-            "https://ipfs.io/ipfs/QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/pegin.hex"
-                .to_string(),
-        ],
-    };
-    let resp_clone = resp.clone();
-    let async_fn = || async move {
-        //TODO update filed
-        let mut tx = app_state.bitvm2_client.local_db.start_transaction().await?;
-        let graph_id = Uuid::parse_str(&graph_id)?;
-        let instance_id = Uuid::parse_str(&payload.instance_id)?;
-        let mut instance = tx.get_instance(&instance_id).await?;
-        let mut graph = tx.get_graph(&graph_id).await?;
-        graph.graph_ipfs_base_url = payload.graph_ipfs_base_url;
-        instance.status = BridgeInStatus::Presigned.to_string();
-        let _ = tx.update_instance(instance.clone()).await?;
-        let _ = tx.update_graph(graph.clone()).await?;
-        tx.commit().await?;
-        Ok::<GraphPresignResponse, Box<dyn std::error::Error>>(resp_clone)
-    };
-    match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
-        Err(err) => {
-            tracing::warn!("graph_presign  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
-        }
-    }
-}
-
-#[axum::debug_handler]
 pub async fn graph_presign_check(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphPresignCheckRequest>,
@@ -173,30 +96,6 @@ pub async fn graph_presign_check(
         Err(err) => {
             tracing::warn!("graph_presign_check  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
-        }
-    }
-}
-
-#[axum::debug_handler]
-pub async fn peg_btc_mint(
-    Path(instance_id): Path<String>,
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<PegBTCMintRequest>,
-) -> (StatusCode, Json<PegBTCMintResponse>) {
-    // TODO remove
-    let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let _graphs: Vec<Graph> = storage_process.get_graphs(&payload.graph_ids).await?;
-        let instance_id = Uuid::parse_str(&instance_id)?;
-        let _instance = storage_process.get_instance(&instance_id).await?;
-        /// TODO create graph_ipfs_committee_sig
-        Ok::<PegBTCMintResponse, Box<dyn std::error::Error>>(PegBTCMintResponse {})
-    };
-    match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
-        Err(err) => {
-            tracing::warn!("peg_btc_mint  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(PegBTCMintResponse {}))
         }
     }
 }
