@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::Address as EvmAddress;
 use bitcoin::{key::Keypair, Network, PublicKey};

@@ -22,6 +22,7 @@ mod metrics_service;
 mod middleware;
 mod relayer_action;
 mod rpc_service;
+mod utils;
 
 use crate::action::GOATMessage;
 use crate::middleware::behaviour::AllBehavioursEvent;

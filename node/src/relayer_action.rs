@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use bitvm2_lib::actors::Actor;
 use client::client::BitVM2Client;
 use goat::{
@@ -10,11 +11,12 @@ use uuid::Uuid;
 
 use crate::{
     action::{
-        send_to_peer, todo_funcs::tx_on_chain, AssertSent, GOATMessage, GOATMessageContent,
-        KickoffReady, KickoffSent, Take1Ready, Take2Ready,
+        send_to_peer, AssertSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent,
+        Take1Ready, Take2Ready,
     },
     env::get_network,
     middleware::AllBehaviours,
+    utils::tx_on_chain,
 };
 
 mod todo_funcs {
