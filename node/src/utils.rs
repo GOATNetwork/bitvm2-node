@@ -1,7 +1,6 @@
 use crate::action::CreateGraphPrepare;
 use crate::env::*;
 use crate::rpc_service::current_time_secs;
-use anyhow::bail;
 use ark_serialize::CanonicalDeserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::key::Keypair;
@@ -527,10 +526,6 @@ pub async fn validate_assert(
     Ok(verify_proof(&get_vk()?, proof_sigs, &disprove_scripts, &wots_pubkeys))
 }
 
-pub fn client() -> Result<BitVM2Client, Box<dyn std::error::Error>> {
-    Err("TODO".into())
-}
-
 /// Retrieves the Groth16 proof, public inputs, and verifying key
 /// for the given graph.
 ///
@@ -763,7 +758,7 @@ pub async fn store_graph(
         .update_graph(Graph {
             graph_id,
             instance_id,
-            graph_ipfs_base_url: "".to_string(), //TODO
+            graph_ipfs_base_url: "".to_string(),
             pegin_txid: graph.pegin.tx().compute_txid().to_string(),
             amount: graph.parameters.pegin_amount.to_sat() as i64,
             status: status.unwrap_or_else(|| GraphStatus::OperatorPresigned.to_string()),
@@ -851,12 +846,14 @@ pub async fn publish_graph_to_ipfs(
     write_tx(&base_dir, IpfsTxName::Take1, graph.take1.tx())?;
     write_tx(&base_dir, IpfsTxName::Take2, graph.take2.tx())?;
     let cids = client.ipfs.add(&Path::new(&base_dir)).await?;
-    let _ = fs::remove_dir_all(base_dir);
     let dir_cid = cids
         .iter()
         .find(|f| f.name.is_empty())
         .map(|f| f.hash.clone())
         .ok_or("cid for graph dir not found")?;
+
+    // try to delete the cache files to free up disk, failed deletions do not affect subsequent executions, so there is no need to return an error
+    let _ = fs::remove_dir_all(base_dir);
     Ok(dir_cid)
 }
 

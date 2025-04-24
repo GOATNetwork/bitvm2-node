@@ -5,7 +5,6 @@ use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::keys::NodeMasterKey;
 use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
 use reqwest::Url;
-use std::collections::HashMap;
 use std::str::FromStr;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";

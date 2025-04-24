@@ -407,7 +407,6 @@ pub async fn recv_and_dispatch(
                         graph,
                         graph_ipfs_cid,
                     });
-                    // TODO: ipfs
                     send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
                     force_stop_current_graph();
                 }
