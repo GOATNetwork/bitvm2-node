@@ -107,7 +107,7 @@ pub async fn is_withdraw_initialized_on_l2(
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(graph_id).await?.status;
+    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
     Ok(withdraw_status == WithdrawStatus::Initialized)
 }
 
@@ -440,7 +440,7 @@ pub async fn should_challenge(
     }
 
     // check if withdraw is initialized on L2
-    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(graph_id).await?.status;
+    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
     if withdraw_status == WithdrawStatus::Initialized {
         return Ok(false);
     };

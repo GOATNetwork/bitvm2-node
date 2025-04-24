@@ -82,6 +82,8 @@ sol!(
         mapping(bytes16 instanceId => bytes16[] graphIds)
         public instanceIdToGraphIds;
 
+        function blockHash(uint256 height) external view returns (bytes32);
+        function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getWithdrawableInstances() external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
         function postPeginData(bytes16 instanceId,BitcoinTx calldata rawPeginTx,uint256 height,bytes32[] calldata proof,uint256 index) external ;
@@ -94,6 +96,7 @@ sol!(
         function finishWithdrawUnhappyPath(bytes16 graphId,BitcoinTx calldata rawTake2Tx,uint256 height,bytes32[] calldata proof,uint256 index) external;
         function finishWithdrawDisproved(bytes16 graphId,BitcoinTx calldata rawDisproveTx,uint256 height,bytes32[] calldata proof,uint256 index) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof,bytes32 leaf,uint256 index) public pure returns (bool);
+
     }
 );
 
@@ -256,7 +259,7 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(self.gate_way.peginTxUsed(FixedBytes::<32>::from_slice(tx_id)).call().await?._0)
     }
 
-    async fn get_pegin_data(&self, instance_id: Uuid) -> anyhow::Result<PeginData> {
+    async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
         let res = self
             .gate_way
             .peginDataMap(FixedBytes::<16>::from_slice(instance_id.as_bytes()))
@@ -265,7 +268,7 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(PeginData { pegin_txid: res._0.0, pegin_status: res._1.into(), pegin_amount: res._2 })
     }
 
-    async fn is_operator_withdraw(&self, graph_id: Uuid) -> anyhow::Result<bool> {
+    async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool> {
         Ok(self
             .gate_way
             .operatorWithdrawn(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
@@ -274,7 +277,7 @@ impl ChainAdaptor for GoatAdaptor {
             ._0)
     }
 
-    async fn get_withdraw_data(&self, graph_id: Uuid) -> anyhow::Result<WithdrawData> {
+    async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
         let res = self
             .gate_way
             .withdrawDataMap(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
@@ -289,7 +292,7 @@ impl ChainAdaptor for GoatAdaptor {
         })
     }
 
-    async fn get_operator_data(&self, graph_id: Uuid) -> anyhow::Result<OperatorData> {
+    async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData> {
         let res = self
             .gate_way
             .operatorDataMap(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
@@ -335,6 +338,19 @@ impl ChainAdaptor for GoatAdaptor {
             .into_transaction_request();
         let _ = self.handle_transaction_request(tx_request).await?;
         Ok(())
+    }
+
+    async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        Ok(self.gate_way.blockHash(U256::from(height)).call().await?._0.0)
+    }
+
+    async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        let ids = self.gate_way.getInitializedInstanceIds().call().await?;
+        let instance_ids: Vec<Uuid> =
+            ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
+        let graph_ids: Vec<Uuid> =
+            ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
+        Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
     }
 
     async fn post_operator_data(

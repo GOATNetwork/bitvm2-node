@@ -7,10 +7,10 @@ use uuid::Uuid;
 #[async_trait]
 pub trait ChainAdaptor: Send + Sync {
     async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool>;
-    async fn get_pegin_data(&self, instance_id: Uuid) -> anyhow::Result<PeginData>;
-    async fn is_operator_withdraw(&self, graph_id: Uuid) -> anyhow::Result<bool>;
-    async fn get_withdraw_data(&self, graph_id: Uuid) -> anyhow::Result<WithdrawData>;
-    async fn get_operator_data(&self, graph_id: Uuid) -> anyhow::Result<OperatorData>;
+    async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData>;
+    async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool>;
+    async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData>;
+    async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData>;
     async fn post_pegin_data(
         &self,
         instance_id: &Uuid,
@@ -34,6 +34,9 @@ pub trait ChainAdaptor: Send + Sync {
         operator_datas: &[OperatorData],
     ) -> anyhow::Result<()>;
 
+    async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
+
+    async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
     async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<()>;
     async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<()>;
     async fn process_withdraw(

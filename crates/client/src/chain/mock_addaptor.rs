@@ -14,19 +14,19 @@ impl ChainAdaptor for MockAdaptor {
         todo!()
     }
 
-    async fn get_pegin_data(&self, _instance_id: Uuid) -> anyhow::Result<PeginData> {
+    async fn get_pegin_data(&self, _instance_id: &Uuid) -> anyhow::Result<PeginData> {
         todo!()
     }
 
-    async fn is_operator_withdraw(&self, _graph_id: Uuid) -> anyhow::Result<bool> {
+    async fn is_operator_withdraw(&self, _graph_id: &Uuid) -> anyhow::Result<bool> {
         todo!()
     }
 
-    async fn get_withdraw_data(&self, _graph_id: Uuid) -> anyhow::Result<WithdrawData> {
+    async fn get_withdraw_data(&self, _graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
         todo!()
     }
 
-    async fn get_operator_data(&self, _graph_id: Uuid) -> anyhow::Result<OperatorData> {
+    async fn get_operator_data(&self, _graph_id: &Uuid) -> anyhow::Result<OperatorData> {
         todo!()
     }
 
@@ -56,6 +56,14 @@ impl ChainAdaptor for MockAdaptor {
         _graph_ids: &[Uuid],
         _operator_datas: &[OperatorData],
     ) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    async fn get_btc_block_hash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {
+        todo!()
+    }
+
+    async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
         todo!()
     }
 

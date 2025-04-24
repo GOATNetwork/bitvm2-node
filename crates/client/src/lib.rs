@@ -8,6 +8,7 @@ mod tests {
     use crate::chain::goat_adaptor::GoatInitConfig;
     use crate::client::BitVM2Client;
     use alloy::transports::http::reqwest::Url;
+    use bitcoin::hashes::Hash;
     use bitcoin::{Network, Txid};
     use std::str::FromStr;
 
@@ -40,7 +41,18 @@ mod tests {
 
         let (root, proof_info) =
             client.get_bitc_merkle_proof(&tx_id).await.expect("call merkle proof");
-        let res = client.verify_merkle_proof(&tx_id, &root, &proof_info).await.expect("get result");
+        let root = root.to_byte_array().map(|v| v);
+        let proof: Vec<[u8; 32]> =
+            proof_info.merkle.iter().map(|v| v.to_byte_array().map(|v| v)).collect();
+        let res = client
+            .verify_merkle_proof(
+                &root,
+                &proof,
+                &tx_id.to_byte_array().into(),
+                proof_info.pos as u64,
+            )
+            .await
+            .expect("get result");
         assert!(res);
     }
 }

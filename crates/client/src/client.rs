@@ -1,10 +1,11 @@
 use crate::chain::chain::Chain;
 use crate::chain::chain_adaptor::{
-    BitcoinTx, GoatNetwork, OperatorData, PeginData, get_chain_adaptor,
+    BitcoinTx, GoatNetwork, OperatorData, PeginData, WithdrawData, WithdrawStatus,
+    get_chain_adaptor,
 };
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;
-use anyhow::format_err;
+use anyhow::{bail, format_err};
 use bitcoin::hashes::Hash;
 use bitcoin::{Address as BtcAddress, TxMerkleNode, Txid};
 use bitcoin::{Block, Network};
@@ -67,28 +68,17 @@ impl BitVM2Client {
             return Ok((header.merkle_root, proof));
         }
 
-        Err(format_err!("get {} merkle proof is none", tx_id))
+        bail!("get {} merkle proof is none", tx_id)
     }
 
     pub async fn verify_merkle_proof(
         &self,
-        tx_id: &Txid,
-        root: &TxMerkleNode,
-        proof_info: &MerkleProof,
+        root: &[u8; 32],
+        proof: &[[u8; 32]],
+        leaf: &[u8; 32],
+        index: u64,
     ) -> anyhow::Result<bool> {
-        let root = root.to_byte_array().map(|v| v);
-        let poof: Vec<[u8; 32]> =
-            proof_info.merkle.iter().map(|v| v.to_byte_array().map(|v| v)).collect();
-        let res = self
-            .chain_service
-            .adaptor
-            .verify_merkle_proof(
-                &root,
-                &poof,
-                &tx_id.to_byte_array().map(|v| v),
-                proof_info.pos as u64,
-            )
-            .await?;
+        let res = self.chain_service.adaptor.verify_merkle_proof(root, proof, leaf, index).await?;
         Ok(res)
     }
 
@@ -96,24 +86,42 @@ impl BitVM2Client {
         self.chain_service.adaptor.pegin_tx_used(tx_id).await
     }
 
-    pub async fn get_pegin_data(&self, instance_id: Uuid) -> anyhow::Result<PeginData> {
+    pub async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
         self.chain_service.adaptor.get_pegin_data(instance_id).await
     }
-    pub async fn is_operator_withdraw(&self, graph_id: Uuid) -> anyhow::Result<bool> {
+    pub async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool> {
         self.chain_service.adaptor.is_operator_withdraw(graph_id).await
     }
-    pub async fn get_operator_data(&self, graph_id: Uuid) -> anyhow::Result<OperatorData> {
+    pub async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData> {
         self.chain_service.adaptor.get_operator_data(graph_id).await
     }
+    pub async fn get_withdraw_data(&self, grap_id: &Uuid) -> anyhow::Result<WithdrawData> {
+        Ok(self.chain_service.adaptor.get_withdraw_data(grap_id).await?)
+    }
 
+    pub async fn get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        Ok(self.chain_service.adaptor.get_btc_block_hash(height).await?)
+    }
+
+    pub async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        Ok(self.chain_service.adaptor.get_initialized_ids().await?)
+    }
     pub async fn finish_withdraw_happy_path(
         &self,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<()> {
+        let operator_data = self.get_operator_data(&graph_id).await?;
+        let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
+        let (_root, proof, _leaf, height, index) = self
+            .check_withdraw_actions_and_get_proof(
+                "take1",
+                graph_id,
+                &tx.compute_txid(),
+                &tx_id_on_line,
+            )
+            .await?;
         let raw_take1_tx = self.tx_reconstruct(tx);
-        let (_root, proof, _leaf, height, index) =
-            self.get_btc_tx_proof_info(&tx.compute_txid()).await?;
         Ok(self
             .chain_service
             .adaptor
@@ -126,9 +134,17 @@ impl BitVM2Client {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<()> {
+        let operator_data = self.get_operator_data(&graph_id).await?;
+        let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
+        let (_root, proof, _leaf, height, index) = self
+            .check_withdraw_actions_and_get_proof(
+                "take2",
+                graph_id,
+                &tx.compute_txid(),
+                &tx_id_on_line,
+            )
+            .await?;
         let raw_take2_tx = self.tx_reconstruct(tx);
-        let (_root, proof, _leaf, height, index) =
-            self.get_btc_tx_proof_info(&tx.compute_txid()).await?;
         Ok(self
             .chain_service
             .adaptor
@@ -141,9 +157,17 @@ impl BitVM2Client {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<()> {
+        let operator_data = self.get_operator_data(&graph_id).await?;
+        let tx_id_on_line = Txid::from_slice(&operator_data.assert_final_txid)?;
+        let (_root, proof, _leaf, height, index) = self
+            .check_withdraw_actions_and_get_proof(
+                "disprove",
+                graph_id,
+                &tx.compute_txid(),
+                &tx_id_on_line,
+            )
+            .await?;
         let raw_disprove_tx = self.tx_reconstruct(tx);
-        let (_root, proof, _leaf, height, index) =
-            self.get_btc_tx_proof_info(&tx.compute_txid()).await?;
         Ok(self
             .chain_service
             .adaptor
@@ -151,6 +175,80 @@ impl BitVM2Client {
             .await?)
     }
 
+    async fn check_withdraw_actions_and_get_proof(
+        &self,
+        tag: &str,
+        graph_id: &Uuid,
+        tx_act: &Txid,
+        tx_id_on_line: &Txid,
+    ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64)> {
+        // check tx id match
+        if tx_id_on_line.ne(tx_act) {
+            tracing::warn!(
+                "graph:{} at {} mismatch, exp:{},  act:{}",
+                tag,
+                graph_id,
+                tx_id_on_line.to_string(),
+                tx_act.to_string()
+            );
+            return bail!(
+                "graph:{} at {} txid mismatch, exp:{},  act:{}",
+                tag,
+                graph_id,
+                tx_id_on_line.to_string(),
+                tx_act.to_string()
+            );
+        }
+
+        // check withdraw status
+        let withdraw_data = self.get_withdraw_data(graph_id).await?;
+        if withdraw_data.status != WithdrawStatus::Processing {
+            tracing::warn!("graph:{} at {} not at processing stage", tag, graph_id);
+            return bail!("graph:{} at {} not at processing stage", tag, graph_id);
+        };
+        // check hash in btc chain and spv contract
+        let (root, proof, leaf, height, index) = self.get_btc_tx_proof_info(tx_act).await?;
+
+        let root_online = self.get_block_hash(height).await?;
+        if root_online != root {
+            tracing::warn!(
+                "graph:{} at {}  root mismatch, from chain:{},  in contract:{}",
+                tag,
+                graph_id,
+                hex::encode(root),
+                hex::encode(root_online)
+            );
+            return bail!(
+                "graph:{} at {} root mismatch, from chain:{},  in contract:{}",
+                tag,
+                graph_id,
+                hex::encode(root),
+                hex::encode(root_online)
+            );
+        }
+        // check proof
+        if self
+            .verify_merkle_proof(&root_online, &proof, (&tx_act.to_byte_array()).into(), index)
+            .await?
+        {
+            tracing::warn!(
+                "graph:{} at {} root mismatch, from chain:{},  in contract:{}",
+                tag,
+                graph_id,
+                hex::encode(root),
+                hex::encode(root_online)
+            );
+            return bail!(
+                "graph:{} at {} root mismatch, from chain:{},  in contract:{}",
+                tag,
+                graph_id,
+                hex::encode(root),
+                hex::encode(root_online)
+            );
+        }
+
+        Ok((root, proof, leaf, height, index))
+    }
     pub async fn get_btc_tx_proof_info(
         &self,
         tx_id: &Txid,
