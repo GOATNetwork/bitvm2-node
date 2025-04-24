@@ -1,7 +1,9 @@
 use crate::action::CreateGraphPrepare;
 use crate::env::*;
 use crate::rpc_service::current_time_secs;
+use anyhow::bail;
 use ark_serialize::CanonicalDeserialize;
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::key::Keypair;
 use bitcoin::{
     Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, Sequence,
@@ -30,7 +32,7 @@ use goat::utils::num_blocks_per_network;
 use musig2::{PartialSignature, PubNonce};
 use statics::*;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::str::FromStr;
 use store::{Graph, GraphStatus};
@@ -203,14 +205,14 @@ pub fn get_partial_scripts() -> Result<Vec<Script>, Box<dyn std::error::Error>> 
     if Path::new(scripts_cache_path).exists() {
         let file = File::open(scripts_cache_path)?;
         let reader = BufReader::new(file);
-        let scripts_bytes: Vec<ScriptBuf> = bincode::deserialize_from(reader).unwrap();
+        let scripts_bytes: Vec<ScriptBuf> = bincode::deserialize_from(reader)?;
         Ok(scripts_bytes.into_iter().map(|x| script! {}.push_script(x)).collect())
     } else {
         let partial_scripts = generate_partial_scripts(&get_vk()?);
         if let Some(parent) = Path::new(scripts_cache_path).parent() {
-            fs::create_dir_all(parent).unwrap();
+            fs::create_dir_all(parent)?;
         };
-        let file = File::create(scripts_cache_path).unwrap();
+        let file = File::create(scripts_cache_path)?;
         let scripts_bytes: Vec<ScriptBuf> =
             partial_scripts.iter().map(|scr| scr.clone().compile()).collect();
         let writer = BufWriter::new(file);
@@ -766,13 +768,13 @@ pub async fn store_graph(
             amount: graph.parameters.pegin_amount.to_sat() as i64,
             status: status.unwrap_or_else(|| GraphStatus::OperatorPresigned.to_string()),
             kickoff_txid: Some(graph.kickoff.tx().compute_txid().to_string()),
-            challenge_txid: Some(graph.challenge.tx().compute_txid().to_string()),
+            challenge_txid: None,
             take1_txid: Some(graph.take1.tx().compute_txid().to_string()),
             assert_init_txid: Some(graph.assert_init.tx().compute_txid().to_string()),
             assert_commit_txids: Some(format!("{:?}", assert_commit_txids)),
             assert_final_txid: Some(graph.assert_final.tx().compute_txid().to_string()),
             take2_txid_txid: Some(graph.take2.tx().compute_txid().to_string()),
-            disprove_txid: Some(graph.disprove.tx().compute_txid().to_string()),
+            disprove_txid: None,
             operator: graph.parameters.operator_pubkey.to_string(),
             raw_data: Some(serde_json::to_string(&graph).expect("to json string")),
             created_at: current_time_secs(),
@@ -816,6 +818,48 @@ pub async fn get_graph(
     Ok(res)
 }
 
+pub async fn publish_graph_to_ipfs(
+    client: &BitVM2Client,
+    graph_id: Uuid,
+    graph: &Bitvm2Graph,
+) -> Result<String, Box<dyn std::error::Error>> {
+    fn write_tx(
+        base_dir: &str,
+        tx_name: IpfsTxName,
+        tx: &Transaction,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // write tx_hex to base_dir/tx_name
+        let tx_hex = serialize_hex(tx);
+        let tx_cache_path = format!("{}{}", base_dir, tx_name.as_str());
+        let mut file = File::create(&tx_cache_path)?;
+        file.write_all(tx_hex.as_bytes())?;
+        Ok(())
+    }
+
+    let base_dir = format!("{}{}/", IPFS_GRAPH_CACHE_DIR, graph_id.to_string());
+    fs::create_dir_all(base_dir.clone())?;
+    write_tx(&base_dir, IpfsTxName::AssertCommit0, graph.assert_commit.commit_txns[0].tx())?;
+    write_tx(&base_dir, IpfsTxName::AssertCommit1, graph.assert_commit.commit_txns[1].tx())?;
+    write_tx(&base_dir, IpfsTxName::AssertCommit2, graph.assert_commit.commit_txns[2].tx())?;
+    write_tx(&base_dir, IpfsTxName::AssertCommit3, graph.assert_commit.commit_txns[3].tx())?;
+    write_tx(&base_dir, IpfsTxName::AssertInit, graph.assert_init.tx())?;
+    write_tx(&base_dir, IpfsTxName::AssertFinal, graph.assert_final.tx())?;
+    write_tx(&base_dir, IpfsTxName::Challenge, graph.challenge.tx())?;
+    write_tx(&base_dir, IpfsTxName::Disprove, graph.disprove.tx())?;
+    write_tx(&base_dir, IpfsTxName::Kickoff, graph.kickoff.tx())?;
+    write_tx(&base_dir, IpfsTxName::Pegin, graph.pegin.tx())?;
+    write_tx(&base_dir, IpfsTxName::Take1, graph.take1.tx())?;
+    write_tx(&base_dir, IpfsTxName::Take2, graph.take2.tx())?;
+    let cids = client.ipfs.add(&Path::new(&base_dir)).await?;
+    let _ = fs::remove_dir_all(base_dir);
+    let dir_cid = cids
+        .iter()
+        .find(|f| f.name.is_empty())
+        .map(|f| f.hash.clone())
+        .ok_or("cid for graph dir not found")?;
+    Ok(dir_cid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -843,6 +887,7 @@ mod tests {
             Network::Testnet,
             GoatNetwork::Test,
             global_init_config,
+            "http://44.229.236.82:5001",
         )
         .await
     }

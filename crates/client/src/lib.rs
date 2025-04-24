@@ -31,6 +31,7 @@ mod tests {
             Network::Testnet,
             GoatNetwork::Test,
             global_init_config,
+            "http://localhost:5001",
         )
         .await;
         let tx_id =

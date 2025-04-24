@@ -16,36 +16,36 @@ pub struct IPFS {
 #[derive(Deserialize, Debug, PartialEq, Hash)]
 #[serde(rename_all = "PascalCase")]
 pub struct Link {
-    hash: String,
-    mod_time: String,
-    mode: u32,
-    name: String,
-    size: u32,
-    target: String,
+    pub hash: String,
+    pub mod_time: String,
+    pub mode: u32,
+    pub name: String,
+    pub size: u32,
+    pub target: String,
     #[serde(rename = "Type")]
-    type_: u32,
+    pub type_: u32,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Hash)]
 #[serde(rename_all = "PascalCase")]
 pub struct Object {
-    hash: String,
-    links: Vec<Link>,
+    pub hash: String,
+    pub links: Vec<Link>,
 }
 
 #[derive(Deserialize, Debug, PartialEq, Hash)]
 #[serde(rename_all = "PascalCase")]
 pub struct Objects {
-    objects: Vec<Object>,
+    pub objects: Vec<Object>,
 }
 
 /// If the name is empty, it's the directory name
 #[derive(Deserialize, Debug, PartialEq, Hash)]
 #[serde(rename_all = "PascalCase")]
 pub struct AddedFile {
-    name: String,
-    hash: String,
-    size: String,
+    pub name: String,
+    pub hash: String,
+    pub size: String,
 }
 
 // Collects all files and returns relative + absolute paths
@@ -154,6 +154,7 @@ pub mod tests {
         }
 
         // it works, but skip for avoiding creating too much garbage
+        // use std::io::Write;
         // let base_dir = tempfile::tempdir().unwrap();
         // vec!["1.txt", "2.txt"].iter().for_each(|name| {
         //     let mut file = std::fs::File::create(

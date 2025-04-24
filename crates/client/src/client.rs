@@ -9,7 +9,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Address as BtcAddress, TxMerkleNode, Txid};
 use bitcoin::{Block, Network};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
-use store::localdb::LocalDB;
+use store::{ipfs::IPFS, localdb::LocalDB};
 use uuid::Uuid;
 
 pub struct BitVM2Client {
@@ -17,6 +17,7 @@ pub struct BitVM2Client {
     pub esplora: AsyncClient,
     pub btc_network: Network,
     pub chain_service: Chain,
+    pub ipfs: IPFS,
 }
 
 impl BitVM2Client {
@@ -27,6 +28,7 @@ impl BitVM2Client {
         btc_network: Network,
         goat_network: GoatNetwork,
         goat_config: GoatInitConfig,
+        ipfs_endpoint: &str,
     ) -> Self {
         let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
         local_db.migrate().await;
@@ -37,6 +39,7 @@ impl BitVM2Client {
                 .expect("Could not build esplora client"),
             btc_network,
             chain_service: Chain::new(get_chain_adaptor(goat_network, goat_config, None)),
+            ipfs: IPFS::new(ipfs_endpoint),
         }
     }
 

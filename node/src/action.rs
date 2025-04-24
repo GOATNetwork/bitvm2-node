@@ -9,6 +9,7 @@ use bitvm2_lib::keys::*;
 use bitvm2_lib::types::{Bitvm2Graph, Bitvm2Parameters, CustomInputs};
 use bitvm2_lib::verifier::export_challenge_tx;
 use bitvm2_lib::{committee::*, operator::*, verifier::*};
+use client::client::BitVM2Client;
 use goat::transactions::{assert::utils::COMMIT_TX_NUM, pre_signed::PreSignedTransaction};
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm, gossipsub};
@@ -95,6 +96,7 @@ pub struct GraphFinalize {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub graph: Bitvm2Graph,
+    pub graph_ipfs_cid: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -179,6 +181,7 @@ impl GOATMessage {
 ///     * peers: send
 pub async fn recv_and_dispatch(
     swarm: &mut Swarm<AllBehaviours>,
+    client: &BitVM2Client,
     actor: Actor,
     peer_id: PeerId,
     id: MessageId,
@@ -204,7 +207,6 @@ pub async fn recv_and_dispatch(
     println!("Handle message: {:?}", message);
     let content: GOATMessageContent = message.to_typed()?;
     // TODO: validate message
-    let client = client()?;
     match (content, actor) {
         // pegin
         // CreateInstance sent by bootnode
@@ -378,6 +380,12 @@ pub async fn recv_and_dispatch(
                         &receive_data.agg_nonces,
                         &mut graph,
                     )?;
+                    let prekickoff_tx = graph.pre_kickoff.tx().clone();
+                    let node_keypair =
+                        OperatorMasterKey::new(env::get_bitvm_key()?).master_keypair();
+                    sign_and_broadcast_prekickoff_tx(&client, node_keypair, prekickoff_tx).await?;
+                    let graph_ipfs_cid =
+                        publish_graph_to_ipfs(client, receive_data.graph_id, &graph).await?;
                     store_graph(
                         &client,
                         receive_data.instance_id,
@@ -386,14 +394,18 @@ pub async fn recv_and_dispatch(
                         Some(GraphStatus::CommitteePresigned.to_string()),
                     )
                     .await?;
-                    let prekickoff_tx = graph.pre_kickoff.tx().clone();
-                    let node_keypair =
-                        OperatorMasterKey::new(env::get_bitvm_key()?).master_keypair();
-                    sign_and_broadcast_prekickoff_tx(&client, node_keypair, prekickoff_tx).await?;
+                    update_graph_status_or_ipfs_base(
+                        client,
+                        receive_data.graph_id,
+                        None,
+                        Some(graph_ipfs_cid.clone()),
+                    )
+                    .await?;
                     let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
                         graph,
+                        graph_ipfs_cid,
                     });
                     // TODO: ipfs
                     send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
@@ -402,13 +414,20 @@ pub async fn recv_and_dispatch(
             };
         }
         (GOATMessageContent::GraphFinalize(receive_data), _) => {
-            // TODO: validate graph
+            // TODO: validate graph & ipfs
             store_graph(
                 &client,
                 receive_data.instance_id,
                 receive_data.graph_id,
                 &receive_data.graph,
                 Some(GraphStatus::CommitteePresigned.to_string()),
+            )
+            .await?;
+            update_graph_status_or_ipfs_base(
+                client,
+                receive_data.graph_id,
+                None,
+                Some(receive_data.graph_ipfs_cid.clone()),
             )
             .await?;
         }

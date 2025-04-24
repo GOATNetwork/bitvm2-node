@@ -1,6 +1,8 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
 use clap::{Parser, Subcommand, command};
+use client::client::BitVM2Client;
+use env::ENV_IPFS_ENDPOINT;
 use libp2p::PeerId;
 use libp2p::futures::StreamExt;
 use libp2p::{gossipsub, kad, mdns, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
@@ -208,8 +210,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::debug!("RPC service listening on {}", &opt.rpc_addr);
     let rpc_addr = opt.rpc_addr.clone();
     let db_path = opt.db_path.clone();
+    let ipfs_url = std::env::var(ENV_IPFS_ENDPOINT).expect("IPFS_ENDPOINT is missing");
 
-    tokio::spawn(rpc_service::serve(rpc_addr, db_path, Arc::new(Mutex::new(metric_registry))));
+    let client = BitVM2Client::new(
+        &db_path,
+        None,
+        env::get_network(),
+        env::get_goat_network(),
+        env::get_bitvm2_client_config(),
+        &ipfs_url,
+    )
+    .await;
+
+    tokio::spawn(rpc_service::serve(
+        rpc_addr,
+        db_path.clone(),
+        ipfs_url.clone(),
+        Arc::new(Mutex::new(metric_registry)),
+    ));
     // Read full lines from stdin
     let mut interval = interval(Duration::from_secs(20));
     let mut stdin = io::BufReader::new(io::stdin()).lines();
@@ -244,7 +262,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         actor: actor.clone(),
                         content: "tick".as_bytes().to_vec(),
                     })?;
-                    match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data).await{
+                    match action::recv_and_dispatch(&mut swarm, &client, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data).await{
                         Ok(_) => {}
                         Err(e) => { tracing::error!(e) }
                     }
@@ -257,7 +275,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                                   message_id: id,
                                                                   message,
                                                               })) => {
-                        match action::recv_and_dispatch(&mut swarm, actor.clone(), peer_id, id, &message.data).await {
+                        match action::recv_and_dispatch(&mut swarm, &client, actor.clone(), peer_id, id, &message.data).await {
                             Ok(_) => {},
                             Err(e) => { tracing::error!(e) }
                         }

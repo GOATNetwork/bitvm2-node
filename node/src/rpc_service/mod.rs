@@ -47,6 +47,7 @@ pub struct AppState {
 impl AppState {
     pub async fn create_arc_app_state(
         db_path: &str,
+        ipfs_url: &str,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
         let bitvm2_client = BitVM2Client::new(
@@ -55,6 +56,7 @@ impl AppState {
             Network::Testnet,
             GoatNetwork::Test,
             get_bitvm2_client_config(),
+            ipfs_url,
         )
         .await;
         let metrics_state = MetricsState::new(registry);
@@ -88,9 +90,10 @@ async fn root() -> &'static str {
 pub(crate) async fn serve(
     addr: String,
     db_path: String,
+    ipfs_url: String,
     registry: Arc<Mutex<Registry>>,
 ) -> anyhow::Result<()> {
-    let app_state = AppState::create_arc_app_state(&db_path, registry).await?;
+    let app_state = AppState::create_arc_app_state(&db_path, &ipfs_url, registry).await?;
     let server = Router::new()
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
@@ -212,6 +215,10 @@ mod tests {
         listener.local_addr().unwrap().to_string()
     }
 
+    fn local_ipfs_url() -> String {
+        "http://localhost:5001".to_string()
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_nodes_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
@@ -219,6 +226,7 @@ mod tests {
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             temp_file(),
+            local_ipfs_url(),
             Arc::new(Mutex::new(Registry::default())),
         ));
         sleep(Duration::from_secs(1)).await;
@@ -276,6 +284,7 @@ mod tests {
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             temp_file(),
+            local_ipfs_url(),
             Arc::new(Mutex::new(Registry::default())),
         ));
         sleep(Duration::from_secs(1)).await;

@@ -1,4 +1,4 @@
-mod ipfs;
+pub mod ipfs;
 pub mod localdb;
 mod schema;
 
