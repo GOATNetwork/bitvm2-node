@@ -7,7 +7,7 @@ use bitcoin::{
     Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, Sequence,
     Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoin_script::{script, Script};
+use bitcoin_script::{Script, script};
 use bitvm::chunk::api::NUM_TAPS;
 use bitvm2_lib::committee::COMMITTEE_PRE_SIGN_NUM;
 use bitvm2_lib::operator::{generate_disprove_scripts, generate_partial_scripts};

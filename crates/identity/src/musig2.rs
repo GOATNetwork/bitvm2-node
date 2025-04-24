@@ -2,8 +2,8 @@ use rand::RngCore;
 use secp256k1::{Secp256k1, SecretKey};
 use std::string::String;
 
-use musig2::k256::PublicKey;
 use musig2::KeyAggContext;
+use musig2::k256::PublicKey;
 use musig2::{
     CompactSignature, FirstRound, PartialSignature, PubNonce, SecNonceSpices, SecondRound,
 };

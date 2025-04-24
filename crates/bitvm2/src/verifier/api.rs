@@ -1,14 +1,15 @@
 use crate::types::{
     Bitvm2Graph, Groth16WotsPublicKeys, Groth16WotsSignatures, VerifyingKey, WotsPublicKeys,
 };
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bitcoin::{Address, Amount, Transaction};
 use bitvm::chunk::api::{
-    type_conversion_utils::{script_to_witness, utils_signatures_from_raw_witnesses, RawWitness},
-    validate_assertions, NUM_TAPS,
+    NUM_TAPS,
+    type_conversion_utils::{RawWitness, script_to_witness, utils_signatures_from_raw_witnesses},
+    validate_assertions,
 };
 use bitvm::treepp::*;
-use goat::connectors::connector_c::{get_commit_from_assert_commit_tx, ConnectorC};
+use goat::connectors::connector_c::{ConnectorC, get_commit_from_assert_commit_tx};
 use goat::transactions::assert::utils::*;
 use goat::transactions::{base::BaseTransaction, pre_signed::PreSignedTransaction};
 

@@ -1,8 +1,8 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
-use clap::{command, Parser, Subcommand};
-use libp2p::futures::StreamExt;
+use clap::{Parser, Subcommand, command};
 use libp2p::PeerId;
+use libp2p::futures::StreamExt;
 use libp2p::{gossipsub, kad, mdns, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
 use libp2p_metrics::Registry;
 use std::collections::HashMap;

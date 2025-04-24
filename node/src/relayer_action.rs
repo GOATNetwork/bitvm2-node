@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use crate::{
     action::{
-        send_to_peer, AssertSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent,
-        Take1Ready, Take2Ready,
+        AssertSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
+        Take2Ready, send_to_peer,
     },
     env::get_network,
     middleware::AllBehaviours,

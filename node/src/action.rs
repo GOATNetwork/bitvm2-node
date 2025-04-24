@@ -11,7 +11,7 @@ use bitvm2_lib::verifier::export_challenge_tx;
 use bitvm2_lib::{committee::*, operator::*, verifier::*};
 use goat::transactions::{assert::utils::COMMIT_TX_NUM, pre_signed::PreSignedTransaction};
 use libp2p::gossipsub::MessageId;
-use libp2p::{gossipsub, PeerId, Swarm};
+use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
 use reqwest::Request;
 use serde::de::DeserializeOwned;
