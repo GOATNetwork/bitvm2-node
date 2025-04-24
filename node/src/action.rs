@@ -454,7 +454,7 @@ pub async fn recv_and_dispatch(
                 Amount::from_sat(graph.challenge.min_crowdfunding_amount()),
                 receive_data.instance_id,
                 receive_data.graph_id,
-                &graph,
+                &graph.kickoff.tx().compute_txid(),
             )
             .await?
             {

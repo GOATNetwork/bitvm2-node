@@ -25,6 +25,7 @@ mod rpc_service;
 mod utils;
 
 use crate::action::GOATMessage;
+use crate::env::{ENV_ACTOR, ENV_PEER_KEY, ENV_PERR_ID};
 use crate::middleware::behaviour::AllBehavioursEvent;
 use anyhow::Result;
 use middleware::AllBehaviours;
@@ -107,19 +108,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let local_key = identity::generate_local_key();
                 let base64_key = base64::engine::general_purpose::STANDARD
                     .encode(&local_key.to_protobuf_encoding()?);
-                tracing::info!("export KEY={}", base64_key);
-                tracing::info!("export PEER_ID={}", local_key.public().to_peer_id());
+                tracing::info!("export {}={}", ENV_PEER_KEY, base64_key);
+                tracing::info!("export {}={}", ENV_PERR_ID, local_key.public().to_peer_id());
             }
         }
         return Ok(());
     }
     // load role
     let actor =
-        Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
+        Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
             .unwrap();
 
-    let local_key = std::env::var("KEY").expect("KEY is missing");
-    let arg_peer_id = std::env::var("PEER_ID").expect("Peer ID is missing");
+    let local_key = std::env::var(ENV_PEER_KEY).expect("KEY is missing");
+    let arg_peer_id = std::env::var(ENV_PERR_ID).expect("Peer ID is missing");
 
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let mut metric_registry = Registry::default();

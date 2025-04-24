@@ -13,6 +13,10 @@ pub const ENV_GOAT_GATEWAY_CONTRACT_CREATION: &str = "GOAT_GATEWAY_CONTRACT_CREA
 pub const ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK: &str = "GOAT_GATEWAY_CONTRACT_TO_BLOCK";
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 pub const ENV_GOAT_CHAIN_ID: &str = "GOAT_CHAIN_ID";
+pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
+pub const ENV_PEER_KEY: &str = "KEY";
+pub const ENV_PERR_ID: &str = "PEER_ID";
+pub const ENV_ACTOR: &str = "ACTOR";
 
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
@@ -44,7 +48,7 @@ pub fn get_network() -> Network {
 
 pub fn get_bitvm_key() -> Result<Keypair, Box<dyn std::error::Error>> {
     // TODO: what if node restart with different BITVM_SECRET ?
-    let bitvm_secret = std::env::var("BITVM_SECRET").expect("BITVM_SECRET is missing");
+    let bitvm_secret = std::env::var(ENV_BITVM_SECRET).expect("{ENV_BITVM_SECRET} is missing");
     Ok(Keypair::from_seckey_str_global(&bitvm_secret)?)
 }
 

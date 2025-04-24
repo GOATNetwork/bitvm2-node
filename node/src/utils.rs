@@ -90,7 +90,12 @@ pub async fn should_generate_graph(
         (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
     );
     let total_effective_balance: Amount =
-        utxos.iter().map(|utxo| utxo.value - utxo_spent_fee).sum();
+        utxos
+            .iter()
+            .map(|utxo| {
+                if utxo.value > utxo_spent_fee { utxo.value - utxo_spent_fee } else { Amount::ZERO }
+            })
+            .sum();
     Ok(total_effective_balance > get_stake_amount(create_graph_prepare_data.pegin_amount.to_sat()))
 }
 
@@ -426,10 +431,9 @@ pub async fn should_challenge(
     challenge_amount: Amount,
     _instance_id: Uuid,
     graph_id: Uuid,
-    graph: &Bitvm2Graph,
+    kickoff_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // check if kickoff is confirmed on L1
-    let kickoff_txid = graph.kickoff.tx().compute_txid();
     if let None = client.esplora.get_tx(&kickoff_txid).await? {
         return Ok(false);
     }
@@ -810,4 +814,358 @@ pub async fn get_graph(
     }
     let res: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
+    use reqwest::Url;
+    use serial_test::serial;
+    use std::fmt;
+
+    async fn test_client() -> BitVM2Client {
+        let global_init_config = GoatInitConfig {
+            rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
+            gateway_address: "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
+                .parse()
+                .expect("parse contract address"),
+            gateway_creation_block: 0,
+            to_block: None,
+            private_key: None,
+            chain_id: 48816_u32,
+        };
+        //  let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+        let tmp_db = tempfile::NamedTempFile::new().unwrap();
+        BitVM2Client::new(
+            tmp_db.path().as_os_str().to_str().unwrap(),
+            None,
+            Network::Testnet,
+            GoatNetwork::Test,
+            global_init_config,
+        )
+        .await
+    }
+
+    fn mock_input() -> CustomInputs {
+        let input_amount = Amount::from_sat(10000);
+        let fee_amount = Amount::from_sat(2000);
+        let mock_input = Input {
+            outpoint: OutPoint {
+                txid: Txid::from_str(
+                    "a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d",
+                )
+                .unwrap(),
+                vout: 0,
+            },
+            amount: Amount::from_btc(10000.0).unwrap(),
+        };
+        let change_address = Address::p2wsh(&ScriptBuf::default(), get_network());
+        CustomInputs { inputs: vec![mock_input.clone()], input_amount, fee_amount, change_address }
+    }
+
+    #[test]
+    fn test_statics() {
+        let instance_id = Uuid::new_v4();
+        let graph_id = Uuid::new_v4();
+        let other_graph_id = Uuid::new_v4();
+
+        assert!(is_processing_graph() == false);
+        assert!(try_start_new_graph(instance_id, graph_id));
+        assert!(is_processing_graph() == true);
+        assert!(current_processing_graph() == Some((instance_id, graph_id)));
+
+        finish_current_graph_processing(instance_id, other_graph_id);
+        assert!(is_processing_graph() == true);
+
+        finish_current_graph_processing(instance_id, graph_id);
+        assert!(is_processing_graph() == false);
+
+        try_start_new_graph(instance_id, graph_id);
+        assert!(is_processing_graph() == true);
+        force_stop_current_graph();
+        assert!(is_processing_graph() == false);
+    }
+
+    #[tokio::test]
+    #[serial(env)]
+    async fn test_should_generate_graph() {
+        let client = test_client().await;
+        let mock_create_graph_prepare_data = CreateGraphPrepare {
+            instance_id: Uuid::new_v4(),
+            network: get_network(),
+            depositor_evm_address: [0xff; 20],
+            pegin_amount: Amount::from_sat(100000),
+            user_inputs: mock_input(),
+            committee_member_pubkey: PublicKey::from_str(
+                "028b839569cde368894237913fe4fbd25d75eaf1ed019a39d479e693dac35be19e",
+            )
+            .unwrap(),
+            committee_members_num: 2,
+        };
+
+        // rich operator
+        unsafe {
+            std::env::set_var(ENV_ACTOR, "Operator");
+            std::env::set_var(
+                ENV_BITVM_SECRET,
+                "3076ca1dfc1e383be26d5dd3c0c427340f96139fa8c2520862cf551ec2d670ac",
+            );
+        }
+        let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
+        let utxos = client.esplora.get_address_utxo(node_address.clone()).await.unwrap();
+        let balance: Amount = utxos.iter().map(|utxo| utxo.value).sum();
+        let flag = should_generate_graph(&client, &mock_create_graph_prepare_data).await.unwrap();
+        println!(
+            "node: {}, balance: {} BTC, should_generate_graph: {}",
+            node_address,
+            balance.to_btc(),
+            flag
+        );
+
+        // poor operator
+        unsafe {
+            std::env::set_var(
+                ENV_BITVM_SECRET,
+                "ee0817eac0c13aa8ee2dd3256304041f09f0499d1089b56495310ae8093583e2",
+            );
+        }
+        let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
+        let utxos = client.esplora.get_address_utxo(node_address.clone()).await.unwrap();
+        let balance: Amount = utxos.iter().map(|utxo| utxo.value).sum();
+        let flag = should_generate_graph(&client, &mock_create_graph_prepare_data).await.unwrap();
+        println!(
+            "node: {}, balance: {} BTC, should_generate_graph: {}",
+            node_address,
+            balance.to_btc(),
+            flag
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "test graph required"]
+    async fn test_is_withdraw_initialized_on_l2() {
+        let client = test_client().await;
+        let unused_instance_id = Uuid::new_v4();
+        // TODO: post test graph to L2
+        let initialized_graph_id = Uuid::from_slice(&hex::decode("").unwrap()).unwrap();
+        let uninitialized_graph_id = Uuid::from_slice(&hex::decode("").unwrap()).unwrap();
+        assert_eq!(
+            true,
+            is_withdraw_initialized_on_l2(&client, unused_instance_id, initialized_graph_id)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            false,
+            is_withdraw_initialized_on_l2(&client, unused_instance_id, uninitialized_graph_id)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_is_take1_timelock_expired() {
+        let client = test_client().await;
+        let kickoff_txid =
+            Txid::from_str("4dd13ca25ef6edb4506394a402db2368d02d9467bc47326d3553310483f2ed04")
+                .unwrap();
+        assert_eq!(true, is_take1_timelock_expired(&client, kickoff_txid).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_is_take2_timelock_expired() {
+        let client = test_client().await;
+        let assert_final_txid =
+            Txid::from_str("a2dedfbf376b8c0c183b4dfac7b0765b129a345c870f9fabbdf8c48072697a27")
+                .unwrap();
+        assert_eq!(true, is_take2_timelock_expired(&client, assert_final_txid).await.unwrap());
+    }
+
+    #[tokio::test]
+    #[serial(env)]
+    async fn test_select_operator_inputs() {
+        let client = test_client().await;
+        let stake_amount = Amount::from_sat(1600000);
+        struct UtxoDisplay(Option<CustomInputs>);
+
+        impl fmt::Display for UtxoDisplay {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match &self.0 {
+                    Some(v) => {
+                        let items: Vec<String> = v
+                            .inputs
+                            .iter()
+                            .map(|input| {
+                                format!(
+                                    "{}:{}:{}",
+                                    input.outpoint.txid.to_string(),
+                                    input.outpoint.vout,
+                                    input.amount.to_btc()
+                                )
+                            })
+                            .collect();
+                        write!(f, "[ {} ]", items.join(", "))
+                    }
+                    _ => {
+                        write!(f, "insufficient balance")
+                    }
+                }
+            }
+        }
+
+        // rich operator
+        unsafe {
+            std::env::set_var(ENV_ACTOR, "Operator");
+            std::env::set_var(
+                ENV_BITVM_SECRET,
+                "3076ca1dfc1e383be26d5dd3c0c427340f96139fa8c2520862cf551ec2d670ac",
+            );
+        }
+        let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
+        let inputs = select_operator_inputs(&client, stake_amount).await.unwrap();
+        println!(
+            "node: {}, stake_amount: {} BTC, utxos: {}",
+            node_address,
+            stake_amount,
+            UtxoDisplay(inputs)
+        );
+
+        // poor operator
+        unsafe {
+            std::env::set_var(
+                ENV_BITVM_SECRET,
+                "ee0817eac0c13aa8ee2dd3256304041f09f0499d1089b56495310ae8093583e2",
+            );
+        }
+        let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
+        let inputs = select_operator_inputs(&client, stake_amount).await.unwrap();
+        println!(
+            "node: {}, stake_amount: {} BTC, utxos: {}",
+            node_address,
+            stake_amount,
+            UtxoDisplay(inputs)
+        );
+    }
+
+    #[tokio::test]
+    #[serial(env)]
+    async fn test_should_challenge() {
+        let client = test_client().await;
+        let challenge_amount = Amount::from_sat(1600000);
+        let mock_instance_id = Uuid::new_v4();
+        let mock_graph_id = Uuid::new_v4();
+        let invalid_kickoff_txid =
+            Txid::from_str("0c598f63bffe9d7468ce6930bf0fe1ba5c6e125c9c9e38674ee380dd2c6d97f6")
+                .unwrap();
+        // TODO: add test case: valid kickoff tx
+
+        // rich challenger
+        unsafe {
+            std::env::set_var(ENV_ACTOR, "Challenger");
+            std::env::set_var(
+                ENV_BITVM_SECRET,
+                "3076ca1dfc1e383be26d5dd3c0c427340f96139fa8c2520862cf551ec2d670ac",
+            );
+        }
+        let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
+        let utxos = client.esplora.get_address_utxo(node_address.clone()).await.unwrap();
+        let balance: Amount = utxos.iter().map(|utxo| utxo.value).sum();
+        let flag = should_challenge(
+            &client,
+            challenge_amount,
+            mock_instance_id,
+            mock_graph_id,
+            &invalid_kickoff_txid,
+        )
+        .await
+        .unwrap();
+        println!(
+            "kickoff(invalid): {}, node: {}, balance: {} BTC, should_challenge: {}",
+            invalid_kickoff_txid.to_string(),
+            node_address,
+            balance.to_btc(),
+            flag
+        );
+
+        // poor challenger
+        unsafe {
+            std::env::set_var(
+                ENV_BITVM_SECRET,
+                "ee0817eac0c13aa8ee2dd3256304041f09f0499d1089b56495310ae8093583e2",
+            );
+        }
+        let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
+        let utxos = client.esplora.get_address_utxo(node_address.clone()).await.unwrap();
+        let balance: Amount = utxos.iter().map(|utxo| utxo.value).sum();
+        let flag = should_challenge(
+            &client,
+            challenge_amount,
+            mock_instance_id,
+            mock_graph_id,
+            &invalid_kickoff_txid,
+        )
+        .await
+        .unwrap();
+        println!(
+            "kickoff(invalid): {}, node: {}, balance: {} BTC, should_challenge: {}",
+            invalid_kickoff_txid.to_string(),
+            node_address,
+            balance.to_btc(),
+            flag
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_challenge() {
+        let client = test_client().await;
+        let kickoff_txid =
+            Txid::from_str("0c598f63bffe9d7468ce6930bf0fe1ba5c6e125c9c9e38674ee380dd2c6d97f6")
+                .unwrap();
+        let challenge_txid =
+            Txid::from_str("d2a2beff7dc0f93fc41505b646c6fa174991b0c4e415a96359607c37ba88e376")
+                .unwrap();
+        let mismatch_challenge_txid =
+            Txid::from_str("c6a033812a1370973f94d956704ed1a68f490141a3c21bce64454d38a2c23794")
+                .unwrap();
+        let nonexistent_challenge_txid =
+            Txid::from_str("a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d")
+                .unwrap();
+
+        assert_eq!(
+            true,
+            validate_challenge(&client, &kickoff_txid, &challenge_txid).await.unwrap()
+        );
+        assert_eq!(
+            false,
+            validate_challenge(&client, &kickoff_txid, &mismatch_challenge_txid).await.unwrap()
+        );
+        assert_eq!(
+            false,
+            validate_challenge(&client, &kickoff_txid, &nonexistent_challenge_txid).await.unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_disprove() {
+        let client = test_client().await;
+        let assert_final_txid =
+            Txid::from_str("2da6b0f73cd8835d5b76b62b9bd22314ee61212d348f6a4dbad915253f121012")
+                .unwrap();
+        let disprove_txid =
+            Txid::from_str("5773755d1d0f750830edae5e1afcb37ab106e2dd46e164b09bf6213a0f45b0e1")
+                .unwrap();
+        let mismatch_disprove_txid =
+            Txid::from_str("c6a033812a1370973f94d956704ed1a68f490141a3c21bce64454d38a2c23794")
+                .unwrap();
+
+        assert_eq!(
+            true,
+            validate_disprove(&client, &assert_final_txid, &disprove_txid).await.unwrap()
+        );
+        assert_eq!(
+            false,
+            validate_disprove(&client, &assert_final_txid, &mismatch_disprove_txid).await.unwrap()
+        );
+    }
 }
