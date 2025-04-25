@@ -18,7 +18,7 @@ pub struct MuSig2StateMachine {
     pub ctx: KeyAggContext,
     pub topic: String, // should be unique
     pub message: String,
-    nonce_seed: [u8; 32],
+    _nonce_seed: [u8; 32],
     pub signer_index: usize,
 
     secret_key: Option<SecretKey>,
@@ -52,7 +52,7 @@ impl MuSig2StateMachine {
             topic,
             secret_key: Some(secret_key),
             first_round: Some(first_round),
-            nonce_seed,
+            _nonce_seed: nonce_seed,
             message,
             signer_index,
             second_round: None,

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "Update message Set state = 'Expired' WHERE updated_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "a78f7577f5f7420f8d0ca234ce4d1ae0b19fdd9d452b3685ce069a5b7a924003"
+}

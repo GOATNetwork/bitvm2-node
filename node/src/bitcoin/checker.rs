@@ -30,6 +30,7 @@ pub async fn fetch_block(cli: &AsyncClient, block_hei: u32) -> Result<Block> {
     }
 }
 /// Check pegin_tx is of one the tx in the blocks
+#[allow(dead_code)]
 pub async fn check_pegin_tx(
     cli: &AsyncClient,
     network: &Network,
@@ -71,7 +72,7 @@ pub async fn check_pegin_tx(
 
         let target_txid: Txid = pegin_txid.parse()?;
         let pegin_tx: Transaction = cli.get_tx(&target_txid).await?.unwrap();
-        let circuit_transaction = CircuitTransaction::from(pegin_tx);
+        let _circuit_transaction = CircuitTransaction::from(pegin_tx);
 
         // find the target block
         let block_pos = blocks.iter().position(|b| {
@@ -150,7 +151,7 @@ mod tests {
         let block_height_start = 4296464;
         let block_height = block_height_start + 1;
 
-        let blocks = stream::iter((block_height_start..block_height))
+        let blocks = stream::iter(block_height_start..block_height)
             .then(|x| {
                 let value = client.clone();
                 async move { fetch_block(&value, x).await.unwrap() }

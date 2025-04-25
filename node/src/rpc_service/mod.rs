@@ -31,6 +31,8 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
 
+pub use bitvm2::P2pUserData;
+
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
@@ -110,7 +112,7 @@ pub(crate) async fn serve(
         .route("/v1/graphs/{:id}", get(get_graph))
         .route("/v1/graphs/{:id}", put(update_graph))
         .route("/v1/graphs", get(get_graphs))
-        .route("/v1/graphs/presign_check", post(graph_presign_check))
+        .route("/v1/graphs/presign_check", get(graph_presign_check))
         .route("/metrics", get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![
@@ -400,7 +402,7 @@ mod tests {
 
         info!("=====>test api:graph_presign_check");
         let resp = client
-            .post(format!("http://{}/v1/graphs/presign_check", addr))
+            .get(format!("http://{}/v1/graphs/presign_check", addr))
             .json(&json!(
                 {
                    "instance_id": instance_id,

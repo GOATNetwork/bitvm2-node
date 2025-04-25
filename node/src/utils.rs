@@ -34,7 +34,7 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::str::FromStr;
-use store::{Graph, GraphStatus};
+use store::{BridgeInStatus, Graph, GraphStatus};
 use uuid::Uuid;
 
 pub mod statics {
@@ -435,7 +435,7 @@ pub async fn should_challenge(
     kickoff_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // check if kickoff is confirmed on L1
-    if let None = client.esplora.get_tx(&kickoff_txid).await? {
+    if let None = client.esplora.get_tx(kickoff_txid).await? {
         return Ok(false);
     }
 
@@ -733,15 +733,23 @@ pub async fn get_committee_partial_sigs(
     }
 }
 
-pub async fn update_graph_status_or_ipfs_base(
+pub async fn update_graph_fields(
     client: &BitVM2Client,
     graph_id: Uuid,
     graph_state: Option<String>,
     ipfs_base_url: Option<String>,
+    challenge_txid: Option<String>,
+    disprove_txid: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
     Ok(storage_process
-        .update_graph_status_or_ipfs_base(graph_id, graph_state, ipfs_base_url)
+        .update_graph_status_or_ipfs_base(
+            graph_id,
+            graph_state,
+            ipfs_base_url,
+            challenge_txid,
+            disprove_txid,
+        )
         .await?)
 }
 pub async fn store_graph(
@@ -751,24 +759,27 @@ pub async fn store_graph(
     graph: &Bitvm2Graph,
     status: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut transaction = client.local_db.start_transaction().await?;
     let assert_commit_txids: Vec<String> =
         graph.assert_commit.commit_txns.iter().map(|v| v.tx().compute_txid().to_string()).collect();
-    storage_process
+    transaction
         .update_graph(Graph {
             graph_id,
             instance_id,
             graph_ipfs_base_url: "".to_string(),
             pegin_txid: graph.pegin.tx().compute_txid().to_string(),
             amount: graph.parameters.pegin_amount.to_sat() as i64,
-            status: status.unwrap_or_else(|| GraphStatus::OperatorPresigned.to_string()),
+            status: status.clone().unwrap_or_else(|| GraphStatus::OperatorPresigned.to_string()),
+            pre_kickoff_txid: Some(graph.pre_kickoff.tx().compute_txid().to_string()),
             kickoff_txid: Some(graph.kickoff.tx().compute_txid().to_string()),
             challenge_txid: None,
             take1_txid: Some(graph.take1.tx().compute_txid().to_string()),
             assert_init_txid: Some(graph.assert_init.tx().compute_txid().to_string()),
-            assert_commit_txids: Some(format!("{:?}", assert_commit_txids)),
+            assert_commit_txids: Some(
+                serde_json::to_string(&assert_commit_txids).expect("fail to encode to json"),
+            ),
             assert_final_txid: Some(graph.assert_final.tx().compute_txid().to_string()),
-            take2_txid_txid: Some(graph.take2.tx().compute_txid().to_string()),
+            take2_txid: Some(graph.take2.tx().compute_txid().to_string()),
             disprove_txid: None,
             operator: graph.parameters.operator_pubkey.to_string(),
             raw_data: Some(serde_json::to_string(&graph).expect("to json string")),
@@ -777,6 +788,18 @@ pub async fn store_graph(
         })
         .await?;
 
+    if let Some(status) = status {
+        if status == GraphStatus::CommitteePresigned.to_string() {
+            transaction
+                .update_instance_status_and_pegin_txid(
+                    &instance_id,
+                    Some(BridgeInStatus::Presigned.to_string()),
+                    Some(graph.pegin.tx().compute_txid().to_string()),
+                )
+                .await?
+        }
+    }
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -831,7 +854,7 @@ pub async fn publish_graph_to_ipfs(
         Ok(())
     }
 
-    let base_dir = format!("{}{}/", IPFS_GRAPH_CACHE_DIR, graph_id.to_string());
+    let base_dir = format!("{}{}/", IPFS_GRAPH_CACHE_DIR, graph_id);
     fs::create_dir_all(base_dir.clone())?;
     write_tx(&base_dir, IpfsTxName::AssertCommit0, graph.assert_commit.commit_txns[0].tx())?;
     write_tx(&base_dir, IpfsTxName::AssertCommit1, graph.assert_commit.commit_txns[1].tx())?;

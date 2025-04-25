@@ -45,12 +45,7 @@ mod tests {
         let proof: Vec<[u8; 32]> =
             proof_info.merkle.iter().map(|v| v.to_byte_array().map(|v| v)).collect();
         let res = client
-            .verify_merkle_proof(
-                &root,
-                &proof,
-                &tx_id.to_byte_array().into(),
-                proof_info.pos as u64,
-            )
+            .verify_merkle_proof(&root, &proof, &tx_id.to_byte_array(), proof_info.pos as u64)
             .await
             .expect("get result");
         assert!(res);

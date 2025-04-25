@@ -51,9 +51,12 @@ pub struct Instance {
 pub enum BridgeInStatus {
     #[default]
     Submitted,
-    Presigned, // includes operator and Committee presigns
+    SubmittedFailed,
+    Presigned,
+    PresignedFailed, // includes operator and Committee presigns
     L1Broadcasted,
     L2Minted, // success
+    L2MintedFailed,
 }
 
 impl std::fmt::Display for BridgeInStatus {
@@ -73,6 +76,7 @@ pub enum BridgeOutStatus {
     L1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
     L1Refunded,
     L2Refunded,
+    Failed,
 }
 
 impl std::fmt::Display for BridgeOutStatus {
@@ -158,13 +162,14 @@ pub struct Graph {
     pub pegin_txid: String,
     pub amount: i64,
     pub status: String, // GraphStatus
+    pub pre_kickoff_txid: Option<String>,
     pub kickoff_txid: Option<String>,
     pub challenge_txid: Option<String>,
     pub take1_txid: Option<String>,
     pub assert_init_txid: Option<String>,
     pub assert_commit_txids: Option<String>,
     pub assert_final_txid: Option<String>,
-    pub take2_txid_txid: Option<String>,
+    pub take2_txid: Option<String>,
     pub disprove_txid: Option<String>,
     pub operator: String,
     pub raw_data: Option<String>,
@@ -190,7 +195,7 @@ pub struct GrapRpcQueryData {
     pub assert_init_txid: Option<String>,
     pub assert_commit_txids: Option<String>,
     pub assert_final_txid: Option<String>,
-    pub take2_txid_txid: Option<String>,
+    pub take2_txid: Option<String>,
     pub disprove_txid: Option<String>,
     pub operator: String,
     pub updated_at: i64,
@@ -214,7 +219,7 @@ impl GrapRpcQueryData {
             GraphStatus::Challenge => Ok((self.challenge_txid.clone(), 6)),
             GraphStatus::Assert => Ok((self.assert_init_txid.clone(), 18)),
             GraphStatus::Take1 => Ok((self.take1_txid.clone(), 6)),
-            GraphStatus::Take2 => Ok((self.take2_txid_txid.clone(), 6)),
+            GraphStatus::Take2 => Ok((self.take2_txid.clone(), 6)),
             GraphStatus::Disprove => Ok((self.disprove_txid.clone(), 6)),
             GraphStatus::Deprecated => Err("graph deprecated".to_string()),
         }
@@ -296,4 +301,46 @@ pub struct NonceCollectMetaData {
     pub partial_sigs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
     pub updated_at: i64,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub enum MessageType {
+    BridgeInData,
+    CreateInstance,
+    CreateGraphPrepare,
+    CreateGraph,
+    NonceGeneration,
+    CommitteePresign,
+    GraphFinalize,
+    KickoffReady,
+    KickoffSent,
+    Take1Ready,
+    Take1Sent,
+    ChallengeSent,
+    AssertSent,
+    Take2Ready,
+    Take2Sent,
+    DisproveSent,
+}
+impl std::fmt::Display for MessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+// template query data struct
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct RelayerCaringGraphMetaData {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub status: String,
+    pub msg_times: i64,
+    pub msg_type: String,
+    pub kickoff_txid: Option<String>,
+    pub take1_txid: Option<String>,
+    pub take2_txid: Option<String>,
+    pub assert_init_txid: Option<String>,
+    pub assert_commit_txids: Option<String>,
+    pub assert_final_txid: Option<String>,
+    pub raw_data: Option<String>,
 }

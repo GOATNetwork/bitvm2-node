@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE message_broadcast SET  msg_times = ? WHERE instance_id = ? AND  graph_id = ? AND msg_type = ? ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "9067ca7456a625fb65aad27fa84a3891e244094aa1f04547df87bdc9cb127d00"
+}

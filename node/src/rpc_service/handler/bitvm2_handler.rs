@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
-use store::{BridgeInStatus, BridgePath, Graph, GraphStatus, Instance, Message, MessageState};
+use store::{
+    BridgeInStatus, BridgePath, Graph, GraphStatus, Instance, Message, MessageState, MessageType,
+};
 use uuid::Uuid;
 
 #[axum::debug_handler]
@@ -43,14 +45,17 @@ pub async fn bridge_in_tx_prepare(
         let mut tx = app_state.bitvm2_client.local_db.start_transaction().await?;
         let _ = tx.create_instance(instance.clone()).await?;
         let content = serde_json::to_vec::<P2pUserData>(&(&payload).into())?;
-        tx.create_message(Message {
-            id: 0,
-            actor: app_state.actor.to_string(),
-            from_peer: app_state.peer_id.clone(),
-            msg_type: "user_data".to_string(),
-            content,
-            state: MessageState::Pending.to_string(),
-        })
+        tx.create_message(
+            Message {
+                id: 0,
+                actor: app_state.actor.to_string(),
+                from_peer: app_state.peer_id.clone(),
+                msg_type: MessageType::BridgeInData.to_string(),
+                content,
+                state: MessageState::Pending.to_string(),
+            },
+            current_time_secs(),
+        )
         .await?;
 
         tx.commit().await?;
@@ -188,7 +193,7 @@ pub async fn get_instances(
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let (instances, total) = storage_process
-            .instance_list(params.from_addr, params.bridge_path, params.offset, params.limit)
+            .instance_list(params.from_addr, params.bridge_path, None, params.offset, params.limit)
             .await?;
 
         if instances.is_empty() {
@@ -219,7 +224,7 @@ pub async fn get_instances(
             )
             .await?;
             let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
-            items.push(InstanceWrap { utxo, instance, eta })
+            items.push(InstanceWrap { utxo: Some(utxo), instance: Some(instance), eta: Some(eta) })
         }
 
         Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
@@ -259,7 +264,11 @@ pub async fn get_instance(
         .await?;
 
         Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
-            instance_wrap: InstanceWrap { utxo, instance, eta },
+            instance_wrap: InstanceWrap {
+                utxo: Some(utxo),
+                instance: Some(instance),
+                eta: Some(eta),
+            },
         })
     };
     match async_fn().await {

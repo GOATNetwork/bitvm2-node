@@ -1,14 +1,9 @@
 #![allow(dead_code)]
-use bitvm2_lib::actors::Actor;
-use client::client::BitVM2Client;
-use goat::{
-    constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK},
-    utils::num_blocks_per_network,
-};
-use libp2p::Swarm;
-use store::GraphStatus;
-use uuid::Uuid;
 
+use crate::action::CreateInstance;
+use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME};
+use crate::rpc_service::P2pUserData;
+use crate::utils::update_graph_fields;
 use crate::{
     action::{
         AssertSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
@@ -18,167 +13,587 @@ use crate::{
     middleware::AllBehaviours,
     utils::tx_on_chain,
 };
+use bitcoin::Txid;
+use bitcoin::hashes::Hash;
+use bitvm2_lib::actors::Actor;
+use bitvm2_lib::types::Bitvm2Graph;
+use client::client::BitVM2Client;
+use goat::transactions::assert::utils::COMMIT_TX_NUM;
+use goat::transactions::pre_signed::PreSignedTransaction;
+use goat::{
+    constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK},
+    utils::num_blocks_per_network,
+};
+use libp2p::Swarm;
+use std::str::FromStr;
+use std::time::UNIX_EPOCH;
+use store::{
+    BridgeInStatus, BridgePath, GraphStatus, MessageState, MessageType, RelayerCaringGraphMetaData,
+};
+use tracing::warn;
+use uuid::Uuid;
 
-mod todo_funcs {
-    use bitcoin::Txid;
-    use goat::transactions::assert::utils::COMMIT_TX_NUM;
-    use store::GraphStatus;
+#[derive(Clone, Debug)]
+pub struct RelayerCaringGraphData {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub msg_times: i64,
+    pub msg_type: String,
+    pub kickoff_txid: Option<Txid>,
+    pub take1_txid: Option<Txid>,
+    pub take2_txid: Option<Txid>,
+    pub assert_init_txid: Option<Txid>,
+    pub assert_commit_txids: Option<[Txid; COMMIT_TX_NUM]>,
+    pub assert_final_txid: Option<Txid>,
+    pub raw_data: Option<String>,
+}
 
-    use super::*;
+impl From<RelayerCaringGraphMetaData> for RelayerCaringGraphData {
+    fn from(value: RelayerCaringGraphMetaData) -> Self {
+        let tx_convert = |v: Option<String>| -> Option<Txid> {
+            match v {
+                None => None,
+                Some(v) => Txid::from_str(&v).ok(),
+            }
+        };
+        let assert_commit_txids = if let Some(tx_ids) = value.assert_commit_txids {
+            match serde_json::from_str::<Vec<String>>(&tx_ids) {
+                Err(_) => None,
+                Ok(tx_id_strs) => {
+                    let mut assert_commit_txids = [Txid::all_zeros(); COMMIT_TX_NUM];
+                    for i in 0..COMMIT_TX_NUM {
+                        let covert_res = Txid::from_str(&tx_id_strs[i]);
+                        if covert_res.is_err() {
+                            continue;
+                        }
+                        assert_commit_txids[i] = covert_res.unwrap();
+                    }
+                    Some(assert_commit_txids)
+                }
+            }
+        } else {
+            None
+        };
 
-    pub async fn get_initialized_graphs(
-        client: &BitVM2Client,
-    ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
-        // call L2 contract : getInitializedInstanceIds
-        // returns Vec<(instance_id, graph_id)>
-        Err("TODO".into())
+        Self {
+            instance_id: value.instance_id,
+            graph_id: value.graph_id,
+            msg_times: value.msg_times,
+            msg_type: value.msg_type,
+            kickoff_txid: tx_convert(value.kickoff_txid),
+            take1_txid: tx_convert(value.take1_txid),
+            take2_txid: tx_convert(value.take2_txid),
+            assert_init_txid: tx_convert(value.assert_init_txid),
+            assert_commit_txids,
+            assert_final_txid: tx_convert(value.assert_final_txid),
+            raw_data: value.raw_data,
+        }
     }
+}
 
-    pub async fn get_avaiable_graphs_by_status(
-        client: &BitVM2Client,
-        status: GraphStatus,
-    ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
-        // If instance corresponding to the graph has already been consumed, the graph is excluded.
-        // When a graph enters the take1/take2 status, mark its corresponding instance as consumed.
-        Err("TODO".into())
-    }
+pub async fn get_relayer_caring_graph_data(
+    client: &BitVM2Client,
+    status: GraphStatus,
+    msg_type: String,
+) -> Result<Vec<RelayerCaringGraphData>, Box<dyn std::error::Error>> {
+    // If instance corresponding to the graph has already been consumed, the graph is excluded.
+    // When a graph enters the take1/take2 status, mark its corresponding instance as consumed.
+    let mut storage_process = client.local_db.acquire().await?;
+    let meta_data = storage_process
+        .get_relayer_caring_graph_datas(status.to_string().as_str(), &msg_type)
+        .await?;
+    Ok(meta_data.into_iter().map(|v| v.into()).collect())
+}
 
-    pub async fn get_graph_kickoff_txid(
-        client: &BitVM2Client,
-        graph_id: Uuid,
-    ) -> Result<Txid, Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
+pub async fn get_message_broadcast_times(
+    client: &BitVM2Client,
+    instance_id: &Uuid,
+    graph_id: &Uuid,
+    msg_type: &str,
+) -> Result<i64, Box<dyn std::error::Error>> {
+    let mut storage_process = client.local_db.acquire().await?;
+    Ok(storage_process.get_message_broadcast_times(instance_id, graph_id, msg_type).await?)
+}
 
-    pub type AssertTxids = (Txid, [Txid; COMMIT_TX_NUM], Txid);
-    pub async fn get_graph_assert_txids(
-        client: &BitVM2Client,
-        graph_id: Uuid,
-    ) -> Result<AssertTxids, Box<dyn std::error::Error>> {
-        Err("TODO".into())
-    }
+pub async fn update_message_broadcast_times(
+    client: &BitVM2Client,
+    instance_id: &Uuid,
+    graph_id: &Uuid,
+    msg_type: &str,
+    msg_times: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut storage_process = client.local_db.acquire().await?;
+    Ok(storage_process
+        .update_message_broadcast_times(instance_id, graph_id, msg_type, msg_times)
+        .await?)
+}
+
+pub async fn get_initialized_graphs(
+    client: &BitVM2Client,
+) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
+    // call L2 contract : getInitializedInstanceIds
+    // returns Vec<(instance_id, graph_id)>
+    Ok(client.get_initialized_ids().await?)
 }
 
 pub async fn scan_bridge_in_prepare(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // scan bridge-in-prepare message & send CreateInstance message
-    Err("TODO".into())
+    let mut storage_process = client.local_db.acquire().await?;
+    let current_time =
+        std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let messages = storage_process
+        .filter_messages(
+            MessageType::BridgeInData.to_string(),
+            MessageState::Pending.to_string(),
+            current_time - MESSAGE_EXPIRE_TIME,
+        )
+        .await?;
+
+    let mut ids = vec![];
+    for message in messages {
+        let p2p_data: P2pUserData = serde_json::from_slice(&message.content)?;
+        let message_content = GOATMessageContent::CreateInstance(CreateInstance {
+            instance_id: p2p_data.instance_id,
+            network: p2p_data.network,
+            depositor_evm_address: p2p_data.depositor_evm_address,
+            pegin_amount: p2p_data.pegin_amount,
+            user_inputs: p2p_data.user_inputs,
+        });
+        send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
+        ids.push(message.id)
+    }
+
+    storage_process
+        .update_messages_state(&ids, MessageState::Processed.to_string(), current_time)
+        .await?;
+    storage_process.set_messages_expired(current_time).await?;
+    Ok(())
 }
 
 pub async fn scan_bridge_in(
-    swarm: &mut Swarm<AllBehaviours>,
+    _swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // scan bridge-in tx & relay to L2 contract: postPeginData & postOperatorData
-    Err("TODO".into())
+
+    let mut storage_process = client.local_db.acquire().await?;
+    let (instances, _) = storage_process
+        .instance_list(
+            None,
+            Some(BridgePath::BTCToPgBTC.to_u8()),
+            Some(BridgeInStatus::Presigned.to_string()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    for instance in instances {
+        if instance.pegin_txid.is_none() {
+            warn!("instance:{}, pegin txid is none", instance.instance_id);
+            continue;
+        }
+
+        if tx_on_chain(client, &Txid::from_str(instance.pegin_txid.unwrap().as_str())?).await? {
+            let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
+            if graphs.is_empty() {
+                warn!("instance {}, status is presigned, but graph is none", instance.instance_id);
+                continue;
+            }
+            if graphs[0].raw_data.is_none() {
+                warn!(
+                    "instance {}, status is presigned, but graph_id raw data is none",
+                    instance.instance_id
+                );
+                continue;
+            }
+            let bitvm_graph: Bitvm2Graph =
+                serde_json::from_str(&graphs[0].raw_data.clone().unwrap())?;
+            client.post_pegin_data(&instance.instance_id, bitvm_graph.pegin.tx()).await?;
+
+            for graph in graphs {
+                if graph.status != GraphStatus::CommitteePresigned.to_string() {
+                    continue;
+                }
+                match client.post_operate_data(&instance.instance_id, &graph.graph_id, &graph).await
+                {
+                    Ok(_) => {}
+                    Err(err) => {
+                        warn!("{} postOperatorData failed :err :{:?}", graph.graph_id, err)
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
+// tick_task1
 pub async fn scan_withdraw(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let graphs = todo_funcs::get_initialized_graphs(client).await?;
+    let graphs = get_initialized_graphs(client).await?;
     for (instance_id, graph_id) in graphs {
         let message_content =
             GOATMessageContent::KickoffReady(KickoffReady { instance_id, graph_id });
-        send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
-        // TODO: Avoid sending duplicate messages frequently
+        let msg_times = get_message_broadcast_times(
+            client,
+            &instance_id,
+            &graph_id,
+            &MessageType::KickoffReady.to_string(),
+        )
+        .await?;
+        if msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
+            send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
+            update_message_broadcast_times(
+                client,
+                &instance_id,
+                &graph_id,
+                &MessageType::KickoffReady.to_string(),
+                msg_times + 1,
+            )
+            .await?;
+        }
     }
-    Err("TODO".into())
+    Ok(())
 }
 
+// Tick-Task-2:
 pub async fn scan_kickoff(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let graphs =
-        todo_funcs::get_avaiable_graphs_by_status(client, GraphStatus::CommitteePresigned).await?;
-    for (instance_id, graph_id) in graphs {
-        let kickoff_txid = todo_funcs::get_graph_kickoff_txid(&client, graph_id).await?;
-        if tx_on_chain(client, &kickoff_txid).await? {
-            let message_content = GOATMessageContent::KickoffSent(KickoffSent {
-                instance_id,
-                graph_id,
-                kickoff_txid,
-            });
+    let graph_datas = get_relayer_caring_graph_data(
+        client,
+        GraphStatus::CommitteePresigned,
+        MessageType::KickoffSent.to_string(),
+    )
+    .await?;
+    for graph_data in graph_datas {
+        if graph_data.kickoff_txid.is_none() {
+            warn!("graph_id {}, kickoff txid is none", graph_data.graph_id);
+            continue;
+        }
+        let kickoff_txid = graph_data.kickoff_txid.unwrap();
+        if !tx_on_chain(client, &kickoff_txid).await? {
+            warn!("graph_id:{} kickoff:{:?} is not onchain ", graph_data.graph_id, kickoff_txid);
+            continue;
+        }
+        let instance_id = graph_data.instance_id;
+        let graph_id = graph_data.graph_id;
+        let message_content =
+            GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id, kickoff_txid });
+        if graph_data.msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-            // TODO: Avoid sending duplicate messages frequently
+            update_message_broadcast_times(
+                client,
+                &graph_data.instance_id,
+                &graph_data.graph_id,
+                &MessageType::KickoffSent.to_string(),
+                graph_data.msg_times + 1,
+            )
+            .await?;
+        }
+        if graph_data.msg_times == 0 {
+            if graph_data.raw_data.is_none() {
+                warn!(
+                    "instance_id:{}, graph_id:{} raw_data is none",
+                    graph_data.instance_id, graph_data.graph_id
+                );
+                continue;
+            }
+            let bitvm2_graph: Bitvm2Graph =
+                serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
+            client.process_withdraw(&graph_data.graph_id, bitvm2_graph.kickoff.tx()).await?;
+
+            update_graph_fields(
+                client,
+                graph_data.graph_id,
+                Some(GraphStatus::KickOff.to_string()),
+                None,
+                None,
+                None,
+            )
+            .await?
         }
     }
-    Err("TODO".into())
+    Ok(())
 }
 
+//Tick-Task-3:
 pub async fn scan_assert(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let graphs_a =
-        todo_funcs::get_avaiable_graphs_by_status(client, GraphStatus::Challenge).await?;
-    let graphs_b = todo_funcs::get_avaiable_graphs_by_status(client, GraphStatus::KickOff).await?; // in case challenger never broadcast ChallengeSent
-    let graphs = vec![graphs_a, graphs_b].concat();
-    for (instance_id, graph_id) in graphs {
-        let (assert_init_txid, assert_commit_txids, assert_final_txid) =
-            todo_funcs::get_graph_assert_txids(client, graph_id).await?;
-        if tx_on_chain(client, &assert_final_txid).await? {
+    let graphs_a = get_relayer_caring_graph_data(
+        client,
+        GraphStatus::Challenge,
+        MessageType::AssertSent.to_string(),
+    )
+    .await?;
+    let graphs_b = get_relayer_caring_graph_data(
+        client,
+        GraphStatus::KickOff,
+        MessageType::AssertSent.to_string(),
+    )
+    .await?; // in case challenger never broadcast ChallengeSent
+    let graph_datas = vec![graphs_a, graphs_b].concat();
+    for graph_data in graph_datas {
+        if graph_data.assert_final_txid.is_none()
+            | graph_data.assert_final_txid.is_none()
+            | graph_data.assert_commit_txids.is_none()
+        {
+            warn!(
+                "{}, has none field about assert txs,detail: assert_init_txid:{:?}, assert_commit_txids:{:?}, assert_final_txid:{:?}",
+                graph_data.graph_id,
+                graph_data.assert_init_txid,
+                graph_data.assert_commit_txids,
+                graph_data.assert_final_txid
+            );
+            continue;
+        }
+        if !tx_on_chain(client, &graph_data.assert_final_txid.unwrap()).await? {
+            warn!(
+                "{}, assert_final_txid:{:?} not on chain",
+                graph_data.graph_id, graph_data.assert_final_txid
+            );
+            continue;
+        }
+
+        if graph_data.msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
+            let instance_id = graph_data.instance_id;
+            let graph_id = graph_data.graph_id;
             let message_content = GOATMessageContent::AssertSent(AssertSent {
                 instance_id,
                 graph_id,
-                assert_init_txid,
-                assert_commit_txids,
-                assert_final_txid,
+                assert_init_txid: graph_data.assert_init_txid.unwrap(),
+                assert_commit_txids: graph_data.assert_commit_txids.unwrap(),
+                assert_final_txid: graph_data.assert_final_txid.unwrap(),
             });
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-            // TODO: Avoid sending duplicate messages frequently
+            update_message_broadcast_times(
+                client,
+                &graph_data.instance_id,
+                &graph_data.graph_id,
+                "AssertSent",
+                graph_data.msg_times + 1,
+            )
+            .await?;
+        }
+
+        if graph_data.msg_times == 0 {
+            update_graph_fields(
+                client,
+                graph_data.graph_id,
+                Some(GraphStatus::Assert.to_string()),
+                None,
+                None,
+                None,
+            )
+            .await?
         }
     }
-    Err("TODO".into())
+    Ok(())
 }
 
+//Tick-Task-4
 pub async fn scan_take1(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let graphs = todo_funcs::get_avaiable_graphs_by_status(client, GraphStatus::KickOff).await?;
+    let graph_datas = get_relayer_caring_graph_data(
+        client,
+        GraphStatus::KickOff,
+        MessageType::Take1Ready.to_string(),
+    )
+    .await?;
     let current_height = client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
-    for (instance_id, graph_id) in graphs {
-        let kickoff_txid = todo_funcs::get_graph_kickoff_txid(&client, graph_id).await?;
-        if let Some(kickoff_height) =
-            client.esplora.get_tx_status(&kickoff_txid).await?.block_height
-        {
-            if kickoff_height + lock_blocks > current_height {
-                let message_content =
-                    GOATMessageContent::Take1Ready(Take1Ready { instance_id, graph_id });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
-                // TODO: Avoid sending duplicate messages frequently
+    for graph_data in graph_datas {
+        let instance_id = graph_data.instance_id;
+        let graph_id = graph_data.graph_id;
+        if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
+            warn!("graph_id:{} take1 ready has send over max times", graph_id);
+            continue;
+        }
+        if graph_data.msg_times > 0 {
+            if graph_data.take1_txid.is_none() {
+                warn!("graph_id:{}, take1 txid is none", graph_id);
+                continue;
+            }
+            let take1_txid = graph_data.take1_txid.unwrap();
+            let take1_height = client.esplora.get_tx_status(&take1_txid).await?.block_height;
+            if take1_height.is_some() {
+                let bitvm2_graph: Bitvm2Graph =
+                    serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
+                match client.finish_withdraw_happy_path(&graph_id, bitvm2_graph.take1.tx()).await {
+                    Err(err) => {
+                        // other place will do finish_withdraw_happy_path too
+                        warn!(
+                            "scan_take1 at graph:{}, finish_withdraw_happy_path err:{:?}",
+                            graph_id, err
+                        );
+                    }
+                    Ok(()) => {
+                        update_graph_fields(
+                            client,
+                            graph_id,
+                            Some(GraphStatus::Take1.to_string()),
+                            None,
+                            None,
+                            None,
+                        )
+                        .await?;
+                    }
+                }
+            }
+        } else {
+            if graph_data.kickoff_txid.is_none() {
+                warn!("graph_id:{}, kickoff txid is none", graph_data.graph_id);
+                continue;
+            }
+            if let Some(kickoff_height) =
+                client.esplora.get_tx_status(&graph_data.kickoff_txid.unwrap()).await?.block_height
+            {
+                if kickoff_height + lock_blocks > current_height {
+                    let message_content =
+                        GOATMessageContent::Take1Ready(Take1Ready { instance_id, graph_id });
+                    send_to_peer(
+                        swarm,
+                        GOATMessage::from_typed(Actor::Operator, &message_content)?,
+                    )?;
+                    update_message_broadcast_times(
+                        client,
+                        &instance_id,
+                        &graph_id,
+                        &MessageType::Take1Ready.to_string(),
+                        graph_data.msg_times + 1,
+                    )
+                    .await?;
+                }
             }
         }
     }
-    Err("TODO".into())
+    Ok(())
 }
 
+//Tick-Task-5:
 pub async fn scan_take2(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let graphs = todo_funcs::get_avaiable_graphs_by_status(client, GraphStatus::Assert).await?;
+    let graph_datas = get_relayer_caring_graph_data(
+        client,
+        GraphStatus::Assert,
+        MessageType::Take2Ready.to_string(),
+    )
+    .await?;
     let current_height = client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
-    for (instance_id, graph_id) in graphs {
-        let (_, _, assert_final_txid) =
-            todo_funcs::get_graph_assert_txids(&client, graph_id).await?;
-        if let Some(assert_height) =
-            client.esplora.get_tx_status(&assert_final_txid).await?.block_height
-        {
-            if assert_height + lock_blocks > current_height {
-                let message_content =
-                    GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
-                // TODO: Avoid sending duplicate messages frequently
+    for graph_data in graph_datas {
+        let instance_id = graph_data.instance_id;
+        let graph_id = graph_data.graph_id;
+        if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
+            warn!("graph_id:{} take2 ready has send over max times", graph_id);
+            continue;
+        }
+        if graph_data.msg_times > 0 {
+            if graph_data.take2_txid.is_none() {
+                warn!("graph_id:{}, take2 txid is none", graph_id);
+                continue;
+            }
+            let take2_txid = graph_data.take2_txid.unwrap();
+            let take2_height = client.esplora.get_tx_status(&take2_txid).await?.block_height;
+            if take2_height.is_some() {
+                let bitvm2_graph: Bitvm2Graph =
+                    serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
+                match client.finish_withdraw_unhappy_path(&graph_id, bitvm2_graph.take2.tx()).await
+                {
+                    Err(err) => {
+                        // other place will do finish_unwithdraw_happy_path too
+                        warn!(
+                            "scan_take2 at graph:{}, finish_withdraw_unhappy_path err:{:?}",
+                            graph_data.graph_id, err
+                        );
+                    }
+                    Ok(()) => {
+                        update_graph_fields(
+                            client,
+                            graph_data.graph_id,
+                            Some(GraphStatus::Take2.to_string()),
+                            None,
+                            None,
+                            None,
+                        )
+                        .await?;
+                    }
+                }
+            }
+        } else {
+            if graph_data.assert_final_txid.is_none() {
+                warn!("graph_id:{}, assert_final txid  is none", graph_id);
+                continue;
+            }
+            if let Some(asset_final_height) = client
+                .esplora
+                .get_tx_status(&graph_data.assert_final_txid.unwrap())
+                .await?
+                .block_height
+            {
+                if asset_final_height + lock_blocks > current_height {
+                    let message_content =
+                        GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id });
+                    send_to_peer(
+                        swarm,
+                        GOATMessage::from_typed(Actor::Operator, &message_content)?,
+                    )?;
+                    update_message_broadcast_times(
+                        client,
+                        &instance_id,
+                        &graph_id,
+                        &MessageType::Take2Ready.to_string(),
+                        graph_data.msg_times + 1,
+                    )
+                    .await?;
+                }
             }
         }
     }
-    Err("TODO".into())
+    Ok(())
+}
+
+pub async fn do_tick_action(
+    swarm: &mut Swarm<AllBehaviours>,
+    client: &BitVM2Client,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Err(err) = scan_bridge_in_prepare(swarm, client).await {
+        warn!("scan_bridge_in_prepare, err {:?}", err)
+    }
+    if let Err(err) = scan_bridge_in(swarm, client).await {
+        warn!("scan_bridge_in, err {:?}", err)
+    }
+
+    if let Err(err) = scan_withdraw(swarm, client).await {
+        warn!("scan_withdraw, err {:?}", err)
+    }
+
+    if let Err(err) = scan_kickoff(swarm, client).await {
+        warn!("scan_kickoff, err {:?}", err)
+    }
+
+    if let Err(err) = scan_assert(swarm, client).await {
+        warn!("scan_assert, err {:?}", err)
+    }
+
+    if let Err(err) = scan_take1(swarm, client).await {
+        warn!("scan_take1, err {:?}", err)
+    }
+
+    if let Err(err) = scan_take2(swarm, client).await {
+        warn!("scan_take2, err {:?}", err)
+    }
+    Ok(())
 }

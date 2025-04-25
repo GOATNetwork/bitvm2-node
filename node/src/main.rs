@@ -255,7 +255,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 },
-                ticker = interval.tick() => {
+                _ticker = interval.tick() => {
                     // using a ticker to activate the handler of the asynchronous message in local database
                     let peer_id = local_key.public().to_peer_id();
                     let tick_data = serde_json::to_vec(&GOATMessage{
@@ -293,7 +293,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Kademlia(kad::Event::RoutingUpdated{ peer, addresses,..})) => {
-                        tracing::debug!("routing updated: {:?}", peer);
+                        tracing::debug!("routing updated: {:?}, addresses:{:?}", peer, addresses);
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Mdns(mdns::Event::Expired(list))) => {
                         tracing::debug!("expired: {:?}", list);

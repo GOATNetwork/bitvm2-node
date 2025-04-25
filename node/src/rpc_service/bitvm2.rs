@@ -64,9 +64,9 @@ pub struct InstanceListRequest {
 
 #[derive(Deserialize, Serialize, Default)]
 pub struct InstanceWrap {
-    pub instance: Instance,
-    pub utxo: Vec<UTXO>,
-    pub eta: String,
+    pub instance: Option<Instance>,
+    pub utxo: Option<Vec<UTXO>>,
+    pub eta: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Default)]
