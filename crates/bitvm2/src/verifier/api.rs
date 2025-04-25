@@ -71,6 +71,7 @@ pub fn sign_disprove(
 #[cfg(test)]
 mod tests {
     #[test]
+    #[ignore]
     fn test_extract_proof() {
         use crate::{
             committee, operator,

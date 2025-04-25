@@ -18,6 +18,8 @@ impl FromStr for Actor {
             "Committee" => Ok(Actor::Committee),
             "Operator" => Ok(Actor::Operator),
             "Challenger" => Ok(Actor::Challenger),
+            "Relayer" => Ok(Actor::Relayer),
+            "All" => Ok(Actor::All),
             _ => Err(()),
         }
     }

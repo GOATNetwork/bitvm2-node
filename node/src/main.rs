@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Create a Gosspipsub topic, we create 3 topics: committee, challenger, and operator
-    let topics = [Actor::Committee, Actor::Challenger, Actor::Operator]
+    let topics = [Actor::Committee, Actor::Challenger, Actor::Operator, Actor::Relayer, Actor::All]
         .iter()
         .map(|a| {
             let topic_name = a.to_string();
@@ -235,16 +235,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         select! {
                 // For testing only
                 Ok(Some(line)) = stdin.next_line() => {
-                    let commands = line.split(":").collect::<Vec<_>>();
-                    if commands.len() < 2 || commands[0].trim().is_empty() {
-                        println!("Message format: actor:message");
+                    let commands = match line.split_once(":") {
+                        Some((actor,msg)) => (actor.trim(),msg),
+                        _ => {
+                            println!("Message format: actor:message");
                         continue
-                    }
+                        }
+                    };
 
-                    if let Some(gossipsub_topic) = topics.get(commands[0]) {
+                    if let Some(gossipsub_topic) = topics.get(commands.0) {
                         let message = serde_json::to_vec(&GOATMessage{
-                            actor: Actor::from_str(commands[0]).unwrap(),
-                            content: commands[1].as_bytes().to_vec(),
+                            actor: Actor::from_str(commands.0).unwrap(),
+                            content: commands.1.as_bytes().to_vec(),
                         }).unwrap();
                         if let Err(e) = swarm
                             .behaviour_mut()
