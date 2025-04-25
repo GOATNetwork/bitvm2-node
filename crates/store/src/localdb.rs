@@ -10,6 +10,7 @@ use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::log::warn;
 
 #[derive(Clone)]
 pub struct LocalDB {
@@ -580,7 +581,14 @@ impl<'a> StorageProcessor<'a> {
         let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         if let Some(pubkey_collect) = pubkey_collect {
             let mut stored_pubkeys: Vec<String> = serde_json::from_str(&pubkey_collect.pubkeys)?;
+            let pre_len = stored_pubkeys.len();
             pubkeys.append(&mut stored_pubkeys);
+            pubkeys.sort();
+            pubkeys.dedup();
+            if pubkeys.len() == pre_len {
+                warn!("input pubkeys have been stored");
+                return Ok(());
+            }
             created_at = pubkey_collect.created_at;
         }
 
@@ -625,6 +633,25 @@ impl<'a> StorageProcessor<'a> {
         committee_pubkey: String,
         partial_sigs: &[[String; COMMITTEE_PRE_SIGN_NUM]],
     ) -> anyhow::Result<()> {
+        let merge_dedup_fn = |mut source: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
+                              mut input: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>|
+         -> (bool, Vec<[String; COMMITTEE_PRE_SIGN_NUM]>) {
+            if input.is_empty() {
+                return (false, source);
+            }
+            input = input
+                .into_iter()
+                .map(|mut v| {
+                    v.sort();
+                    v
+                })
+                .collect();
+            let pre_len = source.len();
+            source.append(&mut input);
+            source.sort();
+            source.dedup();
+            (source.len() > pre_len, source)
+        };
         let nonce_collect = sqlx::query_as!(
             NonceCollect ,
             "SELECT instance_id as \"instance_id:Uuid\", graph_id as \"graph_id:Uuid\",nonces, committee_pubkey, \
@@ -635,15 +662,36 @@ impl<'a> StorageProcessor<'a> {
         let mut partial_sigs = partial_sigs.to_owned();
         let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-        if let Some(nonce_collect) = nonce_collect {
-            let mut stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
-                serde_json::from_str(&nonce_collect.nonces)?;
-            let mut stored_sigs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
-                serde_json::from_str(&nonce_collect.partial_sigs)?;
-            nonces.append(&mut stored_nonces);
-            partial_sigs.append(&mut stored_sigs);
+        let (nonces, partial_sigs) = if let Some(nonce_collect) = nonce_collect {
             created_at = nonce_collect.created_at;
-        }
+            let stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
+                serde_json::from_str(&nonce_collect.nonces)?;
+            let stored_signs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
+                serde_json::from_str(&nonce_collect.partial_sigs)?;
+            let (update_nonce, nonces) = merge_dedup_fn(stored_nonces, nonces);
+            let (update_signs, partial_sigs) = merge_dedup_fn(stored_signs, partial_sigs);
+            if !(update_nonce || update_signs) {
+                warn!("nonces or partial_sigs have been stored");
+                return Ok(());
+            }
+            (nonces, partial_sigs)
+        } else {
+            nonces = nonces
+                .into_iter()
+                .map(|mut v| {
+                    v.sort();
+                    v
+                })
+                .collect();
+            partial_sigs = partial_sigs
+                .into_iter()
+                .map(|mut v| {
+                    v.sort();
+                    v
+                })
+                .collect();
+            (nonces, partial_sigs)
+        };
 
         let nonce_str = serde_json::to_string(&nonces)?;
         let signs_str = serde_json::to_string(&partial_sigs)?;
