@@ -451,7 +451,12 @@ pub async fn should_challenge(
         (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
     );
     let total_effective_balance: Amount =
-        utxos.iter().map(|utxo| utxo.value - utxo_spent_fee).sum();
+        utxos
+            .iter()
+            .map(|utxo| {
+                if utxo.value > utxo_spent_fee { utxo.value - utxo_spent_fee } else { Amount::ZERO }
+            })
+            .sum();
     Ok(total_effective_balance > challenge_amount)
 }
 
