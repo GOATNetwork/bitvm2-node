@@ -21,8 +21,5 @@ CREATE TABLE graph
     `raw_data`            TEXT,
     `created_at`          BIGINT          NOT NULL DEFAULT 0,
     `updated_at`          BIGINT          NOT NULL DEFAULT 0,
-    PRIMARY KEY (`graph_id`),
-    FOREIGN KEY (instance_id) REFERENCES instance (instance_id)
-        ON DELETE CASCADE
-        ON UPDATE CASCADE
+    PRIMARY KEY (`graph_id`)
 );
