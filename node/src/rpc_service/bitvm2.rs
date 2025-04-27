@@ -41,7 +41,7 @@ pub struct BridgeInTransactionPreparerRequest {
 pub struct BridgeInTransactionPrepareResponse {}
 
 #[derive(Debug, Deserialize)]
-pub struct GraphPresignCheckRequest {
+pub struct GraphPresignCheckParams {
     pub instance_id: String,
 }
 

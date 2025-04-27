@@ -398,12 +398,7 @@ mod tests {
 
         info!("=====>test api:graph_presign_check");
         let resp = client
-            .get(format!("http://{}/v1/graphs/presign_check", addr))
-            .json(&json!(
-                {
-                   "instance_id": instance_id,
-                }
-            ))
+            .get(format!("http://{}/v1/graphs/presign_check?instance_id={}", addr, instance_id))
             .send()
             .await?;
         assert!(resp.status().is_success());

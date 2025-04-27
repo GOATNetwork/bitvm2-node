@@ -72,18 +72,18 @@ pub async fn bridge_in_tx_prepare(
 
 #[axum::debug_handler]
 pub async fn graph_presign_check(
+    Query(params) :Query<GraphPresignCheckParams>,
     State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GraphPresignCheckRequest>,
 ) -> (StatusCode, Json<GraphPresignCheckResponse>) {
     let resp = GraphPresignCheckResponse {
-        instance_id: payload.instance_id.to_string(),
+        instance_id: params.instance_id.to_string(),
         instance_status: BridgeInStatus::Submitted.to_string(),
         graph_status: HashMap::new(),
         tx: None,
     };
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
-        let instance_id = Uuid::parse_str(&payload.instance_id)?;
+        let instance_id = Uuid::parse_str(&params.instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let instance = storage_process.get_instance(&instance_id).await?;
         resp_clone.instance_status = instance.status.clone();
