@@ -120,6 +120,7 @@ pub struct GraphUpdateResponse {}
 pub struct GraphQueryParams {
     pub status: Option<String>,
     pub operator: Option<String>,
+    pub from_addr: Option<String>,
     pub pegin_txid: Option<String>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,

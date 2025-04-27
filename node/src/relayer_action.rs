@@ -197,6 +197,21 @@ pub async fn scan_bridge_in(
         }
 
         if tx_on_chain(client, &Txid::from_str(instance.pegin_txid.unwrap().as_str())?).await? {
+            let update_res = storage_process
+                .update_instance_status_and_pegin_txid(
+                    &instance.instance_id,
+                    Some(BridgeInStatus::L1Broadcasted.to_string()),
+                    None,
+                )
+                .await;
+            if let Err(err) = update_res {
+                warn!(
+                    "instance {} update state to L1Broadcasted failed err:{:?} ,will try latter",
+                    instance.instance_id, err
+                );
+                continue;
+            }
+
             let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
             if graphs.is_empty() {
                 warn!("instance {}, status is presigned, but graph is none", instance.instance_id);
@@ -214,6 +229,7 @@ pub async fn scan_bridge_in(
             client.post_pegin_data(&instance.instance_id, bitvm_graph.pegin.tx()).await?;
 
             for graph in graphs {
+                // TODO fix later
                 if graph.status != GraphStatus::CommitteePresigned.to_string() {
                     continue;
                 }
@@ -224,6 +240,13 @@ pub async fn scan_bridge_in(
                         warn!("{} postOperatorData failed :err :{:?}", graph.graph_id, err)
                     }
                 }
+                storage_process
+                    .update_instance_status_and_pegin_txid(
+                        &instance.instance_id,
+                        Some(BridgeInStatus::L2Minted.to_string()),
+                        None,
+                    )
+                    .await?;
             }
         }
     }

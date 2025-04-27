@@ -302,6 +302,7 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         status: Option<String>,
         operator: Option<String>,
+        from_addr: Option<String>,
         pegin_txid: Option<String>,
         offset: Option<u32>,
         limit: Option<u32>,
@@ -317,6 +318,11 @@ impl<'a> StorageProcessor<'a> {
          INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
             .to_string();
 
+        if let Some(from_addr) = from_addr {
+            graph_query_str = format!("{graph_query_str} AND instance.from_addr  =\'{from_addr}\'");
+            graph_count_str = format!("{graph_count_str} AND instance.from_addr  =\'{from_addr}\'");
+        }
+
         let mut conditions: Vec<String> = vec![];
 
         if let Some(status) = status {
@@ -331,8 +337,8 @@ impl<'a> StorageProcessor<'a> {
 
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
-            graph_query_str = format!("{} WHERE {}", graph_query_str, condition_str);
-            graph_count_str = format!("{} WHERE {}", graph_count_str, condition_str);
+            graph_query_str = format!("{graph_query_str} WHERE {condition_str}");
+            graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
 
         if let Some(limit) = limit {

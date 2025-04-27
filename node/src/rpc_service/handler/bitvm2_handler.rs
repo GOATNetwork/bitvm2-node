@@ -364,6 +364,7 @@ pub async fn get_graphs(
             .filter_graphs(
                 params.status,
                 params.operator,
+                params.from_addr,
                 params.pegin_txid,
                 params.offset,
                 params.limit,

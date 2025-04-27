@@ -383,11 +383,7 @@ mod tests {
         //
         info!("=====>test api:get_graphs");
         let resp = client
-            .get(format!("http://{}/v1/graphs?offset=0&limit=1", addr))
-            .json(&json!({
-                "status": graph_state,
-                "pegin_txid":pegin_tx
-            }))
+            .get(format!("http://{}/v1/graphs?from_addr={}&offset=0&limit=10", addr, from_addr))
             .send()
             .await?;
         assert!(resp.status().is_success());

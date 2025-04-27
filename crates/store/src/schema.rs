@@ -65,18 +65,21 @@ impl std::fmt::Display for BridgeInStatus {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BridgeOutStatus {
-    #[default]
-    L2Locked,
-    L1Locked,
-    L1Unlocked,
-    L2Unlocked,    // success
-    L2LockTimeout, // L2Locked -> L2 timeout (operator is offline)
-    L1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
-    L1Refunded,
-    L2Refunded,
-    Failed,
+    //TODO
+    Take1,
+    Take2,
+    // #[default]
+    // L2Locked,
+    // L1Locked,
+    // L1Unlocked,
+    // L2Unlocked,    // success
+    // L2LockTimeout, // L2Locked -> L2 timeout (operator is offline)
+    // L1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
+    // L1Refunded,
+    // L2Refunded,
+    // Failed,
 }
 
 impl std::fmt::Display for BridgeOutStatus {
