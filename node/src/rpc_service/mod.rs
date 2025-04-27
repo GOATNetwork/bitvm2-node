@@ -16,9 +16,7 @@ use axum::{
     Router, middleware,
     routing::{get, post},
 };
-use bitcoin::Network;
 use bitvm2_lib::actors::Actor;
-use client::chain::chain_adaptor::GoatNetwork;
 use client::client::BitVM2Client;
 use http::{HeaderMap, Method, StatusCode};
 use http_body_util::BodyExt;
