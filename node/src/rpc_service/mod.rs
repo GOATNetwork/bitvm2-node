@@ -175,7 +175,7 @@ async fn print_req_and_resp_detail(
     let (parts, body) = req.into_parts();
     let bytes = body.collect().await.unwrap().to_bytes();
     if !bytes.is_empty() {
-        print_str = format!("{} {}", print_str, String::from_utf8_lossy(&bytes));
+        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
     }
     tracing::info!("{}", print_str);
     let req = Request::from_parts(parts, axum::body::Body::from(bytes));
@@ -185,7 +185,7 @@ async fn print_req_and_resp_detail(
     let (parts, body) = resp.into_parts();
     let bytes = body.collect().await.unwrap().to_bytes();
     if !bytes.is_empty() {
-        print_str = format!("{} {}", print_str, String::from_utf8_lossy(&bytes));
+        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
     }
     tracing::info!("{}", print_str);
     Ok(Response::from_parts(parts, axum::body::Body::from(bytes)))
@@ -236,7 +236,7 @@ mod tests {
         let node_peer = "ddsdssccfsffsafafafa";
         info!("=====>test api: create node");
         let resp = client
-            .post(format!("http://{}/v1/nodes", addr))
+            .post(format!("http://{addr}/v1/nodes"))
             .json(&json!({
                 "peer_id": node_peer,
                 "actor": "Challenger",
@@ -248,33 +248,30 @@ mod tests {
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api: get node");
-        let resp = client.get(format!("http://{}/v1/nodes/{}", addr, node_peer)).send().await?;
+        let resp = client.get(format!("http://{addr}/v1/nodes/{node_peer}")).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api: get nodes");
         let resp = client
-            .get(format!(
-                "http://{}/v1/nodes?actor=Committee&status=Offline&offset=0&limit=5",
-                addr
-            ))
+            .get(format!("http://{addr}/v1/nodes?actor=Committee&status=Offline&offset=0&limit=5"))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api: get nodes overview");
-        let resp = client.get(format!("http://{}/v1/nodes/overview", addr)).send().await?;
+        let resp = client.get(format!("http://{addr}/v1/nodes/overview")).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         Ok(())
     }
@@ -297,15 +294,15 @@ mod tests {
         let client = reqwest::Client::new();
 
         info!("=====>test api:/v1/instances/settings");
-        let resp = client.get(format!("http://{}/v1/instances/settings", addr)).send().await?;
+        let resp = client.get(format!("http://{addr}/v1/instances/settings")).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api: test_bridge_in_tx_prepare");
         let resp = client
-            .post(format!("http://{}/v1/instances/action/bridge_in_tx_prepare", addr))
+            .post(format!("http://{addr}/v1/instances/action/bridge_in_tx_prepare"))
             .json(&json!({
                 "instance_id": instance_id,
                 "network": "testnet",
@@ -331,37 +328,34 @@ mod tests {
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api: get_instances");
-        let resp = client
-            .get(format!("http://{}/v1/instances/{}", addr, instance_id))
-            .send()
-            .await
-            .expect("");
+        let resp =
+            client.get(format!("http://{addr}/v1/instances/{instance_id}")).send().await.expect("");
         assert!(resp.status().is_success());
         let res_body = resp.text().await.unwrap();
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api: get_instances_with_query_params");
         let resp = client
-            .get(format!("http://{}/v1/instances?from_addr={}&offset=0&limit=5", addr, from_addr))
+            .get(format!("http://{addr}/v1/instances?from_addr={from_addr}&offset=0&limit=5"))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api: instance overview");
-        let resp = client.get(format!("http://{}/v1/instances/overview", addr)).send().await?;
+        let resp = client.get(format!("http://{addr}/v1/instances/overview")).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         let graph_state = "OperatorPresigned";
         info!("=====>test api:update_graphs");
         let resp = client
-            .put(format!("http://{}/v1/graphs/{}", addr, graph_id))
+            .put(format!("http://{addr}/v1/graphs/{graph_id}"))
             .json(&json!({
                 "graph":{
                     "graph_id": graph_id,
@@ -379,31 +373,31 @@ mod tests {
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
         //
         info!("=====>test api:get_graphs");
         let resp = client
-            .get(format!("http://{}/v1/graphs?from_addr={}&offset=0&limit=10", addr, from_addr))
+            .get(format!("http://{addr}/v1/graphs?from_addr={from_addr}&offset=0&limit=10"))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api:get_graph");
-        let resp = client.get(format!("http://{}/v1/graphs/{}", addr, graph_id)).send().await?;
+        let resp = client.get(format!("http://{addr}/v1/graphs/{graph_id}")).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
 
         info!("=====>test api:graph_presign_check");
         let resp = client
-            .get(format!("http://{}/v1/graphs/presign_check?instance_id={}", addr, instance_id))
+            .get(format!("http://{addr}/v1/graphs/presign_check?instance_id={instance_id}"))
             .send()
             .await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
-        info!("Post Response: {}", res_body);
+        info!("Post Response: {res_body}");
         Ok(())
     }
 }

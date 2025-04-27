@@ -37,7 +37,7 @@ pub struct Instance {
     pub from_addr: String,
     pub to_addr: String,
     pub amount: i64,    // in sat
-    pub status: String, // BridgeInStatus | BridgeOutStatus
+    pub status: String, // BridgeInStatus
     pub goat_txid: String,
     pub btc_txid: String,
     pub pegin_txid: Option<String>,
@@ -65,29 +65,6 @@ impl std::fmt::Display for BridgeInStatus {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BridgeOutStatus {
-    //TODO
-    Take1,
-    Take2,
-    // #[default]
-    // L2Locked,
-    // L1Locked,
-    // L1Unlocked,
-    // L2Unlocked,    // success
-    // L2LockTimeout, // L2Locked -> L2 timeout (operator is offline)
-    // L1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
-    // L1Refunded,
-    // L2Refunded,
-    // Failed,
-}
-
-impl std::fmt::Display for BridgeOutStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
 /// graph status
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub enum GraphStatus {
@@ -100,7 +77,7 @@ pub enum GraphStatus {
     Take1,
     Take2,
     Disprove,   // fail to reimbursement
-    Deprecated, // reimbursement by other operators
+    Reimbursed, // reimbursement by other operators
 }
 
 impl FromStr for GraphStatus {
@@ -115,7 +92,7 @@ impl FromStr for GraphStatus {
             "Take1" => Ok(GraphStatus::Take1),
             "Take2" => Ok(GraphStatus::Take2),
             "Disprove" => Ok(GraphStatus::Disprove),
-            "Deprecated" => Ok(GraphStatus::Deprecated),
+            "Reimbursed" => Ok(GraphStatus::Reimbursed),
             _ => Err(()),
         }
     }
@@ -224,7 +201,7 @@ impl GrapRpcQueryData {
             GraphStatus::Take1 => Ok((self.take1_txid.clone(), 6)),
             GraphStatus::Take2 => Ok((self.take2_txid.clone(), 6)),
             GraphStatus::Disprove => Ok((self.disprove_txid.clone(), 6)),
-            GraphStatus::Deprecated => Err("graph deprecated".to_string()),
+            GraphStatus::Reimbursed => Err("graph deprecated".to_string()),
         }
     }
 }

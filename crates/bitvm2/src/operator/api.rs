@@ -125,7 +125,7 @@ pub fn generate_partial_scripts(ark_vkey: &VerifyingKey) -> Vec<Script> {
 }
 
 pub fn generate_disprove_scripts(
-    partial_scripts: &Vec<Script>,
+    partial_scripts: &[Script],
     wots_pubkeys: &WotsPublicKeys,
 ) -> Vec<Script> {
     api_generate_full_tapscripts(*wots_pubkeys.1, partial_scripts)

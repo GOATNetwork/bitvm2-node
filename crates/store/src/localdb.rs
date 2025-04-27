@@ -39,7 +39,7 @@ impl LocalDB {
             tracing::info!("Creating database {}", path);
             match Sqlite::create_database(path).await {
                 Ok(_) => println!("Create db success"),
-                Err(error) => panic!("error: {}", error),
+                Err(error) => panic!("error: {error}"),
             }
         } else {
             tracing::info!("Database already exists");
@@ -53,7 +53,7 @@ impl LocalDB {
         match MIGRATOR.run(&self.conn).await {
             Ok(_) => tracing::info!("Migration success"),
             Err(error) => {
-                panic!("error: {}", error);
+                panic!("error: {error:?}");
             }
         }
     }
@@ -326,13 +326,13 @@ impl<'a> StorageProcessor<'a> {
         let mut conditions: Vec<String> = vec![];
 
         if let Some(status) = status {
-            conditions.push(format!("status = \'{status}\'"));
+            conditions.push(format!("graph.status = \'{status}\'"));
         }
         if let Some(operator) = operator {
-            conditions.push(format!("operator = \'{operator}\'"));
+            conditions.push(format!("graph.operator = \'{operator}\'"));
         }
         if let Some(pegin_txid) = pegin_txid {
-            conditions.push(format!("pegin_txid = \'{pegin_txid}\'"));
+            conditions.push(format!("graph.pegin_txid = \'{pegin_txid}\'"));
         }
 
         if !conditions.is_empty() {
@@ -405,10 +405,10 @@ impl<'a> StorageProcessor<'a> {
         let mut nodes_count_str = "SELECT count(*) as total_nodes FROM node".to_string();
         let mut conditions: Vec<String> = vec![];
         if let Some(actor) = actor {
-            conditions.push(format!("actor = \'{}\'", actor));
+            conditions.push(format!("actor = \'{actor}\'"));
         }
         if let Some(goat_addr) = goat_addr {
-            conditions.push(format!("goat_addr = \'{}\'", goat_addr));
+            conditions.push(format!("goat_addr = \'{goat_addr}\'"));
         }
         if let Some(status_expect) = status_expect {
             match status_expect.as_str() {

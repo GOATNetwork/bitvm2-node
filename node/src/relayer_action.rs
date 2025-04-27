@@ -351,20 +351,20 @@ pub async fn scan_assert(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let graphs_a = get_relayer_caring_graph_data(
+    let mut graphs = get_relayer_caring_graph_data(
         client,
         GraphStatus::Challenge,
         MessageType::AssertSent.to_string(),
     )
     .await?;
-    let graphs_b = get_relayer_caring_graph_data(
+    let mut graphs_kickoff = get_relayer_caring_graph_data(
         client,
         GraphStatus::KickOff,
         MessageType::AssertSent.to_string(),
     )
     .await?; // in case challenger never broadcast ChallengeSent
-    let graph_datas = vec![graphs_a, graphs_b].concat();
-    for graph_data in graph_datas {
+    graphs.append(&mut graphs_kickoff);
+    for graph_data in graphs {
         if graph_data.assert_final_txid.is_none()
             | graph_data.assert_final_txid.is_none()
             | graph_data.assert_commit_txids.is_none()

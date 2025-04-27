@@ -13,6 +13,7 @@ pub const BTC_MAIN: &str = "bitcoin";
 pub const BTC_TEST_BLOCK_INTERVAL: u32 = 10;
 pub const BTC_MAIN_BLOCK_INTERVAL: u32 = 10;
 // the input to our `create_user` handler
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct UTXO {
     pub txid: String,

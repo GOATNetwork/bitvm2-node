@@ -28,7 +28,7 @@ pub(crate) async fn metrics_server(registry: Registry) -> Result<(), std::io::Er
     let server = Router::new().route("/metrics", get(respond_with_metrics)).with_state(service);
     let tcp_listener = TcpListener::bind(addr).await?;
     let local_addr = tcp_listener.local_addr()?;
-    tracing::info!(metrics_server=%format!("http://{}/metrics", local_addr));
+    tracing::info!(metrics_server=%format!("http://{local_addr}/metrics"));
     axum::serve(tcp_listener, server.into_make_service()).await?;
     Ok(())
 }

@@ -105,13 +105,13 @@ impl MMRHost {
 
     /// Verifies an inclusion proof against the current MMR root.
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        println!("NATIVE: inclusion_proof: {:?}", mmr_proof);
-        println!("NATIVE: leaf: {:?}", leaf);
-        let subroot = mmr_proof.get_subroot(leaf);
-        println!("NATIVE: calculated_subroot: {:?}", subroot);
-        let subroots = self.get_subroots();
-        println!("NATIVE: subroots: {:?}", subroots);
-        subroots[mmr_proof.subroot_idx] == subroot
+        println!("NATIVE: inclusion_proof: {mmr_proof:?}");
+        println!("NATIVE: leaf: {leaf:?}");
+        let sub_root = mmr_proof.get_subroot(leaf);
+        println!("NATIVE: calculated_sub_root: {sub_root:?}");
+        let sub_roots = self.get_subroots();
+        println!("NATIVE: sub_roots: {sub_roots:?}");
+        sub_roots[mmr_proof.subroot_idx] == sub_root
     }
 }
 
@@ -175,8 +175,8 @@ impl MMRGuest {
 
     /// Verifies an inclusion proof against the current MMR root
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        println!("GUEST: mmr_proof: {:?}", mmr_proof);
-        println!("GUEST: leaf: {:?}", leaf);
+        println!("GUEST: mmr_proof: {mmr_proof:?}");
+        println!("GUEST: leaf: {leaf:?}");
         let mut current_hash = leaf;
         for i in 0..mmr_proof.inclusion_proof.len() {
             let sibling = mmr_proof.inclusion_proof[i];
@@ -186,8 +186,8 @@ impl MMRGuest {
                 current_hash = hash_pair(sibling, current_hash);
             }
         }
-        println!("GUEST: calculated subroot: {:?}", current_hash);
-        println!("GUEST: subroots: {:?}", self.subroots);
+        println!("GUEST: calculated sub_root: {current_hash:?}",);
+        println!("GUEST: sub_roots: {:?}", self.subroots);
         self.subroots[mmr_proof.subroot_idx] == current_hash
     }
 }
@@ -244,22 +244,23 @@ mod tests {
             let subroots_native = mmr_native.get_subroots();
             let subroots_guest = mmr_guest.subroots.clone();
             assert_eq!(
-                subroots_native, subroots_guest,
-                "Subroots do not match after adding leaf {}",
-                i
+                subroots_native,
+                subroots_guest,
+                "{}",
+                format_args!("Subroots do not match after adding leaf {i}")
             );
 
             for j in 0..=i {
                 let (leaf, mmr_proof) = mmr_native.generate_proof(j);
                 assert!(
                     mmr_native.verify_proof(leaf, &mmr_proof),
-                    "Failed to verify proof for leaf {} in native MMR",
-                    j
+                    "{}",
+                    format_args!("Failed to verify proof for leaf {j} in native MMR")
                 );
                 assert!(
                     mmr_guest.verify_proof(leaf, &mmr_proof),
-                    "Failed to verify proof for leaf {} in guest MMR",
-                    j
+                    "{}",
+                    format_args!("Failed to verify proof for leaf {j} in guest MMR")
                 );
             }
         }

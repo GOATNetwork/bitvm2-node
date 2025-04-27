@@ -41,9 +41,7 @@ fn e2e_test() {
     let operator_sk = PrivateKey::new(operator_keypair.secret_key(), network);
     let operator_pubkey = PublicKey::from_private_key(SECP256K1, &operator_sk);
 
-    let mut committee_pubkeys: Vec<PublicKey> = Vec::new();
-    committee_pubkeys.push(verifier_0_public_key);
-    committee_pubkeys.push(verifier_1_public_key);
+    let committee_pubkeys: Vec<PublicKey> = vec![verifier_0_public_key, verifier_1_public_key];
     let (committee_agg_pubkey, _) = generate_n_of_n_public_key(&committee_pubkeys);
 
     let (operator_wots_seckeys, operator_wots_pubkeys) =

@@ -23,13 +23,13 @@ pub fn check_pegin_opreturn(network: &Network, script: &Script) -> bool {
                 return true;
             }
             Ok(opcode) => {
-                println!("Opcode: {:?}", opcode);
+                println!("Opcode: {opcode:?}");
                 if opcode != Instruction::Op(OP_RETURN) {
                     return false;
                 }
             }
             Err(e) => {
-                println!("Script parsing error: {:?}", e);
+                println!("Script parsing error: {e:?}");
                 return false;
             }
         }

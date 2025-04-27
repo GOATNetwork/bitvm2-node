@@ -256,7 +256,7 @@ pub mod node_serializer {
             let (min, max) = (0, NUM_PUBS);
             for i in min..max {
                 let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
-                    serde::de::Error::custom(format!("Missing groth16pk.pub.[{}]", i))
+                    serde::de::Error::custom(format!("Missing groth16pk.pub.[{i}]"))
                 })?;
 
                 if v.len() != W256_LEN {
@@ -270,9 +270,7 @@ pub mod node_serializer {
                     })?;
                 }
 
-                pk0.push(res.try_into().map_err(|_| {
-                    serde::de::Error::custom("Failed to convert to wots256::PublicKey")
-                })?);
+                pk0.push(res);
             }
             let pk0: [wots256::PublicKey; NUM_PUBS] = pk0
                 .try_into()
@@ -282,7 +280,7 @@ pub mod node_serializer {
             let (min, max) = (max, max + NUM_U256);
             for i in min..max {
                 let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
-                    serde::de::Error::custom(format!("Missing groth16pk.wot256.[{}]", i))
+                    serde::de::Error::custom(format!("Missing groth16pk.wot256.[{i}]"))
                 })?;
 
                 if v.len() != W256_LEN {
@@ -296,9 +294,7 @@ pub mod node_serializer {
                     })?;
                 }
 
-                pk1.push(res.try_into().map_err(|_| {
-                    serde::de::Error::custom("Failed to convert to wots256::PublicKey")
-                })?);
+                pk1.push(res);
             }
             let pk1: [wots256::PublicKey; NUM_U256] = pk1
                 .try_into()
@@ -308,7 +304,7 @@ pub mod node_serializer {
             let (min, max) = (max, max + NUM_HASH);
             for i in min..max {
                 let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
-                    serde::de::Error::custom(format!("Missing groth16pk.wothash.[{}]", i))
+                    serde::de::Error::custom(format!("Missing groth16pk.wothash.[{i}]"))
                 })?;
 
                 if v.len() != WHASH_LEN {
@@ -322,9 +318,7 @@ pub mod node_serializer {
                     })?;
                 }
 
-                pk2.push(res.try_into().map_err(|_| {
-                    serde::de::Error::custom("Failed to convert to wots_hash::PublicKey")
-                })?);
+                pk2.push(res);
             }
             let pk2: [wots_hash::PublicKey; NUM_HASH] = pk2
                 .try_into()
@@ -333,9 +327,9 @@ pub mod node_serializer {
             let mut pk_kickoff: Vec<WinternitzPublicKey> = vec![];
             let (min, max) = (max, max + NUM_KICKOFF);
             for i in min..max {
-                let v = pubkeys_map.get(&(i as u32)).ok_or_else(|| {
-                    serde::de::Error::custom(format!("Missing kickoff_pk.[{}]", i))
-                })?;
+                let v = pubkeys_map
+                    .get(&(i as u32))
+                    .ok_or_else(|| serde::de::Error::custom(format!("Missing kickoff_pk.[{i}]")))?;
 
                 if v.len() != NUM_KICKOFF {
                     return Err(serde::de::Error::custom("Invalid kickoff wots public-key number"));
@@ -343,7 +337,7 @@ pub mod node_serializer {
 
                 for (j, pk_bytes) in v.iter().enumerate() {
                     let pk = bincode::deserialize(pk_bytes).map_err(|e| {
-                        serde::de::Error::custom(format!("Invalid kickoff_pk[{}]: {}", j, e))
+                        serde::de::Error::custom(format!("Invalid kickoff_pk[{j}]: {e}"))
                     })?;
                     pk_kickoff.push(pk);
                 }

@@ -34,7 +34,7 @@ pub async fn fetch_block(cli: &AsyncClient, block_hei: u32) -> Result<Block> {
 pub async fn check_pegin_tx(
     cli: &AsyncClient,
     network: &Network,
-    blocks: &Vec<Block>,
+    blocks: &[Block],
     pegin_txid: &str,
 ) -> Result<bool> {
     let txid = pegin_txid.parse()?;

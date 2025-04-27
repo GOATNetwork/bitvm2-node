@@ -110,15 +110,11 @@ impl IPFS {
         let response = self.client.post(url).multipart(form).send().await?;
         if response.status().is_success() {
             let response_body = response.text().await?;
-            println!("add: {:?}", response_body);
-
+            println!("add: {response_body:?}");
             let shares = response_body.trim().split("\n").collect::<Vec<_>>();
-
-            println!("add: {:?}", shares);
-
+            println!("add: {shares:?}");
             let added_files =
                 shares.iter().map(|f| serde_json::from_str(f).unwrap()).collect::<Vec<AddedFile>>();
-
             Ok(added_files)
         } else {
             bail!("IPFS upload failed, {:?}", response)
@@ -140,17 +136,17 @@ pub mod tests {
         match client.cat("QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH/assert-commit0.hex").await
         {
             Ok(res) => {
-                println!("cat: {:?}", res);
+                println!("cat: {res}",);
             }
-            Err(e) => panic!("{}", e),
+            Err(e) => panic!("{e:?}"),
         }
 
         // list directory
         match client.ls("QmXxwbk8eA2bmKBy7YEjm5w1zKiG7g6ebF1JYfqWvnLnhH").await {
             Ok(res) => {
-                println!("ls: {:?}", res);
+                println!("ls: {res:?}");
             }
-            Err(e) => panic!("{}", e),
+            Err(e) => panic!("{e:?}"),
         }
 
         // it works, but skip for avoiding creating too much garbage

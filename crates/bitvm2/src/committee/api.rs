@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 
 pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;
 
-pub fn key_aggregation(pubkeys: &Vec<PublicKey>) -> PublicKey {
+pub fn key_aggregation(pubkeys: &[PublicKey]) -> PublicKey {
     generate_n_of_n_public_key(pubkeys).0
 }
 

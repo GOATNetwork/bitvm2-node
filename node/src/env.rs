@@ -73,18 +73,15 @@ pub fn get_committee_member_num() -> usize {
 
 pub fn get_bitvm2_client_config() -> GoatInitConfig {
     let rpc_url_str = std::env::var(ENV_GOAT_CHAIN_URL)
-        .unwrap_or_else(|_| panic!("Failed to read {} variable", ENV_GOAT_CHAIN_URL));
-    let gateway_address_str =
-        std::env::var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS).unwrap_or_else(|_| {
-            panic!("Failed to read {} variable", ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
-        });
-    let gateway_creation = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_CREATION).unwrap_or_else(|_| {
-        panic!("Failed to read {} variable", ENV_GOAT_GATEWAY_CONTRACT_CREATION)
-    });
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_CHAIN_URL} variable"));
+    let gateway_address_str = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_ADDRESS} variable"));
+    let gateway_creation = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_CREATION)
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_CREATION} variable"));
     let to_block = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK);
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let chain_id = std::env::var(ENV_GOAT_CHAIN_ID)
-        .unwrap_or_else(|_| panic!("Failed to read {} variable", ENV_GOAT_CHAIN_ID));
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_CHAIN_ID} variable"));
 
     let rpc_url = rpc_url_str.parse::<Url>();
     let gateway_address = gateway_address_str.parse::<EvmAddress>();

@@ -72,7 +72,7 @@ pub async fn bridge_in_tx_prepare(
 
 #[axum::debug_handler]
 pub async fn graph_presign_check(
-    Query(params) :Query<GraphPresignCheckParams>,
+    Query(params): Query<GraphPresignCheckParams>,
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<GraphPresignCheckResponse>) {
     let resp = GraphPresignCheckResponse {
@@ -176,7 +176,7 @@ async fn get_tx_eta(
         confirm_num
     };
     if blocks_pass >= confirm_num {
-        Ok("Est.complited".to_string())
+        Ok("Est.completed".to_string())
     } else {
         Ok(format!("Est. wait for {} mins", (confirm_num - blocks_pass) * interval))
     }

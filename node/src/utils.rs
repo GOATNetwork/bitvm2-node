@@ -224,7 +224,7 @@ pub async fn get_fee_rate(client: &BitVM2Client) -> Result<f64, Box<dyn std::err
     let res = client.esplora.get_fee_estimates().await?;
     Ok(*res
         .get(&DEFAULT_CONFIRMATION_TARGET)
-        .ok_or(format!("fee for {} confirmation target not found", DEFAULT_CONFIRMATION_TARGET))?)
+        .ok_or(format!("fee for {DEFAULT_CONFIRMATION_TARGET} confirmation target not found"))?)
 }
 
 /// Broadcasts a raw transaction to the Bitcoin network using the mempool API.
@@ -315,11 +315,11 @@ pub async fn complete_and_broadcast_challenge_tx(
                     value: challenge_amount,
                 });
             };
-            for i in 0..inputs.len() {
+            for (i, input) in inputs.iter().enumerate() {
                 node_sign(
                     &mut challenge_tx,
                     i + 1,
-                    inputs[i].amount,
+                    input.amount,
                     EcdsaSighashType::All,
                     &node_keypair,
                 )?;
@@ -327,7 +327,7 @@ pub async fn complete_and_broadcast_challenge_tx(
             broadcast_tx(client, &challenge_tx).await?;
             Ok(challenge_tx.compute_txid())
         }
-        _ => Err(format!("insufficient btc, please fund {} first", node_address).into()),
+        _ => Err(format!("insufficient btc, please fund {node_address} first").into()),
     }
 }
 
@@ -435,7 +435,7 @@ pub async fn should_challenge(
     kickoff_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // check if kickoff is confirmed on L1
-    if let None = client.esplora.get_tx(kickoff_txid).await? {
+    if client.esplora.get_tx(kickoff_txid).await?.is_none() {
         return Ok(false);
     }
 
@@ -638,7 +638,7 @@ pub async fn store_committee_pub_nonces(
     let nonces_vec: Vec<String> = pub_nonces.iter().map(|v| v.to_string()).collect();
     let nonces_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
         nonces_vec.try_into().map_err(|v: Vec<String>| {
-            format!("length wrong: expect {}, real {}", COMMITTEE_PRE_SIGN_NUM, v.len())
+            format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
         })?;
     Ok(storage_process
         .store_nonces(instance_id, graph_id, &[nonces_arr], committee_pubkey.to_string(), &[])
@@ -651,9 +651,7 @@ pub async fn get_committee_pub_nonces(
 ) -> Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
     match storage_process.get_nonces(instance_id, graph_id).await? {
-        None => {
-            Err(format!("instance id:{}, graph id:{} not found ", instance_id, graph_id).into())
-        }
+        None => Err(format!("instance id:{instance_id}, graph id:{graph_id} not found").into()),
         Some(nonce_collect) => {
             let mut res: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]> = vec![];
             for nonces_item in nonce_collect.nonces {
@@ -662,7 +660,7 @@ pub async fn get_committee_pub_nonces(
                     .map(|v| PubNonce::from_str(v).expect("fail to decode pub nonce"))
                     .collect();
                 res.push(nonce_vec.try_into().map_err(|v: Vec<PubNonce>| {
-                    format!("length wrong: expect {}, real {}", COMMITTEE_PRE_SIGN_NUM, v.len())
+                    format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
                 })?)
             }
             Ok(res)
@@ -676,7 +674,7 @@ pub async fn store_committee_pubkeys(
     pubkey: PublicKey,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
-    Ok(storage_process.store_pubkeys(instance_id, &vec![pubkey.to_string()]).await?)
+    Ok(storage_process.store_pubkeys(instance_id, &[pubkey.to_string()]).await?)
 }
 pub async fn get_committee_pubkeys(
     client: &BitVM2Client,
@@ -704,11 +702,11 @@ pub async fn store_committee_partial_sigs(
     let signs_vec: Vec<String> = partial_sigs.iter().map(|v| hex::encode(v.serialize())).collect();
     let signs_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
         signs_vec.try_into().map_err(|v: Vec<String>| {
-            format!("length wrong: expect {}, real {}", COMMITTEE_PRE_SIGN_NUM, v.len())
+            format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
         })?;
 
     Ok(storage_process
-        .store_nonces(instance_id, graph_id, &[], committee_pubkey.to_string(), &vec![signs_arr])
+        .store_nonces(instance_id, graph_id, &[], committee_pubkey.to_string(), &[signs_arr])
         .await?)
 }
 
@@ -719,9 +717,7 @@ pub async fn get_committee_partial_sigs(
 ) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
     match storage_process.get_nonces(instance_id, graph_id).await? {
-        None => {
-            Err(format!("instance id:{}, graph id:{} not found ", instance_id, graph_id).into())
-        }
+        None => Err(format!("instance id:{instance_id}, graph id:{graph_id} not found ").into()),
         Some(nonce_collect) => {
             let mut res: Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]> = vec![];
             for signs_item in nonce_collect.partial_sigs {
@@ -730,7 +726,7 @@ pub async fn get_committee_partial_sigs(
                     .map(|v| PartialSignature::from_str(v).expect("fail to decode pub nonce"))
                     .collect();
                 res.push(signs_vec.try_into().map_err(|v: Vec<PartialSignature>| {
-                    format!("length wrong: expect {}, real {}", COMMITTEE_PRE_SIGN_NUM, v.len())
+                    format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
                 })?)
             }
             Ok(res)
@@ -828,14 +824,14 @@ pub async fn get_graph(
     let graph = storage_process.get_graph(&graph_id).await?;
     if graph.instance_id.ne(&instance_id) {
         return Err(format!(
-            "grap with graph_id:{} has instance_id:{} not match expec instance:{}",
-            graph_id, graph.instance_id, instance_id
+            "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
+            graph.instance_id,
         )
         .into());
     }
 
     if graph.raw_data.is_none() {
-        return Err(format!("grap with graph_id:{} raw data is none", graph_id).into());
+        return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
     }
     let res: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
     Ok(res)
@@ -853,13 +849,13 @@ pub async fn publish_graph_to_ipfs(
     ) -> Result<(), Box<dyn std::error::Error>> {
         // write tx_hex to base_dir/tx_name
         let tx_hex = serialize_hex(tx);
-        let tx_cache_path = format!("{}{}", base_dir, tx_name.as_str());
+        let tx_cache_path = format!("{base_dir}{}", tx_name.as_str());
         let mut file = File::create(&tx_cache_path)?;
         file.write_all(tx_hex.as_bytes())?;
         Ok(())
     }
 
-    let base_dir = format!("{}{}/", IPFS_GRAPH_CACHE_DIR, graph_id);
+    let base_dir = format!("{IPFS_GRAPH_CACHE_DIR}{graph_id}/");
     fs::create_dir_all(base_dir.clone())?;
     write_tx(&base_dir, IpfsTxName::AssertCommit0, graph.assert_commit.commit_txns[0].tx())?;
     write_tx(&base_dir, IpfsTxName::AssertCommit1, graph.assert_commit.commit_txns[1].tx())?;
@@ -873,7 +869,7 @@ pub async fn publish_graph_to_ipfs(
     write_tx(&base_dir, IpfsTxName::Pegin, graph.pegin.tx())?;
     write_tx(&base_dir, IpfsTxName::Take1, graph.take1.tx())?;
     write_tx(&base_dir, IpfsTxName::Take2, graph.take2.tx())?;
-    let cids = client.ipfs.add(&Path::new(&base_dir)).await?;
+    let cids = client.ipfs.add(Path::new(&base_dir)).await?;
     let dir_cid = cids
         .iter()
         .find(|f| f.name.is_empty())
@@ -940,21 +936,21 @@ mod tests {
         let graph_id = Uuid::new_v4();
         let other_graph_id = Uuid::new_v4();
 
-        assert!(is_processing_graph() == false);
+        assert!(!is_processing_graph());
         assert!(try_start_new_graph(instance_id, graph_id));
-        assert!(is_processing_graph() == true);
+        assert!(is_processing_graph());
         assert!(current_processing_graph() == Some((instance_id, graph_id)));
 
         finish_current_graph_processing(instance_id, other_graph_id);
-        assert!(is_processing_graph() == true);
+        assert!(is_processing_graph());
 
         finish_current_graph_processing(instance_id, graph_id);
-        assert!(is_processing_graph() == false);
+        assert!(!is_processing_graph());
 
         try_start_new_graph(instance_id, graph_id);
-        assert!(is_processing_graph() == true);
+        assert!(is_processing_graph());
         force_stop_current_graph();
-        assert!(is_processing_graph() == false);
+        assert!(!is_processing_graph());
     }
 
     #[tokio::test]
@@ -987,10 +983,8 @@ mod tests {
         let balance: Amount = utxos.iter().map(|utxo| utxo.value).sum();
         let flag = should_generate_graph(&client, &mock_create_graph_prepare_data).await.unwrap();
         println!(
-            "node: {}, balance: {} BTC, should_generate_graph: {}",
-            node_address,
+            "node: {node_address}, balance: {} BTC, should_generate_graph: {flag}",
             balance.to_btc(),
-            flag
         );
 
         // poor operator
@@ -1005,10 +999,8 @@ mod tests {
         let balance: Amount = utxos.iter().map(|utxo| utxo.value).sum();
         let flag = should_generate_graph(&client, &mock_create_graph_prepare_data).await.unwrap();
         println!(
-            "node: {}, balance: {} BTC, should_generate_graph: {}",
-            node_address,
+            "node: {node_address}, balance: {} BTC, should_generate_graph: {flag}",
             balance.to_btc(),
-            flag
         );
     }
 
@@ -1020,15 +1012,13 @@ mod tests {
         // TODO: post test graph to L2
         let initialized_graph_id = Uuid::from_slice(&hex::decode("").unwrap()).unwrap();
         let uninitialized_graph_id = Uuid::from_slice(&hex::decode("").unwrap()).unwrap();
-        assert_eq!(
-            true,
+        assert!(
             is_withdraw_initialized_on_l2(&client, unused_instance_id, initialized_graph_id)
                 .await
                 .unwrap()
         );
-        assert_eq!(
-            false,
-            is_withdraw_initialized_on_l2(&client, unused_instance_id, uninitialized_graph_id)
+        assert!(
+            !is_withdraw_initialized_on_l2(&client, unused_instance_id, uninitialized_graph_id)
                 .await
                 .unwrap()
         );
@@ -1040,7 +1030,7 @@ mod tests {
         let kickoff_txid =
             Txid::from_str("4dd13ca25ef6edb4506394a402db2368d02d9467bc47326d3553310483f2ed04")
                 .unwrap();
-        assert_eq!(true, is_take1_timelock_expired(&client, kickoff_txid).await.unwrap());
+        assert!(is_take1_timelock_expired(&client, kickoff_txid).await.unwrap());
     }
 
     #[tokio::test]
@@ -1049,7 +1039,7 @@ mod tests {
         let assert_final_txid =
             Txid::from_str("a2dedfbf376b8c0c183b4dfac7b0765b129a345c870f9fabbdf8c48072697a27")
                 .unwrap();
-        assert_eq!(true, is_take2_timelock_expired(&client, assert_final_txid).await.unwrap());
+        assert!(is_take2_timelock_expired(&client, assert_final_txid).await.unwrap());
     }
 
     #[tokio::test]
@@ -1069,7 +1059,7 @@ mod tests {
                             .map(|input| {
                                 format!(
                                     "{}:{}:{}",
-                                    input.outpoint.txid.to_string(),
+                                    input.outpoint.txid,
                                     input.outpoint.vout,
                                     input.amount.to_btc()
                                 )
@@ -1095,9 +1085,7 @@ mod tests {
         let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
         let inputs = select_operator_inputs(&client, stake_amount).await.unwrap();
         println!(
-            "node: {}, stake_amount: {} BTC, utxos: {}",
-            node_address,
-            stake_amount,
+            "node: {node_address}, stake_amount: {stake_amount} BTC, utxos: {}",
             UtxoDisplay(inputs)
         );
 
@@ -1111,9 +1099,7 @@ mod tests {
         let node_address = node_p2wsh_address(get_network(), &get_node_pubkey().unwrap());
         let inputs = select_operator_inputs(&client, stake_amount).await.unwrap();
         println!(
-            "node: {}, stake_amount: {} BTC, utxos: {}",
-            node_address,
-            stake_amount,
+            "node: {node_address}, stake_amount: {stake_amount} BTC, utxos: {}",
             UtxoDisplay(inputs)
         );
     }
@@ -1151,11 +1137,8 @@ mod tests {
         .await
         .unwrap();
         println!(
-            "kickoff(invalid): {}, node: {}, balance: {} BTC, should_challenge: {}",
-            invalid_kickoff_txid.to_string(),
-            node_address,
+            "kickoff(invalid): {invalid_kickoff_txid}, node: {node_address}, balance: {} BTC, should_challenge: {flag}",
             balance.to_btc(),
-            flag
         );
 
         // poor challenger
@@ -1178,11 +1161,8 @@ mod tests {
         .await
         .unwrap();
         println!(
-            "kickoff(invalid): {}, node: {}, balance: {} BTC, should_challenge: {}",
-            invalid_kickoff_txid.to_string(),
-            node_address,
+            "kickoff(invalid): {invalid_kickoff_txid}, node: {node_address}, balance: {} BTC, should_challenge: {flag}",
             balance.to_btc(),
-            flag
         );
     }
 
@@ -1202,17 +1182,12 @@ mod tests {
             Txid::from_str("a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d")
                 .unwrap();
 
-        assert_eq!(
-            true,
-            validate_challenge(&client, &kickoff_txid, &challenge_txid).await.unwrap()
+        assert!(validate_challenge(&client, &kickoff_txid, &challenge_txid).await.unwrap());
+        assert!(
+            !validate_challenge(&client, &kickoff_txid, &mismatch_challenge_txid).await.unwrap()
         );
-        assert_eq!(
-            false,
-            validate_challenge(&client, &kickoff_txid, &mismatch_challenge_txid).await.unwrap()
-        );
-        assert_eq!(
-            false,
-            validate_challenge(&client, &kickoff_txid, &nonexistent_challenge_txid).await.unwrap()
+        assert!(
+            !validate_challenge(&client, &kickoff_txid, &nonexistent_challenge_txid).await.unwrap()
         );
     }
 
@@ -1229,13 +1204,9 @@ mod tests {
             Txid::from_str("c6a033812a1370973f94d956704ed1a68f490141a3c21bce64454d38a2c23794")
                 .unwrap();
 
-        assert_eq!(
-            true,
-            validate_disprove(&client, &assert_final_txid, &disprove_txid).await.unwrap()
-        );
-        assert_eq!(
-            false,
-            validate_disprove(&client, &assert_final_txid, &mismatch_disprove_txid).await.unwrap()
+        assert!(validate_disprove(&client, &assert_final_txid, &disprove_txid).await.unwrap());
+        assert!(
+            !validate_disprove(&client, &assert_final_txid, &mismatch_disprove_txid).await.unwrap()
         );
     }
 }
