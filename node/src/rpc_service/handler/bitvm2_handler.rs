@@ -10,9 +10,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
-use store::{
-    BridgeInStatus, BridgePath, Graph, GraphStatus, Instance, Message, MessageState, MessageType,
-};
+use store::{BridgeInStatus, BridgePath, Graph, Instance, Message, MessageState, MessageType};
 use uuid::Uuid;
 
 #[axum::debug_handler]
@@ -79,7 +77,7 @@ pub async fn graph_presign_check(
 ) -> (StatusCode, Json<GraphPresignCheckResponse>) {
     let resp = GraphPresignCheckResponse {
         instance_id: payload.instance_id.to_string(),
-        instance_status: BridgeInStatus::Presigned,
+        instance_status: BridgeInStatus::Submitted.to_string(),
         graph_status: HashMap::new(),
         tx: None,
     };
@@ -88,12 +86,11 @@ pub async fn graph_presign_check(
         let instance_id = Uuid::parse_str(&payload.instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let instance = storage_process.get_instance(&instance_id).await?;
+        resp_clone.instance_status = instance.status.clone();
         resp_clone.tx = Some(instance);
         let graphs = storage_process.get_graph_by_instance_id(&instance_id).await?;
-        resp_clone.graph_status = graphs
-            .into_iter()
-            .map(|v| (v.graph_id.to_string(), GraphStatus::OperatorPresigned))
-            .collect();
+        resp_clone.graph_status =
+            graphs.into_iter().map(|v| (v.graph_id.to_string(), v.status.clone())).collect();
         Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone)
     };
     match async_fn().await {

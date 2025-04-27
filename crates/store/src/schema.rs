@@ -61,7 +61,7 @@ pub enum BridgeInStatus {
 
 impl std::fmt::Display for BridgeInStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -81,7 +81,7 @@ pub enum BridgeOutStatus {
 
 impl std::fmt::Display for BridgeOutStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -119,7 +119,7 @@ impl FromStr for GraphStatus {
 }
 impl std::fmt::Display for GraphStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -238,7 +238,7 @@ pub enum MessageState {
 
 impl std::fmt::Display for MessageState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -324,7 +324,7 @@ pub enum MessageType {
 }
 impl std::fmt::Display for MessageType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

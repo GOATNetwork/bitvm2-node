@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
-use store::{BridgeInStatus, GrapRpcQueryData, Graph, GraphStatus, Instance};
+use store::{GrapRpcQueryData, Graph, Instance};
 use uuid::Uuid;
 
 pub const BTC_MAIN: &str = "bitcoin";
@@ -48,8 +48,8 @@ pub struct GraphPresignCheckRequest {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct GraphPresignCheckResponse {
     pub instance_id: String,
-    pub instance_status: BridgeInStatus,
-    pub graph_status: HashMap<String, GraphStatus>,
+    pub instance_status: String,
+    pub graph_status: HashMap<String, String>,
     pub tx: Option<Instance>,
 }
 

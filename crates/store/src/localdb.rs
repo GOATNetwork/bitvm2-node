@@ -143,24 +143,24 @@ impl<'a> StorageProcessor<'a> {
         let mut instance_count_str = "SELECT count(*) as total_instances FROM instance".to_string();
         let mut conditions: Vec<String> = vec![];
         if let Some(from_addr) = from_addr {
-            conditions.push(format!("from_addr = \'{}\'", from_addr));
+            conditions.push(format!("from_addr = \'{from_addr}\'"));
         }
         if let Some(status) = status {
-            conditions.push(format!("status = \'{}\'", status));
+            conditions.push(format!("status = \'{status}\'"));
         }
         if let Some(bridge_path) = bridge_path {
-            conditions.push(format!("bridge_path = {}", bridge_path));
+            conditions.push(format!("bridge_path = {bridge_path}"));
         }
         if !conditions.is_empty() {
-            let condition_str = conditions.join(" and ");
-            instance_query_str = format!("{} WHERE {}", instance_query_str, condition_str);
-            instance_count_str = format!("{} WHERE {}", instance_count_str, condition_str);
+            let condition_str = conditions.join(" AND ");
+            instance_query_str = format!("{instance_query_str} WHERE {condition_str}");
+            instance_count_str = format!("{instance_count_str} WHERE {condition_str}");
         }
         if let Some(limit) = limit {
-            instance_query_str = format!("{} LIMIT {}", instance_query_str, limit);
+            instance_query_str = format!("{instance_query_str} LIMIT {limit}");
         }
         if let Some(offset) = offset {
-            instance_query_str = format!("{} OFFSET {}", instance_query_str, offset);
+            instance_query_str = format!("{instance_query_str} OFFSET {offset}");
         }
         let instances = sqlx::query_as::<_, Instance>(instance_query_str.as_str())
             .fetch_all(self.conn())
@@ -236,10 +236,10 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         let mut update_fields = vec![];
         if let Some(status) = status {
-            update_fields.push(format!("status = \'{}\'", status));
+            update_fields.push(format!("status = \'{status}\'"));
         }
         if let Some(pegin_txid) = pegin_txid {
-            update_fields.push(format!("pegin_txid = \'{}\'", pegin_txid));
+            update_fields.push(format!("pegin_txid = \'{pegin_txid}\'"));
         }
         if update_fields.is_empty() {
             return Ok(());
@@ -263,17 +263,17 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         let mut update_fields = vec![];
         if let Some(status) = status {
-            update_fields.push(format!("status = \'{}\'", status));
+            update_fields.push(format!("status = \'{status}\'"));
         }
         if let Some(ipfs_base_url) = ipfs_base_url {
-            update_fields.push(format!("graph_ipfs_base_url = \'{}\'", ipfs_base_url));
+            update_fields.push(format!("graph_ipfs_base_url = \'{ipfs_base_url}\'"));
         }
 
         if let Some(challenge_txid) = challenge_txid {
-            update_fields.push(format!("challenge_txid = \'{}\'", challenge_txid));
+            update_fields.push(format!("challenge_txid = \'{challenge_txid}\'"));
         }
         if let Some(disprove_txid) = disprove_txid {
-            update_fields.push(format!("disprove_txid = \'{}\'", disprove_txid));
+            update_fields.push(format!("disprove_txid = \'{disprove_txid}\'"));
         }
         if update_fields.is_empty() {
             return Ok(());
@@ -283,10 +283,7 @@ impl<'a> StorageProcessor<'a> {
             update_fields.join(" , "),
             hex::encode(graph_id)
         );
-
-        println!("{}", update_str);
         let _ = sqlx::query(update_str.as_str()).execute(self.conn()).await?;
-
         Ok(())
     }
 
@@ -323,13 +320,13 @@ impl<'a> StorageProcessor<'a> {
         let mut conditions: Vec<String> = vec![];
 
         if let Some(status) = status {
-            conditions.push(format!("status = \'{}\'", status));
+            conditions.push(format!("status = \'{status}\'"));
         }
         if let Some(operator) = operator {
-            conditions.push(format!("operator = \'{}\'", operator));
+            conditions.push(format!("operator = \'{operator}\'"));
         }
         if let Some(pegin_txid) = pegin_txid {
-            conditions.push(format!("pegin_txid = \'{}\'", pegin_txid));
+            conditions.push(format!("pegin_txid = \'{pegin_txid}\'"));
         }
 
         if !conditions.is_empty() {
@@ -339,11 +336,11 @@ impl<'a> StorageProcessor<'a> {
         }
 
         if let Some(limit) = limit {
-            graph_query_str = format!("{} LIMIT {}", graph_query_str, limit);
+            graph_query_str = format!("{graph_query_str} LIMIT {limit}");
         }
 
         if let Some(offset) = offset {
-            graph_query_str = format!("{} OFFSET {}", graph_query_str, offset);
+            graph_query_str = format!("{graph_query_str} OFFSET {offset}");
         }
         let graphs = sqlx::query_as::<_, GrapRpcQueryData>(graph_query_str.as_str())
             .fetch_all(self.conn())
@@ -409,22 +406,22 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(status_expect) = status_expect {
             match status_expect.as_str() {
-                NODE_STATUS_ONLINE => conditions.push(format!("updated_at > {}", time_threshold)),
-                NODE_STATUS_OFFLINE => conditions.push(format!("updated_at <= {}", time_threshold)),
+                NODE_STATUS_ONLINE => conditions.push(format!("updated_at > {time_threshold}")),
+                NODE_STATUS_OFFLINE => conditions.push(format!("updated_at <= {time_threshold}")),
                 _ => {}
             }
         }
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
-            nodes_query_str = format!("{} WHERE {}", nodes_query_str, condition_str);
-            nodes_count_str = format!("{} WHERE {}", nodes_count_str, condition_str);
+            nodes_query_str = format!("{nodes_query_str} WHERE {condition_str}");
+            nodes_count_str = format!("{nodes_count_str} WHERE {condition_str}");
         }
 
         if let Some(limit) = limit {
-            nodes_query_str = format!("{} LIMIT {}", nodes_query_str, limit);
+            nodes_query_str = format!("{nodes_query_str} LIMIT {limit}");
         }
         if let Some(offset) = offset {
-            nodes_query_str = format!("{} OFFSET {}", nodes_query_str, offset);
+            nodes_query_str = format!("{nodes_query_str} OFFSET {offset}");
         }
         let nodes =
             sqlx::query_as::<_, Node>(nodes_query_str.as_str()).fetch_all(self.conn()).await?;
@@ -510,9 +507,7 @@ impl<'a> StorageProcessor<'a> {
         current_time: i64,
     ) -> anyhow::Result<bool> {
         let query_str = format!(
-            "Update  message Set state = {}, updated_at = {} WHERE id IN ({})",
-            state,
-            current_time,
+            "Update  message Set state = {state}, updated_at = {current_time} WHERE id IN ({})",
             create_place_holders(ids)
         );
         let mut query = sqlx::query(&query_str);
