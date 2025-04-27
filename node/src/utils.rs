@@ -905,9 +905,9 @@ mod tests {
             chain_id: 48816_u32,
         };
         //  let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
-        let tmp_db = "/tmp/bitvm2-node-test.db";
+        let tmp_db = tempfile::NamedTempFile::new().unwrap();
         BitVM2Client::new(
-            tmp_db,
+            tmp_db.path().as_os_str().to_str().unwrap(),
             None,
             Network::Testnet,
             GoatNetwork::Test,
