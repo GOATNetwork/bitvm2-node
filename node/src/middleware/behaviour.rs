@@ -23,7 +23,7 @@ impl AllBehaviours {
             .unwrap();
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
-            .max_transmit_size(262144)
+            .max_transmit_size(12582912) // 12 MB
             .build()
             .map_err(io::Error::other)
             .unwrap();

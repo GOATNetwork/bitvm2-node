@@ -188,28 +188,41 @@ pub async fn recv_and_dispatch(
     id: MessageId,
     message: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let message: GOATMessage = serde_json::from_slice(message)?;
-    tracing::info!(
-        "Got message: {}:{} with id: {} from peer: {:?}",
-        &message.actor.to_string(),
-        String::from_utf8_lossy(&message.content),
-        id,
-        peer_id
-    );
-    let default_message_id = GOATMessage::default_message_id();
-    if id == default_message_id {
+    // Tick
+    if id == GOATMessage::default_message_id() {
         tracing::debug!("Get the running task, and broadcast the task status or result");
         if actor == Actor::Relayer {
             do_tick_action(swarm, client).await?;
         }
-
         return Ok(());
     }
-    // // no need to check actor here, it's matched in the subsequent match block.
-    // if message.actor != actor && message.actor != Actor::All && actor != Actor::Relayer {
-    //     return Ok(());
-    // }
+
+    let message: GOATMessage = serde_json::from_slice(message)?;
     let content: GOATMessageContent = message.to_typed()?;
+    match &content {
+        // Make logs more readable
+        GOATMessageContent::CreateGraph(data) => tracing::info!(
+            "Got message: {}:CreateGraph {} with id: {} from peer: {:?}",
+            &message.actor.to_string(),
+            data.graph_id,
+            id,
+            peer_id
+        ),
+        GOATMessageContent::GraphFinalize(data) => tracing::info!(
+            "Got message: {}:GraphFinalize {}  with id: {} from peer: {:?}",
+            &message.actor.to_string(),
+            data.graph_id,
+            id,
+            peer_id
+        ),
+        _ => tracing::info!(
+            "Got message: {}:{} with id: {} from peer: {:?}",
+            &message.actor.to_string(),
+            String::from_utf8_lossy(&message.content),
+            id,
+            peer_id
+        ),
+    }
     // TODO: validate message
     match (content, actor) {
         // pegin
@@ -252,6 +265,7 @@ pub async fn recv_and_dispatch(
             {
                 let graph_id = Uuid::new_v4();
                 if try_start_new_graph(receive_data.instance_id, graph_id) {
+                    tracing::info!("generating new graph: {graph_id}");
                     let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
                     let keypair = master_key.keypair_for_graph(graph_id);
                     let (_, operator_wots_pubkeys) = master_key.wots_keypair_for_graph(graph_id);
@@ -294,6 +308,7 @@ pub async fn recv_and_dispatch(
                         graph_id,
                         graph,
                     });
+                    // TODO: compress huge message
                     send_to_peer(
                         swarm,
                         GOATMessage::from_typed(Actor::Committee, &message_content)?,
@@ -317,14 +332,54 @@ pub async fn recv_and_dispatch(
             let keypair = master_key.keypair_for_instance(receive_data.instance_id);
             let pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM] =
                 std::array::from_fn(|i| nonces[i].1.clone());
+            store_committee_pub_nonces(
+                client,
+                receive_data.instance_id,
+                receive_data.graph_id,
+                keypair.public_key().into(),
+                pub_nonces.clone(),
+            )
+            .await?;
+            let committee_members_num = receive_data.graph.parameters.committee_pubkeys.len();
             let message_content = GOATMessageContent::NonceGeneration(NonceGeneration {
                 instance_id: receive_data.instance_id,
                 graph_id: receive_data.graph_id,
                 committee_pubkey: keypair.public_key().into(),
                 pub_nonces,
-                committee_members_num: receive_data.graph.parameters.committee_pubkeys.len(),
+                committee_members_num,
             });
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
+            let collected_pub_nonces =
+                get_committee_pub_nonces(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
+            tracing::info!(
+                "graph {}, {}/{} committee-pub-nonces-pack collected",
+                receive_data.graph_id,
+                collected_pub_nonces.len(),
+                committee_members_num
+            );
+            if collected_pub_nonces.len() == committee_members_num {
+                let graph =
+                    get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
+                let master_key = CommitteeMasterKey::new(env::get_bitvm_key()?);
+                let keypair = master_key.keypair_for_instance(receive_data.instance_id);
+                let nonces =
+                    master_key.nonces_for_graph(receive_data.instance_id, receive_data.graph_id);
+                let sec_nonces: [SecNonce; COMMITTEE_PRE_SIGN_NUM] =
+                    std::array::from_fn(|i| nonces[i].0.clone());
+                let agg_nonces = nonces_aggregation(collected_pub_nonces);
+                let committee_partial_sigs =
+                    committee_pre_sign(keypair, sec_nonces, agg_nonces.clone(), &graph)?;
+                let message_content = GOATMessageContent::CommitteePresign(CommitteePresign {
+                    instance_id: receive_data.instance_id,
+                    graph_id: receive_data.graph_id,
+                    committee_pubkey: keypair.public_key().into(),
+                    committee_partial_sigs,
+                    agg_nonces,
+                    committee_members_num: committee_members_num,
+                });
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
+            };
         }
         (GOATMessageContent::NonceGeneration(receive_data), Actor::Committee) => {
             tracing::info!("Handle NonceGeneration");
@@ -360,12 +415,12 @@ pub async fn recv_and_dispatch(
                 let message_content = GOATMessageContent::CommitteePresign(CommitteePresign {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
-                    committee_pubkey: receive_data.committee_pubkey,
+                    committee_pubkey: keypair.public_key().into(),
                     committee_partial_sigs,
                     agg_nonces,
                     committee_members_num: receive_data.committee_members_num,
                 });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
             };
         }
         (GOATMessageContent::CommitteePresign(receive_data), Actor::Operator) => {
@@ -414,6 +469,7 @@ pub async fn recv_and_dispatch(
                     sign_and_broadcast_prekickoff_tx(client, node_keypair, prekickoff_tx).await?;
                     let graph_ipfs_cid =
                         publish_graph_to_ipfs(client, receive_data.graph_id, &graph).await?;
+                    tracing::info!("graph: {} ipfs-base-url: {graph_ipfs_cid}", receive_data.graph_id);
                     store_graph(
                         client,
                         receive_data.instance_id,

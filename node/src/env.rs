@@ -18,6 +18,7 @@ pub const ENV_PEER_KEY: &str = "KEY";
 pub const ENV_PERR_ID: &str = "PEER_ID";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
+pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
 
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
 pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
