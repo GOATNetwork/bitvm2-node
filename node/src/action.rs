@@ -376,7 +376,7 @@ pub async fn recv_and_dispatch(
                     committee_pubkey: keypair.public_key().into(),
                     committee_partial_sigs,
                     agg_nonces,
-                    committee_members_num: committee_members_num,
+                    committee_members_num,
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
             };
@@ -469,7 +469,10 @@ pub async fn recv_and_dispatch(
                     sign_and_broadcast_prekickoff_tx(client, node_keypair, prekickoff_tx).await?;
                     let graph_ipfs_cid =
                         publish_graph_to_ipfs(client, receive_data.graph_id, &graph).await?;
-                    tracing::info!("graph: {} ipfs-base-url: {graph_ipfs_cid}", receive_data.graph_id);
+                    tracing::info!(
+                        "graph: {} ipfs-base-url: {graph_ipfs_cid}",
+                        receive_data.graph_id
+                    );
                     store_graph(
                         client,
                         receive_data.instance_id,
