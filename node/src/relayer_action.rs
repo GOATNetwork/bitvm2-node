@@ -170,7 +170,7 @@ pub async fn scan_bridge_in_prepare(
     storage_process
         .update_messages_state(&ids, MessageState::Processed.to_string(), current_time)
         .await?;
-    storage_process.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
+    // storage_process.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;//TODO
     Ok(())
 }
 

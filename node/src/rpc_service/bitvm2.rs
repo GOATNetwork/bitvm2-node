@@ -1,3 +1,4 @@
+use crate::env::{CHEKSIG_P2WSH_INPUT_VBYTES, PEGIN_BASE_VBYTES};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, Amount, Network, OutPoint, Txid};
 use bitvm2_lib::types::CustomInputs;
@@ -143,8 +144,6 @@ pub struct GrapRpcQueryDataWrap {
     pub eta: String,
 }
 
-// const STACK_AMOUNT: Amount = Amount::from_sat(20_000_000);
-const FEE_AMOUNT: Amount = Amount::from_sat(2000);
 #[derive(Clone, Serialize, Deserialize)]
 pub struct P2pUserData {
     pub instance_id: Uuid,
@@ -170,11 +169,15 @@ impl From<&BridgeInTransactionPreparerRequest> for P2pUserData {
             })
             .collect();
 
-        let input_amount: u64 = value.utxo.iter().map(|v| v.value).sum();
+        let input_amount: u64 = value.amount as u64;
+        let input_size = inputs.len() as u64;
         let user_inputs = CustomInputs {
             inputs,
             input_amount: Amount::from_sat(input_amount),
-            fee_amount: FEE_AMOUNT, // TODO get fee amount
+            //TODO
+            fee_amount: Amount::from_sat(
+                PEGIN_BASE_VBYTES + CHEKSIG_P2WSH_INPUT_VBYTES * input_size,
+            ),
             change_address,
         };
         let env_address: web3::types::Address = value.to.parse().expect("decode eth address");

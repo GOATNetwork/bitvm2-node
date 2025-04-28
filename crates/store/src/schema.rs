@@ -173,10 +173,10 @@ pub fn modify_graph_status(
 ) -> String {
     if last_updated_at + interval < current_time {
         match ori_status {
-            "KickOff" => "KickOffing".to_string(),
-            "Challenge" => "Challenging".to_string(),
-            "Assert" => "Asserting".to_string(),
-            "Disprove" => "Disproving".to_string(),
+            "CommitteePresigned" => "KickOffing".to_string(),
+            "KickOff" => "Challenging".to_string(),
+            "Challenge" => "Asserting".to_string(),
+            "Assert" => "Disproving".to_string(),
             _ => ori_status.to_string(),
         }
     } else {

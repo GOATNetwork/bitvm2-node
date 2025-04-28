@@ -46,7 +46,11 @@ pub async fn bridge_in_tx_prepare(
 
         let mut tx = app_state.bitvm2_client.local_db.start_transaction().await?;
         let _ = tx.create_instance(instance.clone()).await?;
-        let content = serde_json::to_vec::<P2pUserData>(&(&payload).into())?;
+        let p2p_user_data: P2pUserData = (&payload).into();
+        if !p2p_user_data.user_inputs.validate_amount() {
+            return Err("inputs_amount_sum < inputs.fee_amount + inputs.input_amount".into());
+        }
+        let content = serde_json::to_vec::<P2pUserData>(&p2p_user_data)?;
         tx.create_message(
             Message {
                 id: 0,

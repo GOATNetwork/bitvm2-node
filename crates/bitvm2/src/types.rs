@@ -140,6 +140,13 @@ pub struct CustomInputs {
     pub change_address: Address,
 }
 
+impl CustomInputs {
+    pub fn validate_amount(&self) -> bool {
+        let res = self.inputs.iter().fold(Amount::ZERO, |acc, v| acc + v.amount);
+        res >= self.input_amount + self.fee_amount
+    }
+}
+
 pub type Error = String;
 
 pub struct BaseBitvmContext {
