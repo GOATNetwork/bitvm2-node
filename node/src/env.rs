@@ -48,6 +48,7 @@ const GOAT_NETWORK: GoatNetwork = GoatNetwork::Test;
 
 pub const MESSAGE_BROADCAST_MAX_TIMES: i64 = 1;
 pub const MESSAGE_EXPIRE_TIME: i64 = 3600 * 24; // 1 days
+pub const MODIFY_GRAPH_STATUS_TIME_THRESHOLD: i64 = 2;
 
 pub fn get_network() -> Network {
     BTC_NETWORK

@@ -1,3 +1,4 @@
+use crate::env::MODIFY_GRAPH_STATUS_TIME_THRESHOLD;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
@@ -10,7 +11,10 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
-use store::{BridgeInStatus, BridgePath, Graph, Instance, Message, MessageState, MessageType};
+use store::{
+    BridgeInStatus, BridgePath, Graph, Instance, Message, MessageState, MessageType,
+    modify_graph_status,
+};
 use uuid::Uuid;
 
 #[axum::debug_handler]
@@ -81,6 +85,7 @@ pub async fn graph_presign_check(
         graph_status: HashMap::new(),
         tx: None,
     };
+    let current_time = current_time_secs();
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
@@ -89,8 +94,20 @@ pub async fn graph_presign_check(
         resp_clone.instance_status = instance.status.clone();
         resp_clone.tx = Some(instance);
         let graphs = storage_process.get_graph_by_instance_id(&instance_id).await?;
-        resp_clone.graph_status =
-            graphs.into_iter().map(|v| (v.graph_id.to_string(), v.status.clone())).collect();
+        resp_clone.graph_status = graphs
+            .into_iter()
+            .map(|v| {
+                (
+                    v.graph_id.to_string(),
+                    modify_graph_status(
+                        &v.status,
+                        v.updated_at,
+                        current_time,
+                        MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
+                    ),
+                )
+            })
+            .collect();
         Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone)
     };
     match async_fn().await {
@@ -313,9 +330,16 @@ pub async fn get_graph(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<GraphGetResponse>) {
     let async_fn = || async move {
+        let current_time = current_time_secs();
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let graph = storage_process.get_graph(&graph_id).await?;
+        let mut graph = storage_process.get_graph(&graph_id).await?;
+        graph.status = modify_graph_status(
+            &graph.status,
+            graph.updated_at,
+            current_time,
+            MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
+        );
         Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph })
     };
     match async_fn().await {
@@ -375,9 +399,17 @@ pub async fn get_graphs(
         if graphs.is_empty() {
             return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone);
         }
+        let current_time = current_time_secs();
+
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
         let interval = get_btc_block_interval(graphs[0].network.clone().as_str());
-        for graph in graphs {
+        for mut graph in graphs {
+            graph.status = modify_graph_status(
+                &graph.status,
+                graph.updated_at,
+                current_time,
+                MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
+            );
             let eta = match graph.get_check_tx_param() {
                 Ok((tx_id, confirm_num)) => {
                     get_tx_eta(

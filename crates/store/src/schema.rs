@@ -71,11 +71,15 @@ pub enum GraphStatus {
     #[default]
     OperatorPresigned,
     CommitteePresigned,
+    KickOffing,
     KickOff,
+    Challenging,
     Challenge,
+    Asserting,
     Assert,
     Take1,
     Take2,
+    Disproving,
     Disprove,   // fail to reimbursement
     Reimbursed, // reimbursement by other operators
 }
@@ -86,11 +90,15 @@ impl FromStr for GraphStatus {
         match s {
             "OperatorPresigned" => Ok(GraphStatus::OperatorPresigned),
             "CommitteePresigned" => Ok(GraphStatus::CommitteePresigned),
+            "KickOffing" => Ok(GraphStatus::KickOffing),
             "KickOff" => Ok(GraphStatus::KickOff),
+            "Challenging" => Ok(GraphStatus::Challenging),
             "Challenge" => Ok(GraphStatus::Challenge),
+            "Asserting" => Ok(GraphStatus::Asserting),
             "Assert" => Ok(GraphStatus::Assert),
             "Take1" => Ok(GraphStatus::Take1),
             "Take2" => Ok(GraphStatus::Take2),
+            "Disproving" => Ok(GraphStatus::Disproving),
             "Disprove" => Ok(GraphStatus::Disprove),
             "Reimbursed" => Ok(GraphStatus::Reimbursed),
             _ => Err(()),
@@ -157,6 +165,25 @@ pub struct Graph {
     pub updated_at: i64,
 }
 
+pub fn modify_graph_status(
+    ori_status: &str,
+    last_updated_at: i64,
+    current_time: i64,
+    interval: i64,
+) -> String {
+    if last_updated_at + interval < current_time {
+        match ori_status {
+            "KickOff" => "KickOffing".to_string(),
+            "Challenge" => "Challenging".to_string(),
+            "Assert" => "Asserting".to_string(),
+            "Disprove" => "Disproving".to_string(),
+            _ => ori_status.to_string(),
+        }
+    } else {
+        ori_status.to_string()
+    }
+}
+
 // query Data
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct GrapRpcQueryData {
@@ -192,16 +219,13 @@ impl GrapRpcQueryData {
             return Err("Graph status is wrong".to_string());
         }
         match status.unwrap() {
-            GraphStatus::OperatorPresigned | GraphStatus::CommitteePresigned => {
-                Err("Not start kickOff".to_string())
-            }
             GraphStatus::KickOff => Ok((self.kickoff_txid.clone(), 6)),
             GraphStatus::Challenge => Ok((self.challenge_txid.clone(), 6)),
             GraphStatus::Assert => Ok((self.assert_init_txid.clone(), 18)),
             GraphStatus::Take1 => Ok((self.take1_txid.clone(), 6)),
             GraphStatus::Take2 => Ok((self.take2_txid.clone(), 6)),
             GraphStatus::Disprove => Ok((self.disprove_txid.clone(), 6)),
-            GraphStatus::Reimbursed => Err("graph deprecated".to_string()),
+            _ => Err("not check status".to_string()),
         }
     }
 }
