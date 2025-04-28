@@ -234,22 +234,30 @@ impl<'a> StorageProcessor<'a> {
         status: Option<String>,
         pegin_txid: Option<String>,
     ) -> anyhow::Result<()> {
-        let mut update_fields = vec![];
-        if let Some(status) = status {
-            update_fields.push(format!("status = \'{status}\'"));
-        }
-        if let Some(pegin_txid) = pegin_txid {
-            update_fields.push(format!("pegin_txid = \'{pegin_txid}\'"));
-        }
-        if update_fields.is_empty() {
+        let instance_option = sqlx::query_as!(
+            Instance,
+            "SELECT instance_id as \"instance_id:Uuid\", network,   bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
+            btc_txid ,pegin_txid, input_uxtos, fee ,created_at, updated_at \
+            FROM  instance where instance_id = ?",
+            instance_id
+        ).fetch_optional(self.conn())
+            .await?;
+        if instance_option.is_none() {
+            warn!("instance :{instance_id:?} not exit");
             return Ok(());
         }
-        let update_str = format!(
-            "UPDATE instance SET {} WHERE hex(instance_id) COLLATE NOCASE = {}",
-            update_fields.join(" , "),
-            hex::encode(instance_id)
-        );
-        let _ = sqlx::query(update_str.as_str()).execute(self.conn()).await?;
+        let instance = instance_option.unwrap();
+        let status = if let Some(status) = status { status } else { instance.status };
+        let pegin_txid = if pegin_txid.is_some() { pegin_txid } else { instance.pegin_txid };
+
+        let _ = sqlx::query!(
+            "UPDATE instance SET status =?, pegin_txid =? WHERE instance_id = ?",
+            status,
+            pegin_txid,
+            instance_id
+        )
+        .execute(self.conn())
+        .await?;
         Ok(())
     }
 

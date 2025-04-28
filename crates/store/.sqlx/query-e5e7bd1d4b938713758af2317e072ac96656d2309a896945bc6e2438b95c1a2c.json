@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE instance SET status =?, pegin_txid =? WHERE instance_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "e5e7bd1d4b938713758af2317e072ac96656d2309a896945bc6e2438b95c1a2c"
+}
