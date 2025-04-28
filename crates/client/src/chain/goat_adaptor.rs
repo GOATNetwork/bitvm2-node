@@ -82,7 +82,7 @@ sol!(
         mapping(bytes16 instanceId => bytes16[] graphIds)
         public instanceIdToGraphIds;
 
-        function blockHash(uint256 height) external view returns (bytes32);
+        function getBlockHash(uint256 height) external view returns (bytes32);
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getWithdrawableInstances() external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
@@ -341,7 +341,7 @@ impl ChainAdaptor for GoatAdaptor {
     }
 
     async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        Ok(self.gate_way.blockHash(U256::from(height)).call().await?._0.0)
+        Ok(self.gate_way.getBlockHash(U256::from(height)).call().await?._0.0)
     }
 
     async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {

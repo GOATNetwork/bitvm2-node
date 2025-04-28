@@ -521,7 +521,7 @@ impl<'a> StorageProcessor<'a> {
         current_time: i64,
     ) -> anyhow::Result<bool> {
         let query_str = format!(
-            "Update  message Set state = {state}, updated_at = {current_time} WHERE id IN ({})",
+            "Update  message Set state = \'{state}\', updated_at = {current_time} WHERE id IN ({})",
             create_place_holders(ids)
         );
         let mut query = sqlx::query(&query_str);

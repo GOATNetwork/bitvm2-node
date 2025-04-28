@@ -16,6 +16,8 @@ anyhow = { workspace = true }
 store = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+goat = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 
 [dev-dependencies]

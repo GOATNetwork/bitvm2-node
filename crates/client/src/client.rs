@@ -6,10 +6,12 @@ use crate::chain::evmchain::EvmChain;
 use crate::chain::goat_adaptor::GoatInitConfig;
 use crate::esplora::get_esplora_url;
 use anyhow::bail;
+use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address as BtcAddress, PublicKey, TxMerkleNode, Txid};
 use bitcoin::{Block, Network};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
+use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use std::str::FromStr;
 use store::Graph;
 use store::{ipfs::IPFS, localdb::LocalDB};
@@ -404,10 +406,9 @@ impl BitVM2Client {
         }
         let assert_commit_txid_strs: Vec<String> =
             serde_json::from_str(&graph.assert_commit_txids.clone().unwrap())?;
-        let mut assert_commit_txids: [[u8; 32]; 4] = [[0; 32]; 4];
-        for i in 0..4 {
-            assert_commit_txids[i] =
-                Txid::from_str(assert_commit_txid_strs[i].as_str())?.to_byte_array();
+        let mut assert_commit_txids: [[u8; 32]; COMMIT_TX_NUM] = [[0; 32]; COMMIT_TX_NUM];
+        for i in 0..COMMIT_TX_NUM {
+            assert_commit_txids[i] = deserialize_hex(&assert_commit_txid_strs[i])?;
         }
         let pubkey_vec = PublicKey::from_str(&graph.operator)?.to_bytes();
 
@@ -415,17 +416,14 @@ impl BitVM2Client {
             stake_amount: graph.amount as u64,
             operator_pubkey_prefix: pubkey_vec[0],
             operator_pubkey: pubkey_vec[1..33].try_into()?,
-            pegin_txid: Txid::from_str(&graph.pegin_txid)?.to_byte_array(),
-            pre_kickoff_txid: Txid::from_str(&graph.pre_kickoff_txid.clone().unwrap())?
-                .to_byte_array(),
-            kickoff_txid: Txid::from_str(&graph.kickoff_txid.clone().unwrap())?.to_byte_array(),
-            take1_txid: Txid::from_str(&graph.take1_txid.clone().unwrap())?.to_byte_array(),
-            assert_init_txid: Txid::from_str(&graph.assert_init_txid.clone().unwrap())?
-                .to_byte_array(),
+            pegin_txid: deserialize_hex(&graph.pegin_txid)?,
+            pre_kickoff_txid: deserialize_hex(&graph.pre_kickoff_txid.clone().unwrap())?,
+            kickoff_txid: deserialize_hex(&graph.kickoff_txid.clone().unwrap())?,
+            take1_txid: deserialize_hex(&graph.take1_txid.clone().unwrap())?,
+            assert_init_txid: deserialize_hex(&graph.assert_init_txid.clone().unwrap())?,
             assert_commit_txids,
-            assert_final_txid: Txid::from_str(&graph.assert_final_txid.clone().unwrap())?
-                .to_byte_array(),
-            take2_txid: Txid::from_str(&graph.take2_txid.clone().unwrap())?.to_byte_array(),
+            assert_final_txid: deserialize_hex(&graph.assert_final_txid.clone().unwrap())?,
+            take2_txid: deserialize_hex(&graph.take2_txid.clone().unwrap())?,
         })
     }
 }

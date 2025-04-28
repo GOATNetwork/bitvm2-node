@@ -761,26 +761,30 @@ pub async fn store_graph(
     status: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut transaction = client.local_db.start_transaction().await?;
-    let assert_commit_txids: Vec<String> =
-        graph.assert_commit.commit_txns.iter().map(|v| v.tx().compute_txid().to_string()).collect();
+    let assert_commit_txids: Vec<String> = graph
+        .assert_commit
+        .commit_txns
+        .iter()
+        .map(|v| serialize_hex(&v.tx().compute_txid()))
+        .collect();
     transaction
         .update_graph(Graph {
             graph_id,
             instance_id,
             graph_ipfs_base_url: "".to_string(),
-            pegin_txid: graph.pegin.tx().compute_txid().to_string(),
+            pegin_txid: serialize_hex(&graph.pegin.tx().compute_txid()),
             amount: graph.parameters.pegin_amount.to_sat() as i64,
             status: status.clone().unwrap_or_else(|| GraphStatus::OperatorPresigned.to_string()),
-            pre_kickoff_txid: Some(graph.pre_kickoff.tx().compute_txid().to_string()),
-            kickoff_txid: Some(graph.kickoff.tx().compute_txid().to_string()),
+            pre_kickoff_txid: Some(serialize_hex(&graph.pre_kickoff.tx().compute_txid())),
+            kickoff_txid: Some(serialize_hex(&graph.kickoff.tx().compute_txid())),
             challenge_txid: None,
-            take1_txid: Some(graph.take1.tx().compute_txid().to_string()),
-            assert_init_txid: Some(graph.assert_init.tx().compute_txid().to_string()),
+            take1_txid: Some(serialize_hex(&graph.take1.tx().compute_txid())),
+            assert_init_txid: Some(serialize_hex(&graph.assert_init.tx().compute_txid())),
             assert_commit_txids: Some(
                 serde_json::to_string(&assert_commit_txids).expect("fail to encode to json"),
             ),
-            assert_final_txid: Some(graph.assert_final.tx().compute_txid().to_string()),
-            take2_txid: Some(graph.take2.tx().compute_txid().to_string()),
+            assert_final_txid: Some(serialize_hex(&graph.assert_final.tx().compute_txid())),
+            take2_txid: Some(serialize_hex(&graph.take2.tx().compute_txid())),
             disprove_txid: None,
             operator: graph.parameters.operator_pubkey.to_string(),
             raw_data: Some(serde_json::to_string(&graph).expect("to json string")),
@@ -795,7 +799,7 @@ pub async fn store_graph(
                 .update_instance_status_and_pegin_txid(
                     &instance_id,
                     Some(BridgeInStatus::Presigned.to_string()),
-                    Some(graph.pegin.tx().compute_txid().to_string()),
+                    Some(serialize_hex(&graph.pegin.tx().compute_txid())),
                 )
                 .await?
         }

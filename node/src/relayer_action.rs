@@ -14,6 +14,7 @@ use crate::{
     utils::tx_on_chain,
 };
 use bitcoin::Txid;
+use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::types::Bitvm2Graph;
@@ -25,7 +26,6 @@ use goat::{
     utils::num_blocks_per_network,
 };
 use libp2p::Swarm;
-use std::str::FromStr;
 use std::time::UNIX_EPOCH;
 use store::{
     BridgeInStatus, BridgePath, GraphStatus, MessageState, MessageType, RelayerCaringGraphMetaData,
@@ -53,7 +53,7 @@ impl From<RelayerCaringGraphMetaData> for RelayerCaringGraphData {
         let tx_convert = |v: Option<String>| -> Option<Txid> {
             match v {
                 None => None,
-                Some(v) => Txid::from_str(&v).ok(),
+                Some(v) => deserialize_hex(&v).ok(),
             }
         };
         let assert_commit_txids = if let Some(tx_ids) = value.assert_commit_txids {
@@ -62,7 +62,7 @@ impl From<RelayerCaringGraphMetaData> for RelayerCaringGraphData {
                 Ok(tx_id_strs) => {
                     let mut assert_commit_txids = [Txid::all_zeros(); COMMIT_TX_NUM];
                     for i in 0..COMMIT_TX_NUM {
-                        let covert_res = Txid::from_str(&tx_id_strs[i]);
+                        let covert_res = deserialize_hex(&tx_id_strs[i]);
                         if covert_res.is_err() {
                             continue;
                         }
@@ -152,6 +152,8 @@ pub async fn scan_bridge_in_prepare(
         .await?;
 
     let mut ids = vec![];
+    tracing::info!("messages size :{}", messages.len());
+
     for message in messages {
         let p2p_data: P2pUserData = serde_json::from_slice(&message.content)?;
         let message_content = GOATMessageContent::CreateInstance(CreateInstance {
@@ -164,11 +166,11 @@ pub async fn scan_bridge_in_prepare(
         send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
         ids.push(message.id)
     }
-
+    tracing::info!("send msg:{:?} for create instances", ids);
     storage_process
         .update_messages_state(&ids, MessageState::Processed.to_string(), current_time)
         .await?;
-    storage_process.set_messages_expired(current_time).await?;
+    storage_process.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
     Ok(())
 }
 
@@ -196,7 +198,7 @@ pub async fn scan_bridge_in(
             continue;
         }
 
-        if tx_on_chain(client, &Txid::from_str(instance.pegin_txid.unwrap().as_str())?).await? {
+        if tx_on_chain(client, &deserialize_hex(instance.pegin_txid.unwrap().as_str())?).await? {
             let update_res = storage_process
                 .update_instance_status_and_pegin_txid(
                     &instance.instance_id,
