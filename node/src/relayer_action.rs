@@ -28,13 +28,13 @@ use goat::{
 use libp2p::Swarm;
 use std::time::UNIX_EPOCH;
 use store::{
-    BridgeInStatus, BridgePath, GraphStatus, MessageState, MessageType, RelayerCaringGraphMetaData,
+    BridgeInStatus, BridgePath, GraphStatus, GraphTickActionMetaData, MessageState, MessageType,
 };
 use tracing::warn;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
-pub struct RelayerCaringGraphData {
+pub struct GraphTickActionData {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub msg_times: i64,
@@ -48,8 +48,8 @@ pub struct RelayerCaringGraphData {
     pub raw_data: Option<String>,
 }
 
-impl From<RelayerCaringGraphMetaData> for RelayerCaringGraphData {
-    fn from(value: RelayerCaringGraphMetaData) -> Self {
+impl From<GraphTickActionMetaData> for GraphTickActionData {
+    fn from(value: GraphTickActionMetaData) -> Self {
         let tx_convert = |v: Option<String>| -> Option<Txid> {
             match v {
                 None => None,
@@ -95,13 +95,12 @@ pub async fn get_relayer_caring_graph_data(
     client: &BitVM2Client,
     status: GraphStatus,
     msg_type: String,
-) -> Result<Vec<RelayerCaringGraphData>, Box<dyn std::error::Error>> {
+) -> Result<Vec<GraphTickActionData>, Box<dyn std::error::Error>> {
     // If instance corresponding to the graph has already been consumed, the graph is excluded.
     // When a graph enters the take1/take2 status, mark its corresponding instance as consumed.
     let mut storage_process = client.local_db.acquire().await?;
-    let meta_data = storage_process
-        .get_relayer_caring_graph_datas(status.to_string().as_str(), &msg_type)
-        .await?;
+    let meta_data =
+        storage_process.get_graph_tick_action_datas(status.to_string().as_str(), &msg_type).await?;
     Ok(meta_data.into_iter().map(|v| v.into()).collect())
 }
 

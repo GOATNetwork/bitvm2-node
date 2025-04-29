@@ -417,7 +417,7 @@ impl std::fmt::Display for MessageType {
 
 // template query data struct
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct RelayerCaringGraphMetaData {
+pub struct GraphTickActionMetaData {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub status: String,
@@ -433,7 +433,7 @@ pub struct RelayerCaringGraphMetaData {
 }
 
 fn reversed_btc_txid(tx_id: &str) -> String {
-    if let Ok(mut tx_id_vec) = hex::decode(&tx_id) {
+    if let Ok(mut tx_id_vec) = hex::decode(tx_id) {
         tx_id_vec.reverse();
         hex::encode(tx_id_vec)
     } else {

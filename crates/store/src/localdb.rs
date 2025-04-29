@@ -1,9 +1,8 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, Instance, Message, Node, NodesOverview,
-    NonceCollect, NonceCollectMetaData, PubKeyCollect, PubKeyCollectMetaData,
-    RelayerCaringGraphMetaData,
+    COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData, Instance, Message,
+    Node, NodesOverview, NonceCollect, NonceCollectMetaData, PubKeyCollect, PubKeyCollectMetaData,
 };
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
@@ -736,14 +735,14 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    pub async fn get_relayer_caring_graph_datas(
+    pub async fn get_graph_tick_action_datas(
         &mut self,
         graph_status: &str,
         msg_type: &str,
-    ) -> anyhow::Result<Vec<RelayerCaringGraphMetaData>> {
+    ) -> anyhow::Result<Vec<GraphTickActionMetaData>> {
         Ok(
             sqlx::query_as!(
-                RelayerCaringGraphMetaData,
+                GraphTickActionMetaData,
                 "SELECT graph.graph_id as \"graph_id:Uuid\", graph.instance_id as \"instance_id:Uuid\", graph.status, graph.kickoff_txid,  graph.take1_txid, \
                  graph.take2_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid, \
                   graph.raw_data,IFNULL(message_broadcast.msg_times, 0) as msg_times, IFNULL(message_broadcast.msg_type, '') as msg_type  \
