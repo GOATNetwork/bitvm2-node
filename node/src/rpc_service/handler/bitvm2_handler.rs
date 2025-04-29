@@ -23,6 +23,7 @@ pub async fn instance_settings(
 ) -> (StatusCode, Json<InstanceSettingResponse>) {
     (StatusCode::OK, Json(InstanceSettingResponse { bridge_in_amount: vec![1.0, 0.5, 0.2, 0.1] }))
 }
+
 #[axum::debug_handler]
 pub async fn bridge_in_tx_prepare(
     State(app_state): State<Arc<AppState>>,
@@ -94,7 +95,8 @@ pub async fn graph_presign_check(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let instance = storage_process.get_instance(&instance_id).await?;
+        let mut instance = storage_process.get_instance(&instance_id).await?;
+        instance.reverse_btc_txid();
         resp_clone.instance_status = instance.status.clone();
         resp_clone.tx = Some(instance);
         let graphs = storage_process.get_graph_by_instance_id(&instance_id).await?;
@@ -232,7 +234,7 @@ pub async fn get_instances(
         let interval = get_btc_block_interval(instances[0].network.clone().as_str());
 
         let mut items = vec![];
-        for instance in instances {
+        for mut instance in instances {
             let eta = get_tx_eta(
                 &app_state.bitvm2_client.esplora,
                 instance.pegin_txid.clone(),
@@ -241,7 +243,9 @@ pub async fn get_instances(
                 interval,
             )
             .await?;
+            instance.reverse_btc_txid();
             let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
+
             items.push(InstanceWrap { utxo: Some(utxo), instance: Some(instance), eta: Some(eta) })
         }
 
@@ -267,7 +271,8 @@ pub async fn get_instance(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let instance = storage_process.get_instance(&instance_id).await?;
+        let mut instance = storage_process.get_instance(&instance_id).await?;
+        instance.reverse_btc_txid();
         let network = instance.network.clone();
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
         let interval = get_btc_block_interval(network.as_str());
@@ -344,6 +349,7 @@ pub async fn get_graph(
             current_time,
             MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
         );
+        graph.reverse_btc_txid();
         Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph })
     };
     match async_fn().await {
@@ -414,6 +420,7 @@ pub async fn get_graphs(
                 current_time,
                 MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
             );
+            graph.reverse_btc_txid();
             let eta = match graph.get_check_tx_param() {
                 Ok((tx_id, confirm_num)) => {
                     get_tx_eta(

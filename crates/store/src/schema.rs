@@ -47,6 +47,15 @@ pub struct Instance {
     pub updated_at: i64, // updating time
 }
 
+impl Instance {
+    pub fn reverse_btc_txid(&mut self) {
+        if let Some(pegin_txid) = self.pegin_txid.clone() {
+            self.pegin_txid = Some(reversed_btc_txid(&pegin_txid));
+        }
+        self.btc_txid = reversed_btc_txid(&self.btc_txid);
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub enum BridgeInStatus {
     #[default]
@@ -165,6 +174,47 @@ pub struct Graph {
     pub updated_at: i64,
 }
 
+impl Graph {
+    pub fn reverse_btc_txid(&mut self) {
+        self.pegin_txid = reversed_btc_txid(&self.pegin_txid);
+        if let Some(pre_kickoff_txid) = self.pre_kickoff_txid.clone() {
+            self.pre_kickoff_txid = Some(reversed_btc_txid(&pre_kickoff_txid));
+        }
+
+        if let Some(kickoff_txid) = self.kickoff_txid.clone() {
+            self.kickoff_txid = Some(reversed_btc_txid(&kickoff_txid));
+        }
+
+        if let Some(challenge_txid) = self.challenge_txid.clone() {
+            self.challenge_txid = Some(reversed_btc_txid(&challenge_txid));
+        }
+        if let Some(take1_txid) = self.take1_txid.clone() {
+            self.take1_txid = Some(reversed_btc_txid(&take1_txid));
+        }
+        if let Some(assert_init_txid) = self.assert_init_txid.clone() {
+            self.assert_init_txid = Some(reversed_btc_txid(&assert_init_txid));
+        }
+        if let Some(assert_commit_txids) = self.assert_commit_txids.clone() {
+            if let Ok(assert_commit_txids) =
+                serde_json::from_str::<Vec<String>>(&assert_commit_txids)
+            {
+                let assert_commit_txids_re: Vec<String> =
+                    assert_commit_txids.iter().map(|v| reversed_btc_txid(v)).collect();
+                self.assert_commit_txids = serde_json::to_string(&assert_commit_txids_re).ok()
+            }
+        }
+        if let Some(assert_final_txid) = self.assert_final_txid.clone() {
+            self.assert_final_txid = Some(reversed_btc_txid(&assert_final_txid));
+        }
+        if let Some(take2_txid) = self.take2_txid.clone() {
+            self.take2_txid = Some(reversed_btc_txid(&take2_txid));
+        }
+        if let Some(disprove_txid) = self.disprove_txid.clone() {
+            self.disprove_txid = Some(reversed_btc_txid(&disprove_txid));
+        }
+    }
+}
+
 pub fn modify_graph_status(
     ori_status: &str,
     last_updated_at: i64,
@@ -226,6 +276,39 @@ impl GrapRpcQueryData {
             GraphStatus::Take2 => Ok((self.take2_txid.clone(), 6)),
             GraphStatus::Disprove => Ok((self.disprove_txid.clone(), 6)),
             _ => Err("not check status".to_string()),
+        }
+    }
+    pub fn reverse_btc_txid(&mut self) {
+        self.pegin_txid = reversed_btc_txid(&self.pegin_txid);
+        if let Some(kickoff_txid) = self.kickoff_txid.clone() {
+            self.kickoff_txid = Some(reversed_btc_txid(&kickoff_txid));
+        }
+        if let Some(challenge_txid) = self.challenge_txid.clone() {
+            self.challenge_txid = Some(reversed_btc_txid(&challenge_txid));
+        }
+        if let Some(take1_txid) = self.take1_txid.clone() {
+            self.take1_txid = Some(reversed_btc_txid(&take1_txid));
+        }
+        if let Some(assert_init_txid) = self.assert_init_txid.clone() {
+            self.assert_init_txid = Some(reversed_btc_txid(&assert_init_txid));
+        }
+        if let Some(assert_commit_txids) = self.assert_commit_txids.clone() {
+            if let Ok(assert_commit_txids) =
+                serde_json::from_str::<Vec<String>>(&assert_commit_txids)
+            {
+                let assert_commit_txids_re: Vec<String> =
+                    assert_commit_txids.iter().map(|v| reversed_btc_txid(v)).collect();
+                self.assert_commit_txids = serde_json::to_string(&assert_commit_txids_re).ok()
+            }
+        }
+        if let Some(assert_final_txid) = self.assert_final_txid.clone() {
+            self.assert_final_txid = Some(reversed_btc_txid(&assert_final_txid));
+        }
+        if let Some(take2_txid) = self.take2_txid.clone() {
+            self.take2_txid = Some(reversed_btc_txid(&take2_txid));
+        }
+        if let Some(disprove_txid) = self.disprove_txid.clone() {
+            self.disprove_txid = Some(reversed_btc_txid(&disprove_txid));
         }
     }
 }
@@ -347,4 +430,13 @@ pub struct RelayerCaringGraphMetaData {
     pub assert_commit_txids: Option<String>,
     pub assert_final_txid: Option<String>,
     pub raw_data: Option<String>,
+}
+
+fn reversed_btc_txid(tx_id: &str) -> String {
+    if let Ok(mut tx_id_vec) = hex::decode(&tx_id) {
+        tx_id_vec.reverse();
+        hex::encode(tx_id_vec)
+    } else {
+        tx_id.to_string()
+    }
 }
