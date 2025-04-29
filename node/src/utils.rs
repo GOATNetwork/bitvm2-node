@@ -892,11 +892,10 @@ pub async fn publish_graph_to_ipfs(
 
 #[cfg(test)]
 mod tests {
-    use crate::action::{CreateInstance, GOATMessageContent};
+    use crate::action::{CreateInstance, GOATMessageContent, KickoffReady};
 
     use super::*;
     use bitcoin::XOnlyPublicKey;
-    use bitvm2_lib::types::Bitvm2Parameters;
     use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
     use goat::connectors::base::generate_default_tx_in;
     use reqwest::Url;
@@ -1335,7 +1334,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "debug"]
-    async fn mock_init_message() {
+    async fn mock_pegin_message() {
         let signer_secret: &str = "";
         let node_keypair = Keypair::from_seckey_str_global(signer_secret).unwrap();
         let network = get_network();
@@ -1365,6 +1364,16 @@ mod tests {
             },
         });
         println!("Committee:{}", serde_json::to_string(&message_content).unwrap());
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn mock_kickoff_sent_message() {
+        let message_content = GOATMessageContent::KickoffReady(KickoffReady {
+            instance_id: Uuid::from_str("85b378bc-1b2a-4c59-a116-bdf3fbdf14e0").unwrap(),
+            graph_id: Uuid::from_str("ca010566-d7a7-49c8-8c62-9ddb8dd988ec").unwrap(),
+        });
+        println!("All:{}", serde_json::to_string(&message_content).unwrap());
     }
 
     #[tokio::test]
@@ -1469,6 +1478,8 @@ mod tests {
         let operator_pubkey_prefix = operator_pubkey_bytes[0];
         let mut operator_pubkey = [0u8; 32];
         operator_pubkey.copy_from_slice(&operator_pubkey_bytes[1..33]);
+        let operator_pubkey_prefix = hex::encode([operator_pubkey_prefix]);
+        let operator_pubkey = hex::encode(operator_pubkey);
 
         let pegin_txid = serialize_hex(&graph.pegin.tx().compute_txid());
         let pre_kickoff_txid = serialize_hex(&graph.pre_kickoff.tx().compute_txid());
@@ -1481,8 +1492,8 @@ mod tests {
 
         println!("OperatorData:");
         println!("  stakeAmount: {}", stake_amount);
-        println!("  operatorPubkeyPrefix: 0x{:02x}", operator_pubkey_prefix);
-        println!("  operatorPubkey: 0x{}", hex::encode(operator_pubkey));
+        println!("  operatorPubkeyPrefix: 0x{}", operator_pubkey_prefix);
+        println!("  operatorPubkey: 0x{}", operator_pubkey);
         println!("  peginTxid: 0x{}", pegin_txid);
         println!("  preKickoffTxid: 0x{}", pre_kickoff_txid);
         println!("  kickoffTxid: 0x{}", kickoff_txid);
@@ -1500,11 +1511,19 @@ mod tests {
         println!("  serialize_hex(take2Txid): 0x{}", take2_txid);
         println!("  take2Txid.to_string(): 0x{}", take2_txid_to_string);
 
+        println!(
+            "solidity version: [{stake_amount},\"0x{operator_pubkey_prefix}\",\"0x{operator_pubkey}\",\"0x{pegin_txid}\",\"0x{pre_kickoff_txid}\",\"0x{kickoff_txid}\",\"0x{take1_txid}\",\"0x{assert_init_txid}\",[\"0x{}\",\"0x{}\",\"0x{}\",\"0x{}\"],\"0x{assert_final_txid}\",\"0x{take2_txid}\"]",
+            serialize_hex(&graph.assert_commit.commit_txns[0].tx().compute_txid()),
+            serialize_hex(&graph.assert_commit.commit_txns[1].tx().compute_txid()),
+            serialize_hex(&graph.assert_commit.commit_txns[2].tx().compute_txid()),
+            serialize_hex(&graph.assert_commit.commit_txns[3].tx().compute_txid()),
+        );
+
         // test SimplifiedGraph
         println!("\ntest SimplifiedGraph");
         let simplified_graph = graph.to_simplified();
         let start = std::time::Instant::now();
-        let restored_graph = Bitvm2Graph::from_simplified(simplified_graph.clone()).unwrap();
+        let _restored_graph = Bitvm2Graph::from_simplified(simplified_graph.clone()).unwrap();
         let duration = start.elapsed();
 
         println!("Time to restore Bitvm2Graph from SimplifiedGraph: {:?}", duration);
@@ -1519,68 +1538,31 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "debug"]
-    async fn test_header() {
+    async fn get_merkle_proof() {
         let client = test_client().await;
         let txid =
-            Txid::from_str("50a3086d004ee1a09251b6f110b61adbe020a8e01489d755bb46656c490cefa8")
+            Txid::from_str("2bc22875a8c87354c57371ab158b973076cc62919b8722c5efcae2978cc5d06e")
                 .unwrap();
+        let tx = client.esplora.get_tx(&txid).await.unwrap().unwrap();
         let merkle_proof = client.esplora.get_merkle_proof(&txid).await.unwrap().unwrap();
         let height = merkle_proof.block_height;
         let block_hash = client.esplora.get_block_hash(height).await.unwrap();
         let header = client.esplora.get_header_by_hash(&block_hash).await.unwrap();
         let proof_display: Vec<String> =
             merkle_proof.merkle.iter().map(|txid| format!("0x{}", serialize_hex(&txid))).collect();
+        println!(
+            "raw Tx: [\"0x{}\",\"0x{}\",\"0x{}\",\"0x{}\"]",
+            serialize_hex(&tx.version),
+            serialize_hex(&tx.input),
+            serialize_hex(&tx.output),
+            serialize_hex(&tx.lock_time)
+        );
         println!("block height: {}, hash: {}", height, serialize_hex(&block_hash));
-        println!("header: {}", serialize_hex(&header));
+        println!("header: 0x{}", serialize_hex(&header));
         println!("merkle_root: {}", serialize_hex(&header.merkle_root));
         println!("txid: {}", serialize_hex(&txid));
         println!("merkle_proof.block_height: {}", merkle_proof.block_height);
         println!("merkle_proof.leaf_index: {}", merkle_proof.pos);
         println!("merkle_proof.merkle: {:?}", proof_display);
-    }
-
-    #[test]
-    #[ignore = "debug"]
-    fn generate_test_pegin() {
-        use goat::connectors::connector_0::Connector0;
-        use goat::transactions::peg_in::peg_in::PegInTransaction;
-
-        let input_0 = Input {
-            outpoint: OutPoint {
-                txid: Txid::from_str(
-                    "5d4258b3bff2a0825410cca37049591d9fe093a536d2b836d084e5c3f0835579",
-                )
-                .unwrap(),
-                vout: 3,
-            },
-            amount: Amount::from_sat(399853),
-        };
-        let pubkey = PublicKey::from_str(
-            "03067371b68539da39b6b58992741868e28ba47d682c7524f7f42f7461960cec3b",
-        )
-        .unwrap();
-        let fee_amount = Amount::from_sat(500);
-        let change_address = Address::from_str("tb1q9h3c0mmtynrcj9azt7v9rvjp30ykdmc7z6fdun")
-            .unwrap()
-            .assume_checked();
-        let network = get_network();
-        let connector_0 = Connector0::new(network, &XOnlyPublicKey::from(pubkey));
-        let pegin = PegInTransaction::new_for_validation(
-            &connector_0,
-            vec![input_0],
-            Amount::from_sat(1000),
-            fee_amount,
-            change_address,
-            string_to_utf8_array32("bitvm2 pegin").to_vec(),
-        );
-        println!("pegin tx hex: {}", serialize_hex(pegin.tx()));
-
-        fn string_to_utf8_array32(s: &str) -> [u8; 32] {
-            let mut array = [0u8; 32];
-            let bytes = s.as_bytes();
-            let len = bytes.len().min(32);
-            array[..len].copy_from_slice(&bytes[..len]);
-            array
-        }
     }
 }

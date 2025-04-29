@@ -526,34 +526,40 @@ pub async fn recv_and_dispatch(
         // peg-out
         // KickoffReady sent by relayer
         (GOATMessageContent::KickoffReady(receive_data), Actor::Operator) => {
-            tracing::info!("Handle KickoffReady");
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()?
-                && is_withdraw_initialized_on_l2(
+            let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+            let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+            let operator_graph_pubkey: PublicKey = keypair.public_key().into();
+            if graph.parameters.operator_pubkey == operator_graph_pubkey {
+                tracing::info!("Handle KickoffReady");
+                if is_withdraw_initialized_on_l2(
                     client,
                     receive_data.instance_id,
                     receive_data.graph_id,
                 )
                 .await?
-            {
-                let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
-                let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                let (operator_wots_seckeys, operator_wots_pubkeys) =
-                    master_key.wots_keypair_for_graph(receive_data.graph_id);
-                let mut kickoff_commit_data = [0u8; 32];
-                kickoff_commit_data[..16].copy_from_slice(receive_data.instance_id.as_bytes());
-                kickoff_commit_data[16..].copy_from_slice(receive_data.graph_id.as_bytes());
-                let kickoff_tx = operator_sign_kickoff(
-                    keypair,
-                    &mut graph,
-                    &operator_wots_seckeys,
-                    &operator_wots_pubkeys,
-                    kickoff_commit_data,
-                )?;
-                broadcast_tx(client, &kickoff_tx).await?;
-                // malicious Operator may not broadcast kickoff to the p2p network
-                // Relayer will monitor all graphs & broadcast KickoffSent
+                {
+                    tracing::info!("sending Kickoff ...");
+                    let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+                    let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+                    let (operator_wots_seckeys, operator_wots_pubkeys) =
+                        master_key.wots_keypair_for_graph(receive_data.graph_id);
+                    let mut kickoff_commit_data = [0u8; 32];
+                    kickoff_commit_data[..16].copy_from_slice(receive_data.instance_id.as_bytes());
+                    kickoff_commit_data[16..].copy_from_slice(receive_data.graph_id.as_bytes());
+                    let kickoff_tx = operator_sign_kickoff(
+                        keypair,
+                        &mut graph,
+                        &operator_wots_seckeys,
+                        &operator_wots_pubkeys,
+                        kickoff_commit_data,
+                    )?;
+                    broadcast_tx(client, &kickoff_tx).await?;
+                    tracing::info!("kickoff sent, txid: {}", kickoff_tx.compute_txid().to_string());
+                    // malicious Operator may not broadcast kickoff to the p2p network
+                    // Relayer will monitor all graphs & broadcast KickoffSent
+                }
             }
         }
         // KickoffSent sent by relayer
@@ -570,6 +576,7 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
+                tracing::info!("sending Challenge ...");
                 let (challenge_tx, challenge_amount) = export_challenge_tx(&mut graph)?;
                 let node_keypair = ChallengerMasterKey::new(env::get_bitvm_key()?).master_keypair();
                 let challenge_txid = complete_and_broadcast_challenge_tx(
@@ -579,6 +586,7 @@ pub async fn recv_and_dispatch(
                     challenge_amount,
                 )
                 .await?;
+                tracing::info!("challenge sent, txid: {}", challenge_txid.to_string());
                 let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
@@ -598,33 +606,38 @@ pub async fn recv_and_dispatch(
         }
         // Take1Ready sent by relayer
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
-            tracing::info!("Handle Take1Ready");
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()?
-                && is_take1_timelock_expired(client, graph.take1.tx().compute_txid()).await?
-            {
-                let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
-                let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                let take1_tx = operator_sign_take1(keypair, &mut graph)?;
-                let take1_txid = take1_tx.compute_txid();
-                broadcast_tx(client, &take1_tx).await?;
-                let message_content = GOATMessageContent::Take1Sent(Take1Sent {
-                    instance_id: receive_data.instance_id,
-                    graph_id: receive_data.graph_id,
-                    take1_txid,
-                });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                update_graph_fields(
-                    client,
-                    receive_data.graph_id,
-                    Some(GraphStatus::Take1.to_string()),
-                    None,
-                    None,
-                    None,
-                )
-                .await?;
-                // NOTE: clean up other graphs?
+            let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+            let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+            let operator_graph_pubkey: PublicKey = keypair.public_key().into();
+            if graph.parameters.operator_pubkey == operator_graph_pubkey {
+                tracing::info!("Handle Take1Ready");
+                if is_take1_timelock_expired(client, graph.kickoff.tx().compute_txid()).await? {
+                    tracing::info!("sending Take1 ...");
+                    let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+                    let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+                    let take1_tx = operator_sign_take1(keypair, &mut graph)?;
+                    let take1_txid = take1_tx.compute_txid();
+                    broadcast_tx(client, &take1_tx).await?;
+                    tracing::info!("take1 sent, txid: {}", take1_txid.to_string());
+                    let message_content = GOATMessageContent::Take1Sent(Take1Sent {
+                        instance_id: receive_data.instance_id,
+                        graph_id: receive_data.graph_id,
+                        take1_txid,
+                    });
+                    send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                    update_graph_fields(
+                        client,
+                        receive_data.graph_id,
+                        Some(GraphStatus::Take1.to_string()),
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?;
+                    // NOTE: clean up other graphs?
+                }
             }
         }
         // ChallengeSent sent by challenger
@@ -641,6 +654,7 @@ pub async fn recv_and_dispatch(
                 )
                 .await?
             {
+                tracing::info!("sending Assert ...");
                 let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
                 let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                 let (operator_wots_seckeys, operator_wots_pubkeys) =
@@ -711,6 +725,7 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
+                tracing::info!("sending Disprove ...");
                 let disprove_scripts = generate_disprove_scripts(
                     &get_partial_scripts()?,
                     &graph.parameters.operator_wots_pubkeys,
@@ -732,6 +747,7 @@ pub async fn recv_and_dispatch(
                     graph_id: receive_data.graph_id,
                     disprove_txid,
                 });
+                tracing::info!("disprove sent, txid: {}", disprove_txid.to_string());
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
                 update_graph_fields(
                     client,
