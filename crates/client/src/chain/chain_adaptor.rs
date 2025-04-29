@@ -15,6 +15,7 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         instance_id: &Uuid,
         raw_pgin_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -36,6 +37,11 @@ pub trait ChainAdaptor: Send + Sync {
 
     async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
 
+    async fn parse_btc_block_header(
+        &self,
+        raw_header: &[u8],
+    ) -> anyhow::Result<([u8; 32], [u8; 32])>;
+
     async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
     async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<()>;
     async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<()>;
@@ -43,6 +49,7 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         graph_id: &Uuid,
         raw_kickoff_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -51,6 +58,7 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         graph_id: &Uuid,
         raw_take1_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -59,6 +67,7 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         graph_id: &Uuid,
         raw_take2_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -68,6 +77,7 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         graph_id: &Uuid,
         raw_disproved_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,

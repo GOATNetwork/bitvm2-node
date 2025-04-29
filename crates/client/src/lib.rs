@@ -39,7 +39,7 @@ mod tests {
             Txid::from_str("a95cb0da04e4b64d7633c34621e31030611ddf2b852ebbc0a293661bad914e2e")
                 .expect("decode txid");
 
-        let (root, proof_info) =
+        let (root, proof_info, _) =
             client.get_bitc_merkle_proof(&tx_id).await.expect("call merkle proof");
         let root = root.to_byte_array().map(|v| v);
         let proof: Vec<[u8; 32]> =

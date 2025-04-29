@@ -203,8 +203,8 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, \
              amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
-            assert_final_txid, take2_txid, disprove_txid, raw_data, created_at, updated_at)  \
-            VALUES ( ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?) ",
+            assert_final_txid, take2_txid, disprove_txid, operator, raw_data, created_at, updated_at)  \
+            VALUES ( ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
             graph.graph_id,
             graph.instance_id,
             graph.graph_ipfs_base_url,
@@ -220,6 +220,7 @@ impl<'a> StorageProcessor<'a> {
             graph.assert_final_txid,
             graph.take2_txid,
             graph.disprove_txid,
+            graph.operator,
             graph.raw_data,
             graph.created_at,
             graph.updated_at,

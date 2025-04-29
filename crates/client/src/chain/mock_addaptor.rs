@@ -34,6 +34,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         _instance_id: &Uuid,
         _raw_pgin_tx: &BitcoinTx,
+        _raw_header: &[u8],
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
@@ -63,6 +64,13 @@ impl ChainAdaptor for MockAdaptor {
         todo!()
     }
 
+    async fn parse_btc_block_header(
+        &self,
+        _raw_header: &[u8],
+    ) -> anyhow::Result<([u8; 32], [u8; 32])> {
+        todo!()
+    }
+
     async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
         todo!()
     }
@@ -79,6 +87,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         _graph_id: &Uuid,
         _raw_kickoff_tx: &BitcoinTx,
+        _raw_header: &[u8],
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
@@ -90,6 +99,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         _graph_id: &Uuid,
         _raw_take1_tx: &BitcoinTx,
+        _raw_header: &[u8],
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
@@ -101,6 +111,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         _graph_id: &Uuid,
         _raw_take2_tx: &BitcoinTx,
+        _raw_header: &[u8],
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
@@ -112,6 +123,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         _graph_id: &Uuid,
         _raw_disproved_tx: &BitcoinTx,
+        _raw_header: &[u8],
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,

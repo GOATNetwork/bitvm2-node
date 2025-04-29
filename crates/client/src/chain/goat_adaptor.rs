@@ -83,18 +83,19 @@ sol!(
         public instanceIdToGraphIds;
 
         function getBlockHash(uint256 height) external view returns (bytes32);
+        function parseBtcBlockHeader(bytes calldata rawHeader) public pure returns (bytes32 blockHash, bytes32 merkleRoot);
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getWithdrawableInstances() external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
-        function postPeginData(bytes16 instanceId,BitcoinTx calldata rawPeginTx,uint256 height,bytes32[] calldata proof,uint256 index) external ;
+        function postPeginData(bytes16 instanceId,BitcoinTx calldata rawPeginTx, bytes calldata rawHeader, uint256 height,bytes32[] calldata proof,uint256 index) external ;
         function postOperatorData(bytes16 instanceId,bytes16 graphId,OperatorData calldata operatorData) public;
         function postOperatorDataBatch(bytes16 instanceId,bytes16[] calldata graphIds,OperatorData[] calldata operatorData) external;
         function initWithdraw(bytes16 instanceId, bytes16 graphId) external;
         function cancelWithdraw(bytes16 graphId) external;
-        function proceedWithdraw(bytes16 graphId,BitcoinTx calldata rawKickoffTx,uint256 height,bytes32[] calldata proof,uint256 index) external;
-        function finishWithdrawHappyPath(bytes16 graphId,BitcoinTx calldata rawTake1Tx,uint256 height,bytes32[] calldata proof,uint256 index) external;
-        function finishWithdrawUnhappyPath(bytes16 graphId,BitcoinTx calldata rawTake2Tx,uint256 height,bytes32[] calldata proof,uint256 index) external;
-        function finishWithdrawDisproved(bytes16 graphId,BitcoinTx calldata rawDisproveTx,uint256 height,bytes32[] calldata proof,uint256 index) external;
+        function proceedWithdraw(bytes16 graphId,BitcoinTx calldata rawKickoffTx, bytes calldata rawHeader, uint256 height,bytes32[] calldata proof,uint256 index) external;
+        function finishWithdrawHappyPath(bytes16 graphId,BitcoinTx calldata rawTake1Tx,bytes calldata rawHeader, uint256 height,bytes32[] calldata proof,uint256 index) external;
+        function finishWithdrawUnhappyPath(bytes16 graphId,BitcoinTx calldata rawTake2Tx, bytes calldata rawHeader,uint256 height,bytes32[] calldata proof,uint256 index) external;
+        function finishWithdrawDisproved(bytes16 graphId,BitcoinTx calldata rawDisproveTx, bytes calldata rawHeader,uint256 height,bytes32[] calldata proof,uint256 index) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof,bytes32 leaf,uint256 index) public pure returns (bool);
 
     }
@@ -138,6 +139,7 @@ impl GoatAdaptor {
         tx_request.nonce =
             Some(self.provider.clone().get_transaction_count(tx_request.from.unwrap()).await?);
         tx_request.gas = Some(self.provider.clone().estimate_gas(&tx_request).await?);
+
         // change into unsigned tx
         let unsigned_tx = tx_request
             .build_typed_tx()
@@ -151,17 +153,19 @@ impl GoatAdaptor {
         // send tx
         let pending_tx =
             self.provider.send_raw_transaction(signed_tx.encoded_2718().as_slice()).await?;
-        Ok(*pending_tx.tx_hash())
+        let tx_hash = pending_tx.tx_hash();
+        tracing::info!("finish send tx_hash: {}", tx_hash.to_string());
+        Ok(*tx_hash)
     }
 }
 
 impl From<BitcoinTx> for IGateway::BitcoinTx {
     fn from(value: BitcoinTx) -> Self {
         Self {
-            version: FixedBytes::from(value.version),
+            version: FixedBytes::<4>::from_slice(&value.version.to_le_bytes()),
             inputVector: Bytes::copy_from_slice(&value.input_vector),
             outputVector: Bytes::copy_from_slice(&value.output_vector),
-            locktime: FixedBytes::from(value.lock_time),
+            locktime: FixedBytes::<4>::from(value.lock_time),
         }
     }
 }
@@ -318,6 +322,7 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         instance_id: &Uuid,
         raw_pgin_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -329,6 +334,7 @@ impl ChainAdaptor for GoatAdaptor {
             .postPeginData(
                 FixedBytes::<16>::from_slice(instance_id.as_bytes()),
                 (*raw_pgin_tx).clone().into(),
+                Bytes::copy_from_slice(raw_header),
                 U256::try_from(height)?,
                 proof,
                 U256::try_from(index)?,
@@ -428,6 +434,7 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_kickoff_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -439,6 +446,7 @@ impl ChainAdaptor for GoatAdaptor {
             .proceedWithdraw(
                 FixedBytes::from_slice(graph_id.as_bytes()),
                 (*raw_kickoff_tx).clone().into(),
+                Bytes::copy_from_slice(raw_header),
                 U256::from(height),
                 proof,
                 U256::from(index),
@@ -454,6 +462,7 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_take1_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -465,6 +474,7 @@ impl ChainAdaptor for GoatAdaptor {
             .finishWithdrawHappyPath(
                 FixedBytes::from_slice(graph_id.as_bytes()),
                 (*raw_take1_tx).clone().into(),
+                Bytes::copy_from_slice(raw_header),
                 U256::from(height),
                 proof,
                 U256::from(index),
@@ -480,6 +490,7 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_take2_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -491,6 +502,7 @@ impl ChainAdaptor for GoatAdaptor {
             .finishWithdrawUnhappyPath(
                 FixedBytes::from_slice(graph_id.as_bytes()),
                 (*raw_take2_tx).clone().into(),
+                Bytes::copy_from_slice(raw_header),
                 U256::from(height),
                 proof,
                 U256::from(index),
@@ -506,6 +518,7 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_disproved_tx: &BitcoinTx,
+        raw_header: &[u8],
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
@@ -517,6 +530,7 @@ impl ChainAdaptor for GoatAdaptor {
             .finishWithdrawDisproved(
                 FixedBytes::from_slice(graph_id.as_bytes()),
                 (*raw_disproved_tx).clone().into(),
+                Bytes::copy_from_slice(raw_header),
                 U256::from(height),
                 proof,
                 U256::from(index),
@@ -548,6 +562,15 @@ impl ChainAdaptor for GoatAdaptor {
             .call()
             .await?
             ._0)
+    }
+
+    async fn parse_btc_block_header(
+        &self,
+        raw_header: &[u8],
+    ) -> anyhow::Result<([u8; 32], [u8; 32])> {
+        let res =
+            self.gate_way.parseBtcBlockHeader(Bytes::copy_from_slice(raw_header)).call().await?;
+        Ok((res.blockHash.0, res.merkleRoot.0))
     }
 }
 
