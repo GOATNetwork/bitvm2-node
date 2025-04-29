@@ -1,13 +1,22 @@
-use bitcoin::TapNodeHash;
+use anyhow::Result;
 use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, XOnlyPublicKey, key::Keypair};
+use bitcoin::{OutPoint, TapNodeHash, Witness};
 use bitvm::chunk::api::{
     NUM_HASH, NUM_PUBS, NUM_U256, PublicKeys as ApiWotsPublicKeys, Signatures as ApiWotsSignatures,
 };
 use bitvm::signatures::signing_winternitz::{WinternitzPublicKey, WinternitzSecret};
-use goat::commitments::NUM_KICKOFF;
+use goat::commitments::{CommitmentMessageId, NUM_KICKOFF};
+use goat::connectors::connector_0::Connector0;
+use goat::connectors::connector_3::Connector3;
+use goat::connectors::connector_6::Connector6;
+use goat::connectors::connector_a::ConnectorA;
+use goat::connectors::connector_b::ConnectorB;
+use goat::connectors::connector_d::ConnectorD;
 use goat::contexts::base::BaseContext;
 use goat::contexts::operator::OperatorContext;
 use goat::contexts::verifier::VerifierContext;
+use goat::transactions::assert::utils::{AllCommitConnectorsE, AssertCommitConnectorsF};
+use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::{
     assert::assert_commit::AssertCommitTransactionSet,
     assert::assert_final::AssertFinalTransaction, assert::assert_initial::AssertInitialTransaction,
@@ -18,6 +27,9 @@ use goat::transactions::{
 use rand::{Rng, distributions::Alphanumeric};
 use secp256k1::SECP256K1;
 use serde::{Deserialize, Serialize};
+
+use crate::committee::{COMMITTEE_PRE_SIGN_NUM, push_committee_pre_signatures};
+use crate::operator::push_operator_pre_signature;
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
@@ -38,7 +50,7 @@ pub fn random_string(len: usize) -> String {
     rand::thread_rng().sample_iter(&Alphanumeric).take(len).map(char::from).collect()
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct Bitvm2Parameters {
     pub network: Network,
     pub depositor_evm_address: [u8; 20],
@@ -103,7 +115,7 @@ impl Bitvm2Parameters {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct Bitvm2Graph {
     pub(crate) operator_pre_signed: bool,
     pub(crate) committee_pre_signed: bool,
@@ -121,6 +133,17 @@ pub struct Bitvm2Graph {
     pub disprove: DisproveTransaction,
 }
 
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
+pub struct SimplifiedBitvm2Graph {
+    pub parameters: Bitvm2Parameters,
+    pub operator_pre_sigs: Option<Witness>,
+    pub committee_pre_sigs: Option<[Witness; COMMITTEE_PRE_SIGN_NUM]>,
+    pub connector_c_taproot_merkle_root: TapNodeHash,
+    pub assert_final: AssertFinalTransaction,
+    pub take2: Take2Transaction,
+    pub disprove: DisproveTransaction,
+}
+
 impl Bitvm2Graph {
     pub fn operator_pre_signed(&self) -> bool {
         self.operator_pre_signed
@@ -128,9 +151,199 @@ impl Bitvm2Graph {
     pub fn committee_pre_signed(&self) -> bool {
         self.committee_pre_signed
     }
+    pub fn from_simplified(simplified_graph: SimplifiedBitvm2Graph) -> Result<Self> {
+        let SimplifiedBitvm2Graph {
+            parameters,
+            operator_pre_sigs,
+            committee_pre_sigs,
+            connector_c_taproot_merkle_root,
+            assert_final,
+            take2,
+            disprove,
+        } = simplified_graph;
+
+        let user_inputs = parameters.user_inputs.clone();
+        let operator_inputs = parameters.operator_inputs.clone();
+
+        // Pegin
+        let network = parameters.network;
+        let committee_taproot_pubkey = XOnlyPublicKey::from(parameters.committee_agg_pubkey);
+        let connector_0 = Connector0::new(network, &committee_taproot_pubkey);
+        let pegin_message =
+            [get_magic_bytes(&network), parameters.depositor_evm_address.to_vec()].concat();
+        let pegin = PegInTransaction::new_for_validation(
+            &connector_0,
+            user_inputs.inputs,
+            user_inputs.input_amount,
+            user_inputs.fee_amount,
+            user_inputs.change_address,
+            pegin_message,
+        );
+        let pegin_txid = pegin.tx().compute_txid();
+
+        // Pre-Kickoff
+        let operator_pubkey = parameters.operator_pubkey;
+        let operator_taproot_pubkey = XOnlyPublicKey::from(operator_pubkey);
+        let kickoff_wots_commitment_keys =
+            CommitmentMessageId::pubkey_map_for_kickoff(&parameters.operator_wots_pubkeys.0);
+        let connector_6 =
+            Connector6::new(network, &operator_taproot_pubkey, &kickoff_wots_commitment_keys);
+        let pre_kickoff = PreKickoffTransaction::new_unsigned(
+            &connector_6,
+            operator_inputs.inputs,
+            operator_inputs.input_amount,
+            operator_inputs.fee_amount,
+            operator_inputs.change_address,
+        );
+        let pre_kickoff_txid = pre_kickoff.tx().compute_txid();
+
+        // Kickoff
+        let connector_3 = Connector3::new(network, &operator_pubkey);
+        let connector_a =
+            ConnectorA::new(network, &operator_taproot_pubkey, &committee_taproot_pubkey);
+        let connector_b = ConnectorB::new(network, &operator_taproot_pubkey);
+        let kickoff_input_0_vout: usize = 0;
+        let kickoff_input_0 = Input {
+            outpoint: OutPoint { txid: pre_kickoff_txid, vout: kickoff_input_0_vout as u32 },
+            amount: pre_kickoff.tx().output[kickoff_input_0_vout].value,
+        };
+        let kickoff = KickOffTransaction::new_for_validation(
+            &connector_3,
+            &connector_6,
+            &connector_a,
+            &connector_b,
+            kickoff_input_0,
+        );
+        let kickoff_txid = kickoff.tx().compute_txid();
+
+        // take-1
+        let take1_input_0_vout: usize = 0;
+        let take1_input_0 = Input {
+            outpoint: OutPoint { txid: pegin_txid, vout: take1_input_0_vout as u32 },
+            amount: pegin.tx().output[take1_input_0_vout].value,
+        };
+        let take1_input_1_vout: usize = 1;
+        let take1_input_1 = Input {
+            outpoint: OutPoint { txid: kickoff_txid, vout: take1_input_1_vout as u32 },
+            amount: kickoff.tx().output[take1_input_1_vout].value,
+        };
+        let take1_input_2_vout: usize = 0;
+        let take1_input_2 = Input {
+            outpoint: OutPoint { txid: kickoff_txid, vout: take1_input_2_vout as u32 },
+            amount: kickoff.tx().output[take1_input_2_vout].value,
+        };
+        let take1 = Take1Transaction::new_for_validation(
+            network,
+            &operator_pubkey,
+            &connector_0,
+            &connector_3,
+            &connector_a,
+            take1_input_0,
+            take1_input_1,
+            take1_input_2,
+        );
+
+        // challenge
+        let challenge_input_0_vout: usize = 1;
+        let challenge_input_0 = Input {
+            outpoint: OutPoint { txid: kickoff_txid, vout: challenge_input_0_vout as u32 },
+            amount: kickoff.tx().output[challenge_input_0_vout].value,
+        };
+        let challenge = ChallengeTransaction::new_for_validation(
+            network,
+            &operator_pubkey,
+            &connector_a,
+            challenge_input_0,
+            parameters.challenge_amount,
+        );
+
+        // assert-initial
+        let assert_wots_pubkeys = &parameters.operator_wots_pubkeys.1;
+        let connector_d = ConnectorD::new(network, &committee_taproot_pubkey);
+        let all_assert_commit_connectors_e =
+            AllCommitConnectorsE::new(network, &operator_pubkey, assert_wots_pubkeys);
+        let assert_init_input_0_vout: usize = 2;
+        let assert_init_input_0 = Input {
+            outpoint: OutPoint { txid: kickoff_txid, vout: assert_init_input_0_vout as u32 },
+            amount: kickoff.tx().output[assert_init_input_0_vout].value,
+        };
+        let assert_init = AssertInitialTransaction::new_for_validation(
+            &connector_b,
+            &connector_d,
+            &all_assert_commit_connectors_e,
+            assert_init_input_0,
+        );
+        let assert_init_txid = assert_init.tx().compute_txid();
+
+        // assert-commit
+        let connectors_f = AssertCommitConnectorsF::new(network, &operator_pubkey);
+        let vout_base: usize = 1;
+        let assert_commit_inputs = (0..all_assert_commit_connectors_e.connectors_num())
+            .map(|idx| Input {
+                outpoint: OutPoint { txid: assert_init_txid, vout: (idx + vout_base) as u32 },
+                amount: assert_init.tx().output[idx + vout_base].value,
+            })
+            .collect();
+        let assert_commit = AssertCommitTransactionSet::new(
+            &all_assert_commit_connectors_e,
+            &connectors_f,
+            assert_commit_inputs,
+        );
+
+        let mut graph = Bitvm2Graph {
+            operator_pre_signed: false,
+            committee_pre_signed: false,
+            parameters,
+            connector_c_taproot_merkle_root,
+            pegin,
+            pre_kickoff,
+            kickoff,
+            take1,
+            challenge,
+            assert_init,
+            assert_commit,
+            assert_final,
+            take2,
+            disprove,
+        };
+        if let Some(signed_witness) = operator_pre_sigs {
+            push_operator_pre_signature(&mut graph, &signed_witness)?
+        };
+        if let Some(signed_witness) = committee_pre_sigs {
+            push_committee_pre_signatures(&mut graph, &signed_witness)?
+        };
+        Ok(graph)
+    }
+    pub fn to_simplified(&self) -> SimplifiedBitvm2Graph {
+        let operator_pre_sigs = if self.operator_pre_signed {
+            Some(self.challenge.tx().input[0].witness.clone())
+        } else {
+            None
+        };
+        let committee_pre_sigs = if self.committee_pre_signed {
+            Some([
+                self.take1.tx().input[0].witness.clone(),
+                self.take2.tx().input[0].witness.clone(),
+                self.take2.tx().input[2].witness.clone(),
+                self.assert_final.tx().input[0].witness.clone(),
+                self.disprove.tx().input[0].witness.clone(),
+            ])
+        } else {
+            None
+        };
+        SimplifiedBitvm2Graph {
+            parameters: self.parameters.clone(),
+            operator_pre_sigs,
+            committee_pre_sigs,
+            connector_c_taproot_merkle_root: self.connector_c_taproot_merkle_root,
+            assert_final: self.assert_final.clone(),
+            take2: self.take2.clone(),
+            disprove: self.disprove.clone(),
+        }
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct CustomInputs {
     pub inputs: Vec<Input>,
     /// stake amount / pegin_amount
@@ -447,12 +660,16 @@ pub mod node_serializer {
 mod tests {
     use crate::operator::generate_wots_keys;
     use crate::types::{WotsPublicKeys, WotsSecretKeys, node_serializer};
+    use bitcoin::Address;
     use serde::{Deserialize, Serialize};
     use std::fmt::Debug;
+    use std::str::FromStr;
 
     fn mock_wots_secret_keys() -> WotsKeys {
         let (secs, pubs) = generate_wots_keys("seed");
-        WotsKeys { secs, pubs }
+        let address =
+            Address::from_str("1CAGNhS5KPpeoZyL6DDNiKp85hCjZkvyYg").unwrap().assume_checked();
+        WotsKeys { secs, pubs, address }
     }
 
     #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -461,6 +678,8 @@ mod tests {
         pub secs: WotsSecretKeys,
         #[serde(with = "node_serializer::wots_pubkeys")]
         pub pubs: WotsPublicKeys,
+        #[serde(with = "node_serializer::address")]
+        pub address: Address,
     }
 
     #[cfg(test)]

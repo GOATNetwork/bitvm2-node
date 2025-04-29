@@ -428,6 +428,7 @@ pub fn push_operator_pre_signature(
         bail!("already pre-signed by operator".to_string())
     };
     graph.challenge.tx_mut().input[0].witness = signed_witness.clone();
+    graph.operator_pre_signed = true;
     Ok(())
 }
 

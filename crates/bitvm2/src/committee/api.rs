@@ -317,6 +317,7 @@ pub fn push_committee_pre_signatures(
     graph.take2.tx_mut().input[2].witness = signed_witness[2].clone();
     graph.assert_final.tx_mut().input[0].witness = signed_witness[3].clone();
     graph.disprove.tx_mut().input[0].witness = signed_witness[4].clone();
+    graph.committee_pre_signed = true;
     Ok(())
 }
 

@@ -892,8 +892,13 @@ pub async fn publish_graph_to_ipfs(
 
 #[cfg(test)]
 mod tests {
+    use crate::action::{CreateInstance, GOATMessageContent};
+
     use super::*;
+    use bitcoin::XOnlyPublicKey;
+    use bitvm2_lib::types::Bitvm2Parameters;
     use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
+    use goat::connectors::base::generate_default_tx_in;
     use reqwest::Url;
     use serial_test::serial;
     use std::fmt;
@@ -1217,5 +1222,365 @@ mod tests {
         assert!(
             !validate_disprove(&client, &assert_final_txid, &mismatch_disprove_txid).await.unwrap()
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn test_account() {
+        use goat::contexts::base::generate_keys_from_secret;
+
+        let source_network = Network::Testnet;
+        const OPERATOR_SECRET: &str =
+            "3076ca1dfc1e383be26d5dd3c0c427340f96139fa8c2520862cf551ec2d670ac";
+        const VERIFIER_0_SECRET: &str =
+            "ee0817eac0c13aa8ee2dd3256304041f09f0499d1089b56495310ae8093583e2";
+        const VERIFIER_1_SECRET: &str =
+            "fc294c70faf210d4d0807ea7a3dba8f7e41700d90c119e1ae82a0687d89d297f";
+        const DEPOSITOR_SECRET: &str =
+            "b8f17ea979be24199e7c3fec71ee88914d92fd4ca508443f765d56ce024ef1d7";
+
+        let (_, operator_public_key) = generate_keys_from_secret(source_network, OPERATOR_SECRET);
+        let (_, verifier_0_public_key) =
+            generate_keys_from_secret(source_network, VERIFIER_0_SECRET);
+        let (_, verifier_1_public_key) =
+            generate_keys_from_secret(source_network, VERIFIER_1_SECRET);
+        let (_, depsoitor_public_key) = generate_keys_from_secret(source_network, DEPOSITOR_SECRET);
+
+        let operator_address = node_p2wsh_address(source_network, &operator_public_key);
+        let verifier_0_address = node_p2wsh_address(source_network, &verifier_0_public_key);
+        let verifier_1_address = node_p2wsh_address(source_network, &verifier_1_public_key);
+        let depsoitor_address = node_p2wsh_address(source_network, &depsoitor_public_key);
+
+        dbg!(
+            operator_address.to_string(),
+            verifier_0_address.to_string(),
+            verifier_1_address.to_string(),
+            depsoitor_address.to_string()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn list_address_utxo() {
+        struct UtxoDisplay(Vec<Utxo>);
+        impl fmt::Display for UtxoDisplay {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                let items: Vec<String> = self
+                    .0
+                    .iter()
+                    .map(|input| {
+                        format!(
+                            "{}:{}:{}",
+                            input.txid.to_string(),
+                            input.vout,
+                            input.value.to_sat()
+                        )
+                    })
+                    .collect();
+                write!(f, "[ {} ]", items.join(", "))
+            }
+        }
+
+        let node_address: &str = "";
+        let node_address = Address::from_str(node_address).unwrap().assume_checked();
+        let client = test_client().await;
+        let utxos = client.esplora.get_address_utxo(node_address.clone()).await.unwrap();
+        println!("{} utxos: {}", node_address.to_string(), UtxoDisplay(utxos));
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn sign_and_broadcast_tx() {
+        use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
+
+        let signer_secret: &str = "";
+        let tx_hex: &str = "";
+
+        unsafe {
+            std::env::set_var(ENV_BITVM_SECRET, signer_secret);
+        }
+        let mut tx = deserialize_hex::<Transaction>(tx_hex).unwrap();
+        let node_keypair = Keypair::from_seckey_str_global(signer_secret).unwrap();
+        let network = get_network();
+        let client = test_client().await;
+        let node_address = node_p2wsh_address(network, &node_keypair.public_key().into());
+        for i in 0..tx.input.len() {
+            let prev_outpoint = &tx.input[i].previous_output;
+            let prev_tx = client
+                .esplora
+                .get_tx(&prev_outpoint.txid)
+                .await
+                .unwrap()
+                .ok_or(format!("previous tx {} not found", prev_outpoint.txid))
+                .unwrap();
+            let prev_output = &prev_tx
+                .output
+                .get(prev_outpoint.vout as usize)
+                .ok_or(format!(
+                    "previous tx {} does not have vout {}",
+                    prev_outpoint.txid, prev_outpoint.vout
+                ))
+                .unwrap();
+            if prev_output.script_pubkey != node_address.script_pubkey() {
+                panic!(
+                    "previous outpoint {}:{} not belong to this node",
+                    prev_outpoint.txid, prev_outpoint.vout
+                );
+            };
+            node_sign(&mut tx, i, prev_output.value, EcdsaSighashType::All, &node_keypair).unwrap();
+        }
+        broadcast_tx(&client, &tx).await.unwrap();
+        println!("tx {} sent", serialize_hex(&tx.compute_txid()));
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn mock_init_message() {
+        let signer_secret: &str = "";
+        let node_keypair = Keypair::from_seckey_str_global(signer_secret).unwrap();
+        let network = get_network();
+        let client = test_client().await;
+        let node_address = node_p2wsh_address(network, &node_keypair.public_key().into());
+        let pegin_amount = Amount::from_sat(3000);
+        let (inputs, fee_amount, _) = get_proper_utxo_set(
+            &client,
+            PEGIN_BASE_VBYTES,
+            node_address.clone(),
+            pegin_amount,
+            1.0,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let message_content = GOATMessageContent::CreateInstance(CreateInstance {
+            instance_id: Uuid::new_v4(),
+            network: get_network(),
+            depositor_evm_address: [0xaa; 20],
+            pegin_amount,
+            user_inputs: CustomInputs {
+                inputs,
+                input_amount: pegin_amount,
+                fee_amount,
+                change_address: node_address,
+            },
+        });
+        println!("Committee:{}", serde_json::to_string(&message_content).unwrap());
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn recycle_test_btc() {
+        let sender_secret: &str = "";
+        let receiver_address: &str = "";
+        unsafe {
+            std::env::set_var(ENV_BITVM_SECRET, sender_secret);
+        }
+        let node_keypair = Keypair::from_seckey_str_global(sender_secret).unwrap();
+        let network = get_network();
+        let node_address = node_p2wsh_address(network, &node_keypair.public_key().into());
+        let receive_address = Address::from_str(receiver_address).unwrap().assume_checked();
+        let target_amount = Amount::from_btc(0.15).unwrap();
+        let client = test_client().await;
+        let (inputs, _, change_amount) =
+            get_proper_utxo_set(&client, 200, node_address.clone(), target_amount, 1.0)
+                .await
+                .unwrap()
+                .unwrap();
+        let mut total_input_amount = Amount::ZERO;
+        let txins: Vec<TxIn> = inputs
+            .iter()
+            .map(|input| {
+                total_input_amount += input.amount;
+                generate_default_tx_in(input)
+            })
+            .collect();
+        let mut txouts = vec![];
+        let output_0 =
+            TxOut { value: target_amount, script_pubkey: receive_address.script_pubkey() };
+        txouts.push(output_0);
+        if change_amount > Amount::from_sat(DUST_AMOUNT) {
+            let output_1 =
+                TxOut { value: change_amount, script_pubkey: node_address.script_pubkey() };
+            txouts.push(output_1);
+        }
+        let mut tx = Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: txins,
+            output: txouts,
+        };
+        for i in 0..tx.input.len() {
+            let prev_outpoint = &tx.input[i].previous_output;
+            let prev_tx = client
+                .esplora
+                .get_tx(&prev_outpoint.txid)
+                .await
+                .unwrap()
+                .ok_or(format!("previous tx {} not found", prev_outpoint.txid))
+                .unwrap();
+            let prev_output = &prev_tx
+                .output
+                .get(prev_outpoint.vout as usize)
+                .ok_or(format!(
+                    "previous tx {} does not have vout {}",
+                    prev_outpoint.txid, prev_outpoint.vout
+                ))
+                .unwrap();
+            if prev_output.script_pubkey != node_address.script_pubkey() {
+                panic!(
+                    "previous outpoint {}:{} not belong to this node",
+                    prev_outpoint.txid, prev_outpoint.vout
+                );
+            };
+            node_sign(&mut tx, i, prev_output.value, EcdsaSighashType::All, &node_keypair).unwrap();
+        }
+        broadcast_tx(&client, &tx).await.unwrap();
+        println!("tx {} sent", serialize_hex(&tx.compute_txid()));
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn load_graph() {
+        let global_init_config = GoatInitConfig {
+            rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
+            gateway_address: "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
+                .parse()
+                .expect("parse contract address"),
+            gateway_creation_block: 0,
+            to_block: None,
+            private_key: None,
+            chain_id: 48816_u32,
+        };
+        let client = BitVM2Client::new(
+            "/tmp/bitvm2-node-0.db",
+            None,
+            Network::Testnet,
+            GoatNetwork::Test,
+            global_init_config,
+            "http://44.229.236.82:5001",
+        )
+        .await;
+        let instance_id = Uuid::parse_str("85b378bc-1b2a-4c59-a116-bdf3fbdf14e0").unwrap();
+        let graph_id = Uuid::parse_str("ca010566-d7a7-49c8-8c62-9ddb8dd988ec").unwrap();
+        let graph = get_graph(&client, instance_id, graph_id).await.unwrap();
+        let stake_amount = graph.parameters.stake_amount.to_sat();
+
+        let operator_pubkey_bytes = graph.parameters.operator_pubkey.to_bytes();
+        let operator_pubkey_prefix = operator_pubkey_bytes[0];
+        let mut operator_pubkey = [0u8; 32];
+        operator_pubkey.copy_from_slice(&operator_pubkey_bytes[1..33]);
+
+        let pegin_txid = serialize_hex(&graph.pegin.tx().compute_txid());
+        let pre_kickoff_txid = serialize_hex(&graph.pre_kickoff.tx().compute_txid());
+        let kickoff_txid = serialize_hex(&graph.kickoff.tx().compute_txid());
+        let take1_txid = serialize_hex(&graph.take1.tx().compute_txid());
+        let assert_init_txid = serialize_hex(&graph.assert_init.tx().compute_txid());
+        let assert_final_txid = serialize_hex(&graph.assert_final.tx().compute_txid());
+        let take2_txid = serialize_hex(&graph.take2.tx().compute_txid());
+        let take2_txid_to_string = &graph.take2.tx().compute_txid().to_string();
+
+        println!("OperatorData:");
+        println!("  stakeAmount: {}", stake_amount);
+        println!("  operatorPubkeyPrefix: 0x{:02x}", operator_pubkey_prefix);
+        println!("  operatorPubkey: 0x{}", hex::encode(operator_pubkey));
+        println!("  peginTxid: 0x{}", pegin_txid);
+        println!("  preKickoffTxid: 0x{}", pre_kickoff_txid);
+        println!("  kickoffTxid: 0x{}", kickoff_txid);
+        println!("  take1Txid: 0x{}", take1_txid);
+        println!("  assertInitTxid: 0x{}", assert_init_txid);
+        for i in 0..graph.assert_commit.commit_txns.len() {
+            println!(
+                "  assertCommitTxids[{}]: 0x{}",
+                i,
+                serialize_hex(&graph.assert_commit.commit_txns[i].tx().compute_txid())
+            );
+        }
+        println!("  assertFinalTxid: 0x{}", assert_final_txid);
+        println!("  take2Txid: 0x{}", take2_txid);
+        println!("  serialize_hex(take2Txid): 0x{}", take2_txid);
+        println!("  take2Txid.to_string(): 0x{}", take2_txid_to_string);
+
+        // test SimplifiedGraph
+        println!("\ntest SimplifiedGraph");
+        let simplified_graph = graph.to_simplified();
+        let start = std::time::Instant::now();
+        let restored_graph = Bitvm2Graph::from_simplified(simplified_graph.clone()).unwrap();
+        let duration = start.elapsed();
+
+        println!("Time to restore Bitvm2Graph from SimplifiedGraph: {:?}", duration);
+
+        let original_serialized = serde_json::to_vec(&graph).expect("serialize original");
+        let simplified_serialized =
+            serde_json::to_vec(&simplified_graph).expect("serialize simplified");
+
+        println!("Original Bitvm2Graph size: {} bytes", original_serialized.len());
+        println!("   SimplifiedGraph size:   {} bytes", simplified_serialized.len());
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn test_header() {
+        let client = test_client().await;
+        let txid =
+            Txid::from_str("50a3086d004ee1a09251b6f110b61adbe020a8e01489d755bb46656c490cefa8")
+                .unwrap();
+        let merkle_proof = client.esplora.get_merkle_proof(&txid).await.unwrap().unwrap();
+        let height = merkle_proof.block_height;
+        let block_hash = client.esplora.get_block_hash(height).await.unwrap();
+        let header = client.esplora.get_header_by_hash(&block_hash).await.unwrap();
+        let proof_display: Vec<String> =
+            merkle_proof.merkle.iter().map(|txid| format!("0x{}", serialize_hex(&txid))).collect();
+        println!("block height: {}, hash: {}", height, serialize_hex(&block_hash));
+        println!("header: {}", serialize_hex(&header));
+        println!("merkle_root: {}", serialize_hex(&header.merkle_root));
+        println!("txid: {}", serialize_hex(&txid));
+        println!("merkle_proof.block_height: {}", merkle_proof.block_height);
+        println!("merkle_proof.leaf_index: {}", merkle_proof.pos);
+        println!("merkle_proof.merkle: {:?}", proof_display);
+    }
+
+    #[test]
+    #[ignore = "debug"]
+    fn generate_test_pegin() {
+        use goat::connectors::connector_0::Connector0;
+        use goat::transactions::peg_in::peg_in::PegInTransaction;
+
+        let input_0 = Input {
+            outpoint: OutPoint {
+                txid: Txid::from_str(
+                    "5d4258b3bff2a0825410cca37049591d9fe093a536d2b836d084e5c3f0835579",
+                )
+                .unwrap(),
+                vout: 3,
+            },
+            amount: Amount::from_sat(399853),
+        };
+        let pubkey = PublicKey::from_str(
+            "03067371b68539da39b6b58992741868e28ba47d682c7524f7f42f7461960cec3b",
+        )
+        .unwrap();
+        let fee_amount = Amount::from_sat(500);
+        let change_address = Address::from_str("tb1q9h3c0mmtynrcj9azt7v9rvjp30ykdmc7z6fdun")
+            .unwrap()
+            .assume_checked();
+        let network = get_network();
+        let connector_0 = Connector0::new(network, &XOnlyPublicKey::from(pubkey));
+        let pegin = PegInTransaction::new_for_validation(
+            &connector_0,
+            vec![input_0],
+            Amount::from_sat(1000),
+            fee_amount,
+            change_address,
+            string_to_utf8_array32("bitvm2 pegin").to_vec(),
+        );
+        println!("pegin tx hex: {}", serialize_hex(pegin.tx()));
+
+        fn string_to_utf8_array32(s: &str) -> [u8; 32] {
+            let mut array = [0u8; 32];
+            let bytes = s.as_bytes();
+            let len = bytes.len().min(32);
+            array[..len].copy_from_slice(&bytes[..len]);
+            array
+        }
     }
 }
