@@ -709,23 +709,29 @@ pub async fn finish_withdraw_happy_path(
     client: &BitVM2Client,
     graph_id: &Uuid,
     take1: &Take1Transaction,
-) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(client.finish_withdraw_happy_path(graph_id, take1.tx()).await?)
+) -> Result<String, Box<dyn std::error::Error>> {
+    let tx_hash = client.finish_withdraw_happy_path(graph_id, take1.tx()).await?;
+    tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
+    Ok(tx_hash)
 }
 pub async fn finish_withdraw_unhappy_path(
     client: &BitVM2Client,
     graph_id: &Uuid,
     take2: &Take2Transaction,
-) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(client.finish_withdraw_unhappy_path(graph_id, take2.tx()).await?)
+) -> Result<String, Box<dyn std::error::Error>> {
+    let tx_hash = client.finish_withdraw_unhappy_path(graph_id, take2.tx()).await?;
+    tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
+    Ok(tx_hash)
 }
 
 pub async fn finish_withdraw_disproved(
     client: &BitVM2Client,
     graph_id: &Uuid,
     disprove: &DisproveTransaction,
-) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(client.finish_withdraw_disproved(graph_id, disprove.tx()).await?)
+) -> Result<String, Box<dyn std::error::Error>> {
+    let tx_hash = client.finish_withdraw_disproved(graph_id, disprove.tx()).await?;
+    tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
+    Ok(tx_hash)
 }
 
 /// db support
@@ -898,10 +904,11 @@ pub async fn store_graph(
     if let Some(status) = status {
         if status == GraphStatus::CommitteePresigned.to_string() {
             transaction
-                .update_instance_status_and_pegin_txid(
+                .update_instance_fields(
                     &instance_id,
                     Some(BridgeInStatus::Presigned.to_string()),
                     Some(serialize_hex(&graph.pegin.tx().compute_txid())),
+                    None,
                 )
                 .await?
         }
@@ -927,7 +934,12 @@ pub async fn get_graph(
     graph_id: Uuid,
 ) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
-    let graph = storage_process.get_graph(&graph_id).await?;
+    let graph_op = storage_process.get_graph(&graph_id).await?;
+    if graph_op.is_none() {
+        tracing::warn!("graph:{} is not record in db", graph_id);
+        return Err(format!("graph:{graph_id} is not record in db").into());
+    };
+    let graph = graph_op.unwrap();
     if graph.instance_id.ne(&instance_id) {
         return Err(format!(
             "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",

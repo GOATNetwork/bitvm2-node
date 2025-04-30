@@ -116,7 +116,7 @@ impl BitVM2Client {
         &self,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let operator_data = self.get_operator_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
@@ -145,7 +145,7 @@ impl BitVM2Client {
         &self,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let operator_data = self.get_operator_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
@@ -168,7 +168,7 @@ impl BitVM2Client {
         &self,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let operator_data = self.get_operator_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
@@ -198,7 +198,7 @@ impl BitVM2Client {
         &self,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let operator_data = self.get_operator_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.assert_final_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
@@ -228,12 +228,18 @@ impl BitVM2Client {
         &self,
         instance_id: &Uuid,
         tx: &bitcoin::Transaction,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
+        let tx_id = tx.compute_txid();
+        tracing::info!(
+            "post_pegin_data instance_id:{}, pegin_tx:{}",
+            instance_id,
+            tx_id.to_string()
+        );
         if self.chain_service.adaptor.get_pegin_data(instance_id).await?.pegin_txid != [0_u8; 32] {
             tracing::warn!("instance_id:{} pegin tx already posted", instance_id,);
             bail!("instance_id:{} pegin tx already posted", instance_id);
         }
-        let tx_id = tx.compute_txid();
+
         if self.chain_service.adaptor.pegin_tx_used(&tx_id.to_byte_array()).await? {
             tracing::warn!("instance_id:{} this pegin tx has already been posted", instance_id,);
             bail!("instance_id:{} this pegin tx has already been posted", instance_id,);
@@ -246,7 +252,7 @@ impl BitVM2Client {
         let block_hash_online = self.get_block_hash(height).await?;
         if block_hash_online != block_hash {
             tracing::warn!(
-                "instance_id:{}   invalid header, from chain:{},  in contract:{}",
+                "instance_id:{}  root mismatch, from chain:{},  in contract:{}",
                 instance_id,
                 hex::encode(block_hash),
                 hex::encode(block_hash_online)
@@ -261,13 +267,13 @@ impl BitVM2Client {
 
         if merkle_root != root {
             tracing::warn!(
-                "instance_id:{}   invalid header encoder merkle_root not equal: decode: {},  generate:{}",
+                "instance_id:{} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
                 instance_id,
                 hex::encode(merkle_root),
                 hex::encode(root)
             );
             bail!(
-                "instance_id:{}   invalid header encoder merkle_root not equal: decode: {},  generate:{}",
+                "instance_id:{} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
                 instance_id,
                 hex::encode(merkle_root),
                 hex::encode(root)
@@ -291,7 +297,8 @@ impl BitVM2Client {
         instance_id: &Uuid,
         graph_id: &Uuid,
         graph: &Graph,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
+        tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
         let operator_data = self.cast_graph_to_operate_data(graph)?;
         let pegin_txid = self.chain_service.adaptor.get_pegin_data(instance_id).await?.pegin_txid;
         if pegin_txid != operator_data.pegin_txid {
@@ -311,20 +318,20 @@ impl BitVM2Client {
             );
         }
 
-        if operator_data.stake_amount < 10000000 {
-            tracing::warn!(
-                "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
-                instance_id,
-                graph_id,
-                operator_data.stake_amount,
-            );
-            bail!(
-                "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
-                instance_id,
-                graph_id,
-                operator_data.stake_amount,
-            );
-        }
+        // if operator_data.stake_amount < 10000000 {
+        //     tracing::warn!(
+        //         "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
+        //         instance_id,
+        //         graph_id,
+        //         operator_data.stake_amount,
+        //     );
+        //     bail!(
+        //         "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
+        //         instance_id,
+        //         graph_id,
+        //         operator_data.stake_amount,
+        //     );
+        // }
         self.chain_service.adaptor.post_operator_data(instance_id, graph_id, &operator_data).await
     }
 
@@ -369,7 +376,7 @@ impl BitVM2Client {
         let block_hash_online = self.get_block_hash(height).await?;
         if block_hash_online != block_hash {
             tracing::warn!(
-                "graph_id:{} at: {} invalid header, from chain:{},  in contract:{}",
+                "graph_id:{} at: {} root mismatch, from chain:{},  in contract:{}",
                 graph_id,
                 tag,
                 hex::encode(block_hash),
@@ -386,7 +393,7 @@ impl BitVM2Client {
 
         if merkle_root != root {
             tracing::warn!(
-                "graph_id:{} at: {}  invalid header encoder merkle_root not equal: decode: {},  generate:{}",
+                "graph_id:{} at: {} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
                 graph_id,
                 tag,
                 hex::encode(merkle_root),

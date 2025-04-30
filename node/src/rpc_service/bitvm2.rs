@@ -107,7 +107,7 @@ pub struct InstanceOverview {
 
 #[derive(Deserialize, Serialize)]
 pub struct GraphGetResponse {
-    pub graph: Graph,
+    pub graph: Option<Graph>,
 }
 
 #[derive(Deserialize)]

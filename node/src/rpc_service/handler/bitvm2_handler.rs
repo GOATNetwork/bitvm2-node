@@ -12,8 +12,7 @@ use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
 use store::{
-    BridgeInStatus, BridgePath, Graph, Instance, Message, MessageState, MessageType,
-    modify_graph_status,
+    BridgeInStatus, BridgePath, Instance, Message, MessageState, MessageType, modify_graph_status,
 };
 use uuid::Uuid;
 
@@ -46,6 +45,12 @@ pub async fn bridge_in_tx_prepare(
         };
 
         let mut tx = app_state.bitvm2_client.local_db.start_transaction().await?;
+        let instance_pre_op = tx.get_instance(&instance_id).await?;
+        if instance_pre_op.is_some() {
+            tracing::info!("{instance_id} is used");
+            return Err(format!("{instance_id} is used").into());
+        }
+
         let _ = tx.create_instance(instance.clone()).await?;
         let p2p_user_data: P2pUserData = (&payload).into();
         if !p2p_user_data.user_inputs.validate_amount() {
@@ -95,7 +100,12 @@ pub async fn graph_presign_check(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let mut instance = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.get_instance(&instance_id).await?;
+        if instance_op.is_none() {
+            tracing::info!("instance_id {} has no record in database", instance_id);
+            return Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone);
+        }
+        let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
         resp_clone.instance_status = instance.status.clone();
         resp_clone.tx = Some(instance);
@@ -189,7 +199,7 @@ async fn get_tx_eta(
     interval: u32,
 ) -> anyhow::Result<String> {
     if tx_id.is_none() {
-        return Ok("Transaction need to send to btc".to_string());
+        return Ok("-".to_string());
     }
     let tx_id = tx_id.unwrap();
     let status = btc_client.get_tx_status(&Txid::from_str(&tx_id)?).await?;
@@ -271,7 +281,14 @@ pub async fn get_instance(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let mut instance = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.get_instance(&instance_id).await?;
+        if instance_op.is_none() {
+            tracing::info!("instance_id {} has no record in database", instance_id);
+            return Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
+                instance_wrap: InstanceWrap { utxo: None, instance: None, eta: None },
+            });
+        }
+        let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
         let network = instance.network.clone();
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
@@ -342,7 +359,14 @@ pub async fn get_graph(
         let current_time = current_time_secs();
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let mut graph = storage_process.get_graph(&graph_id).await?;
+        let graph_op = storage_process.get_graph(&graph_id).await?;
+        if graph_op.is_none() {
+            tracing::warn!("graph:{} is not record in db", graph_id);
+            return Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse {
+                graph: None,
+            });
+        };
+        let mut graph = graph_op.unwrap();
         graph.status = modify_graph_status(
             &graph.status,
             graph.updated_at,
@@ -350,13 +374,13 @@ pub async fn get_graph(
             MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
         );
         graph.reverse_btc_txid();
-        Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph })
+        Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: Some(graph) })
     };
     match async_fn().await {
         Ok(res) => (StatusCode::OK, Json(res)),
         Err(err) => {
             tracing::warn!("get_graph  err:{:?}", err);
-            (StatusCode::OK, Json(GraphGetResponse { graph: Graph::default() }))
+            (StatusCode::OK, Json(GraphGetResponse { graph: None }))
         }
     }
 }

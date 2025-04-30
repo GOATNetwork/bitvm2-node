@@ -38,7 +38,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -47,7 +47,7 @@ impl ChainAdaptor for MockAdaptor {
         _instance_id: &Uuid,
         _graph_id: &Uuid,
         _operator_data: &OperatorData,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -56,7 +56,7 @@ impl ChainAdaptor for MockAdaptor {
         _instance_id: &Uuid,
         _graph_ids: &[Uuid],
         _operator_datas: &[OperatorData],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -82,11 +82,11 @@ impl ChainAdaptor for MockAdaptor {
         todo!()
     }
 
-    async fn init_withdraw(&self, _instance_id: &Uuid, _graph_id: &Uuid) -> anyhow::Result<()> {
+    async fn init_withdraw(&self, _instance_id: &Uuid, _graph_id: &Uuid) -> anyhow::Result<String> {
         todo!()
     }
 
-    async fn cancel_withdraw(&self, _graph_id: &Uuid) -> anyhow::Result<()> {
+    async fn cancel_withdraw(&self, _graph_id: &Uuid) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -98,7 +98,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -110,7 +110,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -122,7 +122,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -134,7 +134,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 

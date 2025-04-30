@@ -115,14 +115,14 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected() > 0)
     }
 
-    pub async fn get_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<Instance> {
+    pub async fn get_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<Option<Instance>> {
         let row = sqlx::query_as!(
             Instance,
             "SELECT instance_id as \"instance_id:Uuid\", network,   bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
             btc_txid ,pegin_txid, input_uxtos, fee ,created_at, updated_at \
             FROM  instance where instance_id = ?",
             instance_id
-        ).fetch_one(self.conn())
+        ).fetch_optional(self.conn())
             .await?;
         Ok(row)
     }
@@ -228,11 +228,12 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn update_instance_status_and_pegin_txid(
+    pub async fn update_instance_fields(
         &mut self,
         instance_id: &Uuid,
         status: Option<String>,
         pegin_txid: Option<String>,
+        goat_txid: Option<String>,
     ) -> anyhow::Result<()> {
         let instance_option = sqlx::query_as!(
             Instance,
@@ -249,11 +250,14 @@ impl<'a> StorageProcessor<'a> {
         let instance = instance_option.unwrap();
         let status = if let Some(status) = status { status } else { instance.status };
         let pegin_txid = if pegin_txid.is_some() { pegin_txid } else { instance.pegin_txid };
+        let goat_txid =
+            if let Some(goat_txid) = goat_txid { goat_txid } else { instance.goat_txid };
 
         let _ = sqlx::query!(
-            "UPDATE instance SET status =?, pegin_txid =? WHERE instance_id = ?",
+            "UPDATE instance SET status =?, pegin_txid =?, goat_txid = ? WHERE instance_id = ?",
             status,
             pegin_txid,
+            goat_txid,
             instance_id
         )
         .execute(self.conn())
@@ -295,14 +299,14 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn get_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Graph> {
+    pub async fn get_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {
         let res = sqlx::query_as!(
             Graph,
             "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, \
              pre_kickoff_txid, pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
               assert_final_txid, take2_txid, disprove_txid, operator, raw_data, created_at, updated_at  FROM graph WHERE  graph_id = ?",
             graph_id
-        ).fetch_one(self.conn()).await?;
+        ).fetch_optional(self.conn()).await?;
         Ok(res)
     }
 
