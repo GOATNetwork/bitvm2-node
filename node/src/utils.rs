@@ -895,7 +895,6 @@ mod tests {
     use crate::action::{CreateInstance, GOATMessageContent, KickoffReady};
 
     use super::*;
-    use bitcoin::XOnlyPublicKey;
     use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
     use goat::connectors::base::generate_default_tx_in;
     use reqwest::Url;
@@ -1267,14 +1266,7 @@ mod tests {
                 let items: Vec<String> = self
                     .0
                     .iter()
-                    .map(|input| {
-                        format!(
-                            "{}:{}:{}",
-                            input.txid.to_string(),
-                            input.vout,
-                            input.value.to_sat()
-                        )
-                    })
+                    .map(|input| format!("{}:{}:{}", input.txid, input.vout, input.value.to_sat()))
                     .collect();
                 write!(f, "[ {} ]", items.join(", "))
             }
@@ -1284,7 +1276,7 @@ mod tests {
         let node_address = Address::from_str(node_address).unwrap().assume_checked();
         let client = test_client().await;
         let utxos = client.esplora.get_address_utxo(node_address.clone()).await.unwrap();
-        println!("{} utxos: {}", node_address.to_string(), UtxoDisplay(utxos));
+        println!("{} utxos: {}", node_address, UtxoDisplay(utxos));
     }
 
     #[tokio::test]
@@ -1488,17 +1480,16 @@ mod tests {
         let assert_init_txid = serialize_hex(&graph.assert_init.tx().compute_txid());
         let assert_final_txid = serialize_hex(&graph.assert_final.tx().compute_txid());
         let take2_txid = serialize_hex(&graph.take2.tx().compute_txid());
-        let take2_txid_to_string = &graph.take2.tx().compute_txid().to_string();
 
         println!("OperatorData:");
-        println!("  stakeAmount: {}", stake_amount);
-        println!("  operatorPubkeyPrefix: 0x{}", operator_pubkey_prefix);
-        println!("  operatorPubkey: 0x{}", operator_pubkey);
-        println!("  peginTxid: 0x{}", pegin_txid);
-        println!("  preKickoffTxid: 0x{}", pre_kickoff_txid);
-        println!("  kickoffTxid: 0x{}", kickoff_txid);
-        println!("  take1Txid: 0x{}", take1_txid);
-        println!("  assertInitTxid: 0x{}", assert_init_txid);
+        println!("  stakeAmount: {stake_amount}");
+        println!("  operatorPubkeyPrefix: 0x{operator_pubkey_prefix}");
+        println!("  operatorPubkey: 0x{operator_pubkey}");
+        println!("  peginTxid: 0x{pegin_txid}");
+        println!("  preKickoffTxid: 0x{pre_kickoff_txid}");
+        println!("  kickoffTxid: 0x{kickoff_txid}");
+        println!("  take1Txid: 0x{take1_txid}");
+        println!("  assertInitTxid: 0x{assert_init_txid}");
         for i in 0..graph.assert_commit.commit_txns.len() {
             println!(
                 "  assertCommitTxids[{}]: 0x{}",
@@ -1506,10 +1497,8 @@ mod tests {
                 serialize_hex(&graph.assert_commit.commit_txns[i].tx().compute_txid())
             );
         }
-        println!("  assertFinalTxid: 0x{}", assert_final_txid);
-        println!("  take2Txid: 0x{}", take2_txid);
-        println!("  serialize_hex(take2Txid): 0x{}", take2_txid);
-        println!("  take2Txid.to_string(): 0x{}", take2_txid_to_string);
+        println!("  assertFinalTxid: 0x{assert_final_txid}");
+        println!("  take2Txid: 0x{take2_txid}");
 
         println!(
             "solidity version: [{stake_amount},\"0x{operator_pubkey_prefix}\",\"0x{operator_pubkey}\",\"0x{pegin_txid}\",\"0x{pre_kickoff_txid}\",\"0x{kickoff_txid}\",\"0x{take1_txid}\",\"0x{assert_init_txid}\",[\"0x{}\",\"0x{}\",\"0x{}\",\"0x{}\"],\"0x{assert_final_txid}\",\"0x{take2_txid}\"]",
@@ -1526,7 +1515,7 @@ mod tests {
         let _restored_graph = Bitvm2Graph::from_simplified(simplified_graph.clone()).unwrap();
         let duration = start.elapsed();
 
-        println!("Time to restore Bitvm2Graph from SimplifiedGraph: {:?}", duration);
+        println!("Time to restore Bitvm2Graph from SimplifiedGraph: {duration:?}");
 
         let original_serialized = serde_json::to_vec(&graph).expect("serialize original");
         let simplified_serialized =
@@ -1563,6 +1552,6 @@ mod tests {
         println!("txid: {}", serialize_hex(&txid));
         println!("merkle_proof.block_height: {}", merkle_proof.block_height);
         println!("merkle_proof.leaf_index: {}", merkle_proof.pos);
-        println!("merkle_proof.merkle: {:?}", proof_display);
+        println!("merkle_proof.merkle: {proof_display:?}");
     }
 }

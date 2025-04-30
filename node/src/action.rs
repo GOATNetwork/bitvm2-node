@@ -687,30 +687,35 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle Take2Ready");
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
-            if graph.parameters.operator_pubkey == env::get_node_pubkey()?
-                && is_take2_timelock_expired(client, graph.assert_final.tx().compute_txid()).await?
-            {
-                let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
-                let keypair = master_key.keypair_for_graph(receive_data.graph_id);
-                let take2_tx = operator_sign_take2(keypair, &mut graph)?;
-                let take2_txid = take2_tx.compute_txid();
-                broadcast_tx(client, &take2_tx).await?;
-                let message_content = GOATMessageContent::Take2Sent(Take2Sent {
-                    instance_id: receive_data.instance_id,
-                    graph_id: receive_data.graph_id,
-                    take2_txid,
-                });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                update_graph_fields(
-                    client,
-                    receive_data.graph_id,
-                    Some(GraphStatus::Take2.to_string()),
-                    None,
-                    None,
-                    None,
-                )
-                .await?;
-                // NOTE: clean up other graphs?
+            let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+            let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+            let operator_graph_pubkey: PublicKey = keypair.public_key().into();
+            if graph.parameters.operator_pubkey == operator_graph_pubkey {
+                tracing::info!("Handle Take2Ready");
+                if is_take2_timelock_expired(client, graph.assert_final.tx().compute_txid()).await?
+                {
+                    let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
+                    let keypair = master_key.keypair_for_graph(receive_data.graph_id);
+                    let take2_tx = operator_sign_take2(keypair, &mut graph)?;
+                    let take2_txid = take2_tx.compute_txid();
+                    broadcast_tx(client, &take2_tx).await?;
+                    let message_content = GOATMessageContent::Take2Sent(Take2Sent {
+                        instance_id: receive_data.instance_id,
+                        graph_id: receive_data.graph_id,
+                        take2_txid,
+                    });
+                    send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                    update_graph_fields(
+                        client,
+                        receive_data.graph_id,
+                        Some(GraphStatus::Take2.to_string()),
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?;
+                    // NOTE: clean up other graphs?
+                }
             }
         }
         // AssertSent sent by relayer
