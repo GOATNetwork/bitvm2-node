@@ -4,6 +4,7 @@ use crate::{
     COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData, Instance, Message,
     Node, NodesOverview, NonceCollect, NonceCollectMetaData, PubKeyCollect, PubKeyCollectMetaData,
 };
+use anyhow::bail;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -383,6 +384,30 @@ impl<'a> StorageProcessor<'a> {
             instance_id
         ).fetch_all(self.conn()).await?;
         Ok(res)
+    }
+
+    pub async fn update_node_timestamp(
+        &mut self,
+        peer_id: &str,
+        timestamp: i64,
+    ) -> anyhow::Result<()> {
+        let node_op = sqlx::query_as!(
+            Node,
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  \
+            FROM node WHERE peer_id = ?",
+            peer_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        if node_op.is_none() {
+            bail!("Node {peer_id} not found in DB");
+        }
+        let _ =
+            sqlx::query!("UPDATE  node SET updated_at = ? WHERE peer_id = ? ", timestamp, peer_id)
+                .execute(self.conn())
+                .await;
+
+        Ok(())
     }
 
     /// Insert or update node

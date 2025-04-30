@@ -318,20 +318,20 @@ impl BitVM2Client {
             );
         }
 
-        // if operator_data.stake_amount < 10000000 {
-        //     tracing::warn!(
-        //         "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
-        //         instance_id,
-        //         graph_id,
-        //         operator_data.stake_amount,
-        //     );
-        //     bail!(
-        //         "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
-        //         instance_id,
-        //         graph_id,
-        //         operator_data.stake_amount,
-        //     );
-        // }
+        if operator_data.stake_amount < 10000000 {
+            tracing::warn!(
+                "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
+                instance_id,
+                graph_id,
+                operator_data.stake_amount,
+            );
+            bail!(
+                "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
+                instance_id,
+                graph_id,
+                operator_data.stake_amount,
+            );
+        }
         self.chain_service.adaptor.post_operator_data(instance_id, graph_id, &operator_data).await
     }
 

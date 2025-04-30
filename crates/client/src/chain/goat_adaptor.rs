@@ -177,7 +177,7 @@ impl GoatAdaptor {
         let mut is_sucess = false;
         for i in 0..5 {
             time::sleep(Duration::from_millis(500)).await;
-            match self.provider.get_transaction_receipt((*tx_hash).clone()).await {
+            match self.provider.get_transaction_receipt(*tx_hash).await {
                 Err(_) => {
                     tracing::info!(
                         "Get transaction:{} receipt failed at {} times, will try later",

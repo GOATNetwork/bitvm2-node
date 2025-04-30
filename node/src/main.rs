@@ -27,9 +27,10 @@ mod rpc_service;
 mod tests;
 mod utils;
 
-use crate::action::GOATMessage;
-use crate::env::{ENV_ACTOR, ENV_PEER_KEY, ENV_PERR_ID};
+use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
+use crate::env::{ENV_ACTOR, ENV_PEER_KEY, ENV_PERR_ID, get_local_node_info};
 use crate::middleware::behaviour::AllBehavioursEvent;
+use crate::utils::save_local_info;
 use anyhow::Result;
 use middleware::AllBehaviours;
 use tokio::time::interval;
@@ -223,6 +224,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )
     .await;
 
+    save_local_info(&client).await;
+
     tokio::spawn(rpc_service::serve(
         rpc_addr,
         db_path.clone(),
@@ -285,6 +288,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic})) => {
                         tracing::debug!("subscribed: {:?}, {:?}", peer_id, topic);
+                        // Except for the bootNode, all other nodes need to request information from other nodes after registering the event `ALL`.
+                        if topic.into_string() == Actor::All.to_string() && opt.bootnodes.is_empty() {
+                            let message_content = GOATMessageContent::RequestNodeInfo(get_local_node_info());
+                            send_to_peer(&mut swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                        }
+
                     }
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Unsubscribed { peer_id, topic})) => {
                         tracing::debug!("unsubscribed: {:?}, {:?}", peer_id, topic);

@@ -1,7 +1,11 @@
 #![allow(dead_code)]
+use crate::action::NodeInfo;
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::Address as EvmAddress;
+use alloy::signers::local::PrivateKeySigner;
+// use alloy_signer::{Signer, SignerSync};
 use bitcoin::{Network, PublicKey, key::Keypair};
+use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
 use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
 use reqwest::Url;
@@ -12,6 +16,7 @@ pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRE
 pub const ENV_GOAT_GATEWAY_CONTRACT_CREATION: &str = "GOAT_GATEWAY_CONTRACT_CREATION";
 pub const ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK: &str = "GOAT_GATEWAY_CONTRACT_TO_BLOCK";
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
+pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
 pub const ENV_GOAT_CHAIN_ID: &str = "GOAT_CHAIN_ID";
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
 pub const ENV_PEER_KEY: &str = "KEY";
@@ -72,6 +77,34 @@ pub fn get_node_pubkey() -> Result<PublicKey, Box<dyn std::error::Error>> {
     Ok(NodeMasterKey::new(get_bitvm_key()?).master_keypair().public_key().into())
 }
 
+pub fn get_local_node_info() -> NodeInfo {
+    let actor =
+        Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
+            .unwrap();
+    let peer_id = std::env::var(ENV_PERR_ID).expect("Peer ID is missing");
+    let bitvm_secret = std::env::var(ENV_BITVM_SECRET).expect("{ENV_BITVM_SECRET} is missing");
+    let pubkey = Keypair::from_seckey_str_global(&bitvm_secret)
+        .expect("Failed to decode secret key")
+        .public_key();
+    let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
+        let singer =
+            PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
+        Some(singer.address().to_string())
+    } else {
+        std::env::var(ENV_GOAT_ADDRESS).ok()
+    };
+
+    if actor == Actor::Operator && goat_address.is_none() {
+        panic!("Operator must set goat address or goat secret key");
+    }
+
+    NodeInfo {
+        peer_id,
+        actor: actor.to_string(),
+        goat_addr: goat_address.unwrap_or("".to_string()),
+        btc_pub_key: pubkey.to_string(),
+    }
+}
 pub fn get_committee_member_num() -> usize {
     COMMITTEE_MEMBER_NUMBER
 }

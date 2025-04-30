@@ -1,4 +1,4 @@
-use crate::action::CreateGraphPrepare;
+use crate::action::{CreateGraphPrepare, NodeInfo};
 use crate::env::*;
 use crate::rpc_service::current_time_secs;
 use ark_serialize::CanonicalDeserialize;
@@ -41,7 +41,9 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::str::FromStr;
-use store::{BridgeInStatus, Graph, GraphStatus};
+use std::time::{SystemTime, UNIX_EPOCH};
+use store::{BridgeInStatus, Graph, GraphStatus, Node};
+use tracing::warn;
 use uuid::Uuid;
 
 pub mod statics {
@@ -1066,6 +1068,48 @@ pub mod defer {
         let _ = guarded_operation(false);
         assert!(!is_processing_graph());
     }
+}
+
+pub async fn save_node_info(
+    client: &BitVM2Client,
+    node_info: &NodeInfo,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("save_node_info for {}", node_info.peer_id);
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let mut storage_process = client.local_db.acquire().await?;
+    let _ = storage_process
+        .update_node(Node {
+            peer_id: node_info.peer_id.clone(),
+            actor: node_info.actor.clone(),
+            goat_addr: node_info.goat_addr.clone(),
+            btc_pub_key: node_info.btc_pub_key.clone(),
+            updated_at: current_time,
+            created_at: current_time,
+        })
+        .await;
+    Ok(())
+}
+
+pub async fn save_local_info(client: &BitVM2Client) {
+    let node = get_local_node_info();
+    match save_node_info(client, &node).await {
+        Ok(_) => {}
+        Err(err) => tracing::error!("save local node err: {err}"),
+    }
+}
+
+pub async fn update_node_timestamp(
+    client: &BitVM2Client,
+    peer_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("update timestamp for {peer_id}");
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let mut storage_process = client.local_db.acquire().await?;
+    match storage_process.update_node_timestamp(peer_id, current_time).await {
+        Ok(_) => {}
+        Err(err) => warn!("{err}"),
+    };
+    Ok(())
 }
 
 #[cfg(test)]
