@@ -6,11 +6,13 @@ use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::key::Keypair;
 use bitcoin::{
     Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, Sequence,
-    Transaction, TxIn, TxOut, Txid, Witness,
+    TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoin_script::{Script, script};
 use bitvm::chunk::api::NUM_TAPS;
+use bitvm::signatures::signing_winternitz::{WinternitzSigningInputs, generate_winternitz_witness};
 use bitvm2_lib::committee::COMMITTEE_PRE_SIGN_NUM;
+use bitvm2_lib::keys::OperatorMasterKey;
 use bitvm2_lib::operator::{generate_disprove_scripts, generate_partial_scripts};
 use bitvm2_lib::types::{
     Bitvm2Graph, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey, WotsPublicKeys,
@@ -19,12 +21,17 @@ use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_pr
 use client::chain::chain_adaptor::WithdrawStatus;
 use client::client::BitVM2Client;
 use esplora_client::Utxo;
+use goat::commitments::CommitmentMessageId;
+use goat::connectors::base::TaprootConnector;
+use goat::connectors::connector_6::Connector6;
 use goat::constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::transactions::base::Input;
 use goat::transactions::disprove::DisproveTransaction;
 use goat::transactions::pre_signed::PreSignedTransaction;
-use goat::transactions::signing::populate_p2wsh_witness;
+use goat::transactions::signing::{
+    generate_taproot_leaf_schnorr_signature, populate_p2wsh_witness, populate_taproot_input_witness,
+};
 use goat::transactions::take_1::Take1Transaction;
 use goat::transactions::take_2::Take2Transaction;
 use goat::utils::num_blocks_per_network;
@@ -276,6 +283,83 @@ pub async fn sign_and_broadcast_prekickoff_tx(
     }
     broadcast_tx(client, &prekickoff_tx).await?;
     Ok(())
+}
+
+#[allow(dead_code)]
+pub async fn recycle_prekickoff_tx(
+    client: &BitVM2Client,
+    graph_id: Uuid,
+    master_key: OperatorMasterKey,
+    prekickoff_txid: Txid,
+) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
+    let network = get_network();
+    let prekickoff_tx = client
+        .esplora
+        .get_tx(&prekickoff_txid)
+        .await?
+        .ok_or(format!("pre-kickoff tx {prekickoff_txid} not on chain"))?;
+    let fee_rate = get_fee_rate(client).await?;
+    let recycle_tx_vbytes = 3105;
+    let fee_amount = Amount::from_sat((recycle_tx_vbytes as f64 * fee_rate).ceil() as u64);
+    if prekickoff_tx.output[0].value > fee_amount + Amount::from_sat(DUST_AMOUNT) {
+        let node_recycle_address =
+            node_p2wsh_address(network, &master_key.master_keypair().public_key().into());
+        let node_graph_keypair = master_key.keypair_for_graph(graph_id);
+        let (operator_taproot_pubkey, _) = node_graph_keypair.x_only_public_key();
+        let (operator_wots_seckeys, operator_wots_pubkeys) =
+            master_key.wots_keypair_for_graph(graph_id);
+        let kickoff_wots_commitment_keys =
+            CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
+        let connector_6 =
+            Connector6::new(network, &operator_taproot_pubkey, &kickoff_wots_commitment_keys);
+        let txin_0 = TxIn {
+            previous_output: OutPoint { txid: prekickoff_txid, vout: 0 },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::default(),
+        };
+        let txout_0 = TxOut {
+            value: prekickoff_tx.output[0].value - fee_amount,
+            script_pubkey: node_recycle_address.script_pubkey(),
+        };
+        let mut tx = Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![txin_0],
+            output: vec![txout_0],
+        };
+
+        let script = &connector_6.generate_taproot_leaf_script(0);
+        let prev_outs = [prekickoff_tx.output[0].clone()];
+        let taproot_spend_info = connector_6.generate_taproot_spend_info();
+        let mut unlock_data: Vec<Vec<u8>> = Vec::new();
+
+        // get schnorr signature
+        let schnorr_signature = generate_taproot_leaf_schnorr_signature(
+            &mut tx,
+            &prev_outs,
+            0,
+            TapSighashType::All,
+            script,
+            &node_graph_keypair,
+        );
+        unlock_data.push(schnorr_signature.to_vec());
+
+        // get winternitz signature for evm withdraw txid
+        let winternitz_signing_inputs = WinternitzSigningInputs {
+            message: [0u8; 32].as_ref(),
+            signing_key: &operator_wots_seckeys.0[0],
+        };
+        unlock_data.extend(generate_winternitz_witness(&winternitz_signing_inputs).to_vec());
+
+        populate_taproot_input_witness(&mut tx, 0, &taproot_spend_info, script, unlock_data);
+
+        broadcast_tx(client, &tx).await?;
+
+        Ok(Some(tx.compute_txid()))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Completes and broadcasts a challenge transaction.
@@ -1327,7 +1411,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "debug"]
     async fn mock_pegin_message() {
-        let signer_secret: &str = "";
+        let signer_secret: &str =
+            "b8f17ea979be24199e7c3fec71ee88914d92fd4ca508443f765d56ce024ef1d7";
         let node_keypair = Keypair::from_seckey_str_global(signer_secret).unwrap();
         let network = get_network();
         let client = test_client().await;
@@ -1437,6 +1522,25 @@ mod tests {
         }
         broadcast_tx(&client, &tx).await.unwrap();
         println!("tx {} sent", serialize_hex(&tx.compute_txid()));
+    }
+
+    #[tokio::test]
+    #[ignore = "debug"]
+    async fn test_recycle_prekickoff() {
+        let sender_secret: &str = "";
+        let prekickoff_txid = Txid::from_str("").unwrap();
+        let graph_id = Uuid::from_str("").unwrap();
+        unsafe {
+            std::env::set_var(ENV_BITVM_SECRET, sender_secret);
+        }
+        let client = test_client().await;
+        let master_key = OperatorMasterKey::new(get_bitvm_key().unwrap());
+        let recycle_txid =
+            recycle_prekickoff_tx(&client, graph_id, master_key, prekickoff_txid).await.unwrap();
+        match recycle_txid {
+            Some(recycle_txid) => println!("recycle txid: {recycle_txid}"),
+            _ => println!("not worth recycling"),
+        };
     }
 
     #[tokio::test]

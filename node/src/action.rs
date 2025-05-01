@@ -464,9 +464,11 @@ pub async fn recv_and_dispatch(
                         &mut graph,
                     )?;
                     let prekickoff_tx = graph.pre_kickoff.tx().clone();
+                    let prekickoff_txid = prekickoff_tx.compute_txid();
                     let node_keypair =
                         OperatorMasterKey::new(env::get_bitvm_key()?).master_keypair();
                     sign_and_broadcast_prekickoff_tx(client, node_keypair, prekickoff_tx).await?;
+                    tracing::info!("prekickoff sent, txid: {prekickoff_txid}");
                     let graph_ipfs_cid =
                         publish_graph_to_ipfs(client, receive_data.graph_id, &graph).await?;
                     tracing::info!(

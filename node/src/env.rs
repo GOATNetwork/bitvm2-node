@@ -35,14 +35,18 @@ pub const PRE_KICKOFF_BASE_VBYTES: u64 = 200;
 pub const PEGIN_BASE_VBYTES: u64 = 200;
 pub const CHALLENGE_BASE_VBYTES: u64 = 200;
 
-pub const MIN_SATKE_AMOUNT: u64 = 20_000_000; // 0.2 BTC
-pub const STAKE_RATE: u64 = 200; // 2%
-pub const MIN_CHALLENGE_AMOUNT: u64 = 3_300_000; // 0.033 BTC
+// reduce costs to facilitate testing
+pub const MIN_SATKE_AMOUNT: u64 = 700_000; // 0.007 BTC  
+pub const STAKE_RATE: u64 = 0; // 0%
+pub const MIN_CHALLENGE_AMOUNT: u64 = 300_000; // 0.003 BTC
+// pub const MIN_SATKE_AMOUNT: u64 = 20_000_000; // 0.2 BTC
+// pub const STAKE_RATE: u64 = 200; // 2%
+// pub const MIN_CHALLENGE_AMOUNT: u64 = 3_300_000; // 0.033 BTC
 pub const CHALLENGE_RATE: u64 = 0; // 0%
 
 pub const RATE_MULTIPLIER: u64 = 10000;
 
-const COMMITTEE_MEMBER_NUMBER: usize = 3;
+const COMMITTEE_MEMBER_NUMBER: usize = 2;
 const BTC_NETWORK: Network = Network::Testnet;
 const GOAT_NETWORK: GoatNetwork = GoatNetwork::Test;
 
