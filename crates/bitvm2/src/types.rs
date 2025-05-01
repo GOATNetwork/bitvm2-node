@@ -50,7 +50,7 @@ pub fn random_string(len: usize) -> String {
     rand::thread_rng().sample_iter(&Alphanumeric).take(len).map(char::from).collect()
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Bitvm2Parameters {
     pub network: Network,
     pub depositor_evm_address: [u8; 20],
@@ -115,7 +115,7 @@ impl Bitvm2Parameters {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Bitvm2Graph {
     pub(crate) operator_pre_signed: bool,
     pub(crate) committee_pre_signed: bool,
@@ -133,7 +133,7 @@ pub struct Bitvm2Graph {
     pub disprove: DisproveTransaction,
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SimplifiedBitvm2Graph {
     pub parameters: Bitvm2Parameters,
     pub operator_pre_sigs: Option<Witness>,
@@ -343,7 +343,7 @@ impl Bitvm2Graph {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CustomInputs {
     pub inputs: Vec<Input>,
     /// stake amount / pegin_amount
