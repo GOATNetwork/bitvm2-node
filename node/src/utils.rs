@@ -494,7 +494,7 @@ pub fn node_sign(
     sighash_type: EcdsaSighashType,
     node_keypair: &Keypair,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let node_pubkey = get_node_pubkey()?;
+    let node_pubkey: PublicKey = node_keypair.public_key().into();
     populate_p2wsh_witness(
         tx,
         input_index,
