@@ -101,7 +101,6 @@ sol!(
     }
 );
 
-/// testnet rpc https://rpc.testnet3.goat.network
 pub struct GoatInitConfig {
     pub rpc_url: Url,
     pub gateway_address: EvmAddress,
@@ -110,6 +109,22 @@ pub struct GoatInitConfig {
     pub private_key: Option<String>,
     pub chain_id: u32,
 }
+
+impl GoatInitConfig {
+    pub fn from_env_for_test() -> Self {
+        GoatInitConfig {
+            rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
+            gateway_address: "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
+                .parse()
+                .expect("parse contract address"),
+            gateway_creation_block: 0,
+            to_block: None,
+            private_key: None,
+            chain_id: 48816_u32,
+        }
+    }
+}
+
 pub struct GoatAdaptor {
     chain_id: ChainId,
     _gateway_address: EvmAddress,

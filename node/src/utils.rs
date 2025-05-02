@@ -981,21 +981,11 @@ mod tests {
     use super::*;
     use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
     use goat::connectors::base::generate_default_tx_in;
-    use reqwest::Url;
     use serial_test::serial;
     use std::fmt;
 
     async fn test_client() -> BitVM2Client {
-        let global_init_config = GoatInitConfig {
-            rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
-            gateway_address: "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
-                .parse()
-                .expect("parse contract address"),
-            gateway_creation_block: 0,
-            to_block: None,
-            private_key: None,
-            chain_id: 48816_u32,
-        };
+        let global_init_config = GoatInitConfig::from_env_for_test();
         //  let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
         let tmp_db = tempfile::NamedTempFile::new().unwrap();
         BitVM2Client::new(
@@ -1546,16 +1536,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "debug"]
     async fn load_graph() {
-        let global_init_config = GoatInitConfig {
-            rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
-            gateway_address: "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
-                .parse()
-                .expect("parse contract address"),
-            gateway_creation_block: 0,
-            to_block: None,
-            private_key: None,
-            chain_id: 48816_u32,
-        };
+        let global_init_config = GoatInitConfig::from_env_for_test();
         let client = BitVM2Client::new(
             "/tmp/bitvm2-node-0.db",
             None,

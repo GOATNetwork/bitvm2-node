@@ -217,7 +217,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None,
         env::get_network(),
         env::get_goat_network(),
-        env::get_bitvm2_client_config(),
+        env::goat_config_from_env(),
         &ipfs_url,
     )
     .await;

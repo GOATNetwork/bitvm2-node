@@ -4,7 +4,7 @@ use std::str::FromStr;
 mod handler;
 mod node;
 
-use crate::env::{get_bitvm2_client_config, get_goat_network, get_network};
+use crate::env::{get_goat_network, get_network, goat_config_from_env};
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
 use axum::body::Body;
@@ -55,7 +55,7 @@ impl AppState {
             None,
             get_network(),
             get_goat_network(),
-            get_bitvm2_client_config(),
+            goat_config_from_env(),
             ipfs_url,
         )
         .await;

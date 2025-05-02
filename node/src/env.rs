@@ -36,7 +36,7 @@ pub const PEGIN_BASE_VBYTES: u64 = 200;
 pub const CHALLENGE_BASE_VBYTES: u64 = 200;
 
 // reduce costs to facilitate testing
-pub const MIN_SATKE_AMOUNT: u64 = 700_000; // 0.007 BTC  
+pub const MIN_SATKE_AMOUNT: u64 = 700_000; // 0.007 BTC
 pub const STAKE_RATE: u64 = 0; // 0%
 pub const MIN_CHALLENGE_AMOUNT: u64 = 300_000; // 0.003 BTC
 // pub const MIN_SATKE_AMOUNT: u64 = 20_000_000; // 0.2 BTC
@@ -76,33 +76,6 @@ pub fn get_committee_member_num() -> usize {
     COMMITTEE_MEMBER_NUMBER
 }
 
-pub fn get_bitvm2_client_config() -> GoatInitConfig {
-    let rpc_url_str = std::env::var(ENV_GOAT_CHAIN_URL)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_CHAIN_URL} variable"));
-    let gateway_address_str = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_ADDRESS} variable"));
-    let gateway_creation = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_CREATION)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_CREATION} variable"));
-    let to_block = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK);
-    let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
-    let chain_id = std::env::var(ENV_GOAT_CHAIN_ID)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_CHAIN_ID} variable"));
-
-    let rpc_url = rpc_url_str.parse::<Url>();
-    let gateway_address = gateway_address_str.parse::<EvmAddress>();
-    GoatInitConfig {
-        rpc_url: rpc_url.unwrap(),
-        gateway_address: gateway_address.unwrap(),
-        gateway_creation_block: gateway_creation.parse::<u64>().unwrap(),
-        to_block: match to_block {
-            Ok(block) => Some(BlockNumberOrTag::from_str(block.as_str()).unwrap()),
-            Err(_) => Some(BlockNumberOrTag::Finalized),
-        },
-        private_key,
-        chain_id: chain_id.parse().expect("fail to parse int"),
-    }
-}
-
 pub enum IpfsTxName {
     AssertCommit0,
     AssertCommit1,
@@ -134,5 +107,46 @@ impl IpfsTxName {
             IpfsTxName::Take1 => "take1.hex",
             IpfsTxName::Take2 => "take2.hex",
         }
+    }
+}
+
+pub fn goat_config_from_env() -> GoatInitConfig {
+    if cfg!(feature = "tests") {
+        return GoatInitConfig::from_env_for_test();
+    }
+
+    let rpc_url_str =
+        std::env::var(ENV_GOAT_CHAIN_URL).expect("Failed to read {ENV_GOAT_CHAIN_URL} variable");
+    let rpc_url = rpc_url_str.parse::<Url>().expect("Failed to parse {rpc_url_str} to URL");
+
+    let gateway_address_str = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
+        .expect("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_ADDRESS} variable");
+    let gateway_address = gateway_address_str
+        .parse::<EvmAddress>()
+        .expect("Failed to parse {gateway_address_str} to address");
+
+    let gateway_creation = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_CREATION)
+        .expect("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_CREATION} variable");
+    let gateway_creation_block =
+        gateway_creation.parse::<u64>().expect("{ENV_GOAT_GATEWAY_CONTRACT_CREATION} parse");
+
+    let to_block = match std::env::var(ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK).ok() {
+        Some(to_block_str) => BlockNumberOrTag::from_str(to_block_str.as_str()).ok(),
+        _ => None,
+    };
+
+    let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
+    let chain_id = std::env::var(ENV_GOAT_CHAIN_ID)
+        .expect("Failed to read {ENV_GOAT_CHAIN_ID} variable")
+        .parse::<u32>()
+        .expect("Failed to parse {chain_id_str} to u64");
+
+    GoatInitConfig {
+        rpc_url,
+        gateway_address,
+        gateway_creation_block,
+        to_block,
+        private_key,
+        chain_id,
     }
 }
