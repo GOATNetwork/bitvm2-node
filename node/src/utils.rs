@@ -983,6 +983,15 @@ mod tests {
     use goat::connectors::base::generate_default_tx_in;
     use serial_test::serial;
     use std::fmt;
+    use bitcoin::TapNodeHash;
+    use goat::transactions::assert::assert_commit::AssertCommitTransactionSet;
+    use goat::transactions::assert::assert_final::AssertFinalTransaction;
+    use goat::transactions::assert::assert_initial::AssertInitialTransaction;
+    use goat::transactions::challenge::ChallengeTransaction;
+    use goat::transactions::kick_off::KickOffTransaction;
+    use goat::transactions::peg_in::peg_in::PegInTransaction;
+    use goat::transactions::peg_out_confirm::PreKickoffTransaction;
+    use bitvm2_lib::types::Bitvm2Parameters;
 
     async fn test_client() -> BitVM2Client {
         let global_init_config = GoatInitConfig::from_env_for_test();
@@ -1533,8 +1542,57 @@ mod tests {
         };
     }
 
+    pub fn create_bitcoin_regtest() {
+
+    }
+
+    pub fn create_bitvm2_graph() -> Bitvm2Graph {
+        let operator_pre_signed = false;
+        let committee_pre_signed = false;
+
+        let network = get_network();
+        let depositor_evm_address = "3eAC5F367F19E2E6099e897436DC17456f078609".as_bytes().into();
+        let peg_amount = Amount::from_btc(0.01);
+        todo!();
+
+        //let user_btc_addr = "";
+
+        //let utxos =
+
+        //let user_inputs = CustomInputs {};
+        //let parameters = Bitvm2Parameters {
+        //    network,
+        //    depositor_evm_address,
+        //    pegin_amount,
+        //    user_inputs,
+        //    stake_amount: get_stake_amount(receive_data.pegin_amount.to_sat()),
+        //    challenge_amount: get_challenge_amount(receive_data.pegin_amount.to_sat()),
+        //    committee_pubkeys: collected_keys,
+        //    committee_agg_pubkey,
+        //    operator_pubkey: keypair.public_key().into(),
+        //    operator_wots_pubkeys,
+        //    operator_inputs,
+        //};
+
+
+        Bitvm2Graph {
+            operator_pre_signed,
+            committee_pre_signed,
+            parameters: Bitvm2Parameters,
+            connector_c_taproot_merkle_root: TapNodeHash,
+            pegin: PegInTransaction,
+            pre_kickoff: PreKickoffTransaction,
+            kickoff: KickOffTransaction,
+            take1: Take1Transaction,
+            challenge: ChallengeTransaction,
+            assert_init: AssertInitialTransaction,
+            assert_commit: AssertCommitTransactionSet,
+            assert_final: AssertFinalTransaction,
+            take2: Take2Transaction,
+            disprove: DisproveTransaction,
+        }
+    }
     #[tokio::test]
-    #[ignore = "debug"]
     async fn load_graph() {
         let global_init_config = GoatInitConfig::from_env_for_test();
         let client = BitVM2Client::new(
@@ -1548,6 +1606,12 @@ mod tests {
         .await;
         let instance_id = Uuid::parse_str("85b378bc-1b2a-4c59-a116-bdf3fbdf14e0").unwrap();
         let graph_id = Uuid::parse_str("ca010566-d7a7-49c8-8c62-9ddb8dd988ec").unwrap();
+
+        // store a graph
+        let new_graph = create_bitvm2_graph();
+        let new_graph_resp = store_graph(&client, instance_id, graph_id, &new_graph, None).unwrap();
+
+        // retrieve the graph
         let graph = get_graph(&client, instance_id, graph_id).await.unwrap();
         let stake_amount = graph.parameters.stake_amount.to_sat();
 

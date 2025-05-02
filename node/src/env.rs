@@ -139,7 +139,7 @@ pub fn goat_config_from_env() -> GoatInitConfig {
     let chain_id = std::env::var(ENV_GOAT_CHAIN_ID)
         .expect("Failed to read {ENV_GOAT_CHAIN_ID} variable")
         .parse::<u32>()
-        .expect("Failed to parse {chain_id_str} to u64");
+        .expect("Failed to parse {chain_id_str} to u32");
 
     GoatInitConfig {
         rpc_url,
