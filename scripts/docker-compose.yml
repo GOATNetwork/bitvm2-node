@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bitcoin-server:
     image: ruimarinho/bitcoin-core
@@ -12,19 +10,15 @@ services:
                -server=1
                -regtest=1
                -txindex=1
-               -rest=1
                -fallbackfee='0.01'
                -rpcallowip=0.0.0.0/0
                -rpcbind=0.0.0.0
                -rpcuser=111111
                -rpcpassword=111111
-               -zmqpubrawblock=tcp://0.0.0.0:28332
-               -zmqpubrawtx=tcp://0.0.0.0:28333
+               -datadir=/bitcoin
     ports:
       - "18443:18443"
       - "18444:18444"
-    networks:
-      - regtest
 
   electrs:
     image: mempool/electrs
@@ -34,18 +28,14 @@ services:
       - "3002:3002"
     depends_on:
       - bitcoin-server
-    environment:
-      ELECTRS_NETWORK: regtest
-      ELECTRS_HTTP_ADDR: "0.0.0.0:3002"
-      ELECTRS_DAEMON_RPC_ADDR: bitcoin-server:18443
-      ELECTRS_DAEMON_RPC_USER: 111111
-      ELECTRS_DAEMON_RPC_PASS: 111111
-      ELECTRS_LOG_FILTERS: debug
+    entrypoint: >
+      electrs
+        --network regtest
+        --daemon-rpc-addr bitcoin-server:18443
+        --daemon-dir /bitcoin
+        --http-addr 0.0.0.0:3002
+        --cookie "111111:111111"
+        -v
     volumes:
       - ./electrs-data:/data
-    networks:
-      - regtest
-
-networks:
-  regtest:
-    driver: bridge
+      - ./bitcoin-data:/bitcoin
