@@ -996,7 +996,7 @@ pub mod defer {
     #[macro_export]
     macro_rules! defer {
         ($name:ident, $cleanup:block) => {
-            let mut $name = crate::utils::defer::Defer::new(|| $cleanup);
+            let mut $name = $crate::utils::defer::Defer::new(|| $cleanup);
         };
     }
     #[macro_export]
@@ -1022,11 +1022,11 @@ pub mod defer {
             Ok(())
         }
         try_start_new_graph(Uuid::new_v4(), Uuid::new_v4());
-        assert_eq!(true, is_processing_graph());
+        assert!(is_processing_graph());
         let _ = guarded_operation(true);
-        assert_eq!(true, is_processing_graph());
+        assert!(is_processing_graph());
         let _ = guarded_operation(false);
-        assert_eq!(false, is_processing_graph());
+        assert!(!is_processing_graph());
     }
 }
 
