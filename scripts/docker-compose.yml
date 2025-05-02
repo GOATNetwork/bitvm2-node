@@ -40,7 +40,7 @@ services:
       ELECTRS_DAEMON_RPC_ADDR: bitcoin-server:18443
       ELECTRS_DAEMON_RPC_USER: 111111
       ELECTRS_DAEMON_RPC_PASS: 111111
-      ELECTRS_LOG_FILTERS: info
+      ELECTRS_LOG_FILTERS: debug
     volumes:
       - ./electrs-data:/data
     networks:

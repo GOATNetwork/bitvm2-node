@@ -1567,7 +1567,7 @@ mod tests {
     pub fn create_regtest_client() -> BlockingClient {
         let base_url = "http://localhost:3002";
         let builder = esplora_client::Builder::new(base_url);
-        let client = esplora_client::BlockingClient::from_builder(builder);
+        let client = BlockingClient::from_builder(builder);
         client
     }
 
