@@ -1,3 +1,5 @@
+use crate::committee::{COMMITTEE_PRE_SIGN_NUM, push_committee_pre_signatures};
+use crate::operator::push_operator_pre_signature;
 use anyhow::Result;
 use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, XOnlyPublicKey, key::Keypair};
 use bitcoin::{OutPoint, TapNodeHash, Witness};
@@ -27,8 +29,6 @@ use goat::transactions::{
 use rand::{Rng, distributions::Alphanumeric};
 use secp256k1::SECP256K1;
 use serde::{Deserialize, Serialize};
-use crate::committee::{COMMITTEE_PRE_SIGN_NUM, push_committee_pre_signatures};
-use crate::operator::push_operator_pre_signature;
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
