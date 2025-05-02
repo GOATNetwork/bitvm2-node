@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  bitcoin-server:
+    image: ruimarinho/bitcoin-core
+    container_name: bitcoin-server
+    restart: unless-stopped
+    volumes:
+      - ./bitcoin-data:/bitcoin
+    command: >
+      bitcoind -printtoconsole
+               -server=1
+               -regtest=1
+               -txindex=1
+               -rest=1
+               -fallbackfee='0.01'
+               -rpcallowip=0.0.0.0/0
+               -rpcbind=0.0.0.0
+               -rpcuser=111111
+               -rpcpassword=111111
+               -zmqpubrawblock=tcp://0.0.0.0:28332
+               -zmqpubrawtx=tcp://0.0.0.0:28333
+    ports:
+      - "18443:18443"
+      - "18444:18444"
+    networks:
+      - regtest
+
+  electrs:
+    image: mempool/electrs
+    container_name: electrs-regtest
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    depends_on:
+      - bitcoin-server
+    environment:
+      ELECTRS_NETWORK: regtest
+      ELECTRS_HTTP_ADDR: "0.0.0.0:3002"
+      ELECTRS_DAEMON_RPC_ADDR: bitcoin-server:18443
+      ELECTRS_DAEMON_RPC_USER: 111111
+      ELECTRS_DAEMON_RPC_PASS: 111111
+      ELECTRS_LOG_FILTERS: info
+    volumes:
+      - ./electrs-data:/data
+    networks:
+      - regtest
+
+networks:
+  regtest:
+    driver: bridge

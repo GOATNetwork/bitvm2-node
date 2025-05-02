@@ -48,5 +48,5 @@ jobs:
           - nightly
     steps:
       - uses: actions/checkout@v2
-      - run: bash -x scripts/start_bitcoind.sh
+      - run: cd scripts && docker compose up -d && bash -x start_bitcoind.sh
       - run: cargo test -r --features tests

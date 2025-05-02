@@ -1545,7 +1545,7 @@ mod tests {
         };
     }
 
-    pub fn get_regtest_address() -> (bitcoin::key::PrivateKey, Address) {
+    pub fn get_regtest_address(client: &BlockingClient) -> (bitcoin::key::PrivateKey, Address) {
         let secp = secp256k1::Secp256k1::new();
         // Create a P2WPKH (bech32) address
         let private_key =
@@ -1565,7 +1565,7 @@ mod tests {
     }
 
     pub fn create_regtest_client() -> BlockingClient {
-        let base_url = "http://127.0.0.1/api";
+        let base_url = "http://localhost:3002";
         let builder = esplora_client::Builder::new(base_url);
         let client = esplora_client::BlockingClient::from_builder(builder);
         client
@@ -1576,11 +1576,12 @@ mod tests {
         let committee_pre_signed = false;
 
         let network = Network::Regtest;
-        //let depositor_evm_address: [u8; 20] = "3eAC5F367F19E2E6099e897436DC17456f078609".as_bytes().into();
+        let depositor_evm_address: [u8; 20] = hex::decode("3eAC5F367F19E2E6099e897436DC17456f078609").unwrap().try_into().unwrap();
         let peg_amount = Amount::from_btc(0.01);
 
         let client = create_regtest_client();
-        let (private_key, address) = get_regtest_address();
+        let (private_key, address) = get_regtest_address(&client);
+        println!("yee");
         let utxos = client.get_address_utxo(address).await;
         println!("utxos: {:?}", utxos);
 
@@ -1622,7 +1623,6 @@ mod tests {
         //}
     }
     #[tokio::test]
-    #[ignore = "debug"]
     async fn load_graph() {
         let global_init_config = GoatInitConfig::from_env_for_test();
         let client = BitVM2Client::new(
