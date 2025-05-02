@@ -974,6 +974,62 @@ pub async fn publish_graph_to_ipfs(
     Ok(dir_cid)
 }
 
+pub mod defer {
+    pub struct Defer<F: FnOnce()> {
+        cleanup: Option<F>,
+    }
+    impl<F: FnOnce()> Defer<F> {
+        pub fn new(f: F) -> Self {
+            Self { cleanup: Some(f) }
+        }
+        pub fn dismiss(&mut self) {
+            self.cleanup = None;
+        }
+    }
+    impl<F: FnOnce()> Drop for Defer<F> {
+        fn drop(&mut self) {
+            if let Some(cleanup) = self.cleanup.take() {
+                cleanup();
+            }
+        }
+    }
+    #[macro_export]
+    macro_rules! defer {
+        ($name:ident, $cleanup:block) => {
+            let mut $name = crate::utils::defer::Defer::new(|| $cleanup);
+        };
+    }
+    #[macro_export]
+    macro_rules! dismiss_defer {
+        ($name:ident) => {
+            $name.dismiss();
+        };
+    }
+
+    #[test]
+    fn test_defer() {
+        use super::statics::*;
+        use uuid::Uuid;
+        fn inner_func(should_success: bool) -> Result<(), Box<dyn std::error::Error>> {
+            if should_success { Ok(()) } else { Err("inner functions not success".into()) }
+        }
+        fn guarded_operation(should_success: bool) -> Result<(), Box<dyn std::error::Error>> {
+            defer!(on_err, {
+                force_stop_current_graph();
+            });
+            inner_func(should_success)?;
+            dismiss_defer!(on_err);
+            Ok(())
+        }
+        try_start_new_graph(Uuid::new_v4(), Uuid::new_v4());
+        assert_eq!(true, is_processing_graph());
+        let _ = guarded_operation(true);
+        assert_eq!(true, is_processing_graph());
+        let _ = guarded_operation(false);
+        assert_eq!(false, is_processing_graph());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::action::{CreateInstance, GOATMessageContent, KickoffReady};

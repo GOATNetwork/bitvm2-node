@@ -2,6 +2,7 @@ use crate::env;
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;
 use crate::utils::{statics::*, *};
+use crate::{defer, dismiss_defer};
 use anyhow::Result;
 use bitcoin::PublicKey;
 use bitcoin::{Amount, Network, Txid};
@@ -265,6 +266,9 @@ pub async fn recv_and_dispatch(
             {
                 let graph_id = Uuid::new_v4();
                 if try_start_new_graph(receive_data.instance_id, graph_id) {
+                    defer!(on_err, {
+                        force_stop_current_graph();
+                    });
                     tracing::info!("generating new graph: {graph_id}");
                     let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
                     let keypair = master_key.keypair_for_graph(graph_id);
@@ -313,6 +317,7 @@ pub async fn recv_and_dispatch(
                         swarm,
                         GOATMessage::from_typed(Actor::Committee, &message_content)?,
                     )?;
+                    dismiss_defer!(on_err);
                 };
             };
         }
@@ -428,6 +433,9 @@ pub async fn recv_and_dispatch(
             if Some((receive_data.instance_id, receive_data.graph_id))
                 == statics::current_processing_graph()
             {
+                defer!(on_err, {
+                    force_stop_current_graph();
+                });
                 store_committee_partial_sigs(
                     client,
                     receive_data.instance_id,
@@ -500,7 +508,8 @@ pub async fn recv_and_dispatch(
                     });
                     send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
                     force_stop_current_graph();
-                }
+                };
+                dismiss_defer!(on_err);
             };
         }
         (GOATMessageContent::GraphFinalize(receive_data), _) => {
