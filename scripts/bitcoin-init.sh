@@ -5,9 +5,9 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #docker rm -f bitcoin-server
 #docker run --name bitcoin-server -d -v $HOME/bitcoin:/root/bitcoin -p 18443:18443 -p 8332:8332 -p 18332:18332 -it ruimarinho/bitcoin-core -regtest=1 -rpcbind='0.0.0.0' -rpcallowip='0.0.0.0/0'  -fallbackfee='0.01' -txindex=1 -rpcuser=111111 -rpcpassword=111111
 #sleep 2
- bitcoind -printtoconsole -daemon \
+ bitcoind -daemon \
     -server=1  \
-    -datadir=/bitcoin
+    -datadir=/bitcoin \
     -regtest=1 \
     -txindex=1 \
     -fallbackfee='0.01' \
