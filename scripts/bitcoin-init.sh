@@ -41,9 +41,10 @@ $BTC --rpcwallet=alice -generate 1000
 
 ## prepare a funded wallet
 #address=`$BTC -rpcwallet=alice getnewaddress`
-$BTC importprivkey "cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5" "testonly" false
-address="bcrt1qvnhz5qn4q9vt2sgumajnm8gt53ggvmyyfwd0jg"
+#$BTC importprivkey "cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5" "testonly" false
+#address="bcrt1qvnhz5qn4q9vt2sgumajnm8gt53ggvmyyfwd0jg"
 
+address="bcrt1q7tr8sl50zanztcrps35hakqpe7gmfzedhhnxcspj7n0ks5lyrnhs6m8ewg"
 ## fund the address
 $BTC --rpcwallet=alice sendtoaddress $address 1
 $BTC --rpcwallet=alice -generate 10

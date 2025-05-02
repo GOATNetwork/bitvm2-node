@@ -24,6 +24,7 @@ mod metrics_service;
 mod middleware;
 mod relayer_action;
 mod rpc_service;
+mod tests;
 mod utils;
 
 use crate::action::GOATMessage;

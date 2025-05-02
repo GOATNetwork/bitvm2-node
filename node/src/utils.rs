@@ -494,12 +494,12 @@ pub fn node_sign(
     sighash_type: EcdsaSighashType,
     node_keypair: &Keypair,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let node_pubkey = get_node_pubkey()?;
+    let node_pubkey = node_keypair.public_key();
     populate_p2wsh_witness(
         tx,
         input_index,
         sighash_type,
-        &node_p2wsh_script(&node_pubkey),
+        &node_p2wsh_script(&node_pubkey.into()),
         input_value,
         &vec![node_keypair],
     );
@@ -979,8 +979,10 @@ mod tests {
     use crate::action::{CreateInstance, GOATMessageContent, KickoffReady};
 
     use super::*;
+    use crate::env;
     use bitcoin::TapNodeHash;
     use bitcoin::{Address, CompressedPublicKey, PrivateKey};
+    use bitvm2_lib::keys::CommitteeMasterKey;
     use bitvm2_lib::types::Bitvm2Parameters;
     use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
     use esplora_client::BlockingClient;
@@ -992,6 +994,7 @@ mod tests {
     use goat::transactions::kick_off::KickOffTransaction;
     use goat::transactions::peg_in::peg_in::PegInTransaction;
     use goat::transactions::peg_out_confirm::PreKickoffTransaction;
+    use musig2::k256::SecretKey;
     use musig2::secp256k1;
     use serial_test::serial;
     use std::fmt;
@@ -1545,84 +1548,8 @@ mod tests {
         };
     }
 
-    pub fn get_regtest_address(client: &BlockingClient) -> (bitcoin::key::PrivateKey, Address) {
-        let secp = secp256k1::Secp256k1::new();
-        // Create a P2WPKH (bech32) address
-        let private_key =
-            PrivateKey::from_wif("cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5").unwrap();
-        // Derive the public key
-        let address = Address::p2wpkh(
-            &CompressedPublicKey::from_private_key(&secp, &private_key).unwrap(),
-            Network::Regtest,
-        );
-
-        let default_address = Address::from_str("bcrt1qvnhz5qn4q9vt2sgumajnm8gt53ggvmyyfwd0jg")
-            .unwrap()
-            .require_network(Network::Regtest)
-            .unwrap();
-        assert_eq!(address, default_address);
-        (private_key, address)
-    }
-
-    pub fn create_regtest_client() -> BlockingClient {
-        let base_url = "http://127.0.0.1:3002";
-        let builder = esplora_client::Builder::new(base_url);
-        let client = BlockingClient::from_builder(builder);
-        client
-    }
-
-    pub async fn create_bitvm2_graph() -> Bitvm2Graph {
-        let operator_pre_signed = false;
-        let committee_pre_signed = false;
-
-        let network = Network::Regtest;
-        let depositor_evm_address: [u8; 20] = hex::decode("3eAC5F367F19E2E6099e897436DC17456f078609").unwrap().try_into().unwrap();
-        let peg_amount = Amount::from_btc(0.01);
-
-        let client = create_regtest_client();
-        let (private_key, address) = get_regtest_address(&client);
-        println!("yee");
-        let utxos = client.get_address_utxo(address).await;
-        println!("utxos: {:?}", utxos);
-
-        todo!();
-        //let user_btc_addr = "";
-
-        //let utxos =
-
-        //let user_inputs = CustomInputs {};
-        //let parameters = Bitvm2Parameters {
-        //    network,
-        //    depositor_evm_address,
-        //    pegin_amount,
-        //    user_inputs,
-        //    stake_amount: get_stake_amount(receive_data.pegin_amount.to_sat()),
-        //    challenge_amount: get_challenge_amount(receive_data.pegin_amount.to_sat()),
-        //    committee_pubkeys: collected_keys,
-        //    committee_agg_pubkey,
-        //    operator_pubkey: keypair.public_key().into(),
-        //    operator_wots_pubkeys,
-        //    operator_inputs,
-        //};
-
-        //Bitvm2Graph {
-        //    operator_pre_signed,
-        //    committee_pre_signed,
-        //    parameters: Bitvm2Parameters,
-        //    connector_c_taproot_merkle_root: TapNodeHash,
-        //    pegin: PegInTransaction,
-        //    pre_kickoff: PreKickoffTransaction,
-        //    kickoff: KickOffTransaction,
-        //    take1: Take1Transaction,
-        //    challenge: ChallengeTransaction,
-        //    assert_init: AssertInitialTransaction,
-        //    assert_commit: AssertCommitTransactionSet,
-        //    assert_final: AssertFinalTransaction,
-        //    take2: Take2Transaction,
-        //    disprove: DisproveTransaction,
-        //}
-    }
     #[tokio::test]
+    #[ignore = "debug"]
     async fn load_graph() {
         let global_init_config = GoatInitConfig::from_env_for_test();
         let client = BitVM2Client::new(
@@ -1638,9 +1565,6 @@ mod tests {
         let graph_id = Uuid::parse_str("ca010566-d7a7-49c8-8c62-9ddb8dd988ec").unwrap();
 
         // store a graph
-        let new_graph = create_bitvm2_graph().await;
-        let new_graph_resp =
-            store_graph(&client, instance_id, graph_id, &new_graph, None).await.unwrap();
 
         // retrieve the graph
         let graph = get_graph(&client, instance_id, graph_id).await.unwrap();
