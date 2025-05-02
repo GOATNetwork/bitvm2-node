@@ -1638,7 +1638,7 @@ mod tests {
         let graph_id = Uuid::parse_str("ca010566-d7a7-49c8-8c62-9ddb8dd988ec").unwrap();
 
         // store a graph
-        let new_graph = create_bitvm2_graph();
+        let new_graph = create_bitvm2_graph().await;
         let new_graph_resp =
             store_graph(&client, instance_id, graph_id, &new_graph, None).await.unwrap();
 
