@@ -8,7 +8,7 @@ use bitcoin::PublicKey;
 use bitcoin::{Amount, Network, Txid};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::*;
-use bitvm2_lib::types::{Bitvm2Graph, Bitvm2Parameters, CustomInputs};
+use bitvm2_lib::types::{Bitvm2Graph, Bitvm2Parameters, CustomInputs, SimplifiedBitvm2Graph};
 use bitvm2_lib::verifier::export_challenge_tx;
 use bitvm2_lib::{committee::*, operator::*, verifier::*};
 use client::client::BitVM2Client;
@@ -71,7 +71,7 @@ pub struct CreateGraphPrepare {
 pub struct CreateGraph {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub graph: Bitvm2Graph,
+    pub graph: SimplifiedBitvm2Graph,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -97,7 +97,7 @@ pub struct CommitteePresign {
 pub struct GraphFinalize {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub graph: Bitvm2Graph,
+    pub graph: SimplifiedBitvm2Graph,
     pub graph_ipfs_cid: String,
 }
 
@@ -310,7 +310,7 @@ pub async fn recv_and_dispatch(
                     let message_content = GOATMessageContent::CreateGraph(CreateGraph {
                         instance_id: receive_data.instance_id,
                         graph_id,
-                        graph,
+                        graph: graph.to_simplified(),
                     });
                     // TODO: compress huge message
                     send_to_peer(
@@ -323,11 +323,12 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::CreateGraph(receive_data), Actor::Committee) => {
             tracing::info!("Handle CreateGraph");
+            let graph = Bitvm2Graph::from_simplified(receive_data.graph)?;
             store_graph(
                 client,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                &receive_data.graph,
+                &graph,
                 Some(GraphStatus::OperatorPresigned.to_string()),
             )
             .await?;
@@ -345,7 +346,7 @@ pub async fn recv_and_dispatch(
                 pub_nonces.clone(),
             )
             .await?;
-            let committee_members_num = receive_data.graph.parameters.committee_pubkeys.len();
+            let committee_members_num = graph.parameters.committee_pubkeys.len();
             let message_content = GOATMessageContent::NonceGeneration(NonceGeneration {
                 instance_id: receive_data.instance_id,
                 graph_id: receive_data.graph_id,
@@ -503,7 +504,7 @@ pub async fn recv_and_dispatch(
                     let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
-                        graph,
+                        graph: graph.to_simplified(),
                         graph_ipfs_cid,
                     });
                     send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
@@ -515,11 +516,12 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::GraphFinalize(receive_data), _) => {
             tracing::info!("Handle GraphFinalize");
             // TODO: validate graph & ipfs
+            let graph = Bitvm2Graph::from_simplified(receive_data.graph)?;
             store_graph(
                 client,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                &receive_data.graph,
+                &graph,
                 Some(GraphStatus::CommitteePresigned.to_string()),
             )
             .await?;
