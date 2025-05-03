@@ -273,6 +273,16 @@ pub async fn scan_bridge_in(
                 );
                 continue;
             }
+
+            storage_process
+                .update_instance_fields(
+                    &instance.instance_id,
+                    Some(BridgeInStatus::L2Minted.to_string()),
+                    None,
+                    None,
+                )
+                .await?;
+
             for graph in graphs {
                 if graph.status != GraphStatus::CommitteePresigned.to_string() {
                     continue;
@@ -309,12 +319,7 @@ pub async fn scan_bridge_in(
                         instance.instance_id, tx_hash
                     );
                     storage_process
-                        .update_instance_fields(
-                            &instance.instance_id,
-                            Some(BridgeInStatus::L2Minted.to_string()),
-                            None,
-                            Some(tx_hash),
-                        )
+                        .update_instance_fields(&instance.instance_id, None, None, Some(tx_hash))
                         .await?;
                 }
             };
