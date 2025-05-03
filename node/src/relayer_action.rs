@@ -13,6 +13,7 @@ use crate::{
     middleware::AllBehaviours,
     utils::tx_on_chain,
 };
+use alloy::primitives::TxHash;
 use bitcoin::Txid;
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
@@ -26,6 +27,7 @@ use goat::{
     utils::num_blocks_per_network,
 };
 use libp2p::Swarm;
+use std::str::FromStr;
 use std::time::UNIX_EPOCH;
 use store::{
     BridgeInStatus, BridgePath, GraphStatus, GraphTickActionMetaData, MessageState, MessageType,
@@ -259,49 +261,63 @@ pub async fn scan_bridge_in(
             );
             continue;
         }
-        let bitvm_graph: Bitvm2Graph = serde_json::from_str(&graphs[0].raw_data.clone().unwrap())?;
-        match client.post_pegin_data(&instance.instance_id, bitvm_graph.pegin.tx()).await {
-            Err(err) => {
-                warn!(
-                    "instance id {}, tx:{} post_pegin_data failed err:{:?}",
-                    instance.instance_id,
-                    bitvm_graph.pegin.tx().compute_txid().to_string(),
-                    err
-                );
-                continue;
-            }
-            Ok(tx_hash) => {
-                info!(
-                    "finish post post_pegin_dataa for instance_id {} , tx hash:{}",
-                    instance.instance_id, tx_hash
-                );
-                storage_process
-                    .update_instance_fields(
-                        &instance.instance_id,
-                        Some(BridgeInStatus::L2Minted.to_string()),
-                        None,
-                        Some(tx_hash),
-                    )
-                    .await?;
-            }
-        };
 
-        // TODO make into a tick action
-        for graph in graphs {
-            if graph.status != GraphStatus::CommitteePresigned.to_string() {
+        if let Ok(tx_hash) = TxHash::from_str(&instance.goat_txid) {
+            let is_finish_pegin =
+                client.chain_service.adaptor.is_tx_execute_success(tx_hash).await?;
+            if !is_finish_pegin {
+                info!(
+                    "scan_bridge_in, instance_id: {}, goat_tx:{} finish send to chain \
+                but get receipt status is false, will try later",
+                    instance.instance_id, instance.goat_txid
+                );
                 continue;
             }
-            match client.post_operate_data(&instance.instance_id, &graph.graph_id, &graph).await {
+            for graph in graphs {
+                if graph.status != GraphStatus::CommitteePresigned.to_string() {
+                    continue;
+                }
+                match client.post_operate_data(&instance.instance_id, &graph.graph_id, &graph).await
+                {
+                    Ok(tx_hash) => {
+                        info!(
+                            "finish post operate data for instance_id {}, graph_id:{} , tx hash:{}",
+                            instance.instance_id, graph.graph_id, tx_hash
+                        );
+                    }
+                    Err(err) => {
+                        warn!("{} postOperatorData failed :err :{:?}", graph.graph_id, err)
+                    }
+                }
+            }
+        } else {
+            let bitvm_graph: Bitvm2Graph =
+                serde_json::from_str(&graphs[0].raw_data.clone().unwrap())?;
+            match client.post_pegin_data(&instance.instance_id, bitvm_graph.pegin.tx()).await {
+                Err(err) => {
+                    warn!(
+                        "instance id {}, tx:{} post_pegin_data failed err:{:?}",
+                        instance.instance_id,
+                        bitvm_graph.pegin.tx().compute_txid().to_string(),
+                        err
+                    );
+                    continue;
+                }
                 Ok(tx_hash) => {
                     info!(
-                        "finish post operate data for instance_id {}, graph_id:{} , tx hash:{}",
-                        instance.instance_id, graph.graph_id, tx_hash
+                        "finish post post_pegin_dataa for instance_id {} , tx hash:{}",
+                        instance.instance_id, tx_hash
                     );
+                    storage_process
+                        .update_instance_fields(
+                            &instance.instance_id,
+                            Some(BridgeInStatus::L2Minted.to_string()),
+                            None,
+                            Some(tx_hash),
+                        )
+                        .await?;
                 }
-                Err(err) => {
-                    warn!("{} postOperatorData failed :err :{:?}", graph.graph_id, err)
-                }
-            }
+            };
         }
     }
     Ok(())

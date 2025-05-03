@@ -1,6 +1,6 @@
 use crate::chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::chain::mock_addaptor::{MockAdaptor, MockAdaptorConfig};
-use alloy::primitives::U256;
+use alloy::primitives::{TxHash, U256};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -94,6 +94,8 @@ pub trait ChainAdaptor: Send + Sync {
         leaf: &[u8; 32],
         index: u64,
     ) -> anyhow::Result<bool>;
+
+    async fn is_tx_execute_success(&self, tx_hash: TxHash) -> anyhow::Result<bool>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {

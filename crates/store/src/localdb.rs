@@ -400,6 +400,7 @@ impl<'a> StorageProcessor<'a> {
         .fetch_optional(self.conn())
         .await?;
         if node_op.is_none() {
+            warn!("Node {peer_id} not found in DB");
             bail!("Node {peer_id} not found in DB");
         }
         let _ =

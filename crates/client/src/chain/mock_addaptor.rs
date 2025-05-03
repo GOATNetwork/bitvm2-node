@@ -1,4 +1,5 @@
 use crate::chain::chain_adaptor::*;
+use alloy::primitives::TxHash;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -146,6 +147,10 @@ impl ChainAdaptor for MockAdaptor {
         _pindex: u64,
     ) -> anyhow::Result<bool> {
         Ok(true)
+    }
+
+    async fn is_tx_execute_success(&self, _tx_hash: TxHash) -> anyhow::Result<bool> {
+        todo!()
     }
 }
 
