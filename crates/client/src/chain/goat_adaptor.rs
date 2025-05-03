@@ -359,6 +359,22 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
     }
 
+    async fn get_instanceids_by_pubkey(
+        &self,
+        operator_pubkey: &[u8; 32],
+    ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        let ids = self
+            .gate_way
+            .getInstanceIdsByPubKey(FixedBytes::<32>::from_slice(operator_pubkey))
+            .call()
+            .await?;
+        let instance_ids: Vec<Uuid> =
+            ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
+        let graph_ids: Vec<Uuid> =
+            ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
+        Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
+    }
+
     async fn post_operator_data(
         &self,
         instance_id: &Uuid,

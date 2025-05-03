@@ -75,6 +75,13 @@ impl ChainAdaptor for MockAdaptor {
         todo!()
     }
 
+    async fn get_instanceids_by_pubkey(
+        &self,
+        _operator_pubkey: &[u8; 32],
+    ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        todo!()
+    }
+
     async fn init_withdraw(&self, _instance_id: &Uuid, _graph_id: &Uuid) -> anyhow::Result<()> {
         todo!()
     }

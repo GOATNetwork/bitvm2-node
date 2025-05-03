@@ -560,6 +560,17 @@ pub async fn tx_on_chain(
     }
 }
 
+pub async fn outpoint_available(
+    client: &BitVM2Client,
+    txid: &Txid,
+    vout: u64,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    match client.esplora.get_output_status(txid, vout).await? {
+        Some(status) => Ok(!status.spent),
+        _ => Ok(false),
+    }
+}
+
 /// Validates whether the given challenge transaction has been confirmed on Layer 1.
 pub async fn validate_challenge(
     client: &BitVM2Client,
@@ -972,6 +983,19 @@ pub async fn publish_graph_to_ipfs(
     // try to delete the cache files to free up disk, failed deletions do not affect subsequent executions, so there is no need to return an error
     let _ = fs::remove_dir_all(base_dir);
     Ok(dir_cid)
+}
+
+pub async fn get_my_graph_for_instance(
+    client: &BitVM2Client,
+    instance_id: Uuid,
+    operator_pubkey: PublicKey,
+) -> Result<Option<Uuid>, Box<dyn std::error::Error>> {
+    let ids_vec = client
+        .chain_service
+        .adaptor
+        .get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
+        .await?;
+    Ok(ids_vec.iter().find(|(a, _)| *a == instance_id).map(|(_, b)| *b))
 }
 
 pub mod defer {
