@@ -165,7 +165,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn generate_graph() {
+    async fn e2e_generate_graph() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
         let (depositor_private_key, depositor_addr) = get_regtest_address(&rpc_client);
@@ -212,9 +212,10 @@ pub mod tests {
         let stake_amount = Amount::from_btc(0.02).unwrap();
         let challenge_amount = Amount::from_btc(0.01).unwrap();
         // fund the operator
+        let extra_fee = Amount::from_sat(fee_rate as u64 * PEGIN_BASE_VBYTES);
         let funding_operator_txn = fund_address(
             &bitvm2_client,
-            stake_amount,
+            stake_amount + extra_fee,
             &operator_p2wsh,
             &depositor_private_key,
             depositor_addr.clone(),
@@ -222,7 +223,7 @@ pub mod tests {
         )
         .await;
 
-        println!("funding operator: {}", funding_operator_txn.compute_txid());
+        println!("funding operator {}: {}", operator_p2wsh, funding_operator_txn.compute_txid());
         broadcast_and_wait_for_confirming(&rpc_client, &funding_operator_txn, 1);
 
         // mock groth16 proof
@@ -345,7 +346,8 @@ pub mod tests {
             operator_inputs,
         };
 
-        let partial_scripts = operator::generate_partial_scripts(&vk);
+        //let partial_scripts = operator::generate_partial_scripts(&vk);
+        let partial_scripts = crate::utils::get_partial_scripts().unwrap();
         let disprove_scripts =
             operator::generate_disprove_scripts(&partial_scripts, &operator_wots_pubkeys);
 
