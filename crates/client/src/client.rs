@@ -121,7 +121,7 @@ impl BitVM2Client {
         let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
-                "disprove",
+                "withdraw",
                 graph_id,
                 &tx.compute_txid(),
                 &tx_id_on_line,
@@ -131,14 +131,7 @@ impl BitVM2Client {
         let raw_kickoff_tx = self.tx_reconstruct(tx);
         self.chain_service
             .adaptor
-            .finish_withdraw_happy_path(
-                graph_id,
-                &raw_kickoff_tx,
-                &raw_header,
-                height,
-                &proof,
-                index,
-            )
+            .process_withdraw(graph_id, &raw_kickoff_tx, &raw_header, height, &proof, index)
             .await
     }
     pub async fn finish_withdraw_happy_path(
