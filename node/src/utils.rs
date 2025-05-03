@@ -445,6 +445,7 @@ pub async fn get_proper_utxo_set(
             })
             .collect()
     }
+    println!("get utxos from: {}", address);
 
     let utxos = client.esplora.get_address_utxo(address).await?;
     let mut sorted_utxos = utxos;
