@@ -687,7 +687,6 @@ pub mod tests {
         let mock_script_bytes = mock_script.clone().compile().to_bytes();
         let mock_disprove_scripts_bytes: [Vec<u8>; NUM_TAPS] =
             std::array::from_fn(|_| mock_script_bytes.clone());
-
         let mock_disprove_witness = (0, mock_script);
         let mock_challenger_reward_address = generate_burn_script_address(network);
         let disprove_tx = verifier::sign_disprove(
