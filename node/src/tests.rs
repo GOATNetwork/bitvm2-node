@@ -4,7 +4,7 @@ pub mod tests {
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
     use crate::utils::{
-        complete_and_broadcast_challenge_tx, corrupt, get_fee_rate, get_proper_utxo_set, get_vk,
+        complete_and_broadcast_challenge_tx, get_fee_rate, get_proper_utxo_set, get_vk,
         node_p2wsh_address, node_p2wsh_script, node_sign,
     };
     use bitcoin::key::Keypair;
@@ -624,7 +624,7 @@ pub mod tests {
         challenger_tx_crowdfund_and_broadcast(network, &bitvm2_client, challenge_tx).await;
 
         // Iterate all disprove scripts, the 8th is the smallest one in size.
-        corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);
+        crate::utils::tests::corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);
         let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
             operator_keypair,
             &mut graph,
@@ -654,7 +654,7 @@ pub mod tests {
         )
         .unwrap();
 
-        // FIXME: avoid cloning
+        // FIXME: avoid clone
         let disprove_scripts_bytes = disprove_scripts_array
             .iter()
             .map(|x| x.clone().compile().into_bytes())
@@ -669,6 +669,7 @@ pub mod tests {
             mock_challenger_reward_address,
         )
         .unwrap();
+        println!("Broadcast disprove tx");
         broadcast_and_wait_for_confirming(&rpc_client, &disprove_tx, 1);
     }
 }

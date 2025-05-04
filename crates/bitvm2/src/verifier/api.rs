@@ -35,7 +35,7 @@ pub fn verify_proof(
 // get incomplete tx here, add inputs with enough amount, then broadcast it to start challnege progress
 pub fn export_challenge_tx(graph: &mut Bitvm2Graph) -> Result<(Transaction, Amount)> {
     if !graph.operator_pre_signed() {
-        bail!("missing pre-signatures from operator".to_string())
+        bail!("missing pre-signatures from operator")
     };
     Ok((graph.challenge.tx().clone(), Amount::from_sat(graph.challenge.min_crowdfunding_amount())))
 }
@@ -48,7 +48,7 @@ pub fn sign_disprove(
     reward_address: Address,
 ) -> Result<Transaction> {
     if !graph.committee_pre_signed() {
-        bail!("missing pre-signatures from committee".to_string())
+        bail!("missing pre-signatures from committee")
     };
     let context = graph.parameters.get_base_context();
     let assert_wots_commitment_keys =
