@@ -4,13 +4,13 @@ use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::Address as EvmAddress;
 use alloy::signers::local::PrivateKeySigner;
 // use alloy_signer::{Signer, SignerSync};
+use alloy::primitives::Address;
 use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
 use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
 use reqwest::Url;
 use std::str::FromStr;
-
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
 pub const ENV_GOAT_GATEWAY_CONTRACT_CREATION: &str = "GOAT_GATEWAY_CONTRACT_CREATION";
@@ -91,9 +91,14 @@ pub fn get_local_node_info() -> NodeInfo {
             PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
         Some(singer.address().to_string())
     } else {
-        std::env::var(ENV_GOAT_ADDRESS).ok()
+        let mut addr_op = None;
+        if let Some(addr_str) = std::env::var(ENV_GOAT_ADDRESS).ok() {
+            if let Some(addr) = Address::from_str(&addr_str).ok() {
+                addr_op = Some(addr.to_string());
+            }
+        }
+        addr_op
     };
-
     if actor == Actor::Operator && goat_address.is_none() {
         panic!("Operator must set goat address or goat secret key");
     }

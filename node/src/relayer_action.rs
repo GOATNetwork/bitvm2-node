@@ -32,7 +32,7 @@ use std::time::UNIX_EPOCH;
 use store::{
     BridgeInStatus, BridgePath, GraphStatus, GraphTickActionMetaData, MessageState, MessageType,
 };
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -570,7 +570,7 @@ pub async fn scan_take1(
                     }
                 }
             } else {
-                debug!(
+                info!(
                     "graph_id:{},  take1_txid{}  not no chain",
                     graph_data.graph_id,
                     take1_txid.to_string()
@@ -601,7 +601,7 @@ pub async fn scan_take1(
                     .await?;
                 }
             } else {
-                debug!(
+                info!(
                     "graph_id:{},  kickoff_txid{}  not no chain",
                     graph_data.graph_id,
                     graph_data.kickoff_txid.unwrap().to_string()
@@ -671,7 +671,7 @@ pub async fn scan_take2(
                     }
                 }
             } else {
-                debug!(
+                info!(
                     "graph_id:{},  take2_txid{}  not no chain",
                     graph_data.graph_id,
                     take2_txid.to_string()
@@ -705,7 +705,7 @@ pub async fn scan_take2(
                     .await?;
                 }
             } else {
-                debug!(
+                info!(
                     "graph_id:{},  assert_final_txid{}  not no chain",
                     graph_data.graph_id,
                     graph_data.assert_final_txid.unwrap().to_string()

@@ -10,7 +10,7 @@ use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::log::warn;
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct LocalDB {
@@ -70,6 +70,17 @@ impl LocalDB {
             in_transaction: true,
         })
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct FilterGraphParams {
+    pub is_bridge_out: bool,
+    pub status: Option<String>,
+    pub operator: Option<String>,
+    pub from_addr: Option<String>,
+    pub pegin_txid: Option<String>,
+    pub offset: Option<u32>,
+    pub limit: Option<u32>,
 }
 
 impl<'a> StorageProcessor<'a> {
@@ -313,12 +324,7 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn filter_graphs(
         &mut self,
-        status: Option<String>,
-        operator: Option<String>,
-        from_addr: Option<String>,
-        pegin_txid: Option<String>,
-        offset: Option<u32>,
-        limit: Option<u32>,
+        mut params: FilterGraphParams,
     ) -> anyhow::Result<(Vec<GrapRpcQueryData>, i64)> {
         let mut graph_query_str =
             "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS  bridge_path, \
@@ -331,20 +337,49 @@ impl<'a> StorageProcessor<'a> {
          INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
             .to_string();
 
-        if let Some(from_addr) = from_addr {
-            graph_query_str = format!("{graph_query_str} AND instance.from_addr  =\'{from_addr}\'");
-            graph_count_str = format!("{graph_count_str} AND instance.from_addr  =\'{from_addr}\'");
+        if let Some(from_addr) = params.from_addr {
+            if params.is_bridge_out {
+                let node_op = sqlx::query_as!(
+                    Node,
+                    "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  \
+                    FROM node WHERE goat_addr =?",
+                    from_addr
+                )
+                .fetch_optional(self.conn())
+                .await?;
+                if node_op.is_none() {
+                    warn!("no node find refer to goat address:{from_addr}");
+                    return Ok((vec![], 0));
+                }
+                let btc_pub_key = node_op.unwrap().btc_pub_key;
+                if let Some(operator) = params.operator.clone() {
+                    if operator != btc_pub_key {
+                        warn!(
+                            "find node  refer to goat address:{from_addr} has different operator,  \
+                            input:{operator}, find:{btc_pub_key}"
+                        );
+                        return Ok((vec![], 0));
+                    }
+                } else {
+                    params.operator = Some(btc_pub_key);
+                }
+            } else {
+                graph_query_str =
+                    format!("{graph_query_str} AND instance.from_addr  =\'{from_addr}\'");
+                graph_count_str =
+                    format!("{graph_count_str} AND instance.from_addr  =\'{from_addr}\'");
+            }
         }
 
         let mut conditions: Vec<String> = vec![];
 
-        if let Some(status) = status {
+        if let Some(status) = params.status {
             conditions.push(format!("graph.status = \'{status}\'"));
         }
-        if let Some(operator) = operator {
+        if let Some(operator) = params.operator {
             conditions.push(format!("graph.operator = \'{operator}\'"));
         }
-        if let Some(pegin_txid) = pegin_txid {
+        if let Some(pegin_txid) = params.pegin_txid {
             conditions.push(format!("graph.pegin_txid = \'{pegin_txid}\'"));
         }
 
@@ -354,11 +389,11 @@ impl<'a> StorageProcessor<'a> {
             graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
 
-        if let Some(limit) = limit {
+        if let Some(limit) = params.limit {
             graph_query_str = format!("{graph_query_str} LIMIT {limit}");
         }
 
-        if let Some(offset) = offset {
+        if let Some(offset) = params.offset {
             graph_query_str = format!("{graph_query_str} OFFSET {offset}");
         }
         let graphs = sqlx::query_as::<_, GrapRpcQueryData>(graph_query_str.as_str())

@@ -2,6 +2,7 @@ use crate::env::MODIFY_GRAPH_STATUS_TIME_THRESHOLD;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
+use alloy::primitives::Address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
+use store::localdb::FilterGraphParams;
 use store::{
     BridgeInStatus, BridgePath, Instance, Message, MessageState, MessageType, modify_graph_status,
 };
@@ -418,15 +420,21 @@ pub async fn get_graphs(
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut from_addr = params.from_addr.clone();
+        let (is_goat_address, goat_address) = reflect_goat_address(params.from_addr);
+        if is_goat_address {
+            from_addr = goat_address;
+        }
         let (graphs, total) = storage_process
-            .filter_graphs(
-                params.status,
-                params.operator,
-                params.from_addr,
-                params.pegin_txid,
-                params.offset,
-                params.limit,
-            )
+            .filter_graphs(FilterGraphParams {
+                is_bridge_out: is_goat_address,
+                status: params.status,
+                operator: params.operator,
+                from_addr,
+                pegin_txid: params.pegin_txid,
+                offset: params.offset,
+                limit: params.limit,
+            })
             .await?;
         resp_clone.total = total;
 
@@ -469,4 +477,13 @@ pub async fn get_graphs(
             (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
         }
     }
+}
+
+pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
+    if let Some(addr) = addr_op {
+        if let Some(addr) = Address::from_str(&addr).ok() {
+            return (true, Some(addr.to_string()));
+        }
+    }
+    (false, None)
 }
