@@ -9,14 +9,16 @@ use bitcoin::{
     TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoin_script::{Script, script};
-use bitvm::chunk::api::NUM_TAPS;
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_TAPS, NUM_U256};
 use bitvm::signatures::signing_winternitz::{WinternitzSigningInputs, generate_winternitz_witness};
+use bitvm::signatures::wots_api::{HASH_LEN, wots_hash, wots256};
 use bitvm2_lib::committee::COMMITTEE_PRE_SIGN_NUM;
 use bitvm2_lib::keys::OperatorMasterKey;
 use bitvm2_lib::operator::{generate_disprove_scripts, generate_partial_scripts};
 use bitvm2_lib::types::{
     Bitvm2Graph, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey, WotsPublicKeys,
 };
+use bitvm2_lib::types::{Groth16WotsSecretKeys, Groth16WotsSignatures};
 use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_proof};
 use client::chain::chain_adaptor::WithdrawStatus;
 use client::client::BitVM2Client;
@@ -401,7 +403,7 @@ pub async fn complete_and_broadcast_challenge_tx(
             if change_amount > Amount::from_sat(DUST_AMOUNT) {
                 challenge_tx.output.push(TxOut {
                     script_pubkey: node_address.script_pubkey(),
-                    value: challenge_amount,
+                    value: change_amount,
                 });
             };
             for (i, input) in inputs.iter().enumerate() {
@@ -1028,6 +1030,35 @@ pub mod defer {
         assert!(is_processing_graph());
         let _ = guarded_operation(false);
         assert!(!is_processing_graph());
+    }
+}
+
+// For test only
+pub(crate) fn corrupt(
+    proof_sigs: &mut Groth16WotsSignatures,
+    wots_sec: &Groth16WotsSecretKeys,
+    index: usize,
+) {
+    let mut scramble: [u8; 32] = [1u8; 32];
+    scramble[16] = 37;
+    let mut scramble2: [u8; HASH_LEN as usize] = [1u8; HASH_LEN as usize];
+    scramble2[HASH_LEN as usize / 2] = 37;
+    println!("corrupted assertion at index {}", index);
+    if index < NUM_PUBS {
+        let i = index;
+        let assn = scramble;
+        let sig = wots256::get_signature(&wots_sec[index], &assn);
+        proof_sigs.0[i] = sig;
+    } else if index < NUM_PUBS + NUM_U256 {
+        let i = index - NUM_PUBS;
+        let assn = scramble;
+        let sig = wots256::get_signature(&wots_sec[index], &assn);
+        proof_sigs.1[i] = sig;
+    } else if index < NUM_PUBS + NUM_U256 + NUM_HASH {
+        let i = index - NUM_PUBS - NUM_U256;
+        let assn = scramble2;
+        let sig = wots_hash::get_signature(&wots_sec[index], &assn);
+        proof_sigs.2[i] = sig;
     }
 }
 
