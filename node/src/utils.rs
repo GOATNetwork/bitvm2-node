@@ -259,7 +259,7 @@ pub async fn sign_and_broadcast_prekickoff_tx(
     node_keypair: Keypair,
     prekickoff_tx: Transaction,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
+    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
     let mut prekickoff_tx = prekickoff_tx;
     for i in 0..prekickoff_tx.input.len() {
         let prev_outpoint = &prekickoff_tx.input[i].previous_output;
@@ -377,7 +377,7 @@ pub async fn complete_and_broadcast_challenge_tx(
     challenge_tx: Transaction,
     challenge_amount: Amount,
 ) -> Result<Txid, Box<dyn std::error::Error>> {
-    let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
+    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
     let fee_rate = get_fee_rate(client).await?;
     let mut challenge_tx = challenge_tx;
     match get_proper_utxo_set(
