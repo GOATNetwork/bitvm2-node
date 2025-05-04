@@ -594,29 +594,6 @@ pub mod tests {
         let take2_tx = operator::operator_sign_take2(operator_keypair, &mut graph).unwrap();
         // broadcast_tx(take2_tx);
         broadcast_and_wait_for_confirming(&rpc_client, &take2_tx, 7);
-
-        // // disprove
-        // /*
-        // // verify proof published by assert-txns:
-        //let public_proof_sigs = verifier::extract_proof_sigs_from_assert_commit_txns(assert_commit_txns).unwrap();
-        //let disprove_witness = verifier::verify_proof(
-        //    &vk,
-        //    public_proof_sigs,
-        //    &mock_disprove_scripts,
-        //    &operator_wots_pubkeys,
-        //).unwrap();
-        //*/
-        //let mock_disprove_witness = (0, mock_script);
-        //let mock_challenger_reward_address = generate_burn_script_address(network);
-        //let disprove_tx = verifier::sign_disprove(
-        //    &mut graph,
-        //    mock_disprove_witness,
-        //    mock_disprove_scripts_bytes.to_vec(),
-        //    &operator_wots_pubkeys.1,
-        //    mock_challenger_reward_address,
-        //)
-        //    .unwrap();
-        //broadcast_tx(disprove_tx);
     }
 
     #[tokio::test]
