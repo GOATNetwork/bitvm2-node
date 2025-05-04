@@ -416,7 +416,7 @@ pub mod tests {
             let secp = secp256k1::Secp256k1::new();
             let script = node_p2wsh_script(&depositor_private_key.public_key(&secp));
             let keypair = Keypair::from_secret_key(&secp, &depositor_private_key.inner);
-            node_sign(graph.pegin.tx_mut(), idx, amount, EcdsaSighashType::All, &keypair)
+            node_sign(graph.pegin.tx_mut(), idx, amount, EcdsaSighashType::All, &keypair).expect("peg-in signing failed");
         });
 
         println!("broadcast pegin");
@@ -434,7 +434,7 @@ pub mod tests {
                 amount,
                 EcdsaSighashType::All,
                 &operator_keypair,
-            )
+            ).expect("pre kickoff signing failed");
         });
         broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
 
