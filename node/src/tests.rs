@@ -346,8 +346,8 @@ pub mod tests {
             operator_inputs,
         };
 
-        //let partial_scripts = operator::generate_partial_scripts(&vk);
-        let partial_scripts = crate::utils::get_partial_scripts().unwrap();
+        let partial_scripts = operator::generate_partial_scripts(&vk);
+        //let partial_scripts = crate::utils::get_partial_scripts().unwrap();
         let disprove_scripts =
             operator::generate_disprove_scripts(&partial_scripts, &operator_wots_pubkeys);
 
@@ -368,7 +368,6 @@ pub mod tests {
             .iter()
             .map(|cmk| cmk.nonces_for_graph(instance_id.clone(), graph_id.clone()))
             .collect();
-
         let pubnounces: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]> = committee_nonce
             .iter()
             .map(|nonces| std::array::from_fn(|i| nonces[i].1.clone()))
@@ -394,6 +393,7 @@ pub mod tests {
             })
             .collect();
 
+        // e.g
         // [0, 1]
         // [0, 1]
         // [0, 1]
@@ -401,7 +401,7 @@ pub mod tests {
         // [0, 1]
         //   ==>
         // [0, 0, 0, 0, 0]
-        // [1, 1, 0, 0, 0]
+        // [1, 1, 1, 1, 1]
         let mut grouped_partial_sigs: [Vec<PartialSignature>; COMMITTEE_PRE_SIGN_NUM] =
             Default::default();
         for partial_sigs in committee_partial_sigs {
@@ -414,7 +414,7 @@ pub mod tests {
             &grouped_partial_sigs,
             &agg_nonces,
             &mut graph,
-        );
+        ).expect("signatures aggregation and push");
 
         // peg-in
         let amounts = graph.pegin.input_amounts.clone();
