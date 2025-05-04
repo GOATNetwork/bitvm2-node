@@ -164,7 +164,8 @@ pub mod tests {
                 &format!("-rpcuser={BTCD_RPC_USER}"),
                 &format!("-rpcpassword={BTCD_RPC_PASSWORD}"),
                 &format!("--rpcwallet={BTCD_WALLET}"),
-                "-generate 1",
+                "-generate",
+                "1",
             ])
             .output()
             .expect("Failed to execute docker command");
