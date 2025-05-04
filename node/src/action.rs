@@ -757,6 +757,7 @@ pub async fn recv_and_dispatch(
                     disprove_scripts_bytes,
                     &assert_wots_pubkeys,
                     disprove_reward_address()?,
+                    get_fee_rate(client).await?,
                 )?;
                 let disprove_txid = disprove_tx.compute_txid();
                 broadcast_tx(client, &disprove_tx).await?;

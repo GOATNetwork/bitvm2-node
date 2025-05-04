@@ -294,6 +294,7 @@ fn e2e_test() {
         mock_disprove_scripts_bytes.to_vec(),
         &operator_wots_pubkeys.1,
         mock_challenger_reward_address,
+        1.0,
     )
     .unwrap();
     broadcast_tx(disprove_tx);

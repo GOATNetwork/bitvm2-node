@@ -46,6 +46,7 @@ pub fn sign_disprove(
     disprove_scripts_bytes: Vec<Vec<u8>>,
     assert_wots_pubkeys: &Groth16WotsPublicKeys,
     reward_address: Address,
+    fee_rate: f64,
 ) -> Result<Transaction> {
     if !graph.committee_pre_signed() {
         bail!("missing pre-signatures from committee".to_string())
@@ -64,6 +65,7 @@ pub fn sign_disprove(
         disprove_witness.0 as u32,
         script_to_witness(disprove_witness.1),
         reward_address.script_pubkey(),
+        fee_rate,
     );
     Ok(graph.disprove.finalize())
 }
