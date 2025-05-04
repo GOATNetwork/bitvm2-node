@@ -980,23 +980,9 @@ mod tests {
     use crate::action::{CreateInstance, GOATMessageContent, KickoffReady};
 
     use super::*;
-    use crate::env;
-    use bitcoin::TapNodeHash;
-    use bitcoin::{Address, CompressedPublicKey, PrivateKey};
-    use bitvm2_lib::keys::CommitteeMasterKey;
-    use bitvm2_lib::types::Bitvm2Parameters;
+    use bitcoin::Address;
     use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
-    use esplora_client::BlockingClient;
     use goat::connectors::base::generate_default_tx_in;
-    use goat::transactions::assert::assert_commit::AssertCommitTransactionSet;
-    use goat::transactions::assert::assert_final::AssertFinalTransaction;
-    use goat::transactions::assert::assert_initial::AssertInitialTransaction;
-    use goat::transactions::challenge::ChallengeTransaction;
-    use goat::transactions::kick_off::KickOffTransaction;
-    use goat::transactions::peg_in::peg_in::PegInTransaction;
-    use goat::transactions::peg_out_confirm::PreKickoffTransaction;
-    use musig2::k256::SecretKey;
-    use musig2::secp256k1;
     use serial_test::serial;
     use std::fmt;
 

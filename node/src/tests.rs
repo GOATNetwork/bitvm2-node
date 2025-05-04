@@ -5,7 +5,7 @@ pub mod tests {
     };
     use crate::utils::{get_proper_utxo_set, node_p2wsh_address, node_p2wsh_script, node_sign};
     use bitcoin::key::Keypair;
-    use bitcoin::{CompressedPublicKey, EcdsaSighashType};
+    use bitcoin::{CompressedPublicKey, EcdsaSighashType, ScriptBuf, Sequence, Witness};
     use bitvm2_lib::committee::{COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonces_aggregation};
     use client::chain::chain_adaptor::GoatNetwork;
     use client::chain::goat_adaptor::GoatInitConfig;
@@ -20,18 +20,20 @@ pub mod tests {
     use ark_bn254::Bn254;
     use ark_serialize::CanonicalDeserialize;
     use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction, TxIn, TxOut};
-    use bitvm2_lib::types::{Bitvm2Graph, WotsPublicKeys, WotsSecretKeys};
+    use bitcoin_script::script;
+    use bitvm::chunk::api::NUM_TAPS;
+    use bitvm2_lib::types::{Bitvm2Graph, Groth16WotsSignatures, WotsPublicKeys, WotsSecretKeys};
+    use bitvm2_lib::verifier;
     use bitvm2_lib::{
         committee,
-        keys::{ChallengerMasterKey, CommitteeMasterKey, OperatorMasterKey},
+        keys::{CommitteeMasterKey, OperatorMasterKey},
         operator,
         types::{Bitvm2Parameters, CustomInputs},
     };
     use goat::contexts::base::generate_n_of_n_public_key;
+    use goat::scripts::generate_burn_script_address;
     use musig2::{PartialSignature, PubNonce, SecNonce};
     use std::str::FromStr;
-    use store::Graph;
-    use web3::api::Net;
 
     const BTCD_RPC_USER: &str = "111111";
     const BTCD_RPC_PASSWORD: &str = "111111";
@@ -131,8 +133,7 @@ pub mod tests {
         let secp = secp256k1::Secp256k1::new();
         let script = node_p2wsh_script(&depositor_private_key.public_key(&secp));
         let keypair = Keypair::from_secret_key(&secp, &depositor_private_key.inner);
-        let tx_inputs = tx.input.clone();
-        tx_inputs.iter().enumerate().for_each(|(index, txin)| {
+        (0..tx.input.len()).into_iter().for_each(|index| {
             let amount = inputs.0[index].amount;
             populate_p2wsh_witness(
                 &mut tx,
@@ -193,6 +194,8 @@ pub mod tests {
         operator_keypair: Keypair,
         operator_wots_seckeys: WotsSecretKeys,
         operator_wots_pubkeys: WotsPublicKeys,
+        proof_sigs: Groth16WotsSignatures,
+        user_inputs: CustomInputs,
     }
     async fn e2e_setup(
         network: Network,
@@ -316,7 +319,7 @@ pub mod tests {
         let depositor_evm_address: [u8; 20] =
             hex::decode("3eAC5F367F19E2E6099e897436DC17456f078609").unwrap().try_into().unwrap();
 
-        let inputs = crate::utils::get_proper_utxo_set(
+        let inputs = get_proper_utxo_set(
             &bitvm2_client,
             PEGIN_BASE_VBYTES,
             depositor_addr.clone(),
@@ -325,7 +328,7 @@ pub mod tests {
         )
         .await
         .unwrap()
-        .expect("Insufficient amount");
+        .expect("Insufficient amount for peg-in");
 
         let user_inputs = CustomInputs {
             inputs: inputs.0.clone(),
@@ -334,7 +337,7 @@ pub mod tests {
             change_address: depositor_addr.clone(),
         };
 
-        let inputs = crate::utils::get_proper_utxo_set(
+        let inputs = get_proper_utxo_set(
             &bitvm2_client,
             PRE_KICKOFF_BASE_VBYTES,
             operator_p2wsh,
@@ -343,7 +346,7 @@ pub mod tests {
         )
         .await
         .unwrap()
-        .expect("Insufficient amount");
+        .expect("Insufficient amount for kickoff staking");
 
         let operator_inputs = CustomInputs {
             inputs: inputs.0.clone(),
@@ -363,8 +366,8 @@ pub mod tests {
             committee_agg_pubkey,
             operator_pubkey: operator_keypair.public_key().into(),
             operator_wots_pubkeys: operator_wots_pubkeys.clone(),
-            user_inputs,
-            operator_inputs,
+            user_inputs: user_inputs.clone(),
+            operator_inputs: operator_inputs.clone(),
         };
 
         //let partial_scripts = operator::generate_partial_scripts(&vk);
@@ -450,7 +453,14 @@ pub mod tests {
         println!("broadcast pegin");
         broadcast_and_wait_for_confirming(&rpc_client, &graph.pegin.tx(), 1);
 
-        E2eResult { graph, operator_keypair, operator_wots_seckeys, operator_wots_pubkeys }
+        E2eResult {
+            graph,
+            operator_keypair,
+            operator_wots_seckeys,
+            operator_wots_pubkeys,
+            proof_sigs,
+            user_inputs,
+        }
     }
     /////////////
     #[tokio::test]
@@ -459,8 +469,13 @@ pub mod tests {
         let rpc_client = create_rpc_client();
         let bitvm2_client = create_bitvm2_client(network).await;
 
-        let E2eResult { mut graph, operator_keypair, operator_wots_seckeys, operator_wots_pubkeys } =
-            e2e_setup(network, &rpc_client, &bitvm2_client).await;
+        let E2eResult {
+            mut graph,
+            operator_keypair,
+            operator_wots_seckeys,
+            operator_wots_pubkeys,
+            ..
+        } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
         // pre-kick-off
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
@@ -494,36 +509,91 @@ pub mod tests {
         println!("broadcast take1");
         let take_1_tx = operator::operator_sign_take1(operator_keypair, &mut graph).unwrap();
         broadcast_and_wait_for_confirming(&rpc_client, &take_1_tx, 1);
+    }
 
-        //// unhappy_path take
-        //let (mut challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
-        //let mock_crowdfund_txin = TxIn {
-        //    previous_output: mock_input.outpoint,
-        //    script_sig: ScriptBuf::new(),
-        //    sequence: Sequence::MAX,
-        //    witness: Witness::default(),
-        //};
-        //let mock_challenger_change_output = TxOut {
-        //    script_pubkey: generate_burn_script_address(network).script_pubkey(),
-        //    value: Amount::from_sat(1000000),
-        //};
-        //challenge_tx.input.push(mock_crowdfund_txin);
-        //challenge_tx.output.push(mock_challenger_change_output);
-        //broadcast_tx(challenge_tx);
+    #[tokio::test]
+    async fn e2e_take_2() {
+        let network = Network::Regtest;
+        let rpc_client = create_rpc_client();
+        let bitvm2_client = create_bitvm2_client(network).await;
 
-        //let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
-        //    operator_keypair,
-        //    &mut graph,
-        //    &operator_wots_pubkeys,
-        //    proof_sigs.clone(),
-        //)
-        //    .unwrap();
+        let E2eResult {
+            mut graph,
+            operator_keypair,
+            operator_wots_seckeys,
+            operator_wots_pubkeys,
+            proof_sigs,
+            user_inputs,
+            ..
+        } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
+
+        println!("broadcast pre-kickoff");
+        let amounts = graph.pre_kickoff.input_amounts.clone();
+        (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
+            let amount = amounts[idx].clone();
+            node_sign(
+                graph.pre_kickoff.tx_mut(),
+                idx,
+                amount,
+                EcdsaSighashType::All,
+                &operator_keypair,
+            )
+            .expect("pre kickoff signing failed");
+        });
+        broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
+
+        // kick off
+        println!("broadcast kickoff");
+        let withdraw_evm_txid = [0xff; 32];
+        let kickoff_tx = operator::operator_sign_kickoff(
+            operator_keypair,
+            &mut graph,
+            &operator_wots_seckeys,
+            &operator_wots_pubkeys,
+            withdraw_evm_txid,
+        )
+        .unwrap();
+        broadcast_and_wait_for_confirming(&rpc_client, &kickoff_tx, 7);
+
+        // unhappy_path take
+        let (mut challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
+        let mock_crowdfund_txin = TxIn {
+            previous_output: user_inputs.inputs[0].outpoint.clone(), //mock_input.outpoint,
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::default(),
+        };
+        let mock_challenger_change_output = TxOut {
+            script_pubkey: generate_burn_script_address(network).script_pubkey(),
+            value: Amount::from_sat(1000000),
+        };
+        challenge_tx.input.push(mock_crowdfund_txin);
+        challenge_tx.output.push(mock_challenger_change_output);
+
+        println!("Broadcast challenge txin");
+        broadcast_and_wait_for_confirming(&rpc_client, &challenge_tx, 6);
+
+        let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
+            operator_keypair,
+            &mut graph,
+            &operator_wots_pubkeys,
+            proof_sigs.clone(),
+        )
+        .unwrap();
         //broadcast_tx(assert_init_tx);
-        //assert_commit_txns.iter().for_each(|tx| broadcast_tx(tx.clone()));
-        //broadcast_tx(assert_final_tx);
+        broadcast_and_wait_for_confirming(&rpc_client, &assert_init_tx, 1);
 
-        //let take2_tx = operator::operator_sign_take2(operator_keypair, &mut graph).unwrap();
-        //broadcast_tx(take2_tx);
+        assert_commit_txns.iter().for_each(|tx| {
+            //broadcast_tx(tx.clone())
+            broadcast_and_wait_for_confirming(&rpc_client, tx, 1);
+        });
+
+        //broadcast_tx(assert_final_tx);
+        broadcast_and_wait_for_confirming(&rpc_client, &assert_final_tx, 1);
+
+        let take2_tx = operator::operator_sign_take2(operator_keypair, &mut graph).unwrap();
+        // broadcast_tx(take2_tx);
+        broadcast_and_wait_for_confirming(&rpc_client, &take2_tx, 7);
 
         // // disprove
         // /*
@@ -548,40 +618,113 @@ pub mod tests {
         //    .unwrap();
         //broadcast_tx(disprove_tx);
     }
+
+    #[tokio::test]
+    async fn e2e_disprove() {
+        let network = Network::Regtest;
+        let rpc_client = create_rpc_client();
+        let bitvm2_client = create_bitvm2_client(network).await;
+
+        let E2eResult {
+            mut graph,
+            operator_keypair,
+            operator_wots_seckeys,
+            operator_wots_pubkeys,
+            proof_sigs,
+            user_inputs,
+            ..
+        } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
+
+        println!("broadcast pre-kickoff");
+        let amounts = graph.pre_kickoff.input_amounts.clone();
+        (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
+            let amount = amounts[idx].clone();
+            node_sign(
+                graph.pre_kickoff.tx_mut(),
+                idx,
+                amount,
+                EcdsaSighashType::All,
+                &operator_keypair,
+            )
+            .expect("pre kickoff signing failed");
+        });
+        broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
+
+        // kick off
+        println!("broadcast kickoff");
+        let withdraw_evm_txid = [0xff; 32];
+        let kickoff_tx = operator::operator_sign_kickoff(
+            operator_keypair,
+            &mut graph,
+            &operator_wots_seckeys,
+            &operator_wots_pubkeys,
+            withdraw_evm_txid,
+        )
+        .unwrap();
+        broadcast_and_wait_for_confirming(&rpc_client, &kickoff_tx, 7);
+
+        // unhappy_path take
+        let (mut challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
+        let mock_crowdfund_txin = TxIn {
+            previous_output: user_inputs.inputs[0].outpoint.clone(), //mock_input.outpoint,
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::default(),
+        };
+        let mock_challenger_change_output = TxOut {
+            script_pubkey: generate_burn_script_address(network).script_pubkey(),
+            value: Amount::from_sat(1000000),
+        };
+        challenge_tx.input.push(mock_crowdfund_txin);
+        challenge_tx.output.push(mock_challenger_change_output);
+
+        println!("Broadcast challenge txin");
+        broadcast_and_wait_for_confirming(&rpc_client, &challenge_tx, 6);
+
+        let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
+            operator_keypair,
+            &mut graph,
+            &operator_wots_pubkeys,
+            proof_sigs.clone(),
+        )
+        .unwrap();
+        //broadcast_tx(assert_init_tx);
+        broadcast_and_wait_for_confirming(&rpc_client, &assert_init_tx, 1);
+
+        assert_commit_txns.iter().for_each(|tx| {
+            //broadcast_tx(tx.clone())
+            broadcast_and_wait_for_confirming(&rpc_client, tx, 1);
+        });
+
+        //broadcast_tx(assert_final_tx);
+        broadcast_and_wait_for_confirming(&rpc_client, &assert_final_tx, 1);
+
+        // disprove
+        /*
+         // verify proof published by assert-txns:
+        let public_proof_sigs = verifier::extract_proof_sigs_from_assert_commit_txns(assert_commit_txns).unwrap();
+        let disprove_witness = verifier::verify_proof(
+            &vk,
+            public_proof_sigs,
+            &mock_disprove_scripts,
+            &operator_wots_pubkeys,
+        ).unwrap();
+        */
+        let mock_script = script! {OP_TRUE};
+        let mock_script_bytes = mock_script.clone().compile().to_bytes();
+        let mock_disprove_scripts_bytes: [Vec<u8>; NUM_TAPS] =
+            std::array::from_fn(|_| mock_script_bytes.clone());
+
+        let mock_disprove_witness = (0, mock_script);
+        let mock_challenger_reward_address = generate_burn_script_address(network);
+        let disprove_tx = verifier::sign_disprove(
+            &mut graph,
+            mock_disprove_witness,
+            mock_disprove_scripts_bytes.to_vec(),
+            &operator_wots_pubkeys.1,
+            mock_challenger_reward_address,
+        )
+        .unwrap();
+        broadcast_and_wait_for_confirming(&rpc_client, &disprove_tx, 1);
+    }
 }
-
-/*
-
-Test Transactions on Testnet3:
-
-    happy-path take:
-    - Pegin: e413208c6644d51f4f3adf3a5aad425da817ac825e56352e7164de1e2a4d9394
-    - Kickoff: 4dd13ca25ef6edb4506394a402db2368d02d9467bc47326d3553310483f2ed04
-    - Take1: 23bbba6e80e6e25ebe3f225c253d8f9ff57f4756916d1ded476380776fa03737
-
-    unhappy-path take:
-    - Pegin: 36b3d011fa892109a5da6cee240d81c6cb914ca862ebce3530ff3914d6803d16
-    - Kickoff: 0c598f63bffe9d7468ce6930bf0fe1ba5c6e125c9c9e38674ee380dd2c6d97f6
-    - Challenge: d2a2beff7dc0f93fc41505b646c6fa174991b0c4e415a96359607c37ba88e376
-    - Assert-init: 2124278ee4f24dd394dcd1f62e04f18a3b458fdc14f422171dda56c663263195
-    - Assert-commit:
-        + 1: aff23096043a7372c5e39afde596e0fcc67c8bfe0dbf7810781f0d289f686d87
-        + 2: 4385e722f6d22a5f138ae1ef41df686e0e8d888ce8c61be3b8ab6f53f667102e
-        + 3: f4ce3e66ce8cc29547c1e52379c7bb8fda25c16b44c1f5544a5dcfd8b9fa2865
-        + 4: 8cf248644cdb2290e77c6bfec40ccf9c5eb851b213514544c67ba7aeb80fe717
-    - Assert_final: a2dedfbf376b8c0c183b4dfac7b0765b129a345c870f9fabbdf8c48072697a27
-    - Take2: 78037fabb18973262711436885b9ea275685b18ce7d0957bd84215be960d792c
-
-    disprove-path:
-    - Pegin: e413208c6644d51f4f3adf3a5aad425da817ac825e56352e7164de1e2a4d9394
-    - Kickoff: dba931410694e1395cd2c65c1470879eea3cc3a8aa797d7a669734286f4f2825
-    - Challenge: c6a033812a1370973f94d956704ed1a68f490141a3c21bce64454d38a2c23794
-    - Assert-init: 7cdd1f3384f67877a9844c025fa08b29078208ef1d3f5f4fce07de122d068050
-    - Assert-commit:
-        + 1: 5b5c7f0b1740d99c683b66a9bdddfeb573ccef088dbd7f0dce76d744a948f9b7
-        + 2: 48de8806aa029975d331a4309d2ac707041f88c001ceca492e6df34e25ecf061
-        + 3: 58cbfa261c7f94a3e05f5acd39b118817c446d6d3b3fd79007fd8841e37114e9
-        + 4: a1a02cb35bcbbbe7d3475d04c557467acfc6b62fd777f9b341179d28b840e234
-    - Assert_final: 2da6b0f73cd8835d5b76b62b9bd22314ee61212d348f6a4dbad915253f121012
-    - Disprove: 5773755d1d0f750830edae5e1afcb37ab106e2dd46e164b09bf6213a0f45b0e1
-*/
