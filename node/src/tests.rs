@@ -1,13 +1,9 @@
-
 #[cfg(test)]
 pub mod tests {
     use crate::env::{
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
-    use crate::utils::{
-        get_proper_utxo_set, node_p2wsh_address,
-        node_p2wsh_script, node_sign,
-    };
+    use crate::utils::{get_proper_utxo_set, node_p2wsh_address, node_p2wsh_script, node_sign};
     use bitcoin::key::Keypair;
     use bitcoin::{CompressedPublicKey, EcdsaSighashType};
     use bitvm2_lib::committee::{
@@ -24,16 +20,14 @@ pub mod tests {
 
     use ark_bn254::Bn254;
     use ark_serialize::CanonicalDeserialize;
-    use bitcoin::{
-        Amount, Network, PrivateKey, PublicKey, Transaction, TxIn,
-        Address, TxOut,
-    };
+    use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction, TxIn, TxOut};
     use bitvm2_lib::{
+        committee,
         keys::{ChallengerMasterKey, CommitteeMasterKey, OperatorMasterKey},
-        committee, operator,
+        operator,
         types::{Bitvm2Parameters, CustomInputs},
     };
-    use goat::{contexts::base::generate_n_of_n_public_key};
+    use goat::contexts::base::generate_n_of_n_public_key;
     use musig2::{PartialSignature, PubNonce, SecNonce};
     use std::str::FromStr;
 
@@ -204,7 +198,8 @@ pub mod tests {
         let stake_amount = Amount::from_btc(0.02).unwrap();
         let challenge_amount = Amount::from_btc(0.01).unwrap();
         // fund the operator
-        let extra_fee = Amount::from_sat(fee_rate as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
+        let extra_fee =
+            Amount::from_sat(fee_rate as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
         let funding_operator_txn = fund_address(
             &bitvm2_client,
             stake_amount + extra_fee,
@@ -385,7 +380,7 @@ pub mod tests {
             })
             .collect();
 
-        // e.g 
+        // e.g
         // [0, 1]
         // [0, 1]
         // [0, 1]
@@ -406,14 +401,16 @@ pub mod tests {
             &grouped_partial_sigs,
             &agg_nonces,
             &mut graph,
-        ).expect("signatures aggregation and push");
+        )
+        .expect("signatures aggregation and push");
 
         // peg-in
         let amounts = graph.pegin.input_amounts.clone();
         let keypair = Keypair::from_secret_key(&secp, &depositor_private_key.inner);
-        (0..graph.pegin.tx().input.len()).into_iter().for_each( |idx| {
+        (0..graph.pegin.tx().input.len()).into_iter().for_each(|idx| {
             let amount = amounts[idx].clone();
-            node_sign(graph.pegin.tx_mut(), idx, amount, EcdsaSighashType::All, &keypair).expect("peg-in signing failed");
+            node_sign(graph.pegin.tx_mut(), idx, amount, EcdsaSighashType::All, &keypair)
+                .expect("peg-in signing failed");
         });
 
         println!("broadcast pegin");
@@ -430,7 +427,8 @@ pub mod tests {
                 amount,
                 EcdsaSighashType::All,
                 &operator_keypair,
-            ).expect("pre kickoff signing failed");
+            )
+            .expect("pre kickoff signing failed");
         });
         broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
 
