@@ -3,9 +3,12 @@ pub mod tests {
     use crate::env::{
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
-    use crate::utils::{get_proper_utxo_set, node_p2wsh_address, node_p2wsh_script, node_sign};
+    use crate::utils::{
+        complete_and_broadcast_challenge_tx, get_proper_utxo_set, node_p2wsh_address,
+        node_p2wsh_script, node_sign,
+    };
     use bitcoin::key::Keypair;
-    use bitcoin::{CompressedPublicKey, EcdsaSighashType, ScriptBuf, Sequence, Witness};
+    use bitcoin::{CompressedPublicKey, EcdsaSighashType};
     use bitvm2_lib::committee::{COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonces_aggregation};
     use client::chain::chain_adaptor::GoatNetwork;
     use client::chain::goat_adaptor::GoatInitConfig;
@@ -39,6 +42,7 @@ pub mod tests {
     const BTCD_RPC_PASSWORD: &str = "111111";
     const BTCD_WALLET: &str = "alice";
     const BTCD_RPC_URL: &str = "http://127.0.0.1:3002";
+    const FEE_RATE: f64 = 1.0f64;
 
     //FIXME: The UTs should not use IPFS
     const IPFS_ENDPOINT: &str = "http://44.229.236.82:5001";
@@ -65,7 +69,7 @@ pub mod tests {
         .await
     }
 
-    pub fn get_regtest_address(network: Network) -> (bitcoin::key::PrivateKey, Address) {
+    pub fn get_regtest_address(network: Network) -> (PrivateKey, Address) {
         let secp = secp256k1::Secp256k1::new();
         // Create a P2WPKH (bech32) address
         let private_key =
@@ -84,6 +88,27 @@ pub mod tests {
             node_p2wsh_address(network, &PublicKey::from_private_key(&secp, &private_key));
         println!("funding address: {}", funding_address);
         (private_key, funding_address)
+    }
+
+    async fn challenger_tx_crowdfund_and_broadcast(
+        network: Network,
+        bitvm2_client: &BitVM2Client,
+        challenge_tx: Transaction,
+    ) {
+        let (funder_privkey, _) = get_regtest_address(network);
+        let challenge_amount = Amount::from_btc(0.01).unwrap();
+
+        let secp = secp256k1::Secp256k1::new();
+        println!("Broadcast challenge tx and mine");
+        complete_and_broadcast_challenge_tx(
+            bitvm2_client,
+            Keypair::from_secret_key(&secp, &funder_privkey.inner),
+            challenge_tx,
+            challenge_amount,
+        )
+        .await
+        .unwrap();
+        mine_blocks()
     }
 
     // TODO: derive sender address from depositor sk
@@ -195,7 +220,6 @@ pub mod tests {
         operator_wots_seckeys: WotsSecretKeys,
         operator_wots_pubkeys: WotsPublicKeys,
         proof_sigs: Groth16WotsSignatures,
-        user_inputs: CustomInputs,
     }
     async fn e2e_setup(
         network: Network,
@@ -229,21 +253,20 @@ pub mod tests {
             &operator_master_key.keypair_for_graph(graph_id.clone()).public_key().into(),
         );
 
-        let fee_rate = 1.0f64;
         let pegin_amount = Amount::from_btc(0.1).unwrap();
         let stake_amount = Amount::from_btc(0.02).unwrap();
         let challenge_amount = Amount::from_btc(0.01).unwrap();
 
         // fund the operator
         let extra_fee =
-            Amount::from_sat(fee_rate as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
+            Amount::from_sat(FEE_RATE as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
         let funding_operator_txn = fund_address(
             &bitvm2_client,
             stake_amount + extra_fee,
             &operator_p2wsh,
             &depositor_private_key,
             depositor_addr.clone(),
-            fee_rate,
+            FEE_RATE,
         )
         .await;
 
@@ -324,7 +347,7 @@ pub mod tests {
             PEGIN_BASE_VBYTES,
             depositor_addr.clone(),
             pegin_amount,
-            fee_rate,
+            FEE_RATE,
         )
         .await
         .unwrap()
@@ -342,7 +365,7 @@ pub mod tests {
             PRE_KICKOFF_BASE_VBYTES,
             operator_p2wsh,
             stake_amount,
-            fee_rate,
+            FEE_RATE,
         )
         .await
         .unwrap()
@@ -366,8 +389,8 @@ pub mod tests {
             committee_agg_pubkey,
             operator_pubkey: operator_keypair.public_key().into(),
             operator_wots_pubkeys: operator_wots_pubkeys.clone(),
-            user_inputs: user_inputs.clone(),
-            operator_inputs: operator_inputs.clone(),
+            user_inputs,
+            operator_inputs,
         };
 
         //let partial_scripts = operator::generate_partial_scripts(&vk);
@@ -459,7 +482,6 @@ pub mod tests {
             operator_wots_seckeys,
             operator_wots_pubkeys,
             proof_sigs,
-            user_inputs,
         }
     }
     /////////////
@@ -523,7 +545,6 @@ pub mod tests {
             operator_wots_seckeys,
             operator_wots_pubkeys,
             proof_sigs,
-            user_inputs,
             ..
         } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
 
@@ -556,22 +577,10 @@ pub mod tests {
         broadcast_and_wait_for_confirming(&rpc_client, &kickoff_tx, 7);
 
         // unhappy_path take
-        let (mut challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
-        let mock_crowdfund_txin = TxIn {
-            previous_output: user_inputs.inputs[0].outpoint.clone(), //mock_input.outpoint,
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
-            witness: Witness::default(),
-        };
-        let mock_challenger_change_output = TxOut {
-            script_pubkey: generate_burn_script_address(network).script_pubkey(),
-            value: Amount::from_sat(1000000),
-        };
-        challenge_tx.input.push(mock_crowdfund_txin);
-        challenge_tx.output.push(mock_challenger_change_output);
+        let (challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
 
-        println!("Broadcast challenge txin");
-        broadcast_and_wait_for_confirming(&rpc_client, &challenge_tx, 6);
+        println!("Broadcast challenge tx");
+        challenger_tx_crowdfund_and_broadcast(network, &bitvm2_client, challenge_tx).await;
 
         let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
             operator_keypair,
@@ -608,7 +617,6 @@ pub mod tests {
             operator_wots_seckeys,
             operator_wots_pubkeys,
             proof_sigs,
-            user_inputs,
             ..
         } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
 
@@ -641,22 +649,10 @@ pub mod tests {
         broadcast_and_wait_for_confirming(&rpc_client, &kickoff_tx, 7);
 
         // unhappy_path take
-        let (mut challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
-        let mock_crowdfund_txin = TxIn {
-            previous_output: user_inputs.inputs[0].outpoint.clone(), //mock_input.outpoint,
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
-            witness: Witness::default(),
-        };
-        let mock_challenger_change_output = TxOut {
-            script_pubkey: generate_burn_script_address(network).script_pubkey(),
-            value: Amount::from_sat(1000000),
-        };
-        challenge_tx.input.push(mock_crowdfund_txin);
-        challenge_tx.output.push(mock_challenger_change_output);
+        let (challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
 
-        println!("Broadcast challenge txin");
-        broadcast_and_wait_for_confirming(&rpc_client, &challenge_tx, 6);
+        println!("Broadcast challenge tx");
+        challenger_tx_crowdfund_and_broadcast(network, &bitvm2_client, challenge_tx).await;
 
         let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
             operator_keypair,
