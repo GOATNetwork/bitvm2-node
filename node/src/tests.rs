@@ -410,12 +410,9 @@ pub mod tests {
 
         // peg-in
         let amounts = graph.pegin.input_amounts.clone();
-        let pegin_tx_inputs = graph.pegin.tx().input.clone();
-        let peg_in_tx = pegin_tx_inputs.iter().enumerate().map(|(idx, inp)| {
+        let keypair = Keypair::from_secret_key(&secp, &depositor_private_key.inner);
+        (0..graph.pegin.tx().input.len()).into_iter().for_each( |idx| {
             let amount = amounts[idx].clone();
-            let secp = secp256k1::Secp256k1::new();
-            let script = node_p2wsh_script(&depositor_private_key.public_key(&secp));
-            let keypair = Keypair::from_secret_key(&secp, &depositor_private_key.inner);
             node_sign(graph.pegin.tx_mut(), idx, amount, EcdsaSighashType::All, &keypair).expect("peg-in signing failed");
         });
 
@@ -425,8 +422,7 @@ pub mod tests {
         // pre-kick-off
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
-        let pre_kickoff_inputs = graph.pre_kickoff.tx().input.clone();
-        let peg_in_tx = pre_kickoff_inputs.iter().enumerate().map(|(idx, inp)| {
+        let peg_in_tx = (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
             let amount = amounts[idx].clone();
             node_sign(
                 graph.pre_kickoff.tx_mut(),
