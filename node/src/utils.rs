@@ -1032,20 +1032,19 @@ pub mod defer {
     }
 }
 
-
 #[cfg(test)]
 pub mod tests {
     use crate::action::{CreateInstance, GOATMessageContent, KickoffReady};
 
     use super::*;
     use bitcoin::Address;
+    use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+    use bitvm::signatures::wots_api::{HASH_LEN, wots_hash, wots256};
+    use bitvm2_lib::types::{Groth16WotsSecretKeys, Groth16WotsSignatures};
     use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
     use goat::connectors::base::generate_default_tx_in;
     use serial_test::serial;
     use std::fmt;
-    use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
-    use bitvm::signatures::wots_api::{wots256, wots_hash, HASH_LEN};
-    use bitvm2_lib::types::{Groth16WotsSecretKeys, Groth16WotsSignatures};
 
     pub fn corrupt(
         proof_sigs: &mut Groth16WotsSignatures,
