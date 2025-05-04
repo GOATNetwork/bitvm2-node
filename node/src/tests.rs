@@ -6,9 +6,7 @@ pub mod tests {
     use crate::utils::{get_proper_utxo_set, node_p2wsh_address, node_p2wsh_script, node_sign};
     use bitcoin::key::Keypair;
     use bitcoin::{CompressedPublicKey, EcdsaSighashType};
-    use bitvm2_lib::committee::{
-        COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonce_aggregation, nonces_aggregation,
-    };
+    use bitvm2_lib::committee::{COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonces_aggregation};
     use client::chain::chain_adaptor::GoatNetwork;
     use client::chain::goat_adaptor::GoatInitConfig;
     use client::client::BitVM2Client;
@@ -16,6 +14,7 @@ pub mod tests {
     use goat::connectors::base::generate_default_tx_in;
     use goat::transactions::signing::populate_p2wsh_witness;
     use musig2::secp256k1;
+    use std::process;
     use uuid::Uuid;
 
     use ark_bn254::Bn254;
@@ -31,6 +30,9 @@ pub mod tests {
     use musig2::{PartialSignature, PubNonce, SecNonce};
     use std::str::FromStr;
 
+    const BTCD_RPC_USER: &str = "111111";
+    const BTCD_RPC_PASSWORD: &str = "111111";
+    const BTCD_WALLET: &str = "alice";
     pub fn create_rpc_client() -> BlockingClient {
         let base_url = "http://127.0.0.1:3002";
         let builder = esplora_client::Builder::new(base_url);
@@ -142,11 +144,38 @@ pub mod tests {
     ) {
         let pre_current_tip = rpc_client.get_height().unwrap();
         let _ = rpc_client.broadcast(tx).unwrap();
+        println!("Broadcast tx: {}", tx.compute_txid());
         let mut current_tip = rpc_client.get_height().unwrap();
         while (current_tip - pre_current_tip) < confimations {
-            println!("Wait for at 1 block mined");
+            mine_blocks();
+            println!("Wait for at least {} block mined", current_tip - pre_current_tip);
             std::thread::sleep(std::time::Duration::from_secs(1));
             current_tip = rpc_client.get_height().unwrap();
+        }
+    }
+
+    fn mine_blocks() {
+        let output = process::Command::new("docker")
+            .args([
+                "exec",
+                "-it",
+                "bitcoind",
+                "bitcoin-cli",
+                "-regtest",
+                &format!("-rpcuser={BTCD_RPC_USER}"),
+                &format!("-rpcpassword={BTCD_RPC_PASSWORD}"),
+                &format!("--rpcwallet={BTCD_WALLET}"),
+                "-generate 1",
+            ])
+            .output()
+            .expect("Failed to execute docker command");
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            println!("Success:\n{}", stdout);
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("Error:\n{}", stderr);
         }
     }
 
@@ -502,10 +531,6 @@ pub mod tests {
         //)
         //    .unwrap();
         //broadcast_tx(disprove_tx);
-    }
-
-    fn broadcast_tx(_tx: Transaction) {
-        // broadcast transaction to bitcoin network
     }
 }
 
