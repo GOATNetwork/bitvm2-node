@@ -1,40 +1,18 @@
-use ark_bn254::Bn254;
-use ark_serialize::CanonicalDeserialize;
-use bitcoin::{
-    Amount, Network, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction, TxIn,
-    TxOut, Txid, Witness,
-};
-use bitvm::chunk::api::NUM_TAPS;
-use bitvm::treepp::*;
-use bitvm2_lib::{
-    committee, operator,
-    types::{Bitvm2Parameters, CustomInputs},
-    verifier,
-};
-use goat::transactions::base::Input;
-use goat::{contexts::base::generate_n_of_n_public_key, scripts::generate_burn_script_address};
-use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
-use std::str::FromStr;
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
     use crate::env::{
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
     use crate::utils::{
-        get_challenge_amount, get_proper_utxo_set, get_stake_amount, node_p2wsh_address,
+        get_proper_utxo_set, node_p2wsh_address,
         node_p2wsh_script, node_sign,
     };
-    use bitcoin::Address;
     use bitcoin::key::Keypair;
-    use bitcoin::taproot::SigFromSliceError::SighashType;
     use bitcoin::{CompressedPublicKey, EcdsaSighashType};
     use bitvm2_lib::committee::{
         COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonce_aggregation, nonces_aggregation,
     };
-    use bitvm2_lib::keys::{ChallengerMasterKey, CommitteeMasterKey, OperatorMasterKey};
-    use bitvm2_lib::types::{WotsPublicKeys, WotsSecretKeys};
     use client::chain::chain_adaptor::GoatNetwork;
     use client::chain::goat_adaptor::GoatInitConfig;
     use client::client::BitVM2Client;
@@ -42,8 +20,22 @@ pub mod tests {
     use goat::connectors::base::generate_default_tx_in;
     use goat::transactions::signing::populate_p2wsh_witness;
     use musig2::secp256k1;
-    use musig2::secp256k1::ffi::secp256k1_ecdh;
     use uuid::Uuid;
+
+    use ark_bn254::Bn254;
+    use ark_serialize::CanonicalDeserialize;
+    use bitcoin::{
+        Amount, Network, PrivateKey, PublicKey, Transaction, TxIn,
+        Address, TxOut,
+    };
+    use bitvm2_lib::{
+        keys::{ChallengerMasterKey, CommitteeMasterKey, OperatorMasterKey},
+        committee, operator,
+        types::{Bitvm2Parameters, CustomInputs},
+    };
+    use goat::{contexts::base::generate_n_of_n_public_key};
+    use musig2::{PartialSignature, PubNonce, SecNonce};
+    use std::str::FromStr;
 
     pub fn create_rpc_client() -> BlockingClient {
         let base_url = "http://127.0.0.1:3002";
@@ -175,14 +167,14 @@ pub mod tests {
 
         let instance_id = Uuid::new_v4();
 
-        let committee_master_key = (0..get_committee_member_num())
+        let committee_master_keys = (0..get_committee_member_num())
             .into_iter()
             .map(|x| {
                 let kp = secp.generate_keypair(&mut rand::thread_rng());
                 CommitteeMasterKey::new(Keypair::from_secret_key(&secp, &kp.0))
             })
             .collect::<Vec<CommitteeMasterKey>>();
-        let committee_pubkeys: Vec<PublicKey> = committee_master_key
+        let committee_pubkeys: Vec<PublicKey> = committee_master_keys
             .iter()
             .map(|x| x.keypair_for_instance(instance_id).public_key().into())
             .collect();
@@ -346,8 +338,8 @@ pub mod tests {
             operator_inputs,
         };
 
-        let partial_scripts = operator::generate_partial_scripts(&vk);
-        //let partial_scripts = crate::utils::get_partial_scripts().unwrap();
+        //let partial_scripts = operator::generate_partial_scripts(&vk);
+        let partial_scripts = crate::utils::get_partial_scripts().unwrap();
         let disprove_scripts =
             operator::generate_disprove_scripts(&partial_scripts, &operator_wots_pubkeys);
 
@@ -364,25 +356,25 @@ pub mod tests {
 
         // committee pre-sign
         println!("\ncommittee pre-sign");
-        let committee_nonce: Vec<[(_, _, _); COMMITTEE_PRE_SIGN_NUM]> = committee_master_key
+        let committee_nonce: Vec<[(_, _, _); COMMITTEE_PRE_SIGN_NUM]> = committee_master_keys
             .iter()
             .map(|cmk| cmk.nonces_for_graph(instance_id.clone(), graph_id.clone()))
             .collect();
-        let pubnounces: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]> = committee_nonce
+        let pubnonces: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]> = committee_nonce
             .iter()
             .map(|nonces| std::array::from_fn(|i| nonces[i].1.clone()))
             .collect();
-        let secnounces: Vec<[SecNonce; COMMITTEE_PRE_SIGN_NUM]> = committee_nonce
+        let secnonces: Vec<[SecNonce; COMMITTEE_PRE_SIGN_NUM]> = committee_nonce
             .iter()
             .map(|nonces| std::array::from_fn(|i| nonces[i].0.clone()))
             .collect();
-        let agg_nonces = nonces_aggregation(pubnounces);
+        let agg_nonces = nonces_aggregation(pubnonces);
 
-        let committee_partial_sigs: Vec<_> = committee_master_key
+        let committee_partial_sigs: Vec<_> = committee_master_keys
             .iter()
             .enumerate()
             .map(|(idx, cmk)| {
-                let sec_nonce = &secnounces[idx];
+                let sec_nonce = &secnonces[idx];
                 committee_pre_sign(
                     cmk.keypair_for_instance(instance_id.clone()),
                     sec_nonce.clone(),
@@ -393,7 +385,7 @@ pub mod tests {
             })
             .collect();
 
-        // e.g
+        // e.g 
         // [0, 1]
         // [0, 1]
         // [0, 1]
@@ -427,9 +419,11 @@ pub mod tests {
             node_sign(graph.pegin.tx_mut(), idx, amount, EcdsaSighashType::All, &keypair)
         });
 
+        println!("broadcast pegin");
         broadcast_and_wait_for_confirming(&rpc_client, &graph.pegin.tx(), 1);
 
         // pre-kick-off
+        println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
         let pre_kickoff_inputs = graph.pre_kickoff.tx().input.clone();
         let peg_in_tx = pre_kickoff_inputs.iter().enumerate().map(|(idx, inp)| {
@@ -445,6 +439,7 @@ pub mod tests {
         broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
 
         // kick off
+        println!("broadcast kickoff");
         let withdraw_evm_txid = [0xff; 32];
         let kickoff_tx = operator::operator_sign_kickoff(
             operator_keypair,
@@ -457,6 +452,7 @@ pub mod tests {
         broadcast_and_wait_for_confirming(&rpc_client, &kickoff_tx, 7);
 
         // take 1
+        println!("broadcast take1");
         let take_1_tx = operator::operator_sign_take1(operator_keypair, &mut graph).unwrap();
         broadcast_and_wait_for_confirming(&rpc_client, &take_1_tx, 1);
 
