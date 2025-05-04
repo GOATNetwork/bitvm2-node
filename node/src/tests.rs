@@ -158,7 +158,6 @@ pub mod tests {
         let output = process::Command::new("docker")
             .args([
                 "exec",
-                "-it",
                 "bitcoind",
                 "bitcoin-cli",
                 "-regtest",
