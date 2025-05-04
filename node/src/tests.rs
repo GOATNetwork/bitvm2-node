@@ -579,6 +579,7 @@ pub mod tests {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
         let bitvm2_client = create_bitvm2_client(network).await;
+        let fee_rate = get_fee_rate(&bitvm2_client).await.unwrap();
 
         let E2eResult {
             mut graph,
@@ -668,6 +669,7 @@ pub mod tests {
             disprove_scripts_bytes.to_vec(),
             &operator_wots_pubkeys.1,
             mock_challenger_reward_address,
+            fee_rate,
         )
         .unwrap();
         println!("Broadcast disprove tx");

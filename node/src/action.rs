@@ -749,12 +749,14 @@ pub async fn recv_and_dispatch(
                 let disprove_scripts_bytes =
                     disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
                 let assert_wots_pubkeys = graph.parameters.operator_wots_pubkeys.1.clone();
+                let fee_rate = get_fee_rate(client).await?;
                 let disprove_tx = sign_disprove(
                     &mut graph,
                     disprove_witness,
                     disprove_scripts_bytes,
                     &assert_wots_pubkeys,
                     disprove_reward_address()?,
+                    fee_rate,
                 )?;
                 let disprove_txid = disprove_tx.compute_txid();
                 broadcast_tx(client, &disprove_tx).await?;
