@@ -401,7 +401,7 @@ pub async fn complete_and_broadcast_challenge_tx(
             if change_amount > Amount::from_sat(DUST_AMOUNT) {
                 challenge_tx.output.push(TxOut {
                     script_pubkey: node_address.script_pubkey(),
-                    value: challenge_amount,
+                    value: change_amount,
                 });
             };
             for (i, input) in inputs.iter().enumerate() {
