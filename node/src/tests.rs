@@ -212,7 +212,7 @@ pub mod tests {
         let stake_amount = Amount::from_btc(0.02).unwrap();
         let challenge_amount = Amount::from_btc(0.01).unwrap();
         // fund the operator
-        let extra_fee = Amount::from_sat(fee_rate as u64 * PEGIN_BASE_VBYTES);
+        let extra_fee = Amount::from_sat(fee_rate as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
         let funding_operator_txn = fund_address(
             &bitvm2_client,
             stake_amount + extra_fee,
