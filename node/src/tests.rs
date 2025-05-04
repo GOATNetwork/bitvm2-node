@@ -20,6 +20,7 @@ pub mod tests {
     use ark_bn254::Bn254;
     use ark_serialize::CanonicalDeserialize;
     use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction, TxIn, TxOut};
+    use bitvm2_lib::types::{Bitvm2Graph, WotsPublicKeys, WotsSecretKeys};
     use bitvm2_lib::{
         committee,
         keys::{ChallengerMasterKey, CommitteeMasterKey, OperatorMasterKey},
@@ -29,32 +30,40 @@ pub mod tests {
     use goat::contexts::base::generate_n_of_n_public_key;
     use musig2::{PartialSignature, PubNonce, SecNonce};
     use std::str::FromStr;
+    use store::Graph;
+    use web3::api::Net;
 
     const BTCD_RPC_USER: &str = "111111";
     const BTCD_RPC_PASSWORD: &str = "111111";
     const BTCD_WALLET: &str = "alice";
+    const BTCD_RPC_URL: &str = "http://127.0.0.1:3002";
+
+    //FIXME: The UTs should not use IPFS
+    const IPFS_ENDPOINT: &str = "http://44.229.236.82:5001";
     pub fn create_rpc_client() -> BlockingClient {
-        let base_url = "http://127.0.0.1:3002";
-        let builder = esplora_client::Builder::new(base_url);
+        let builder = esplora_client::Builder::new(BTCD_RPC_URL);
         let client = BlockingClient::from_builder(builder);
         client
     }
 
-    async fn create_bitvm2_client() -> BitVM2Client {
+    fn temp_file() -> String {
+        let tmp_db = tempfile::NamedTempFile::new().unwrap();
+        tmp_db.path().as_os_str().to_str().unwrap().to_string()
+    }
+    async fn create_bitvm2_client(network: Network) -> BitVM2Client {
         let global_init_config = GoatInitConfig::from_env_for_test();
-        let base_url = "http://127.0.0.1:3002";
         BitVM2Client::new(
-            "/tmp/bitvm2-node-0.db",
-            Some(base_url),
-            Network::Testnet,
+            &temp_file(),
+            Some(BTCD_RPC_URL),
+            network,
             GoatNetwork::Test,
             global_init_config,
-            "http://44.229.236.82:5001",
+            IPFS_ENDPOINT,
         )
         .await
     }
 
-    pub fn get_regtest_address(client: &BlockingClient) -> (bitcoin::key::PrivateKey, Address) {
+    pub fn get_regtest_address(network: Network) -> (bitcoin::key::PrivateKey, Address) {
         let secp = secp256k1::Secp256k1::new();
         // Create a P2WPKH (bech32) address
         let private_key =
@@ -62,15 +71,15 @@ pub mod tests {
         // Derive the public key
         let address = Address::p2wpkh(
             &CompressedPublicKey::from_private_key(&secp, &private_key).unwrap(),
-            Network::Regtest,
+            network,
         );
         let default_address = Address::from_str("bcrt1qvnhz5qn4q9vt2sgumajnm8gt53ggvmyyfwd0jg")
             .unwrap()
-            .require_network(Network::Regtest)
+            .require_network(network)
             .unwrap();
         assert_eq!(address, default_address);
         let funding_address =
-            node_p2wsh_address(Network::Regtest, &PublicKey::from_private_key(&secp, &private_key));
+            node_p2wsh_address(network, &PublicKey::from_private_key(&secp, &private_key));
         println!("funding address: {}", funding_address);
         (private_key, funding_address)
     }
@@ -179,20 +188,25 @@ pub mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn e2e_generate_graph() {
-        let network = Network::Regtest;
-        let rpc_client = create_rpc_client();
-        let (depositor_private_key, depositor_addr) = get_regtest_address(&rpc_client);
+    struct E2eResult {
+        graph: Bitvm2Graph,
+        operator_keypair: Keypair,
+        operator_wots_seckeys: WotsSecretKeys,
+        operator_wots_pubkeys: WotsPublicKeys,
+    }
+    async fn e2e_setup(
+        network: Network,
+        rpc_client: &BlockingClient,
+        bitvm2_client: &BitVM2Client,
+    ) -> E2eResult {
+        let (depositor_private_key, depositor_addr) = get_regtest_address(network);
         let graph_id = Uuid::new_v4();
         // key generation
         let secp = secp256k1::Secp256k1::new();
-
         let instance_id = Uuid::new_v4();
-
         let committee_master_keys = (0..get_committee_member_num())
             .into_iter()
-            .map(|x| {
+            .map(|_x| {
                 let kp = secp.generate_keypair(&mut rand::thread_rng());
                 CommitteeMasterKey::new(Keypair::from_secret_key(&secp, &kp.0))
             })
@@ -202,15 +216,6 @@ pub mod tests {
             .map(|x| x.keypair_for_instance(instance_id).public_key().into())
             .collect();
         let (committee_agg_pubkey, _) = generate_n_of_n_public_key(&committee_pubkeys);
-
-        let challenger_number = 2;
-        let verifier_master_key = (0..challenger_number)
-            .into_iter()
-            .map(|x| {
-                let kp = secp.generate_keypair(&mut rand::thread_rng());
-                ChallengerMasterKey::new(Keypair::from_secret_key(&secp, &kp.0))
-            })
-            .collect::<Vec<ChallengerMasterKey>>();
 
         let kp = secp.generate_keypair(&mut rand::thread_rng());
         let operator_master_key = OperatorMasterKey::new(Keypair::from_secret_key(&secp, &kp.0));
@@ -222,10 +227,10 @@ pub mod tests {
         );
 
         let fee_rate = 1.0f64;
-        let bitvm2_client = create_bitvm2_client().await;
         let pegin_amount = Amount::from_btc(0.1).unwrap();
         let stake_amount = Amount::from_btc(0.02).unwrap();
         let challenge_amount = Amount::from_btc(0.01).unwrap();
+
         // fund the operator
         let extra_fee =
             Amount::from_sat(fee_rate as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
@@ -445,10 +450,21 @@ pub mod tests {
         println!("broadcast pegin");
         broadcast_and_wait_for_confirming(&rpc_client, &graph.pegin.tx(), 1);
 
+        E2eResult { graph, operator_keypair, operator_wots_seckeys, operator_wots_pubkeys }
+    }
+    /////////////
+    #[tokio::test]
+    async fn e2e_take_1() {
+        let network = Network::Regtest;
+        let rpc_client = create_rpc_client();
+        let bitvm2_client = create_bitvm2_client(network).await;
+
+        let E2eResult { mut graph, operator_keypair, operator_wots_seckeys, operator_wots_pubkeys } =
+            e2e_setup(network, &rpc_client, &bitvm2_client).await;
         // pre-kick-off
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
-        let peg_in_tx = (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
+        (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
             let amount = amounts[idx].clone();
             node_sign(
                 graph.pre_kickoff.tx_mut(),
