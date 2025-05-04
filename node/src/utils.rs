@@ -230,14 +230,15 @@ pub fn get_partial_scripts() -> Result<Vec<Script>, Box<dyn std::error::Error>> 
 }
 
 pub async fn get_fee_rate(client: &BitVM2Client) -> Result<f64, Box<dyn std::error::Error>> {
-    if client.btc_network == Network::Testnet {
+    match client.btc_network {
         //TODO mempool api /fee-estimates failed, fix it latter
-        Ok(1.0)
-    } else {
-        let res = client.esplora.get_fee_estimates().await?;
-        Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(format!(
-            "fee for {DEFAULT_CONFIRMATION_TARGET} confirmation target not found"
-        ))?)
+        Network::Testnet | Network::Regtest => Ok(1.0),
+        _ => {
+            let res = client.esplora.get_fee_estimates().await?;
+            Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(format!(
+                "fee for {DEFAULT_CONFIRMATION_TARGET} confirmation target not found"
+            ))?)
+        }
     }
 }
 
