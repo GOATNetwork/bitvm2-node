@@ -16,7 +16,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -31,7 +31,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -47,6 +47,8 @@ jobs:
         toolchain:
           - nightly
     steps:
-      - uses: actions/checkout@v2
-      - run: cd scripts && docker compose up -d
-      - run: cargo test -r --features tests
+      - uses: actions/checkout@v4
+      - name: Launch the Regtest
+        run: cd scripts && docker compose up -d
+      - name: Run all unit tests
+        run: cargo test -r --features tests
