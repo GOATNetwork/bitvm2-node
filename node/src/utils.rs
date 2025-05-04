@@ -377,7 +377,7 @@ pub async fn complete_and_broadcast_challenge_tx(
     challenge_tx: Transaction,
     challenge_amount: Amount,
 ) -> Result<Txid, Box<dyn std::error::Error>> {
-    let node_address = node_p2wsh_address(get_network(), node_keypair.public_key().into());
+    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
     let fee_rate = get_fee_rate(client).await?;
     let mut challenge_tx = challenge_tx;
     match get_proper_utxo_set(
