@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 #[cfg(test)]
 pub mod tests {
     use crate::env::{
@@ -47,8 +49,8 @@ pub mod tests {
     const IPFS_ENDPOINT: &str = "http://44.229.236.82:5001";
     pub fn create_rpc_client() -> BlockingClient {
         let builder = esplora_client::Builder::new(BTCD_RPC_URL);
-        let client = BlockingClient::from_builder(builder);
-        client
+
+        BlockingClient::from_builder(builder)
     }
 
     fn temp_file() -> String {
@@ -85,7 +87,7 @@ pub mod tests {
         assert_eq!(address, default_address);
         let funding_address =
             node_p2wsh_address(network, &PublicKey::from_private_key(&secp, &private_key));
-        println!("funding address: {}", funding_address);
+        println!("funding address: {funding_address}");
         (private_key, funding_address)
     }
 
@@ -107,7 +109,7 @@ pub mod tests {
         )
         .await
         .unwrap();
-        println!("Mine challenge tx: {}", txid);
+        println!("Mine challenge tx: {txid}");
         mine_blocks()
     }
 
@@ -121,7 +123,7 @@ pub mod tests {
         fee_rate: f64,
     ) -> Transaction {
         let inputs = get_proper_utxo_set(
-            &bitvm2_client,
+            bitvm2_client,
             PEGIN_BASE_VBYTES,
             sender_addr.clone(),
             target_amount,
@@ -158,7 +160,7 @@ pub mod tests {
         let secp = secp256k1::Secp256k1::new();
         let script = node_p2wsh_script(&depositor_private_key.public_key(&secp));
         let keypair = Keypair::from_secret_key(&secp, &depositor_private_key.inner);
-        (0..tx.input.len()).into_iter().for_each(|index| {
+        (0..tx.input.len()).for_each(|index| {
             let amount = inputs.0[index].amount;
             populate_p2wsh_witness(
                 &mut tx,
@@ -178,7 +180,7 @@ pub mod tests {
         confimations: u32,
     ) {
         let pre_current_tip = rpc_client.get_height().unwrap();
-        let _ = rpc_client.broadcast(tx).unwrap();
+        rpc_client.broadcast(tx).unwrap();
         println!("Broadcast tx: {}", tx.compute_txid());
         let mut current_tip = rpc_client.get_height().unwrap();
         while (current_tip - pre_current_tip) < confimations {
@@ -207,10 +209,10 @@ pub mod tests {
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            println!("Success:\n{}", stdout);
+            println!("Success:\n{stdout}");
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Error:\n{}", stderr);
+            eprintln!("Error:\n{stderr}");
         }
     }
 
@@ -234,7 +236,6 @@ pub mod tests {
         let secp = secp256k1::Secp256k1::new();
         let instance_id = Uuid::new_v4();
         let committee_master_keys = (0..get_committee_member_num())
-            .into_iter()
             .map(|_x| {
                 let kp = secp.generate_keypair(&mut rand::thread_rng());
                 CommitteeMasterKey::new(Keypair::from_secret_key(&secp, &kp.0))
@@ -249,10 +250,10 @@ pub mod tests {
         let kp = secp.generate_keypair(&mut rand::thread_rng());
         let operator_master_key = OperatorMasterKey::new(Keypair::from_secret_key(&secp, &kp.0));
         let (operator_wots_seckeys, operator_wots_pubkeys) =
-            operator_master_key.wots_keypair_for_graph(graph_id.clone());
+            operator_master_key.wots_keypair_for_graph(graph_id);
         let operator_p2wsh = node_p2wsh_address(
-            network.clone(),
-            &operator_master_key.keypair_for_graph(graph_id.clone()).public_key().into(),
+            network,
+            &operator_master_key.keypair_for_graph(graph_id).public_key().into(),
         );
 
         let pegin_amount = Amount::from_btc(0.1).unwrap();
@@ -263,7 +264,7 @@ pub mod tests {
         let extra_fee =
             Amount::from_sat(fee_rate as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
         let funding_operator_txn = fund_address(
-            &bitvm2_client,
+            bitvm2_client,
             stake_amount + extra_fee,
             &operator_p2wsh,
             &depositor_private_key,
@@ -273,7 +274,7 @@ pub mod tests {
         .await;
 
         println!("funding operator {}: {}", operator_p2wsh, funding_operator_txn.compute_txid());
-        broadcast_and_wait_for_confirming(&rpc_client, &funding_operator_txn, 1);
+        broadcast_and_wait_for_confirming(rpc_client, &funding_operator_txn, 1);
 
         let vk = get_vk().unwrap();
         // mock groth16 proof
@@ -310,7 +311,7 @@ pub mod tests {
             hex::decode("3eAC5F367F19E2E6099e897436DC17456f078609").unwrap().try_into().unwrap();
 
         let inputs = get_proper_utxo_set(
-            &bitvm2_client,
+            bitvm2_client,
             PEGIN_BASE_VBYTES,
             depositor_addr.clone(),
             pegin_amount,
@@ -328,7 +329,7 @@ pub mod tests {
         };
 
         let inputs = get_proper_utxo_set(
-            &bitvm2_client,
+            bitvm2_client,
             PRE_KICKOFF_BASE_VBYTES,
             operator_p2wsh,
             stake_amount,
@@ -345,7 +346,7 @@ pub mod tests {
             change_address: depositor_addr.clone(),
         };
 
-        let operator_keypair = operator_master_key.keypair_for_graph(graph_id.clone());
+        let operator_keypair = operator_master_key.keypair_for_graph(graph_id);
         let params = Bitvm2Parameters {
             network,
             depositor_evm_address,
@@ -374,13 +375,13 @@ pub mod tests {
 
         // opeartor pre-sign
         println!("\nopeartor pre-sign");
-        let _ = operator::operator_pre_sign(operator_keypair.clone(), &mut graph);
+        let _ = operator::operator_pre_sign(operator_keypair, &mut graph);
 
         // committee pre-sign
         println!("\ncommittee pre-sign");
         let committee_nonce: Vec<[(_, _, _); COMMITTEE_PRE_SIGN_NUM]> = committee_master_keys
             .iter()
-            .map(|cmk| cmk.nonces_for_graph(instance_id.clone(), graph_id.clone()))
+            .map(|cmk| cmk.nonces_for_graph(instance_id, graph_id))
             .collect();
         let pubnonces: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]> = committee_nonce
             .iter()
@@ -398,7 +399,7 @@ pub mod tests {
             .map(|(idx, cmk)| {
                 let sec_nonce = &secnonces[idx];
                 committee_pre_sign(
-                    cmk.keypair_for_instance(instance_id.clone()),
+                    cmk.keypair_for_instance(instance_id),
                     sec_nonce.clone(),
                     agg_nonces.clone(),
                     &graph,
@@ -434,14 +435,14 @@ pub mod tests {
         // peg-in
         let amounts = graph.pegin.input_amounts.clone();
         let keypair = Keypair::from_secret_key(&secp, &depositor_private_key.inner);
-        (0..graph.pegin.tx().input.len()).into_iter().for_each(|idx| {
-            let amount = amounts[idx].clone();
+        (0..graph.pegin.tx().input.len()).for_each(|idx| {
+            let amount = amounts[idx];
             node_sign(graph.pegin.tx_mut(), idx, amount, EcdsaSighashType::All, &keypair)
                 .expect("peg-in signing failed");
         });
 
         println!("broadcast pegin");
-        broadcast_and_wait_for_confirming(&rpc_client, &graph.pegin.tx(), 1);
+        broadcast_and_wait_for_confirming(rpc_client, graph.pegin.tx(), 1);
 
         E2eResult {
             graph,
@@ -469,8 +470,8 @@ pub mod tests {
         // pre-kick-off
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
-        (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
-            let amount = amounts[idx].clone();
+        (0..graph.pre_kickoff.tx().input.len()).for_each(|idx| {
+            let amount = amounts[idx];
             node_sign(
                 graph.pre_kickoff.tx_mut(),
                 idx,
@@ -480,7 +481,7 @@ pub mod tests {
             )
             .expect("pre kickoff signing failed");
         });
-        broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
+        broadcast_and_wait_for_confirming(&rpc_client, graph.pre_kickoff.tx(), 1);
 
         // kick off
         println!("broadcast kickoff");
@@ -518,8 +519,8 @@ pub mod tests {
 
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
-        (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
-            let amount = amounts[idx].clone();
+        (0..graph.pre_kickoff.tx().input.len()).for_each(|idx| {
+            let amount = amounts[idx];
             node_sign(
                 graph.pre_kickoff.tx_mut(),
                 idx,
@@ -529,7 +530,7 @@ pub mod tests {
             )
             .expect("pre kickoff signing failed");
         });
-        broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
+        broadcast_and_wait_for_confirming(&rpc_client, graph.pre_kickoff.tx(), 1);
 
         // kick off
         println!("broadcast kickoff");
@@ -591,8 +592,8 @@ pub mod tests {
 
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
-        (0..graph.pre_kickoff.tx().input.len()).into_iter().for_each(|idx| {
-            let amount = amounts[idx].clone();
+        (0..graph.pre_kickoff.tx().input.len()).for_each(|idx| {
+            let amount = amounts[idx];
             node_sign(
                 graph.pre_kickoff.tx_mut(),
                 idx,
@@ -602,7 +603,7 @@ pub mod tests {
             )
             .expect("pre kickoff signing failed");
         });
-        broadcast_and_wait_for_confirming(&rpc_client, &graph.pre_kickoff.tx(), 1);
+        broadcast_and_wait_for_confirming(&rpc_client, graph.pre_kickoff.tx(), 1);
 
         // kick off
         println!("broadcast kickoff");

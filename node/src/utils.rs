@@ -446,7 +446,7 @@ pub async fn get_proper_utxo_set(
             })
             .collect()
     }
-    println!("get utxos from: {}", address);
+    println!("get utxos from: {address}");
 
     let utxos = client.esplora.get_address_utxo(address).await?;
     let mut sorted_utxos = utxos;
@@ -1055,7 +1055,7 @@ pub mod tests {
         scramble[16] = 37;
         let mut scramble2: [u8; HASH_LEN as usize] = [1u8; HASH_LEN as usize];
         scramble2[HASH_LEN as usize / 2] = 37;
-        println!("corrupted assertion at index {}", index);
+        println!("corrupted assertion at index {index}");
         if index < NUM_PUBS {
             let i = index;
             let assn = scramble;
