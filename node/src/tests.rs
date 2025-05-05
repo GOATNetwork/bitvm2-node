@@ -185,7 +185,7 @@ pub mod tests {
         let mut current_tip = rpc_client.get_height().unwrap();
         while (current_tip - pre_current_tip) < confimations {
             mine_blocks();
-            println!("Wait for at least {} block mined", current_tip - pre_current_tip);
+            println!("Wait for at least {} block mined", confimations - (current_tip - pre_current_tip));
             std::thread::sleep(std::time::Duration::from_secs(1));
             current_tip = rpc_client.get_height().unwrap();
         }
@@ -558,19 +558,15 @@ pub mod tests {
             proof_sigs.clone(),
         )
         .unwrap();
-        //broadcast_tx(assert_init_tx);
         broadcast_and_wait_for_confirming(&rpc_client, &assert_init_tx, 1);
 
         assert_commit_txns.iter().for_each(|tx| {
-            //broadcast_tx(tx.clone())
             broadcast_and_wait_for_confirming(&rpc_client, tx, 1);
         });
 
-        //broadcast_tx(assert_final_tx);
         broadcast_and_wait_for_confirming(&rpc_client, &assert_final_tx, 1);
 
         let take2_tx = operator::operator_sign_take2(operator_keypair, &mut graph).unwrap();
-        // broadcast_tx(take2_tx);
         broadcast_and_wait_for_confirming(&rpc_client, &take2_tx, 7);
     }
 
@@ -634,7 +630,6 @@ pub mod tests {
             proof_sigs,
         )
         .unwrap();
-        //broadcast_tx(assert_init_tx);
         broadcast_and_wait_for_confirming(&rpc_client, &assert_init_tx, 1);
 
         assert_commit_txns.iter().for_each(|tx| {
