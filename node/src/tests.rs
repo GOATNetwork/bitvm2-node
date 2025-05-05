@@ -185,7 +185,10 @@ pub mod tests {
         let mut current_tip = rpc_client.get_height().unwrap();
         while (current_tip - pre_current_tip) < confimations {
             mine_blocks();
-            println!("Wait for at least {} block mined", confimations - (current_tip - pre_current_tip));
+            println!(
+                "Wait for at least {} block mined",
+                confimations - (current_tip - pre_current_tip)
+            );
             std::thread::sleep(std::time::Duration::from_secs(1));
             current_tip = rpc_client.get_height().unwrap();
         }
@@ -375,7 +378,7 @@ pub mod tests {
 
         // opeartor pre-sign
         println!("\nopeartor pre-sign");
-        let _ = operator::operator_pre_sign(operator_keypair, &mut graph);
+        let _ = operator::operator_pre_sign(operator_keypair, &mut graph).unwrap();
 
         // committee pre-sign
         println!("\ncommittee pre-sign");
