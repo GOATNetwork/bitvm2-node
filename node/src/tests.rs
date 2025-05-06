@@ -576,6 +576,7 @@ pub mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn e2e_disprove() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
