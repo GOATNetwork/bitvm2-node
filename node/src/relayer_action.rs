@@ -584,7 +584,8 @@ pub async fn scan_take1(
             if let Some(kickoff_height) =
                 client.esplora.get_tx_status(&graph_data.kickoff_txid.unwrap()).await?.block_height
             {
-                if kickoff_height + lock_blocks > current_height {
+                info!("graph_id:{graph_id}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}");
+                if kickoff_height + lock_blocks <= current_height {
                     let message_content =
                         GOATMessageContent::Take1Ready(Take1Ready { instance_id, graph_id });
                     send_to_peer(
@@ -679,7 +680,7 @@ pub async fn scan_take2(
             }
         } else {
             if graph_data.assert_final_txid.is_none() {
-                warn!("graph_id:{}, assert_final txid  is none", graph_id);
+                warn!("graph_id:{graph_id}, assert_final txid  is none");
                 continue;
             }
             if let Some(asset_final_height) = client
@@ -688,7 +689,8 @@ pub async fn scan_take2(
                 .await?
                 .block_height
             {
-                if asset_final_height + lock_blocks > current_height {
+                info!("graph_id:{graph_id}, asset_final_height:{asset_final_height}, lock_blocks:{lock_blocks}, current_height:{current_height}");
+                if asset_final_height + lock_blocks <= current_height {
                     let message_content =
                         GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id });
                     send_to_peer(

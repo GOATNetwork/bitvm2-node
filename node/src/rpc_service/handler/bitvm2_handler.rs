@@ -369,6 +369,8 @@ pub async fn get_graph(
             });
         };
         let mut graph = graph_op.unwrap();
+        // front end unused data
+        graph.raw_data = None;
         graph.status = modify_graph_status(
             &graph.status,
             graph.updated_at,
