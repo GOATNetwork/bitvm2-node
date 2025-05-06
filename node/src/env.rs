@@ -20,7 +20,7 @@ pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
 pub const ENV_GOAT_CHAIN_ID: &str = "GOAT_CHAIN_ID";
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
 pub const ENV_PEER_KEY: &str = "KEY";
-pub const ENV_PERR_ID: &str = "PEER_ID";
+pub const ENV_PEER_ID: &str = "PEER_ID";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
@@ -55,7 +55,7 @@ const COMMITTEE_MEMBER_NUMBER: usize = 2;
 const BTC_NETWORK: Network = Network::Testnet;
 const GOAT_NETWORK: GoatNetwork = GoatNetwork::Test;
 
-pub const MESSAGE_BROADCAST_MAX_TIMES: i64 = 1;
+pub const MESSAGE_BROADCAST_MAX_TIMES: i64 = 3;
 pub const MESSAGE_EXPIRE_TIME: i64 = 3600 * 24; // 1 days
 pub const MODIFY_GRAPH_STATUS_TIME_THRESHOLD: i64 = 2;
 
@@ -81,7 +81,7 @@ pub fn get_local_node_info() -> NodeInfo {
     let actor =
         Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
             .unwrap();
-    let peer_id = std::env::var(ENV_PERR_ID).expect("Peer ID is missing");
+    let peer_id = std::env::var(ENV_PEER_ID).expect("Peer ID is missing");
     let bitvm_secret = std::env::var(ENV_BITVM_SECRET).expect("{ENV_BITVM_SECRET} is missing");
     let pubkey = Keypair::from_seckey_str_global(&bitvm_secret)
         .expect("Failed to decode secret key")
@@ -92,8 +92,8 @@ pub fn get_local_node_info() -> NodeInfo {
         Some(singer.address().to_string())
     } else {
         let mut addr_op = None;
-        if let Some(addr_str) = std::env::var(ENV_GOAT_ADDRESS).ok() {
-            if let Some(addr) = Address::from_str(&addr_str).ok() {
+        if let Ok(addr_str) = std::env::var(ENV_GOAT_ADDRESS) {
+            if let Ok(addr) = Address::from_str(&addr_str) {
                 addr_op = Some(addr.to_string());
             }
         }

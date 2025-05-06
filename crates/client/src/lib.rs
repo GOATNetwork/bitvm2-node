@@ -26,7 +26,7 @@ mod tests {
         )
         .await;
         let tx_id =
-            Txid::from_str("a95cb0da04e4b64d7633c34621e31030611ddf2b852ebbc0a293661bad914e2e")
+            Txid::from_str("cd557f6656051531ab53d08a43524330b39344bb98b710461450feda4ff4b231")
                 .expect("decode txid");
 
         let (root, proof_info, _) =

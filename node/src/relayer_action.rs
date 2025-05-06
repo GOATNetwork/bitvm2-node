@@ -372,7 +372,7 @@ pub async fn scan_kickoff(
         MessageType::KickoffSent.to_string(),
     )
     .await?;
-    info!("scan_kickoff get graph datas size :{}", graph_datas.len());
+    info!("scan_kickoff get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
         if graph_data.kickoff_txid.is_none() {
             warn!("graph_id {}, kickoff txid is none", graph_data.graph_id);
@@ -454,7 +454,7 @@ pub async fn scan_assert(
     )
     .await?; // in case challenger never broadcast ChallengeSent
     graphs.append(&mut graphs_kickoff);
-    info!("scan_assert get graph datas size :{}", graphs.len());
+    info!("scan_assert get graph datas size: {}", graphs.len());
     for graph_data in graphs {
         if graph_data.assert_final_txid.is_none()
             | graph_data.assert_final_txid.is_none()
@@ -527,14 +527,14 @@ pub async fn scan_take1(
     .await?;
     let current_height = client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
-    info!("scan_take1 get graph datas size :{}", graph_datas.len());
+    info!("scan_take1 get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
-        if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
-            warn!("graph_id:{} take1 ready has send over max times", graph_id);
-            continue;
-        }
+        // if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
+        //     warn!("graph_id:{} take1 ready has send over max times", graph_id);
+        //     continue;
+        // }
         if graph_data.msg_times > 0 {
             if graph_data.take1_txid.is_none() {
                 warn!("graph_id:{}, take1 txid is none", graph_id);
@@ -602,6 +602,9 @@ pub async fn scan_take1(
                         graph_data.msg_times + 1,
                     )
                     .await?;
+                    info!(
+                        "finish send take1 ready for instance_id:{instance_id}, graph_id:{graph_id}"
+                    );
                 }
             } else {
                 info!(
@@ -630,14 +633,10 @@ pub async fn scan_take2(
     let current_height = client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
 
-    info!("scan_take2 get graph datas size :{}", graph_datas.len());
+    info!("scan_take2 get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
-        if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
-            warn!("graph_id:{} take2 ready has send over max times", graph_id);
-            continue;
-        }
         if graph_data.msg_times > 0 {
             if graph_data.take2_txid.is_none() {
                 warn!("graph_id:{}, take2 txid is none", graph_id);
@@ -709,6 +708,9 @@ pub async fn scan_take2(
                         graph_data.msg_times + 1,
                     )
                     .await?;
+                    info!(
+                        "finish send take2 ready for instance_id:{instance_id}, graph_id:{graph_id}"
+                    );
                 }
             } else {
                 info!(

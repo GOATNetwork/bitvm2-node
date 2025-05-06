@@ -2,7 +2,8 @@ use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
     COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData, Instance, Message,
-    Node, NodesOverview, NonceCollect, NonceCollectMetaData, PubKeyCollect, PubKeyCollectMetaData,
+    MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, PubKeyCollect,
+    PubKeyCollectMetaData,
 };
 use anyhow::bail;
 use sqlx::migrate::Migrator;
@@ -841,13 +842,30 @@ impl<'a> StorageProcessor<'a> {
         msg_type: &str,
         msg_times: i64,
     ) -> anyhow::Result<()> {
+        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let message_broadcast_info =sqlx::query_as!(
+            MessageBroadcast,
+            "SELECT instance_id as \"instance_id:Uuid\", graph_id as \"graph_id:Uuid\", msg_type, msg_times, \
+            created_at, updated_at FROM message_broadcast WHERE instance_id =? AND graph_id = ? ",
+            instance_id,
+           graph_id
+        ).fetch_optional(self.conn())
+            .await?;
+
+        let created_at = if let Some(message_broadcast_info) = message_broadcast_info {
+            message_broadcast_info.created_at
+        } else {
+            current_time
+        };
         sqlx::query!(
-            "UPDATE message_broadcast SET  msg_times = ? WHERE instance_id = ? AND  graph_id = ? \
-            AND msg_type = ? ",
-            msg_times,
+            "INSERT OR REPLACE INTO  message_broadcast (instance_id, graph_id, msg_type, msg_times, created_at, updated_at)  VALUES (?,?,?,?,?,?) ",
             instance_id,
             graph_id,
-            msg_type
+            msg_type,
+            msg_times,
+            created_at,
+            current_time
+
         )
         .execute(self.conn())
         .await?;

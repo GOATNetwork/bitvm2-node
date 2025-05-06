@@ -32,12 +32,16 @@ pub async fn bridge_in_tx_prepare(
 ) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&payload.instance_id)?;
+        let (is_goat_addr, to_address) = reflect_goat_address(Some(payload.to.clone()));
+        if !is_goat_addr {
+            return Err(format!("payload field {}   is not goat chain address", payload.to).into());
+        }
         let instance = Instance {
             instance_id,
             network: payload.network.clone(),
             bridge_path: BridgePath::BTCToPgBTC.to_u8(),
             from_addr: payload.from.clone(),
-            to_addr: payload.to.clone(),
+            to_addr: to_address.unwrap().to_string(),
             amount: payload.amount,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
@@ -483,7 +487,7 @@ pub async fn get_graphs(
 
 pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
     if let Some(addr) = addr_op {
-        if let Some(addr) = Address::from_str(&addr).ok() {
+        if let Ok(addr) = Address::from_str(&addr) {
             return (true, Some(addr.to_string()));
         }
     }

@@ -234,11 +234,11 @@ impl BitVM2Client {
             pegin_txid_posted.reverse();
             tracing::warn!(
                 "instance_id:{instance_id} pegin tx already posted, posted:{}",
-                hex::encode(&pegin_txid_posted)
+                hex::encode(pegin_txid_posted)
             );
             bail!(
                 "instance_id:{instance_id} pegin tx already posted:{}",
-                hex::encode(&pegin_txid_posted)
+                hex::encode(pegin_txid_posted)
             );
         }
 
