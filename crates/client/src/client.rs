@@ -228,9 +228,18 @@ impl BitVM2Client {
             instance_id,
             tx_id.to_string()
         );
-        if self.chain_service.adaptor.get_pegin_data(instance_id).await?.pegin_txid != [0_u8; 32] {
-            tracing::warn!("instance_id:{} pegin tx already posted", instance_id,);
-            bail!("instance_id:{} pegin tx already posted", instance_id);
+        let mut pegin_txid_posted =
+            self.chain_service.adaptor.get_pegin_data(instance_id).await?.pegin_txid;
+        if pegin_txid_posted != [0_u8; 32] {
+            pegin_txid_posted.reverse();
+            tracing::warn!(
+                "instance_id:{instance_id} pegin tx already posted, posted:{}",
+                hex::encode(&pegin_txid_posted)
+            );
+            bail!(
+                "instance_id:{instance_id} pegin tx already posted:{}",
+                hex::encode(&pegin_txid_posted)
+            );
         }
 
         if self.chain_service.adaptor.pegin_tx_used(&tx_id.to_byte_array()).await? {
