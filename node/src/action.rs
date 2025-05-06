@@ -1,4 +1,4 @@
-use crate::env;
+use crate::env::{self, get_node_pubkey};
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;
 use crate::utils::{statics::*, *};
@@ -837,6 +837,78 @@ pub async fn recv_and_dispatch(
                 .await?;
 
                 // NOTE: clean up other graphs?
+            }
+        }
+
+        // Operator recycle prekickoff utxo
+        (GOATMessageContent::Take1Sent(receive_data), Actor::Operator) => {
+            tracing::info!("Handle Take1Sent");
+            let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if tx_on_chain(client, &graph.take1.tx().compute_txid()).await? {
+                update_graph_fields(
+                    client,
+                    receive_data.graph_id,
+                    Some(GraphStatus::Take1.to_string()),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                if let Some(graph_id) =
+                    get_my_graph_for_instance(client, receive_data.instance_id, get_node_pubkey()?)
+                        .await?
+                {
+                    let graph = get_graph(client, receive_data.instance_id, graph_id).await?;
+                    let prekickoff_txid = graph.pre_kickoff.tx().compute_txid();
+                    if outpoint_available(client, &prekickoff_txid, 0).await? {
+                        tracing::info!(
+                            "recycle btc, instance_id: {}, graph: {graph_id} , pre_kickoff: {prekickoff_txid}",
+                            receive_data.instance_id
+                        );
+                        recycle_prekickoff_tx(
+                            client,
+                            graph_id,
+                            OperatorMasterKey::new(env::get_bitvm_key()?),
+                            prekickoff_txid,
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
+        (GOATMessageContent::Take2Sent(receive_data), Actor::Operator) => {
+            tracing::info!("Handle Take2Sent");
+            let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if tx_on_chain(client, &graph.take2.tx().compute_txid()).await? {
+                update_graph_fields(
+                    client,
+                    receive_data.graph_id,
+                    Some(GraphStatus::Take2.to_string()),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                if let Some(graph_id) =
+                    get_my_graph_for_instance(client, receive_data.instance_id, get_node_pubkey()?)
+                        .await?
+                {
+                    let graph = get_graph(client, receive_data.instance_id, graph_id).await?;
+                    let prekickoff_txid = graph.pre_kickoff.tx().compute_txid();
+                    if outpoint_available(client, &prekickoff_txid, 0).await? {
+                        tracing::info!(
+                            "recycle btc, instance_id: {}, graph: {graph_id} , pre_kickoff: {prekickoff_txid}",
+                            receive_data.instance_id
+                        );
+                        recycle_prekickoff_tx(
+                            client,
+                            graph_id,
+                            OperatorMasterKey::new(env::get_bitvm_key()?),
+                            prekickoff_txid,
+                        )
+                        .await?;
+                    }
+                }
             }
         }
 

@@ -43,6 +43,10 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<([u8; 32], [u8; 32])>;
 
     async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
+    async fn get_instanceids_by_pubkey(
+        &self,
+        operator_pubkey: &[u8; 32],
+    ) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
     async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<()>;
     async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<()>;
     async fn process_withdraw(
