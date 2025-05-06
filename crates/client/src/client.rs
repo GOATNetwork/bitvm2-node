@@ -8,7 +8,7 @@ use crate::esplora::get_esplora_url;
 use anyhow::bail;
 use bitcoin::consensus::encode::{deserialize_hex, serialize};
 use bitcoin::hashes::Hash;
-use bitcoin::{Address as BtcAddress, PublicKey, TxMerkleNode, Txid};
+use bitcoin::{Address as BtcAddress, PublicKey, Transaction, TxMerkleNode, Txid};
 use bitcoin::{Block, Network};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
@@ -74,6 +74,13 @@ impl BitVM2Client {
         }
 
         bail!("get {} merkle proof is none", tx_id)
+    }
+
+    pub async fn fetch_btc_tx(
+        &self,
+        tx_id: &Txid,
+    ) -> Result<Transaction, Box<dyn std::error::Error>> {
+        self.esplora.get_tx(tx_id).await?.ok_or(format!("{tx_id} is not on chain").into())
     }
 
     pub async fn verify_merkle_proof(

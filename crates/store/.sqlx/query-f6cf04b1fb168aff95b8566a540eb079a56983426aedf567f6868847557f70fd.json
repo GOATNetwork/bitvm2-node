@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT graph.graph_id as \"graph_id:Uuid\", graph.instance_id as \"instance_id:Uuid\", graph.status, graph.kickoff_txid,  graph.take1_txid, graph.take2_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid, graph.raw_data,IFNULL(message_broadcast.msg_times, 0) as msg_times, IFNULL(message_broadcast.msg_type, '') as msg_type  FROM graph LEFT JOIN message_broadcast ON graph.graph_id =  message_broadcast.graph_id AND  graph.instance_id =  message_broadcast.instance_id AND message_broadcast.msg_type =  ?  WHERE  graph.status = ?",
+  "query": "SELECT graph.graph_id as \"graph_id:Uuid\", graph.instance_id as \"instance_id:Uuid\", graph.status, graph.kickoff_txid,  graph.take1_txid, graph.take2_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid, IFNULL(message_broadcast.msg_times, 0) as msg_times, IFNULL(message_broadcast.msg_type, '') as msg_type  FROM graph LEFT JOIN message_broadcast ON graph.graph_id =  message_broadcast.graph_id AND  graph.instance_id =  message_broadcast.instance_id AND message_broadcast.msg_type =  ?  WHERE  graph.status = ?",
   "describe": {
     "columns": [
       {
@@ -49,18 +49,13 @@
         "type_info": "Text"
       },
       {
-        "name": "raw_data",
-        "ordinal": 9,
-        "type_info": "Text"
-      },
-      {
         "name": "msg_times",
-        "ordinal": 10,
+        "ordinal": 9,
         "type_info": "Integer"
       },
       {
         "name": "msg_type",
-        "ordinal": 11,
+        "ordinal": 10,
         "type_info": "Text"
       }
     ],
@@ -77,10 +72,9 @@
       true,
       true,
       true,
-      true,
       false,
       false
     ]
   },
-  "hash": "2f40dba032acce7a662ae563f5a681d59ca8c73b48d70819e9de0675a0827684"
+  "hash": "f6cf04b1fb168aff95b8566a540eb079a56983426aedf567f6868847557f70fd"
 }

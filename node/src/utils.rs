@@ -27,13 +27,10 @@ use goat::connectors::connector_6::Connector6;
 use goat::constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::transactions::base::Input;
-use goat::transactions::disprove::DisproveTransaction;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::signing::{
     generate_taproot_leaf_schnorr_signature, populate_p2wsh_witness, populate_taproot_input_witness,
 };
-use goat::transactions::take_1::Take1Transaction;
-use goat::transactions::take_2::Take2Transaction;
 use goat::utils::num_blocks_per_network;
 use musig2::{PartialSignature, PubNonce};
 use statics::*;
@@ -710,18 +707,18 @@ pub fn get_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
 pub async fn finish_withdraw_happy_path(
     client: &BitVM2Client,
     graph_id: &Uuid,
-    take1: &Take1Transaction,
+    tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = client.finish_withdraw_happy_path(graph_id, take1.tx()).await?;
+    let tx_hash = client.finish_withdraw_happy_path(graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
 pub async fn finish_withdraw_unhappy_path(
     client: &BitVM2Client,
     graph_id: &Uuid,
-    take2: &Take2Transaction,
+    tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = client.finish_withdraw_unhappy_path(graph_id, take2.tx()).await?;
+    let tx_hash = client.finish_withdraw_unhappy_path(graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
@@ -729,9 +726,9 @@ pub async fn finish_withdraw_unhappy_path(
 pub async fn finish_withdraw_disproved(
     client: &BitVM2Client,
     graph_id: &Uuid,
-    disprove: &DisproveTransaction,
+    tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = client.finish_withdraw_disproved(graph_id, disprove.tx()).await?;
+    let tx_hash = client.finish_withdraw_disproved(graph_id, tx).await?;
     tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }

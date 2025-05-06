@@ -811,7 +811,7 @@ impl<'a> StorageProcessor<'a> {
                 GraphTickActionMetaData,
                 "SELECT graph.graph_id as \"graph_id:Uuid\", graph.instance_id as \"instance_id:Uuid\", graph.status, graph.kickoff_txid,  graph.take1_txid, \
                  graph.take2_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid, \
-                  graph.raw_data,IFNULL(message_broadcast.msg_times, 0) as msg_times, IFNULL(message_broadcast.msg_type, '') as msg_type  \
+                 IFNULL(message_broadcast.msg_times, 0) as msg_times, IFNULL(message_broadcast.msg_type, '') as msg_type  \
                   FROM graph LEFT JOIN message_broadcast ON graph.graph_id =  message_broadcast.graph_id AND  \
                   graph.instance_id =  message_broadcast.instance_id AND message_broadcast.msg_type =  ?  \
                   WHERE  graph.status = ?",msg_type,graph_status).fetch_all(self.conn()).await?

@@ -797,7 +797,8 @@ pub async fn recv_and_dispatch(
             let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             let take1_txid = graph.take1.tx().compute_txid();
             if tx_on_chain(client, &take1_txid).await? {
-                finish_withdraw_happy_path(client, &receive_data.graph_id, &graph.take1).await?;
+                finish_withdraw_happy_path(client, &receive_data.graph_id, graph.take1.tx())
+                    .await?;
                 update_graph_fields(
                     client,
                     receive_data.graph_id,
@@ -814,7 +815,8 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle Take2Sent");
             let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             if tx_on_chain(client, &graph.take2.tx().compute_txid()).await? {
-                finish_withdraw_unhappy_path(client, &receive_data.graph_id, &graph.take2).await?;
+                finish_withdraw_unhappy_path(client, &receive_data.graph_id, graph.take2.tx())
+                    .await?;
                 update_graph_fields(
                     client,
                     receive_data.graph_id,
@@ -837,7 +839,12 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
-                finish_withdraw_disproved(client, &receive_data.graph_id, &graph.disprove).await?;
+                finish_withdraw_disproved(
+                    client,
+                    &receive_data.graph_id,
+                    &client.fetch_btc_tx(&receive_data.disprove_txid).await?,
+                )
+                .await?;
                 update_graph_fields(
                     client,
                     receive_data.graph_id,

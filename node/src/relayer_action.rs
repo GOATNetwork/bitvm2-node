@@ -18,10 +18,8 @@ use bitcoin::Txid;
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitvm2_lib::actors::Actor;
-use bitvm2_lib::types::Bitvm2Graph;
 use client::client::BitVM2Client;
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
-use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::{
     constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK},
     utils::num_blocks_per_network,
@@ -47,7 +45,6 @@ pub struct GraphTickActionData {
     pub assert_init_txid: Option<Txid>,
     pub assert_commit_txids: Option<[Txid; COMMIT_TX_NUM]>,
     pub assert_final_txid: Option<Txid>,
-    pub raw_data: Option<String>,
 }
 
 impl From<GraphTickActionMetaData> for GraphTickActionData {
@@ -88,7 +85,6 @@ impl From<GraphTickActionMetaData> for GraphTickActionData {
             assert_init_txid: tx_convert(value.assert_init_txid),
             assert_commit_txids,
             assert_final_txid: tx_convert(value.assert_final_txid),
-            raw_data: value.raw_data,
         }
     }
 }
@@ -254,14 +250,6 @@ pub async fn scan_bridge_in(
             warn!("instance {}, status is presigned, but graph is none", instance.instance_id);
             continue;
         }
-        if graphs[0].raw_data.is_none() {
-            warn!(
-                "instance {}, status is presigned, but graph_id raw data is none",
-                instance.instance_id
-            );
-            continue;
-        }
-
         if let Ok(tx_hash) = TxHash::from_str(&instance.goat_txid) {
             let is_finish_pegin =
                 client.chain_service.adaptor.is_tx_execute_success(tx_hash).await?;
@@ -301,14 +289,13 @@ pub async fn scan_bridge_in(
                 }
             }
         } else {
-            let bitvm_graph: Bitvm2Graph =
-                serde_json::from_str(&graphs[0].raw_data.clone().unwrap())?;
-            match client.post_pegin_data(&instance.instance_id, bitvm_graph.pegin.tx()).await {
+            let pegin_tx = client.fetch_btc_tx(&deserialize_hex(&graphs[0].pegin_txid)?).await?;
+            match client.post_pegin_data(&instance.instance_id, &pegin_tx).await {
                 Err(err) => {
                     warn!(
                         "instance id {}, tx:{} post_pegin_data failed err:{:?}",
                         instance.instance_id,
-                        bitvm_graph.pegin.tx().compute_txid().to_string(),
+                        pegin_tx.compute_txid().to_string(),
                         err
                     );
                     continue;
@@ -399,17 +386,8 @@ pub async fn scan_kickoff(
             .await?;
         }
         if graph_data.msg_times == 0 {
-            if graph_data.raw_data.is_none() {
-                warn!(
-                    "instance_id:{}, graph_id:{} raw_data is none",
-                    graph_data.instance_id, graph_data.graph_id
-                );
-                continue;
-            }
-            let bitvm2_graph: Bitvm2Graph =
-                serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
-
-            match client.process_withdraw(&graph_data.graph_id, bitvm2_graph.kickoff.tx()).await {
+            let kickoff_tx = client.fetch_btc_tx(&kickoff_txid).await?;
+            match client.process_withdraw(&graph_data.graph_id, &kickoff_tx).await {
                 Ok(tx_hash) => {
                     info!(
                         "instance_id: {}, graph_id:{}  finish withdraw, tx hash :{}",
@@ -543,9 +521,8 @@ pub async fn scan_take1(
             let take1_txid = graph_data.take1_txid.unwrap();
             let take1_height = client.esplora.get_tx_status(&take1_txid).await?.block_height;
             if take1_height.is_some() {
-                let bitvm2_graph: Bitvm2Graph =
-                    serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
-                match client.finish_withdraw_happy_path(&graph_id, bitvm2_graph.take1.tx()).await {
+                let take1_tx = client.fetch_btc_tx(&take1_txid).await?;
+                match client.finish_withdraw_happy_path(&graph_id, &take1_tx).await {
                     Err(err) => {
                         // other place will do finish_withdraw_happy_path too
                         warn!(
@@ -645,10 +622,8 @@ pub async fn scan_take2(
             let take2_txid = graph_data.take2_txid.unwrap();
             let take2_height = client.esplora.get_tx_status(&take2_txid).await?.block_height;
             if take2_height.is_some() {
-                let bitvm2_graph: Bitvm2Graph =
-                    serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
-                match client.finish_withdraw_unhappy_path(&graph_id, bitvm2_graph.take2.tx()).await
-                {
+                let take2_tx = client.fetch_btc_tx(&take2_txid).await?;
+                match client.finish_withdraw_unhappy_path(&graph_id, &take2_tx).await {
                     Err(err) => {
                         // other place will do finish_unwithdraw_happy_path too
                         warn!(
