@@ -429,7 +429,16 @@ pub struct GraphTickActionMetaData {
     pub assert_init_txid: Option<String>,
     pub assert_commit_txids: Option<String>,
     pub assert_final_txid: Option<String>,
-    pub raw_data: Option<String>,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct MessageBroadcast {
+    pub instance_id: Uuid,
+    pub graph_id: Option<Uuid>,
+    pub msg_type: String,
+    pub msg_times: i64,
+    pub updated_at: i64,
+    pub created_at: i64,
 }
 
 fn reversed_btc_txid(tx_id: &str) -> String {

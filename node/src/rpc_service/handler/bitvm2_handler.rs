@@ -2,6 +2,7 @@ use crate::env::MODIFY_GRAPH_STATUS_TIME_THRESHOLD;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
+use alloy::primitives::Address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
@@ -11,9 +12,9 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
+use store::localdb::FilterGraphParams;
 use store::{
-    BridgeInStatus, BridgePath, Graph, Instance, Message, MessageState, MessageType,
-    modify_graph_status,
+    BridgeInStatus, BridgePath, Instance, Message, MessageState, MessageType, modify_graph_status,
 };
 use uuid::Uuid;
 
@@ -31,12 +32,16 @@ pub async fn bridge_in_tx_prepare(
 ) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&payload.instance_id)?;
+        let (is_goat_addr, to_address) = reflect_goat_address(Some(payload.to.clone()));
+        if !is_goat_addr {
+            return Err(format!("payload field {}   is not goat chain address", payload.to).into());
+        }
         let instance = Instance {
             instance_id,
             network: payload.network.clone(),
             bridge_path: BridgePath::BTCToPgBTC.to_u8(),
             from_addr: payload.from.clone(),
-            to_addr: payload.to.clone(),
+            to_addr: to_address.unwrap().to_string(),
             amount: payload.amount,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
@@ -46,6 +51,12 @@ pub async fn bridge_in_tx_prepare(
         };
 
         let mut tx = app_state.bitvm2_client.local_db.start_transaction().await?;
+        let instance_pre_op = tx.get_instance(&instance_id).await?;
+        if instance_pre_op.is_some() {
+            tracing::info!("{instance_id} is used");
+            return Err(format!("{instance_id} is used").into());
+        }
+
         let _ = tx.create_instance(instance.clone()).await?;
         let p2p_user_data: P2pUserData = (&payload).into();
         if !p2p_user_data.user_inputs.validate_amount() {
@@ -95,7 +106,12 @@ pub async fn graph_presign_check(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let mut instance = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.get_instance(&instance_id).await?;
+        if instance_op.is_none() {
+            tracing::info!("instance_id {} has no record in database", instance_id);
+            return Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone);
+        }
+        let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
         resp_clone.instance_status = instance.status.clone();
         resp_clone.tx = Some(instance);
@@ -189,7 +205,7 @@ async fn get_tx_eta(
     interval: u32,
 ) -> anyhow::Result<String> {
     if tx_id.is_none() {
-        return Ok("Transaction need to send to btc".to_string());
+        return Ok("-".to_string());
     }
     let tx_id = tx_id.unwrap();
     let status = btc_client.get_tx_status(&Txid::from_str(&tx_id)?).await?;
@@ -271,7 +287,14 @@ pub async fn get_instance(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&instance_id)?;
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let mut instance = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.get_instance(&instance_id).await?;
+        if instance_op.is_none() {
+            tracing::info!("instance_id {} has no record in database", instance_id);
+            return Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
+                instance_wrap: InstanceWrap { utxo: None, instance: None, eta: None },
+            });
+        }
+        let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
         let network = instance.network.clone();
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
@@ -342,7 +365,16 @@ pub async fn get_graph(
         let current_time = current_time_secs();
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let mut graph = storage_process.get_graph(&graph_id).await?;
+        let graph_op = storage_process.get_graph(&graph_id).await?;
+        if graph_op.is_none() {
+            tracing::warn!("graph:{} is not record in db", graph_id);
+            return Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse {
+                graph: None,
+            });
+        };
+        let mut graph = graph_op.unwrap();
+        // front end unused data
+        graph.raw_data = None;
         graph.status = modify_graph_status(
             &graph.status,
             graph.updated_at,
@@ -350,13 +382,13 @@ pub async fn get_graph(
             MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
         );
         graph.reverse_btc_txid();
-        Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph })
+        Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: Some(graph) })
     };
     match async_fn().await {
         Ok(res) => (StatusCode::OK, Json(res)),
         Err(err) => {
             tracing::warn!("get_graph  err:{:?}", err);
-            (StatusCode::OK, Json(GraphGetResponse { graph: Graph::default() }))
+            (StatusCode::OK, Json(GraphGetResponse { graph: None }))
         }
     }
 }
@@ -394,15 +426,21 @@ pub async fn get_graphs(
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut from_addr = params.from_addr.clone();
+        let (is_goat_address, goat_address) = reflect_goat_address(params.from_addr);
+        if is_goat_address {
+            from_addr = goat_address;
+        }
         let (graphs, total) = storage_process
-            .filter_graphs(
-                params.status,
-                params.operator,
-                params.from_addr,
-                params.pegin_txid,
-                params.offset,
-                params.limit,
-            )
+            .filter_graphs(FilterGraphParams {
+                is_bridge_out: is_goat_address,
+                status: params.status,
+                operator: params.operator,
+                from_addr,
+                pegin_txid: params.pegin_txid,
+                offset: params.offset,
+                limit: params.limit,
+            })
             .await?;
         resp_clone.total = total;
 
@@ -445,4 +483,13 @@ pub async fn get_graphs(
             (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
         }
     }
+}
+
+pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
+    if let Some(addr) = addr_op {
+        if let Ok(addr) = Address::from_str(&addr) {
+            return (true, Some(addr.to_string()));
+        }
+    }
+    (false, None)
 }

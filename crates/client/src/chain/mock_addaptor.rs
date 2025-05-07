@@ -1,4 +1,5 @@
 use crate::chain::chain_adaptor::*;
+use alloy::primitives::TxHash;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -38,7 +39,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -47,7 +48,7 @@ impl ChainAdaptor for MockAdaptor {
         _instance_id: &Uuid,
         _graph_id: &Uuid,
         _operator_data: &OperatorData,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -56,7 +57,7 @@ impl ChainAdaptor for MockAdaptor {
         _instance_id: &Uuid,
         _graph_ids: &[Uuid],
         _operator_datas: &[OperatorData],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -82,11 +83,11 @@ impl ChainAdaptor for MockAdaptor {
         todo!()
     }
 
-    async fn init_withdraw(&self, _instance_id: &Uuid, _graph_id: &Uuid) -> anyhow::Result<()> {
+    async fn init_withdraw(&self, _instance_id: &Uuid, _graph_id: &Uuid) -> anyhow::Result<String> {
         todo!()
     }
 
-    async fn cancel_withdraw(&self, _graph_id: &Uuid) -> anyhow::Result<()> {
+    async fn cancel_withdraw(&self, _graph_id: &Uuid) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -98,7 +99,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -110,7 +111,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -122,7 +123,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -134,7 +135,7 @@ impl ChainAdaptor for MockAdaptor {
         _height: u64,
         _proof: &[[u8; 32]],
         _index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         todo!()
     }
 
@@ -146,6 +147,10 @@ impl ChainAdaptor for MockAdaptor {
         _pindex: u64,
     ) -> anyhow::Result<bool> {
         Ok(true)
+    }
+
+    async fn is_tx_execute_success(&self, _tx_hash: TxHash) -> anyhow::Result<bool> {
+        todo!()
     }
 }
 

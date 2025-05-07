@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE  node SET updated_at = ? WHERE peer_id = ? ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "0614e6466d9d04b4b76d3ce2b4bbaad3ae674f5a0f6264f745e7ba19b536fb4f"
+}

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  FROM node WHERE goat_addr =?",
+  "describe": {
+    "columns": [
+      {
+        "name": "peer_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "goat_addr",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "btc_pub_key",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6be91c09a2fbc3860108eb9c5b56a6ebc004f82eb86fe8c41ff1ee59b5826024"
+}

@@ -1,3 +1,4 @@
+use crate::rpc_service::handler::bitvm2_handler::reflect_goat_address;
 use crate::rpc_service::node::{
     ALIVE_TIME_JUDGE_THRESHOLD, NodeDesc, NodeListResponse, NodeOverViewResponse, NodeQueryParams,
     UpdateOrInsertNodeRequest,
@@ -47,10 +48,11 @@ pub async fn get_nodes(
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
+        let (_, goat_addr) = reflect_goat_address(query_params.goat_addr);
         let (nodes, total) = storage_process
             .node_list(
                 query_params.actor,
-                query_params.goat_addr,
+                goat_addr,
                 query_params.offset,
                 query_params.limit,
                 time_threshold,

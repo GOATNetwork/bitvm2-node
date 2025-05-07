@@ -1,6 +1,6 @@
 use crate::chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::chain::mock_addaptor::{MockAdaptor, MockAdaptorConfig};
-use alloy::primitives::U256;
+use alloy::primitives::{TxHash, U256};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -19,21 +19,21 @@ pub trait ChainAdaptor: Send + Sync {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<String>;
 
     async fn post_operator_data(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
         operator_data: &OperatorData,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<String>;
 
     async fn post_operator_data_batch(
         &self,
         instance_id: &Uuid,
         graph_ids: &[Uuid],
         operator_datas: &[OperatorData],
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<String>;
 
     async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
 
@@ -47,8 +47,8 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
-    async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<()>;
-    async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<()>;
+    async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<String>;
+    async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String>;
     async fn process_withdraw(
         &self,
         graph_id: &Uuid,
@@ -57,7 +57,7 @@ pub trait ChainAdaptor: Send + Sync {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<String>;
     async fn finish_withdraw_happy_path(
         &self,
         graph_id: &Uuid,
@@ -66,7 +66,7 @@ pub trait ChainAdaptor: Send + Sync {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<String>;
     async fn finish_withdraw_unhappy_path(
         &self,
         graph_id: &Uuid,
@@ -75,7 +75,7 @@ pub trait ChainAdaptor: Send + Sync {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<String>;
 
     async fn finish_withdraw_disproved(
         &self,
@@ -85,7 +85,7 @@ pub trait ChainAdaptor: Send + Sync {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<String>;
 
     async fn verify_merkle_proof(
         &self,
@@ -94,6 +94,8 @@ pub trait ChainAdaptor: Send + Sync {
         leaf: &[u8; 32],
         index: u64,
     ) -> anyhow::Result<bool>;
+
+    async fn is_tx_execute_success(&self, tx_hash: TxHash) -> anyhow::Result<bool>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {

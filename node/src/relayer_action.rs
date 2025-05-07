@@ -13,24 +13,24 @@ use crate::{
     middleware::AllBehaviours,
     utils::tx_on_chain,
 };
+use alloy::primitives::TxHash;
 use bitcoin::Txid;
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitvm2_lib::actors::Actor;
-use bitvm2_lib::types::Bitvm2Graph;
 use client::client::BitVM2Client;
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
-use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::{
     constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK},
     utils::num_blocks_per_network,
 };
 use libp2p::Swarm;
+use std::str::FromStr;
 use std::time::UNIX_EPOCH;
 use store::{
     BridgeInStatus, BridgePath, GraphStatus, GraphTickActionMetaData, MessageState, MessageType,
 };
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -45,7 +45,6 @@ pub struct GraphTickActionData {
     pub assert_init_txid: Option<Txid>,
     pub assert_commit_txids: Option<[Txid; COMMIT_TX_NUM]>,
     pub assert_final_txid: Option<Txid>,
-    pub raw_data: Option<String>,
 }
 
 impl From<GraphTickActionMetaData> for GraphTickActionData {
@@ -86,7 +85,6 @@ impl From<GraphTickActionMetaData> for GraphTickActionData {
             assert_init_txid: tx_convert(value.assert_init_txid),
             assert_commit_txids,
             assert_final_txid: tx_convert(value.assert_final_txid),
-            raw_data: value.raw_data,
         }
     }
 }
@@ -139,6 +137,7 @@ pub async fn scan_bridge_in_prepare(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start tick scan_bridge_in_prepare");
     let mut storage_process = client.local_db.acquire().await?;
     let current_time =
         std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -151,7 +150,7 @@ pub async fn scan_bridge_in_prepare(
         .await?;
 
     let mut ids = vec![];
-    tracing::info!("messages size :{}", messages.len());
+    info!("messages size :{}", messages.len());
 
     for message in messages {
         let p2p_data: P2pUserData = serde_json::from_slice(&message.content)?;
@@ -165,7 +164,7 @@ pub async fn scan_bridge_in_prepare(
         send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
         ids.push(message.id)
     }
-    tracing::info!("send msg:{:?} for create instances", ids);
+    info!("send msg:{:?} for create instances", ids);
     storage_process
         .update_messages_state(&ids, MessageState::Processed.to_string(), current_time)
         .await?;
@@ -173,12 +172,11 @@ pub async fn scan_bridge_in_prepare(
     Ok(())
 }
 
-pub async fn scan_bridge_in(
+pub async fn scan_l1_broadcast_txs(
     _swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // scan bridge-in tx & relay to L2 contract: postPeginData & postOperatorData
-
+    info!("Starting into scan_l1_broadcast_txs");
     let mut storage_process = client.local_db.acquire().await?;
     let (instances, _) = storage_process
         .instance_list(
@@ -191,17 +189,21 @@ pub async fn scan_bridge_in(
         .await
         .unwrap();
 
+    info!("Starting into scan_l1_broadcast_txs, need to check instance_size:{} ", instances.len());
+
     for instance in instances {
         if instance.pegin_txid.is_none() {
             warn!("instance:{}, pegin txid is none", instance.instance_id);
             continue;
         }
-
-        if tx_on_chain(client, &deserialize_hex(instance.pegin_txid.unwrap().as_str())?).await? {
+        let tx_id = deserialize_hex(instance.pegin_txid.unwrap().as_str())?;
+        if tx_on_chain(client, &tx_id).await? {
+            info!("scan_bridge_in: {} onchain ", tx_id.to_string());
             let update_res = storage_process
-                .update_instance_status_and_pegin_txid(
+                .update_instance_fields(
                     &instance.instance_id,
                     Some(BridgeInStatus::L1Broadcasted.to_string()),
+                    None,
                     None,
                 )
                 .await;
@@ -212,43 +214,102 @@ pub async fn scan_bridge_in(
                 );
                 continue;
             }
+        } else {
+            info!("scan_l1_broadcast_txs: {} not onchain ", tx_id.to_string());
+        }
+    }
+    Ok(())
+}
 
-            let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
-            if graphs.is_empty() {
-                warn!("instance {}, status is presigned, but graph is none", instance.instance_id);
-                continue;
-            }
-            if graphs[0].raw_data.is_none() {
-                warn!(
-                    "instance {}, status is presigned, but graph_id raw data is none",
-                    instance.instance_id
+pub async fn scan_bridge_in(
+    _swarm: &mut Swarm<AllBehaviours>,
+    client: &BitVM2Client,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // scan bridge-in tx & relay to L2 contract: postPeginData & postOperatorData
+    info!("Starting into scan_bridge_in");
+    let mut storage_process = client.local_db.acquire().await?;
+    let (instances, _) = storage_process
+        .instance_list(
+            None,
+            Some(BridgePath::BTCToPgBTC.to_u8()),
+            Some(BridgeInStatus::L1Broadcasted.to_string()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    info!("Starting into scan_bridge_in, need to send instance_size:{} ", instances.len());
+    for instance in instances {
+        if instance.pegin_txid.is_none() {
+            warn!("instance:{}, pegin txid is none", instance.instance_id);
+            continue;
+        }
+        let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
+        if graphs.is_empty() {
+            warn!("instance {}, status is presigned, but graph is none", instance.instance_id);
+            continue;
+        }
+        if let Ok(tx_hash) = TxHash::from_str(&instance.goat_txid) {
+            let is_finish_pegin =
+                client.chain_service.adaptor.is_tx_execute_success(tx_hash).await?;
+            if !is_finish_pegin {
+                info!(
+                    "scan_bridge_in, instance_id: {}, goat_tx:{} finish send to chain \
+                but get receipt status is false, will try later",
+                    instance.instance_id, instance.goat_txid
                 );
                 continue;
             }
-            let bitvm_graph: Bitvm2Graph =
-                serde_json::from_str(&graphs[0].raw_data.clone().unwrap())?;
-            client.post_pegin_data(&instance.instance_id, bitvm_graph.pegin.tx()).await?;
+
+            storage_process
+                .update_instance_fields(
+                    &instance.instance_id,
+                    Some(BridgeInStatus::L2Minted.to_string()),
+                    None,
+                    None,
+                )
+                .await?;
 
             for graph in graphs {
-                // TODO fix later
                 if graph.status != GraphStatus::CommitteePresigned.to_string() {
                     continue;
                 }
                 match client.post_operate_data(&instance.instance_id, &graph.graph_id, &graph).await
                 {
-                    Ok(_) => {}
+                    Ok(tx_hash) => {
+                        info!(
+                            "finish post operate data for instance_id {}, graph_id:{} , tx hash:{}",
+                            instance.instance_id, graph.graph_id, tx_hash
+                        );
+                    }
                     Err(err) => {
                         warn!("{} postOperatorData failed :err :{:?}", graph.graph_id, err)
                     }
                 }
-                storage_process
-                    .update_instance_status_and_pegin_txid(
-                        &instance.instance_id,
-                        Some(BridgeInStatus::L2Minted.to_string()),
-                        None,
-                    )
-                    .await?;
             }
+        } else {
+            let pegin_tx = client.fetch_btc_tx(&deserialize_hex(&graphs[0].pegin_txid)?).await?;
+            match client.post_pegin_data(&instance.instance_id, &pegin_tx).await {
+                Err(err) => {
+                    warn!(
+                        "instance id {}, tx:{} post_pegin_data failed err:{:?}",
+                        instance.instance_id,
+                        pegin_tx.compute_txid().to_string(),
+                        err
+                    );
+                    continue;
+                }
+                Ok(tx_hash) => {
+                    info!(
+                        "finish post post_pegin_dataa for instance_id {} , tx hash:{}",
+                        instance.instance_id, tx_hash
+                    );
+                    storage_process
+                        .update_instance_fields(&instance.instance_id, None, None, Some(tx_hash))
+                        .await?;
+                }
+            };
         }
     }
     Ok(())
@@ -259,6 +320,7 @@ pub async fn scan_withdraw(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start tick action: scan_withdraw");
     let graphs = get_initialized_graphs(client).await?;
     for (instance_id, graph_id) in graphs {
         let message_content =
@@ -290,12 +352,14 @@ pub async fn scan_kickoff(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start tick action: scan_kickoff");
     let graph_datas = get_relayer_caring_graph_data(
         client,
         GraphStatus::CommitteePresigned,
         MessageType::KickoffSent.to_string(),
     )
     .await?;
+    info!("scan_kickoff get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
         if graph_data.kickoff_txid.is_none() {
             warn!("graph_id {}, kickoff txid is none", graph_data.graph_id);
@@ -322,26 +386,28 @@ pub async fn scan_kickoff(
             .await?;
         }
         if graph_data.msg_times == 0 {
-            if graph_data.raw_data.is_none() {
-                warn!(
-                    "instance_id:{}, graph_id:{} raw_data is none",
-                    graph_data.instance_id, graph_data.graph_id
-                );
-                continue;
-            }
-            let bitvm2_graph: Bitvm2Graph =
-                serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
-            client.process_withdraw(&graph_data.graph_id, bitvm2_graph.kickoff.tx()).await?;
+            let kickoff_tx = client.fetch_btc_tx(&kickoff_txid).await?;
+            match client.process_withdraw(&graph_data.graph_id, &kickoff_tx).await {
+                Ok(tx_hash) => {
+                    info!(
+                        "instance_id: {}, graph_id:{}  finish withdraw, tx hash :{}",
+                        instance_id, graph_id, tx_hash
+                    );
 
-            update_graph_fields(
-                client,
-                graph_data.graph_id,
-                Some(GraphStatus::KickOff.to_string()),
-                None,
-                None,
-                None,
-            )
-            .await?
+                    update_graph_fields(
+                        client,
+                        graph_data.graph_id,
+                        Some(GraphStatus::KickOff.to_string()),
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?
+                }
+                Err(err) => {
+                    warn!("scan_kickoff: err:{err:?}");
+                }
+            }
         }
     }
     Ok(())
@@ -352,6 +418,7 @@ pub async fn scan_assert(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start tick action: scan_assert");
     let mut graphs = get_relayer_caring_graph_data(
         client,
         GraphStatus::Challenge,
@@ -365,6 +432,7 @@ pub async fn scan_assert(
     )
     .await?; // in case challenger never broadcast ChallengeSent
     graphs.append(&mut graphs_kickoff);
+    info!("scan_assert get graph datas size: {}", graphs.len());
     for graph_data in graphs {
         if graph_data.assert_final_txid.is_none()
             | graph_data.assert_final_txid.is_none()
@@ -428,6 +496,7 @@ pub async fn scan_take1(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start tick action: scan_take1");
     let graph_datas = get_relayer_caring_graph_data(
         client,
         GraphStatus::KickOff,
@@ -436,13 +505,14 @@ pub async fn scan_take1(
     .await?;
     let current_height = client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
+    info!("scan_take1 get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
-        if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
-            warn!("graph_id:{} take1 ready has send over max times", graph_id);
-            continue;
-        }
+        // if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
+        //     warn!("graph_id:{} take1 ready has send over max times", graph_id);
+        //     continue;
+        // }
         if graph_data.msg_times > 0 {
             if graph_data.take1_txid.is_none() {
                 warn!("graph_id:{}, take1 txid is none", graph_id);
@@ -451,9 +521,8 @@ pub async fn scan_take1(
             let take1_txid = graph_data.take1_txid.unwrap();
             let take1_height = client.esplora.get_tx_status(&take1_txid).await?.block_height;
             if take1_height.is_some() {
-                let bitvm2_graph: Bitvm2Graph =
-                    serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
-                match client.finish_withdraw_happy_path(&graph_id, bitvm2_graph.take1.tx()).await {
+                let take1_tx = client.fetch_btc_tx(&take1_txid).await?;
+                match client.finish_withdraw_happy_path(&graph_id, &take1_tx).await {
                     Err(err) => {
                         // other place will do finish_withdraw_happy_path too
                         warn!(
@@ -461,7 +530,11 @@ pub async fn scan_take1(
                             graph_id, err
                         );
                     }
-                    Ok(()) => {
+                    Ok(tx_hash) => {
+                        info!(
+                            "instance_id: {}, graph_id:{} take1 finish send, tx hash :{}",
+                            instance_id, graph_id, tx_hash
+                        );
                         update_graph_fields(
                             client,
                             graph_id,
@@ -473,6 +546,12 @@ pub async fn scan_take1(
                         .await?;
                     }
                 }
+            } else {
+                info!(
+                    "graph_id:{},  take1_txid{}  not no chain",
+                    graph_data.graph_id,
+                    take1_txid.to_string()
+                )
             }
         } else {
             if graph_data.kickoff_txid.is_none() {
@@ -482,7 +561,10 @@ pub async fn scan_take1(
             if let Some(kickoff_height) =
                 client.esplora.get_tx_status(&graph_data.kickoff_txid.unwrap()).await?.block_height
             {
-                if kickoff_height + lock_blocks > current_height {
+                info!(
+                    "graph_id:{graph_id}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"
+                );
+                if kickoff_height + lock_blocks <= current_height {
                     let message_content =
                         GOATMessageContent::Take1Ready(Take1Ready { instance_id, graph_id });
                     send_to_peer(
@@ -497,7 +579,16 @@ pub async fn scan_take1(
                         graph_data.msg_times + 1,
                     )
                     .await?;
+                    info!(
+                        "finish send take1 ready for instance_id:{instance_id}, graph_id:{graph_id}"
+                    );
                 }
+            } else {
+                info!(
+                    "graph_id:{},  kickoff_txid{}  not no chain",
+                    graph_data.graph_id,
+                    graph_data.kickoff_txid.unwrap().to_string()
+                )
             }
         }
     }
@@ -509,6 +600,7 @@ pub async fn scan_take2(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start tick action: scan_take2");
     let graph_datas = get_relayer_caring_graph_data(
         client,
         GraphStatus::Assert,
@@ -517,13 +609,11 @@ pub async fn scan_take2(
     .await?;
     let current_height = client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
+
+    info!("scan_take2 get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
-        if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
-            warn!("graph_id:{} take2 ready has send over max times", graph_id);
-            continue;
-        }
         if graph_data.msg_times > 0 {
             if graph_data.take2_txid.is_none() {
                 warn!("graph_id:{}, take2 txid is none", graph_id);
@@ -532,10 +622,8 @@ pub async fn scan_take2(
             let take2_txid = graph_data.take2_txid.unwrap();
             let take2_height = client.esplora.get_tx_status(&take2_txid).await?.block_height;
             if take2_height.is_some() {
-                let bitvm2_graph: Bitvm2Graph =
-                    serde_json::from_str(graph_data.raw_data.unwrap().as_str())?;
-                match client.finish_withdraw_unhappy_path(&graph_id, bitvm2_graph.take2.tx()).await
-                {
+                let take2_tx = client.fetch_btc_tx(&take2_txid).await?;
+                match client.finish_withdraw_unhappy_path(&graph_id, &take2_tx).await {
                     Err(err) => {
                         // other place will do finish_unwithdraw_happy_path too
                         warn!(
@@ -543,7 +631,11 @@ pub async fn scan_take2(
                             graph_data.graph_id, err
                         );
                     }
-                    Ok(()) => {
+                    Ok(tx_hash) => {
+                        info!(
+                            "instance_id: {}, graph_id:{}  finish take2, tx hash :{}",
+                            instance_id, graph_id, tx_hash
+                        );
                         update_graph_fields(
                             client,
                             graph_data.graph_id,
@@ -555,10 +647,16 @@ pub async fn scan_take2(
                         .await?;
                     }
                 }
+            } else {
+                info!(
+                    "graph_id:{},  take2_txid{}  not no chain",
+                    graph_data.graph_id,
+                    take2_txid.to_string()
+                )
             }
         } else {
             if graph_data.assert_final_txid.is_none() {
-                warn!("graph_id:{}, assert_final txid  is none", graph_id);
+                warn!("graph_id:{graph_id}, assert_final txid  is none");
                 continue;
             }
             if let Some(asset_final_height) = client
@@ -567,7 +665,10 @@ pub async fn scan_take2(
                 .await?
                 .block_height
             {
-                if asset_final_height + lock_blocks > current_height {
+                info!(
+                    "graph_id:{graph_id}, asset_final_height:{asset_final_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"
+                );
+                if asset_final_height + lock_blocks <= current_height {
                     let message_content =
                         GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id });
                     send_to_peer(
@@ -582,7 +683,16 @@ pub async fn scan_take2(
                         graph_data.msg_times + 1,
                     )
                     .await?;
+                    info!(
+                        "finish send take2 ready for instance_id:{instance_id}, graph_id:{graph_id}"
+                    );
                 }
+            } else {
+                info!(
+                    "graph_id:{},  assert_final_txid{}  not no chain",
+                    graph_data.graph_id,
+                    graph_data.assert_final_txid.unwrap().to_string()
+                )
             }
         }
     }
@@ -595,6 +705,10 @@ pub async fn do_tick_action(
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Err(err) = scan_bridge_in_prepare(swarm, client).await {
         warn!("scan_bridge_in_prepare, err {:?}", err)
+    }
+
+    if let Err(err) = scan_l1_broadcast_txs(swarm, client).await {
+        warn!("scan_l1_broadcast_txs, err {:?}", err)
     }
     if let Err(err) = scan_bridge_in(swarm, client).await {
         warn!("scan_bridge_in, err {:?}", err)

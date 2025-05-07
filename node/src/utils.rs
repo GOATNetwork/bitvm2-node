@@ -1,4 +1,4 @@
-use crate::action::CreateGraphPrepare;
+use crate::action::{CreateGraphPrepare, NodeInfo};
 use crate::env::*;
 use crate::rpc_service::current_time_secs;
 use ark_serialize::CanonicalDeserialize;
@@ -27,13 +27,10 @@ use goat::connectors::connector_6::Connector6;
 use goat::constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::transactions::base::Input;
-use goat::transactions::disprove::DisproveTransaction;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::signing::{
     generate_taproot_leaf_schnorr_signature, populate_p2wsh_witness, populate_taproot_input_witness,
 };
-use goat::transactions::take_1::Take1Transaction;
-use goat::transactions::take_2::Take2Transaction;
 use goat::utils::num_blocks_per_network;
 use musig2::{PartialSignature, PubNonce};
 use statics::*;
@@ -41,7 +38,9 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::str::FromStr;
-use store::{BridgeInStatus, Graph, GraphStatus};
+use std::time::{SystemTime, UNIX_EPOCH};
+use store::{BridgeInStatus, Graph, GraphStatus, Node};
+use tracing::warn;
 use uuid::Uuid;
 
 pub mod statics {
@@ -708,24 +707,30 @@ pub fn get_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
 pub async fn finish_withdraw_happy_path(
     client: &BitVM2Client,
     graph_id: &Uuid,
-    take1: &Take1Transaction,
-) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(client.finish_withdraw_happy_path(graph_id, take1.tx()).await?)
+    tx: &Transaction,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let tx_hash = client.finish_withdraw_happy_path(graph_id, tx).await?;
+    tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
+    Ok(tx_hash)
 }
 pub async fn finish_withdraw_unhappy_path(
     client: &BitVM2Client,
     graph_id: &Uuid,
-    take2: &Take2Transaction,
-) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(client.finish_withdraw_unhappy_path(graph_id, take2.tx()).await?)
+    tx: &Transaction,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let tx_hash = client.finish_withdraw_unhappy_path(graph_id, tx).await?;
+    tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
+    Ok(tx_hash)
 }
 
 pub async fn finish_withdraw_disproved(
     client: &BitVM2Client,
     graph_id: &Uuid,
-    disprove: &DisproveTransaction,
-) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(client.finish_withdraw_disproved(graph_id, disprove.tx()).await?)
+    tx: &Transaction,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let tx_hash = client.finish_withdraw_disproved(graph_id, tx).await?;
+    tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
+    Ok(tx_hash)
 }
 
 /// db support
@@ -898,10 +903,11 @@ pub async fn store_graph(
     if let Some(status) = status {
         if status == GraphStatus::CommitteePresigned.to_string() {
             transaction
-                .update_instance_status_and_pegin_txid(
+                .update_instance_fields(
                     &instance_id,
                     Some(BridgeInStatus::Presigned.to_string()),
                     Some(serialize_hex(&graph.pegin.tx().compute_txid())),
+                    None,
                 )
                 .await?
         }
@@ -927,7 +933,12 @@ pub async fn get_graph(
     graph_id: Uuid,
 ) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
-    let graph = storage_process.get_graph(&graph_id).await?;
+    let graph_op = storage_process.get_graph(&graph_id).await?;
+    if graph_op.is_none() {
+        tracing::warn!("graph:{} is not record in db", graph_id);
+        return Err(format!("graph:{graph_id} is not record in db").into());
+    };
+    let graph = graph_op.unwrap();
     if graph.instance_id.ne(&instance_id) {
         return Err(format!(
             "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
@@ -1054,6 +1065,48 @@ pub mod defer {
         let _ = guarded_operation(false);
         assert!(!is_processing_graph());
     }
+}
+
+pub async fn save_node_info(
+    client: &BitVM2Client,
+    node_info: &NodeInfo,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("save_node_info for {}", node_info.peer_id);
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let mut storage_process = client.local_db.acquire().await?;
+    let _ = storage_process
+        .update_node(Node {
+            peer_id: node_info.peer_id.clone(),
+            actor: node_info.actor.clone(),
+            goat_addr: node_info.goat_addr.clone(),
+            btc_pub_key: node_info.btc_pub_key.clone(),
+            updated_at: current_time,
+            created_at: current_time,
+        })
+        .await;
+    Ok(())
+}
+
+pub async fn save_local_info(client: &BitVM2Client) {
+    let node = get_local_node_info();
+    match save_node_info(client, &node).await {
+        Ok(_) => {}
+        Err(err) => tracing::error!("save local node err: {err}"),
+    }
+}
+
+pub async fn update_node_timestamp(
+    client: &BitVM2Client,
+    peer_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("update timestamp for {peer_id}");
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let mut storage_process = client.local_db.acquire().await?;
+    match storage_process.update_node_timestamp(peer_id, current_time).await {
+        Ok(_) => {}
+        Err(err) => warn!("{err}"),
+    };
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use crate::env::{self, get_node_pubkey};
+use crate::env::{self, get_local_node_info, get_node_pubkey};
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;
 use crate::utils::{statics::*, *};
@@ -43,6 +43,8 @@ pub enum GOATMessageContent {
     Take2Ready(Take2Ready),
     Take2Sent(Take2Sent),
     DisproveSent(DisproveSent),
+    RequestNodeInfo(NodeInfo),
+    ResponseNodeInfo(NodeInfo),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -161,6 +163,14 @@ pub struct DisproveSent {
     pub disprove_txid: Txid,
 }
 
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct NodeInfo {
+    pub peer_id: String,
+    pub actor: String,
+    pub goat_addr: String,
+    pub btc_pub_key: String,
+}
+
 impl GOATMessage {
     pub fn from_typed<T: Serialize>(actor: Actor, value: &T) -> Result<Self, serde_json::Error> {
         let content = serde_json::to_vec(value)?;
@@ -195,6 +205,8 @@ pub async fn recv_and_dispatch(
         }
         return Ok(());
     }
+
+    update_node_timestamp(client, &peer_id.to_string()).await?;
 
     let message: GOATMessage = serde_json::from_slice(message)?;
     let content: GOATMessageContent = message.to_typed()?;
@@ -785,7 +797,8 @@ pub async fn recv_and_dispatch(
             let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             let take1_txid = graph.take1.tx().compute_txid();
             if tx_on_chain(client, &take1_txid).await? {
-                finish_withdraw_happy_path(client, &receive_data.graph_id, &graph.take1).await?;
+                finish_withdraw_happy_path(client, &receive_data.graph_id, graph.take1.tx())
+                    .await?;
                 update_graph_fields(
                     client,
                     receive_data.graph_id,
@@ -802,7 +815,8 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle Take2Sent");
             let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             if tx_on_chain(client, &graph.take2.tx().compute_txid()).await? {
-                finish_withdraw_unhappy_path(client, &receive_data.graph_id, &graph.take2).await?;
+                finish_withdraw_unhappy_path(client, &receive_data.graph_id, graph.take2.tx())
+                    .await?;
                 update_graph_fields(
                     client,
                     receive_data.graph_id,
@@ -825,7 +839,12 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
-                finish_withdraw_disproved(client, &receive_data.graph_id, &graph.disprove).await?;
+                finish_withdraw_disproved(
+                    client,
+                    &receive_data.graph_id,
+                    &client.fetch_btc_tx(&receive_data.disprove_txid).await?,
+                )
+                .await?;
                 update_graph_fields(
                     client,
                     receive_data.graph_id,
@@ -1003,6 +1022,17 @@ pub async fn recv_and_dispatch(
                 // NOTE: clean up other graphs?
             }
         }
+
+        (GOATMessageContent::RequestNodeInfo(node_info), _) => {
+            save_node_info(client, &node_info).await?;
+            let message_content = GOATMessageContent::ResponseNodeInfo(get_local_node_info());
+            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+        }
+
+        (GOATMessageContent::ResponseNodeInfo(node_info), _) => {
+            save_node_info(client, &node_info).await?;
+        }
+
         _ => {}
     }
     Ok(())

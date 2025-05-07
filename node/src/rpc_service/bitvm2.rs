@@ -107,7 +107,7 @@ pub struct InstanceOverview {
 
 #[derive(Deserialize, Serialize)]
 pub struct GraphGetResponse {
-    pub graph: Graph,
+    pub graph: Option<Graph>,
 }
 
 #[derive(Deserialize)]
@@ -180,11 +180,12 @@ impl From<&BridgeInTransactionPreparerRequest> for P2pUserData {
             ),
             change_address,
         };
-        let env_address: web3::types::Address = value.to.parse().expect("decode eth address");
+        let env_address =
+            alloy::primitives::Address::from_str(&value.to).expect("fail to decode address");
         Self {
             instance_id: Uuid::parse_str(&value.instance_id).unwrap(),
             network,
-            depositor_evm_address: env_address.0,
+            depositor_evm_address: env_address.into_array(),
             pegin_amount: Amount::from_sat(value.amount as u64),
             user_inputs,
         }

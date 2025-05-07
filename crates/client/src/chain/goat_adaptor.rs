@@ -341,7 +341,7 @@ impl ChainAdaptor for GoatAdaptor {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let proof: Vec<FixedBytes<32>> =
             proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request: TransactionRequest = self
@@ -357,8 +357,8 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let res = self.handle_transaction_request(tx_request).await?;
+        Ok(res.to_string())
     }
 
     async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
@@ -395,7 +395,7 @@ impl ChainAdaptor for GoatAdaptor {
         instance_id: &Uuid,
         graph_id: &Uuid,
         operator_data: &OperatorData,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .postOperatorData(
@@ -407,8 +407,8 @@ impl ChainAdaptor for GoatAdaptor {
             .chain_id(self.chain_id)
             .into_transaction_request();
 
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let res = self.handle_transaction_request(tx_request).await?;
+        Ok(res.to_string())
     }
 
     async fn post_operator_data_batch(
@@ -416,7 +416,7 @@ impl ChainAdaptor for GoatAdaptor {
         instance_id: &Uuid,
         graph_ids: &[Uuid],
         operator_datas: &[OperatorData],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let graph_ids =
             graph_ids.iter().map(|v| FixedBytes::<16>::from_slice(&v.into_bytes())).collect();
         let operator_datas: Vec<IGateway::OperatorData> =
@@ -431,12 +431,11 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-
-        Ok(())
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
-    async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<()> {
+    async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .initWithdraw(
@@ -446,19 +445,19 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
-    async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<()> {
+    async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .cancelWithdraw(FixedBytes::from_slice(graph_id.as_bytes()))
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
     async fn process_withdraw(
@@ -469,7 +468,7 @@ impl ChainAdaptor for GoatAdaptor {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let proof: Vec<FixedBytes<32>> =
             proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
@@ -485,8 +484,8 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
     async fn finish_withdraw_happy_path(
@@ -497,7 +496,7 @@ impl ChainAdaptor for GoatAdaptor {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let proof: Vec<FixedBytes<32>> =
             proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
@@ -513,8 +512,8 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
     async fn finish_withdraw_unhappy_path(
@@ -525,7 +524,7 @@ impl ChainAdaptor for GoatAdaptor {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let proof: Vec<FixedBytes<32>> =
             proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
@@ -541,8 +540,8 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
     async fn finish_withdraw_disproved(
@@ -553,7 +552,7 @@ impl ChainAdaptor for GoatAdaptor {
         height: u64,
         proof: &[[u8; 32]],
         index: u64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let proof: Vec<FixedBytes<32>> =
             proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
@@ -569,8 +568,8 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let _ = self.handle_transaction_request(tx_request).await?;
-        Ok(())
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
     async fn verify_merkle_proof(
@@ -603,8 +602,14 @@ impl ChainAdaptor for GoatAdaptor {
             self.gate_way.parseBtcBlockHeader(Bytes::copy_from_slice(raw_header)).call().await?;
         Ok((res.blockHash.0, res.merkleRoot.0))
     }
-}
 
+    async fn is_tx_execute_success(&self, tx_hash: TxHash) -> anyhow::Result<bool> {
+        if let Some(res) = self.provider.get_transaction_receipt(tx_hash).await? {
+            return Ok(res.status());
+        }
+        Ok(false)
+    }
+}
 impl GoatAdaptor {
     pub fn new(config: GoatInitConfig) -> Self {
         Self::from_config(config)
