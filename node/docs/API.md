@@ -101,7 +101,9 @@ pub enum NodeStatus  {
     "online_challenger": "number",
     "offline_challenger": "number",
     "online_committee": "number",
-    "offline_committee": "number"
+    "offline_committee": "number",
+    "online_relayer": "number",
+    "offline_relayer": "number"
   }
 }
 ```

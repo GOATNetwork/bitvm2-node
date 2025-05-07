@@ -543,6 +543,9 @@ impl<'a> StorageProcessor<'a> {
                 "Committee" => {
                     (res.offline_committee, res.online_committee) = (record.offline, record.online);
                 }
+                "Relayer" => {
+                    (res.offline_relayer, res.online_relayer) = (record.offline, record.online);
+                }
                 _ => {}
             };
         }
