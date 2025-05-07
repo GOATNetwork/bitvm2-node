@@ -133,25 +133,12 @@ pub enum InstanceBridgePath {
 }
 
 ///3. instance status: contain two values: InstanceStatusBridgeInStatus or InstanceStatusBridgeOutStatus 
-pub enum InstanceStatusBridgeInStatus {
+pub enum InstanceStatus {
   #[default]
   Submitted,
   Presigned, // includes operator and Committee presigns
   L1Broadcasted,
   L2Minted, // success
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub enum InstanceStatusBridgeOutStatus {
-  #[default]
-  L2Locked,
-  L1Locked,
-  L1Unlocked,
-  L2Unlocked,    // success
-  L2LockTimeout, // L2Locked -> L2 timeout (operator is offline)
-  L1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
-  L1Refunded,
-  L2Refunded,
 }
 
 /// 4.instanct.amount in bitcoin sat
@@ -302,13 +289,18 @@ pub enum GraphStatus {
   #[default]
   OperatorPresigned,
   CommitteePresigned,
+  OperatorDataPushed,
+  KickOffing,
   KickOff,
+  Challenging,
   Challenge,
+  Asserting,
   Assert,
   Take1,
   Take2,
+  Disproving,
   Disprove,   // fail to reimbursement
-  Deprecated, // reimbursement by other operators
+  Reimbursed,
 }
 
 /// graph.bridge_path 

@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
 use crate::action::CreateInstance;
-use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME};
+use crate::env::{
+    GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
+};
 use crate::rpc_service::P2pUserData;
 use crate::utils::update_graph_fields;
 use crate::{
@@ -26,7 +28,7 @@ use goat::{
 };
 use libp2p::Swarm;
 use std::str::FromStr;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 use store::{
     BridgeInStatus, BridgePath, GraphStatus, GraphTickActionMetaData, MessageState, MessageType,
 };
@@ -185,6 +187,7 @@ pub async fn scan_l1_broadcast_txs(
             Some(BridgeInStatus::Presigned.to_string()),
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -221,12 +224,12 @@ pub async fn scan_l1_broadcast_txs(
     Ok(())
 }
 
-pub async fn scan_bridge_in(
+pub async fn scan_post_pegin_data(
     _swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // scan bridge-in tx & relay to L2 contract: postPeginData & postOperatorData
-    info!("Starting into scan_bridge_in");
+    info!("Starting into post_pegin_data");
     let mut storage_process = client.local_db.acquire().await?;
     let (instances, _) = storage_process
         .instance_list(
@@ -235,19 +238,15 @@ pub async fn scan_bridge_in(
             Some(BridgeInStatus::L1Broadcasted.to_string()),
             None,
             None,
+            None,
         )
         .await
         .unwrap();
 
-    info!("Starting into scan_bridge_in, need to send instance_size:{} ", instances.len());
+    info!("Starting into scan post_pegin_data, need to send instance_size:{} ", instances.len());
     for instance in instances {
         if instance.pegin_txid.is_none() {
-            warn!("instance:{}, pegin txid is none", instance.instance_id);
-            continue;
-        }
-        let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
-        if graphs.is_empty() {
-            warn!("instance {}, status is presigned, but graph is none", instance.instance_id);
+            warn!("scan post_pegin_data instance:{}, pegin txid is none", instance.instance_id);
             continue;
         }
         if let Ok(tx_hash) = TxHash::from_str(&instance.goat_txid) {
@@ -255,13 +254,12 @@ pub async fn scan_bridge_in(
                 client.chain_service.adaptor.is_tx_execute_success(tx_hash).await?;
             if !is_finish_pegin {
                 info!(
-                    "scan_bridge_in, instance_id: {}, goat_tx:{} finish send to chain \
+                    "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
                 but get receipt status is false, will try later",
                     instance.instance_id, instance.goat_txid
                 );
                 continue;
             }
-
             storage_process
                 .update_instance_fields(
                     &instance.instance_id,
@@ -270,30 +268,13 @@ pub async fn scan_bridge_in(
                     None,
                 )
                 .await?;
-
-            for graph in graphs {
-                if graph.status != GraphStatus::CommitteePresigned.to_string() {
-                    continue;
-                }
-                match client.post_operate_data(&instance.instance_id, &graph.graph_id, &graph).await
-                {
-                    Ok(tx_hash) => {
-                        info!(
-                            "finish post operate data for instance_id {}, graph_id:{} , tx hash:{}",
-                            instance.instance_id, graph.graph_id, tx_hash
-                        );
-                    }
-                    Err(err) => {
-                        warn!("{} postOperatorData failed :err :{:?}", graph.graph_id, err)
-                    }
-                }
-            }
         } else {
-            let pegin_tx = client.fetch_btc_tx(&deserialize_hex(&graphs[0].pegin_txid)?).await?;
+            let pegin_tx =
+                client.fetch_btc_tx(&deserialize_hex(&instance.pegin_txid.unwrap())?).await?;
             match client.post_pegin_data(&instance.instance_id, &pegin_tx).await {
                 Err(err) => {
                     warn!(
-                        "instance id {}, tx:{} post_pegin_data failed err:{:?}",
+                        "scan post_pegin_data instance id {}, tx:{} post_pegin_data failed err:{:?}",
                         instance.instance_id,
                         pegin_tx.compute_txid().to_string(),
                         err
@@ -302,7 +283,7 @@ pub async fn scan_bridge_in(
                 }
                 Ok(tx_hash) => {
                     info!(
-                        "finish post post_pegin_dataa for instance_id {} , tx hash:{}",
+                        "scan post_pegin_data finish post post_pegin_dataa for instance_id {} , tx hash:{}",
                         instance.instance_id, tx_hash
                     );
                     storage_process
@@ -310,6 +291,67 @@ pub async fn scan_bridge_in(
                         .await?;
                 }
             };
+        }
+    }
+    Ok(())
+}
+
+pub async fn scan_post_operator_data(
+    _swarm: &mut Swarm<AllBehaviours>,
+    client: &BitVM2Client,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Starting into scan post_operator_data");
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let mut storage_process = client.local_db.acquire().await?;
+    let (instances, _) = storage_process
+        .instance_list(
+            None,
+            Some(BridgePath::BTCToPgBTC.to_u8()),
+            Some(BridgeInStatus::L2Minted.to_string()),
+            Some(current_time - GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    info!("scan post_operator_data check instance size: {}", instances.len());
+    for instance in instances {
+        let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
+        if graphs.is_empty() {
+            warn!(
+                " scan post_operator_data instance {}, status is L2Minted, but graph is none",
+                instance.instance_id
+            );
+            continue;
+        }
+        for graph in graphs {
+            if graph.status != GraphStatus::CommitteePresigned.to_string() {
+                continue;
+            }
+            match client.post_operate_data(&instance.instance_id, &graph.graph_id, &graph).await {
+                Ok(tx_hash) => {
+                    info!(
+                        "scan post_operator_data finish post operate data for instance_id {}, graph_id:{} , tx hash:{}",
+                        instance.instance_id, graph.graph_id, tx_hash
+                    );
+                    storage_process
+                        .update_graph_fields(
+                            graph.graph_id,
+                            Some(GraphStatus::OperatorDataPushed.to_string()),
+                            None,
+                            None,
+                            None,
+                        )
+                        .await?
+                }
+                Err(err) => {
+                    warn!(
+                        "scan post_operator_data {} postOperatorData failed :err :{:?}",
+                        graph.graph_id, err
+                    )
+                }
+            }
         }
     }
     Ok(())
@@ -355,7 +397,7 @@ pub async fn scan_kickoff(
     info!("start tick action: scan_kickoff");
     let graph_datas = get_relayer_caring_graph_data(
         client,
-        GraphStatus::CommitteePresigned,
+        GraphStatus::OperatorDataPushed,
         MessageType::KickoffSent.to_string(),
     )
     .await?;
@@ -710,8 +752,12 @@ pub async fn do_tick_action(
     if let Err(err) = scan_l1_broadcast_txs(swarm, client).await {
         warn!("scan_l1_broadcast_txs, err {:?}", err)
     }
-    if let Err(err) = scan_bridge_in(swarm, client).await {
-        warn!("scan_bridge_in, err {:?}", err)
+    if let Err(err) = scan_post_pegin_data(swarm, client).await {
+        warn!("scan_post_pegin_data, err {:?}", err)
+    }
+
+    if let Err(err) = scan_post_operator_data(swarm, client).await {
+        warn!("scan_post_operator_data, err {:?}", err)
     }
 
     if let Err(err) = scan_withdraw(swarm, client).await {

@@ -144,6 +144,7 @@ impl<'a> StorageProcessor<'a> {
         from_addr: Option<String>,
         bridge_path: Option<u8>,
         status: Option<String>,
+        earliest_created: Option<i64>,
         offset: Option<u32>,
         limit: Option<u32>,
     ) -> anyhow::Result<(Vec<Instance>, i64)> {
@@ -162,6 +163,10 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(bridge_path) = bridge_path {
             conditions.push(format!("bridge_path = {bridge_path}"));
+        }
+
+        if let Some(earliest_created) = earliest_created {
+            conditions.push(format!("created_at >= {earliest_created}"));
         }
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
@@ -265,12 +270,13 @@ impl<'a> StorageProcessor<'a> {
         let pegin_txid = if pegin_txid.is_some() { pegin_txid } else { instance.pegin_txid };
         let goat_txid =
             if let Some(goat_txid) = goat_txid { goat_txid } else { instance.goat_txid };
-
+        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let _ = sqlx::query!(
-            "UPDATE instance SET status =?, pegin_txid =?, goat_txid = ? WHERE instance_id = ?",
+            "UPDATE instance SET status =?, pegin_txid =?, goat_txid = ?, updated_at = ? WHERE instance_id = ?",
             status,
             pegin_txid,
             goat_txid,
+            current_time,
             instance_id
         )
         .execute(self.conn())
@@ -278,7 +284,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn update_graph_status_or_ipfs_base(
+    pub async fn update_graph_fields(
         &mut self,
         graph_id: Uuid,
         status: Option<String>,
@@ -303,6 +309,9 @@ impl<'a> StorageProcessor<'a> {
         if update_fields.is_empty() {
             return Ok(());
         }
+        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        update_fields.push(format!("updated_at = {current_time}"));
+
         let update_str = format!(
             "UPDATE graph SET {} WHERE hex(graph_id) = \'{}\' COLLATE NOCASE ",
             update_fields.join(" , "),

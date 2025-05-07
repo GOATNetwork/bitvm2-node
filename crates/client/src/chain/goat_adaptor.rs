@@ -13,9 +13,11 @@ use alloy::{
     sol,
     transports::http::{Client, Http, reqwest::Url},
 };
-use anyhow::format_err;
+use anyhow::{bail, format_err};
 use async_trait::async_trait;
 use std::str::FromStr;
+use std::time::Duration;
+use tokio::time;
 use uuid::Uuid;
 
 sol!(
@@ -170,6 +172,39 @@ impl GoatAdaptor {
             self.provider.send_raw_transaction(signed_tx.encoded_2718().as_slice()).await?;
         let tx_hash = pending_tx.tx_hash();
         tracing::info!("finish send tx_hash: {}", tx_hash.to_string());
+
+        // TODO update latter
+        let mut is_sucess = false;
+        for i in 0..5 {
+            time::sleep(Duration::from_millis(2000)).await;
+            match self.provider.get_transaction_receipt(*tx_hash).await {
+                Err(_) => {
+                    tracing::info!(
+                        "Get transaction:{} receipt failed at {} times, will try later",
+                        tx_hash.to_string(),
+                        i
+                    );
+                    continue;
+                }
+                Ok(receipt) => {
+                    if receipt.is_none() {
+                        tracing::info!(
+                            "Get transaction:{} receipt is none at {} times, will try later",
+                            tx_hash.to_string(),
+                            i
+                        );
+                        continue;
+                    }
+                    if receipt.unwrap().status() {
+                        is_sucess = true;
+                        break;
+                    }
+                }
+            };
+        }
+        if !is_sucess {
+            bail!("tx_hash:{} execute failed on chain", tx_hash.to_string());
+        }
         Ok(*tx_hash)
     }
 }

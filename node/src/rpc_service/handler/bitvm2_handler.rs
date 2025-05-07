@@ -229,7 +229,14 @@ pub async fn get_instances(
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let (instances, total) = storage_process
-            .instance_list(params.from_addr, params.bridge_path, None, params.offset, params.limit)
+            .instance_list(
+                params.from_addr,
+                params.bridge_path,
+                None,
+                None,
+                params.offset,
+                params.limit,
+            )
             .await?;
 
         if instances.is_empty() {

@@ -79,7 +79,7 @@ impl MetricsState {
     pub fn new(registry: Arc<Mutex<Registry>>) -> Self {
         let http_requests_total = Family::default();
         registry.lock().unwrap().register(
-            "http_requests_totl",
+            "http_requests_total",
             "Total number of requests",
             http_requests_total.clone(),
         );
