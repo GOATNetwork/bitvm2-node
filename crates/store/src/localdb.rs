@@ -336,13 +336,16 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         mut params: FilterGraphParams,
     ) -> anyhow::Result<(Vec<GrapRpcQueryData>, i64)> {
-        let mut graph_query_str =
-            "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS  bridge_path, \
+        let status_filed = if params.is_bridge_out { "graph.status" } else { "instance.status" };
+
+        let mut graph_query_str = format!(
+            "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS  bridge_path, {status_filed} AS status, \
             instance.network AS network, instance.from_addr AS from_addr,  instance.to_addr AS to_addr,  \
-            graph.amount, graph.pegin_txid, graph.status, graph.kickoff_txid, graph.challenge_txid,  \
+            graph.amount, graph.pegin_txid, graph.kickoff_txid, graph.challenge_txid,  \
             graph.take1_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid,  \
             graph.take2_txid, graph.disprove_txid, graph.operator,  graph.updated_at, graph.created_at FROM graph  \
-            INNER JOIN  instance ON  graph.instance_id = instance.instance_id".to_string();
+            INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
+        );
         let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs FROM graph \
          INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
             .to_string();
@@ -383,7 +386,7 @@ impl<'a> StorageProcessor<'a> {
 
         let mut conditions: Vec<String> = vec![];
 
-        if let Some(status) = params.status {
+        if let Some(status) = params.status.clone() {
             conditions.push(format!("graph.status = \'{status}\'"));
         }
         if let Some(operator) = params.operator {
@@ -391,6 +394,10 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(pegin_txid) = params.pegin_txid {
             conditions.push(format!("graph.pegin_txid = \'{pegin_txid}\'"));
+        }
+
+        if params.is_bridge_out && params.status.is_none() {
+            conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\' )".to_string());
         }
 
         if !conditions.is_empty() {

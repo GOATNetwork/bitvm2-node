@@ -2,10 +2,11 @@ use crate::env::MODIFY_GRAPH_STATUS_TIME_THRESHOLD;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
+use crate::utils::node_p2wsh_address;
 use alloy::primitives::Address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use bitcoin::Txid;
+use bitcoin::{Network, PublicKey, Txid};
 use esplora_client::AsyncClient;
 use http::StatusCode;
 use std::collections::HashMap;
@@ -14,7 +15,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::FilterGraphParams;
 use store::{
-    BridgeInStatus, BridgePath, Instance, Message, MessageState, MessageType, modify_graph_status,
+    BridgeInStatus, BridgePath, GrapRpcQueryData, Instance, Message, MessageState, MessageType,
+    modify_graph_status,
 };
 use uuid::Uuid;
 
@@ -240,7 +242,7 @@ pub async fn get_instances(
             .await?;
 
         if instances.is_empty() {
-            tracing::warn!("get_instances_with_query_params instance is empty: total {}", total);
+            tracing::warn!("get_instances instance is empty: total {}", total);
             return Ok::<InstanceListResponse, Box<dyn std::error::Error>>(
                 InstanceListResponse::default(),
             );
@@ -280,7 +282,7 @@ pub async fn get_instances(
     match async_fn().await {
         Ok(res) => (StatusCode::OK, Json(res)),
         Err(err) => {
-            tracing::warn!("get_instances_with_query_params err:{:?}", err);
+            tracing::warn!("get_instances err:{:?}", err);
             (StatusCode::OK, Json(InstanceListResponse::default()))
         }
     }
@@ -443,7 +445,7 @@ pub async fn get_graphs(
                 is_bridge_out: is_goat_address,
                 status: params.status,
                 operator: params.operator,
-                from_addr,
+                from_addr: from_addr.clone(),
                 pegin_txid: params.pegin_txid,
                 offset: params.offset,
                 limit: params.limit,
@@ -459,6 +461,7 @@ pub async fn get_graphs(
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
         let interval = get_btc_block_interval(graphs[0].network.clone().as_str());
         for mut graph in graphs {
+            convert_addrs_for_bridge_out(&mut graph, is_goat_address, from_addr.clone())?;
             graph.status = modify_graph_status(
                 &graph.status,
                 graph.updated_at,
@@ -499,4 +502,24 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
         }
     }
     (false, None)
+}
+
+pub fn convert_addrs_for_bridge_out(
+    graph: &mut GrapRpcQueryData,
+    is_bridge_out: bool,
+    from_addr: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !is_bridge_out {
+        return Ok(());
+    }
+    graph.bridge_path = 1_u8;
+    if let Some(from_addr) = from_addr {
+        graph.from_addr = from_addr;
+    }
+    graph.to_addr = node_p2wsh_address(
+        Network::from_str(&graph.network)?,
+        &PublicKey::from_str(&graph.operator)?,
+    )
+    .to_string();
+    Ok(())
 }

@@ -249,7 +249,7 @@ pub struct GrapRpcQueryData {
     pub to_addr: String,
     pub amount: i64,
     pub pegin_txid: String,
-    pub status: String, // GraphStatus
+    pub status: String, // GraphStatus | InstanceStatus
     pub kickoff_txid: Option<String>,
     pub challenge_txid: Option<String>,
     pub take1_txid: Option<String>,

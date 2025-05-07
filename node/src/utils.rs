@@ -488,6 +488,7 @@ pub fn node_p2wsh_script(pubkey: &PublicKey) -> ScriptBuf {
 pub fn node_p2wsh_address(network: Network, pubkey: &PublicKey) -> Address {
     Address::p2wsh(&node_p2wsh_script(pubkey), network)
 }
+
 pub fn node_sign(
     tx: &mut Transaction,
     input_index: usize,

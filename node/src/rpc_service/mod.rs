@@ -335,7 +335,7 @@ mod tests {
         let res_body = resp.text().await.unwrap();
         info!("Post Response: {res_body}");
 
-        info!("=====>test api: get_instances_with_query_params");
+        info!("=====>test api: get_instances");
         let resp = client
             .get(format!("http://{addr}/v1/instances?from_addr={from_addr}&offset=0&limit=5"))
             .send()
