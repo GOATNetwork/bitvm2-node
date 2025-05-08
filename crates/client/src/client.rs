@@ -107,8 +107,8 @@ impl BitVM2Client {
     pub async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData> {
         self.chain_service.adaptor.get_operator_data(graph_id).await
     }
-    pub async fn get_withdraw_data(&self, grap_id: &Uuid) -> anyhow::Result<WithdrawData> {
-        self.chain_service.adaptor.get_withdraw_data(grap_id).await
+    pub async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
+        self.chain_service.adaptor.get_withdraw_data(graph_id).await
     }
 
     pub async fn get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
@@ -199,14 +199,14 @@ impl BitVM2Client {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
-        let operator_data = self.get_operator_data(graph_id).await?;
-        let tx_id_on_line = Txid::from_slice(&operator_data.assert_final_txid)?;
+        // let operator_data = self.get_operator_data(graph_id).await?;
+        // let tx_id_on_line = Txid::from_slice(&operator_data.assert_final_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
                 "disprove",
                 graph_id,
                 &tx.compute_txid(),
-                &tx_id_on_line,
+                &tx.compute_txid(),
                 WithdrawStatus::Processing,
             )
             .await?;

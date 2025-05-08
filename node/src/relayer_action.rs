@@ -20,6 +20,7 @@ use bitcoin::Txid;
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitvm2_lib::actors::Actor;
+use client::chain::chain_adaptor::WithdrawStatus;
 use client::client::BitVM2Client;
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::{
@@ -414,20 +415,13 @@ pub async fn scan_kickoff(
         }
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
-        let message_content =
-            GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id, kickoff_txid });
-        if graph_data.msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
-            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-            update_message_broadcast_times(
-                client,
-                &graph_data.instance_id,
-                &graph_data.graph_id,
-                &MessageType::KickoffSent.to_string(),
-                graph_data.msg_times + 1,
-            )
-            .await?;
-        }
-        if graph_data.msg_times == 0 {
+
+        let withdraw_data = client.get_withdraw_data(&graph_id).await?;
+        let mut send_message = false;
+        if withdraw_data.status != WithdrawStatus::Initialized {
+            info!("scan_kickoff {graph_id}, kickoff:{kickoff_txid} in evil way");
+            send_message = true;
+        } else {
             let kickoff_tx = client.fetch_btc_tx(&kickoff_txid).await?;
             match client.process_withdraw(&graph_data.graph_id, &kickoff_tx).await {
                 Ok(tx_hash) => {
@@ -435,20 +429,38 @@ pub async fn scan_kickoff(
                         "instance_id: {}, graph_id:{}  finish withdraw, tx hash :{}",
                         instance_id, graph_id, tx_hash
                     );
-
-                    update_graph_fields(
-                        client,
-                        graph_data.graph_id,
-                        Some(GraphStatus::KickOff.to_string()),
-                        None,
-                        None,
-                        None,
-                    )
-                    .await?
+                    send_message = true;
                 }
                 Err(err) => {
                     warn!("scan_kickoff: err:{err:?}");
                 }
+            }
+        }
+        if send_message {
+            update_graph_fields(
+                client,
+                graph_data.graph_id,
+                Some(GraphStatus::KickOff.to_string()),
+                None,
+                None,
+                None,
+            )
+            .await?;
+            let message_content = GOATMessageContent::KickoffSent(KickoffSent {
+                instance_id,
+                graph_id,
+                kickoff_txid,
+            });
+            if graph_data.msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                update_message_broadcast_times(
+                    client,
+                    &graph_data.instance_id,
+                    &graph_data.graph_id,
+                    &MessageType::KickoffSent.to_string(),
+                    graph_data.msg_times + 1,
+                )
+                .await?;
             }
         }
     }

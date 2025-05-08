@@ -70,6 +70,22 @@ pub enum BridgeInStatus {
     L2MintedFailed,
 }
 
+impl FromStr for BridgeInStatus {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Submitted" => Ok(BridgeInStatus::Submitted),
+            "SubmittedFailed" => Ok(BridgeInStatus::SubmittedFailed),
+            "Presigned" => Ok(BridgeInStatus::Presigned),
+            "PresignedFailed" => Ok(BridgeInStatus::PresignedFailed),
+            "L1Broadcasted" => Ok(BridgeInStatus::L1Broadcasted),
+            "L2Minted" => Ok(BridgeInStatus::L2Minted),
+            "L2MintedFailed" => Ok(BridgeInStatus::L2MintedFailed),
+            _ => Err(()),
+        }
+    }
+}
+
 impl std::fmt::Display for BridgeInStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{self:?}")

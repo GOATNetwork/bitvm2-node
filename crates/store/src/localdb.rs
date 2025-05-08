@@ -1,15 +1,16 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData, Instance, Message,
-    MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, PubKeyCollect,
-    PubKeyCollectMetaData,
+    BridgeInStatus, COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData,
+    Instance, Message, MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData,
+    PubKeyCollect, PubKeyCollectMetaData,
 };
 use anyhow::bail;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
@@ -144,7 +145,7 @@ impl<'a> StorageProcessor<'a> {
         from_addr: Option<String>,
         bridge_path: Option<u8>,
         status: Option<String>,
-        earliest_created: Option<i64>,
+        earliest_updated: Option<i64>,
         offset: Option<u32>,
         limit: Option<u32>,
     ) -> anyhow::Result<(Vec<Instance>, i64)> {
@@ -165,8 +166,8 @@ impl<'a> StorageProcessor<'a> {
             conditions.push(format!("bridge_path = {bridge_path}"));
         }
 
-        if let Some(earliest_created) = earliest_created {
-            conditions.push(format!("created_at >= {earliest_created}"));
+        if let Some(earliest_updated) = earliest_updated {
+            conditions.push(format!("updated_at >= {earliest_updated}"));
         }
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
@@ -336,7 +337,18 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         mut params: FilterGraphParams,
     ) -> anyhow::Result<(Vec<GrapRpcQueryData>, i64)> {
-        let status_filed = if params.is_bridge_out { "graph.status" } else { "instance.status" };
+        let is_instance_status = if let Some(status) = params.status.clone() {
+            BridgeInStatus::from_str(&status).is_ok()
+        } else {
+            false
+        };
+        // default return graph status.
+        let status_filed =
+            if (!params.is_bridge_out && params.from_addr.is_some()) || is_instance_status {
+                "instance.status"
+            } else {
+                "graph.status"
+            };
 
         let mut graph_query_str = format!(
             "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS  bridge_path, {status_filed} AS status, \
