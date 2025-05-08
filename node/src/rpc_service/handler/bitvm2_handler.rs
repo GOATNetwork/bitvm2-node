@@ -341,9 +341,8 @@ pub async fn get_instances_overview(
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let (pegin_sum, pegin_count) =
-            storage_process.get_sum_bridge_in_or_out(BridgePath::BTCToPgBTC.to_u8()).await?;
-        let (pegout_sum, pegout_count) =
-            storage_process.get_sum_bridge_in_or_out(BridgePath::PgBTCToBTC.to_u8()).await?;
+            storage_process.get_sum_bridge_in(BridgePath::BTCToPgBTC.to_u8()).await?;
+        let (pegout_sum, pegout_count) = storage_process.get_sum_bridge_out().await?;
         let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
         Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
             instances_overview: InstanceOverview {

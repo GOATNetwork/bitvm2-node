@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM graph WHERE status NOT IN ('OperatorPresigned','CommitteePresigned','OperatorDataPushed')",
+  "describe": {
+    "columns": [
+      {
+        "name": "total",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "tx_count",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "e8e84cb81bd880115f55d180e790a6799c926b93bb8d06b4471c4a5ec23d0b09"
+}

@@ -409,7 +409,7 @@ impl<'a> StorageProcessor<'a> {
         }
 
         if params.is_bridge_out && params.status.is_none() {
-            conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\' )".to_string());
+            conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\')".to_string());
         }
 
         if !conditions.is_empty() {
@@ -580,16 +580,23 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn get_sum_bridge_in_or_out(
-        &mut self,
-        bridge_path: u8,
-    ) -> anyhow::Result<(i64, i64)> {
+    pub async fn get_sum_bridge_in(&mut self, bridge_path: u8) -> anyhow::Result<(i64, i64)> {
         let record = sqlx::query!(
             "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM instance WHERE bridge_path = ? ",
             bridge_path
         )
             .fetch_one(self.conn())
             .await?;
+        Ok((record.total.unwrap_or(0), record.tx_count))
+    }
+
+    pub async fn get_sum_bridge_out(&mut self) -> anyhow::Result<(i64, i64)> {
+        let record = sqlx::query!(
+            "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM graph WHERE status NOT IN \
+            ('OperatorPresigned','CommitteePresigned','OperatorDataPushed')"
+        )
+        .fetch_one(self.conn())
+        .await?;
         Ok((record.total.unwrap_or(0), record.tx_count))
     }
 
