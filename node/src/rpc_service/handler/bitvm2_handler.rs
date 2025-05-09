@@ -6,8 +6,11 @@ use crate::utils::node_p2wsh_address;
 use alloy::primitives::Address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::{Network, PublicKey, Txid};
+use bitvm2_lib::types::Bitvm2Graph;
 use esplora_client::AsyncClient;
+use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::collections::HashMap;
 use std::default::Default;
@@ -139,6 +142,48 @@ pub async fn graph_presign_check(
         Err(err) => {
             tracing::warn!("graph_presign_check  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+        }
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_graph_txn(
+    Path(graph_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> (StatusCode, Json<Option<GraphTxnGetResponse>>) {
+    let async_fn = || async move {
+        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let graph_op = storage_process.get_graph(&Uuid::parse_str(&graph_id)?).await?;
+        if graph_op.is_none() {
+            tracing::warn!("graph:{} is not record in db", graph_id);
+            return Err(format!("graph:{graph_id} is not record in db").into());
+        };
+        let graph = graph_op.unwrap();
+        if graph.raw_data.is_none() {
+            return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
+        }
+        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
+        let resp = GraphTxnGetResponse {
+            assert_commit_0: serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
+            assert_commit_1: serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
+            assert_commit_2: serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx()),
+            assert_commit_3: serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx()),
+            assert_init: serialize_hex(bitvm2_graph.assert_init.tx()),
+            assert_final: serialize_hex(bitvm2_graph.assert_final.tx()),
+            challenge: serialize_hex(bitvm2_graph.challenge.tx()),
+            disprove: serialize_hex(bitvm2_graph.disprove.tx()),
+            kickoff: serialize_hex(bitvm2_graph.kickoff.tx()),
+            pegin: serialize_hex(bitvm2_graph.pegin.tx()),
+            take1: serialize_hex(bitvm2_graph.take1.tx()),
+            take2: serialize_hex(bitvm2_graph.take2.tx()),
+        };
+        Ok::<GraphTxnGetResponse, Box<dyn std::error::Error>>(resp)
+    };
+    match async_fn().await {
+        Ok(resp) => (StatusCode::OK, Json(Some(resp))),
+        Err(err) => {
+            tracing::warn!("graph_presign_check  err:{:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
         }
     }
 }
@@ -439,13 +484,19 @@ pub async fn get_graphs(
         if is_goat_address {
             from_addr = goat_address;
         }
+        let pegin_txid = if let Some(tx_id) = params.pegin_txid {
+            let pegin_txid = Txid::from_str(&tx_id)?;
+            Some(serialize_hex(&pegin_txid))
+        } else {
+            None
+        };
         let (graphs, total) = storage_process
             .filter_graphs(FilterGraphParams {
                 is_bridge_out: is_goat_address,
                 status: params.status,
                 operator: params.operator,
                 from_addr: from_addr.clone(),
-                pegin_txid: params.pegin_txid,
+                pegin_txid,
                 offset: params.offset,
                 limit: params.limit,
             })

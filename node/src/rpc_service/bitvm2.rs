@@ -109,6 +109,21 @@ pub struct InstanceOverview {
 pub struct GraphGetResponse {
     pub graph: Option<Graph>,
 }
+#[derive(Deserialize, Serialize)]
+pub struct GraphTxnGetResponse {
+    pub assert_commit_0: String,
+    pub assert_commit_1: String,
+    pub assert_commit_2: String,
+    pub assert_commit_3: String,
+    pub assert_init: String,
+    pub assert_final: String,
+    pub challenge: String,
+    pub disprove: String,
+    pub kickoff: String,
+    pub pegin: String,
+    pub take1: String,
+    pub take2: String,
+}
 
 #[derive(Deserialize)]
 pub struct GraphUpdateRequest {

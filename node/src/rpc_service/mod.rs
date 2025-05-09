@@ -111,6 +111,7 @@ pub(crate) async fn serve(
         .route("/v1/graphs/{:id}", put(update_graph))
         .route("/v1/graphs", get(get_graphs))
         .route("/v1/graphs/presign_check", get(graph_presign_check))
+        .route("/v1/graphs/{id}/txn", get(get_graph_txn))
         .route("/metrics", get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![

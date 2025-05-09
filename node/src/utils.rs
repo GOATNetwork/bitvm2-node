@@ -532,7 +532,9 @@ pub async fn should_challenge(
 
     // check if withdraw is initialized on L2
     let withdraw_status = client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
-    if withdraw_status == WithdrawStatus::Initialized {
+    if withdraw_status == WithdrawStatus::Initialized
+        || withdraw_status == WithdrawStatus::Processing
+    {
         return Ok(false);
     };
 
@@ -897,11 +899,19 @@ pub async fn store_graph(
 
     if let Some(status) = status {
         if status == GraphStatus::CommitteePresigned.to_string() {
+            let pegin_tx = graph.pegin.tx();
+            let sum_input_value =
+                graph.pegin.input_amounts.iter().fold(Amount::ZERO, |acc, v| acc + *v);
+            let sum_output_value =
+                pegin_tx.output.iter().fold(Amount::ZERO, |acc, v| acc + v.value);
             transaction
                 .update_instance_fields(
                     &instance_id,
                     Some(BridgeInStatus::Presigned.to_string()),
-                    Some(serialize_hex(&graph.pegin.tx().compute_txid())),
+                    Some((
+                        serialize_hex(&graph.pegin.tx().compute_txid()),
+                        (sum_input_value - sum_output_value).to_sat() as i64,
+                    )),
                     None,
                 )
                 .await?

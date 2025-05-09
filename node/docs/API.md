@@ -435,7 +435,7 @@ pub enum GraphBridgePath {
 
 #### Graph Presign Check
 
-- **Endpoint**: `POST /v1/graphs/presign_check`
+- **Endpoint**: `GET /v1/graphs/presign_check`
 - **Description**: Check the presign status of a graph
 - **Request Body**:
   ```json
@@ -471,6 +471,31 @@ pub enum GraphBridgePath {
 ```
 `ps:graph_status is map<graph_id>graph_status` ,The number of `graph_status` should correspond to the number of graphs for the given instance.
 If a graph for the instancce is created, the count must be greater than or equal to 1. 
+
+#### Graph TXN
+
+- **Endpoint**: `GET /v1/graphs/{id}/txn`
+- **Description**: get graph txn: kickoff take1 and so on. 
+- **Path Parameters**:
+  - `id`: Graph ID
+- **Response**:
+```json
+{
+  "assert_commit_0": "string",
+  "assert_commit_1": "string",
+  "assert_commit_2": "string",
+  "assert_commit_3": "string",
+  "assert_init": "string",
+  "assert_final": "string",
+  "challenge": "string",
+  "disprove": "string",
+  "kickoff": "string",
+  "pegin": "string",
+  "take1": "string",
+  "take2": "string"
+}
+```
+
 
   ## Error Handling
 

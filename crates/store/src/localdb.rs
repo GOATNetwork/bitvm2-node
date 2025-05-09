@@ -251,7 +251,7 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         instance_id: &Uuid,
         status: Option<String>,
-        pegin_txid: Option<String>,
+        pegin_tx_info: Option<(String, i64)>,
         goat_txid: Option<String>,
     ) -> anyhow::Result<()> {
         let instance_option = sqlx::query_as!(
@@ -268,15 +268,21 @@ impl<'a> StorageProcessor<'a> {
         }
         let instance = instance_option.unwrap();
         let status = if let Some(status) = status { status } else { instance.status };
-        let pegin_txid = if pegin_txid.is_some() { pegin_txid } else { instance.pegin_txid };
+
+        let (pegin_txid, fee) = if let Some((pegin_txid, fee)) = pegin_tx_info {
+            (Some(pegin_txid), fee)
+        } else {
+            (instance.pegin_txid, instance.fee)
+        };
         let goat_txid =
             if let Some(goat_txid) = goat_txid { goat_txid } else { instance.goat_txid };
         let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let _ = sqlx::query!(
-            "UPDATE instance SET status =?, pegin_txid =?, goat_txid = ?, updated_at = ? WHERE instance_id = ?",
+            "UPDATE instance SET status =?, pegin_txid =?, goat_txid = ?, fee = ?, updated_at = ? WHERE instance_id = ?",
             status,
             pegin_txid,
             goat_txid,
+            fee,
             current_time,
             instance_id
         )
@@ -414,7 +420,8 @@ impl<'a> StorageProcessor<'a> {
 
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
-            graph_query_str = format!("{graph_query_str} WHERE {condition_str}");
+            graph_query_str =
+                format!("{graph_query_str} WHERE {condition_str} ORDER BY created_at DESC");
             graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
 
