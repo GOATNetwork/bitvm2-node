@@ -174,7 +174,8 @@ pub enum InstanceStatus {
       "created_at": "number",
       "updated_at": "number"
     },
-    "eta": "string",
+    "confirmations": "number",
+    "target_confirmations": "number",
     "utxo": [
       {
         "txid": "string",
@@ -218,7 +219,8 @@ pub enum InstanceStatus {
           "created_at": "number",
           "updated_at": "number"
         },
-        "eta": "string",
+        "confirmations": "number",
+        "target_confirmations": "number",
         "utxo": [
           {
             "txid": "string",
@@ -404,7 +406,8 @@ pub enum GraphBridgePath {
                 "updated_at": "number",
                 "created_at": "number"
             },
-            "eta": "string"
+             "confirmations": "number",
+             "target_confirmations": "number"
         }
     ],
     "total": "number"
@@ -481,12 +484,12 @@ If a graph for the instancce is created, the count must be greater than or equal
 - **Response**:
 ```json
 {
-  "assert_commit_0": "string",
-  "assert_commit_1": "string",
-  "assert_commit_2": "string",
-  "assert_commit_3": "string",
-  "assert_init": "string",
-  "assert_final": "string",
+  "assert-commit0": "string",
+  "assert-commit1": "string",
+  "assert-commit2": "string",
+  "assert-commit3": "string",
+  "assert-init": "string",
+  "assert-final": "string",
   "challenge": "string",
   "disprove": "string",
   "kickoff": "string",
@@ -495,7 +498,19 @@ If a graph for the instancce is created, the count must be greater than or equal
   "take2": "string"
 }
 ```
-
+- **Endpoint**: `GET /v1/graphs/{id}/tx`
+- **Description**: get graph txn: kickoff take1 and so on.
+- **Path Parameters**:
+  - `id`: Graph ID
+- **Query Parameters**:
+  - `tx_name`: exp  assert-commit0.hex.. 
+  - `operator`: operator
+- **Response**:
+```json
+{
+  "tx_hex": "string"
+}
+```
 
   ## Error Handling
 

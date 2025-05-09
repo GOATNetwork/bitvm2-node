@@ -295,36 +295,23 @@ pub async fn get_btc_height(btc_client: &AsyncClient) -> anyhow::Result<u32> {
     Ok(btc_client.get_height().await?)
 }
 
-pub fn get_btc_block_interval(network: &str) -> u32 {
-    let mut interval = BTC_TEST_BLOCK_INTERVAL;
-    if network == BTC_MAIN {
-        interval = BTC_MAIN_BLOCK_INTERVAL;
-    }
-    interval
-}
-
-async fn get_tx_eta(
+async fn get_tx_confirmation_info(
     btc_client: &AsyncClient,
-    tx_id: Option<String>,
+    btc_tx_id: Option<String>,
     current_height: u32,
-    confirm_num: u32,
-    interval: u32,
-) -> anyhow::Result<String> {
-    if tx_id.is_none() {
-        return Ok("-".to_string());
+    target_confirm_num: u32,
+) -> anyhow::Result<(u32, u32)> {
+    if btc_tx_id.is_none() {
+        return Ok((0, target_confirm_num));
     }
-    let tx_id = tx_id.unwrap();
+    let tx_id = btc_tx_id.unwrap();
     let status = btc_client.get_tx_status(&Txid::from_str(&tx_id)?).await?;
     let blocks_pass = if let Some(block_height) = status.block_height {
         current_height - block_height
     } else {
-        confirm_num
+        0
     };
-    if blocks_pass >= confirm_num {
-        Ok("Est.completed".to_string())
-    } else {
-        Ok(format!("Est. wait for {} mins", (confirm_num - blocks_pass) * interval))
-    }
+    Ok((blocks_pass, target_confirm_num))
 }
 
 #[axum::debug_handler]
@@ -360,22 +347,25 @@ pub async fn get_instances(
         }
 
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
-        let interval = get_btc_block_interval(instances[0].network.clone().as_str());
 
         let mut items = vec![];
         for mut instance in instances {
-            let eta = get_tx_eta(
+            let (confirmations, target_confirmations) = get_tx_confirmation_info(
                 &app_state.bitvm2_client.esplora,
                 instance.pegin_txid.clone(),
                 current_height,
                 6,
-                interval,
             )
             .await?;
             instance.reverse_btc_txid();
             let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
 
-            items.push(InstanceWrap { utxo: Some(utxo), instance: Some(instance), eta: Some(eta) })
+            items.push(InstanceWrap {
+                utxo: Some(utxo),
+                instance: Some(instance),
+                confirmations,
+                target_confirmations,
+            })
         }
 
         Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
@@ -404,21 +394,18 @@ pub async fn get_instance(
         if instance_op.is_none() {
             tracing::info!("instance_id {} has no record in database", instance_id);
             return Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
-                instance_wrap: InstanceWrap { utxo: None, instance: None, eta: None },
+                instance_wrap: InstanceWrap::default(),
             });
         }
         let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
-        let network = instance.network.clone();
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
-        let interval = get_btc_block_interval(network.as_str());
         let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
-        let eta = get_tx_eta(
+        let (confirmations, target_confirmations) = get_tx_confirmation_info(
             &app_state.bitvm2_client.esplora,
             instance.pegin_txid.clone(),
             current_height,
             6,
-            interval,
         )
         .await?;
 
@@ -426,7 +413,8 @@ pub async fn get_instance(
             instance_wrap: InstanceWrap {
                 utxo: Some(utxo),
                 instance: Some(instance),
-                eta: Some(eta),
+                confirmations,
+                target_confirmations,
             },
         })
     };
@@ -568,30 +556,32 @@ pub async fn get_graphs(
         let current_time = current_time_secs();
 
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
-        let interval = get_btc_block_interval(graphs[0].network.clone().as_str());
         for mut graph in graphs {
             convert_addrs_for_bridge_out(&mut graph, is_goat_address, from_addr.clone())?;
+            graph.reverse_btc_txid();
+            let (confirmations, target_confirmations) = match graph.get_check_tx_param() {
+                Ok((tx_id, confirm_num)) => {
+                    get_tx_confirmation_info(
+                        &app_state.bitvm2_client.esplora,
+                        tx_id,
+                        current_height,
+                        confirm_num,
+                    )
+                    .await?
+                }
+                Err(_) => (0, 0),
+            };
             graph.status = modify_graph_status(
                 &graph.status,
                 graph.updated_at,
                 current_time,
                 MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
             );
-            graph.reverse_btc_txid();
-            let eta = match graph.get_check_tx_param() {
-                Ok((tx_id, confirm_num)) => {
-                    get_tx_eta(
-                        &app_state.bitvm2_client.esplora,
-                        tx_id,
-                        current_height,
-                        confirm_num,
-                        interval,
-                    )
-                    .await?
-                }
-                Err(err) => err,
-            };
-            resp_clone.graphs.push(GrapRpcQueryDataWrap { graph, eta });
+            resp_clone.graphs.push(GrapRpcQueryDataWrap {
+                graph,
+                confirmations,
+                target_confirmations,
+            });
         }
         Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone)
     };

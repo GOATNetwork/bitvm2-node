@@ -10,10 +10,6 @@ use std::str::FromStr;
 use store::{GrapRpcQueryData, Graph, Instance};
 use uuid::Uuid;
 
-pub const BTC_MAIN: &str = "bitcoin";
-pub const BTC_TEST_BLOCK_INTERVAL: u32 = 10;
-pub const BTC_MAIN_BLOCK_INTERVAL: u32 = 10;
-// the input to our `create_user` handler
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct UTXO {
@@ -73,7 +69,8 @@ pub struct InstanceListRequest {
 pub struct InstanceWrap {
     pub instance: Option<Instance>,
     pub utxo: Option<Vec<UTXO>>,
-    pub eta: Option<String>,
+    pub confirmations: u32,
+    pub target_confirmations: u32,
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -171,7 +168,8 @@ pub struct GraphListResponse {
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GrapRpcQueryDataWrap {
     pub graph: GrapRpcQueryData,
-    pub eta: String,
+    pub confirmations: u32,
+    pub target_confirmations: u32,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

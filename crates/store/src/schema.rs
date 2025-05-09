@@ -281,9 +281,6 @@ pub struct GrapRpcQueryData {
 
 impl GrapRpcQueryData {
     pub fn get_check_tx_param(&self) -> Result<(Option<String>, u32), String> {
-        if self.bridge_path == 0 {
-            return Ok((Some(self.pegin_txid.clone()), 6));
-        }
         let status = GraphStatus::from_str(&self.status);
         if status.is_err() {
             return Err("Graph status is wrong".to_string());
