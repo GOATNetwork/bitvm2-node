@@ -82,9 +82,10 @@ pub fn get_node_pubkey() -> Result<PublicKey, Box<dyn std::error::Error>> {
 }
 
 pub fn get_local_node_info() -> NodeInfo {
-    let bitvm2_network =
-        BitVM2Network::from_str(std::env::var(ENV_ACTOR).unwrap_or("develop".to_string()).as_str())
-            .unwrap();
+    let bitvm2_network = BitVM2Network::from_str(
+        std::env::var(ENV_BITVM2_NETWORK).unwrap_or("develop".to_string()).as_str(),
+    )
+    .unwrap();
     let actor =
         Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
             .unwrap();
@@ -142,7 +143,6 @@ pub enum IpfsTxName {
     Take1,
     Take2,
 }
-
 impl IpfsTxName {
     pub fn as_str(&self) -> &'static str {
         match self {

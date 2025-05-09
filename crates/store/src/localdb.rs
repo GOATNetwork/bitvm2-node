@@ -421,9 +421,11 @@ impl<'a> StorageProcessor<'a> {
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
             graph_query_str =
-                format!("{graph_query_str} WHERE {condition_str} ORDER BY created_at DESC");
+                format!("{graph_query_str} WHERE {condition_str}");
             graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
+
+        graph_query_str = format!("{graph_query_str} ORDER BY graph.created_at DESC ");
 
         if let Some(limit) = params.limit {
             graph_query_str = format!("{graph_query_str} LIMIT {limit}");
@@ -432,6 +434,7 @@ impl<'a> StorageProcessor<'a> {
         if let Some(offset) = params.offset {
             graph_query_str = format!("{graph_query_str} OFFSET {offset}");
         }
+        tracing::info!("{graph_query_str}");
         let graphs = sqlx::query_as::<_, GrapRpcQueryData>(graph_query_str.as_str())
             .fetch_all(self.conn())
             .await?;

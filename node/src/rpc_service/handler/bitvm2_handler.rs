@@ -147,6 +147,51 @@ pub async fn graph_presign_check(
 }
 
 #[axum::debug_handler]
+pub async fn get_graph_tx(
+    Query(params): Query<GraphTxGetParams>,
+    Path(graph_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> (StatusCode, Json<Option<GraphTxGetResponse>>) {
+    let async_fn = || async move {
+        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let graph_op = storage_process.get_graph(&Uuid::parse_str(&graph_id)?).await?;
+        if graph_op.is_none() {
+            tracing::warn!("graph:{} is not record in db", graph_id);
+            return Err(format!("graph:{graph_id} is not record in db").into());
+        };
+        let graph = graph_op.unwrap();
+        if graph.raw_data.is_none() {
+            return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
+        }
+        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
+
+        let tx_hex = match params.tx_name.as_str() {
+            "assert_commit_0" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
+            "assert_commit_1" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
+            "assert_commit_2" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx()),
+            "assert_commit_3" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx()),
+            "assert_init" => serialize_hex(bitvm2_graph.assert_init.tx()),
+            "assert_final" => serialize_hex(bitvm2_graph.assert_final.tx()),
+            "challenge" => serialize_hex(bitvm2_graph.challenge.tx()),
+            "disprove" => serialize_hex(bitvm2_graph.disprove.tx()),
+            "kickoff" => serialize_hex(bitvm2_graph.kickoff.tx()),
+            "pegin" => serialize_hex(bitvm2_graph.pegin.tx()),
+            "take1" => serialize_hex(bitvm2_graph.take1.tx()),
+            "take2" => serialize_hex(bitvm2_graph.take2.tx()),
+            _ => "".to_string(),
+        };
+        Ok::<GraphTxGetResponse, Box<dyn std::error::Error>>(GraphTxGetResponse { tx_hex })
+    };
+    match async_fn().await {
+        Ok(resp) => (StatusCode::OK, Json(Some(resp))),
+        Err(err) => {
+            tracing::warn!("get_graph_tx  err:{:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+        }
+    }
+}
+
+#[axum::debug_handler]
 pub async fn get_graph_txn(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
@@ -182,7 +227,7 @@ pub async fn get_graph_txn(
     match async_fn().await {
         Ok(resp) => (StatusCode::OK, Json(Some(resp))),
         Err(err) => {
-            tracing::warn!("graph_presign_check  err:{:?}", err);
+            tracing::warn!("get_graph_txn  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
         }
     }

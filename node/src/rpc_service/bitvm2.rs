@@ -47,6 +47,11 @@ pub struct GraphPresignCheckParams {
     pub instance_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct GraphTxGetParams {
+    pub tx_name: String,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct GraphPresignCheckResponse {
     pub instance_id: String,
@@ -123,6 +128,10 @@ pub struct GraphTxnGetResponse {
     pub pegin: String,
     pub take1: String,
     pub take2: String,
+}
+#[derive(Deserialize, Serialize)]
+pub struct GraphTxGetResponse {
+    pub tx_hex: String,
 }
 
 #[derive(Deserialize)]
