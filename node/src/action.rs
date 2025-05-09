@@ -549,6 +549,14 @@ pub async fn recv_and_dispatch(
         // peg-out
         // KickoffReady sent by relayer
         (GOATMessageContent::KickoffReady(receive_data), Actor::Operator) => {
+            let graph_status =
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if graph_status != GraphStatus::CommitteePresigned {
+                tracing::warn!(
+                    "receive KickoffReady but currently in {graph_status} Status, ignored"
+                );
+                return Ok(());
+            }
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
@@ -588,6 +596,16 @@ pub async fn recv_and_dispatch(
         // KickoffSent sent by relayer
         (GOATMessageContent::KickoffSent(receive_data), Actor::Challenger) => {
             tracing::info!("Handle KickoffSent");
+            let graph_status =
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if graph_status != GraphStatus::CommitteePresigned
+                && graph_status != GraphStatus::KickOff
+            {
+                tracing::warn!(
+                    "receive KickoffSent but currently in {graph_status} Status, ignored"
+                );
+                return Ok(());
+            }
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             if should_challenge(
@@ -619,6 +637,16 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     client,
                     receive_data.graph_id,
+                    Some(GraphStatus::Challenge.to_string()),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+            } else {
+                update_graph_fields(
+                    client,
+                    receive_data.graph_id,
                     Some(GraphStatus::KickOff.to_string()),
                     None,
                     None,
@@ -629,6 +657,16 @@ pub async fn recv_and_dispatch(
         }
         // Take1Ready sent by relayer
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
+            let graph_status =
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if graph_status != GraphStatus::CommitteePresigned
+                && graph_status != GraphStatus::KickOff
+            {
+                tracing::warn!(
+                    "receive Take1Ready but currently in {graph_status} Status, ignored"
+                );
+                return Ok(());
+            }
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             let master_key = OperatorMasterKey::new(env::get_bitvm_key()?);
@@ -687,11 +725,19 @@ pub async fn recv_and_dispatch(
                 let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
                 let (assert_init_tx, assert_commit_txns, assert_final_tx) =
                     operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;
-                broadcast_tx(client, &assert_init_tx).await?;
-                for tx in assert_commit_txns {
-                    broadcast_tx(client, &tx).await?;
+                if !tx_on_chain(client, &assert_init_tx.compute_txid()).await? {
+                    broadcast_tx(client, &assert_init_tx).await?;
                 }
-                broadcast_tx(client, &assert_final_tx).await?;
+                for tx in assert_commit_txns {
+                    let txid = tx.compute_txid();
+                    if !tx_on_chain(client, &txid).await? {
+                        broadcast_tx(client, &tx).await?;
+                        wait_tx_confirmation(client, &txid, 5, 300).await?;
+                    }
+                }
+                if !tx_on_chain(client, &assert_final_tx.compute_txid()).await? {
+                    broadcast_tx(client, &assert_final_tx).await?;
+                }
                 update_graph_fields(
                     client,
                     receive_data.graph_id,
@@ -744,6 +790,14 @@ pub async fn recv_and_dispatch(
         // AssertSent sent by relayer
         (GOATMessageContent::AssertSent(receive_data), Actor::Challenger) => {
             tracing::info!("Handle AssertSent");
+            let graph_status =
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if graph_status == GraphStatus::Take2 || graph_status == GraphStatus::Disprove {
+                tracing::warn!(
+                    "receive AssertSent but currently in {graph_status} Status, ignored"
+                );
+                return Ok(());
+            }
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             if let Some(disprove_witness) = validate_assert(
@@ -934,6 +988,14 @@ pub async fn recv_and_dispatch(
         // Other participants update graph status
         (GOATMessageContent::KickoffSent(receive_data), _) => {
             tracing::info!("Handle KickoffSent");
+            let graph_status =
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if graph_status != GraphStatus::CommitteePresigned {
+                tracing::warn!(
+                    "receive KickoffSent but currently in {graph_status} Status, ignored"
+                );
+                return Ok(());
+            }
             let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             if tx_on_chain(client, &graph.kickoff.tx().compute_txid()).await? {
                 update_graph_fields(
@@ -949,6 +1011,16 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::ChallengeSent(receive_data), _) => {
             tracing::info!("Handle ChallengeSent");
+            let graph_status =
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+            if graph_status != GraphStatus::CommitteePresigned
+                && graph_status != GraphStatus::KickOff
+            {
+                tracing::warn!(
+                    "receive ChallengeSent but currently in {graph_status} Status, ignored"
+                );
+                return Ok(());
+            }
             let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             if validate_challenge(
                 client,

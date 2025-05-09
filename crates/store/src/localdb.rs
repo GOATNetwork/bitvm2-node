@@ -420,8 +420,7 @@ impl<'a> StorageProcessor<'a> {
 
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
-            graph_query_str =
-                format!("{graph_query_str} WHERE {condition_str}");
+            graph_query_str = format!("{graph_query_str} WHERE {condition_str}");
             graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
 

@@ -93,7 +93,7 @@ impl std::fmt::Display for BridgeInStatus {
 }
 
 /// graph status
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq)]
 pub enum GraphStatus {
     #[default]
     OperatorPresigned,
