@@ -116,11 +116,17 @@ pub struct GraphGetResponse {
 }
 #[derive(Deserialize, Serialize)]
 pub struct GraphTxnGetResponse {
-    pub assert_commit_0: String,
-    pub assert_commit_1: String,
-    pub assert_commit_2: String,
-    pub assert_commit_3: String,
+    #[serde(rename = "assert-commit0")]
+    pub assert_commit0: String,
+    #[serde(rename = "assert-commit1")]
+    pub assert_commit1: String,
+    #[serde(rename = "assert-commit2")]
+    pub assert_commit2: String,
+    #[serde(rename = "assert-commit3")]
+    pub assert_commit3: String,
+    #[serde(rename = "assert-init")]
     pub assert_init: String,
+    #[serde(rename = "assert-final")]
     pub assert_final: String,
     pub challenge: String,
     pub disprove: String,

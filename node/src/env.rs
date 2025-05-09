@@ -162,6 +162,27 @@ impl IpfsTxName {
     }
 }
 
+impl FromStr for IpfsTxName {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "assert-commit0.hex" => Ok(IpfsTxName::AssertCommit0),
+            "assert-commit1.hex" => Ok(IpfsTxName::AssertCommit1),
+            "assert-commit2.hex" => Ok(IpfsTxName::AssertCommit2),
+            "assert-commit3.hex" => Ok(IpfsTxName::AssertCommit3),
+            "assert-final.hex" => Ok(IpfsTxName::AssertFinal),
+            "assert-init.hex" => Ok(IpfsTxName::AssertInit),
+            "challenge.hex" => Ok(IpfsTxName::Challenge),
+            "disprove.hex" => Ok(IpfsTxName::Disprove),
+            "kickoff.hex" => Ok(IpfsTxName::Kickoff),
+            "pegin.hex" => Ok(IpfsTxName::Pegin),
+            "take1.hex" => Ok(IpfsTxName::Take1),
+            "take2.hex" => Ok(IpfsTxName::Take2),
+            _ => Err(()),
+        }
+    }
+}
+
 pub fn goat_config_from_env() -> GoatInitConfig {
     if cfg!(feature = "tests") {
         return GoatInitConfig::from_env_for_test();

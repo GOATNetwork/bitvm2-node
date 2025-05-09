@@ -1,4 +1,4 @@
-use crate::env::MODIFY_GRAPH_STATUS_TIME_THRESHOLD;
+use crate::env::{IpfsTxName, MODIFY_GRAPH_STATUS_TIME_THRESHOLD};
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
@@ -164,21 +164,35 @@ pub async fn get_graph_tx(
             return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
         }
         let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
-
-        let tx_hex = match params.tx_name.as_str() {
-            "assert_commit_0" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
-            "assert_commit_1" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
-            "assert_commit_2" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx()),
-            "assert_commit_3" => serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx()),
-            "assert_init" => serialize_hex(bitvm2_graph.assert_init.tx()),
-            "assert_final" => serialize_hex(bitvm2_graph.assert_final.tx()),
-            "challenge" => serialize_hex(bitvm2_graph.challenge.tx()),
-            "disprove" => serialize_hex(bitvm2_graph.disprove.tx()),
-            "kickoff" => serialize_hex(bitvm2_graph.kickoff.tx()),
-            "pegin" => serialize_hex(bitvm2_graph.pegin.tx()),
-            "take1" => serialize_hex(bitvm2_graph.take1.tx()),
-            "take2" => serialize_hex(bitvm2_graph.take2.tx()),
-            _ => "".to_string(),
+        let tx_name_op = IpfsTxName::from_str(&params.tx_name);
+        if tx_name_op.is_err() {
+            return Err(format!(
+                "grap with graph_id:{graph_id} decode tx_name:{} failed",
+                params.tx_name
+            )
+            .into());
+        }
+        let tx_hex = match tx_name_op.unwrap() {
+            IpfsTxName::AssertCommit0 => {
+                serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx())
+            }
+            IpfsTxName::AssertCommit1 => {
+                serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx())
+            }
+            IpfsTxName::AssertCommit2 => {
+                serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx())
+            }
+            IpfsTxName::AssertCommit3 => {
+                serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx())
+            }
+            IpfsTxName::AssertInit => serialize_hex(bitvm2_graph.assert_init.tx()),
+            IpfsTxName::AssertFinal => serialize_hex(bitvm2_graph.assert_final.tx()),
+            IpfsTxName::Challenge => serialize_hex(bitvm2_graph.challenge.tx()),
+            IpfsTxName::Disprove => serialize_hex(bitvm2_graph.disprove.tx()),
+            IpfsTxName::Kickoff => serialize_hex(bitvm2_graph.kickoff.tx()),
+            IpfsTxName::Pegin => serialize_hex(bitvm2_graph.pegin.tx()),
+            IpfsTxName::Take1 => serialize_hex(bitvm2_graph.take1.tx()),
+            IpfsTxName::Take2 => serialize_hex(bitvm2_graph.take2.tx()),
         };
         Ok::<GraphTxGetResponse, Box<dyn std::error::Error>>(GraphTxGetResponse { tx_hex })
     };
@@ -209,10 +223,10 @@ pub async fn get_graph_txn(
         }
         let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
         let resp = GraphTxnGetResponse {
-            assert_commit_0: serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
-            assert_commit_1: serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
-            assert_commit_2: serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx()),
-            assert_commit_3: serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx()),
+            assert_commit0: serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
+            assert_commit1: serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
+            assert_commit2: serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx()),
+            assert_commit3: serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx()),
             assert_init: serialize_hex(bitvm2_graph.assert_init.tx()),
             assert_final: serialize_hex(bitvm2_graph.assert_final.tx()),
             challenge: serialize_hex(bitvm2_graph.challenge.tx()),
