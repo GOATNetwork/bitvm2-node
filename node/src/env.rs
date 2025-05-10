@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 use crate::action::NodeInfo;
-use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::Address as EvmAddress;
 use alloy::primitives::Address;
 use alloy::providers::{Provider, ProviderBuilder};
@@ -16,8 +15,6 @@ use std::str::FromStr;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
-pub const ENV_GOAT_GATEWAY_CONTRACT_CREATION: &str = "GOAT_GATEWAY_CONTRACT_CREATION";
-pub const ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK: &str = "GOAT_GATEWAY_CONTRACT_TO_BLOCK";
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
@@ -215,16 +212,6 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         .parse::<EvmAddress>()
         .expect("Failed to parse {gateway_address_str} to address");
 
-    let gateway_creation = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_CREATION)
-        .expect("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_CREATION} variable");
-    let gateway_creation_block =
-        gateway_creation.parse::<u64>().expect("{ENV_GOAT_GATEWAY_CONTRACT_CREATION} parse");
-
-    let to_block = match std::env::var(ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK).ok() {
-        Some(to_block_str) => BlockNumberOrTag::from_str(to_block_str.as_str()).ok(),
-        _ => None,
-    };
-
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let chain_id = {
         let provider = ProviderBuilder::new().on_http(rpc_url.clone());
@@ -232,14 +219,7 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         provider.get_chain_id().await.expect("cannot get chain_id from {rpc_url}") as u32
     };
 
-    GoatInitConfig {
-        rpc_url,
-        gateway_address,
-        gateway_creation_block,
-        to_block,
-        private_key,
-        chain_id,
-    }
+    GoatInitConfig { rpc_url, gateway_address, private_key, chain_id }
 }
 
 pub fn get_committee_pubkeys_checked(network: Network) -> Vec<String> {

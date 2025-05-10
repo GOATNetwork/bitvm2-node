@@ -15,7 +15,7 @@ cargo install --bin bitvm2-noded --git https://github.com/GOATNetwork/bitvm2-nod
 
 # import the KEY, PEER_ID, BITVM_NODE_PUBKEY, BITVM_SECRET into env
 
-RUST_LOG=debug GOAT_GATEWAY_CONTRACT_CREATION=0 GOAT_GATEWAY_CONTRACT_ADDRESS=0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df GOAT_CHAIN_URL=https://rpc.testnet3.goat.network ACTOR=Committee ./target/debug/bitvm2-noded 
+RUST_LOG=debug GOAT_GATEWAY_CONTRACT_ADDRESS=0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df GOAT_CHAIN_URL=https://rpc.testnet3.goat.network ACTOR=Committee ./target/debug/bitvm2-noded 
 ```
 
 Run another node with a bootnode.
