@@ -1224,7 +1224,7 @@ pub mod tests {
             Network::Testnet,
             GoatNetwork::Test,
             global_init_config,
-            &get_ipfs_url(), 
+            &get_ipfs_url(),
         )
         .await
     }
