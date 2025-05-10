@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let random_str = format!("seed-{}-{}", uuid::Uuid::new_v4(), privkey);
                 let seed = Sha256::digest(random_str.as_bytes());
                 println!("export BITVM_NODE_PUBKEY={}", hex::encode(public_key.to_bytes()));
-                println!("export BITVM_SECRET={}", hex::encode(seed))
+                println!("export BITVM_SECRET=seed:{}", hex::encode(seed))
             }
         }
         return Ok(());

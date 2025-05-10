@@ -1,8 +1,14 @@
-# Node
+# BitVM2 Node
 
 ## Run Node
 
-Run a bootnode.
+1. Install bitvm2-noded
+
+```aiignore
+cargo install --bin bitvm2-noded --git https://github.com/GOATNetwork/bitvm2-node
+```
+
+2. Run a bootnode.
 ```bash
 ./target/debug/bitvm2-noded key gen
 ./target/debug/bitvm2-noded key to-pubkey-and-seed --privkey ${your bitcoin private key}

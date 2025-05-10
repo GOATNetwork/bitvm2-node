@@ -27,7 +27,7 @@ pub const ENV_PEER_ID: &str = "PEER_ID";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
-
+pub const ENV_COMMITTEE_PUBKEYS: &str = "COMMITTEE_PUBKEYS";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
 pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
@@ -243,6 +243,9 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
 }
 
 pub fn get_committee_pubkeys_checked(network: Network) -> Vec<String> {
+    if let Ok(committee) = std::env::var(ENV_COMMITTEE_PUBKEYS) {
+        return committee.trim().split(",").map(|v| v.to_string()).collect::<Vec<_>>();
+    }
     match network {
         Network::Testnet | Network::Regtest => {
             vec![
