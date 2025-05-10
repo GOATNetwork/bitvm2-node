@@ -1020,12 +1020,11 @@ pub async fn get_graph_status(
     client: &BitVM2Client,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<GraphStatus, Box<dyn std::error::Error>> {
+) -> Result<Option<GraphStatus>, Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
     let graph_op = storage_process.get_graph(&graph_id).await?;
     if graph_op.is_none() {
-        tracing::warn!("graph:{} is not record in db", graph_id);
-        return Err(format!("graph:{graph_id} is not record in db").into());
+        return Ok(None);
     };
     let graph = graph_op.unwrap();
     if graph.instance_id.ne(&instance_id) {
@@ -1035,8 +1034,10 @@ pub async fn get_graph_status(
         )
         .into());
     }
-    Ok(GraphStatus::from_str(&graph.status)
-        .map_err(|_| format!("unknown graph status: {}", graph.status))?)
+    Ok(Some(
+        GraphStatus::from_str(&graph.status)
+            .map_err(|_| format!("unknown graph status: {}", graph.status))?,
+    ))
 }
 
 /// Returns:
@@ -1969,20 +1970,20 @@ pub mod tests {
             let start_time = Instant::now();
             loop {
                 if start_time.elapsed().as_secs() > max_wait_secs {
-                    println!("Timeout: Transaction not confirmed after {} seconds", max_wait_secs);
+                    println!("Timeout: Transaction not confirmed after {max_wait_secs} seconds");
                     break;
                 };
                 match client.esplora.get_tx_status(txid).await {
                     Ok(status) => {
                         if let Some(height) = status.block_height {
-                            println!("Transaction confirmed in block {}", height);
+                            println!("Transaction confirmed in block {height}");
                             break;
                         } else {
                             println!("Transaction unconfirmed, polling again...");
                         }
                     }
                     Err(e) => {
-                        println!("Failed to fetch transaction status: {}", e);
+                        println!("Failed to fetch transaction status: {e}");
                     }
                 }
                 thread::sleep(Duration::from_secs(interval));

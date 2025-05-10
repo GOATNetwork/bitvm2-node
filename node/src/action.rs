@@ -45,6 +45,8 @@ pub enum GOATMessageContent {
     DisproveSent(DisproveSent),
     RequestNodeInfo(NodeInfo),
     ResponseNodeInfo(NodeInfo),
+    SyncGraphRequest(SyncGraphRequest),
+    SyncGraph(SyncGraph),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -169,6 +171,19 @@ pub struct NodeInfo {
     pub actor: String,
     pub goat_addr: String,
     pub btc_pub_key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SyncGraphRequest {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SyncGraph {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub graph: SimplifiedBitvm2Graph,
 }
 
 impl GOATMessage {
@@ -550,7 +565,9 @@ pub async fn recv_and_dispatch(
         // KickoffReady sent by relayer
         (GOATMessageContent::KickoffReady(receive_data), Actor::Operator) => {
             let graph_status =
-                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                    .ok_or("graph not found")?;
             if graph_status != GraphStatus::CommitteePresigned {
                 tracing::warn!(
                     "receive KickoffReady but currently in {graph_status} Status, ignored"
@@ -596,8 +613,12 @@ pub async fn recv_and_dispatch(
         // KickoffSent sent by relayer
         (GOATMessageContent::KickoffSent(receive_data), Actor::Challenger) => {
             tracing::info!("Handle KickoffSent");
+            sync_graph(swarm, client, receive_data.instance_id, receive_data.graph_id, 5, 30)
+                .await?;
             let graph_status =
-                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                    .ok_or("graph not found")?;
             if graph_status != GraphStatus::CommitteePresigned
                 && graph_status != GraphStatus::KickOff
             {
@@ -659,7 +680,9 @@ pub async fn recv_and_dispatch(
         // Take1Ready sent by relayer
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
             let graph_status =
-                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                    .ok_or("graph not found")?;
             if graph_status != GraphStatus::CommitteePresigned
                 && graph_status != GraphStatus::KickOff
             {
@@ -791,8 +814,12 @@ pub async fn recv_and_dispatch(
         // AssertSent sent by relayer
         (GOATMessageContent::AssertSent(receive_data), Actor::Challenger) => {
             tracing::info!("Handle AssertSent");
+            sync_graph(swarm, client, receive_data.instance_id, receive_data.graph_id, 5, 30)
+                .await?;
             let graph_status =
-                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                    .ok_or("graph not found")?;
             if graph_status == GraphStatus::Take2 || graph_status == GraphStatus::Disprove {
                 tracing::warn!(
                     "receive AssertSent but currently in {graph_status} Status, ignored"
@@ -993,7 +1020,9 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::KickoffSent(receive_data), _) => {
             tracing::info!("Handle KickoffSent");
             let graph_status =
-                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                    .ok_or("graph not found")?;
             if graph_status != GraphStatus::CommitteePresigned {
                 tracing::warn!(
                     "receive KickoffSent but currently in {graph_status} Status, ignored"
@@ -1016,7 +1045,9 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::ChallengeSent(receive_data), _) => {
             tracing::info!("Handle ChallengeSent");
             let graph_status =
-                get_graph_status(client, receive_data.instance_id, receive_data.graph_id).await?;
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                    .ok_or("graph not found")?;
             if graph_status != GraphStatus::CommitteePresigned
                 && graph_status != GraphStatus::KickOff
             {
@@ -1109,7 +1140,59 @@ pub async fn recv_and_dispatch(
             save_node_info(client, &node_info).await?;
         }
 
+        (GOATMessageContent::SyncGraphRequest(receive_data), Actor::Relayer) => {
+            tracing::info!("Handle SyncGraphRequest...  ");
+            let graph = get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
+            let message_content = GOATMessageContent::SyncGraph(SyncGraph {
+                instance_id: receive_data.instance_id,
+                graph_id: receive_data.graph_id,
+                graph: graph.to_simplified(),
+            });
+            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+        }
+        (GOATMessageContent::SyncGraph(receive_data), _) => {
+            tracing::info!("Handle SyncGraph...  ");
+            store_graph(
+                client,
+                receive_data.instance_id,
+                receive_data.graph_id,
+                &Bitvm2Graph::from_simplified(receive_data.graph)?,
+                None,
+            )
+            .await?;
+        }
+
         _ => {}
+    }
+    Ok(())
+}
+
+async fn sync_graph(
+    swarm: &mut Swarm<AllBehaviours>,
+    client: &BitVM2Client,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    interval: u64,
+    max_wait_secs: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
+    if get_graph_status(client, instance_id, graph_id).await?.is_none() {
+        let message_content =
+            GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id });
+        send_to_peer(swarm, GOATMessage::from_typed(Actor::Relayer, &message_content)?)?;
+        let start_time = Instant::now();
+        loop {
+            if start_time.elapsed().as_secs() > max_wait_secs {
+                return Err("sync graph timeout".into());
+            }
+            if get_graph_status(client, instance_id, graph_id).await?.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_secs(interval));
+        }
     }
     Ok(())
 }
