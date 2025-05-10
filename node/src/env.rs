@@ -14,7 +14,6 @@ use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
-//pub const ENV_BITVM2_NETWORK: &str = "BITVM2_NETWORK";
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
 pub const ENV_GOAT_GATEWAY_CONTRACT_CREATION: &str = "GOAT_GATEWAY_CONTRACT_CREATION";
@@ -227,10 +226,6 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     };
 
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
-    //let chain_id = std::env::var(ENV_GOAT_CHAIN_ID)
-    //    .expect("Failed to read {ENV_GOAT_CHAIN_ID} variable")
-    //    .parse::<u32>()
-    //    .expect("Failed to parse {chain_id_str} to u32");
     let chain_id = {
         let provider = ProviderBuilder::new().on_http(rpc_url.clone());
         // Call `eth_chainId`
