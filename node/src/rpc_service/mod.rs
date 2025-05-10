@@ -55,7 +55,7 @@ impl AppState {
             None,
             get_network(),
             get_goat_network(),
-            goat_config_from_env(),
+            goat_config_from_env().await,
             ipfs_url,
         )
         .await;

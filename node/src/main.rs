@@ -1,12 +1,13 @@
 #![feature(trivial_bounds)]
+use ::bitcoin::PrivateKey;
 use base64::Engine;
 use clap::{Parser, Subcommand, command};
 use client::client::BitVM2Client;
-use env::ENV_IPFS_ENDPOINT;
 use libp2p::PeerId;
 use libp2p::futures::StreamExt;
 use libp2p::{gossipsub, kad, mdns, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
 use libp2p_metrics::Registry;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -28,7 +29,7 @@ mod tests;
 mod utils;
 
 use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
-use crate::env::{ENV_ACTOR, ENV_PEER_ID, ENV_PEER_KEY, get_local_node_info};
+use crate::env::{ENV_ACTOR, ENV_PEER_ID, ENV_PEER_KEY, get_ipfs_url, get_local_node_info};
 use crate::middleware::behaviour::AllBehavioursEvent;
 use crate::utils::save_local_info;
 use anyhow::Result;
@@ -100,7 +101,13 @@ enum PeerCommands {
 
 #[derive(Subcommand, Debug, Clone)]
 enum KeyCommands {
+    /// Generate peer secret key and peer id
     Gen,
+    /// Bitcoin private key in WIF format
+    ToPubkeyAndSeed {
+        #[clap(short, long)]
+        privkey: String,
+    },
 }
 
 #[tokio::main]
@@ -115,13 +122,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("export {ENV_PEER_KEY}={base64_key}");
                 println!("export {ENV_PEER_ID}={}", local_key.public().to_peer_id());
             }
+            KeyCommands::ToPubkeyAndSeed { privkey } => {
+                let private_key = PrivateKey::from_wif(&privkey).unwrap();
+                let secp = ::bitcoin::secp256k1::Secp256k1::new();
+                let public_key = ::bitcoin::PublicKey::from_private_key(&secp, &private_key);
+
+                let random_str = format!("seed-{}-{}", uuid::Uuid::new_v4(), privkey);
+                let seed = Sha256::digest(random_str.as_bytes());
+                println!("export BITVM_NODE_PUBKEY={}", hex::encode(public_key.to_bytes()));
+                println!("export BITVM_SECRET={}", hex::encode(seed))
+            }
         }
         return Ok(());
     }
     // load role
     let actor =
         Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
-            .unwrap();
+            .expect("Expect one of Committee, Challenger, Operator or Relayer");
 
     let local_key = std::env::var(ENV_PEER_KEY).expect("KEY is missing");
     let arg_peer_id = std::env::var(ENV_PEER_ID).expect("Peer ID is missing");
@@ -212,14 +229,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::debug!("RPC service listening on {}", &opt.rpc_addr);
     let rpc_addr = opt.rpc_addr.clone();
     let db_path = opt.db_path.clone();
-    let ipfs_url = std::env::var(ENV_IPFS_ENDPOINT).expect("IPFS_ENDPOINT is missing");
+    let ipfs_url = get_ipfs_url();
 
     let client = BitVM2Client::new(
         &db_path,
         None,
         env::get_network(),
         env::get_goat_network(),
-        env::goat_config_from_env(),
+        env::goat_config_from_env().await,
         &ipfs_url,
     )
     .await;
