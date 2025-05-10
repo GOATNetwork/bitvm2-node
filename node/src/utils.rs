@@ -1225,7 +1225,7 @@ pub mod tests {
             Network::Testnet,
             GoatNetwork::Test,
             global_init_config,
-            "http://44.229.236.82:5001",
+            &get_ipfs_url(),
         )
         .await
     }
@@ -1774,7 +1774,7 @@ pub mod tests {
             Network::Testnet,
             GoatNetwork::Test,
             global_init_config,
-            "http://44.229.236.82:5001",
+            &get_ipfs_url(),
         )
         .await;
         let instance_id = Uuid::parse_str("85b378bc-1b2a-4c59-a116-bdf3fbdf14e0").unwrap();

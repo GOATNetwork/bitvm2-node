@@ -1,32 +1,29 @@
 #![allow(dead_code)]
 use crate::action::NodeInfo;
-use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::Address as EvmAddress;
-use alloy::signers::local::PrivateKeySigner;
-// use alloy_signer::{Signer, SignerSync};
 use alloy::primitives::Address;
+use alloy::providers::{Provider, ProviderBuilder};
+use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
 use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
+use musig2::k256::sha2;
 use reqwest::Url;
+use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
-pub const ENV_BITVM2_NETWORK: &str = "BITVM2_NETWORK";
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
-pub const ENV_GOAT_GATEWAY_CONTRACT_CREATION: &str = "GOAT_GATEWAY_CONTRACT_CREATION";
-pub const ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK: &str = "GOAT_GATEWAY_CONTRACT_TO_BLOCK";
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
-pub const ENV_GOAT_CHAIN_ID: &str = "GOAT_CHAIN_ID";
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
-pub const ENV_PEER_KEY: &str = "KEY";
-pub const ENV_PEER_ID: &str = "PEER_ID";
+pub const ENV_BITVM_NODE_PUBKEY: &str = "BITVM_NODE_PUBKEY";
+pub const ENV_PEER_KEY: &str = "PEER_KEY";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
-
+pub const ENV_COMMITTEE_PUBKEYS: &str = "COMMITTEE_PUBKEYS";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
 pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
@@ -71,29 +68,51 @@ pub fn get_goat_network() -> GoatNetwork {
     GOAT_NETWORK
 }
 
+/// Get the entropy of WOTS keys for current node
+///   Note: SEED should be used on production environment
+pub fn get_bitvm_secret() -> String {
+    let bitvm_secret = std::env::var(ENV_BITVM_SECRET).expect("{ENV_BITVM_SECRET} is missing");
+    if !bitvm_secret.starts_with("seed:") {
+        return bitvm_secret;
+    }
+    // derive private key from seed
+    let hashed = Sha256::digest(bitvm_secret.as_bytes());
+    let sk = secp256k1::SecretKey::from_slice(&hashed).expect("valid secret key");
+    hex::encode(sk.secret_bytes()).to_string()
+}
+
 pub fn get_bitvm_key() -> Result<Keypair, Box<dyn std::error::Error>> {
     // TODO: what if node restart with different BITVM_SECRET ?
-    let bitvm_secret = std::env::var(ENV_BITVM_SECRET).expect("{ENV_BITVM_SECRET} is missing");
+    let bitvm_secret = get_bitvm_secret();
     Ok(Keypair::from_seckey_str_global(&bitvm_secret)?)
 }
 
 pub fn get_node_pubkey() -> Result<PublicKey, Box<dyn std::error::Error>> {
+    if let Ok(env_pubkey) = std::env::var(ENV_BITVM_NODE_PUBKEY) {
+        return Ok(PublicKey::from_str(&env_pubkey)?);
+    }
+
     Ok(NodeMasterKey::new(get_bitvm_key()?).master_keypair().public_key().into())
 }
 
+pub fn get_actor() -> Actor {
+    Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
+        .expect("Expect one of Committee, Challenger, Operator or Relayer")
+}
+
+pub fn get_peer_key() -> String {
+    std::env::var(ENV_PEER_KEY).expect("Peer key is missing")
+}
+
+pub fn get_ipfs_url() -> String {
+    let default_url: &str = "http://44.229.236.82:5001";
+    std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
+}
+
 pub fn get_local_node_info() -> NodeInfo {
-    let bitvm2_network = BitVM2Network::from_str(
-        std::env::var(ENV_BITVM2_NETWORK).unwrap_or("develop".to_string()).as_str(),
-    )
-    .unwrap();
-    let actor =
-        Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
-            .unwrap();
-    let peer_id = std::env::var(ENV_PEER_ID).expect("Peer ID is missing");
-    let bitvm_secret = std::env::var(ENV_BITVM_SECRET).expect("{ENV_BITVM_SECRET} is missing");
-    let pubkey = Keypair::from_seckey_str_global(&bitvm_secret)
-        .expect("Failed to decode secret key")
-        .public_key();
+    let actor = get_actor();
+    let peer_id = get_peer_key();
+    let pubkey = get_node_pubkey().expect("Could not get public key");
     let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
         let singer =
             PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
@@ -112,7 +131,8 @@ pub fn get_local_node_info() -> NodeInfo {
     }
 
     if actor == Actor::Committee {
-        let committee_pubkeys = get_committee_pubkeys(bitvm2_network);
+        // TODO: check the committee pubkeys
+        let committee_pubkeys = get_committee_pubkeys_checked(get_network());
         if !committee_pubkeys.contains(&pubkey.to_string()) {
             panic!("Invalidate committee pubkey");
         }
@@ -183,7 +203,7 @@ impl FromStr for IpfsTxName {
     }
 }
 
-pub fn goat_config_from_env() -> GoatInitConfig {
+pub async fn goat_config_from_env() -> GoatInitConfig {
     if cfg!(feature = "tests") {
         return GoatInitConfig::from_env_for_test();
     }
@@ -198,69 +218,27 @@ pub fn goat_config_from_env() -> GoatInitConfig {
         .parse::<EvmAddress>()
         .expect("Failed to parse {gateway_address_str} to address");
 
-    let gateway_creation = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_CREATION)
-        .expect("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_CREATION} variable");
-    let gateway_creation_block =
-        gateway_creation.parse::<u64>().expect("{ENV_GOAT_GATEWAY_CONTRACT_CREATION} parse");
-
-    let to_block = match std::env::var(ENV_GOAT_GATEWAY_CONTRACT_TO_BLOCK).ok() {
-        Some(to_block_str) => BlockNumberOrTag::from_str(to_block_str.as_str()).ok(),
-        _ => None,
+    let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
+    let chain_id = {
+        let provider = ProviderBuilder::new().on_http(rpc_url.clone());
+        // Call `eth_chainId`
+        provider.get_chain_id().await.expect("cannot get chain_id from {rpc_url}") as u32
     };
 
-    let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
-    let chain_id = std::env::var(ENV_GOAT_CHAIN_ID)
-        .expect("Failed to read {ENV_GOAT_CHAIN_ID} variable")
-        .parse::<u32>()
-        .expect("Failed to parse {chain_id_str} to u32");
+    GoatInitConfig { rpc_url, gateway_address, private_key, chain_id }
+}
 
-    GoatInitConfig {
-        rpc_url,
-        gateway_address,
-        gateway_creation_block,
-        to_block,
-        private_key,
-        chain_id,
+pub fn get_committee_pubkeys_checked(network: Network) -> Vec<String> {
+    if let Ok(committee) = std::env::var(ENV_COMMITTEE_PUBKEYS) {
+        return committee.trim().split(",").map(|v| v.to_string()).collect::<Vec<_>>();
     }
-}
-
-#[derive(Debug)]
-pub enum BitVM2Network {
-    Main,
-    Test,
-    Develop,
-}
-impl FromStr for BitVM2Network {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Main" => Ok(BitVM2Network::Main),
-            "Test" => Ok(BitVM2Network::Test),
-            "Develop" => Ok(BitVM2Network::Develop),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::fmt::Display for BitVM2Network {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-pub fn get_committee_pubkeys(network: BitVM2Network) -> Vec<String> {
     match network {
-        BitVM2Network::Main => {
-            vec![]
-        }
-        BitVM2Network::Test => {
-            vec![]
-        }
-        BitVM2Network::Develop => {
+        Network::Testnet | Network::Regtest => {
             vec![
                 "02452556ed6dbac394cbb7441fbaf06c446d1321467fa5a138895c6c9e246793dd".to_string(),
                 "026cc14f56ad7e8fdb323378287895c6c0bcdbb37714c74fba175a0c5f0cd0d56f".to_string(),
             ]
         }
+        _ => todo!(),
     }
 }

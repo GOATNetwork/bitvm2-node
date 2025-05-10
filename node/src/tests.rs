@@ -46,7 +46,6 @@ pub mod tests {
     const BTCD_RPC_URL: &str = "http://127.0.0.1:3002";
 
     //FIXME: The UTs should not use IPFS
-    const IPFS_ENDPOINT: &str = "http://44.229.236.82:5001";
     pub fn create_rpc_client() -> BlockingClient {
         let builder = esplora_client::Builder::new(BTCD_RPC_URL);
 
@@ -65,7 +64,7 @@ pub mod tests {
             network,
             GoatNetwork::Test,
             global_init_config,
-            IPFS_ENDPOINT,
+            &crate::env::get_ipfs_url(),
         )
         .await
     }

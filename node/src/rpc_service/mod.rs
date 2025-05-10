@@ -1,6 +1,5 @@
 mod bitvm2;
 
-use std::str::FromStr;
 mod handler;
 mod node;
 
@@ -48,6 +47,8 @@ impl AppState {
     pub async fn create_arc_app_state(
         db_path: &str,
         ipfs_url: &str,
+        actor: Actor,
+        peer_id: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
         let bitvm2_client = BitVM2Client::new(
@@ -55,16 +56,11 @@ impl AppState {
             None,
             get_network(),
             get_goat_network(),
-            goat_config_from_env(),
+            goat_config_from_env().await,
             ipfs_url,
         )
         .await;
         let metrics_state = MetricsState::new(registry);
-        let actor =
-            Actor::from_str(std::env::var("ACTOR").unwrap_or("Challenger".to_string()).as_str())
-                .expect("failed to get actor ");
-        let peer_id = std::env::var("PEER_ID").unwrap_or("Self".to_string());
-
         Ok(Arc::new(AppState { bitvm2_client, metrics_state, actor, peer_id }))
     }
 }
@@ -91,9 +87,12 @@ pub(crate) async fn serve(
     addr: String,
     db_path: String,
     ipfs_url: String,
+    actor: Actor,
+    peer_id: String,
     registry: Arc<Mutex<Registry>>,
 ) -> anyhow::Result<()> {
-    let app_state = AppState::create_arc_app_state(&db_path, &ipfs_url, registry).await?;
+    let app_state =
+        AppState::create_arc_app_state(&db_path, &ipfs_url, actor, peer_id, registry).await?;
     let server = Router::new()
         .route("/", get(root))
         .route("/v1/nodes", post(create_node))
@@ -225,10 +224,15 @@ mod tests {
     async fn test_nodes_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
         let addr = available_addr();
+        let actor = crate::Actor::Challenger;
+        let local_key = identity::generate_local_key();
+        let peer_id = local_key.public().to_peer_id().to_string();
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             temp_file(),
             local_ipfs_url(),
+            actor,
+            peer_id,
             Arc::new(Mutex::new(Registry::default())),
         ));
         sleep(Duration::from_secs(1)).await;
@@ -280,10 +284,15 @@ mod tests {
     async fn test_bitvm2_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
         let addr = available_addr();
+        let actor = crate::Actor::Challenger;
+        let local_key = identity::generate_local_key();
+        let peer_id = local_key.public().to_peer_id().to_string();
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             temp_file(),
             local_ipfs_url(),
+            actor,
+            peer_id,
             Arc::new(Mutex::new(Registry::default())),
         ));
         sleep(Duration::from_secs(1)).await;
