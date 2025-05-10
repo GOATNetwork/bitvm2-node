@@ -144,8 +144,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut metric_registry = Registry::default();
 
     let local_key = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
-            base64::engine::general_purpose::STANDARD.decode(local_key)?,
-        ))?;
+        base64::engine::general_purpose::STANDARD.decode(local_key)?,
+    ))?;
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()
