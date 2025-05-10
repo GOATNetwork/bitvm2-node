@@ -567,7 +567,7 @@ pub async fn recv_and_dispatch(
             let graph_status =
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
-                    .ok_or("graph not found")?;
+                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
             if graph_status != GraphStatus::CommitteePresigned {
                 tracing::warn!(
                     "receive KickoffReady but currently in {graph_status} Status, ignored"
@@ -618,7 +618,7 @@ pub async fn recv_and_dispatch(
             let graph_status =
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
-                    .ok_or("graph not found")?;
+                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
             if graph_status != GraphStatus::CommitteePresigned
                 && graph_status != GraphStatus::KickOff
             {
@@ -682,7 +682,7 @@ pub async fn recv_and_dispatch(
             let graph_status =
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
-                    .ok_or("graph not found")?;
+                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
             if graph_status != GraphStatus::CommitteePresigned
                 && graph_status != GraphStatus::KickOff
             {
@@ -819,7 +819,7 @@ pub async fn recv_and_dispatch(
             let graph_status =
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
-                    .ok_or("graph not found")?;
+                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
             if graph_status == GraphStatus::Take2 || graph_status == GraphStatus::Disprove {
                 tracing::warn!(
                     "receive AssertSent but currently in {graph_status} Status, ignored"
@@ -1022,7 +1022,7 @@ pub async fn recv_and_dispatch(
             let graph_status =
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
-                    .ok_or("graph not found")?;
+                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
             if graph_status != GraphStatus::CommitteePresigned {
                 tracing::warn!(
                     "receive KickoffSent but currently in {graph_status} Status, ignored"
@@ -1047,7 +1047,7 @@ pub async fn recv_and_dispatch(
             let graph_status =
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
-                    .ok_or("graph not found")?;
+                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
             if graph_status != GraphStatus::CommitteePresigned
                 && graph_status != GraphStatus::KickOff
             {
