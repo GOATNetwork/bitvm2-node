@@ -628,6 +628,7 @@ pub async fn recv_and_dispatch(
                 )
                 .await?;
                 tracing::info!("challenge sent, txid: {}", challenge_txid.to_string());
+                let _ = wait_tx_confirmation(client, &challenge_txid, 5, 300).await;
                 let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
@@ -825,6 +826,9 @@ pub async fn recv_and_dispatch(
                     fee_rate,
                 )?;
                 let disprove_txid = disprove_tx.compute_txid();
+                let _ =
+                    wait_tx_confirmation(client, &graph.assert_final.tx().compute_txid(), 5, 600)
+                        .await;
                 broadcast_tx(client, &disprove_tx).await?;
                 let message_content = GOATMessageContent::DisproveSent(DisproveSent {
                     instance_id: receive_data.instance_id,

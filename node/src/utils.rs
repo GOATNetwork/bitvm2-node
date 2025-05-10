@@ -130,7 +130,7 @@ pub async fn is_take1_timelock_expired(
     match tx_status.block_height {
         Some(tx_height) => {
             let current_height = client.esplora.get_height().await?;
-            Ok(current_height > tx_height + lock_blocks)
+            Ok(current_height >= tx_height + lock_blocks)
         }
         _ => Ok(false),
     }
@@ -149,7 +149,7 @@ pub async fn is_take2_timelock_expired(
     match tx_status.block_height {
         Some(tx_height) => {
             let current_height = client.esplora.get_height().await?;
-            Ok(current_height > tx_height + lock_blocks)
+            Ok(current_height >= tx_height + lock_blocks)
         }
         _ => Ok(false),
     }
@@ -1872,5 +1872,306 @@ pub mod tests {
         println!("merkle_proof.block_height: {}", merkle_proof.block_height);
         println!("merkle_proof.leaf_index: {}", merkle_proof.pos);
         println!("merkle_proof.merkle: {proof_display:?}");
+    }
+
+    pub mod disprove {
+        use bitcoin::{XOnlyPublicKey, consensus::encode::deserialize_hex};
+        use bitvm::{
+            chunk::api::type_conversion_utils::{RawWitness, utils_raw_witnesses_from_signatures},
+            execute_raw_script_with_inputs,
+        };
+        use bitvm2_lib::operator::sign_proof;
+        use goat::{
+            connectors::connector_b::ConnectorB,
+            scripts::generate_pay_to_pubkey_script,
+            transactions::{
+                assert::utils::{
+                    AllCommitConnectorsE, MAX_CONNECTORS_E_PER_TX, SingleCommitConnectorsE,
+                },
+                signing::populate_taproot_input_witness_default,
+            },
+        };
+
+        use super::*;
+
+        const NETWORK: Network = Network::Testnet;
+
+        async fn setup() -> (String, Uuid, OperatorMasterKey, BitVM2Client) {
+            use goat::contexts::base::generate_keys_from_secret;
+            let bitvm_secret = "3076ca1dfc1e383be26d5dd3c0c427340f96139fa8c2520862cf551ec2d670ac";
+            let graph_id = Uuid::from_str("3e552eb4-dd57-4097-b6e1-71a477dbc1ff").unwrap();
+            let base_url = "QmRNZjKJhrJmE8cEs9Cwbeq3eMPNfRBb4Z3XNEwy2z7T6M".to_string();
+            unsafe {
+                std::env::set_var(ENV_ACTOR, "Operator");
+                std::env::set_var(ENV_BITVM_SECRET, bitvm_secret);
+            }
+            let (keypair, _) = generate_keys_from_secret(NETWORK, bitvm_secret);
+            (base_url, graph_id, OperatorMasterKey::new(keypair), test_client().await)
+        }
+
+        async fn get_kickoff_tx_from_ipfs(
+            client: &BitVM2Client,
+            base_url: &str,
+        ) -> Result<Transaction, Box<dyn std::error::Error>> {
+            let kickoff_url = [base_url, "/", IpfsTxName::Kickoff.as_str()].concat();
+            let pegin_hex = client.ipfs.cat(&kickoff_url).await?;
+            Ok(deserialize_hex(&pegin_hex)?)
+        }
+
+        async fn get_assert_tx_from_ipfs(
+            client: &BitVM2Client,
+            base_url: &str,
+        ) -> Result<
+            (Transaction, [Transaction; COMMIT_TX_NUM], Transaction),
+            Box<dyn std::error::Error>,
+        > {
+            let assert_init_url = [base_url, "/", IpfsTxName::AssertInit.as_str()].concat();
+            let assert_init_hex = client.ipfs.cat(&assert_init_url).await?;
+            let assert_init: Transaction = deserialize_hex(&assert_init_hex)?;
+
+            let assert_commit0_url = [base_url, "/", IpfsTxName::AssertCommit0.as_str()].concat();
+            let assert_commit0_hex = client.ipfs.cat(&assert_commit0_url).await?;
+            let assert_commit0: Transaction = deserialize_hex(&assert_commit0_hex)?;
+
+            let assert_commit1_url = [base_url, "/", IpfsTxName::AssertCommit1.as_str()].concat();
+            let assert_commit1_hex = client.ipfs.cat(&assert_commit1_url).await?;
+            let assert_commit1: Transaction = deserialize_hex(&assert_commit1_hex)?;
+
+            let assert_commit2_url = [base_url, "/", IpfsTxName::AssertCommit2.as_str()].concat();
+            let assert_commit2_hex = client.ipfs.cat(&assert_commit2_url).await?;
+            let assert_commit2: Transaction = deserialize_hex(&assert_commit2_hex)?;
+
+            let assert_commit3_url = [base_url, "/", IpfsTxName::AssertCommit3.as_str()].concat();
+            let assert_commit3_hex = client.ipfs.cat(&assert_commit3_url).await?;
+            let assert_commit3: Transaction = deserialize_hex(&assert_commit3_hex)?;
+
+            let assert_final_url = [base_url, "/", IpfsTxName::AssertFinal.as_str()].concat();
+            let assert_final_hex = client.ipfs.cat(&assert_final_url).await?;
+            let assert_final: Transaction = deserialize_hex(&assert_final_hex)?;
+
+            Ok((
+                assert_init,
+                [assert_commit0, assert_commit1, assert_commit2, assert_commit3],
+                assert_final,
+            ))
+        }
+
+        async fn wait_for_confirmation(
+            client: &BitVM2Client,
+            txid: &Txid,
+            interval: u64,
+            max_wait_secs: u64,
+        ) {
+            use std::{
+                thread,
+                time::{Duration, Instant},
+            };
+            let start_time = Instant::now();
+            loop {
+                if start_time.elapsed().as_secs() > max_wait_secs {
+                    println!("Timeout: Transaction not confirmed after {} seconds", max_wait_secs);
+                    break;
+                };
+                match client.esplora.get_tx_status(txid).await {
+                    Ok(status) => {
+                        if let Some(height) = status.block_height {
+                            println!("Transaction confirmed in block {}", height);
+                            break;
+                        } else {
+                            println!("Transaction unconfirmed, polling again...");
+                        }
+                    }
+                    Err(e) => {
+                        println!("Failed to fetch transaction status: {}", e);
+                    }
+                }
+                thread::sleep(Duration::from_secs(interval));
+            }
+        }
+
+        #[tokio::test]
+        #[ignore = "debug"]
+        async fn fake_kickoff() {
+            let (base_url, graph_id, master_key, client) = setup().await;
+            let mut kickoff = get_kickoff_tx_from_ipfs(&client, &base_url).await.unwrap();
+            if tx_on_chain(&client, &kickoff.compute_txid()).await.unwrap() {
+                println!("kickoff already sent");
+                return;
+            };
+            let (operator_wots_seckeys, operator_wots_pubkeys) =
+                master_key.wots_keypair_for_graph(graph_id);
+            let operator_pubkey: PublicKey =
+                master_key.keypair_for_graph(graph_id).public_key().into();
+            let kickoff_wots_commitment_keys =
+                CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
+            let connector_6 = Connector6::new(
+                NETWORK,
+                &XOnlyPublicKey::from(operator_pubkey),
+                &kickoff_wots_commitment_keys,
+            );
+            let input_index = 0;
+            let script = connector_6.generate_taproot_leaf_script(0);
+            let taproot_spend_info = connector_6.generate_taproot_spend_info();
+            let input_value = client
+                .esplora
+                .get_tx(&kickoff.input[0].previous_output.txid)
+                .await
+                .unwrap()
+                .unwrap()
+                .output[0]
+                .value;
+            let prev_outs = vec![TxOut {
+                value: input_value,
+                script_pubkey: connector_6.generate_taproot_address().script_pubkey(),
+            }];
+            let evm_txid_inputs = WinternitzSigningInputs {
+                message: [0; 32].as_ref(),
+                signing_key: &operator_wots_seckeys.0[0],
+            };
+            let mut unlock_data: Vec<Vec<u8>> = Vec::new();
+            // get schnorr signature
+            let schnorr_signature = generate_taproot_leaf_schnorr_signature(
+                &mut kickoff,
+                &prev_outs,
+                input_index,
+                TapSighashType::All,
+                &script,
+                &master_key.keypair_for_graph(graph_id),
+            );
+            unlock_data.push(schnorr_signature.to_vec());
+            // get winternitz signature for evm withdraw txid
+            unlock_data.extend(generate_winternitz_witness(&evm_txid_inputs).to_vec());
+            populate_taproot_input_witness(
+                &mut kickoff,
+                input_index,
+                &taproot_spend_info,
+                &script,
+                unlock_data,
+            );
+            broadcast_tx(&client, &kickoff).await.unwrap();
+        }
+
+        #[tokio::test]
+        #[ignore = "debug"]
+        async fn fake_assert() {
+            println!("setup...");
+            let (base_url, graph_id, master_key, client) = setup().await;
+            let kickoff = get_kickoff_tx_from_ipfs(&client, &base_url).await.unwrap();
+            let (mut assert_init, mut assert_commits, mut assert_final) =
+                get_assert_tx_from_ipfs(&client, &base_url).await.unwrap();
+            let operator_pubkey: PublicKey =
+                master_key.keypair_for_graph(graph_id).public_key().into();
+            let operator_taproot_public_key = XOnlyPublicKey::from(operator_pubkey);
+
+            if tx_on_chain(&client, &assert_init.compute_txid()).await.unwrap() {
+                println!("assert-init already sent");
+            } else {
+                println!("send assert-init...");
+                let connector_b = ConnectorB::new(NETWORK, &operator_taproot_public_key);
+                let input_index = 0;
+                let prev_outs = vec![TxOut {
+                    value: kickoff.output[2].value,
+                    script_pubkey: connector_b.generate_taproot_address().script_pubkey(),
+                }];
+                let script = connector_b.generate_taproot_leaf_script(0);
+                let taproot_spend_info = connector_b.generate_taproot_spend_info();
+                populate_taproot_input_witness_default(
+                    &mut assert_init,
+                    &prev_outs,
+                    input_index,
+                    TapSighashType::All,
+                    &taproot_spend_info,
+                    &script,
+                    &vec![&master_key.keypair_for_graph(graph_id)],
+                );
+                broadcast_tx(&client, &assert_init).await.unwrap();
+            }
+
+            if tx_on_chain(&client, &assert_commits[3].compute_txid()).await.unwrap() {
+                println!("assert-commit already sent");
+            } else {
+                println!("processing assert-commit...");
+                let (operator_wots_seckeys, operator_wots_pubkeys) =
+                    master_key.wots_keypair_for_graph(graph_id);
+                println!("generate proof-sigs...");
+                let (proof, pubin, vk) = get_groth16_proof(graph_id, graph_id).unwrap();
+                let mut proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
+                println!("corrupt proof-sigs...");
+                corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);
+                let assert_commit_witness = utils_raw_witnesses_from_signatures(&proof_sigs);
+                println!("sign assert-commit...");
+                let all_assert_commit_connectors_e =
+                    AllCommitConnectorsE::new(NETWORK, &operator_pubkey, &operator_wots_pubkeys.1);
+                fn sign_assert_commit(
+                    tx: &mut Transaction,
+                    connectors_e: &SingleCommitConnectorsE,
+                    witnesses: Vec<RawWitness>,
+                ) {
+                    assert_eq!(witnesses.len(), connectors_e.connectors_num());
+                    for (input_index, witness) in (0..connectors_e.connectors_num()).zip(witnesses)
+                    {
+                        let taproot_spend_info =
+                            connectors_e.get_connector_e(input_index).generate_taproot_spend_info();
+                        let script = &connectors_e
+                            .get_connector_e(input_index)
+                            .generate_taproot_leaf_script(0);
+
+                        let res = execute_raw_script_with_inputs(
+                            script.clone().to_bytes(),
+                            witness.clone(),
+                        );
+                        assert!(
+                            res.success,
+                            "script: {:?}, res: {:?}: stack: {:?}, variable name: {:?}",
+                            script,
+                            res,
+                            res.final_stack,
+                            connectors_e.get_connector_e(input_index).commitment_public_keys.keys()
+                        );
+                        populate_taproot_input_witness(
+                            tx,
+                            input_index,
+                            &taproot_spend_info,
+                            script,
+                            witness,
+                        );
+                    }
+                }
+                for (i, witness) in
+                    (0..COMMIT_TX_NUM).zip(assert_commit_witness.chunks(MAX_CONNECTORS_E_PER_TX))
+                {
+                    println!("processing assert-commit-{i}...");
+                    sign_assert_commit(
+                        &mut assert_commits[i],
+                        &all_assert_commit_connectors_e.commit_connectors_e_vec[i],
+                        witness.to_vec(),
+                    );
+                    if !tx_on_chain(&client, &assert_commits[i].compute_txid()).await.unwrap() {
+                        broadcast_tx(&client, &assert_commits[i]).await.unwrap();
+                        wait_for_confirmation(&client, &assert_commits[i].compute_txid(), 5, 300)
+                            .await;
+                    }
+                }
+            }
+
+            if tx_on_chain(&client, &assert_final.compute_txid()).await.unwrap() {
+                println!("assert-final already sent");
+            } else {
+                println!("processing assert-final...");
+                for input_index in 1..(COMMIT_TX_NUM + 1) {
+                    let script = generate_pay_to_pubkey_script(&operator_pubkey);
+                    let value = assert_commits[input_index - 1].output[0].value;
+                    populate_p2wsh_witness(
+                        &mut assert_final,
+                        input_index,
+                        EcdsaSighashType::All,
+                        &script,
+                        value,
+                        &vec![&master_key.keypair_for_graph(graph_id)],
+                    );
+                }
+                broadcast_tx(&client, &assert_final).await.unwrap();
+            }
+        }
     }
 }
