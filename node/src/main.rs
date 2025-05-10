@@ -29,7 +29,9 @@ mod tests;
 mod utils;
 
 use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
-use crate::env::{ENV_ACTOR, ENV_PEER_ID, ENV_PEER_KEY, get_ipfs_url, get_local_node_info};
+use crate::env::{
+    ENV_BITVM_NODE_PUBKEY, ENV_BITVM_SECRET, ENV_PEER_KEY, get_ipfs_url, get_local_node_info,
+};
 use crate::middleware::behaviour::AllBehavioursEvent;
 use crate::utils::save_local_info;
 use anyhow::Result;
@@ -120,7 +122,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let base64_key = base64::engine::general_purpose::STANDARD
                     .encode(&local_key.to_protobuf_encoding()?);
                 println!("export {ENV_PEER_KEY}={base64_key}");
-                println!("export {ENV_PEER_ID}={}", local_key.public().to_peer_id());
             }
             KeyCommands::ToPubkeyAndSeed { privkey } => {
                 let private_key = PrivateKey::from_wif(&privkey).unwrap();
@@ -129,37 +130,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 let random_str = format!("seed-{}-{}", uuid::Uuid::new_v4(), privkey);
                 let seed = Sha256::digest(random_str.as_bytes());
-                println!("export BITVM_NODE_PUBKEY={}", hex::encode(public_key.to_bytes()));
-                println!("export BITVM_SECRET=seed:{}", hex::encode(seed))
+                println!("export {ENV_BITVM_NODE_PUBKEY}={}", hex::encode(public_key.to_bytes()));
+                println!("export {ENV_BITVM_SECRET}=seed:{}", hex::encode(seed))
             }
         }
         return Ok(());
     }
     // load role
-    let actor =
-        Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
-            .expect("Expect one of Committee, Challenger, Operator or Relayer");
-
-    let local_key = std::env::var(ENV_PEER_KEY).expect("KEY is missing");
-    let arg_peer_id = std::env::var(ENV_PEER_ID).expect("Peer ID is missing");
+    let actor = env::get_actor();
+    let local_key = env::get_peer_key();
 
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let mut metric_registry = Registry::default();
 
-    let local_key = {
-        let keypair = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
+    let local_key = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
             base64::engine::general_purpose::STANDARD.decode(local_key)?,
         ))?;
-
-        let peer_id = keypair.public().into();
-        assert_eq!(
-            PeerId::from_str(&arg_peer_id)?,
-            peer_id,
-            "Expect peer id derived from private key and peer id retrieved from config to match."
-        );
-
-        keypair
-    };
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()
@@ -247,6 +233,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rpc_addr,
         db_path.clone(),
         ipfs_url.clone(),
+        actor.clone(),
+        local_key.public().to_peer_id().to_string(),
         Arc::new(Mutex::new(metric_registry)),
     ));
     // Read full lines from stdin

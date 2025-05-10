@@ -19,8 +19,7 @@ pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
 pub const ENV_BITVM_NODE_PUBKEY: &str = "BITVM_NODE_PUBKEY";
-pub const ENV_PEER_KEY: &str = "KEY";
-pub const ENV_PEER_ID: &str = "PEER_ID";
+pub const ENV_PEER_KEY: &str = "PEER_KEY";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
@@ -96,16 +95,23 @@ pub fn get_node_pubkey() -> Result<PublicKey, Box<dyn std::error::Error>> {
     Ok(NodeMasterKey::new(get_bitvm_key()?).master_keypair().public_key().into())
 }
 
+pub fn get_actor() -> Actor {
+    Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
+        .expect("Expect one of Committee, Challenger, Operator or Relayer")
+}
+
+pub fn get_peer_key() -> String {
+    std::env::var(ENV_PEER_KEY).expect("Peer key is missing")
+}
+
 pub fn get_ipfs_url() -> String {
     let default_url: &str = "http://44.229.236.82:5001";
     std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
 }
 
 pub fn get_local_node_info() -> NodeInfo {
-    let actor =
-        Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
-            .unwrap();
-    let peer_id = std::env::var(ENV_PEER_ID).expect("Peer ID is missing");
+    let actor = get_actor();
+    let peer_id = get_peer_key();
     let pubkey = get_node_pubkey().expect("Could not get public key");
     let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
         let singer =
