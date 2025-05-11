@@ -639,13 +639,13 @@ pub async fn recv_and_dispatch(
             .await?
             {
                 tracing::info!("sending Challenge ...");
-                let (challenge_tx, challenge_amount) = export_challenge_tx(&mut graph)?;
+                let (challenge_tx, _challenge_amount) = export_challenge_tx(&mut graph)?;
                 let node_keypair = ChallengerMasterKey::new(env::get_bitvm_key()?).master_keypair();
                 let challenge_txid = complete_and_broadcast_challenge_tx(
                     client,
                     node_keypair,
                     challenge_tx,
-                    challenge_amount,
+                    // challenge_amount,
                 )
                 .await?;
                 tracing::info!("challenge sent, txid: {}", challenge_txid.to_string());
@@ -750,16 +750,23 @@ pub async fn recv_and_dispatch(
                 let (assert_init_tx, assert_commit_txns, assert_final_tx) =
                     operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;
                 if !tx_on_chain(client, &assert_init_tx.compute_txid()).await? {
+                    tracing::info!("sending Assert-Init {} ...", assert_init_tx.compute_txid());
                     broadcast_tx(client, &assert_init_tx).await?;
                 }
-                for tx in assert_commit_txns {
+                wait_tx_confirmation(client, &assert_init_tx.compute_txid(), 5, 1800).await?;
+                for tx in &assert_commit_txns {
                     let txid = tx.compute_txid();
                     if !tx_on_chain(client, &txid).await? {
-                        broadcast_tx(client, &tx).await?;
-                        wait_tx_confirmation(client, &txid, 5, 300).await?;
+                        tracing::info!("sending Assert-Commit {txid} ...");
+                        broadcast_tx(client, tx).await?;
                     }
                 }
+                wait_tx_confirmation(client, &assert_commit_txns[0].compute_txid(), 5, 900).await?;
+                wait_tx_confirmation(client, &assert_commit_txns[1].compute_txid(), 5, 900).await?;
+                wait_tx_confirmation(client, &assert_commit_txns[2].compute_txid(), 5, 900).await?;
+                wait_tx_confirmation(client, &assert_commit_txns[3].compute_txid(), 5, 900).await?;
                 if !tx_on_chain(client, &assert_final_tx.compute_txid()).await? {
+                    tracing::info!("sending Assert-Final {} ...", assert_init_tx.compute_txid());
                     broadcast_tx(client, &assert_final_tx).await?;
                 }
                 update_graph_fields(
@@ -791,6 +798,7 @@ pub async fn recv_and_dispatch(
                     let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                     let take2_tx = operator_sign_take2(keypair, &mut graph)?;
                     let take2_txid = take2_tx.compute_txid();
+                    tracing::info!("sending Take2 {take2_txid} ...");
                     broadcast_tx(client, &take2_tx).await?;
                     let message_content = GOATMessageContent::Take2Sent(Take2Sent {
                         instance_id: receive_data.instance_id,
@@ -873,6 +881,8 @@ pub async fn recv_and_dispatch(
                     None,
                 )
                 .await?;
+            } else {
+                tracing::info!("nothing to Disprove.");
             }
         }
 

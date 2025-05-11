@@ -96,7 +96,7 @@ pub mod tests {
         challenge_tx: Transaction,
     ) {
         let (funder_privkey, _) = get_regtest_address(network);
-        let challenge_amount = Amount::from_btc(0.01).unwrap();
+        let _challenge_amount = Amount::from_btc(0.01).unwrap();
 
         let secp = secp256k1::Secp256k1::new();
         println!("Broadcast challenge tx");
@@ -104,7 +104,7 @@ pub mod tests {
             bitvm2_client,
             Keypair::from_secret_key(&secp, &funder_privkey.inner),
             challenge_tx,
-            challenge_amount,
+            // challenge_amount,
         )
         .await
         .unwrap();

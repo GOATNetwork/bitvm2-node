@@ -375,11 +375,12 @@ pub async fn complete_and_broadcast_challenge_tx(
     client: &BitVM2Client,
     node_keypair: Keypair,
     challenge_tx: Transaction,
-    challenge_amount: Amount,
+    // challenge_amount: Amount,
 ) -> Result<Txid, Box<dyn std::error::Error>> {
     let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
     let fee_rate = get_fee_rate(client).await?;
     let mut challenge_tx = challenge_tx;
+    let challenge_amount = challenge_tx.output[0].value;
     match get_proper_utxo_set(
         client,
         CHALLENGE_BASE_VBYTES,
@@ -1899,9 +1900,9 @@ pub mod tests {
 
         async fn setup() -> (String, Uuid, OperatorMasterKey, BitVM2Client) {
             use goat::contexts::base::generate_keys_from_secret;
-            let bitvm_secret = "3076ca1dfc1e383be26d5dd3c0c427340f96139fa8c2520862cf551ec2d670ac";
-            let graph_id = Uuid::from_str("3e552eb4-dd57-4097-b6e1-71a477dbc1ff").unwrap();
-            let base_url = "QmRNZjKJhrJmE8cEs9Cwbeq3eMPNfRBb4Z3XNEwy2z7T6M".to_string();
+            let bitvm_secret = "951b97ce2a102fe6e0cec74123cdf9772303f585b2acf5b68c360affc64472f9";
+            let graph_id = Uuid::from_str("f4573b7d-ec0c-435c-b849-9c54a5db84d0").unwrap();
+            let base_url = "QmR2C9iWpmqvbX1xBVqEda6g1i6fQoR1DhBEXKRxyUVNGR".to_string();
             unsafe {
                 std::env::set_var(ENV_ACTOR, "Operator");
                 std::env::set_var(ENV_BITVM_SECRET, bitvm_secret);
@@ -1910,13 +1911,14 @@ pub mod tests {
             (base_url, graph_id, OperatorMasterKey::new(keypair), test_client().await)
         }
 
-        async fn get_kickoff_tx_from_ipfs(
+        async fn get_tx_from_ipfs(
             client: &BitVM2Client,
             base_url: &str,
+            tx_name: IpfsTxName,
         ) -> Result<Transaction, Box<dyn std::error::Error>> {
-            let kickoff_url = [base_url, "/", IpfsTxName::Kickoff.as_str()].concat();
-            let pegin_hex = client.ipfs.cat(&kickoff_url).await?;
-            Ok(deserialize_hex(&pegin_hex)?)
+            let tx_url = [base_url, "/", tx_name.as_str()].concat();
+            let tx_hex = client.ipfs.cat(&tx_url).await?;
+            Ok(deserialize_hex(&tx_hex)?)
         }
 
         async fn get_assert_tx_from_ipfs(
@@ -1994,7 +1996,8 @@ pub mod tests {
         #[ignore = "debug"]
         async fn fake_kickoff() {
             let (base_url, graph_id, master_key, client) = setup().await;
-            let mut kickoff = get_kickoff_tx_from_ipfs(&client, &base_url).await.unwrap();
+            let mut kickoff =
+                get_tx_from_ipfs(&client, &base_url, IpfsTxName::Kickoff).await.unwrap();
             if tx_on_chain(&client, &kickoff.compute_txid()).await.unwrap() {
                 println!("kickoff already sent");
                 return;
@@ -2052,13 +2055,103 @@ pub mod tests {
             broadcast_tx(&client, &kickoff).await.unwrap();
         }
 
+        async fn fake_assert_commits() -> [Transaction; COMMIT_TX_NUM] {
+            println!("setup...");
+            let (base_url, graph_id, master_key, client) = setup().await;
+            let (_, mut assert_commits, _) =
+                get_assert_tx_from_ipfs(&client, &base_url).await.unwrap();
+            let operator_pubkey: PublicKey =
+                master_key.keypair_for_graph(graph_id).public_key().into();
+            println!("processing assert-commit...");
+            let (operator_wots_seckeys, operator_wots_pubkeys) =
+                master_key.wots_keypair_for_graph(graph_id);
+            println!("generate proof-sigs...");
+            let (proof, pubin, vk) = get_groth16_proof(graph_id, graph_id).unwrap();
+            let mut proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
+            println!("corrupt proof-sigs...");
+            corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);
+            let assert_commit_witness = utils_raw_witnesses_from_signatures(&proof_sigs);
+            println!("sign assert-commit...");
+            let all_assert_commit_connectors_e =
+                AllCommitConnectorsE::new(NETWORK, &operator_pubkey, &operator_wots_pubkeys.1);
+            fn sign_assert_commit(
+                tx: &mut Transaction,
+                connectors_e: &SingleCommitConnectorsE,
+                witnesses: Vec<RawWitness>,
+            ) {
+                assert_eq!(witnesses.len(), connectors_e.connectors_num());
+                for (input_index, witness) in (0..connectors_e.connectors_num()).zip(witnesses) {
+                    let taproot_spend_info =
+                        connectors_e.get_connector_e(input_index).generate_taproot_spend_info();
+                    let script =
+                        &connectors_e.get_connector_e(input_index).generate_taproot_leaf_script(0);
+
+                    let res =
+                        execute_raw_script_with_inputs(script.clone().to_bytes(), witness.clone());
+                    assert!(
+                        res.success,
+                        "script: {:?}, res: {:?}: stack: {:?}, variable name: {:?}",
+                        script,
+                        res,
+                        res.final_stack,
+                        connectors_e.get_connector_e(input_index).commitment_public_keys.keys()
+                    );
+                    populate_taproot_input_witness(
+                        tx,
+                        input_index,
+                        &taproot_spend_info,
+                        script,
+                        witness,
+                    );
+                }
+            }
+            for (i, witness) in
+                (0..COMMIT_TX_NUM).zip(assert_commit_witness.chunks(MAX_CONNECTORS_E_PER_TX))
+            {
+                println!("processing assert-commit-{i}...");
+                sign_assert_commit(
+                    &mut assert_commits[i],
+                    &all_assert_commit_connectors_e.commit_connectors_e_vec[i],
+                    witness.to_vec(),
+                );
+                let tx_data = bitcoin::consensus::serialize(&assert_commits[i]);
+                let file_path = format!("cache/tests/assert-commit-{i}.bin");
+                if let Some(parent) = Path::new(&file_path).parent() {
+                    fs::create_dir_all(parent).unwrap();
+                    let mut file = File::create(file_path).unwrap();
+                    file.write_all(&tx_data).unwrap();
+                };
+            }
+            assert_commits
+        }
+
+        async fn get_assert_commits() -> [Transaction; COMMIT_TX_NUM] {
+            let file_path = "cache/tests/assert-commit-3.bin";
+            if Path::new(file_path).exists() {
+                let res: [Transaction; COMMIT_TX_NUM] = std::array::from_fn(|i| {
+                    let file_path = format!("cache/tests/assert-commit-{i}.bin");
+                    let tx_data = std::fs::read(file_path).unwrap();
+                    bitcoin::consensus::deserialize(&tx_data).unwrap()
+                });
+                res
+            } else {
+                fake_assert_commits().await
+            }
+        }
+
+        #[tokio::test]
+        #[ignore = "debug"]
+        async fn sign_assert_commit() {
+            fake_assert_commits().await;
+        }
+
         #[tokio::test]
         #[ignore = "debug"]
         async fn fake_assert() {
             println!("setup...");
             let (base_url, graph_id, master_key, client) = setup().await;
-            let kickoff = get_kickoff_tx_from_ipfs(&client, &base_url).await.unwrap();
-            let (mut assert_init, mut assert_commits, mut assert_final) =
+            let kickoff = get_tx_from_ipfs(&client, &base_url, IpfsTxName::Kickoff).await.unwrap();
+            let (mut assert_init, assert_commits, mut assert_final) =
                 get_assert_tx_from_ipfs(&client, &base_url).await.unwrap();
             let operator_pubkey: PublicKey =
                 master_key.keypair_for_graph(graph_id).public_key().into();
@@ -2092,65 +2185,12 @@ pub mod tests {
                 println!("assert-commit already sent");
             } else {
                 println!("processing assert-commit...");
-                let (operator_wots_seckeys, operator_wots_pubkeys) =
-                    master_key.wots_keypair_for_graph(graph_id);
-                println!("generate proof-sigs...");
-                let (proof, pubin, vk) = get_groth16_proof(graph_id, graph_id).unwrap();
-                let mut proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
-                println!("corrupt proof-sigs...");
-                corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);
-                let assert_commit_witness = utils_raw_witnesses_from_signatures(&proof_sigs);
-                println!("sign assert-commit...");
-                let all_assert_commit_connectors_e =
-                    AllCommitConnectorsE::new(NETWORK, &operator_pubkey, &operator_wots_pubkeys.1);
-                fn sign_assert_commit(
-                    tx: &mut Transaction,
-                    connectors_e: &SingleCommitConnectorsE,
-                    witnesses: Vec<RawWitness>,
-                ) {
-                    assert_eq!(witnesses.len(), connectors_e.connectors_num());
-                    for (input_index, witness) in (0..connectors_e.connectors_num()).zip(witnesses)
-                    {
-                        let taproot_spend_info =
-                            connectors_e.get_connector_e(input_index).generate_taproot_spend_info();
-                        let script = &connectors_e
-                            .get_connector_e(input_index)
-                            .generate_taproot_leaf_script(0);
-
-                        let res = execute_raw_script_with_inputs(
-                            script.clone().to_bytes(),
-                            witness.clone(),
-                        );
-                        assert!(
-                            res.success,
-                            "script: {:?}, res: {:?}: stack: {:?}, variable name: {:?}",
-                            script,
-                            res,
-                            res.final_stack,
-                            connectors_e.get_connector_e(input_index).commitment_public_keys.keys()
-                        );
-                        populate_taproot_input_witness(
-                            tx,
-                            input_index,
-                            &taproot_spend_info,
-                            script,
-                            witness,
-                        );
-                    }
-                }
-                for (i, witness) in
-                    (0..COMMIT_TX_NUM).zip(assert_commit_witness.chunks(MAX_CONNECTORS_E_PER_TX))
-                {
-                    println!("processing assert-commit-{i}...");
-                    sign_assert_commit(
-                        &mut assert_commits[i],
-                        &all_assert_commit_connectors_e.commit_connectors_e_vec[i],
-                        witness.to_vec(),
-                    );
-                    if !tx_on_chain(&client, &assert_commits[i].compute_txid()).await.unwrap() {
-                        broadcast_tx(&client, &assert_commits[i]).await.unwrap();
-                        wait_for_confirmation(&client, &assert_commits[i].compute_txid(), 5, 300)
-                            .await;
+                let assert_commits = get_assert_commits().await;
+                println!("wait assert-init...");
+                wait_for_confirmation(&client, &assert_init.compute_txid(), 5, 1800).await;
+                for assert_commit_tx in assert_commits.iter() {
+                    if !tx_on_chain(&client, &assert_commit_tx.compute_txid()).await.unwrap() {
+                        broadcast_tx(&client, assert_commit_tx).await.unwrap();
                     }
                 }
             }
@@ -2171,8 +2211,29 @@ pub mod tests {
                         &vec![&master_key.keypair_for_graph(graph_id)],
                     );
                 }
+                println!("wait assert-commit-3...");
+                wait_for_confirmation(&client, &assert_commits[0].compute_txid(), 5, 1800).await;
+                wait_for_confirmation(&client, &assert_commits[1].compute_txid(), 5, 1800).await;
+                wait_for_confirmation(&client, &assert_commits[2].compute_txid(), 5, 1800).await;
+                wait_for_confirmation(&client, &assert_commits[3].compute_txid(), 5, 1800).await;
                 broadcast_tx(&client, &assert_final).await.unwrap();
             }
+        }
+
+        #[tokio::test]
+        #[ignore = "debug"]
+        async fn fake_challenge() {
+            let (base_url, _, master_key, client) = setup().await;
+            let challenge_tx =
+                get_tx_from_ipfs(&client, &base_url, IpfsTxName::Challenge).await.unwrap();
+            let challenge_txid = complete_and_broadcast_challenge_tx(
+                &client,
+                master_key.master_keypair(),
+                challenge_tx,
+            )
+            .await
+            .unwrap();
+            println!("challenge sent {challenge_txid}");
         }
     }
 }
