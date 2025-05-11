@@ -526,35 +526,15 @@ pub async fn get_graphs(
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
-        let mut from_addr = params.from_addr.clone();
-        let (is_goat_address, goat_address) = reflect_goat_address(params.from_addr);
-        if is_goat_address {
-            from_addr = goat_address;
-        }
-        let pegin_txid = if let Some(tx_id) = params.pegin_txid {
-            let pegin_txid = Txid::from_str(&tx_id)?;
-            Some(serialize_hex(&pegin_txid))
-        } else {
-            None
-        };
-        let (graphs, total) = storage_process
-            .filter_graphs(FilterGraphParams {
-                is_bridge_out: is_goat_address,
-                status: params.status,
-                operator: params.operator,
-                from_addr: from_addr.clone(),
-                pegin_txid,
-                offset: params.offset,
-                limit: params.limit,
-            })
-            .await?;
+        let from_addr = params.from_addr.clone();
+        let filter_params: FilterGraphParams = params.into();
+        let is_goat_address = filter_params.is_bridge_out;
+        let (graphs, total) = storage_process.filter_graphs(filter_params).await?;
         resp_clone.total = total;
-
         if graphs.is_empty() {
             return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone);
         }
         let current_time = current_time_secs();
-
         let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
         for mut graph in graphs {
             convert_addrs_for_bridge_out(&mut graph, is_goat_address, from_addr.clone())?;

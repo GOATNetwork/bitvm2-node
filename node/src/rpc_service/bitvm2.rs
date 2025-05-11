@@ -1,5 +1,8 @@
 use crate::env::{CHEKSIG_P2WSH_INPUT_VBYTES, PEGIN_BASE_VBYTES};
+use crate::rpc_service::handler::bitvm2_handler::reflect_goat_address;
+use alloy::hex::ToHexExt;
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::{Address, Amount, Network, OutPoint, Txid};
 use bitvm2_lib::types::CustomInputs;
 use goat::transactions::base::Input;
@@ -7,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
+use store::localdb::FilterGraphParams;
 use store::{GrapRpcQueryData, Graph, Instance};
 use uuid::Uuid;
 
@@ -150,9 +154,37 @@ pub struct GraphQueryParams {
     pub status: Option<String>,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
-    pub pegin_txid: Option<String>,
+    pub graph_field: Option<String>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
+}
+
+impl From<GraphQueryParams> for FilterGraphParams {
+    fn from(value: GraphQueryParams) -> Self {
+        let (is_goat_address, goat_address) = reflect_goat_address(value.from_addr.clone());
+        let from_addr = if is_goat_address { goat_address } else { value.from_addr.clone() };
+        let mut pegin_txid_op: Option<String> = None;
+        let mut graph_ip_op: Option<String> = None;
+        if let Some(filed) = value.graph_field {
+            if let Ok(pegin_txid) = Txid::from_str(&filed) {
+                pegin_txid_op = Some(serialize_hex(&pegin_txid));
+            }
+            if let Ok(uuid) = Uuid::from_str(&filed) {
+                graph_ip_op = Some(uuid.encode_hex());
+            }
+        }
+
+        FilterGraphParams {
+            is_bridge_out: is_goat_address,
+            status: value.status,
+            operator: value.operator,
+            from_addr,
+            graph_id: graph_ip_op,
+            pegin_txid: pegin_txid_op,
+            offset: value.offset,
+            limit: value.limit,
+        }
+    }
 }
 
 /// graph_overview

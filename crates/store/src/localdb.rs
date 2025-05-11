@@ -80,6 +80,7 @@ pub struct FilterGraphParams {
     pub status: Option<String>,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
+    pub graph_id: Option<String>,
     pub pegin_txid: Option<String>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
@@ -412,6 +413,10 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(pegin_txid) = params.pegin_txid {
             conditions.push(format!("graph.pegin_txid = \'{pegin_txid}\'"));
+        }
+
+        if let Some(graph_id) = params.graph_id {
+            conditions.push(format!(" hex(graph_id) = \'{graph_id}\' COLLATE NOCASE"));
         }
 
         if params.is_bridge_out && params.status.is_none() {

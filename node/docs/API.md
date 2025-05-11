@@ -376,7 +376,7 @@ pub enum GraphBridgePath {
     - `stauts`: exp graph status(e.g:OperatorPresigned,CommitteePresigned, KickOff,Challenge,Assert,Take1,Take2,Disproved)
     - `operator`: operator address on chain goat 
     - `from_addr`: instance from address
-    - `pegin_txid`:peg_in tx hash 
+    - `graph_field`:peg_in tx hash or graph_id string 
     - `offset`: Pagination offset
     - `limit`: Number of graphs to return
 - **Response**:
