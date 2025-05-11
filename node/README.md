@@ -13,9 +13,9 @@ cargo install --bin bitvm2-noded --git https://github.com/GOATNetwork/bitvm2-nod
 ./target/debug/bitvm2-noded key gen
 ./target/debug/bitvm2-noded key to-pubkey-and-seed --privkey ${your bitcoin private key}
 
-# import the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET into env
+# import the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET into your .env
 
-RUST_LOG=debug GOAT_GATEWAY_CONTRACT_ADDRESS=0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df GOAT_CHAIN_URL=https://rpc.testnet3.goat.network ACTOR=Committee ./target/debug/bitvm2-noded 
+./target/debug/bitvm2-noded 
 ```
 
 Run another node with a bootnode.
@@ -23,7 +23,7 @@ Run another node with a bootnode.
 ./target/debug/bitvm2-noded key gen
 ./target/debug/bitvm2-noded key to-pubkey-and-seed --privkey ${your bitcoin private key}
 
-# import the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET into env
+# import the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET into your .env
 
 ./target/debug/bitvm2-noded --bootnodes $BOOTNODE -d
 ```
@@ -37,7 +37,7 @@ if you launch multiple node in a single server, use different `rpc_addr` and `db
 ## Env
 
 `ACTOR`: Challenger, Operator, Committee
-`KEY`: local identity private key
+`PEER_KEY`: local node's identity private key
 
 For example: 
 

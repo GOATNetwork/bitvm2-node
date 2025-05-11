@@ -112,6 +112,7 @@ enum KeyCommands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv::dotenv().ok();
     let opt = Opts::parse();
     if let Some(Commands::Key(key_arg)) = opt.cmd {
         match key_arg.cmd {

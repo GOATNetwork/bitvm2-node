@@ -129,6 +129,7 @@ pub fn get_local_node_info() -> NodeInfo {
     }
 
     if actor == Actor::Committee {
+        // TODO: do check
         //let committee_peer_ids= get_committee_peer_id_checked(get_network());
         //if !committee_peer_ids.contains(&peer_id) {
         //    panic!("Invalidate committee pubkey");
