@@ -4,6 +4,7 @@ use alloy::primitives::Address as EvmAddress;
 use alloy::primitives::Address;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
+use base64::Engine;
 use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
@@ -12,6 +13,7 @@ use musig2::k256::sha2;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
+use zeroize::Zeroizing;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
@@ -102,6 +104,15 @@ pub fn get_peer_key() -> String {
     std::env::var(ENV_PEER_KEY).expect("Peer key is missing")
 }
 
+pub fn get_peer_id() -> String {
+    let local_key = std::env::var(ENV_PEER_KEY).expect("Peer key is missing");
+    let key_pair = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
+        base64::engine::general_purpose::STANDARD.decode(local_key).expect("fail to decode base64"),
+    ))
+    .expect("failed to gen keypair");
+    key_pair.public().to_peer_id().to_string()
+}
+
 pub fn get_ipfs_url() -> String {
     let default_url: &str = "http://44.229.236.82:5001";
     std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
@@ -109,7 +120,7 @@ pub fn get_ipfs_url() -> String {
 
 pub fn get_local_node_info() -> NodeInfo {
     let actor = get_actor();
-    let peer_id = get_peer_key();
+    let peer_id = get_peer_id();
     let pubkey = get_node_pubkey().expect("Could not get public key");
     let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
         let singer =
@@ -222,6 +233,5 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         // Call `eth_chainId`
         provider.get_chain_id().await.expect("cannot get chain_id from {rpc_url}") as u32
     };
-
     GoatInitConfig { rpc_url, gateway_address, private_key, chain_id }
 }
