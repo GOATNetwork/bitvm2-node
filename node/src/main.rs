@@ -29,9 +29,7 @@ mod tests;
 mod utils;
 
 use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
-use crate::env::{
-    ENV_BITVM_NODE_PUBKEY, ENV_BITVM_SECRET, ENV_PEER_KEY, get_ipfs_url, get_local_node_info,
-};
+use crate::env::{ENV_BITVM_SECRET, ENV_PEER_KEY, get_ipfs_url, get_local_node_info, get_network};
 use crate::middleware::behaviour::AllBehavioursEvent;
 use crate::utils::save_local_info;
 use anyhow::Result;
@@ -121,17 +119,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let local_key = identity::generate_local_key();
                 let base64_key = base64::engine::general_purpose::STANDARD
                     .encode(&local_key.to_protobuf_encoding()?);
+                let peer_id = local_key.public().to_peer_id().to_string();
                 println!("export {ENV_PEER_KEY}={base64_key}");
+                println!("export PEER_ID={peer_id}");
             }
             KeyCommands::ToPubkeyAndSeed { privkey } => {
                 let private_key = PrivateKey::from_wif(&privkey).unwrap();
                 let secp = ::bitcoin::secp256k1::Secp256k1::new();
                 let public_key = ::bitcoin::PublicKey::from_private_key(&secp, &private_key);
+                let p2wsh_addr = utils::node_p2wsh_address(get_network(), &public_key);
 
                 let random_str = format!("seed-{}-{}", uuid::Uuid::new_v4(), privkey);
                 let seed = Sha256::digest(random_str.as_bytes());
-                println!("export {ENV_BITVM_NODE_PUBKEY}={}", hex::encode(public_key.to_bytes()));
-                println!("export {ENV_BITVM_SECRET}=seed:{}", hex::encode(seed))
+                println!("export {ENV_BITVM_SECRET}=seed:{}", hex::encode(seed));
+                println!("Your funding address: {p2wsh_addr}");
             }
         }
         return Ok(());

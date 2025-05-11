@@ -15,15 +15,17 @@ use std::str::FromStr;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
+/// Relayer
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
+/// Operator
 pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
+/// Operator(private key), Relayer(private key),  Committee(seed)
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
-pub const ENV_BITVM_NODE_PUBKEY: &str = "BITVM_NODE_PUBKEY";
+/// All actors
 pub const ENV_PEER_KEY: &str = "PEER_KEY";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
-pub const ENV_COMMITTEE_PUBKEYS: &str = "COMMITTEE_PUBKEYS";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
 pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
@@ -88,10 +90,6 @@ pub fn get_bitvm_key() -> Result<Keypair, Box<dyn std::error::Error>> {
 }
 
 pub fn get_node_pubkey() -> Result<PublicKey, Box<dyn std::error::Error>> {
-    if let Ok(env_pubkey) = std::env::var(ENV_BITVM_NODE_PUBKEY) {
-        return Ok(PublicKey::from_str(&env_pubkey)?);
-    }
-
     Ok(NodeMasterKey::new(get_bitvm_key()?).master_keypair().public_key().into())
 }
 
@@ -131,11 +129,10 @@ pub fn get_local_node_info() -> NodeInfo {
     }
 
     if actor == Actor::Committee {
-        // TODO: check the committee pubkeys
-        let committee_pubkeys = get_committee_pubkeys_checked(get_network());
-        if !committee_pubkeys.contains(&pubkey.to_string()) {
-            panic!("Invalidate committee pubkey");
-        }
+        //let committee_peer_ids= get_committee_peer_id_checked(get_network());
+        //if !committee_peer_ids.contains(&peer_id) {
+        //    panic!("Invalidate committee pubkey");
+        //}
     }
 
     NodeInfo {
@@ -226,19 +223,4 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     };
 
     GoatInitConfig { rpc_url, gateway_address, private_key, chain_id }
-}
-
-pub fn get_committee_pubkeys_checked(network: Network) -> Vec<String> {
-    if let Ok(committee) = std::env::var(ENV_COMMITTEE_PUBKEYS) {
-        return committee.trim().split(",").map(|v| v.to_string()).collect::<Vec<_>>();
-    }
-    match network {
-        Network::Testnet | Network::Regtest => {
-            vec![
-                "02452556ed6dbac394cbb7441fbaf06c446d1321467fa5a138895c6c9e246793dd".to_string(),
-                "026cc14f56ad7e8fdb323378287895c6c0bcdbb37714c74fba175a0c5f0cd0d56f".to_string(),
-            ]
-        }
-        _ => todo!(),
-    }
 }
