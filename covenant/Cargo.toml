@@ -35,6 +35,11 @@ host-executor  = { git = "https://github.com/zkMIPS/reth-processor" }
 primitives     = { git = "https://github.com/zkMIPS/reth-processor" }
 provider       = { git = "https://github.com/zkMIPS/reth-processor" }
 
+#guest-executor = { path = "../../reth-processor/crates/executor/guest" }
+#host-executor = { path = "../../reth-processor/crates/executor/host" }
+#primitives = { path = "../../reth-processor/crates/primitives" }
+#provider= { path = "../../reth-processor/crates/provider" }
+
 # zkMIPS
 zkm-build = { git = "https://github.com/zkMIPS/zkMIPS" }
 zkm-core-executor = { git = "https://github.com/zkMIPS/zkMIPS" }
