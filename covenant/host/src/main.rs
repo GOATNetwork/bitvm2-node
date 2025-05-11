@@ -6,6 +6,9 @@ use zkm_sdk::{
 mod cli;
 use cli::HostArgs;
 
+mod bitvm2_node;
+use bitvm2_node::BitVM2NodeClient;
+
 const ELF: &[u8] = include_elf!("covenant-guest");
 
 //fn prove_revm() {
@@ -120,6 +123,8 @@ async fn main() -> eyre::Result<()> {
         args.precompile_tracking,
         args.opcode_tracking,
     );
+    // TODO
+    // let bitvm2_node_client = BitVM2NodeClient::new();
 
     let prover_client = Arc::new(ProverClient::new());
 
