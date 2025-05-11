@@ -1,16 +1,15 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
-    BridgeInStatus, COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData,
-    Instance, Message, MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData,
-    PubKeyCollect, PubKeyCollectMetaData,
+    COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData, Instance, Message,
+    MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, PubKeyCollect,
+    PubKeyCollectMetaData,
 };
 use anyhow::bail;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
-use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
@@ -175,6 +174,8 @@ impl<'a> StorageProcessor<'a> {
             instance_query_str = format!("{instance_query_str} WHERE {condition_str}");
             instance_count_str = format!("{instance_count_str} WHERE {condition_str}");
         }
+
+        instance_query_str = format!("{instance_query_str} ORDER BY created_at DESC ");
         if let Some(limit) = limit {
             instance_query_str = format!("{instance_query_str} LIMIT {limit}");
         }
