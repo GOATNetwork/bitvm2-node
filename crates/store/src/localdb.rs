@@ -76,7 +76,7 @@ impl LocalDB {
 
 #[derive(Clone, Debug)]
 pub struct FilterGraphParams {
-    pub is_bridge_out: bool,
+    pub is_bridge_in: bool,
     pub status: Option<String>,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
@@ -344,25 +344,19 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         mut params: FilterGraphParams,
     ) -> anyhow::Result<(Vec<GrapRpcQueryData>, i64)> {
-        let is_instance_status = if let Some(status) = params.status.clone() {
-            BridgeInStatus::from_str(&status).is_ok()
+        let (status_filed, create_at_filed, updated_at_field, order_field) = if params.is_bridge_in
+        {
+            ("instance.status", "instance.created_at", "instance.updated_at", "instance.created_at")
         } else {
-            false
+            ("graph.status", "graph.created_at", "graph.updated_at", "graph.created_at")
         };
-        // default return graph status.
-        let status_filed =
-            if (!params.is_bridge_out && params.from_addr.is_some()) || is_instance_status {
-                "instance.status"
-            } else {
-                "graph.status"
-            };
 
         let mut graph_query_str = format!(
             "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS  bridge_path, {status_filed} AS status, \
             instance.network AS network, instance.from_addr AS from_addr,  instance.to_addr AS to_addr,  \
             graph.amount, graph.pegin_txid, graph.kickoff_txid, graph.challenge_txid,  \
             graph.take1_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid,  \
-            graph.take2_txid, graph.disprove_txid, graph.operator,  graph.updated_at, graph.created_at FROM graph  \
+            graph.take2_txid, graph.disprove_txid, graph.operator,  {create_at_filed}, {updated_at_field} FROM graph  \
             INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
         );
         let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs FROM graph \
@@ -370,7 +364,7 @@ impl<'a> StorageProcessor<'a> {
             .to_string();
 
         if let Some(from_addr) = params.from_addr {
-            if params.is_bridge_out {
+            if !params.is_bridge_in {
                 let node_op = sqlx::query_as!(
                     Node,
                     "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  \
@@ -419,7 +413,7 @@ impl<'a> StorageProcessor<'a> {
             conditions.push(format!(" hex(graph_id) = \'{graph_id}\' COLLATE NOCASE"));
         }
 
-        if params.is_bridge_out && params.status.is_none() {
+        if !params.is_bridge_in && params.status.is_none() {
             conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\')".to_string());
         }
 
@@ -429,7 +423,7 @@ impl<'a> StorageProcessor<'a> {
             graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
 
-        graph_query_str = format!("{graph_query_str} ORDER BY graph.created_at DESC ");
+        graph_query_str = format!("{graph_query_str} ORDER BY {order_field} DESC ");
 
         if let Some(limit) = params.limit {
             graph_query_str = format!("{graph_query_str} LIMIT {limit}");

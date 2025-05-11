@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use store::localdb::FilterGraphParams;
-use store::{GrapRpcQueryData, Graph, Instance};
+use store::{BridgeInStatus, GrapRpcQueryData, Graph, Instance};
 use uuid::Uuid;
 
 #[allow(clippy::upper_case_acronyms)]
@@ -174,8 +174,16 @@ impl From<GraphQueryParams> for FilterGraphParams {
             }
         }
 
+        let mut is_bridge_in = false;
+        if let Some(status) = value.status.clone() {
+            is_bridge_in = BridgeInStatus::from_str(&status).is_ok()
+        }
+
+        // todo add btc address check
+        is_bridge_in = is_bridge_in || (!is_goat_address && value.from_addr.is_some());
+
         FilterGraphParams {
-            is_bridge_out: is_goat_address,
+            is_bridge_in,
             status: value.status,
             operator: value.operator,
             from_addr,
