@@ -1,0 +1,130 @@
+[workspace]
+members = [
+    "host",
+]
+exclude = []
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+exclude = ["**/target"]
+version = "0.1.0"
+
+[workspace.dependencies]
+tracing = { version = "0.1.40", default-features = false }
+cfg-if = "1.0.0"
+spin = { version = "0.9.8", features = ["mutex"] }
+async-trait = "0.1.80"
+tokio = { version = "1.21", default-features = false, features = [
+    "rt",
+    "rt-multi-thread",
+] }
+reqwest = "0.12.9"
+serde_json = "1.0.94"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+futures = "0.3"
+url = "2.3"
+thiserror = "1.0.61"
+hex-literal = "0.4.1"
+rayon = "1.10.0"
+rlp = "0.5.2"
+
+# workspace
+guest-executor = { git = "https://github.com/zkMIPS/reth-processor" }
+host-executor  = { git = "https://github.com/zkMIPS/reth-processor" }
+primitives     = { git = "https://github.com/zkMIPS/reth-processor" }
+provider       = { git = "https://github.com/zkMIPS/reth-processor" }
+
+# zkMIPS
+zkm-build = { git = "https://github.com/zkMIPS/zkMIPS" }
+zkm-core-executor = { git = "https://github.com/zkMIPS/zkMIPS" }
+zkm-prover = { git = "https://github.com/zkMIPS/zkMIPS" }
+zkm-sdk = { git = "https://github.com/zkMIPS/zkMIPS" }
+# zkm-build = { path = "../zkMIPS/crates/build" }
+# zkm-core-executor = { path = "../zkMIPS/crates/core/executor" }
+# zkm-prover = { path = "../zkMIPS/crates/prover" }
+# zkm-sdk = { path = "../zkMIPS/crates/sdk" }
+
+# reth
+reth-primitives-traits = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-consensus = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-evm = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-evm-ethereum = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-optimism-evm = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-optimism-primitives = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-storage-errors = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-trie = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-chainspec = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-optimism-chainspec = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-execution-types = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-errors = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-ethereum-consensus = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-ethereum-primitives = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false, features = ["serde"] }
+reth-optimism-consensus = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+reth-optimism-forks = { git = "https://github.com/zkMIPS-patches/reth", branch = "patch-1.3.10", default-features = false }
+
+# revm
+revm = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", features = [
+    "serde",
+    "kzg-rs",
+], default-features = false }
+revm-bytecode = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", default-features = false }
+revm-state = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", default-features = false }
+revm-primitives = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", features = [
+    "serde",
+], default-features = false }
+revm-interpreter = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", default-features = false }
+revm-precompile = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", default-features = false }
+revm-database-interface = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", default-features = false }
+op-revm = { git = "https://github.com/zkMIPS-patches/revm", branch = "patch-22.0.0", default-features = false }
+revm-inspectors = { git = "https://github.com/zkMIPS-patches/revm-inspectors", branch = "patch-0.20.1" }
+
+# alloy
+alloy-chains = { version = "0.2.0", default-features = false }
+alloy-evm = { git = "https://github.com/zkMIPS-patches/evm", branch = "patch-0.4.0", default-features = false }
+alloy-primitives = { version = "1.0.0", default-features = false, features = ["sha3-keccak", "map-foldhash"] }
+alloy-provider = { version = "0.14.0", default-features = false, features = [
+    "reqwest",
+    "reqwest-rustls-tls",
+] }
+alloy-rpc-types = { version = "0.14.0", default-features = false, features = [
+    "eth",
+] }
+
+alloy-json-rpc = { version = "0.14.0", default-features = false }
+alloy-genesis = { version = "0.14.0", default-features = false }
+alloy-consensus = { version = "0.14.0", default-features = false, features = ["serde", "serde-bincode-compat"] }
+alloy-network = { version = "0.14.0", default-features = false }
+alloy-transport = { version = "0.14.0", default-features = false }
+alloy-transport-http = { version = "0.14.0", features = [
+    "reqwest-rustls-tls",
+], default-features = false }
+alloy-transport-ws = { version = "0.14.0" }
+alloy-rpc-client = { version = "0.14.0", default-features = false }
+alloy-eips = { version = "0.14.0", default-features = false }
+
+alloy-rlp = "0.3.10"
+alloy-trie = "0.8.1"
+
+# op
+alloy-op-evm = { git = "https://github.com/zkMIPS-patches/evm", branch = "patch-0.4.0", default-features = false }
+op-alloy-consensus = "0.13.0"
+op-alloy-network = "0.13.0"
+op-alloy-rpc-types = "0.13.0"
+
+
+[workspace.lints]
+rust.missing_debug_implementations = "warn"
+rust.unreachable_pub = "warn"
+rust.unused_must_use = "deny"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rustdoc.all = "warn"
+
+[patch.crates-io]
+# Precompile patches
+sha2 = { git = "https://github.com/zkMIPS-patches/RustCrypto-hashes", branch = "patch-sha2-0.10.8", package = "sha2" }
+bn = { git = "https://github.com/zkMIPS-patches/bn", branch = "patch-0.6.0", package = "substrate-bn" }
+k256 = { git = "https://github.com/zkMIPS-patches/elliptic-curves", branch = "patch-k256-0.13.4" }
+p256 = { git = "https://github.com/zkMIPS-patches/elliptic-curves", branch = "patch-p256-0.13.2" }
+alloy-primitives-v1-0-0 = { git = "https://github.com/zkMIPS-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.0.0" }
+alloy-primitives-v1-1-0 = { git = "https://github.com/zkMIPS-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.1.0" }

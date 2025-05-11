@@ -7,11 +7,13 @@ resolver = "3"
 members = [
     "crates/bitvm2",
     "crates/store", "crates/identity", "node", "crates/spv", "crates/client",
+    #"covenant/host",
 ]
 
 [workspace.dependencies]
 bitvm = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test" }
 goat = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test" }
+
 libp2p = { version = "0.55.0", features = ["tokio", "dns", "kad", "noise", "tcp", "yamux", "rsa", "ping", "mdns"] }
 libp2p-swarm-derive = "0.35.0"
 libp2p-metrics = "0.16.0"
@@ -48,7 +50,6 @@ openssh-sftp-client = { version = "0.14.6", features = ["openssh"] }
 openssh = { version = "0.10.4", features = ["native-mux"] }
 alloy = { version = "0.3", features = ["full"] }
 clap = { version = "4.5.23", features = ["derive", "cargo", "env"] }
-toml = "0.5.11"
 colored = "2.0.0"
 itertools = "0.13.0"
 serde-big-array = "0.5.1"
@@ -68,8 +69,10 @@ anyhow = "1.0.97"
 axum = "0.8.1"
 axum-extra = { version = "0.8" }
 http = "1.3.1"
+url = "2.3"
 uuid = { version = "1.7", features = ["v4", "serde"] }
 zeroize = "1.8.1"
+
 bitvm2-lib = { path = "crates/bitvm2" }
 identity = { path = "crates/identity" }
 store = { path = "crates/store" }

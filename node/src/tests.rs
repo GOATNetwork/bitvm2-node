@@ -19,7 +19,6 @@ pub mod tests {
     use goat::connectors::base::generate_default_tx_in;
     use goat::transactions::signing::populate_p2wsh_witness;
     use musig2::secp256k1;
-    use std::process;
     use uuid::Uuid;
 
     use ark_bn254::Bn254;
@@ -40,9 +39,6 @@ pub mod tests {
     use musig2::{PartialSignature, PubNonce, SecNonce};
     use std::str::FromStr;
 
-    const BTCD_RPC_USER: &str = "111111";
-    const BTCD_RPC_PASSWORD: &str = "111111";
-    const BTCD_WALLET: &str = "alice";
     const BTCD_RPC_URL: &str = "http://127.0.0.1:3002";
 
     //FIXME: The UTs should not use IPFS
