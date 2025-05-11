@@ -528,7 +528,7 @@ pub async fn get_graphs(
         let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
         let from_addr = params.from_addr.clone();
         let filter_params: FilterGraphParams = params.into();
-        let is_goat_address = filter_params.is_bridge_out;
+        let is_goat_address = !filter_params.is_bridge_in;
         let (graphs, total) = storage_process.filter_graphs(filter_params).await?;
         resp_clone.total = total;
         if graphs.is_empty() {
