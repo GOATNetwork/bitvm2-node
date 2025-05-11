@@ -375,7 +375,7 @@ pub async fn scan_withdraw(
             &MessageType::KickoffReady.to_string(),
         )
         .await?;
-        if msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
+        if msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
             update_message_broadcast_times(
                 client,
@@ -451,7 +451,7 @@ pub async fn scan_kickoff(
                 graph_id,
                 kickoff_txid,
             });
-            if graph_data.msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
+            if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
                 update_message_broadcast_times(
                     client,
@@ -509,7 +509,7 @@ pub async fn scan_assert(
             continue;
         }
 
-        if graph_data.msg_times <= MESSAGE_BROADCAST_MAX_TIMES {
+        if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             let instance_id = graph_data.instance_id;
             let graph_id = graph_data.graph_id;
             let message_content = GOATMessageContent::AssertSent(AssertSent {
