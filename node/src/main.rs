@@ -104,10 +104,7 @@ enum KeyCommands {
     /// Generate peer secret key and peer id
     Gen,
     /// Bitcoin private key in WIF format
-    ToPubkeyAndSeed {
-        #[clap(short, long)]
-        privkey: String,
-    },
+    ToPubkeyAndSeed,
 }
 
 #[tokio::main]
@@ -124,7 +121,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("{ENV_PEER_KEY}={base64_key}");
                 println!("PEER_ID={peer_id}");
             }
-            KeyCommands::ToPubkeyAndSeed { privkey } => {
+            KeyCommands::ToPubkeyAndSeed => {
+                let privkey = crate::env::get_bitvm_secret();
                 let private_key = PrivateKey::from_wif(&privkey).unwrap();
                 let secp = ::bitcoin::secp256k1::Secp256k1::new();
                 let public_key = ::bitcoin::PublicKey::from_private_key(&secp, &private_key);

@@ -51,4 +51,10 @@ $BTC --rpcwallet=alice -generate 10
 
 #privkey=`$BTC --rpcwallet=alice dumpprivkey  $address`
 #echo $privkey > $DIR/../.key.test
-tail -f /dev/null
+
+# Install watch
+apt-get update
+apt-get install -y procps
+# A terminal-based program (like watch, top, less, etc.) runs in an environment, TERM environment variable should be set
+export TERM=xterm
+watch -n 2 "$BTC -generate 1"

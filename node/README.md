@@ -11,19 +11,19 @@ cargo install --bin bitvm2-noded --git https://github.com/GOATNetwork/bitvm2-nod
 2. Run a bootnode.
 ```bash
 ./target/debug/bitvm2-noded key gen
-./target/debug/bitvm2-noded key to-pubkey-and-seed --privkey ${your bitcoin private key}
 
-# import the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET into your .env
+# setup the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET in .env
 
+./target/debug/bitvm2-noded key to-pubkey-and-seed
 ./target/debug/bitvm2-noded 
 ```
 
 Run another node with a bootnode.
 ```bash
 ./target/debug/bitvm2-noded key gen
-./target/debug/bitvm2-noded key to-pubkey-and-seed --privkey ${your bitcoin private key}
+./target/debug/bitvm2-noded key to-pubkey-and-seed
 
-# import the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET into your .env
+# setup the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET in .env
 
 ./target/debug/bitvm2-noded --bootnodes $BOOTNODE -d
 ```

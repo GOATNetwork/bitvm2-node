@@ -109,7 +109,6 @@ pub mod tests {
         .await
         .unwrap();
         println!("Mine challenge tx: {txid}");
-        mine_blocks()
     }
 
     // TODO: derive sender address from depositor sk
@@ -183,38 +182,12 @@ pub mod tests {
         println!("Broadcast tx: {}", tx.compute_txid());
         let mut current_tip = rpc_client.get_height().unwrap();
         while (current_tip - pre_current_tip) < confimations {
-            mine_blocks();
             println!(
                 "Wait for at least {} block mined",
                 confimations - (current_tip - pre_current_tip)
             );
             std::thread::sleep(std::time::Duration::from_secs(1));
             current_tip = rpc_client.get_height().unwrap();
-        }
-    }
-
-    fn mine_blocks() {
-        let output = process::Command::new("docker")
-            .args([
-                "exec",
-                "bitcoind",
-                "bitcoin-cli",
-                "-regtest",
-                &format!("-rpcuser={BTCD_RPC_USER}"),
-                &format!("-rpcpassword={BTCD_RPC_PASSWORD}"),
-                &format!("--rpcwallet={BTCD_WALLET}"),
-                "-generate",
-                "1",
-            ])
-            .output()
-            .expect("Failed to execute docker command");
-
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            println!("Success:\n{stdout}");
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Error:\n{stderr}");
         }
     }
 
