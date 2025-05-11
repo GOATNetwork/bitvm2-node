@@ -619,9 +619,7 @@ pub async fn recv_and_dispatch(
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
                     .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if graph_status != GraphStatus::CommitteePresigned
-                && graph_status != GraphStatus::KickOff
-            {
+            if ![GraphStatus::CommitteePresigned, GraphStatus::KickOff].contains(&graph_status) {
                 tracing::warn!(
                     "receive KickoffSent but currently in {graph_status} Status, ignored"
                 );
@@ -683,9 +681,7 @@ pub async fn recv_and_dispatch(
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
                     .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if graph_status != GraphStatus::CommitteePresigned
-                && graph_status != GraphStatus::KickOff
-            {
+            if ![GraphStatus::CommitteePresigned, GraphStatus::KickOff].contains(&graph_status) {
                 tracing::warn!(
                     "receive Take1Ready but currently in {graph_status} Status, ignored"
                 );
@@ -729,6 +725,18 @@ pub async fn recv_and_dispatch(
         // if challenger
         (GOATMessageContent::ChallengeSent(receive_data), Actor::Operator) => {
             tracing::info!("Handle ChallengeSent");
+            let graph_status =
+                get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
+            if ![GraphStatus::CommitteePresigned, GraphStatus::KickOff, GraphStatus::Challenge]
+                .contains(&graph_status)
+            {
+                tracing::warn!(
+                    "receive ChallengeSent but currently in {graph_status} Status, ignored"
+                );
+                return Ok(());
+            }
             let mut graph =
                 get_graph(client, receive_data.instance_id, receive_data.graph_id).await?;
             if graph.parameters.operator_pubkey == env::get_node_pubkey()?
@@ -829,7 +837,7 @@ pub async fn recv_and_dispatch(
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
                     .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if graph_status == GraphStatus::Take2 || graph_status == GraphStatus::Disprove {
+            if [GraphStatus::Take2, GraphStatus::Disprove].contains(&graph_status) {
                 tracing::warn!(
                     "receive AssertSent but currently in {graph_status} Status, ignored"
                 );
@@ -935,6 +943,15 @@ pub async fn recv_and_dispatch(
             )
             .await?
             {
+                update_graph_fields(
+                    client,
+                    receive_data.graph_id,
+                    None,
+                    None,
+                    None,
+                    Some(receive_data.disprove_txid.to_string()),
+                )
+                .await?;
                 finish_withdraw_disproved(
                     client,
                     &receive_data.graph_id,
@@ -947,7 +964,7 @@ pub async fn recv_and_dispatch(
                     Some(GraphStatus::Disprove.to_string()),
                     None,
                     None,
-                    Some(receive_data.disprove_txid.to_string()),
+                    None,
                 )
                 .await?;
 
@@ -1059,9 +1076,7 @@ pub async fn recv_and_dispatch(
                 get_graph_status(client, receive_data.instance_id, receive_data.graph_id)
                     .await?
                     .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if graph_status != GraphStatus::CommitteePresigned
-                && graph_status != GraphStatus::KickOff
-            {
+            if ![GraphStatus::CommitteePresigned, GraphStatus::KickOff].contains(&graph_status) {
                 tracing::warn!(
                     "receive ChallengeSent but currently in {graph_status} Status, ignored"
                 );

@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use crate::action::CreateInstance;
+use crate::action::{ChallengeSent, CreateInstance, DisproveSent};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
 };
 use crate::rpc_service::P2pUserData;
-use crate::utils::update_graph_fields;
+use crate::utils::{finish_withdraw_disproved, outpoint_spent_txid, update_graph_fields};
 use crate::{
     action::{
         AssertSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
@@ -563,22 +563,24 @@ pub async fn scan_take1(
     for graph_data in graph_datas {
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
-        // if graph_data.msg_times >= MESSAGE_BROADCAST_MAX_TIMES {
-        //     warn!("graph_id:{} take1 ready has send over max times", graph_id);
-        //     continue;
-        // }
-        if graph_data.msg_times > 0 {
-            if graph_data.take1_txid.is_none() {
-                warn!("graph_id:{}, take1 txid is none", graph_id);
-                continue;
-            }
-            let take1_txid = graph_data.take1_txid.unwrap();
-            let take1_height = client.esplora.get_tx_status(&take1_txid).await?.block_height;
-            if take1_height.is_some() {
+        if graph_data.take1_txid.is_none() {
+            warn!("graph_id:{}, take1 txid is none", graph_id);
+            continue;
+        }
+        if graph_data.kickoff_txid.is_none() {
+            warn!("graph_id:{}, kickoff txid is none", graph_data.graph_id);
+            continue;
+        }
+        let take1_txid = graph_data.take1_txid.unwrap();
+        let kickoff_txid = graph_data.kickoff_txid.unwrap();
+        if let Some(spent_txid) = outpoint_spent_txid(client, &kickoff_txid, 1).await? {
+            if spent_txid == take1_txid {
+                // take1 sent, try to call finish_withdraw_happy_path
+                info!("graph_id:{},  take-1 sent, txid: {spent_txid}", graph_data.graph_id);
                 let take1_tx = client.fetch_btc_tx(&take1_txid).await?;
                 match client.finish_withdraw_happy_path(&graph_id, &take1_tx).await {
                     Err(err) => {
-                        // other place will do finish_withdraw_happy_path too
+                        // call finish_withdraw_happy_path later
                         warn!(
                             "scan_take1 at graph:{}, finish_withdraw_happy_path err:{:?}",
                             graph_id, err
@@ -601,19 +603,32 @@ pub async fn scan_take1(
                     }
                 }
             } else {
-                info!(
-                    "graph_id:{},  take1_txid{}  not no chain",
-                    graph_data.graph_id,
-                    take1_txid.to_string()
+                // challenge sent, broadcast ChallengeSent
+                info!("graph_id:{},  challenge sent, txid: {spent_txid}", graph_data.graph_id);
+                let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
+                    instance_id,
+                    graph_id,
+                    challenge_txid: spent_txid,
+                });
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
+                // modify graph status and will no longer perform scan-take1 on this graph
+                update_graph_fields(
+                    client,
+                    graph_id,
+                    Some(GraphStatus::Challenge.to_string()),
+                    None,
+                    Some(spent_txid.to_string()),
+                    None,
                 )
+                .await?;
             }
-        } else {
-            if graph_data.kickoff_txid.is_none() {
-                warn!("graph_id:{}, kickoff txid is none", graph_data.graph_id);
-                continue;
-            }
+            // if take-1/challenge already sent, no need for Take1Ready
+            continue;
+        }
+        if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
+            // check if kickoff's timelock for take1 is expired
             if let Some(kickoff_height) =
-                client.esplora.get_tx_status(&graph_data.kickoff_txid.unwrap()).await?.block_height
+                client.esplora.get_tx_status(&kickoff_txid).await?.block_height
             {
                 info!(
                     "graph_id:{graph_id}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"
@@ -668,18 +683,24 @@ pub async fn scan_take2(
     for graph_data in graph_datas {
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
-        if graph_data.msg_times > 0 {
-            if graph_data.take2_txid.is_none() {
-                warn!("graph_id:{}, take2 txid is none", graph_id);
-                continue;
-            }
-            let take2_txid = graph_data.take2_txid.unwrap();
-            let take2_height = client.esplora.get_tx_status(&take2_txid).await?.block_height;
-            if take2_height.is_some() {
+        if graph_data.take2_txid.is_none() {
+            warn!("graph_id:{}, take2 txid is none", graph_id);
+            continue;
+        }
+        if graph_data.assert_final_txid.is_none() {
+            warn!("graph_id:{graph_id}, assert_final txid  is none");
+            continue;
+        }
+        let take2_txid = graph_data.take2_txid.unwrap();
+        let assert_final_txid = graph_data.assert_final_txid.unwrap();
+        if let Some(spent_txid) = outpoint_spent_txid(client, &assert_final_txid, 1).await? {
+            if spent_txid == take2_txid {
+                // take2 sent, try to call finish_withdraw_unhappy_path
+                info!("graph_id:{},  take-2 sent, txid: {spent_txid}", graph_data.graph_id);
                 let take2_tx = client.fetch_btc_tx(&take2_txid).await?;
                 match client.finish_withdraw_unhappy_path(&graph_id, &take2_tx).await {
                     Err(err) => {
-                        // other place will do finish_unwithdraw_happy_path too
+                        // wiil call finish_unwithdraw_happy_path later
                         warn!(
                             "scan_take2 at graph:{}, finish_withdraw_unhappy_path err:{:?}",
                             graph_data.graph_id, err
@@ -702,22 +723,48 @@ pub async fn scan_take2(
                     }
                 }
             } else {
-                info!(
-                    "graph_id:{},  take2_txid{}  not no chain",
-                    graph_data.graph_id,
-                    take2_txid.to_string()
+                // disprove sent, try to call finish_withdraw_disprove & broadcasr DisproveSent
+                info!("graph_id:{},  disprove sent, txid: {spent_txid}", graph_data.graph_id);
+                let disprove_txid = spent_txid;
+                update_graph_fields(
+                    client,
+                    graph_id,
+                    None,
+                    None,
+                    None,
+                    Some(disprove_txid.to_string()),
                 )
+                .await?;
+                finish_withdraw_disproved(
+                    client,
+                    &graph_id,
+                    &client.fetch_btc_tx(&disprove_txid).await?,
+                )
+                .await?;
+                // in case challenger never broadcast DisproveSent
+                let message_content = GOATMessageContent::DisproveSent(DisproveSent {
+                    instance_id,
+                    graph_id,
+                    disprove_txid: spent_txid,
+                });
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
+                update_graph_fields(
+                    client,
+                    graph_id,
+                    Some(GraphStatus::Disprove.to_string()),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
             }
-        } else {
-            if graph_data.assert_final_txid.is_none() {
-                warn!("graph_id:{graph_id}, assert_final txid  is none");
-                continue;
-            }
-            if let Some(asset_final_height) = client
-                .esplora
-                .get_tx_status(&graph_data.assert_final_txid.unwrap())
-                .await?
-                .block_height
+            // if take-2/disprove already sent, no need for Take2Ready
+            continue;
+        }
+        if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
+            // check if assert_final's timelock for take2 is expired
+            if let Some(asset_final_height) =
+                client.esplora.get_tx_status(&assert_final_txid).await?.block_height
             {
                 info!(
                     "graph_id:{graph_id}, asset_final_height:{asset_final_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"

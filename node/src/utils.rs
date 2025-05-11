@@ -576,6 +576,17 @@ pub async fn outpoint_available(
     }
 }
 
+pub async fn outpoint_spent_txid(
+    client: &BitVM2Client,
+    txid: &Txid,
+    vout: u64,
+) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
+    match client.esplora.get_output_status(txid, vout).await? {
+        Some(status) => Ok(status.txid),
+        _ => Ok(None),
+    }
+}
+
 /// Validates whether the given challenge transaction has been confirmed on Layer 1.
 pub async fn validate_challenge(
     client: &BitVM2Client,
@@ -1888,9 +1899,9 @@ pub mod tests {
 
         async fn setup() -> (String, Uuid, OperatorMasterKey, BitVM2Client) {
             use goat::contexts::base::generate_keys_from_secret;
-            let bitvm_secret = "951b97ce2a102fe6e0cec74123cdf9772303f585b2acf5b68c360affc64472f9";
-            let graph_id = Uuid::from_str("f4573b7d-ec0c-435c-b849-9c54a5db84d0").unwrap();
-            let base_url = "QmR2C9iWpmqvbX1xBVqEda6g1i6fQoR1DhBEXKRxyUVNGR".to_string();
+            let bitvm_secret = "f9be7eed2844d1c20c21503398023434cc79eec435d773e4fe31f9abff2bd89b";
+            let graph_id = Uuid::from_str("dd147bff-4168-4047-b87b-1b34b6583f41").unwrap();
+            let base_url = "QmNrPcdEv1pGkUgqDXRXDaZAJmVX5uZfWvX6tZT1Z2bVYJ".to_string();
             unsafe {
                 std::env::set_var(ENV_ACTOR, "Operator");
                 std::env::set_var(ENV_BITVM_SECRET, bitvm_secret);
