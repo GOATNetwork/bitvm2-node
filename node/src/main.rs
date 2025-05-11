@@ -121,8 +121,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let base64_key = base64::engine::general_purpose::STANDARD
                     .encode(&local_key.to_protobuf_encoding()?);
                 let peer_id = local_key.public().to_peer_id().to_string();
-                println!("export {ENV_PEER_KEY}={base64_key}");
-                println!("export PEER_ID={peer_id}");
+                println!("{ENV_PEER_KEY}={base64_key}");
+                println!("PEER_ID={peer_id}");
             }
             KeyCommands::ToPubkeyAndSeed { privkey } => {
                 let private_key = PrivateKey::from_wif(&privkey).unwrap();
@@ -132,8 +132,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 let random_str = format!("seed-{}-{}", uuid::Uuid::new_v4(), privkey);
                 let seed = Sha256::digest(random_str.as_bytes());
-                println!("export {ENV_BITVM_SECRET}=seed:{}", hex::encode(seed));
-                println!("Your funding address: {p2wsh_addr}");
+                println!("{ENV_BITVM_SECRET}=seed:{}", hex::encode(seed));
+                println!("Your funding P2WSH address (for operator and challenger): {p2wsh_addr}");
             }
         }
         return Ok(());
