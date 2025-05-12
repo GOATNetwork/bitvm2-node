@@ -147,7 +147,6 @@ pub async fn check_node_info() {
                     panic!("Committee validate failed, err:{err:?}")
                 }
             }
-            panic!("Fail to check committee ")
         }
         if node_info.actor == Actor::Operator.to_string() {
             match validate_operator(&provider, gateway_address, &peer_id.to_bytes()).await {
@@ -162,7 +161,6 @@ pub async fn check_node_info() {
                     panic!("Operator validate failed, err:{err:?}")
                 }
             }
-            panic!("Fail to check Operator ")
         }
     }
 }
