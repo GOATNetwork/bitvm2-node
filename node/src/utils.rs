@@ -662,17 +662,25 @@ pub async fn get_groth16_proof(
             133, 35, 230, 149, 235, 206, 1, 177, 211, 245, 168, 74, 62, 25, 115, 70, 42, 38, 131,
             92, 103, 103, 176, 212, 223, 177, 242, 94, 14,
         ]
-            .to_vec();
+        .to_vec();
         let mock_scalar = [
             232, 255, 255, 239, 147, 245, 225, 67, 145, 112, 185, 121, 72, 232, 51, 40, 93, 88,
             129, 129, 182, 69, 80, 184, 41, 160, 49, 225, 114, 78, 100, 48,
         ]
-            .to_vec();
+        .to_vec();
+        println!(
+            "mock proof: {}, {}",
+            hex::encode(mock_proof_bytes.clone()),
+            hex::encode(mock_scalar.clone())
+        );
         (mock_proof_bytes, mock_scalar)
     } else {
         // query proof from database.
-        let db_lock = client.local_db.acquire().await?;
-        db_lock.get_proof_with_pis(instance_id, graph_id).await?
+        let mut db_lock = client.local_db.acquire().await?;
+        let (proof, pis) = db_lock.get_proof_with_pis(instance_id, graph_id).await?;
+        let proof_bytes = hex::decode(proof)?;
+        let pis_bytes = hex::decode(pis)?;
+        (proof_bytes, pis_bytes)
     };
     let proof: ark_groth16::Proof<ark_bn254::Bn254> =
         ark_groth16::Proof::deserialize_uncompressed(&proof[..])?;
@@ -2075,7 +2083,8 @@ pub mod tests {
             let (operator_wots_seckeys, operator_wots_pubkeys) =
                 master_key.wots_keypair_for_graph(graph_id);
             println!("generate proof-sigs...");
-            let (proof, pubin, vk) = get_groth16_proof(&client, &graph_id, &graph_id).await.unwrap();
+            let (proof, pubin, vk) =
+                get_groth16_proof(&client, &graph_id, &graph_id).await.unwrap();
             let mut proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
             println!("corrupt proof-sigs...");
             corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);

@@ -3,7 +3,7 @@ use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
     BridgeInStatus, COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData,
     Instance, Message, MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData,
-    PubKeyCollect, PubKeyCollectMetaData,
+    ProofWithPis, PubKeyCollect, PubKeyCollectMetaData,
 };
 use anyhow::bail;
 use sqlx::migrate::Migrator;
@@ -924,8 +924,27 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn get_proof_with_pis(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
-        todo!()
+    pub async fn get_proof_with_pis(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<(String, String)> {
+        let proof_with_pis = sqlx::query_as!(
+            ProofWithPis,
+            "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", proof, pis, created_at From proof_with_pis where instance_id = ? AND graph_id = ?",
+            instance_id,
+            graph_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        // FIXME: we use a default proof here, will remove later
+        match proof_with_pis {
+            Some(proof) => Ok((proof.proof, proof.pis)),
+            None => Ok((
+                "a232396203abfa6c31ce497e1923b29423db625a7ab1105be9d7de0c48b835023ea6324462abdada97b185df813572ecb5d7df5b66e1347a7ace247ad526baaaebd2b3dd7a254a264f001a5e3b922efc4699ec7ec2a9119064da761663e2842818f8e8c5c3dcfe3424f812a7a7ce6c1d78bc124e560879d990b97a3a0c222c06e950b1b70508964af18d419623620f9689fe84a7e4683f850bd1274f8ab95814f2664549f3581d5b7f9d52c0345f8f31e353131a6c3fe8d5a940dd9fd6dcf6ae232b8f50a88e1d67b33aeb21a3c6ffbc14035b2f9e7ae2c9af8a1218b2db4e0c600a028523e695ebce01b1d3f5a84a3e1973462a26835c6767b0d4dfb1f25e0e".to_string(),
+                "e8ffffef93f5e1439170b97948e833285d588181b64550b829a031e1724e6430".to_string(),
+            ))
+        }
     }
 }
 

@@ -458,6 +458,15 @@ pub struct MessageBroadcast {
     pub created_at: i64,
 }
 
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct ProofWithPis {
+    pub instance_id: Uuid,
+    pub graph_id: Option<Uuid>,
+    pub proof: String,
+    pub pis: String,
+    pub created_at: i64,
+}
+
 fn reversed_btc_txid(tx_id: &str) -> String {
     if let Ok(mut tx_id_vec) = hex::decode(tx_id) {
         tx_id_vec.reverse();
