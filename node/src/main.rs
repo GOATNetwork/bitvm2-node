@@ -60,7 +60,6 @@ struct Opts {
 
     // #[arg(long)]
     // local_key: Option<String>,
-
     /// Metric endpoint path.
     #[arg(long, default_value = "/metrics")]
     metrics_path: String,
@@ -72,7 +71,6 @@ struct Opts {
     // /// Whether to run the libp2p Autonat protocol.
     // #[arg(long)]
     // enable_autonat: bool,
-
     #[command(subcommand)]
     cmd: Option<Commands>,
 }
