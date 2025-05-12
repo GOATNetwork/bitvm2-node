@@ -745,7 +745,7 @@ pub async fn recv_and_dispatch(
                 let (operator_wots_seckeys, operator_wots_pubkeys) =
                     master_key.wots_keypair_for_graph(receive_data.graph_id);
                 let (proof, pubin, vk) =
-                    get_groth16_proof(receive_data.instance_id, receive_data.graph_id)?;
+                    get_groth16_proof(client, &receive_data.instance_id, &receive_data.graph_id).await?;
                 let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
                 let (assert_init_tx, assert_commit_txns, assert_final_tx) =
                     operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;

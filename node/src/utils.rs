@@ -640,11 +640,12 @@ pub async fn validate_assert(
 /// for the given graph.
 ///
 /// These are fetched via the ProofNetwork SDK.
-pub fn get_groth16_proof(
-    _instance_id: Uuid,
-    _graph_id: Uuid,
+pub async fn get_groth16_proof(
+    client: &BitVM2Client,
+    instance_id: &Uuid,
+    graph_id: &Uuid,
 ) -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
-    if cfg!(feature = "tests") {
+    let (proof, pis) = if cfg!(feature = "tests") {
         let mock_proof_bytes: Vec<u8> = [
             162, 50, 57, 98, 3, 171, 250, 108, 49, 206, 73, 126, 25, 35, 178, 148, 35, 219, 98, 90,
             122, 177, 16, 91, 233, 215, 222, 12, 72, 184, 53, 2, 62, 166, 50, 68, 98, 171, 218,
@@ -661,22 +662,25 @@ pub fn get_groth16_proof(
             133, 35, 230, 149, 235, 206, 1, 177, 211, 245, 168, 74, 62, 25, 115, 70, 42, 38, 131,
             92, 103, 103, 176, 212, 223, 177, 242, 94, 14,
         ]
-        .to_vec();
+            .to_vec();
         let mock_scalar = [
             232, 255, 255, 239, 147, 245, 225, 67, 145, 112, 185, 121, 72, 232, 51, 40, 93, 88,
             129, 129, 182, 69, 80, 184, 41, 160, 49, 225, 114, 78, 100, 48,
         ]
-        .to_vec();
-        let proof: ark_groth16::Proof<ark_bn254::Bn254> =
-            ark_groth16::Proof::deserialize_uncompressed(&mock_proof_bytes[..])?;
-        let scalar: ark_bn254::Fr = ark_bn254::Fr::deserialize_uncompressed(&mock_scalar[..])?;
-        return Ok((proof, vec![scalar], get_vk()?));
-    }
-
-    todo!()
+            .to_vec();
+        (mock_proof_bytes, mock_scalar)
+    } else {
+        // query proof from database.
+        let db_lock = client.local_db.acquire().await?;
+        db_lock.get_proof_with_pis(instance_id, graph_id).await?
+    };
+    let proof: ark_groth16::Proof<ark_bn254::Bn254> =
+        ark_groth16::Proof::deserialize_uncompressed(&proof[..])?;
+    let scalar: ark_bn254::Fr = ark_bn254::Fr::deserialize_uncompressed(&pis[..])?;
+    Ok((proof, vec![scalar], get_vk()?))
 }
 pub fn get_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
-    let mock_vk_bytes = [
+    let zkm_v1_vk_bytes = [
         115, 158, 251, 51, 106, 255, 102, 248, 22, 171, 229, 158, 80, 192, 240, 217, 99, 162, 65,
         107, 31, 137, 197, 79, 11, 210, 74, 65, 65, 203, 243, 14, 123, 2, 229, 125, 198, 247, 76,
         241, 176, 116, 6, 3, 241, 1, 134, 195, 39, 5, 124, 47, 31, 43, 164, 48, 120, 207, 150, 125,
@@ -709,7 +713,7 @@ pub fn get_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
         84, 59, 151, 47, 178, 165, 112, 251, 161,
     ]
     .to_vec();
-    Ok(ark_groth16::VerifyingKey::deserialize_uncompressed(&mock_vk_bytes[..])?)
+    Ok(ark_groth16::VerifyingKey::deserialize_uncompressed(&zkm_v1_vk_bytes[..])?)
 }
 
 /// l2 support
@@ -2071,7 +2075,7 @@ pub mod tests {
             let (operator_wots_seckeys, operator_wots_pubkeys) =
                 master_key.wots_keypair_for_graph(graph_id);
             println!("generate proof-sigs...");
-            let (proof, pubin, vk) = get_groth16_proof(graph_id, graph_id).unwrap();
+            let (proof, pubin, vk) = get_groth16_proof(&client, &graph_id, &graph_id).await.unwrap();
             let mut proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
             println!("corrupt proof-sigs...");
             corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);

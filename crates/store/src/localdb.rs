@@ -923,6 +923,10 @@ impl<'a> StorageProcessor<'a> {
         .await?;
         Ok(())
     }
+
+    pub async fn get_proof_with_pis(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+        todo!()
+    }
 }
 
 fn create_place_holders<T>(inputs: &[T]) -> String {
