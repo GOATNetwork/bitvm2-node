@@ -169,7 +169,8 @@ pub async fn check_node_info() {
 pub fn get_local_node_info() -> NodeInfo {
     let actor = get_actor();
     let peer_key = get_peer_id();
-    let pubkey = get_node_pubkey().expect("Could not get public key");
+    let pubkey_str =
+        if let Ok(pubkey) = get_node_pubkey() { pubkey.to_string() } else { "".to_string() };
     let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
         let singer =
             PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
@@ -187,7 +188,7 @@ pub fn get_local_node_info() -> NodeInfo {
         peer_id: peer_key,
         actor: actor.to_string(),
         goat_addr: goat_address.unwrap_or("".to_string()),
-        btc_pub_key: pubkey.to_string(),
+        btc_pub_key: pubkey_str,
     }
 }
 pub fn get_committee_member_num() -> usize {
