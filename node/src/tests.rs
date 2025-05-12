@@ -6,8 +6,8 @@ pub mod tests {
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
     use crate::utils::{
-        complete_and_broadcast_challenge_tx, get_fee_rate, get_proper_utxo_set, get_vk,
-        node_p2wsh_address, node_p2wsh_script, node_sign,
+        complete_and_broadcast_challenge_tx, get_fee_rate, get_groth16_proof, get_proper_utxo_set,
+        get_vk, node_p2wsh_address, node_p2wsh_script, node_sign,
     };
     use bitcoin::key::Keypair;
     use bitcoin::{CompressedPublicKey, EcdsaSighashType};
@@ -21,8 +21,6 @@ pub mod tests {
     use musig2::secp256k1;
     use uuid::Uuid;
 
-    use ark_bn254::Bn254;
-    use ark_serialize::CanonicalDeserialize;
     use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction, TxIn, TxOut};
     use bitcoin_script::builder::StructuredScript;
     use bitvm::chunk::api::NUM_TAPS;
@@ -247,35 +245,8 @@ pub mod tests {
         println!("funding operator {}: {}", operator_p2wsh, funding_operator_txn.compute_txid());
         broadcast_and_wait_for_confirming(rpc_client, &funding_operator_txn, 1);
 
-        let vk = get_vk().unwrap();
-        // mock groth16 proof
-        let mock_proof_bytes: Vec<u8> = [
-            162, 50, 57, 98, 3, 171, 250, 108, 49, 206, 73, 126, 25, 35, 178, 148, 35, 219, 98, 90,
-            122, 177, 16, 91, 233, 215, 222, 12, 72, 184, 53, 2, 62, 166, 50, 68, 98, 171, 218,
-            218, 151, 177, 133, 223, 129, 53, 114, 236, 181, 215, 223, 91, 102, 225, 52, 122, 122,
-            206, 36, 122, 213, 38, 186, 170, 235, 210, 179, 221, 122, 37, 74, 38, 79, 0, 26, 94,
-            59, 146, 46, 252, 70, 153, 236, 126, 194, 169, 17, 144, 100, 218, 118, 22, 99, 226,
-            132, 40, 24, 248, 232, 197, 195, 220, 254, 52, 36, 248, 18, 167, 167, 206, 108, 29,
-            120, 188, 18, 78, 86, 8, 121, 217, 144, 185, 122, 58, 12, 34, 44, 6, 233, 80, 177, 183,
-            5, 8, 150, 74, 241, 141, 65, 150, 35, 98, 15, 150, 137, 254, 132, 167, 228, 104, 63,
-            133, 11, 209, 39, 79, 138, 185, 88, 20, 242, 102, 69, 73, 243, 88, 29, 91, 127, 157,
-            82, 192, 52, 95, 143, 49, 227, 83, 19, 26, 108, 63, 232, 213, 169, 64, 221, 159, 214,
-            220, 246, 174, 35, 43, 143, 80, 168, 142, 29, 103, 179, 58, 235, 33, 163, 198, 255,
-            188, 20, 3, 91, 47, 158, 122, 226, 201, 175, 138, 18, 24, 178, 219, 78, 12, 96, 10, 2,
-            133, 35, 230, 149, 235, 206, 1, 177, 211, 245, 168, 74, 62, 25, 115, 70, 42, 38, 131,
-            92, 103, 103, 176, 212, 223, 177, 242, 94, 14,
-        ]
-        .to_vec();
-        let mock_scalar = [
-            232, 255, 255, 239, 147, 245, 225, 67, 145, 112, 185, 121, 72, 232, 51, 40, 93, 88,
-            129, 129, 182, 69, 80, 184, 41, 160, 49, 225, 114, 78, 100, 48,
-        ]
-        .to_vec();
-        let proof: ark_groth16::Proof<Bn254> =
-            ark_groth16::Proof::deserialize_uncompressed(&mock_proof_bytes[..]).unwrap();
-        let scalar: ark_bn254::Fr =
-            ark_bn254::Fr::deserialize_uncompressed(&mock_scalar[..]).unwrap();
-        let scalars = vec![scalar];
+        let (proof, scalars, vk) =
+            get_groth16_proof(bitvm2_client, &instance_id, &graph_id).await.unwrap();
         let proof_sigs = operator::sign_proof(&vk, proof, scalars, &operator_wots_seckeys);
 
         let depositor_evm_address: [u8; 20] =
