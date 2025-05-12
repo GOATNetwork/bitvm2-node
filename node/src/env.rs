@@ -167,8 +167,11 @@ pub async fn check_node_info() {
 pub fn get_local_node_info() -> NodeInfo {
     let actor = get_actor();
     let peer_key = get_peer_id();
-    let pubkey_str =
-        if let Ok(pubkey) = get_node_pubkey() { pubkey.to_string() } else { "".to_string() };
+    let pubkey_str = if actor != Actor::Relayer {
+        get_node_pubkey().expect("fail to get pubkey").to_string()
+    } else {
+        "".to_string()
+    };
     let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
         let singer =
             PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
