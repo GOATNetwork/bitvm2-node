@@ -3,10 +3,12 @@ use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::node_p2wsh_address;
-use alloy::primitives::Address;
+use alloy::primitives::Address as EvmAddress;
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::{Address, AddressType};
 use bitcoin::{Network, PublicKey, Txid};
 use bitvm2_lib::types::Bitvm2Graph;
 use esplora_client::AsyncClient;
@@ -37,9 +39,17 @@ pub async fn bridge_in_tx_prepare(
 ) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&payload.instance_id)?;
+        let is_segwit_addr = is_segwit_address(&payload.from, &payload.network)?;
+        if !is_segwit_addr {
+            return Err(
+                format!("payload from field {} is not btc segwit address", payload.from).into()
+            );
+        }
         let (is_goat_addr, to_address) = reflect_goat_address(Some(payload.to.clone()));
         if !is_goat_addr {
-            return Err(format!("payload field {}   is not goat chain address", payload.to).into());
+            return Err(
+                format!("payload to field {}  is not goat chain address", payload.to).into()
+            );
         }
         let instance = Instance {
             instance_id,
@@ -576,7 +586,7 @@ pub async fn get_graphs(
 
 pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
     if let Some(addr) = addr_op {
-        if let Ok(addr) = Address::from_str(&addr) {
+        if let Ok(addr) = EvmAddress::from_str(&addr) {
             return (true, Some(addr.to_string()));
         }
     }
@@ -601,4 +611,13 @@ pub fn convert_addrs_for_bridge_out(
     )
     .to_string();
     Ok(())
+}
+
+fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {
+    let addr: Address<NetworkUnchecked> = Address::from_str(address)?;
+    let addr = addr.require_network(Network::from_str(network)?)?;
+    Ok(matches!(
+        addr.address_type(),
+        Some(AddressType::P2wpkh) | Some(AddressType::P2wsh) | Some(AddressType::P2tr)
+    ))
 }

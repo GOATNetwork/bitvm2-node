@@ -2,8 +2,8 @@ use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
     COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData, Instance, Message,
-   MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData,
-    ProofWithPis, PubKeyCollect, PubKeyCollectMetaData,
+    MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofWithPis,
+    PubKeyCollect, PubKeyCollectMetaData,
 };
 use anyhow::bail;
 use sqlx::migrate::Migrator;

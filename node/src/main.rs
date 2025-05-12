@@ -28,7 +28,7 @@ mod tests;
 mod utils;
 
 use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
-use crate::env::{ENV_PEER_KEY, get_ipfs_url, get_local_node_info, get_network};
+use crate::env::{ENV_PEER_KEY, get_ipfs_url, check_node_info,  get_local_node_info, get_network};
 use crate::middleware::behaviour::AllBehavioursEvent;
 use crate::utils::save_local_info;
 use anyhow::Result;
@@ -122,6 +122,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let base64_key = base64::engine::general_purpose::STANDARD
                     .encode(&local_key.to_protobuf_encoding()?);
                 let peer_id = local_key.public().to_peer_id().to_string();
+                println!("len: {}", local_key.public().to_peer_id().to_bytes().len());
                 println!("{ENV_PEER_KEY}={base64_key}");
                 println!("PEER_ID={peer_id}");
             }
@@ -223,6 +224,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )
     .await;
 
+    // validate node info
+    check_node_info().await;
     save_local_info(&client).await;
 
     tokio::spawn(rpc_service::serve(

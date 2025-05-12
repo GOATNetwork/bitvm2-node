@@ -8,11 +8,14 @@ use base64::Engine;
 use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
+use client::chain::utils::validate_committee;
 use client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
+use libp2p::PeerId;
 use musig2::k256::sha2;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
+use tracing::info;
 use zeroize::Zeroizing;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
@@ -118,6 +121,37 @@ pub fn get_ipfs_url() -> String {
     std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
 }
 
+pub async fn check_node_info() {
+    let node_info = get_local_node_info();
+    if node_info.actor == Actor::Operator.to_string() && node_info.goat_addr.is_empty() {
+        panic!("Operator must set goat address or goat secret key");
+    }
+    if node_info.actor == Actor::Committee.to_string() {
+        let rpc_url_str = std::env::var(ENV_GOAT_CHAIN_URL)
+            .expect("Failed to read {ENV_GOAT_CHAIN_URL} variable");
+        let rpc_url = rpc_url_str.parse::<Url>().expect("Failed to parse {rpc_url_str} to URL");
+        let gateway_address_str = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
+            .expect("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_ADDRESS} variable");
+        let gateway_address = gateway_address_str
+            .parse::<EvmAddress>()
+            .expect("Failed to parse {gateway_address_str} to address");
+        let provider = ProviderBuilder::new().on_http(rpc_url);
+        let peer_id = PeerId::from_str(&node_info.peer_id).expect("fail to decode");
+        match validate_committee(&provider, gateway_address, &peer_id.to_bytes()).await {
+            Ok(is_legal) => {
+                if is_legal {
+                    info!("Committee is legal!");
+                } else {
+                    panic!("Committee is illegal as not finish register! ")
+                }
+            }
+            Err(err) => {
+                panic!("Committee validate failed, err:{err:?}")
+            }
+        }
+        panic!("Fail to check committee ")
+    }
+}
 pub fn get_local_node_info() -> NodeInfo {
     let actor = get_actor();
     let peer_id = get_peer_id();
@@ -135,18 +169,6 @@ pub fn get_local_node_info() -> NodeInfo {
         }
         addr_op
     };
-    if actor == Actor::Operator && goat_address.is_none() {
-        panic!("Operator must set goat address or goat secret key");
-    }
-
-    if actor == Actor::Committee {
-        // TODO: do check
-        //let committee_peer_ids= get_committee_peer_id_checked(get_network());
-        //if !committee_peer_ids.contains(&peer_id) {
-        //    panic!("Invalidate committee pubkey");
-        //}
-    }
-
     NodeInfo {
         peer_id,
         actor: actor.to_string(),
