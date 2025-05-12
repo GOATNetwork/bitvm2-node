@@ -122,7 +122,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let base64_key = base64::engine::general_purpose::STANDARD
                     .encode(&local_key.to_protobuf_encoding()?);
                 let peer_id = local_key.public().to_peer_id().to_string();
-                println!("len: {}", local_key.public().to_peer_id().to_bytes().len());
                 println!("{ENV_PEER_KEY}={base64_key}");
                 println!("PEER_ID={peer_id}");
             }

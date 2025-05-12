@@ -108,7 +108,7 @@ pub fn get_peer_key() -> String {
 }
 
 pub fn get_peer_id() -> String {
-    let local_key = std::env::var(ENV_PEER_KEY).expect("Peer key is missing");
+    let local_key = get_peer_key();
     let key_pair = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
         base64::engine::general_purpose::STANDARD.decode(local_key).expect("fail to decode base64"),
     ))
@@ -154,7 +154,7 @@ pub async fn check_node_info() {
 }
 pub fn get_local_node_info() -> NodeInfo {
     let actor = get_actor();
-    let peer_id = get_peer_id();
+    let peer_key = get_peer_id();
     let pubkey = get_node_pubkey().expect("Could not get public key");
     let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
         let singer =
@@ -170,7 +170,7 @@ pub fn get_local_node_info() -> NodeInfo {
         addr_op
     };
     NodeInfo {
-        peer_id,
+        peer_id: peer_key,
         actor: actor.to_string(),
         goat_addr: goat_address.unwrap_or("".to_string()),
         btc_pub_key: pubkey.to_string(),

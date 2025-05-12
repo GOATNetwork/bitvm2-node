@@ -327,7 +327,8 @@ impl BitVM2Client {
             );
         }
 
-        if operator_data.stake_amount < 10000000 {
+        // todo use env
+        if operator_data.stake_amount < 700000 {
             tracing::warn!(
                 "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
                 instance_id,

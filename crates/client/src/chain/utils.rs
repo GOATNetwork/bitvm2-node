@@ -1,4 +1,4 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, Bytes};
 use alloy::{
     providers::RootProvider,
     sol,
@@ -9,17 +9,15 @@ sol!(
 #[allow(missing_docs)]
 #[sol(rpc)]
 interface IGateway {
-        function  isCommittee(bytes calldata peer_id)  external view returns(bool);
-        function  isOperator(bytes  calldata peer_id)  external view returns(bool);
+        function isCommittee(bytes calldata id) external view returns (bool);
+        function isOperator(bytes calldata id) external view returns (bool);
 });
 
 pub async fn validate_committee(
-    _provider: &RootProvider<Http<Client>>,
-    _address: Address,
-    _peer_id: &[u8],
+    provider: &RootProvider<Http<Client>>,
+    address: Address,
+    peer_id: &[u8],
 ) -> anyhow::Result<bool> {
-    // TODO
-    // let gate_way = IGateway::new(address, provider);
-    // Ok(gate_way.isCommittee(Bytes::copy_from_slice(peer_id)).call().await?._0)
-    Ok(true)
+    let gate_way = IGateway::new(address, provider);
+    Ok(gate_way.isCommittee(Bytes::copy_from_slice(peer_id)).call().await?._0)
 }

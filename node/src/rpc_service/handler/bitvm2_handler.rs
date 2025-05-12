@@ -29,7 +29,10 @@ use uuid::Uuid;
 pub async fn instance_settings(
     State(_app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<InstanceSettingResponse>) {
-    (StatusCode::OK, Json(InstanceSettingResponse { bridge_in_amount: vec![1.0, 0.5, 0.2, 0.1] }))
+    (
+        StatusCode::OK,
+        Json(InstanceSettingResponse { bridge_in_amount: vec![0.1, 0.05, 0.02, 0.01] }),
+    )
 }
 
 #[axum::debug_handler]
