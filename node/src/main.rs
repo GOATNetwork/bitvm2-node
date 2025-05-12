@@ -1,13 +1,12 @@
 #![feature(trivial_bounds)]
-use ::bitcoin::PrivateKey;
 use base64::Engine;
 use clap::{Parser, Subcommand, command};
 use client::client::BitVM2Client;
+use env::get_node_pubkey;
 use libp2p::PeerId;
 use libp2p::futures::StreamExt;
 use libp2p::{gossipsub, kad, mdns, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
 use libp2p_metrics::Registry;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -29,7 +28,7 @@ mod tests;
 mod utils;
 
 use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
-use crate::env::{ENV_BITVM_SECRET, ENV_PEER_KEY, get_ipfs_url, get_local_node_info, get_network};
+use crate::env::{ENV_PEER_KEY, get_ipfs_url, get_local_node_info, get_network};
 use crate::middleware::behaviour::AllBehavioursEvent;
 use crate::utils::save_local_info;
 use anyhow::Result;
@@ -109,7 +108,7 @@ enum KeyCommands {
     Peer,
     /// Generate seed, only for Committee
     Seed,
-    /// Generate the funding address with the WIF-format private key in .env
+    /// Generate the funding address with the Hex-Encoded private key in .env
     FundingAddress,
 }
 
@@ -128,19 +127,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("{ENV_PEER_KEY}={base64_key}");
                 println!("PEER_ID={peer_id}");
             }
-            KeyCommands::Seed | KeyCommands::FundingAddress => {
-                let privkey = crate::env::get_bitvm_secret();
-                let private_key = PrivateKey::from_wif(&privkey).unwrap();
-                let secp = ::bitcoin::secp256k1::Secp256k1::new();
-                let public_key = ::bitcoin::PublicKey::from_private_key(&secp, &private_key);
+            KeyCommands::FundingAddress => {
+                let public_key = get_node_pubkey().unwrap();
                 let p2wsh_addr = utils::node_p2wsh_address(get_network(), &public_key);
-
-                let random_str = format!("seed-{}-{}", uuid::Uuid::new_v4(), privkey);
-                let seed = Sha256::digest(random_str.as_bytes());
-                if actor == Actor::Committee {
-                    println!("{ENV_BITVM_SECRET}=seed:{}", hex::encode(seed));
-                }
                 println!("Funding P2WSH address (for operator and challenger): {p2wsh_addr}");
+            }
+            KeyCommands::Seed => {
+                println!("Trust only yourself.  Generate your own seed string.");
             }
         }
         return Ok(());
