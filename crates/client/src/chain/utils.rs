@@ -21,3 +21,12 @@ pub async fn validate_committee(
     let gate_way = IGateway::new(address, provider);
     Ok(gate_way.isCommittee(Bytes::copy_from_slice(peer_id)).call().await?._0)
 }
+
+pub async fn validate_operator(
+    provider: &RootProvider<Http<Client>>,
+    address: Address,
+    peer_id: &[u8],
+) -> anyhow::Result<bool> {
+    let gate_way = IGateway::new(address, provider);
+    Ok(gate_way.isOperator(Bytes::copy_from_slice(peer_id)).call().await?._0)
+}
