@@ -3,6 +3,10 @@ name = "bitvm2-noded"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "bitvm2-noded"
+path = "src/main.rs"
+
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",
