@@ -39,15 +39,19 @@ use tokio::time::interval;
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Opts {
+    /// Run in daemon mode
     #[arg(short)]
     daemon: bool,
 
+    /// Local RPC service address
     #[arg(long, default_value = "0.0.0.0:8080")]
     pub rpc_addr: String,
 
+    /// Local Sqlite database file path
     #[arg(long, default_value = "/tmp/bitvm2-node.db")]
     pub db_path: String,
 
+    /// Peer nodes as the bootnodes
     #[arg(long)]
     bootnodes: Vec<String>,
 
@@ -56,6 +60,7 @@ struct Opts {
 
     // #[arg(long)]
     // local_key: Option<String>,
+
     /// Metric endpoint path.
     #[arg(long, default_value = "/metrics")]
     metrics_path: String,
@@ -67,6 +72,7 @@ struct Opts {
     // /// Whether to run the libp2p Autonat protocol.
     // #[arg(long)]
     // enable_autonat: bool,
+
     #[command(subcommand)]
     cmd: Option<Commands>,
 }
@@ -102,18 +108,21 @@ enum PeerCommands {
 #[derive(Subcommand, Debug, Clone)]
 enum KeyCommands {
     /// Generate peer secret key and peer id
-    Gen,
-    /// Bitcoin private key in WIF format
-    ToPubkeyAndSeed,
+    Peer,
+    /// Generate seed, only for Committee
+    Seed,
+    /// Generate the funding address with the WIF-format private key in .env
+    FundingAddress,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
+    let actor = env::get_actor();
     let opt = Opts::parse();
     if let Some(Commands::Key(key_arg)) = opt.cmd {
         match key_arg.cmd {
-            KeyCommands::Gen => {
+            KeyCommands::Peer => {
                 let local_key = identity::generate_local_key();
                 let base64_key = base64::engine::general_purpose::STANDARD
                     .encode(&local_key.to_protobuf_encoding()?);
@@ -121,7 +130,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("{ENV_PEER_KEY}={base64_key}");
                 println!("PEER_ID={peer_id}");
             }
-            KeyCommands::ToPubkeyAndSeed => {
+            KeyCommands::Seed | KeyCommands::FundingAddress => {
                 let privkey = crate::env::get_bitvm_secret();
                 let private_key = PrivateKey::from_wif(&privkey).unwrap();
                 let secp = ::bitcoin::secp256k1::Secp256k1::new();
@@ -130,14 +139,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 let random_str = format!("seed-{}-{}", uuid::Uuid::new_v4(), privkey);
                 let seed = Sha256::digest(random_str.as_bytes());
-                println!("{ENV_BITVM_SECRET}=seed:{}", hex::encode(seed));
-                println!("Your funding P2WSH address (for operator and challenger): {p2wsh_addr}");
+                if actor == Actor::Committee {
+                    println!("{ENV_BITVM_SECRET}=seed:{}", hex::encode(seed));
+                }
+                println!("Funding P2WSH address (for operator and challenger): {p2wsh_addr}");
             }
         }
         return Ok(());
     }
     // load role
-    let actor = env::get_actor();
     let local_key = env::get_peer_key();
 
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
