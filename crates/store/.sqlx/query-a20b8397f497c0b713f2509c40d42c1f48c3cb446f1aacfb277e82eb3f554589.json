@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", proof, pis, created_at From proof_with_pis where instance_id = ? AND graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "instance_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "proof",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "pis",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a20b8397f497c0b713f2509c40d42c1f48c3cb446f1aacfb277e82eb3f554589"
+}
