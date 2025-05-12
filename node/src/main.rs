@@ -42,6 +42,10 @@ struct Opts {
     #[arg(short)]
     daemon: bool,
 
+    /// Setup the bootnode port
+    #[arg(short, default_value = "0")]
+    bootnode: u16,
+
     /// Local RPC service address
     #[arg(long, default_value = "0.0.0.0:8080")]
     pub rpc_addr: String,
@@ -192,7 +196,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+    if opt.bootnode > 0 {
+        swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{}", opt.bootnode).parse()?)?;
+    } else {
+        swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+    }
 
     // run a http server for front-end
     let _address = loop {
