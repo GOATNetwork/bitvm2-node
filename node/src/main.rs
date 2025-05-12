@@ -106,8 +106,6 @@ enum PeerCommands {
 enum KeyCommands {
     /// Generate peer secret key and peer id
     Peer,
-    /// Generate seed, only for Committee
-    Seed,
     /// Generate the funding address with the Hex-Encoded private key in .env
     FundingAddress,
 }
@@ -131,9 +129,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let public_key = get_node_pubkey().unwrap();
                 let p2wsh_addr = utils::node_p2wsh_address(get_network(), &public_key);
                 println!("Funding P2WSH address (for operator and challenger): {p2wsh_addr}");
-            }
-            KeyCommands::Seed => {
-                println!("Trust only yourself.  Generate your own seed string.");
             }
         }
         return Ok(());

@@ -14,14 +14,12 @@ cargo install --bin bitvm2-noded --git https://github.com/GOATNetwork/bitvm2-nod
 
 # setup the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET in .env
 
-./target/debug/bitvm2-noded key seed
 ./target/debug/bitvm2-noded 
 ```
 
 Run another node with a bootnode.
 ```bash
 ./target/debug/bitvm2-noded key peer
-./target/debug/bitvm2-noded key seed
 
 # setup the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET in .env
 
