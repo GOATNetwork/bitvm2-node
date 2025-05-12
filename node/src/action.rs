@@ -5,6 +5,7 @@ use crate::utils::{statics::*, *};
 use crate::{defer, dismiss_defer};
 use anyhow::Result;
 use bitcoin::PublicKey;
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::{Amount, Network, Txid};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::*;
@@ -790,7 +791,7 @@ pub async fn recv_and_dispatch(
                     receive_data.graph_id,
                     Some(GraphStatus::Assert.to_string()),
                     None,
-                    Some(receive_data.challenge_txid.to_string()),
+                    Some(serialize_hex(&receive_data.challenge_txid)),
                     None,
                 )
                 .await?;
@@ -956,7 +957,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     None,
-                    Some(receive_data.disprove_txid.to_string()),
+                    Some(serialize_hex(&receive_data.disprove_txid)),
                 )
                 .await?;
                 finish_withdraw_disproved(
@@ -1102,7 +1103,7 @@ pub async fn recv_and_dispatch(
                     receive_data.graph_id,
                     Some(GraphStatus::Challenge.to_string()),
                     None,
-                    Some(receive_data.challenge_txid.to_string()),
+                    Some(serialize_hex(&receive_data.challenge_txid)),
                     None,
                 )
                 .await?;
@@ -1156,7 +1157,7 @@ pub async fn recv_and_dispatch(
                     Some(GraphStatus::Disprove.to_string()),
                     None,
                     None,
-                    Some(receive_data.disprove_txid.to_string()),
+                    Some(serialize_hex(&receive_data.disprove_txid)),
                 )
                 .await?;
                 // NOTE: clean up other graphs?

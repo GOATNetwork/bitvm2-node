@@ -17,7 +17,7 @@ use crate::{
 };
 use alloy::primitives::TxHash;
 use bitcoin::Txid;
-use bitcoin::consensus::encode::deserialize_hex;
+use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
 use bitcoin::hashes::Hash;
 use bitvm2_lib::actors::Actor;
 use client::chain::chain_adaptor::WithdrawStatus;
@@ -617,7 +617,7 @@ pub async fn scan_take1(
                     graph_id,
                     Some(GraphStatus::Challenge.to_string()),
                     None,
-                    Some(spent_txid.to_string()),
+                    Some(serialize_hex(&spent_txid)),
                     None,
                 )
                 .await?;
@@ -732,7 +732,7 @@ pub async fn scan_take2(
                     None,
                     None,
                     None,
-                    Some(disprove_txid.to_string()),
+                    Some(serialize_hex(&spent_txid)),
                 )
                 .await?;
                 finish_withdraw_disproved(
