@@ -42,9 +42,9 @@ struct Opts {
     #[arg(short)]
     daemon: bool,
 
-    /// Setup the bootnode port
-    #[arg(short, default_value = "0")]
-    bootport: u16,
+    /// Setup the bootnode p2p port
+    #[arg(long, default_value = "0")]
+    p2p_port: u16,
 
     /// Local RPC service address
     #[arg(long, default_value = "0.0.0.0:8080")]
@@ -110,6 +110,7 @@ enum PeerCommands {
 enum KeyCommands {
     /// Generate peer secret key and peer id
     Peer,
+    ,
     /// Generate the funding address with the Hex-Encoded private key in .env
     FundingAddress,
 }
@@ -160,10 +161,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // to dial these nodes.
     tracing::debug!("bootnodes: {:?}", opt.bootnodes);
     for peer in &opt.bootnodes {
+        println!("add, {:?}", &peer.parse::<PeerId>());
         swarm
             .behaviour_mut()
             .kademlia
             .add_address(&peer.parse()?, "/dnsaddr/bootstrap.libp2p.io".parse()?);
+        println!("add done");
     }
 
     // Create a Gosspipsub topic, we create 3 topics: committee, challenger, and operator
@@ -196,8 +199,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
-    if opt.bootport > 0 {
-        swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{}", opt.bootport).parse()?)?;
+    if opt.p2p_port > 0 {
+        swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{}", opt.p2p_port).parse()?)?;
     } else {
         swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
     }
