@@ -292,3 +292,7 @@ pub fn get_proto_base() -> String {
         _ => DEFAULT_PROTO_NAME_BASE.to_owned(),
     }
 }
+
+pub fn get_rpc_support_actors() -> Vec<Actor> {
+    vec![Actor::Relayer]
+}

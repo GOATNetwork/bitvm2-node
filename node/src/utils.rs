@@ -1,5 +1,6 @@
-use crate::action::{CreateGraphPrepare, NodeInfo};
+use crate::action::{CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
 use crate::env::*;
+use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use ark_serialize::CanonicalDeserialize;
 use bitcoin::consensus::encode::serialize_hex;
@@ -32,6 +33,7 @@ use goat::transactions::signing::{
     generate_taproot_leaf_schnorr_signature, populate_p2wsh_witness, populate_taproot_input_witness,
 };
 use goat::utils::num_blocks_per_network;
+use libp2p::Swarm;
 use musig2::{PartialSignature, PubNonce};
 use statics::*;
 use std::fs::{self, File};
@@ -1171,6 +1173,22 @@ pub async fn update_node_timestamp(
         Ok(_) => {}
         Err(err) => warn!("{err}"),
     };
+    Ok(())
+}
+
+pub async fn detect_heart_beat(
+    swarm: &mut Swarm<AllBehaviours>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("start detect_heart_beat");
+    let message_content = GOATMessageContent::RequestNodeInfo(get_local_node_info());
+    // send to actor
+    let actors = get_rpc_support_actors();
+    for actor in actors {
+        match send_to_peer(swarm, GOATMessage::from_typed(actor, &message_content)?) {
+            Ok(_) => {}
+            Err(err) => warn!("{err}"),
+        }
+    }
     Ok(())
 }
 

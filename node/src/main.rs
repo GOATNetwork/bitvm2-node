@@ -31,7 +31,7 @@ use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
 use crate::env::{ENV_PEER_KEY, check_node_info, get_ipfs_url, get_local_node_info, get_network};
 use crate::middleware::behaviour::AllBehavioursEvent;
 use crate::middleware::split_topic_name;
-use crate::utils::save_local_info;
+use crate::utils::{detect_heart_beat, save_local_info};
 use anyhow::Result;
 use middleware::AllBehaviours;
 use tokio::time::interval;
@@ -261,6 +261,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(Mutex::new(metric_registry)),
     ));
     // Read full lines from stdin
+    let mut heart_beat_interval = interval(Duration::from_secs(300));
     let mut interval = interval(Duration::from_secs(20));
     let mut stdin = io::BufReader::new(io::stdin()).lines();
     loop {
@@ -298,6 +299,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         content: "tick".as_bytes().to_vec(),
                     })?;
                     match action::recv_and_dispatch(&mut swarm, &client, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data).await{
+                        Ok(_) => {}
+                        Err(e) => { tracing::error!(e) }
+                    }
+                },
+                _ticker = heart_beat_interval.tick() =>{
+                    match detect_heart_beat(&mut swarm).await{
                         Ok(_) => {}
                         Err(e) => { tracing::error!(e) }
                     }

@@ -59,15 +59,15 @@ pub async fn get_nodes(
                 query_params.status,
             )
             .await?;
-
         let node_desc_list: Vec<NodeDesc> = nodes
             .into_iter()
             .map(|v| {
-                let status: String = if v.updated_at <= time_threshold {
-                    NODE_STATUS_OFFLINE.to_string()
-                } else {
-                    NODE_STATUS_ONLINE.to_string()
-                };
+                let status: String =
+                    if v.updated_at >= time_threshold || v.peer_id == app_state.peer_id {
+                        NODE_STATUS_ONLINE.to_string()
+                    } else {
+                        NODE_STATUS_OFFLINE.to_string()
+                    };
                 NodeDesc {
                     peer_id: v.peer_id,
                     actor: v.actor,
