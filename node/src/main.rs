@@ -3,8 +3,8 @@ use base64::Engine;
 use clap::{Parser, Subcommand, command};
 use client::client::BitVM2Client;
 use env::get_node_pubkey;
-use libp2p::PeerId;
 use libp2p::futures::StreamExt;
+use libp2p::{Multiaddr, PeerId};
 use libp2p::{gossipsub, kad, mdns, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
 use libp2p_metrics::Registry;
 use std::collections::HashMap;
@@ -110,9 +110,21 @@ enum PeerCommands {
 enum KeyCommands {
     /// Generate peer secret key and peer id
     Peer,
-    ,
     /// Generate the funding address with the Hex-Encoded private key in .env
     FundingAddress,
+}
+
+fn parse_boot_node_str(boot_node_str: &str) -> Result<(PeerId, Multiaddr), String> {
+    let multi_addr: Multiaddr = boot_node_str
+        .parse()
+        .map_err(|e| format!("boot_node_str parse to multi addr err :{}", e))?;
+    println!("multi_addr: {multi_addr}");
+    for protocol in multi_addr.iter() {
+        if let Protocol::P2p(peer_id) = protocol {
+            return Ok((peer_id, multi_addr));
+        }
+    }
+    Err("parse bootnode failed".to_string())
 }
 
 #[tokio::main]
@@ -131,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("PEER_ID={peer_id}");
             }
             KeyCommands::FundingAddress => {
-                let public_key = get_node_pubkey().unwrap();
+                let public_key = get_node_pubkey()?;
                 let p2wsh_addr = utils::node_p2wsh_address(get_network(), &public_key);
                 println!("Funding P2WSH address (for operator and challenger): {p2wsh_addr}");
             }
@@ -161,11 +173,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // to dial these nodes.
     tracing::debug!("bootnodes: {:?}", opt.bootnodes);
     for peer in &opt.bootnodes {
-        println!("add, {:?}", &peer.parse::<PeerId>());
-        swarm
-            .behaviour_mut()
-            .kademlia
-            .add_address(&peer.parse()?, "/dnsaddr/bootstrap.libp2p.io".parse()?);
+        println!("add, {:?}", peer);
+        let (peer_id, multi_addr) = parse_boot_node_str(peer)?;
+        swarm.behaviour_mut().kademlia.add_address(&peer_id, multi_addr);
         println!("add done");
     }
 
