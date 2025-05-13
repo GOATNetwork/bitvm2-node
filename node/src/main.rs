@@ -117,7 +117,7 @@ enum KeyCommands {
 fn parse_boot_node_str(boot_node_str: &str) -> Result<(PeerId, Multiaddr), String> {
     let multi_addr: Multiaddr = boot_node_str
         .parse()
-        .map_err(|e| format!("boot_node_str parse to multi addr err :{}", e))?;
+        .map_err(|e| format!("boot_node_str parse to multi addr err :{e}"))?;
     println!("multi_addr: {multi_addr}");
     for protocol in multi_addr.iter() {
         if let Protocol::P2p(peer_id) = protocol {
@@ -173,10 +173,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // to dial these nodes.
     tracing::debug!("bootnodes: {:?}", opt.bootnodes);
     for peer in &opt.bootnodes {
-        println!("add, {:?}", peer);
         let (peer_id, multi_addr) = parse_boot_node_str(peer)?;
         swarm.behaviour_mut().kademlia.add_address(&peer_id, multi_addr);
-        println!("add done");
     }
 
     // Create a Gosspipsub topic, we create 3 topics: committee, challenger, and operator
