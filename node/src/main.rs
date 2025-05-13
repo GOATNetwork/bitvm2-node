@@ -115,9 +115,8 @@ enum KeyCommands {
 }
 
 fn parse_boot_node_str(boot_node_str: &str) -> Result<(PeerId, Multiaddr), String> {
-    let multi_addr: Multiaddr = boot_node_str
-        .parse()
-        .map_err(|e| format!("boot_node_str parse to multi addr err :{e}"))?;
+    let multi_addr: Multiaddr =
+        boot_node_str.parse().map_err(|e| format!("boot_node_str parse to multi addr err :{e}"))?;
     println!("multi_addr: {multi_addr}");
     for protocol in multi_addr.iter() {
         if let Protocol::P2p(peer_id) = protocol {
