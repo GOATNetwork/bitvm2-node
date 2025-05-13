@@ -218,7 +218,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // run a http server for front-end
     let address = loop {
         if let SwarmEvent::NewListenAddr { address, .. } = swarm.select_next_some().await {
-            if address.iter().any(|e| e == Protocol::Ip4(Ipv4Addr::)) {
+            if address.iter().any(|e| e == Protocol::Ip4(Ipv4Addr::LOCALHOST)) {
                 tracing::debug!(
                     "Ignoring localhost address to make sure the example works in Firefox"
                 );
@@ -229,7 +229,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    tracing::info!("multi_addr: {}/p2p/{}", address.to_string(), local_key.public().to_peer_id().to_string());
+    tracing::info!(
+        "multi_addr: {}/p2p/{}",
+        address.to_string(),
+        local_key.public().to_peer_id().to_string()
+    );
 
     tracing::debug!("RPC service listening on {}", &opt.rpc_addr);
     let rpc_addr = opt.rpc_addr.clone();
