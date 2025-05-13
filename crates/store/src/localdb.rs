@@ -414,9 +414,9 @@ impl<'a> StorageProcessor<'a> {
             conditions.push(format!(" hex(graph_id) = \'{graph_id}\' COLLATE NOCASE"));
         }
 
-        if !params.is_bridge_in && params.status.is_none() {
-            conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\')".to_string());
-        }
+        // if !params.is_bridge_in && params.status.is_none() {
+        //     conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\')".to_string());
+        // }
 
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
