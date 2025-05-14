@@ -5,7 +5,6 @@ use crate::{
     MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofWithPis,
     PubKeyCollect, PubKeyCollectMetaData,
 };
-use anyhow::bail;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -76,7 +75,7 @@ impl LocalDB {
 #[derive(Clone, Debug)]
 pub struct FilterGraphParams {
     pub status: Option<String>,
-    pub has_middle_status:bool,
+    pub has_middle_status: bool,
     pub update_at_threshold: i64,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
@@ -423,7 +422,7 @@ impl<'a> StorageProcessor<'a> {
         }
 
         if params.has_middle_status {
-           conditions.push(format!("graph.updated_at >= {}", params.update_at_threshold))
+            conditions.push(format!("graph.updated_at >= {}", params.update_at_threshold))
         }
 
         if !conditions.is_empty() {
@@ -483,7 +482,7 @@ impl<'a> StorageProcessor<'a> {
         .await?;
         if node_op.is_none() {
             warn!("Node {peer_id} not found in DB");
-            bail!("Node {peer_id} not found in DB");
+            return Ok(());
         }
         let _ =
             sqlx::query!("UPDATE  node SET updated_at = ? WHERE peer_id = ? ", timestamp, peer_id)
@@ -509,7 +508,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn get_node_by_operator(
+    pub async fn get_node_by_btc_pub_key(
         &mut self,
         btc_pub_key: &str,
     ) -> anyhow::Result<Option<Node>> {

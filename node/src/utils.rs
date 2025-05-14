@@ -886,7 +886,7 @@ pub async fn store_graph(
     let mut bridge_out_from_addr = "".to_string();
     let mut bridge_out_to_addr = "".to_string();
     if let Ok(node_info) =
-        transaction.get_node_by_operator(&graph.parameters.operator_pubkey.to_string()).await
+        transaction.get_node_by_btc_pub_key(&graph.parameters.operator_pubkey.to_string()).await
     {
         let network = Network::from_str(&network);
         if network.is_ok() && node_info.is_some() {

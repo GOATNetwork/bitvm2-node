@@ -569,8 +569,7 @@ pub async fn get_graphs(
             // TODO remove middle status
             graph.status =
                 modify_graph_status(&graph.status, graph.updated_at, update_at_threshold);
-            let graph =
-                convert_to_rpc_query_data(&mut graph, from_addr.clone(), &bridge_in_status)?;
+            let graph = convert_to_rpc_query_data(&graph, from_addr.clone(), &bridge_in_status)?;
             graph_vec.push(GrapRpcQueryDataWrap { graph, confirmations, target_confirmations });
         }
         graph_vec.sort_by(|a, b| b.graph.created_at.cmp(&a.graph.created_at));

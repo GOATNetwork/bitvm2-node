@@ -265,12 +265,7 @@ pub fn convert_to_step_state(ori_status: &str) -> String {
     }
 }
 pub fn has_middle_state(ori_status: &str) -> bool {
-    match ori_status {
-        "KickOff" => true,
-        "Challenge" => true,
-        "Assert" => true,
-        _ => false,
-    }
+    matches!(ori_status, "KickOff" | "Challenge" | "Assert")
 }
 
 // graph full data contain instance.from and instance.to
