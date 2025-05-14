@@ -1,6 +1,7 @@
 use crate::env::{self, get_local_node_info, get_node_pubkey};
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;
+use crate::rpc_service::current_time_secs;
 use crate::utils::{statics::*, *};
 use crate::{defer, dismiss_defer};
 use anyhow::Result;
@@ -531,6 +532,7 @@ pub async fn recv_and_dispatch(
                         Some(graph_ipfs_cid.clone()),
                         None,
                         None,
+                        None,
                     )
                     .await?;
                     let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
@@ -563,6 +565,7 @@ pub async fn recv_and_dispatch(
                 receive_data.graph_id,
                 None,
                 Some(receive_data.graph_ipfs_cid.clone()),
+                None,
                 None,
                 None,
             )
@@ -669,6 +672,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     None,
+                    None,
                 )
                 .await?;
             } else {
@@ -679,6 +683,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     None,
+                    Some(current_time_secs()),
                 )
                 .await?;
             }
@@ -720,6 +725,7 @@ pub async fn recv_and_dispatch(
                         client,
                         receive_data.graph_id,
                         Some(GraphStatus::Take1.to_string()),
+                        None,
                         None,
                         None,
                         None,
@@ -793,6 +799,7 @@ pub async fn recv_and_dispatch(
                     None,
                     Some(serialize_hex(&receive_data.challenge_txid)),
                     None,
+                    None,
                 )
                 .await?;
                 // malicious Operator may not broadcast assert to the p2p network
@@ -827,6 +834,7 @@ pub async fn recv_and_dispatch(
                         client,
                         receive_data.graph_id,
                         Some(GraphStatus::Take2.to_string()),
+                        None,
                         None,
                         None,
                         None,
@@ -896,6 +904,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     None,
+                    None,
                 )
                 .await?;
             } else {
@@ -918,6 +927,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     None,
+                    None,
                 )
                 .await?;
                 // NOTE: clean up other graphs?
@@ -933,6 +943,7 @@ pub async fn recv_and_dispatch(
                     client,
                     receive_data.graph_id,
                     Some(GraphStatus::Take2.to_string()),
+                    None,
                     None,
                     None,
                     None,
@@ -958,6 +969,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     Some(serialize_hex(&receive_data.disprove_txid)),
+                    None,
                 )
                 .await?;
                 finish_withdraw_disproved(
@@ -970,6 +982,7 @@ pub async fn recv_and_dispatch(
                     client,
                     receive_data.graph_id,
                     Some(GraphStatus::Disprove.to_string()),
+                    None,
                     None,
                     None,
                     None,
@@ -989,6 +1002,7 @@ pub async fn recv_and_dispatch(
                     client,
                     receive_data.graph_id,
                     Some(GraphStatus::Take1.to_string()),
+                    None,
                     None,
                     None,
                     None,
@@ -1024,6 +1038,7 @@ pub async fn recv_and_dispatch(
                     client,
                     receive_data.graph_id,
                     Some(GraphStatus::Take2.to_string()),
+                    None,
                     None,
                     None,
                     None,
@@ -1074,6 +1089,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     None,
+                    None,
                 )
                 .await?;
             }
@@ -1105,6 +1121,7 @@ pub async fn recv_and_dispatch(
                     None,
                     Some(serialize_hex(&receive_data.challenge_txid)),
                     None,
+                    None,
                 )
                 .await?;
             }
@@ -1117,6 +1134,7 @@ pub async fn recv_and_dispatch(
                     client,
                     receive_data.graph_id,
                     Some(GraphStatus::Take1.to_string()),
+                    None,
                     None,
                     None,
                     None,
@@ -1133,6 +1151,7 @@ pub async fn recv_and_dispatch(
                     client,
                     receive_data.graph_id,
                     Some(GraphStatus::Take2.to_string()),
+                    None,
                     None,
                     None,
                     None,
@@ -1158,6 +1177,7 @@ pub async fn recv_and_dispatch(
                     None,
                     None,
                     Some(serialize_hex(&receive_data.disprove_txid)),
+                    None,
                 )
                 .await?;
                 // NOTE: clean up other graphs?

@@ -190,6 +190,9 @@ pub struct Graph {
     pub disprove_txid: Option<String>,
     pub operator: String,
     pub raw_data: Option<String>,
+    pub bridge_out_start_at: i64,
+    pub bridge_out_from_addr: String,
+    pub bridge_out_to_addr: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -238,12 +241,11 @@ impl Graph {
 pub fn modify_graph_status(
     ori_status: &str,
     last_updated_at: i64,
-    current_time: i64,
-    interval: i64,
+    update_at_threshold: i64,
 ) -> String {
-    if last_updated_at + interval < current_time {
+    if last_updated_at < update_at_threshold {
         match ori_status {
-            "OperatorDataPushed" => "KickOffing".to_string(),
+            // "OperatorDataPushed" => "KickOffing".to_string(),// TODO update
             "KickOff" => "Challenging".to_string(),
             "Challenge" => "Asserting".to_string(),
             "Assert" => "Disproving".to_string(),
@@ -254,9 +256,26 @@ pub fn modify_graph_status(
     }
 }
 
-// query Data
+pub fn convert_to_step_state(ori_status: &str) -> String {
+    match ori_status {
+        "Challenging" => "KickOff".to_string(),
+        "Asserting" => "Challenge".to_string(),
+        "Disproving" => "Assert".to_string(),
+        _ => ori_status.to_string(),
+    }
+}
+pub fn has_middle_state(ori_status: &str) -> bool {
+    match ori_status {
+        "KickOff" => true,
+        "Challenge" => true,
+        "Assert" => true,
+        _ => false,
+    }
+}
+
+// graph full data contain instance.from and instance.to
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct GrapRpcQueryData {
+pub struct GrapFullData {
     pub graph_id: Uuid,
     pub instance_id: Uuid,
     pub bridge_path: u8,
@@ -265,7 +284,7 @@ pub struct GrapRpcQueryData {
     pub to_addr: String,
     pub amount: i64,
     pub pegin_txid: String,
-    pub status: String, // GraphStatus | InstanceStatus
+    pub status: String,
     pub kickoff_txid: Option<String>,
     pub challenge_txid: Option<String>,
     pub take1_txid: Option<String>,
@@ -274,12 +293,15 @@ pub struct GrapRpcQueryData {
     pub assert_final_txid: Option<String>,
     pub take2_txid: Option<String>,
     pub disprove_txid: Option<String>,
+    pub bridge_out_start_at: i64,
+    pub bridge_out_from_addr: String,
+    pub bridge_out_to_addr: String,
     pub operator: String,
     pub updated_at: i64,
     pub created_at: i64,
 }
 
-impl GrapRpcQueryData {
+impl GrapFullData {
     pub fn get_check_tx_param(&self) -> Result<(Option<String>, u32), String> {
         let status = GraphStatus::from_str(&self.status);
         if status.is_err() {

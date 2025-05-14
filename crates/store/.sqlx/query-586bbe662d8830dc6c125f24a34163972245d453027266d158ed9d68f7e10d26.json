@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT  network FROM  instance where instance_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "network",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "586bbe662d8830dc6c125f24a34163972245d453027266d158ed9d68f7e10d26"
+}

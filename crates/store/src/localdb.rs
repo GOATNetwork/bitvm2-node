@@ -1,7 +1,7 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, GrapRpcQueryData, Graph, GraphTickActionMetaData, Instance, Message,
+    COMMITTEE_PRE_SIGN_NUM, GrapFullData, Graph, GraphTickActionMetaData, Instance, Message,
     MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofWithPis,
     PubKeyCollect, PubKeyCollectMetaData,
 };
@@ -75,8 +75,9 @@ impl LocalDB {
 
 #[derive(Clone, Debug)]
 pub struct FilterGraphParams {
-    pub is_bridge_in: bool,
     pub status: Option<String>,
+    pub has_middle_status:bool,
+    pub update_at_threshold: i64,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
     pub graph_id: Option<String>,
@@ -139,6 +140,18 @@ impl<'a> StorageProcessor<'a> {
         ).fetch_optional(self.conn())
             .await?;
         Ok(row)
+    }
+
+    pub async fn get_instance_network(&mut self, instance_id: &Uuid) -> anyhow::Result<String> {
+        if let Some(raw) =
+            sqlx::query!("SELECT  network FROM  instance where instance_id = ?", instance_id)
+                .fetch_optional(self.conn())
+                .await?
+        {
+            Ok(raw.network)
+        } else {
+            Ok("".to_string())
+        }
     }
     pub async fn instance_list(
         &mut self,
@@ -223,8 +236,9 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, \
              amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
-            assert_final_txid, take2_txid, disprove_txid, operator, raw_data, created_at, updated_at)  \
-            VALUES ( ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+            assert_final_txid, take2_txid, disprove_txid, operator, raw_data,  bridge_out_start_at, bridge_out_from_addr,  \
+            bridge_out_to_addr, created_at, updated_at)  \
+            VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
             graph.graph_id,
             graph.instance_id,
             graph.graph_ipfs_base_url,
@@ -242,6 +256,9 @@ impl<'a> StorageProcessor<'a> {
             graph.disprove_txid,
             graph.operator,
             graph.raw_data,
+            graph.bridge_out_start_at,
+            graph.bridge_out_from_addr,
+            graph.bridge_out_to_addr,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -300,6 +317,7 @@ impl<'a> StorageProcessor<'a> {
         ipfs_base_url: Option<String>,
         challenge_txid: Option<String>,
         disprove_txid: Option<String>,
+        bridge_out_start_at: Option<i64>,
     ) -> anyhow::Result<()> {
         let mut update_fields = vec![];
         if let Some(status) = status {
@@ -314,6 +332,10 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(disprove_txid) = disprove_txid {
             update_fields.push(format!("disprove_txid = \'{disprove_txid}\'"));
+        }
+
+        if let Some(bridge_out_start_at) = bridge_out_start_at {
+            update_fields.push(format!("bridge_out_start_at = {bridge_out_start_at}"));
         }
         if update_fields.is_empty() {
             return Ok(());
@@ -335,7 +357,8 @@ impl<'a> StorageProcessor<'a> {
             Graph,
             "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, \
              pre_kickoff_txid, pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
-              assert_final_txid, take2_txid, disprove_txid, operator, raw_data, created_at, updated_at  FROM graph WHERE  graph_id = ?",
+              assert_final_txid, take2_txid, disprove_txid, operator, raw_data,bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr,\
+               created_at, updated_at  FROM graph WHERE  graph_id = ?",
             graph_id
         ).fetch_optional(self.conn()).await?;
         Ok(res)
@@ -344,57 +367,42 @@ impl<'a> StorageProcessor<'a> {
     pub async fn filter_graphs(
         &mut self,
         mut params: FilterGraphParams,
-    ) -> anyhow::Result<(Vec<GrapRpcQueryData>, i64)> {
-        let (status_filed, create_at_filed, updated_at_field, order_field) = if params.is_bridge_in
-        {
-            ("instance.status", "instance.created_at", "instance.updated_at", "instance.created_at")
-        } else {
-            ("graph.status", "graph.created_at", "graph.updated_at", "graph.created_at")
-        };
-
-        let mut graph_query_str = format!(
-            "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS  bridge_path, {status_filed} AS status, \
+    ) -> anyhow::Result<(Vec<GrapFullData>, i64)> {
+        let mut graph_query_str = "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS bridge_path, graph.status AS status, \
             instance.network AS network, instance.from_addr AS from_addr,  instance.to_addr AS to_addr,  \
             graph.amount, graph.pegin_txid, graph.kickoff_txid, graph.challenge_txid,  \
             graph.take1_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid,  \
-            graph.take2_txid, graph.disprove_txid, graph.operator,  {create_at_filed}, {updated_at_field} FROM graph  \
-            INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
-        );
+            graph.take2_txid, graph.disprove_txid, graph.operator, graph.bridge_out_start_at, graph.bridge_out_from_addr, bridge_out_to_addr,\
+            graph.created_at, graph.updated_at FROM graph  INNER JOIN  instance ON  graph.instance_id = instance.instance_id".to_string();
+
         let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs FROM graph \
          INNER JOIN  instance ON  graph.instance_id = instance.instance_id"
             .to_string();
 
         if let Some(from_addr) = params.from_addr {
-            if !params.is_bridge_in {
-                let node_op = sqlx::query_as!(
-                    Node,
-                    "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  \
+            let node_op = sqlx::query_as!(
+                Node,
+                "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  \
                     FROM node WHERE goat_addr =?",
-                    from_addr
-                )
-                .fetch_optional(self.conn())
-                .await?;
-                if node_op.is_none() {
-                    warn!("no node find refer to goat address:{from_addr}");
+                from_addr
+            )
+            .fetch_optional(self.conn())
+            .await?;
+            if node_op.is_none() {
+                warn!("no node find refer to goat address:{from_addr}");
+                return Ok((vec![], 0));
+            }
+            let btc_pub_key = node_op.unwrap().btc_pub_key;
+            if let Some(operator) = params.operator.clone() {
+                if operator != btc_pub_key {
+                    warn!(
+                        "find node  refer to goat address:{from_addr} has different operator,  \
+                            input:{operator}, find:{btc_pub_key}"
+                    );
                     return Ok((vec![], 0));
                 }
-                let btc_pub_key = node_op.unwrap().btc_pub_key;
-                if let Some(operator) = params.operator.clone() {
-                    if operator != btc_pub_key {
-                        warn!(
-                            "find node  refer to goat address:{from_addr} has different operator,  \
-                            input:{operator}, find:{btc_pub_key}"
-                        );
-                        return Ok((vec![], 0));
-                    }
-                } else {
-                    params.operator = Some(btc_pub_key);
-                }
             } else {
-                graph_query_str =
-                    format!("{graph_query_str} AND instance.from_addr  =\'{from_addr}\'");
-                graph_count_str =
-                    format!("{graph_count_str} AND instance.from_addr  =\'{from_addr}\'");
+                params.operator = Some(btc_pub_key);
             }
         }
 
@@ -414,9 +422,9 @@ impl<'a> StorageProcessor<'a> {
             conditions.push(format!(" hex(graph_id) = \'{graph_id}\' COLLATE NOCASE"));
         }
 
-        // if !params.is_bridge_in && params.status.is_none() {
-        //     conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\')".to_string());
-        // }
+        if params.has_middle_status {
+           conditions.push(format!("graph.updated_at >= {}", params.update_at_threshold))
+        }
 
         if !conditions.is_empty() {
             let condition_str = conditions.join(" AND ");
@@ -424,7 +432,7 @@ impl<'a> StorageProcessor<'a> {
             graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
 
-        graph_query_str = format!("{graph_query_str} ORDER BY {order_field} DESC ");
+        //  graph_query_str = format!("{graph_query_str} ORDER BY {order_field} DESC ");
 
         if let Some(limit) = params.limit {
             graph_query_str = format!("{graph_query_str} LIMIT {limit}");
@@ -434,7 +442,7 @@ impl<'a> StorageProcessor<'a> {
             graph_query_str = format!("{graph_query_str} OFFSET {offset}");
         }
         tracing::info!("{graph_query_str}");
-        let graphs = sqlx::query_as::<_, GrapRpcQueryData>(graph_query_str.as_str())
+        let graphs = sqlx::query_as::<_, GrapFullData>(graph_query_str.as_str())
             .fetch_all(self.conn())
             .await?;
         let total_graphs = sqlx::query(graph_count_str.as_str())
@@ -453,7 +461,8 @@ impl<'a> StorageProcessor<'a> {
             Graph,
             "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, \
             pre_kickoff_txid,pegin_txid, amount, status,kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
-             assert_final_txid, take2_txid, disprove_txid, operator, raw_data, created_at, updated_at FROM graph WHERE instance_id = ?",
+             assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr, \
+            created_at, updated_at FROM graph WHERE instance_id = ?",
             instance_id
         ).fetch_all(self.conn()).await?;
         Ok(res)
@@ -498,6 +507,17 @@ impl<'a> StorageProcessor<'a> {
             .execute(self.conn())
             .await?;
         Ok(res.rows_affected())
+    }
+
+    pub async fn get_node_by_operator(
+        &mut self,
+        btc_pub_key: &str,
+    ) -> anyhow::Result<Option<Node>> {
+        Ok(sqlx::query_as!(
+            Node,
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at FROM node WHERE btc_pub_key = ?",
+            btc_pub_key
+        ).fetch_optional(self.conn()).await?)
     }
 
     /// Query node list

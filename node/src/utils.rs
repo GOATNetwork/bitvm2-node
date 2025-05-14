@@ -853,10 +853,18 @@ pub async fn update_graph_fields(
     ipfs_base_url: Option<String>,
     challenge_txid: Option<String>,
     disprove_txid: Option<String>,
+    bridge_out_start_at: Option<i64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = client.local_db.acquire().await?;
     Ok(storage_process
-        .update_graph_fields(graph_id, graph_state, ipfs_base_url, challenge_txid, disprove_txid)
+        .update_graph_fields(
+            graph_id,
+            graph_state,
+            ipfs_base_url,
+            challenge_txid,
+            disprove_txid,
+            bridge_out_start_at,
+        )
         .await?)
 }
 pub async fn store_graph(
@@ -873,6 +881,20 @@ pub async fn store_graph(
         .iter()
         .map(|v| serialize_hex(&v.tx().compute_txid()))
         .collect();
+    let network = transaction.get_instance_network(&instance_id).await?;
+
+    let mut bridge_out_from_addr = "".to_string();
+    let mut bridge_out_to_addr = "".to_string();
+    if let Ok(node_info) =
+        transaction.get_node_by_operator(&graph.parameters.operator_pubkey.to_string()).await
+    {
+        let network = Network::from_str(&network);
+        if network.is_ok() && node_info.is_some() {
+            bridge_out_from_addr = node_info.unwrap().goat_addr;
+            bridge_out_to_addr =
+                node_p2wsh_address(network.unwrap(), &graph.parameters.operator_pubkey).to_string();
+        }
+    }
     transaction
         .update_graph(Graph {
             graph_id,
@@ -894,6 +916,9 @@ pub async fn store_graph(
             disprove_txid: None,
             operator: graph.parameters.operator_pubkey.to_string(),
             raw_data: Some(serde_json::to_string(&graph).expect("to json string")),
+            bridge_out_start_at: 0,
+            bridge_out_from_addr,
+            bridge_out_to_addr,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })

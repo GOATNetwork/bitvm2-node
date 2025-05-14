@@ -232,20 +232,19 @@ mod tests {
             temp_file(),
             local_ipfs_url(),
             actor,
-            peer_id,
+            peer_id.clone(),
             Arc::new(Mutex::new(Registry::default())),
         ));
         sleep(Duration::from_secs(1)).await;
         let client = reqwest::Client::new();
-        let node_peer = "ddsdssccfsffsafafafa";
         info!("=====>test api: create node");
         let resp = client
             .post(format!("http://{addr}/v1/nodes"))
             .json(&json!({
-                "peer_id": node_peer,
+                "peer_id": peer_id,
                 "actor": "Challenger",
-                "btc_pub_key": "aaa58dsss965c464696560fdee91d039da6",
-                "goat_addr": "58de965c464696560fdee91d039da6d49ef7770f30ef0"
+                "btc_pub_key": "03696a0ce6f3467e26066644253728901dc9f75bfa7b7a1143683e8f445f3a1f93",
+                "goat_addr": "0x2c669C70e106C9Feca131e53f000c2030564819B"
             }))
             .send()
             .await?;
@@ -255,7 +254,7 @@ mod tests {
         info!("Post Response: {res_body}");
 
         info!("=====>test api: get node");
-        let resp = client.get(format!("http://{addr}/v1/nodes/{node_peer}")).send().await?;
+        let resp = client.get(format!("http://{addr}/v1/nodes/{peer_id}")).send().await?;
         info!("{:?}", resp);
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
@@ -375,7 +374,10 @@ mod tests {
                     "created_at": 1000000,
                     "updated_at": 1000000,
                     "status": graph_state,
-                    "operator": "dddsdsdsdsdss"
+                    "bridge_out_start_at":1000000,
+                    "bridge_out_to_addr": "",
+                    "bridge_out_from_addr":"",
+                    "operator": "03696a0ce6f3467e26066644253728901dc9f75bfa7b7a1143683e8f445f3a1f93"
                 }
             }))
             .send()
@@ -383,10 +385,10 @@ mod tests {
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {res_body}");
-        //
+
         info!("=====>test api:get_graphs");
         let resp = client
-            .get(format!("http://{addr}/v1/graphs?from_addr={from_addr}&offset=0&limit=10"))
+            .get(format!("http://{addr}/v1/graphs?status=Take2&offset=0&limit=10"))
             .send()
             .await?;
         assert!(resp.status().is_success());

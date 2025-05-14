@@ -4,7 +4,7 @@ use crate::action::{ChallengeSent, CreateInstance, DisproveSent};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
 };
-use crate::rpc_service::P2pUserData;
+use crate::rpc_service::{P2pUserData, current_time_secs};
 use crate::utils::{finish_withdraw_disproved, outpoint_spent_txid, update_graph_fields};
 use crate::{
     action::{
@@ -190,8 +190,7 @@ pub async fn scan_l1_broadcast_txs(
             None,
             None,
         )
-        .await
-        .unwrap();
+        .await?;
 
     info!("Starting into scan_l1_broadcast_txs, need to check instance_size:{} ", instances.len());
 
@@ -241,8 +240,7 @@ pub async fn scan_post_pegin_data(
             None,
             None,
         )
-        .await
-        .unwrap();
+        .await?;
 
     info!("Starting into scan post_pegin_data, need to send instance_size:{} ", instances.len());
     for instance in instances {
@@ -340,6 +338,7 @@ pub async fn scan_post_operator_data(
                         .update_graph_fields(
                             graph.graph_id,
                             Some(GraphStatus::OperatorDataPushed.to_string()),
+                            None,
                             None,
                             None,
                             None,
@@ -444,6 +443,7 @@ pub async fn scan_kickoff(
                 None,
                 None,
                 None,
+                Some(current_time_secs()),
             )
             .await?;
             let message_content = GOATMessageContent::KickoffSent(KickoffSent {
@@ -538,6 +538,7 @@ pub async fn scan_assert(
                 None,
                 None,
                 None,
+                None,
             )
             .await?
         }
@@ -598,6 +599,7 @@ pub async fn scan_take1(
                             None,
                             None,
                             None,
+                            None,
                         )
                         .await?;
                     }
@@ -618,6 +620,7 @@ pub async fn scan_take1(
                     Some(GraphStatus::Challenge.to_string()),
                     None,
                     Some(serialize_hex(&spent_txid)),
+                    None,
                     None,
                 )
                 .await?;
@@ -718,6 +721,7 @@ pub async fn scan_take2(
                             None,
                             None,
                             None,
+                            None,
                         )
                         .await?;
                     }
@@ -733,6 +737,7 @@ pub async fn scan_take2(
                     None,
                     None,
                     Some(serialize_hex(&spent_txid)),
+                    None,
                 )
                 .await?;
                 finish_withdraw_disproved(
@@ -752,6 +757,7 @@ pub async fn scan_take2(
                     client,
                     graph_id,
                     Some(GraphStatus::Disprove.to_string()),
+                    None,
                     None,
                     None,
                     None,

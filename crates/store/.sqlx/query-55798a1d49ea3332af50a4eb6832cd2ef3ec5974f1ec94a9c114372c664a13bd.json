@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, pre_kickoff_txid, pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, assert_final_txid, take2_txid, disprove_txid, operator, raw_data, created_at, updated_at  FROM graph WHERE  graph_id = ?",
+  "query": "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, pre_kickoff_txid, pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, assert_final_txid, take2_txid, disprove_txid, operator, raw_data,bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr,created_at, updated_at  FROM graph WHERE  graph_id = ?",
   "describe": {
     "columns": [
       {
@@ -89,13 +89,28 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "bridge_out_start_at",
         "ordinal": 17,
         "type_info": "Integer"
       },
       {
-        "name": "updated_at",
+        "name": "bridge_out_from_addr",
         "ordinal": 18,
+        "type_info": "Text"
+      },
+      {
+        "name": "bridge_out_to_addr",
+        "ordinal": 19,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 20,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 21,
         "type_info": "Integer"
       }
     ],
@@ -121,8 +136,11 @@
       false,
       true,
       false,
+      false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "7de4e26924942a56d666b1198ed1ea0b936836542260f100948019fc376b34e4"
+  "hash": "55798a1d49ea3332af50a4eb6832cd2ef3ec5974f1ec94a9c114372c664a13bd"
 }
