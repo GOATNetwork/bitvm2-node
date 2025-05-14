@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE block_proof \n            SET \n                tx_count = ?, \n                gas_used = ?, \n                state = ?,\n                updated_at = ?\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "f3fed0f04e1b45b11e84a6fe1d44c305ed7672149b0517b5fe0fdfa3d3da79ad"
+}

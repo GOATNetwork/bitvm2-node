@@ -492,3 +492,20 @@ fn reversed_btc_txid(tx_id: &str) -> String {
         tx_id.to_string()
     }
 }
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct BlockProof {
+    pub block_number: i64,
+    pub tx_count: i64,
+    pub gas_used: i64,
+    pub total_time_to_proof: i64,
+    pub proving_time: i64,
+    pub proving_cycles: i64,
+    pub proof: String,
+    pub proof_size_mb: f64,
+    pub verifier_id: String,
+    pub state: String,
+    pub reason: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}

@@ -1,0 +1,42 @@
+[package]
+name = "continuous"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+tokio.workspace = true
+url.workspace = true
+tracing.workspace = true
+clap = { version = "4.5.7", features = ["derive", "env"] }
+dotenv = "0.15.0"
+eyre = "0.6.12"
+futures-util = "0.3.31"
+tracing-subscriber = "0.3.18"
+
+# workspace
+guest-executor.workspace = true
+host-executor.workspace = true
+primitives.workspace = true
+provider.workspace = true
+
+# zkMIPS
+zkm-sdk.workspace = true
+
+# alloy
+alloy-consensus.workspace = true
+alloy-chains.workspace = true
+alloy-provider = { workspace = true, features = ["ws"] }
+alloy-primitives.workspace = true
+alloy-rpc-client.workspace = true
+alloy-transport.workspace = true
+alloy-transport-ws.workspace = true
+
+# reth 
+reth-evm.workspace = true
+reth-primitives-traits.workspace = true
+
+store = { path = "../../crates/store" }
+
+[build-dependencies]
+zkm-build.workspace = true

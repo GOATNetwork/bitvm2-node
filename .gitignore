@@ -18,3 +18,4 @@ Cargo.lock
 
 covenant/guest/target/
 covenant/target/
+report.csv

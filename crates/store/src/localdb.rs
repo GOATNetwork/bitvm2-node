@@ -5,6 +5,8 @@ use crate::{
     MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofWithPis,
     PubKeyCollect, PubKeyCollectMetaData,
 };
+
+use anyhow::bail;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -960,8 +962,170 @@ impl<'a> StorageProcessor<'a> {
             ))
         }
     }
+
+    pub async fn get_block_execution_start_time(&mut self, block_number: i64) -> anyhow::Result<i64> {
+        #[derive(sqlx::FromRow)]
+        struct TimestampRow {
+            created_at: Option<i64>,
+        }
+
+        let row = sqlx::query_as!(
+            TimestampRow,
+            r#"
+            SELECT
+                created_at as "created_at?: i64"
+            FROM block_proof
+            WHERE block_number = ?
+            "#,
+            block_number
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        Ok(row.and_then(|r| r.created_at).unwrap_or(0))
+    }
+
+    pub async fn update_block_executing(
+        &mut self,
+        block_number: i64,
+        state: String,
+    ) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO block_proof 
+                (block_number, state, created_at) 
+            VALUES 
+                (?, ?, ?)
+            ON CONFLICT(block_number) DO UPDATE SET
+                state = excluded.state,
+                created_at = excluded.created_at
+            "#,
+            block_number,
+            state,
+            timestamp
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_block_executed(
+        &mut self,
+        block_number: i64,
+        tx_count: i64,
+        gas_used: i64,
+        state: String,
+    ) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+
+        sqlx::query!(
+            r#"
+            UPDATE block_proof 
+            SET 
+                tx_count = ?, 
+                gas_used = ?, 
+                state = ?,
+                updated_at = ?
+            WHERE block_number = ?
+            "#,
+            tx_count,
+            gas_used,
+            state,
+            timestamp,
+            block_number
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_block_proved(
+        &mut self,
+        block_number: i64,
+        proving_time: i64,
+        proving_cycles: i64,
+        proof: &[u8],
+        verifier_id: String,
+        state: String,
+    ) -> anyhow::Result<()> {
+        let end_timestamp =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+
+        let start_timestamp = self.get_block_execution_start_time(block_number).await?;
+
+        let total_time_to_proof = end_timestamp - start_timestamp;
+
+        let proof_size_mb = proof.len() as f64 / (1024.0 * 1024.0);
+        let proof = hex::encode(proof);
+
+        sqlx::query!(
+            r#"
+            UPDATE block_proof 
+            SET
+                total_time_to_proof = ?,
+                proving_time = ?, 
+                proving_cycles = ?, 
+                proof = ?,
+                proof_size_mb = ?,
+                verifier_id = ?,
+                state = ?,
+                updated_at = ?
+            WHERE block_number = ?
+            "#,
+            total_time_to_proof,
+            proving_time,
+            proving_cycles,
+            proof,
+            proof_size_mb,
+            verifier_id,
+            state,
+            end_timestamp,
+            block_number,
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_block_proving_failed(
+        &mut self,
+        block_number: i64,
+        state: String,
+        reason: String,
+    ) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let reason = truncate_string(&reason, 100);
+
+        sqlx::query!(
+            r#"
+            UPDATE block_proof 
+            SET 
+                state = ?,
+                reason = ?,
+                updated_at = ?
+            WHERE block_number = ?
+            "#,
+            state,
+            reason,
+            timestamp,
+            block_number
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
 }
 
 fn create_place_holders<T>(inputs: &[T]) -> String {
     inputs.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect::<Vec<_>>().join(",")
+}
+
+fn truncate_string(s: &str, max_len: usize) -> &str {
+    if s.len() > max_len { &s[..max_len] } else { s }
 }

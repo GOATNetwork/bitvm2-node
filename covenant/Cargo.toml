@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "continuous",
     "host",
 ]
 exclude = []
@@ -31,7 +32,7 @@ rlp = "0.5.2"
 
 # workspace
 guest-executor = { git = "https://github.com/zkMIPS/reth-processor" }
-host-executor  = { git = "https://github.com/zkMIPS/reth-processor" }
+host-executor  = { git = "https://github.com/zkMIPS/reth-processor", features = ["alerting"] }
 primitives     = { git = "https://github.com/zkMIPS/reth-processor" }
 provider       = { git = "https://github.com/zkMIPS/reth-processor" }
 
