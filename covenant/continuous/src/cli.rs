@@ -1,7 +1,11 @@
+use std::fs;
+use std::path::PathBuf;
+
 use alloy_chains::Chain;
 use alloy_provider::{network::AnyNetwork, Provider, RootProvider};
 use clap::Parser;
 use host_executor::Config;
+use primitives::genesis::Genesis;
 use url::Url;
 use zkm_sdk::ZKMProofKind;
 
@@ -14,6 +18,10 @@ pub struct Args {
 
     #[clap(flatten)]
     pub provider: ProviderArgs,
+
+    /// The path to the genesis json file to use for the execution.
+    #[clap(long)]
+    pub genesis_path: Option<PathBuf>,
 
     /// The database connection string.
     #[clap(long, env, default_value = "/tmp/.bitvm2-node.db")]
@@ -67,7 +75,14 @@ impl Args {
             }
         };
 
-        let genesis = chain_id.try_into()?;
+        let genesis = if let Some(genesis_path) = &self.genesis_path {
+            let genesis_json = fs::read_to_string(genesis_path)
+                .map_err(|err| eyre::eyre!("Failed to read genesis file: {err}"))?;
+
+            Genesis::Custom(genesis_json)
+        } else {
+            chain_id.try_into()?
+        };
 
         let chain = Chain::from_id(chain_id);
 

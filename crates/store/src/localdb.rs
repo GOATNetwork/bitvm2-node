@@ -962,7 +962,10 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    pub async fn get_block_execution_start_time(&mut self, block_number: i64) -> anyhow::Result<i64> {
+    pub async fn get_block_execution_start_time(
+        &mut self,
+        block_number: i64,
+    ) -> anyhow::Result<i64> {
         #[derive(sqlx::FromRow)]
         struct TimestampRow {
             created_at: Option<i64>,
