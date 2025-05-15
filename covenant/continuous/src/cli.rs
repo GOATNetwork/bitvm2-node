@@ -20,7 +20,7 @@ pub struct Args {
     pub database_url: String,
 
     /// The maximum number of concurrent executions.
-    #[clap(long, env, default_value_t = 3)]
+    #[clap(long, env, default_value_t = 1)]
     pub max_concurrent_executions: usize,
 
     /// Retry count on failed execution.

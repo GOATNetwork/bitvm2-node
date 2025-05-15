@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "continuous",
-    "host",
 ]
 exclude = []
 resolver = "2"

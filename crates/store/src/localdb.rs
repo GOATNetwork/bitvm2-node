@@ -6,7 +6,6 @@ use crate::{
     PubKeyCollect, PubKeyCollectMetaData,
 };
 
-use anyhow::bail;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
