@@ -76,6 +76,7 @@ impl LocalDB {
 pub struct FilterGraphParams {
     pub status: Option<String>,
     pub has_middle_status: bool,
+    pub is_bridge_out: bool,
     pub update_at_threshold: i64,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
@@ -423,6 +424,10 @@ impl<'a> StorageProcessor<'a> {
 
         if params.has_middle_status {
             conditions.push(format!("graph.updated_at >= {}", params.update_at_threshold))
+        }
+
+        if params.is_bridge_out && params.status.is_none() {
+            conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\')".to_string());
         }
 
         if !conditions.is_empty() {

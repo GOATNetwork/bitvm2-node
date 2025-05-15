@@ -174,7 +174,7 @@ impl From<GraphQueryParams> for FilterGraphParams {
                 graph_ip_op = Some(uuid.encode_hex());
             }
         }
-        let (_, from_addr) = reflect_goat_address(value.from_addr.clone());
+        let (is_bridge_out, from_addr) = reflect_goat_address(value.from_addr.clone());
         let (status, has_middle_status) = if let Some(status) = value.status {
             (Some(convert_to_step_state(&status)), has_middle_state(&status))
         } else {
@@ -184,6 +184,7 @@ impl From<GraphQueryParams> for FilterGraphParams {
         FilterGraphParams {
             status,
             has_middle_status,
+            is_bridge_out,
             update_at_threshold: current_time_secs() - MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
             operator: value.operator,
             from_addr,
