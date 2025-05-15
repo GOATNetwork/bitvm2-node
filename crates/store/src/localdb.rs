@@ -1072,6 +1072,7 @@ impl<'a> StorageProcessor<'a> {
                 proof_size_mb = ?,
                 verifier_id = ?,
                 state = ?,
+                reason = ?,
                 updated_at = ?
             WHERE block_number = ?
             "#,
@@ -1082,6 +1083,7 @@ impl<'a> StorageProcessor<'a> {
             proof_size_mb,
             verifier_id,
             state,
+            "",
             end_timestamp,
             block_number,
         )
