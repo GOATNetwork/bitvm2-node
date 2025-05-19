@@ -217,15 +217,15 @@ impl Graph {
         if let Some(assert_init_txid) = self.assert_init_txid.clone() {
             self.assert_init_txid = Some(reversed_btc_txid(&assert_init_txid));
         }
-        if let Some(assert_commit_txids) = self.assert_commit_txids.clone() {
-            if let Ok(assert_commit_txids) =
+        if let Some(assert_commit_txids) = self.assert_commit_txids.clone()
+            && let Ok(assert_commit_txids) =
                 serde_json::from_str::<Vec<String>>(&assert_commit_txids)
-            {
-                let assert_commit_txids_re: Vec<String> =
-                    assert_commit_txids.iter().map(|v| reversed_btc_txid(v)).collect();
-                self.assert_commit_txids = serde_json::to_string(&assert_commit_txids_re).ok()
-            }
+        {
+            let assert_commit_txids_re: Vec<String> =
+                assert_commit_txids.iter().map(|v| reversed_btc_txid(v)).collect();
+            self.assert_commit_txids = serde_json::to_string(&assert_commit_txids_re).ok()
         }
+
         if let Some(assert_final_txid) = self.assert_final_txid.clone() {
             self.assert_final_txid = Some(reversed_btc_txid(&assert_final_txid));
         }
@@ -326,15 +326,15 @@ impl GrapFullData {
         if let Some(assert_init_txid) = self.assert_init_txid.clone() {
             self.assert_init_txid = Some(reversed_btc_txid(&assert_init_txid));
         }
-        if let Some(assert_commit_txids) = self.assert_commit_txids.clone() {
-            if let Ok(assert_commit_txids) =
+        if let Some(assert_commit_txids) = self.assert_commit_txids.clone()
+            && let Ok(assert_commit_txids) =
                 serde_json::from_str::<Vec<String>>(&assert_commit_txids)
-            {
-                let assert_commit_txids_re: Vec<String> =
-                    assert_commit_txids.iter().map(|v| reversed_btc_txid(v)).collect();
-                self.assert_commit_txids = serde_json::to_string(&assert_commit_txids_re).ok()
-            }
+        {
+            let assert_commit_txids_re: Vec<String> =
+                assert_commit_txids.iter().map(|v| reversed_btc_txid(v)).collect();
+            self.assert_commit_txids = serde_json::to_string(&assert_commit_txids_re).ok()
         }
+
         if let Some(assert_final_txid) = self.assert_final_txid.clone() {
             self.assert_final_txid = Some(reversed_btc_txid(&assert_final_txid));
         }

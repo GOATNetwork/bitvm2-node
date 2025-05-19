@@ -178,11 +178,12 @@ pub fn get_local_node_info() -> NodeInfo {
         Some(singer.address().to_string())
     } else {
         let mut addr_op = None;
-        if let Ok(addr_str) = std::env::var(ENV_GOAT_ADDRESS) {
-            if let Ok(addr) = Address::from_str(&addr_str) {
-                addr_op = Some(addr.to_string());
-            }
+        if let Ok(addr_str) = std::env::var(ENV_GOAT_ADDRESS)
+            && let Ok(addr) = Address::from_str(&addr_str)
+        {
+            addr_op = Some(addr.to_string());
         }
+
         addr_op
     };
     NodeInfo {

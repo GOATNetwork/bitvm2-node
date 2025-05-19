@@ -586,11 +586,12 @@ pub async fn get_graphs(
 }
 
 pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
-    if let Some(addr) = addr_op {
-        if let Ok(addr) = EvmAddress::from_str(&addr) {
-            return (true, Some(addr.to_string()));
-        }
+    if let Some(addr) = addr_op
+        && let Ok(addr) = EvmAddress::from_str(&addr)
+    {
+        return (true, Some(addr.to_string()));
     }
+
     (false, None)
 }
 

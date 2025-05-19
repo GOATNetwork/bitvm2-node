@@ -916,10 +916,12 @@ pub async fn store_graph(
         transaction.get_node_by_btc_pub_key(&graph.parameters.operator_pubkey.to_string()).await
     {
         let network = Network::from_str(&network);
-        if network.is_ok() && node_info.is_some() {
-            bridge_out_from_addr = node_info.unwrap().goat_addr;
+        if let Ok(network) = network
+            && let Some(node_info) = node_info
+        {
+            bridge_out_from_addr = node_info.goat_addr;
             bridge_out_to_addr =
-                node_p2wsh_address(network.unwrap(), &graph.parameters.operator_pubkey).to_string();
+                node_p2wsh_address(network, &graph.parameters.operator_pubkey).to_string();
         }
     }
     transaction
@@ -951,26 +953,26 @@ pub async fn store_graph(
         })
         .await?;
 
-    if let Some(status) = status {
-        if status == GraphStatus::CommitteePresigned.to_string() {
-            let pegin_tx = graph.pegin.tx();
-            let sum_input_value =
-                graph.pegin.input_amounts.iter().fold(Amount::ZERO, |acc, v| acc + *v);
-            let sum_output_value =
-                pegin_tx.output.iter().fold(Amount::ZERO, |acc, v| acc + v.value);
-            transaction
-                .update_instance_fields(
-                    &instance_id,
-                    Some(BridgeInStatus::Presigned.to_string()),
-                    Some((
-                        serialize_hex(&graph.pegin.tx().compute_txid()),
-                        (sum_input_value - sum_output_value).to_sat() as i64,
-                    )),
-                    None,
-                )
-                .await?
-        }
+    if let Some(status) = status
+        && status == GraphStatus::CommitteePresigned.to_string()
+    {
+        let pegin_tx = graph.pegin.tx();
+        let sum_input_value =
+            graph.pegin.input_amounts.iter().fold(Amount::ZERO, |acc, v| acc + *v);
+        let sum_output_value = pegin_tx.output.iter().fold(Amount::ZERO, |acc, v| acc + v.value);
+        transaction
+            .update_instance_fields(
+                &instance_id,
+                Some(BridgeInStatus::Presigned.to_string()),
+                Some((
+                    serialize_hex(&graph.pegin.tx().compute_txid()),
+                    (sum_input_value - sum_output_value).to_sat() as i64,
+                )),
+                None,
+            )
+            .await?
     }
+
     transaction.commit().await?;
     Ok(())
 }
