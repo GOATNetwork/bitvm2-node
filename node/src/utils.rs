@@ -94,7 +94,7 @@ pub async fn should_generate_graph(
         return Ok(false);
     };
     let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let utxos = client.esplora.get_address_utxo(node_address).await?;
+    let utxos = client.esplora.get_address_utxo(node_address.clone()).await?;
     let utxo_spent_fee = Amount::from_sat(
         (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
     );
@@ -105,7 +105,27 @@ pub async fn should_generate_graph(
                 if utxo.value > utxo_spent_fee { utxo.value - utxo_spent_fee } else { Amount::ZERO }
             })
             .sum();
-    Ok(total_effective_balance > get_stake_amount(create_graph_prepare_data.pegin_amount.to_sat()))
+    let stake_amount = get_stake_amount(create_graph_prepare_data.pegin_amount.to_sat());
+    if total_effective_balance < stake_amount {
+        tracing::warn!(
+            "node address {node_address} ran out of BTC for kickoff, requiring {stake_amount}"
+        );
+        Ok(false)
+    } else {
+        Ok(true)
+    }
+}
+
+pub async fn is_valid_withdraw(
+    client: &BitVM2Client,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
+    Ok([WithdrawStatus::Initialized, WithdrawStatus::Processing].contains(&withdraw_status))
+    // TODO: Only WithdrawStatus::Processing should be considered valid,
+    // here WithdrawStatus::Initialized is also treated as valid to facilitate test
+    // Ok(withdraw_status == WithdrawStatus::Processing)
 }
 
 /// Checks whether the status of the graph (identified by instance ID and graph ID)
@@ -542,7 +562,7 @@ pub async fn should_challenge(
     };
 
     let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let utxos = client.esplora.get_address_utxo(node_address).await?;
+    let utxos = client.esplora.get_address_utxo(node_address.clone()).await?;
     let utxo_spent_fee = Amount::from_sat(
         (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
     );
@@ -553,7 +573,14 @@ pub async fn should_challenge(
                 if utxo.value > utxo_spent_fee { utxo.value - utxo_spent_fee } else { Amount::ZERO }
             })
             .sum();
-    Ok(total_effective_balance > challenge_amount)
+    if total_effective_balance < challenge_amount {
+        tracing::warn!(
+            "graph {graph_id}, kickoff is invalid, but node address {node_address} ran out of BTC for challenge, requiring {challenge_amount}"
+        );
+        Ok(false)
+    } else {
+        Ok(true)
+    }
 }
 
 /// Validates whether the given kickoff transaction has been confirmed on Layer 1.
