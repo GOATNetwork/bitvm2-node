@@ -12,6 +12,7 @@ pub mod tests {
     use bitcoin::key::Keypair;
     use bitcoin::{CompressedPublicKey, EcdsaSighashType};
     use bitvm2_lib::committee::{COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonces_aggregation};
+    use bitvm2_lib::operator::corrupt_proof;
     use client::chain::chain_adaptor::GoatNetwork;
     use client::chain::goat_adaptor::GoatInitConfig;
     use client::client::BitVM2Client;
@@ -567,7 +568,7 @@ pub mod tests {
         challenger_tx_crowdfund_and_broadcast(network, &bitvm2_client, challenge_tx).await;
 
         // Iterate all disprove scripts, the 8th is the smallest one in size.
-        crate::utils::tests::corrupt(&mut proof_sigs, &operator_wots_seckeys.1, 8);
+        corrupt_proof(&mut proof_sigs, &operator_wots_seckeys.1, 8);
         let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
             operator_keypair,
             &mut graph,
