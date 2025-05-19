@@ -1292,7 +1292,7 @@ async fn sync_graph(
     Ok(())
 }
 
-pub(crate) fn send_to_peer(
+pub fn send_to_peer(
     swarm: &mut Swarm<AllBehaviours>,
     message: GOATMessage,
 ) -> Result<MessageId, Box<dyn std::error::Error>> {

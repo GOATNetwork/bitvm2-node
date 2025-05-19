@@ -7,6 +7,14 @@ edition.workspace = true
 name = "bitvm2-noded"
 path = "src/main.rs"
 
+[[bin]]
+name = "fake-kickoff"
+path = "src/bin/fake_kickoff.rs"
+
+[[bin]]
+name = "fake-challenge"
+path = "src/bin/fake_challenge.rs"
+
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",
@@ -85,8 +93,9 @@ ark-bn254 = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serialize = { workspace = true }
 
-[dev-dependencies]
 tempfile = "3.19.1"
+
+[dev-dependencies]
 serial_test = "3.2.0"
 
 [features]

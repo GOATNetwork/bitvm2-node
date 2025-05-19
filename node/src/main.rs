@@ -2,7 +2,6 @@
 use base64::Engine;
 use clap::{Parser, Subcommand, command};
 use client::client::BitVM2Client;
-use env::get_node_pubkey;
 use libp2p::futures::StreamExt;
 use libp2p::{Multiaddr, PeerId};
 use libp2p::{gossipsub, kad, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
@@ -17,23 +16,18 @@ use zeroize::Zeroizing;
 
 use bitvm2_lib::actors::Actor;
 
-mod action;
-mod bitcoin;
-mod env;
-mod metrics_service;
-mod middleware;
-mod relayer_action;
-mod rpc_service;
-mod tests;
-mod utils;
+use bitvm2_noded::action::{self, GOATMessage, GOATMessageContent, send_to_peer};
+use bitvm2_noded::env::{
+    self, ENV_PEER_KEY, check_node_info, get_ipfs_url, get_local_node_info, get_network,
+    get_node_pubkey,
+};
+use bitvm2_noded::middleware::{
+    self, AllBehaviours, behaviour::AllBehavioursEvent, split_topic_name,
+};
+use bitvm2_noded::rpc_service;
+use bitvm2_noded::utils::{self, detect_heart_beat, save_local_info};
 
-use crate::action::{GOATMessage, GOATMessageContent, send_to_peer};
-use crate::env::{ENV_PEER_KEY, check_node_info, get_ipfs_url, get_local_node_info, get_network};
-use crate::middleware::behaviour::AllBehavioursEvent;
-use crate::middleware::split_topic_name;
-use crate::utils::{detect_heart_beat, save_local_info};
 use anyhow::Result;
-use middleware::AllBehaviours;
 use tokio::time::interval;
 
 #[derive(Debug, Parser)]
@@ -181,7 +175,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let topics = [Actor::Committee, Actor::Challenger, Actor::Operator, Actor::Relayer, Actor::All]
         .iter()
         .map(|a| {
-            let topic_name = crate::middleware::get_topic_name(&a.to_string());
+            let topic_name = middleware::get_topic_name(&a.to_string());
             let gossipsub_topic = gossipsub::IdentTopic::new(topic_name.clone());
             swarm.behaviour_mut().gossipsub.subscribe(&gossipsub_topic).unwrap();
             (topic_name, gossipsub_topic)

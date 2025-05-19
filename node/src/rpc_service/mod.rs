@@ -83,7 +83,7 @@ async fn root() -> &'static str {
 ///3.node_overview:  `get_nodes` support
 ///
 ///4.instance, graph query  and update by api: `get_instance`, `get_graph`, `update_instance`,`update_graph`
-pub(crate) async fn serve(
+pub async fn serve(
     addr: String,
     db_path: String,
     ipfs_url: String,
@@ -192,7 +192,7 @@ async fn print_req_and_resp_detail(
 
 #[cfg(test)]
 mod tests {
-    use crate::rpc_service;
+    use crate::rpc_service::{self, Actor};
     use prometheus_client::registry::Registry;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
@@ -224,7 +224,7 @@ mod tests {
     async fn test_nodes_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
         let addr = available_addr();
-        let actor = crate::Actor::Challenger;
+        let actor = Actor::Challenger;
         let local_key = identity::generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
         tokio::spawn(rpc_service::serve(
@@ -283,7 +283,7 @@ mod tests {
     async fn test_bitvm2_api() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
         let addr = available_addr();
-        let actor = crate::Actor::Challenger;
+        let actor = Actor::Challenger;
         let local_key = identity::generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
         tokio::spawn(rpc_service::serve(
