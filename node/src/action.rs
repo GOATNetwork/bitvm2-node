@@ -781,7 +781,18 @@ pub async fn recv_and_dispatch(
                 let (proof, pubin, vk) =
                     get_groth16_proof(client, &receive_data.instance_id, &receive_data.graph_id)
                         .await?;
-                let proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
+                let mut proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
+                if !is_valid_withdraw(client, receive_data.instance_id, receive_data.graph_id)
+                    .await?
+                {
+                    // if kickoff is invalid, operator should not be able to generate a valid groth proof
+                    // TODO: replace mock proof with proof from ProofNetwork so that corrupt is not needed
+                    tracing::warn!(
+                        "graph {}, kickoff is invalid, generating fake proof...",
+                        receive_data.graph_id
+                    );
+                    corrupt_proof(&mut proof_sigs, &operator_wots_seckeys.1, 8);
+                }
                 let (assert_init_tx, assert_commit_txns, assert_final_tx) =
                     operator_sign_assert(keypair, &mut graph, &operator_wots_pubkeys, proof_sigs)?;
                 if !tx_on_chain(client, &assert_init_tx.compute_txid()).await? {
