@@ -6,8 +6,8 @@ use ark_serialize::CanonicalDeserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::key::Keypair;
 use bitcoin::{
-    Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, Sequence,
-    TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
+    Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
+    PublicKey, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoin_script::{Script, script};
 use bitvm::chunk::api::NUM_TAPS;
@@ -35,6 +35,8 @@ use goat::transactions::signing::{
 use goat::utils::num_blocks_per_network;
 use libp2p::Swarm;
 use musig2::{PartialSignature, PubNonce};
+use rand::Rng;
+use secp256k1::Secp256k1;
 use statics::*;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
@@ -1244,4 +1246,19 @@ pub async fn detect_heart_beat(
         }
     }
     Ok(())
+}
+
+pub fn generate_random_bytes(len: usize) -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    (0..len).map(|_| rng.gen_range(0..255)).collect()
+}
+
+pub fn get_rand_btc_address(network: Network) -> String {
+    let secp = Secp256k1::new();
+    Address::p2wpkh(
+        &CompressedPublicKey::try_from(PrivateKey::generate(network).public_key(&secp))
+            .expect("Could not compress public key"),
+        Network::Testnet,
+    )
+    .to_string()
 }
