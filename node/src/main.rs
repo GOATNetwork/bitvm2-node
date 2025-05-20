@@ -245,7 +245,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(rpc_service::serve(
         rpc_addr,
         db_path.clone(),
-        ipfs_url.clone(),
         actor.clone(),
         local_key.public().to_peer_id().to_string(),
         Arc::new(Mutex::new(metric_registry)),
