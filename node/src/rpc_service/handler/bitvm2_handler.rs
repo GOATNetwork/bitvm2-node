@@ -382,6 +382,7 @@ pub async fn get_instances(
 
         let mut items = vec![];
         for mut instance in instances {
+            instance.reverse_btc_txid();
             let (confirmations, target_confirmations) = get_tx_confirmation_info(
                 &app_state.btc_client.esplora,
                 instance.pegin_txid.clone(),
@@ -389,7 +390,6 @@ pub async fn get_instances(
                 6,
             )
             .await?;
-            instance.reverse_btc_txid();
             let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
 
             items.push(InstanceWrap {
