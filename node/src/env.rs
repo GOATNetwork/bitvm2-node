@@ -67,6 +67,9 @@ pub const MESSAGE_EXPIRE_TIME: i64 = 3600 * 24; // 1 days
 pub const GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED: i64 = 3600 * 48;
 pub const MODIFY_GRAPH_STATUS_TIME_THRESHOLD: i64 = 2;
 
+pub const SYNC_GRAPH_INTERVAL: u64 = 3;
+pub const SYNC_GRAPH_MAX_WAIT_SECS: u64 = 30;
+
 pub fn get_network() -> Network {
     BTC_NETWORK
 }
