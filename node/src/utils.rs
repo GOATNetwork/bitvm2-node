@@ -1,19 +1,22 @@
 use crate::action::{CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
 use crate::client::chain::chain_adaptor::WithdrawStatus;
+use crate::client::chain::utils::{validate_committee, validate_operator, validate_relayer};
 use crate::client::{BTCClient, GOATClient};
 use crate::env::*;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
+use alloy::providers::ProviderBuilder;
 use ark_serialize::CanonicalDeserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::key::Keypair;
 use bitcoin::{
-    Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, Sequence,
-    TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
+    Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
+    PublicKey, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoin_script::{Script, script};
 use bitvm::chunk::api::NUM_TAPS;
 use bitvm::signatures::signing_winternitz::{WinternitzSigningInputs, generate_winternitz_witness};
+use bitvm2_lib::actors::Actor;
 use bitvm2_lib::committee::COMMITTEE_PRE_SIGN_NUM;
 use bitvm2_lib::keys::OperatorMasterKey;
 use bitvm2_lib::operator::{generate_disprove_scripts, generate_partial_scripts};
@@ -35,6 +38,8 @@ use goat::transactions::signing::{
 use goat::utils::num_blocks_per_network;
 use libp2p::Swarm;
 use musig2::{PartialSignature, PubNonce};
+use rand::Rng;
+use secp256k1::Secp256k1;
 use statics::*;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
@@ -1253,4 +1258,40 @@ pub async fn detect_heart_beat(
         }
     }
     Ok(())
+}
+
+pub async fn validate_actor(
+    peer_id: &[u8],
+    role: Actor,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let rpc_url = get_goat_url_from_env();
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+    let get_goat_gateway_contract_address = get_goat_gateway_contract_from_env();
+    match role {
+        Actor::Committee => {
+            Ok(validate_committee(&provider, get_goat_gateway_contract_address, peer_id).await?)
+        }
+        Actor::Operator => {
+            Ok(validate_operator(&provider, get_goat_gateway_contract_address, peer_id).await?)
+        }
+        Actor::Relayer => {
+            Ok(validate_relayer(&provider, get_goat_gateway_contract_address, peer_id).await?)
+        }
+        _ => Ok(true),
+    }
+}
+
+pub fn generate_random_bytes(len: usize) -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    (0..len).map(|_| rng.gen_range(0..255)).collect()
+}
+
+pub fn get_rand_btc_address(network: Network) -> String {
+    let secp = Secp256k1::new();
+    Address::p2wpkh(
+        &CompressedPublicKey::try_from(PrivateKey::generate(network).public_key(&secp))
+            .expect("Could not compress public key"),
+        Network::Testnet,
+    )
+    .to_string()
 }
