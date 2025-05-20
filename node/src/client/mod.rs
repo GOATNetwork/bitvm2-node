@@ -1,10 +1,10 @@
-use crate::chain::chain_adaptor::{
+use crate::client::chain::chain_adaptor::{
     BitcoinTx, GoatNetwork, OperatorData, PeginData, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
 };
-use crate::chain::evmchain::EvmChain;
-use crate::chain::goat_adaptor::GoatInitConfig;
-use crate::esplora::get_esplora_url;
+use crate::client::chain::evmchain::EvmChain;
+use crate::client::chain::goat_adaptor::GoatInitConfig;
+use crate::client::esplora::get_esplora_url;
 use anyhow::bail;
 use bitcoin::consensus::encode::{deserialize_hex, serialize};
 use bitcoin::hashes::Hash;
@@ -14,37 +14,32 @@ use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use std::str::FromStr;
 use store::Graph;
-use store::{ipfs::IPFS, localdb::LocalDB};
+use store::localdb::LocalDB;
 use uuid::Uuid;
 
-pub struct BitVM2Client {
-    pub local_db: LocalDB,
-    pub esplora: AsyncClient,
-    pub btc_network: Network,
-    pub chain_service: EvmChain,
-    pub ipfs: IPFS,
+pub mod chain;
+pub mod esplora;
+
+pub async fn create_local_db(db_path: &str) -> LocalDB {
+    let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+    local_db.migrate().await;
+    local_db
 }
 
-impl BitVM2Client {
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new(
-        db_path: &str,
-        esplora_url: Option<&str>,
-        btc_network: Network,
-        goat_network: GoatNetwork,
-        goat_config: GoatInitConfig,
-        ipfs_endpoint: &str,
-    ) -> Self {
-        let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
-        local_db.migrate().await;
-        Self {
-            local_db,
-            esplora: Builder::new(esplora_url.unwrap_or(get_esplora_url(btc_network)))
+/// Esplora client and interfaces
+pub struct BTCClient {
+    /// FIXME: make it private
+    pub esplora: AsyncClient,
+    pub network: Network,
+}
+
+impl BTCClient {
+    pub fn new(esplora_url: Option<&str>, network: Network) -> Self {
+        BTCClient {
+            esplora: Builder::new(esplora_url.unwrap_or(get_esplora_url(network)))
                 .build_async()
                 .expect("Could not build esplora client"),
-            btc_network,
-            chain_service: EvmChain::new(get_chain_adaptor(goat_network, goat_config, None)),
-            ipfs: IPFS::new(ipfs_endpoint),
+            network,
         }
     }
 
@@ -83,6 +78,34 @@ impl BitVM2Client {
         self.esplora.get_tx(tx_id).await?.ok_or(format!("{tx_id} is not on chain").into())
     }
 
+    pub async fn get_btc_tx_proof_info(
+        &self,
+        tx_id: &Txid,
+    ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64, Vec<u8>)> {
+        let (root, proof_info, raw_header) = self.get_bitc_merkle_proof(tx_id).await?;
+        let proof: Vec<[u8; 32]> = proof_info.merkle.iter().map(|v| v.to_byte_array()).collect();
+        let leaf = tx_id.to_byte_array();
+        Ok((
+            root.to_byte_array(),
+            proof,
+            leaf,
+            proof_info.block_height as u64,
+            proof_info.pos as u64,
+            raw_header,
+        ))
+    }
+}
+
+pub struct GOATClient {
+    pub chain_service: EvmChain,
+}
+
+impl GOATClient {
+    pub fn new(goat_init_config: GoatInitConfig, goat_network: GoatNetwork) -> Self {
+        GOATClient {
+            chain_service: EvmChain::new(get_chain_adaptor(goat_network, goat_init_config, None)),
+        }
+    }
     pub async fn verify_merkle_proof(
         &self,
         root: &[u8; 32],
@@ -121,6 +144,7 @@ impl BitVM2Client {
 
     pub async fn process_withdraw(
         &self,
+        btc_client: &BTCClient,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
@@ -128,6 +152,7 @@ impl BitVM2Client {
         let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
+                btc_client,
                 "withdraw",
                 graph_id,
                 &tx.compute_txid(),
@@ -135,7 +160,7 @@ impl BitVM2Client {
                 WithdrawStatus::Initialized,
             )
             .await?;
-        let raw_kickoff_tx = self.tx_reconstruct(tx);
+        let raw_kickoff_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
             .process_withdraw(graph_id, &raw_kickoff_tx, &raw_header, height, &proof, index)
@@ -143,6 +168,7 @@ impl BitVM2Client {
     }
     pub async fn finish_withdraw_happy_path(
         &self,
+        btc_client: &BTCClient,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
@@ -150,6 +176,7 @@ impl BitVM2Client {
         let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
+                btc_client,
                 "take1",
                 graph_id,
                 &tx.compute_txid(),
@@ -157,7 +184,7 @@ impl BitVM2Client {
                 WithdrawStatus::Processing,
             )
             .await?;
-        let raw_take1_tx = self.tx_reconstruct(tx);
+        let raw_take1_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
             .finish_withdraw_happy_path(graph_id, &raw_take1_tx, &raw_header, height, &proof, index)
@@ -166,6 +193,7 @@ impl BitVM2Client {
 
     pub async fn finish_withdraw_unhappy_path(
         &self,
+        btc_client: &BTCClient,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
@@ -173,6 +201,7 @@ impl BitVM2Client {
         let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
+                btc_client,
                 "take2",
                 graph_id,
                 &tx.compute_txid(),
@@ -180,7 +209,7 @@ impl BitVM2Client {
                 WithdrawStatus::Processing,
             )
             .await?;
-        let raw_take2_tx = self.tx_reconstruct(tx);
+        let raw_take2_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
             .finish_withdraw_unhappy_path(
@@ -196,6 +225,7 @@ impl BitVM2Client {
 
     pub async fn finish_withdraw_disproved(
         &self,
+        btc_client: &BTCClient,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
@@ -203,6 +233,7 @@ impl BitVM2Client {
         // let tx_id_on_line = Txid::from_slice(&operator_data.assert_final_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
+                btc_client,
                 "disprove",
                 graph_id,
                 &tx.compute_txid(),
@@ -210,7 +241,7 @@ impl BitVM2Client {
                 WithdrawStatus::Processing,
             )
             .await?;
-        let raw_disprove_tx = self.tx_reconstruct(tx);
+        let raw_disprove_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
             .finish_withdraw_disproved(
@@ -226,6 +257,7 @@ impl BitVM2Client {
 
     pub async fn post_pegin_data(
         &self,
+        btc_client: &BTCClient,
         instance_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
@@ -254,7 +286,7 @@ impl BitVM2Client {
             bail!("instance_id:{} this pegin tx has already been posted", instance_id,);
         }
         let (root, proof, _leaf, height, index, raw_header) =
-            self.get_btc_tx_proof_info(&tx_id).await?;
+            btc_client.get_btc_tx_proof_info(&tx_id).await?;
 
         let (block_hash, merkle_root) =
             self.chain_service.adaptor.parse_btc_block_header(&raw_header).await?;
@@ -294,7 +326,7 @@ impl BitVM2Client {
             bail!("instance_id:{} check proof failed", instance_id,);
         }
 
-        let raw_pegin_tx = self.tx_reconstruct(tx);
+        let raw_pegin_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
             .post_pegin_data(instance_id, &raw_pegin_tx, &raw_header, height, &proof, index)
@@ -308,7 +340,7 @@ impl BitVM2Client {
         graph: &Graph,
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
-        let operator_data = self.cast_graph_to_operate_data(graph)?;
+        let operator_data = cast_graph_to_operate_data(graph)?;
         let pegin_txid = self.chain_service.adaptor.get_pegin_data(instance_id).await?.pegin_txid;
         if pegin_txid != operator_data.pegin_txid {
             tracing::warn!(
@@ -347,6 +379,7 @@ impl BitVM2Client {
 
     async fn check_withdraw_actions_and_get_proof(
         &self,
+        btc_client: &BTCClient,
         tag: &str,
         graph_id: &Uuid,
         tx_act: &Txid,
@@ -379,7 +412,7 @@ impl BitVM2Client {
         };
         // check hash in btc chain and spv contract
         let (root, proof, leaf, height, index, raw_header) =
-            self.get_btc_tx_proof_info(tx_act).await?;
+            btc_client.get_btc_tx_proof_info(tx_act).await?;
 
         let (block_hash, merkle_root) =
             self.chain_service.adaptor.parse_btc_block_header(&raw_header).await?;
@@ -424,64 +457,80 @@ impl BitVM2Client {
             bail!("graph:{} at {} verify_merkle_proof failed ", tag, graph_id,);
         }
 
-        Ok((root, proof, leaf, height, index, raw_header))
+        Ok((root, proof.to_vec(), leaf, height, index, raw_header.to_vec()))
     }
-    pub async fn get_btc_tx_proof_info(
-        &self,
-        tx_id: &Txid,
-    ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64, Vec<u8>)> {
-        let (root, proof_info, raw_header) = self.get_bitc_merkle_proof(tx_id).await?;
-        let proof: Vec<[u8; 32]> = proof_info.merkle.iter().map(|v| v.to_byte_array()).collect();
-        let leaf = tx_id.to_byte_array();
-        Ok((
-            root.to_byte_array(),
-            proof,
-            leaf,
-            proof_info.block_height as u64,
-            proof_info.pos as u64,
-            raw_header,
-        ))
+}
+
+pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {
+    BitcoinTx {
+        version: tx.version.0 as u32,
+        lock_time: tx.lock_time.to_consensus_u32(),
+        input_vector: bitcoin::consensus::serialize(&tx.input),
+        output_vector: bitcoin::consensus::serialize(&tx.output),
     }
+}
 
-    fn tx_reconstruct(&self, tx: &bitcoin::Transaction) -> BitcoinTx {
-        BitcoinTx {
-            version: tx.version.0 as u32,
-            lock_time: tx.lock_time.to_consensus_u32(),
-            input_vector: bitcoin::consensus::serialize(&tx.input),
-            output_vector: bitcoin::consensus::serialize(&tx.output),
-        }
+pub fn cast_graph_to_operate_data(graph: &Graph) -> anyhow::Result<OperatorData> {
+    if graph.take1_txid.is_none()
+        || graph.assert_init_txid.is_none()
+        || graph.assert_commit_txids.is_none()
+        || graph.assert_final_txid.is_none()
+        || graph.take2_txid.is_none()
+    {
+        tracing::warn!("grap {}, has none field", graph.graph_id);
+        bail!("grap {}, has none field", graph.graph_id);
     }
+    let assert_commit_txid_strs: Vec<String> =
+        serde_json::from_str(&graph.assert_commit_txids.clone().unwrap())?;
+    let mut assert_commit_txids: [[u8; 32]; COMMIT_TX_NUM] = [[0; 32]; COMMIT_TX_NUM];
+    for i in 0..COMMIT_TX_NUM {
+        assert_commit_txids[i] = deserialize_hex(&assert_commit_txid_strs[i])?;
+    }
+    let pubkey_vec = PublicKey::from_str(&graph.operator)?.to_bytes();
 
-    fn cast_graph_to_operate_data(&self, graph: &Graph) -> anyhow::Result<OperatorData> {
-        if graph.take1_txid.is_none()
-            || graph.assert_init_txid.is_none()
-            || graph.assert_commit_txids.is_none()
-            || graph.assert_final_txid.is_none()
-            || graph.take2_txid.is_none()
-        {
-            tracing::warn!("grap {}, has none field", graph.graph_id);
-            bail!("grap {}, has none field", graph.graph_id);
-        }
-        let assert_commit_txid_strs: Vec<String> =
-            serde_json::from_str(&graph.assert_commit_txids.clone().unwrap())?;
-        let mut assert_commit_txids: [[u8; 32]; COMMIT_TX_NUM] = [[0; 32]; COMMIT_TX_NUM];
-        for i in 0..COMMIT_TX_NUM {
-            assert_commit_txids[i] = deserialize_hex(&assert_commit_txid_strs[i])?;
-        }
-        let pubkey_vec = PublicKey::from_str(&graph.operator)?.to_bytes();
+    Ok(OperatorData {
+        stake_amount: graph.amount as u64,
+        operator_pubkey_prefix: pubkey_vec[0],
+        operator_pubkey: pubkey_vec[1..33].try_into()?,
+        pegin_txid: deserialize_hex(&graph.pegin_txid)?,
+        pre_kickoff_txid: deserialize_hex(&graph.pre_kickoff_txid.clone().unwrap())?,
+        kickoff_txid: deserialize_hex(&graph.kickoff_txid.clone().unwrap())?,
+        take1_txid: deserialize_hex(&graph.take1_txid.clone().unwrap())?,
+        assert_init_txid: deserialize_hex(&graph.assert_init_txid.clone().unwrap())?,
+        assert_commit_txids,
+        assert_final_txid: deserialize_hex(&graph.assert_final_txid.clone().unwrap())?,
+        take2_txid: deserialize_hex(&graph.take2_txid.clone().unwrap())?,
+    })
+}
 
-        Ok(OperatorData {
-            stake_amount: graph.amount as u64,
-            operator_pubkey_prefix: pubkey_vec[0],
-            operator_pubkey: pubkey_vec[1..33].try_into()?,
-            pegin_txid: deserialize_hex(&graph.pegin_txid)?,
-            pre_kickoff_txid: deserialize_hex(&graph.pre_kickoff_txid.clone().unwrap())?,
-            kickoff_txid: deserialize_hex(&graph.kickoff_txid.clone().unwrap())?,
-            take1_txid: deserialize_hex(&graph.take1_txid.clone().unwrap())?,
-            assert_init_txid: deserialize_hex(&graph.assert_init_txid.clone().unwrap())?,
-            assert_commit_txids,
-            assert_final_txid: deserialize_hex(&graph.assert_final_txid.clone().unwrap())?,
-            take2_txid: deserialize_hex(&graph.take2_txid.clone().unwrap())?,
-        })
+#[cfg(test)]
+mod tests {
+    use crate::client::chain::chain_adaptor::GoatNetwork;
+    use crate::client::chain::goat_adaptor::GoatInitConfig;
+    use crate::client::{BTCClient, GOATClient};
+    use bitcoin::hashes::Hash;
+    use bitcoin::{Network, Txid};
+    use std::str::FromStr;
+
+    #[tokio::test]
+    async fn test_spv_check() {
+        let global_init_config = GoatInitConfig::from_env_for_test();
+        //  let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+        let btc_client = BTCClient::new(None, Network::Testnet);
+        let goat_client = GOATClient::new(global_init_config, GoatNetwork::Test);
+        let tx_id =
+            Txid::from_str("cd557f6656051531ab53d08a43524330b39344bb98b710461450feda4ff4b231")
+                .expect("decode txid");
+
+        let (root, proof_info, _) =
+            btc_client.get_bitc_merkle_proof(&tx_id).await.expect("call merkle proof");
+        let root = root.to_byte_array().map(|v| v);
+        let proof: Vec<[u8; 32]> =
+            proof_info.merkle.iter().map(|v| v.to_byte_array().map(|v| v)).collect();
+        let res = goat_client
+            .verify_merkle_proof(&root, &proof, &tx_id.to_byte_array(), proof_info.pos as u64)
+            .await
+            .expect("get result");
+        assert!(res);
     }
 }

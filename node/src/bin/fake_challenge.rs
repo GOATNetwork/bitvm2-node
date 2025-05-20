@@ -1,15 +1,13 @@
 use bitcoin::{Network, Transaction, consensus::encode::deserialize_hex};
 use bitvm2_lib::keys::ChallengerMasterKey;
+use bitvm2_noded::client::BTCClient;
 use bitvm2_noded::{
     env::{ENV_ACTOR, ENV_BITVM_SECRET, IpfsTxName},
     utils::{complete_and_broadcast_challenge_tx, outpoint_available, tx_on_chain},
 };
 use clap::Parser;
-use client::{
-    chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig},
-    client::BitVM2Client,
-};
 use goat::contexts::base::generate_keys_from_secret;
+use store::ipfs::IPFS;
 
 /// Send challenge when kickoff is valid, this action should trigger take2.
 #[derive(Parser, Debug)]
@@ -33,29 +31,20 @@ struct Args {
 }
 
 async fn get_tx_from_ipfs(
-    client: &BitVM2Client,
+    ipfs: &IPFS,
     base_url: &str,
     tx_name: IpfsTxName,
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
     let tx_url = [base_url, "/", tx_name.as_str()].concat();
-    let tx_hex = client.ipfs.cat(&tx_url).await?;
+    let tx_hex = ipfs.cat(&tx_url).await?;
     Ok(deserialize_hex(&tx_hex)?)
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let global_init_config = GoatInitConfig::from_env_for_test();
-    let tmp_db = tempfile::NamedTempFile::new().unwrap();
-    let client = BitVM2Client::new(
-        tmp_db.path().as_os_str().to_str().unwrap(),
-        None,
-        Network::Testnet,
-        GoatNetwork::Test,
-        global_init_config,
-        &args.ipfs_url,
-    )
-    .await;
+    let ipfs = IPFS::new(&args.ipfs_url);
+    let btc_client = BTCClient::new(None, Network::Testnet);
     unsafe {
         std::env::set_var(ENV_ACTOR, "Challenger");
         std::env::set_var(ENV_BITVM_SECRET, &args.secret);
@@ -64,18 +53,18 @@ async fn main() {
     let (keypair, _) = generate_keys_from_secret(network, &args.secret);
     let (base_url, master_key) = (args.txns_cid, ChallengerMasterKey::new(keypair));
     let kickoff_txid =
-        get_tx_from_ipfs(&client, &base_url, IpfsTxName::Kickoff).await.unwrap().compute_txid();
-    if !tx_on_chain(&client, &kickoff_txid).await.unwrap() {
+        get_tx_from_ipfs(&ipfs, &base_url, IpfsTxName::Kickoff).await.unwrap().compute_txid();
+    if !tx_on_chain(&btc_client, &kickoff_txid).await.unwrap() {
         println!("Error: kickoff tx not broadcasted!");
         return;
     }
-    if !outpoint_available(&client, &kickoff_txid, 1).await.unwrap() {
+    if !outpoint_available(&btc_client, &kickoff_txid, 1).await.unwrap() {
         println!("Error: challenge/take1 already sent!");
         return;
     }
-    let challenge_tx = get_tx_from_ipfs(&client, &base_url, IpfsTxName::Challenge).await.unwrap();
+    let challenge_tx = get_tx_from_ipfs(&ipfs, &base_url, IpfsTxName::Challenge).await.unwrap();
     let challenge_txid =
-        complete_and_broadcast_challenge_tx(&client, master_key.master_keypair(), challenge_tx)
+        complete_and_broadcast_challenge_tx(&btc_client, master_key.master_keypair(), challenge_tx)
             .await
             .unwrap();
     println!("challenge sent {challenge_txid}");

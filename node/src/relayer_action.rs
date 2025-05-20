@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use crate::action::{ChallengeSent, CreateInstance, DisproveSent};
+use crate::client::chain::chain_adaptor::WithdrawStatus;
+use crate::client::{BTCClient, GOATClient};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
 };
@@ -20,8 +22,6 @@ use bitcoin::Txid;
 use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
 use bitcoin::hashes::Hash;
 use bitvm2_lib::actors::Actor;
-use client::chain::chain_adaptor::WithdrawStatus;
-use client::client::BitVM2Client;
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::{
     constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK},
@@ -30,6 +30,7 @@ use goat::{
 use libp2p::Swarm;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use store::localdb::LocalDB;
 use store::{
     BridgeInStatus, BridgePath, GraphStatus, GraphTickActionMetaData, MessageState, MessageType,
 };
@@ -93,55 +94,55 @@ impl From<GraphTickActionMetaData> for GraphTickActionData {
 }
 
 pub async fn get_relayer_caring_graph_data(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     status: GraphStatus,
     msg_type: String,
 ) -> Result<Vec<GraphTickActionData>, Box<dyn std::error::Error>> {
     // If instance corresponding to the graph has already been consumed, the graph is excluded.
     // When a graph enters the take1/take2 status, mark its corresponding instance as consumed.
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let meta_data =
         storage_process.get_graph_tick_action_datas(status.to_string().as_str(), &msg_type).await?;
     Ok(meta_data.into_iter().map(|v| v.into()).collect())
 }
 
 pub async fn get_message_broadcast_times(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: &Uuid,
     graph_id: &Uuid,
     msg_type: &str,
 ) -> Result<i64, Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     Ok(storage_process.get_message_broadcast_times(instance_id, graph_id, msg_type).await?)
 }
 
 pub async fn update_message_broadcast_times(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: &Uuid,
     graph_id: &Uuid,
     msg_type: &str,
     msg_times: i64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     Ok(storage_process
         .update_message_broadcast_times(instance_id, graph_id, msg_type, msg_times)
         .await?)
 }
 
 pub async fn get_initialized_graphs(
-    client: &BitVM2Client,
+    goat_client: &GOATClient,
 ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
     // call L2 contract : getInitializedInstanceIds
     // returns Vec<(instance_id, graph_id)>
-    Ok(client.get_initialized_ids().await?)
+    Ok(goat_client.get_initialized_ids().await?)
 }
 
 pub async fn scan_bridge_in_prepare(
     swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick scan_bridge_in_prepare");
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let current_time =
         std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let messages = storage_process
@@ -177,10 +178,11 @@ pub async fn scan_bridge_in_prepare(
 
 pub async fn scan_l1_broadcast_txs(
     _swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting into scan_l1_broadcast_txs");
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let (instances, _) = storage_process
         .instance_list(
             None,
@@ -200,7 +202,7 @@ pub async fn scan_l1_broadcast_txs(
             continue;
         }
         let tx_id = deserialize_hex(instance.pegin_txid.unwrap().as_str())?;
-        if tx_on_chain(client, &tx_id).await? {
+        if tx_on_chain(btc_client, &tx_id).await? {
             info!("scan_bridge_in: {} onchain ", tx_id.to_string());
             let update_res = storage_process
                 .update_instance_fields(
@@ -226,11 +228,13 @@ pub async fn scan_l1_broadcast_txs(
 
 pub async fn scan_post_pegin_data(
     _swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // scan bridge-in tx & relay to L2 contract: postPeginData & postOperatorData
     info!("Starting into post_pegin_data");
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let (instances, _) = storage_process
         .instance_list(
             None,
@@ -250,7 +254,7 @@ pub async fn scan_post_pegin_data(
         }
         if let Ok(tx_hash) = TxHash::from_str(&instance.goat_txid) {
             let is_finish_pegin =
-                client.chain_service.adaptor.is_tx_execute_success(tx_hash).await?;
+                goat_client.chain_service.adaptor.is_tx_execute_success(tx_hash).await?;
             if !is_finish_pegin {
                 info!(
                     "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
@@ -269,8 +273,8 @@ pub async fn scan_post_pegin_data(
                 .await?;
         } else {
             let pegin_tx =
-                client.fetch_btc_tx(&deserialize_hex(&instance.pegin_txid.unwrap())?).await?;
-            match client.post_pegin_data(&instance.instance_id, &pegin_tx).await {
+                btc_client.fetch_btc_tx(&deserialize_hex(&instance.pegin_txid.unwrap())?).await?;
+            match goat_client.post_pegin_data(btc_client, &instance.instance_id, &pegin_tx).await {
                 Err(err) => {
                     warn!(
                         "scan post_pegin_data instance id {}, tx:{} post_pegin_data failed err:{:?}",
@@ -297,11 +301,12 @@ pub async fn scan_post_pegin_data(
 
 pub async fn scan_post_operator_data(
     _swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting into scan post_operator_data");
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let (instances, _) = storage_process
         .instance_list(
             None,
@@ -328,7 +333,10 @@ pub async fn scan_post_operator_data(
             if graph.status != GraphStatus::CommitteePresigned.to_string() {
                 continue;
             }
-            match client.post_operate_data(&instance.instance_id, &graph.graph_id, &graph).await {
+            match goat_client
+                .post_operate_data(&instance.instance_id, &graph.graph_id, &graph)
+                .await
+            {
                 Ok(tx_hash) => {
                     info!(
                         "scan post_operator_data finish post operate data for instance_id {}, graph_id:{} , tx hash:{}",
@@ -360,15 +368,16 @@ pub async fn scan_post_operator_data(
 // tick_task1
 pub async fn scan_withdraw(
     swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_withdraw");
-    let graphs = get_initialized_graphs(client).await?;
+    let graphs = get_initialized_graphs(goat_client).await?;
     for (instance_id, graph_id) in graphs {
         let message_content =
             GOATMessageContent::KickoffReady(KickoffReady { instance_id, graph_id });
         let msg_times = get_message_broadcast_times(
-            client,
+            local_db,
             &instance_id,
             &graph_id,
             &MessageType::KickoffReady.to_string(),
@@ -377,7 +386,7 @@ pub async fn scan_withdraw(
         if msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
             update_message_broadcast_times(
-                client,
+                local_db,
                 &instance_id,
                 &graph_id,
                 &MessageType::KickoffReady.to_string(),
@@ -392,11 +401,13 @@ pub async fn scan_withdraw(
 // Tick-Task-2:
 pub async fn scan_kickoff(
     swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_kickoff");
     let graph_datas = get_relayer_caring_graph_data(
-        client,
+        local_db,
         GraphStatus::OperatorDataPushed,
         MessageType::KickoffSent.to_string(),
     )
@@ -408,21 +419,22 @@ pub async fn scan_kickoff(
             continue;
         }
         let kickoff_txid = graph_data.kickoff_txid.unwrap();
-        if !tx_on_chain(client, &kickoff_txid).await? {
+        if !tx_on_chain(btc_client, &kickoff_txid).await? {
             warn!("graph_id:{} kickoff:{:?} is not onchain ", graph_data.graph_id, kickoff_txid);
             continue;
         }
         let instance_id = graph_data.instance_id;
         let graph_id = graph_data.graph_id;
 
-        let withdraw_data = client.get_withdraw_data(&graph_id).await?;
+        let withdraw_data = goat_client.get_withdraw_data(&graph_id).await?;
         let mut send_message = false;
         if withdraw_data.status != WithdrawStatus::Initialized {
             info!("scan_kickoff {graph_id}, kickoff:{kickoff_txid} in evil way");
             send_message = true;
         } else {
-            let kickoff_tx = client.fetch_btc_tx(&kickoff_txid).await?;
-            match client.process_withdraw(&graph_data.graph_id, &kickoff_tx).await {
+            let kickoff_tx = btc_client.fetch_btc_tx(&kickoff_txid).await?;
+            match goat_client.process_withdraw(btc_client, &graph_data.graph_id, &kickoff_tx).await
+            {
                 Ok(tx_hash) => {
                     info!(
                         "instance_id: {}, graph_id:{}  finish withdraw, tx hash :{}",
@@ -437,7 +449,7 @@ pub async fn scan_kickoff(
         }
         if send_message {
             update_graph_fields(
-                client,
+                local_db,
                 graph_data.graph_id,
                 Some(GraphStatus::KickOff.to_string()),
                 None,
@@ -454,7 +466,7 @@ pub async fn scan_kickoff(
             if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
                 update_message_broadcast_times(
-                    client,
+                    local_db,
                     &graph_data.instance_id,
                     &graph_data.graph_id,
                     &MessageType::KickoffSent.to_string(),
@@ -470,17 +482,18 @@ pub async fn scan_kickoff(
 //Tick-Task-3:
 pub async fn scan_assert(
     swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_assert");
     let mut graphs = get_relayer_caring_graph_data(
-        client,
+        local_db,
         GraphStatus::Challenge,
         MessageType::AssertSent.to_string(),
     )
     .await?;
     let mut graphs_kickoff = get_relayer_caring_graph_data(
-        client,
+        local_db,
         GraphStatus::KickOff,
         MessageType::AssertSent.to_string(),
     )
@@ -501,7 +514,7 @@ pub async fn scan_assert(
             );
             continue;
         }
-        if !tx_on_chain(client, &graph_data.assert_final_txid.unwrap()).await? {
+        if !tx_on_chain(btc_client, &graph_data.assert_final_txid.unwrap()).await? {
             warn!(
                 "{}, assert_final_txid:{:?} not on chain",
                 graph_data.graph_id, graph_data.assert_final_txid
@@ -521,7 +534,7 @@ pub async fn scan_assert(
             });
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
             update_message_broadcast_times(
-                client,
+                local_db,
                 &graph_data.instance_id,
                 &graph_data.graph_id,
                 "AssertSent",
@@ -532,7 +545,7 @@ pub async fn scan_assert(
 
         if graph_data.msg_times == 0 {
             update_graph_fields(
-                client,
+                local_db,
                 graph_data.graph_id,
                 Some(GraphStatus::Assert.to_string()),
                 None,
@@ -549,16 +562,18 @@ pub async fn scan_assert(
 //Tick-Task-4
 pub async fn scan_take1(
     swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_take1");
     let graph_datas = get_relayer_caring_graph_data(
-        client,
+        local_db,
         GraphStatus::KickOff,
         MessageType::Take1Ready.to_string(),
     )
     .await?;
-    let current_height = client.esplora.get_height().await?;
+    let current_height = btc_client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
     info!("scan_take1 get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
@@ -574,12 +589,13 @@ pub async fn scan_take1(
         }
         let take1_txid = graph_data.take1_txid.unwrap();
         let kickoff_txid = graph_data.kickoff_txid.unwrap();
-        if let Some(spent_txid) = outpoint_spent_txid(client, &kickoff_txid, 1).await? {
+        if let Some(spent_txid) = outpoint_spent_txid(btc_client, &kickoff_txid, 1).await? {
             if spent_txid == take1_txid {
                 // take1 sent, try to call finish_withdraw_happy_path
                 info!("graph_id:{},  take-1 sent, txid: {spent_txid}", graph_data.graph_id);
-                let take1_tx = client.fetch_btc_tx(&take1_txid).await?;
-                match client.finish_withdraw_happy_path(&graph_id, &take1_tx).await {
+                let take1_tx = btc_client.fetch_btc_tx(&take1_txid).await?;
+                match goat_client.finish_withdraw_happy_path(btc_client, &graph_id, &take1_tx).await
+                {
                     Err(err) => {
                         // call finish_withdraw_happy_path later
                         warn!(
@@ -593,7 +609,7 @@ pub async fn scan_take1(
                             instance_id, graph_id, tx_hash
                         );
                         update_graph_fields(
-                            client,
+                            local_db,
                             graph_id,
                             Some(GraphStatus::Take1.to_string()),
                             None,
@@ -615,7 +631,7 @@ pub async fn scan_take1(
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
                 // modify graph status and will no longer perform scan-take1 on this graph
                 update_graph_fields(
-                    client,
+                    local_db,
                     graph_id,
                     Some(GraphStatus::Challenge.to_string()),
                     None,
@@ -631,7 +647,7 @@ pub async fn scan_take1(
         if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             // check if kickoff's timelock for take1 is expired
             if let Some(kickoff_height) =
-                client.esplora.get_tx_status(&kickoff_txid).await?.block_height
+                btc_client.esplora.get_tx_status(&kickoff_txid).await?.block_height
             {
                 info!(
                     "graph_id:{graph_id}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"
@@ -644,7 +660,7 @@ pub async fn scan_take1(
                         GOATMessage::from_typed(Actor::Operator, &message_content)?,
                     )?;
                     update_message_broadcast_times(
-                        client,
+                        local_db,
                         &instance_id,
                         &graph_id,
                         &MessageType::Take1Ready.to_string(),
@@ -670,16 +686,18 @@ pub async fn scan_take1(
 //Tick-Task-5:
 pub async fn scan_take2(
     swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_take2");
     let graph_datas = get_relayer_caring_graph_data(
-        client,
+        local_db,
         GraphStatus::Assert,
         MessageType::Take2Ready.to_string(),
     )
     .await?;
-    let current_height = client.esplora.get_height().await?;
+    let current_height = btc_client.esplora.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
 
     info!("scan_take2 get graph datas size: {}", graph_datas.len());
@@ -696,12 +714,15 @@ pub async fn scan_take2(
         }
         let take2_txid = graph_data.take2_txid.unwrap();
         let assert_final_txid = graph_data.assert_final_txid.unwrap();
-        if let Some(spent_txid) = outpoint_spent_txid(client, &assert_final_txid, 1).await? {
+        if let Some(spent_txid) = outpoint_spent_txid(btc_client, &assert_final_txid, 1).await? {
             if spent_txid == take2_txid {
                 // take2 sent, try to call finish_withdraw_unhappy_path
                 info!("graph_id:{},  take-2 sent, txid: {spent_txid}", graph_data.graph_id);
-                let take2_tx = client.fetch_btc_tx(&take2_txid).await?;
-                match client.finish_withdraw_unhappy_path(&graph_id, &take2_tx).await {
+                let take2_tx = btc_client.fetch_btc_tx(&take2_txid).await?;
+                match goat_client
+                    .finish_withdraw_unhappy_path(btc_client, &graph_id, &take2_tx)
+                    .await
+                {
                     Err(err) => {
                         // wiil call finish_unwithdraw_happy_path later
                         warn!(
@@ -715,7 +736,7 @@ pub async fn scan_take2(
                             instance_id, graph_id, tx_hash
                         );
                         update_graph_fields(
-                            client,
+                            local_db,
                             graph_data.graph_id,
                             Some(GraphStatus::Take2.to_string()),
                             None,
@@ -731,7 +752,7 @@ pub async fn scan_take2(
                 info!("graph_id:{},  disprove sent, txid: {spent_txid}", graph_data.graph_id);
                 let disprove_txid = spent_txid;
                 update_graph_fields(
-                    client,
+                    local_db,
                     graph_id,
                     None,
                     None,
@@ -741,9 +762,10 @@ pub async fn scan_take2(
                 )
                 .await?;
                 finish_withdraw_disproved(
-                    client,
+                    btc_client,
+                    goat_client,
                     &graph_id,
-                    &client.fetch_btc_tx(&disprove_txid).await?,
+                    &btc_client.fetch_btc_tx(&disprove_txid).await?,
                 )
                 .await?;
                 // in case challenger never broadcast DisproveSent
@@ -754,7 +776,7 @@ pub async fn scan_take2(
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
                 update_graph_fields(
-                    client,
+                    local_db,
                     graph_id,
                     Some(GraphStatus::Disprove.to_string()),
                     None,
@@ -770,7 +792,7 @@ pub async fn scan_take2(
         if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             // check if assert_final's timelock for take2 is expired
             if let Some(asset_final_height) =
-                client.esplora.get_tx_status(&assert_final_txid).await?.block_height
+                btc_client.esplora.get_tx_status(&assert_final_txid).await?.block_height
             {
                 info!(
                     "graph_id:{graph_id}, asset_final_height:{asset_final_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"
@@ -783,7 +805,7 @@ pub async fn scan_take2(
                         GOATMessage::from_typed(Actor::Operator, &message_content)?,
                     )?;
                     update_message_broadcast_times(
-                        client,
+                        local_db,
                         &instance_id,
                         &graph_id,
                         &MessageType::Take2Ready.to_string(),
@@ -808,40 +830,42 @@ pub async fn scan_take2(
 
 pub async fn do_tick_action(
     swarm: &mut Swarm<AllBehaviours>,
-    client: &BitVM2Client,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Err(err) = scan_bridge_in_prepare(swarm, client).await {
+    if let Err(err) = scan_bridge_in_prepare(swarm, local_db).await {
         warn!("scan_bridge_in_prepare, err {:?}", err)
     }
 
-    if let Err(err) = scan_l1_broadcast_txs(swarm, client).await {
+    if let Err(err) = scan_l1_broadcast_txs(swarm, local_db, btc_client).await {
         warn!("scan_l1_broadcast_txs, err {:?}", err)
     }
-    if let Err(err) = scan_post_pegin_data(swarm, client).await {
+    if let Err(err) = scan_post_pegin_data(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_post_pegin_data, err {:?}", err)
     }
 
-    if let Err(err) = scan_post_operator_data(swarm, client).await {
+    if let Err(err) = scan_post_operator_data(swarm, local_db, goat_client).await {
         warn!("scan_post_operator_data, err {:?}", err)
     }
 
-    if let Err(err) = scan_withdraw(swarm, client).await {
+    if let Err(err) = scan_withdraw(swarm, local_db, goat_client).await {
         warn!("scan_withdraw, err {:?}", err)
     }
 
-    if let Err(err) = scan_kickoff(swarm, client).await {
+    if let Err(err) = scan_kickoff(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_kickoff, err {:?}", err)
     }
 
-    if let Err(err) = scan_assert(swarm, client).await {
+    if let Err(err) = scan_assert(swarm, local_db, btc_client).await {
         warn!("scan_assert, err {:?}", err)
     }
 
-    if let Err(err) = scan_take1(swarm, client).await {
+    if let Err(err) = scan_take1(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_take1, err {:?}", err)
     }
 
-    if let Err(err) = scan_take2(swarm, client).await {
+    if let Err(err) = scan_take2(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_take2, err {:?}", err)
     }
     Ok(())

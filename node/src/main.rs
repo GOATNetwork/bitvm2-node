@@ -1,7 +1,7 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
+use bitvm2_noded::client::{BTCClient, GOATClient};
 use clap::{Parser, Subcommand, command};
-use client::client::BitVM2Client;
 use libp2p::futures::StreamExt;
 use libp2p::{Multiaddr, PeerId};
 use libp2p::{gossipsub, kad, multiaddr::Protocol, noise, swarm::SwarmEvent, tcp, yamux};
@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::{error::Error, net::Ipv4Addr, time::Duration};
+use store::ipfs::IPFS;
 use tokio::{io, io::AsyncBufReadExt, select};
 use tracing_subscriber::EnvFilter;
 use zeroize::Zeroizing;
@@ -232,19 +233,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let db_path = opt.db_path.clone();
     let ipfs_url = get_ipfs_url();
 
-    let client = BitVM2Client::new(
-        &db_path,
-        None,
-        env::get_network(),
-        env::get_goat_network(),
-        env::goat_config_from_env().await,
-        &ipfs_url,
-    )
-    .await;
+    let local_db = bitvm2_noded::client::create_local_db(&db_path).await;
+    let btc_client = BTCClient::new(None, env::get_network());
+    let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
+    let ipfs = IPFS::new(&ipfs_url);
 
     // validate node info
     check_node_info().await;
-    save_local_info(&client).await;
+    save_local_info(&local_db).await;
 
     tokio::spawn(rpc_service::serve(
         rpc_addr,
@@ -292,7 +288,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         actor: actor.clone(),
                         content: "tick".as_bytes().to_vec(),
                     })?;
-                    match action::recv_and_dispatch(&mut swarm, &client, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data).await{
+                    match action::recv_and_dispatch(&mut swarm, &local_db, &btc_client, &goat_client, &ipfs, actor.clone(), peer_id, GOATMessage::default_message_id(), &tick_data).await{
                         Ok(_) => {}
                         Err(e) => { tracing::error!(e) }
                     }
@@ -311,7 +307,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                                   message_id: id,
                                                                   message,
                                                               })) => {
-                        match action::recv_and_dispatch(&mut swarm, &client, actor.clone(), peer_id, id, &message.data).await {
+                        match action::recv_and_dispatch(&mut swarm, &local_db, &btc_client, &goat_client, &ipfs, actor.clone(), peer_id, id, &message.data).await {
                             Ok(_) => {},
                             Err(e) => { tracing::error!(e) }
                         }

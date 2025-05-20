@@ -1,4 +1,4 @@
-use crate::chain::chain_adaptor::*;
+use crate::client::chain::chain_adaptor::*;
 use alloy::primitives::TxHash;
 use async_trait::async_trait;
 use uuid::Uuid;

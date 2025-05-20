@@ -1,5 +1,5 @@
-use crate::chain::chain_adaptor::ChainAdaptor;
-use crate::chain::mock_addaptor::MockAdaptor;
+use crate::client::chain::chain_adaptor::ChainAdaptor;
+use crate::client::chain::mock_addaptor::MockAdaptor;
 
 pub struct EvmChain {
     pub adaptor: Box<dyn ChainAdaptor + Send + Sync>,

@@ -3,6 +3,7 @@ mod bitvm2;
 mod handler;
 mod node;
 
+use crate::client::{BTCClient, GOATClient, create_local_db};
 use crate::env::{get_goat_network, get_network, goat_config_from_env};
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
@@ -15,20 +16,19 @@ use axum::{
     Router, middleware,
     routing::{get, post},
 };
+pub use bitvm2::P2pUserData;
 use bitvm2_lib::actors::Actor;
-use client::client::BitVM2Client;
 use http::{HeaderMap, Method, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
+use store::{ipfs::IPFS, localdb::LocalDB};
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
-
-pub use bitvm2::P2pUserData;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -36,9 +36,11 @@ pub fn current_time_secs() -> i64 {
 }
 
 pub struct AppState {
-    // TODO unsafe rpc api use bitvm2_client
-    pub bitvm2_client: BitVM2Client,
+    pub local_db: LocalDB,
+    pub btc_client: BTCClient,
+    pub goat_client: GOATClient,
     pub metrics_state: MetricsState,
+    pub ipfs: IPFS,
     pub actor: Actor,
     pub peer_id: String,
 }
@@ -51,17 +53,20 @@ impl AppState {
         peer_id: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let bitvm2_client = BitVM2Client::new(
-            db_path,
-            None,
-            get_network(),
-            get_goat_network(),
-            goat_config_from_env().await,
-            ipfs_url,
-        )
-        .await;
+        let local_db = create_local_db(db_path).await;
+        let btc_client = BTCClient::new(None, get_network());
+        let goat_client = GOATClient::new(goat_config_from_env().await, get_goat_network());
         let metrics_state = MetricsState::new(registry);
-        Ok(Arc::new(AppState { bitvm2_client, metrics_state, actor, peer_id }))
+        let ipfs = IPFS::new(ipfs_url);
+        Ok(Arc::new(AppState {
+            local_db,
+            btc_client,
+            goat_client,
+            ipfs,
+            metrics_state,
+            actor,
+            peer_id,
+        }))
     }
 }
 

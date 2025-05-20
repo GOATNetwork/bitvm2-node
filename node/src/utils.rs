@@ -1,4 +1,6 @@
 use crate::action::{CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
+use crate::client::chain::chain_adaptor::WithdrawStatus;
+use crate::client::{BTCClient, GOATClient};
 use crate::env::*;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
@@ -19,8 +21,6 @@ use bitvm2_lib::types::{
     Bitvm2Graph, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey, WotsPublicKeys,
 };
 use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_proof};
-use client::chain::chain_adaptor::WithdrawStatus;
-use client::client::BitVM2Client;
 use esplora_client::Utxo;
 use goat::commitments::CommitmentMessageId;
 use goat::connectors::base::TaprootConnector;
@@ -41,6 +41,8 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use store::ipfs::IPFS;
+use store::localdb::LocalDB;
 use store::{BridgeInStatus, Graph, GraphStatus, Node};
 use tracing::warn;
 use uuid::Uuid;
@@ -87,7 +89,7 @@ pub mod statics {
 /// - Only one graph can be generated at a time; generation must be sequential, not parallel.
 /// - If the remaining funds are less than the required stake-amount, operator should not participate.
 pub async fn should_generate_graph(
-    client: &BitVM2Client,
+    client: &BTCClient,
     create_graph_prepare_data: &CreateGraphPrepare,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     if is_processing_graph() {
@@ -117,7 +119,7 @@ pub async fn should_generate_graph(
 }
 
 pub async fn is_valid_withdraw(
-    client: &BitVM2Client,
+    client: &GOATClient,
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -131,7 +133,7 @@ pub async fn is_valid_withdraw(
 /// Checks whether the status of the graph (identified by instance ID and graph ID)
 /// on the Layer 2 contract is currently `Initialized`.
 pub async fn is_withdraw_initialized_on_l2(
-    client: &BitVM2Client,
+    client: &GOATClient,
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -144,7 +146,7 @@ pub async fn is_withdraw_initialized_on_l2(
 ///
 /// The timelock duration is a fixed constant (goat::constants::CONNECTOR_3_TIMELOCK)
 pub async fn is_take1_timelock_expired(
-    client: &BitVM2Client,
+    client: &BTCClient,
     kickoff_txid: Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
@@ -163,7 +165,7 @@ pub async fn is_take1_timelock_expired(
 ///
 /// The timelock duration is a fixed constant (goat::constants::CONNECTOR_4_TIMELOCK)
 pub async fn is_take2_timelock_expired(
-    client: &BitVM2Client,
+    client: &BTCClient,
     assert_final_txid: Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
@@ -201,7 +203,7 @@ pub fn get_challenge_amount(pegin_amount: u64) -> Amount {
 /// - The same P2WSH address is also used for change output.
 /// - Returns None if operator does not have enough btc
 pub async fn select_operator_inputs(
-    client: &BitVM2Client,
+    client: &BTCClient,
     stake_amount: Amount,
 ) -> Result<Option<CustomInputs>, Box<dyn std::error::Error>> {
     let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
@@ -248,8 +250,8 @@ pub fn get_partial_scripts() -> Result<Vec<Script>, Box<dyn std::error::Error>> 
     }
 }
 
-pub async fn get_fee_rate(client: &BitVM2Client) -> Result<f64, Box<dyn std::error::Error>> {
-    match client.btc_network {
+pub async fn get_fee_rate(client: &BTCClient) -> Result<f64, Box<dyn std::error::Error>> {
+    match client.network {
         //TODO mempool api /fee-estimates failed, fix it latter
         Network::Testnet | Network::Regtest => Ok(1.0),
         _ => {
@@ -267,7 +269,7 @@ pub async fn get_fee_rate(client: &BitVM2Client) -> Result<f64, Box<dyn std::err
 /// - The mempool API URL must be configured.
 /// - The transaction should already be fully signed.
 pub async fn broadcast_tx(
-    client: &BitVM2Client,
+    client: &BTCClient,
     tx: &Transaction,
 ) -> Result<(), Box<dyn std::error::Error>> {
     Ok(client.esplora.broadcast(tx).await?)
@@ -277,7 +279,7 @@ pub async fn broadcast_tx(
 ///
 /// All inputs of pre-kickoff transaction should be utxo belonging to node-address
 pub async fn sign_and_broadcast_prekickoff_tx(
-    client: &BitVM2Client,
+    client: &BTCClient,
     node_keypair: Keypair,
     prekickoff_tx: Transaction,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -309,7 +311,7 @@ pub async fn sign_and_broadcast_prekickoff_tx(
 
 #[allow(dead_code)]
 pub async fn recycle_prekickoff_tx(
-    client: &BitVM2Client,
+    client: &BTCClient,
     graph_id: Uuid,
     master_key: OperatorMasterKey,
     prekickoff_txid: Txid,
@@ -394,7 +396,7 @@ pub async fn recycle_prekickoff_tx(
 /// Notes:
 /// - The challenge node must have pre-funded a P2WSH address during startup.
 pub async fn complete_and_broadcast_challenge_tx(
-    client: &BitVM2Client,
+    client: &BTCClient,
     node_keypair: Keypair,
     challenge_tx: Transaction,
     // challenge_amount: Amount,
@@ -447,7 +449,7 @@ pub async fn complete_and_broadcast_challenge_tx(
 /// - `Ok(None)` if given address does not have enough btc,
 /// - `Ok(Some((utxos, fee_amount, change_amount)))`
 pub async fn get_proper_utxo_set(
-    client: &BitVM2Client,
+    client: &BTCClient,
     base_vbytes: u64,
     address: Address,
     target_amount: Amount,
@@ -542,19 +544,21 @@ pub fn node_sign(
 /// - It has already been broadcast on Layer 1,
 /// - But the corresponding graph status on Layer 2 is not `Initialized`.
 pub async fn should_challenge(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
     challenge_amount: Amount,
     _instance_id: Uuid,
     graph_id: Uuid,
     kickoff_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // check if kickoff is confirmed on L1
-    if client.esplora.get_tx(kickoff_txid).await?.is_none() {
+    if btc_client.esplora.get_tx(kickoff_txid).await?.is_none() {
         return Ok(false);
     }
 
     // check if withdraw is initialized on L2
-    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status =
+        goat_client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
     if withdraw_status == WithdrawStatus::Initialized
         || withdraw_status == WithdrawStatus::Processing
     {
@@ -562,9 +566,9 @@ pub async fn should_challenge(
     };
 
     let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let utxos = client.esplora.get_address_utxo(node_address.clone()).await?;
+    let utxos = btc_client.esplora.get_address_utxo(node_address.clone()).await?;
     let utxo_spent_fee = Amount::from_sat(
-        (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
+        (get_fee_rate(btc_client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
     );
     let total_effective_balance: Amount =
         utxos
@@ -585,7 +589,7 @@ pub async fn should_challenge(
 
 /// Validates whether the given kickoff transaction has been confirmed on Layer 1.
 pub async fn tx_on_chain(
-    client: &BitVM2Client,
+    client: &BTCClient,
     txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     match client.esplora.get_tx(txid).await? {
@@ -595,7 +599,7 @@ pub async fn tx_on_chain(
 }
 
 pub async fn outpoint_available(
-    client: &BitVM2Client,
+    client: &BTCClient,
     txid: &Txid,
     vout: u64,
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -606,7 +610,7 @@ pub async fn outpoint_available(
 }
 
 pub async fn outpoint_spent_txid(
-    client: &BitVM2Client,
+    client: &BTCClient,
     txid: &Txid,
     vout: u64,
 ) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
@@ -618,11 +622,11 @@ pub async fn outpoint_spent_txid(
 
 /// Validates whether the given challenge transaction has been confirmed on Layer 1.
 pub async fn validate_challenge(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
     kickoff_txid: &Txid,
     challenge_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let challenge_tx = match client.esplora.get_tx(challenge_txid).await? {
+    let challenge_tx = match btc_client.esplora.get_tx(challenge_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
     };
@@ -632,11 +636,11 @@ pub async fn validate_challenge(
 
 /// Validates whether the given disprove transaction has been confirmed on Layer 1.
 pub async fn validate_disprove(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
     assert_final_txid: &Txid,
     disprove_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let disprove_tx = match client.esplora.get_tx(disprove_txid).await? {
+    let disprove_tx = match btc_client.esplora.get_tx(disprove_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
     };
@@ -655,13 +659,13 @@ pub async fn validate_disprove(
 /// - `Ok(Some((index, disprove_script)))` if invalid, providing the witness info for later disprove.
 ///
 pub async fn validate_assert(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
     assert_commit_txns: &[Txid; COMMIT_TX_NUM],
     wots_pubkeys: WotsPublicKeys,
 ) -> Result<Option<(usize, Script)>, Box<dyn std::error::Error>> {
     let mut txs = Vec::with_capacity(COMMIT_TX_NUM);
     for txid in assert_commit_txns.iter() {
-        let tx = match client.esplora.get_tx(txid).await? {
+        let tx = match btc_client.esplora.get_tx(txid).await? {
             Some(v) => v,
             _ => return Ok(None), // nothing to disprove if assert-commit-txns not on chain
         };
@@ -681,13 +685,13 @@ pub async fn validate_assert(
 ///
 /// These are fetched via the ProofNetwork SDK.
 pub async fn get_groth16_proof(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: &Uuid,
     graph_id: &Uuid,
 ) -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
     let (proof, pis) = {
         // query proof from database.
-        let mut db_lock = client.local_db.acquire().await?;
+        let mut db_lock = local_db.acquire().await?;
         let (proof, pis) = db_lock.get_proof_with_pis(instance_id, graph_id).await?;
         let proof_bytes = hex::decode(proof)?;
         let pis_bytes = hex::decode(pis)?;
@@ -737,43 +741,46 @@ pub fn get_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
 
 /// l2 support
 pub async fn finish_withdraw_happy_path(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = client.finish_withdraw_happy_path(graph_id, tx).await?;
+    let tx_hash = goat_client.finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
 pub async fn finish_withdraw_unhappy_path(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = client.finish_withdraw_unhappy_path(graph_id, tx).await?;
+    let tx_hash = goat_client.finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
 
 pub async fn finish_withdraw_disproved(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = client.finish_withdraw_disproved(graph_id, tx).await?;
+    let tx_hash = goat_client.finish_withdraw_disproved(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
 
 /// db support
 pub async fn store_committee_pub_nonces(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
     committee_pubkey: PublicKey,
     pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let nonces_vec: Vec<String> = pub_nonces.iter().map(|v| v.to_string()).collect();
     let nonces_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
         nonces_vec.try_into().map_err(|v: Vec<String>| {
@@ -784,11 +791,11 @@ pub async fn store_committee_pub_nonces(
         .await?)
 }
 pub async fn get_committee_pub_nonces(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     match storage_process.get_nonces(instance_id, graph_id).await? {
         None => Err(format!("instance id:{instance_id}, graph id:{graph_id} not found").into()),
         Some(nonce_collect) => {
@@ -808,18 +815,18 @@ pub async fn get_committee_pub_nonces(
 }
 
 pub async fn store_committee_pubkeys(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     pubkey: PublicKey,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     Ok(storage_process.store_pubkeys(instance_id, &[pubkey.to_string()]).await?)
 }
 pub async fn get_committee_pubkeys(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
 ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     match storage_process.get_pubkeys(instance_id).await? {
         None => Ok(vec![]),
         Some(meta_data) => Ok(meta_data
@@ -831,13 +838,13 @@ pub async fn get_committee_pubkeys(
 }
 
 pub async fn store_committee_partial_sigs(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
     committee_pubkey: PublicKey,
     partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let signs_vec: Vec<String> = partial_sigs.iter().map(|v| hex::encode(v.serialize())).collect();
     let signs_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
         signs_vec.try_into().map_err(|v: Vec<String>| {
@@ -850,11 +857,11 @@ pub async fn store_committee_partial_sigs(
 }
 
 pub async fn get_committee_partial_sigs(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     match storage_process.get_nonces(instance_id, graph_id).await? {
         None => Err(format!("instance id:{instance_id}, graph id:{graph_id} not found ").into()),
         Some(nonce_collect) => {
@@ -874,7 +881,7 @@ pub async fn get_committee_partial_sigs(
 }
 
 pub async fn update_graph_fields(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     graph_id: Uuid,
     graph_state: Option<String>,
     ipfs_base_url: Option<String>,
@@ -882,7 +889,7 @@ pub async fn update_graph_fields(
     disprove_txid: Option<String>,
     bridge_out_start_at: Option<i64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     Ok(storage_process
         .update_graph_fields(
             graph_id,
@@ -895,13 +902,13 @@ pub async fn update_graph_fields(
         .await?)
 }
 pub async fn store_graph(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
     graph: &Bitvm2Graph,
     status: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut transaction = client.local_db.start_transaction().await?;
+    let mut transaction = local_db.start_transaction().await?;
     let assert_commit_txids: Vec<String> = graph
         .assert_commit
         .commit_txns
@@ -979,21 +986,21 @@ pub async fn store_graph(
 
 #[allow(dead_code)]
 pub async fn update_graph(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
     graph: &Bitvm2Graph,
     status: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    store_graph(client, instance_id, graph_id, graph, status).await
+    store_graph(local_db, instance_id, graph_id, graph, status).await
 }
 
 pub async fn get_graph(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let graph_op = storage_process.get_graph(&graph_id).await?;
     if graph_op.is_none() {
         tracing::warn!("graph:{} is not record in db", graph_id);
@@ -1016,7 +1023,7 @@ pub async fn get_graph(
 }
 
 pub async fn publish_graph_to_ipfs(
-    client: &BitVM2Client,
+    ipfs: &IPFS,
     graph_id: Uuid,
     graph: &Bitvm2Graph,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -1047,7 +1054,7 @@ pub async fn publish_graph_to_ipfs(
     write_tx(&base_dir, IpfsTxName::Pegin, graph.pegin.tx())?;
     write_tx(&base_dir, IpfsTxName::Take1, graph.take1.tx())?;
     write_tx(&base_dir, IpfsTxName::Take2, graph.take2.tx())?;
-    let cids = client.ipfs.add(Path::new(&base_dir)).await?;
+    let cids = ipfs.add(Path::new(&base_dir)).await?;
     let dir_cid = cids
         .iter()
         .find(|f| f.name.is_empty())
@@ -1060,11 +1067,12 @@ pub async fn publish_graph_to_ipfs(
 }
 
 pub async fn get_my_graph_for_instance(
-    client: &BitVM2Client,
+    goat_client: &GOATClient,
     instance_id: Uuid,
     operator_pubkey: PublicKey,
 ) -> Result<Option<Uuid>, Box<dyn std::error::Error>> {
-    let ids_vec = client
+    // FIXME: don't use chain_service directly
+    let ids_vec = goat_client
         .chain_service
         .adaptor
         .get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
@@ -1073,11 +1081,11 @@ pub async fn get_my_graph_for_instance(
 }
 
 pub async fn get_graph_status(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<Option<GraphStatus>, Box<dyn std::error::Error>> {
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let graph_op = storage_process.get_graph(&graph_id).await?;
     if graph_op.is_none() {
         return Ok(None);
@@ -1100,7 +1108,7 @@ pub async fn get_graph_status(
 /// - `Ok(true)` tx confirmed,
 /// - `Ok(false)` tx not confirmed, exceeds the maximum waiting time
 pub async fn wait_tx_confirmation(
-    client: &BitVM2Client,
+    btc_client: &BTCClient,
     txid: &Txid,
     interval: u64,
     max_wait_secs: u64,
@@ -1115,7 +1123,8 @@ pub async fn wait_tx_confirmation(
             // println!("Timeout: Transaction not confirmed after {} seconds", max_wait_secs);
             return Ok(false);
         };
-        match client.esplora.get_tx_status(txid).await {
+        // FIXME: should not use esplora directly
+        match btc_client.esplora.get_tx_status(txid).await {
             Ok(status) => {
                 if let Some(_height) = status.block_height {
                     // println!("Transaction confirmed in block {}", height);
@@ -1189,12 +1198,12 @@ pub mod defer {
 }
 
 pub async fn save_node_info(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     node_info: &NodeInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("save_node_info for {}", node_info.peer_id);
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     let _ = storage_process
         .update_node(Node {
             peer_id: node_info.peer_id.clone(),
@@ -1208,21 +1217,21 @@ pub async fn save_node_info(
     Ok(())
 }
 
-pub async fn save_local_info(client: &BitVM2Client) {
+pub async fn save_local_info(local_db: &LocalDB) {
     let node = get_local_node_info();
-    match save_node_info(client, &node).await {
+    match save_node_info(local_db, &node).await {
         Ok(_) => {}
         Err(err) => tracing::error!("save local node err: {err}"),
     }
 }
 
 pub async fn update_node_timestamp(
-    client: &BitVM2Client,
+    local_db: &LocalDB,
     peer_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("update timestamp for {peer_id}");
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    let mut storage_process = client.local_db.acquire().await?;
+    let mut storage_process = local_db.acquire().await?;
     match storage_process.update_node_timestamp(peer_id, current_time).await {
         Ok(_) => {}
         Err(err) => warn!("{err}"),

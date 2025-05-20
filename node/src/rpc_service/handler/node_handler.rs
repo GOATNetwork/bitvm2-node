@@ -27,7 +27,7 @@ pub async fn create_node(
             created_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
                 as i64,
         };
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let _ = storage_process.update_node(node.clone()).await?;
         Ok::<Node, Box<dyn std::error::Error>>(node)
     };
@@ -46,7 +46,7 @@ pub async fn get_nodes(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<NodeListResponse>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
         let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
         let (_, goat_addr) = reflect_goat_address(query_params.goat_addr);
@@ -99,7 +99,7 @@ pub async fn get_nodes_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<NodeOverViewResponse>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
         let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
         let nodes_overview = storage_process.node_overview(time_threshold).await?;
@@ -122,7 +122,7 @@ pub async fn get_node(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<Option<Node>>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         if peer_id == app_state.peer_id {
             storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
         }

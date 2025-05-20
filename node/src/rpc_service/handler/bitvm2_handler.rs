@@ -68,7 +68,7 @@ pub async fn bridge_in_tx_prepare(
             ..Default::default()
         };
 
-        let mut tx = app_state.bitvm2_client.local_db.start_transaction().await?;
+        let mut tx = app_state.local_db.start_transaction().await?;
         let instance_pre_op = tx.get_instance(&instance_id).await?;
         if instance_pre_op.is_some() {
             tracing::info!("{instance_id} is used");
@@ -123,7 +123,7 @@ pub async fn graph_presign_check(
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let instance_op = storage_process.get_instance(&instance_id).await?;
         if instance_op.is_none() {
             tracing::info!("instance_id {} has no record in database", instance_id);
@@ -165,7 +165,7 @@ pub async fn get_graph_tx(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<Option<GraphTxGetResponse>>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let graph_op = storage_process.get_graph(&Uuid::parse_str(&graph_id)?).await?;
         if graph_op.is_none() {
             tracing::warn!("graph:{} is not record in db", graph_id);
@@ -223,7 +223,7 @@ pub async fn get_graph_txn(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<Option<GraphTxnGetResponse>>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let graph_op = storage_process.get_graph(&Uuid::parse_str(&graph_id)?).await?;
         if graph_op.is_none() {
             tracing::warn!("graph:{} is not record in db", graph_id);
@@ -265,7 +265,7 @@ pub async fn create_instance(
     Json(payload): Json<InstanceUpdateRequest>,
 ) -> (StatusCode, Json<InstanceUpdateResponse>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         storage_process.create_instance(payload.instance).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
@@ -290,7 +290,7 @@ pub async fn update_instance(
     }
 
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         storage_process.update_instance(payload.instance).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
@@ -332,7 +332,7 @@ pub async fn get_instances(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<InstanceListResponse>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let (instances, total) = storage_process
             .instance_list(
                 params.from_addr,
@@ -358,12 +358,12 @@ pub async fn get_instances(
             });
         }
 
-        let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
+        let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
 
         let mut items = vec![];
         for mut instance in instances {
             let (confirmations, target_confirmations) = get_tx_confirmation_info(
-                &app_state.bitvm2_client.esplora,
+                &app_state.btc_client.esplora,
                 instance.pegin_txid.clone(),
                 current_height,
                 6,
@@ -401,7 +401,7 @@ pub async fn get_instance(
 ) -> (StatusCode, Json<InstanceGetResponse>) {
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&instance_id)?;
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let instance_op = storage_process.get_instance(&instance_id).await?;
         if instance_op.is_none() {
             tracing::info!("instance_id {} has no record in database", instance_id);
@@ -411,10 +411,10 @@ pub async fn get_instance(
         }
         let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
-        let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
+        let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
         let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
         let (confirmations, target_confirmations) = get_tx_confirmation_info(
-            &app_state.bitvm2_client.esplora,
+            &app_state.btc_client.esplora,
             instance.pegin_txid.clone(),
             current_height,
             6,
@@ -443,7 +443,7 @@ pub async fn get_instances_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<InstanceOverviewResponse>) {
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let (pegin_sum, pegin_count) =
             storage_process.get_sum_bridge_in(BridgePath::BTCToPgBTC.to_u8()).await?;
         let (pegout_sum, pegout_count) = storage_process.get_sum_bridge_out().await?;
@@ -476,7 +476,7 @@ pub async fn get_graph(
     let async_fn = || async move {
         let current_time = current_time_secs();
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let graph_op = storage_process.get_graph(&graph_id).await?;
         if graph_op.is_none() {
             tracing::warn!("graph:{} is not record in db", graph_id);
@@ -516,7 +516,7 @@ pub async fn update_graph(
     }
 
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let _ = storage_process.update_graph(payload.graph).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
@@ -536,7 +536,7 @@ pub async fn get_graphs(
     let resp = GraphListResponse::default();
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
-        let mut storage_process = app_state.bitvm2_client.local_db.acquire().await?;
+        let mut storage_process = app_state.local_db.acquire().await?;
         let filter_params: FilterGraphParams = params.into();
         let from_addr = filter_params.from_addr.clone();
         let update_at_threshold = filter_params.update_at_threshold;
@@ -545,7 +545,7 @@ pub async fn get_graphs(
         if graphs.is_empty() {
             return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone);
         }
-        let current_height = get_btc_height(&app_state.bitvm2_client.esplora).await?;
+        let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
         let mut graph_vec = vec![];
         let bridge_in_status = vec![
             GraphStatus::CommitteePresigned.to_string(),
@@ -557,7 +557,7 @@ pub async fn get_graphs(
             let (confirmations, target_confirmations) = match graph.get_check_tx_param() {
                 Ok((tx_id, confirm_num)) => {
                     get_tx_confirmation_info(
-                        &app_state.bitvm2_client.esplora,
+                        &app_state.btc_client.esplora,
                         tx_id,
                         current_height,
                         confirm_num,

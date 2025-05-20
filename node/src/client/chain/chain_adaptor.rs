@@ -1,5 +1,5 @@
-use crate::chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
-use crate::chain::mock_addaptor::{MockAdaptor, MockAdaptorConfig};
+use crate::client::chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
+use crate::client::chain::mock_addaptor::{MockAdaptor, MockAdaptorConfig};
 use alloy::primitives::{TxHash, U256};
 use async_trait::async_trait;
 use uuid::Uuid;

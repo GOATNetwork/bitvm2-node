@@ -4,15 +4,12 @@ use bitcoin::{
 };
 use bitvm::signatures::signing_winternitz::{WinternitzSigningInputs, generate_winternitz_witness};
 use bitvm2_lib::keys::OperatorMasterKey;
+use bitvm2_noded::client::BTCClient;
 use bitvm2_noded::{
     env::{ENV_ACTOR, ENV_BITVM_SECRET, IpfsTxName},
     utils::{broadcast_tx, tx_on_chain},
 };
 use clap::Parser;
-use client::{
-    chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig},
-    client::BitVM2Client,
-};
 use goat::{
     commitments::CommitmentMessageId,
     connectors::{base::TaprootConnector, connector_6::Connector6},
@@ -22,6 +19,7 @@ use goat::{
     },
 };
 use std::str::FromStr;
+use store::ipfs::IPFS;
 use uuid::Uuid;
 
 /// Send kickoff without call initWithdraw on L2, this action should trigger disprove.
@@ -50,40 +48,41 @@ struct Args {
 }
 
 async fn get_tx_from_ipfs(
-    client: &BitVM2Client,
+    ipfs: &IPFS,
     base_url: &str,
     tx_name: IpfsTxName,
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
     let tx_url = [base_url, "/", tx_name.as_str()].concat();
-    let tx_hex = client.ipfs.cat(&tx_url).await?;
+    let tx_hex = ipfs.cat(&tx_url).await?;
     Ok(deserialize_hex(&tx_hex)?)
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-
-    let global_init_config = GoatInitConfig::from_env_for_test();
-    let tmp_db = tempfile::NamedTempFile::new().unwrap();
-    let client = BitVM2Client::new(
-        tmp_db.path().as_os_str().to_str().unwrap(),
-        None,
-        Network::Testnet,
-        GoatNetwork::Test,
-        global_init_config,
-        &args.ipfs_url,
-    )
-    .await;
+    //let global_init_config = GoatInitConfig::from_env_for_test();
+    let ipfs = IPFS::new(&args.ipfs_url);
+    let network = Network::Testnet;
+    let btc_client = BTCClient::new(None, network);
+    //let tmp_db = tempfile::NamedTempFile::new().unwrap();
+    //let client = BitVM2Client::new(
+    //    tmp_db.path().as_os_str().to_str().unwrap(),
+    //    None,
+    //    Network::Testnet,
+    //    GoatNetwork::Test,
+    //    global_init_config,
+    //    &args.ipfs_url,
+    //)
+    //.await;
     unsafe {
         std::env::set_var(ENV_ACTOR, "Operator");
         std::env::set_var(ENV_BITVM_SECRET, &args.secret);
     }
-    let network = Network::Testnet;
     let (keypair, _) = generate_keys_from_secret(network, &args.secret);
     let (base_url, graph_id, master_key) =
         (args.txns_cid, Uuid::from_str(&args.graph).unwrap(), OperatorMasterKey::new(keypair));
-    let mut kickoff = get_tx_from_ipfs(&client, &base_url, IpfsTxName::Kickoff).await.unwrap();
-    if tx_on_chain(&client, &kickoff.compute_txid()).await.unwrap() {
+    let mut kickoff = get_tx_from_ipfs(&ipfs, &base_url, IpfsTxName::Kickoff).await.unwrap();
+    if tx_on_chain(&btc_client, &kickoff.compute_txid()).await.unwrap() {
         println!("Error: kickoff already sent!");
         return;
     };
@@ -100,7 +99,7 @@ async fn main() {
     let input_index = 0;
     let script = connector_6.generate_taproot_leaf_script(0);
     let taproot_spend_info = connector_6.generate_taproot_spend_info();
-    let input_value = client
+    let input_value = btc_client
         .esplora
         .get_tx(&kickoff.input[0].previous_output.txid)
         .await
@@ -136,6 +135,6 @@ async fn main() {
         &script,
         unlock_data,
     );
-    broadcast_tx(&client, &kickoff).await.unwrap();
+    broadcast_tx(&btc_client, &kickoff).await.unwrap();
     println!("kickoff sent {}", kickoff.compute_txid());
 }

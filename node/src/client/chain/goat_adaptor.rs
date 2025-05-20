@@ -1,7 +1,7 @@
-use crate::chain::chain_adaptor::{
+use crate::client::chain::chain_adaptor::{
     BitcoinTx, ChainAdaptor, OperatorData, PeginData, PeginStatus, WithdrawData, WithdrawStatus,
 };
-use crate::chain::goat_adaptor::IGateway::IGatewayInstance;
+use crate::client::chain::goat_adaptor::IGateway::IGatewayInstance;
 use alloy::primitives::TxHash;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},

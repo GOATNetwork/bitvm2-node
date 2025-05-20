@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 pub mod tests {
+    use crate::client::BTCClient;
     use crate::env::{
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
@@ -13,13 +14,11 @@ pub mod tests {
     use bitcoin::{CompressedPublicKey, EcdsaSighashType};
     use bitvm2_lib::committee::{COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonces_aggregation};
     use bitvm2_lib::operator::corrupt_proof;
-    use client::chain::chain_adaptor::GoatNetwork;
-    use client::chain::goat_adaptor::GoatInitConfig;
-    use client::client::BitVM2Client;
     use esplora_client::BlockingClient;
     use goat::connectors::base::generate_default_tx_in;
     use goat::transactions::signing::populate_p2wsh_witness;
     use musig2::secp256k1;
+    use store::localdb::LocalDB;
     use uuid::Uuid;
 
     use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction, TxIn, TxOut};
@@ -51,17 +50,10 @@ pub mod tests {
         let tmp_db = tempfile::NamedTempFile::new().unwrap();
         tmp_db.path().as_os_str().to_str().unwrap().to_string()
     }
-    async fn create_bitvm2_client(network: Network) -> BitVM2Client {
-        let global_init_config = GoatInitConfig::from_env_for_test();
-        BitVM2Client::new(
-            &temp_file(),
-            Some(BTCD_RPC_URL),
-            network,
-            GoatNetwork::Test,
-            global_init_config,
-            &crate::env::get_ipfs_url(),
-        )
-        .await
+    async fn create_bitvm2_client(network: Network) -> (LocalDB, BTCClient) {
+        let local_db = crate::client::create_local_db(&temp_file()).await;
+        let btc_client = BTCClient::new(Some(BTCD_RPC_URL), network);
+        (local_db, btc_client)
     }
 
     pub fn get_regtest_address(network: Network) -> (PrivateKey, Address) {
@@ -86,17 +78,17 @@ pub mod tests {
     }
 
     async fn challenger_tx_crowdfund_and_broadcast(
-        network: Network,
-        bitvm2_client: &BitVM2Client,
+        btc_client: &BTCClient,
         challenge_tx: Transaction,
     ) {
+        let network = btc_client.network;
         let (funder_privkey, _) = get_regtest_address(network);
         let _challenge_amount = Amount::from_btc(0.01).unwrap();
 
         let secp = secp256k1::Secp256k1::new();
         println!("Broadcast challenge tx");
         let txid = complete_and_broadcast_challenge_tx(
-            bitvm2_client,
+            btc_client,
             Keypair::from_secret_key(&secp, &funder_privkey.inner),
             challenge_tx,
             // challenge_amount,
@@ -108,7 +100,7 @@ pub mod tests {
 
     // TODO: derive sender address from depositor sk
     async fn fund_address(
-        bitvm2_client: &BitVM2Client,
+        btc_client: &BTCClient,
         target_amount: Amount,
         funding_addr: &Address,
         depositor_private_key: &PrivateKey,
@@ -116,7 +108,7 @@ pub mod tests {
         fee_rate: f64,
     ) -> Transaction {
         let inputs = get_proper_utxo_set(
-            bitvm2_client,
+            btc_client,
             PEGIN_BASE_VBYTES,
             sender_addr.clone(),
             target_amount,
@@ -194,12 +186,14 @@ pub mod tests {
         proof_sigs: Groth16WotsSignatures,
         disprove_scripts: Vec<StructuredScript>,
     }
+    // TODO: rpc and btc client are redundant?
     async fn e2e_setup(
         network: Network,
         rpc_client: &BlockingClient,
-        bitvm2_client: &BitVM2Client,
+        local_db: &LocalDB,
+        btc_client: &BTCClient,
     ) -> E2eResult {
-        let fee_rate = get_fee_rate(bitvm2_client).await.unwrap();
+        let fee_rate = get_fee_rate(btc_client).await.unwrap();
         let (depositor_private_key, depositor_addr) = get_regtest_address(network);
         let graph_id = Uuid::new_v4();
         // key generation
@@ -234,7 +228,7 @@ pub mod tests {
         let extra_fee =
             Amount::from_sat(fee_rate as u64 * (PEGIN_BASE_VBYTES + PRE_KICKOFF_BASE_VBYTES));
         let funding_operator_txn = fund_address(
-            bitvm2_client,
+            btc_client,
             stake_amount + extra_fee,
             &operator_p2wsh,
             &depositor_private_key,
@@ -247,14 +241,14 @@ pub mod tests {
         broadcast_and_wait_for_confirming(rpc_client, &funding_operator_txn, 1);
 
         let (proof, scalars, vk) =
-            get_groth16_proof(bitvm2_client, &instance_id, &graph_id).await.unwrap();
+            get_groth16_proof(local_db, &instance_id, &graph_id).await.unwrap();
         let proof_sigs = operator::sign_proof(&vk, proof, scalars, &operator_wots_seckeys);
 
         let depositor_evm_address: [u8; 20] =
             hex::decode("3eAC5F367F19E2E6099e897436DC17456f078609").unwrap().try_into().unwrap();
 
         let inputs = get_proper_utxo_set(
-            bitvm2_client,
+            btc_client,
             PEGIN_BASE_VBYTES,
             depositor_addr.clone(),
             pegin_amount,
@@ -272,7 +266,7 @@ pub mod tests {
         };
 
         let inputs = get_proper_utxo_set(
-            bitvm2_client,
+            btc_client,
             PRE_KICKOFF_BASE_VBYTES,
             operator_p2wsh,
             stake_amount,
@@ -402,7 +396,7 @@ pub mod tests {
     async fn e2e_take_1() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
-        let bitvm2_client = create_bitvm2_client(network).await;
+        let (local_db, btc_client) = create_bitvm2_client(network).await;
 
         let E2eResult {
             mut graph,
@@ -410,7 +404,7 @@ pub mod tests {
             operator_wots_seckeys,
             operator_wots_pubkeys,
             ..
-        } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
+        } = e2e_setup(network, &rpc_client, &local_db, &btc_client).await;
         // pre-kick-off
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
@@ -451,7 +445,7 @@ pub mod tests {
     async fn e2e_take_2() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
-        let bitvm2_client = create_bitvm2_client(network).await;
+        let (local_db, btc_client) = create_bitvm2_client(network).await;
 
         let E2eResult {
             mut graph,
@@ -460,7 +454,7 @@ pub mod tests {
             operator_wots_pubkeys,
             proof_sigs,
             ..
-        } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
+        } = e2e_setup(network, &rpc_client, &local_db, &btc_client).await;
 
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
@@ -494,7 +488,7 @@ pub mod tests {
         let (challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
 
         println!("Broadcast challenge tx");
-        challenger_tx_crowdfund_and_broadcast(network, &bitvm2_client, challenge_tx).await;
+        challenger_tx_crowdfund_and_broadcast(&btc_client, challenge_tx).await;
 
         let (assert_init_tx, assert_commit_txns, assert_final_tx) = operator::operator_sign_assert(
             operator_keypair,
@@ -520,8 +514,8 @@ pub mod tests {
     async fn e2e_disprove() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
-        let bitvm2_client = create_bitvm2_client(network).await;
-        let fee_rate = get_fee_rate(&bitvm2_client).await.unwrap();
+        let (local_db, btc_client) = create_bitvm2_client(network).await;
+        let fee_rate = get_fee_rate(&btc_client).await.unwrap();
 
         let E2eResult {
             mut graph,
@@ -531,7 +525,7 @@ pub mod tests {
             mut proof_sigs,
             disprove_scripts,
             ..
-        } = e2e_setup(network, &rpc_client, &bitvm2_client).await;
+        } = e2e_setup(network, &rpc_client, &local_db, &btc_client).await;
 
         println!("broadcast pre-kickoff");
         let amounts = graph.pre_kickoff.input_amounts.clone();
@@ -565,7 +559,7 @@ pub mod tests {
         let (challenge_tx, _) = verifier::export_challenge_tx(&mut graph).unwrap();
 
         println!("Broadcast challenge tx");
-        challenger_tx_crowdfund_and_broadcast(network, &bitvm2_client, challenge_tx).await;
+        challenger_tx_crowdfund_and_broadcast(&btc_client, challenge_tx).await;
 
         // Iterate all disprove scripts, the 8th is the smallest one in size.
         corrupt_proof(&mut proof_sigs, &operator_wots_seckeys.1, 8);
