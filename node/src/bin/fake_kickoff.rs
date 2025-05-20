@@ -60,20 +60,9 @@ async fn get_tx_from_ipfs(
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    //let global_init_config = GoatInitConfig::from_env_for_test();
     let ipfs = IPFS::new(&args.ipfs_url);
     let network = Network::Testnet;
     let btc_client = BTCClient::new(None, network);
-    //let tmp_db = tempfile::NamedTempFile::new().unwrap();
-    //let client = BitVM2Client::new(
-    //    tmp_db.path().as_os_str().to_str().unwrap(),
-    //    None,
-    //    Network::Testnet,
-    //    GoatNetwork::Test,
-    //    global_init_config,
-    //    &args.ipfs_url,
-    //)
-    //.await;
     unsafe {
         std::env::set_var(ENV_ACTOR, "Operator");
         std::env::set_var(ENV_BITVM_SECRET, &args.secret);
