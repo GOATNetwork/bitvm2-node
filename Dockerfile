@@ -3,7 +3,7 @@ FROM alpine:3.10
 
 # Copies your code file from your action repository to the filesystem path `/` of the container
 COPY entrypoint.sh /entrypoint.sh
-COPY target/release/$(basename $GITHUB_REPOSITORY)d /usr/local/bin
+COPY target/release/bitvm2-noded /usr/local/bin
 
 RUN apt update -y && apt install sqlite3
 
