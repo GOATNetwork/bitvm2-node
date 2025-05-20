@@ -1270,6 +1270,7 @@ pub async fn validate_actor(
         }
         _ => Ok(true),
     }
+}
 
 pub fn generate_random_bytes(len: usize) -> Vec<u8> {
     let mut rng = rand::thread_rng();
