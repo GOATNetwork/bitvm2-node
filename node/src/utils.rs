@@ -2,6 +2,7 @@ use crate::action::{CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInf
 use crate::env::*;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
+use alloy::providers::ProviderBuilder;
 use ark_serialize::CanonicalDeserialize;
 use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::key::Keypair;
@@ -12,6 +13,7 @@ use bitcoin::{
 use bitcoin_script::{Script, script};
 use bitvm::chunk::api::NUM_TAPS;
 use bitvm::signatures::signing_winternitz::{WinternitzSigningInputs, generate_winternitz_witness};
+use bitvm2_lib::actors::Actor;
 use bitvm2_lib::committee::COMMITTEE_PRE_SIGN_NUM;
 use bitvm2_lib::keys::OperatorMasterKey;
 use bitvm2_lib::operator::{generate_disprove_scripts, generate_partial_scripts};
@@ -20,6 +22,7 @@ use bitvm2_lib::types::{
 };
 use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_proof};
 use client::chain::chain_adaptor::WithdrawStatus;
+use client::chain::utils::{validate_committee, validate_operator, validate_relayer};
 use client::client::BitVM2Client;
 use esplora_client::Utxo;
 use goat::commitments::CommitmentMessageId;
@@ -1244,4 +1247,25 @@ pub async fn detect_heart_beat(
         }
     }
     Ok(())
+}
+
+pub async fn validate_actor(
+    peer_id: &[u8],
+    role: Actor,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let rpc_url = get_goat_url_from_env();
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+    let get_goat_gateway_contract_address = get_goat_gateway_contract_from_env();
+    match role {
+        Actor::Committee => {
+            Ok(validate_committee(&provider, get_goat_gateway_contract_address, peer_id).await?)
+        }
+        Actor::Operator => {
+            Ok(validate_operator(&provider, get_goat_gateway_contract_address, peer_id).await?)
+        }
+        Actor::Relayer => {
+            Ok(validate_relayer(&provider, get_goat_gateway_contract_address, peer_id).await?)
+        }
+        _ => Ok(true),
+    }
 }

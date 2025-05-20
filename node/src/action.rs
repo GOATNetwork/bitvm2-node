@@ -211,7 +211,7 @@ pub async fn recv_and_dispatch(
     swarm: &mut Swarm<AllBehaviours>,
     client: &BitVM2Client,
     actor: Actor,
-    peer_id: PeerId,
+    from_peer_id: PeerId,
     id: MessageId,
     message: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -224,7 +224,7 @@ pub async fn recv_and_dispatch(
         return Ok(());
     }
 
-    update_node_timestamp(client, &peer_id.to_string()).await?;
+    update_node_timestamp(client, &from_peer_id.to_string()).await?;
 
     let message: GOATMessage = serde_json::from_slice(message)?;
     let content: GOATMessageContent = message.to_typed()?;
@@ -235,21 +235,21 @@ pub async fn recv_and_dispatch(
             &message.actor.to_string(),
             data.graph_id,
             id,
-            peer_id
+            from_peer_id
         ),
         GOATMessageContent::GraphFinalize(data) => tracing::info!(
             "Got message: {}:GraphFinalize {}  with id: {} from peer: {:?}",
             &message.actor.to_string(),
             data.graph_id,
             id,
-            peer_id
+            from_peer_id
         ),
         _ => tracing::info!(
             "Got message: {}:{} with id: {} from peer: {:?}",
             &message.actor.to_string(),
             String::from_utf8_lossy(&message.content),
             id,
-            peer_id
+            from_peer_id
         ),
     }
     // TODO: validate message
@@ -259,6 +259,10 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::CreateInstance(receive_data), Actor::Committee) => {
             tracing::info!("Handle CreateInstance");
             // TODO: check: user inputs must be segwit addresses
+            if !validate_actor(&from_peer_id.to_bytes(), Actor::Relayer).await? {
+                tracing::warn!("receive CreateInstance message but not from Relayer, ignored");
+                return Ok(());
+            }
             let instance_id = receive_data.instance_id;
             let master_key = CommitteeMasterKey::new(env::get_bitvm_key()?);
             let keypair = master_key.keypair_for_instance(instance_id);
@@ -277,7 +281,12 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::CreateGraphPrepare(receive_data), Actor::Operator) => {
             tracing::info!("Handle CreateGraphPrepare");
-            // TODO: check: the message must come from committee
+            if !validate_actor(&from_peer_id.to_bytes(), Actor::Committee).await? {
+                tracing::warn!(
+                    "receive CreateGraphPrepare message but not from Committee, ignored"
+                );
+                return Ok(());
+            }
             store_committee_pubkeys(
                 client,
                 receive_data.instance_id,
@@ -353,7 +362,12 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::CreateGraph(receive_data), Actor::Committee) => {
             tracing::info!("Handle CreateGraph");
-            // TODO: check: the message must come from whitelisted operator
+            if !validate_actor(&from_peer_id.to_bytes(), Actor::Operator).await? {
+                tracing::warn!(
+                    "receive CreateGraph message but not from whitelisted Operator, ignored"
+                );
+                return Ok(());
+            }
             let graph = Bitvm2Graph::from_simplified(receive_data.graph)?;
             store_graph(
                 client,
@@ -420,7 +434,10 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::NonceGeneration(receive_data), Actor::Committee) => {
             tracing::info!("Handle NonceGeneration");
-            // TODO: check that the message must come from committee
+            if !validate_actor(&from_peer_id.to_bytes(), Actor::Committee).await? {
+                tracing::warn!("receive NonceGeneration message but not from Committee, ignored");
+                return Ok(());
+            }
             store_committee_pub_nonces(
                 client,
                 receive_data.instance_id,
@@ -463,7 +480,10 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::CommitteePresign(receive_data), Actor::Operator) => {
             tracing::info!("Handle CommitteePresign");
-            // TODO: check that the message must come from committee
+            if !validate_actor(&from_peer_id.to_bytes(), Actor::Committee).await? {
+                tracing::warn!("receive CommitteePresign message but not from Committee, ignored");
+                return Ok(());
+            }
             if Some((receive_data.instance_id, receive_data.graph_id))
                 == statics::current_processing_graph()
             {
@@ -549,7 +569,12 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::GraphFinalize(receive_data), _) => {
             tracing::info!("Handle GraphFinalize");
-            // TODO: check: the message must come from whitelisted operator
+            if !validate_actor(&from_peer_id.to_bytes(), Actor::Operator).await? {
+                tracing::warn!(
+                    "receive GraphFinalize message but not from whitelisted Operator, ignored"
+                );
+                return Ok(());
+            }
             // TODO: validate graph & ipfs
             let graph = Bitvm2Graph::from_simplified(receive_data.graph)?;
             store_graph(
@@ -1246,7 +1271,10 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::SyncGraph(receive_data), _) => {
             tracing::info!("Handle SyncGraph...  ");
-            // TODO: check: the message must come from relayer
+            if !validate_actor(&from_peer_id.to_bytes(), Actor::Relayer).await? {
+                tracing::warn!("receive SyncGraph message but not from Relayer, ignored");
+                return Ok(());
+            }
             store_graph(
                 client,
                 receive_data.instance_id,
