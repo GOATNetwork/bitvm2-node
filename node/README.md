@@ -34,8 +34,7 @@ if you launch multiple node in a single server, use different `rpc_addr` and `db
 
 ## Env
 
-`ACTOR`: Challenger, Operator, Committee
-`PEER_KEY`: local node's identity private key
+check out the [.env.template](../.env.template) for details
 
 For example: 
 
