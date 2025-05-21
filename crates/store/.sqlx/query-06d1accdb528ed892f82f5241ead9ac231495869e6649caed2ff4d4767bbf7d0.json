@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE instance SET status = ? WHERE status = ? AND updated_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "06d1accdb528ed892f82f5241ead9ac231495869e6649caed2ff4d4767bbf7d0"
+}
