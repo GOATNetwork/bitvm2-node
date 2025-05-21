@@ -267,6 +267,23 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    pub async fn update_expired_instance(
+        &mut self,
+        current_status: &str,
+        expired_status: &str,
+        time_threshold: i64,
+    ) -> anyhow::Result<u64> {
+        let row = sqlx::query!(
+            "UPDATE instance SET status = ? WHERE status = ? AND updated_at < ?",
+            expired_status,
+            current_status,
+            time_threshold
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(row.rows_affected())
+    }
+
     pub async fn update_instance_fields(
         &mut self,
         instance_id: &Uuid,
@@ -672,7 +689,8 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn set_messages_expired(&mut self, expired: i64) -> anyhow::Result<()> {
-        sqlx::query!("Update message Set state = 'Expired' WHERE updated_at < ?", expired)
+        sqlx::query!(
+            "Update message Set state = 'Expired' WHERE state IN ( 'Pending', 'Processing') AND  updated_at < ?", expired)
             .execute(self.conn())
             .await?;
         Ok(())

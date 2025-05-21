@@ -244,9 +244,6 @@ pub async fn get_graph_txn(
         if graph.raw_data.is_none() {
             return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
         }
-
-        // let challenger_tx_id = deserialize_hex(graph.challenge_txid)
-
         let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
         let mut resp = GraphTxnGetResponse {
             assert_commit0: serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),

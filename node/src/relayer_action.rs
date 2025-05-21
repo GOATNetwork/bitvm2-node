@@ -4,7 +4,8 @@ use crate::action::{ChallengeSent, CreateInstance, DisproveSent};
 use crate::client::chain::chain_adaptor::WithdrawStatus;
 use crate::client::{BTCClient, GOATClient};
 use crate::env::{
-    GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
+    GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED,
+    MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
 };
 use crate::rpc_service::{P2pUserData, current_time_secs};
 use crate::utils::{finish_withdraw_disproved, outpoint_spent_txid, update_graph_fields};
@@ -172,7 +173,16 @@ pub async fn scan_bridge_in_prepare(
     storage_process
         .update_messages_state(&ids, MessageState::Processed.to_string(), current_time)
         .await?;
-    // storage_process.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;//TODO
+
+    let expired_num = storage_process
+        .update_expired_instance(
+            &BridgeInStatus::Submitted.to_string(),
+            &BridgeInStatus::PresignedFailed.to_string(),
+            current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
+        )
+        .await?;
+    info!("Presigned expired instances is {expired_num}");
+
     Ok(())
 }
 
