@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: alpine:3.10
+    runs-on: ubuntu-latest
 
     permissions:
       contents: read

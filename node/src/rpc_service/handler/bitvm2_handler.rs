@@ -202,12 +202,11 @@ pub async fn get_graph_tx(
             IpfsTxName::AssertFinal => serialize_hex(bitvm2_graph.assert_final.tx()),
             IpfsTxName::Challenge => {
                 let mut ori_tx_hex = serialize_hex(bitvm2_graph.challenge.tx());
-                if let Some(challenge_txid) = graph.challenge_txid {
-                    if let Ok(tx_hex) =
+                if let Some(challenge_txid) = graph.challenge_txid
+                    && let Ok(tx_hex) =
                         get_btc_tx_hex(&app_state.btc_client.esplora, &challenge_txid).await
-                    {
-                        ori_tx_hex = tx_hex
-                    }
+                {
+                    ori_tx_hex = tx_hex
                 }
                 ori_tx_hex
             }
@@ -259,11 +258,10 @@ pub async fn get_graph_txn(
             take1: serialize_hex(bitvm2_graph.take1.tx()),
             take2: serialize_hex(bitvm2_graph.take2.tx()),
         };
-        if let Some(challenge_txid) = graph.challenge_txid {
-            if let Ok(tx_hex) = get_btc_tx_hex(&app_state.btc_client.esplora, &challenge_txid).await
-            {
-                resp.challenge = tx_hex;
-            }
+        if let Some(challenge_txid) = graph.challenge_txid
+            && let Ok(tx_hex) = get_btc_tx_hex(&app_state.btc_client.esplora, &challenge_txid).await
+        {
+            resp.challenge = tx_hex;
         }
         Ok::<GraphTxnGetResponse, Box<dyn std::error::Error>>(resp)
     };
