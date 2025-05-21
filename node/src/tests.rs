@@ -1,4 +1,6 @@
 #![allow(clippy::module_inception)]
+#![allow(unused_imports)]
+#![allow(dead_code)]
 
 #[cfg(test)]
 pub mod tests {
