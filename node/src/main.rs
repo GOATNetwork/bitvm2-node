@@ -302,11 +302,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 match event {
                     SwarmEvent::NewListenAddr { address, .. } => tracing::debug!("Listening on {address:?}"),
                     SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Message {
-                                                                  propagation_source: peer_id,
+                                                                  propagation_source: _peer_id,
                                                                   message_id: id,
                                                                   message,
                                                               })) => {
-                        match action::recv_and_dispatch(&mut swarm, &local_db, &btc_client, &goat_client, &ipfs, actor.clone(), peer_id, id, &message.data).await {
+                        match action::recv_and_dispatch(&mut swarm, &local_db, &btc_client, &goat_client, &ipfs, actor.clone(),
+                            message.source.expect("empty message source"), id, &message.data).await {
                             Ok(_) => {},
                             Err(e) => { tracing::error!(e) }
                         }
