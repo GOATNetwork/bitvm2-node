@@ -36,7 +36,7 @@ if you launch multiple node in a single server, use different `rpc_addr` and `db
 
 check out the [.env.template](../.env.template) for details
 
-For example: 
+For example:
 
 ```bash
 ACTOR=Operator RUST_LOG=debug ./target/debug/bitvm2-noded --bootnodes 12D3KooWKqq1xos6tEAm8tzmMchzSdJzmaf4qaXf5fFmgQuTLA76 -d --rpc-addr localhost:8081 --db-path /tmp/bitvm2-node.db2

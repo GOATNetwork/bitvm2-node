@@ -102,3 +102,4 @@ serial_test = "3.2.0"
 [features]
 default = []
 tests = []
+e2e-tests = []

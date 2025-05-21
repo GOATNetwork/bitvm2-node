@@ -39,10 +39,8 @@ pub mod tests {
 
     const BTCD_RPC_URL: &str = "http://127.0.0.1:3002";
 
-    //FIXME: The UTs should not use IPFS
     pub fn create_rpc_client() -> BlockingClient {
         let builder = esplora_client::Builder::new(BTCD_RPC_URL);
-
         BlockingClient::from_builder(builder)
     }
 
@@ -392,7 +390,7 @@ pub mod tests {
     }
     /////////////
     #[tokio::test]
-    #[ignore = "init depositor error"]
+    #[cfg(all(feature = "tests", feature = "e2e-tests"))]
     async fn e2e_take_1() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
@@ -441,7 +439,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "init depositor error"]
+    #[cfg(all(feature = "tests", feature = "e2e-tests"))]
     async fn e2e_take_2() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();
@@ -510,7 +508,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[cfg(all(feature = "tests", feature = "e2e-tests"))]
     async fn e2e_disprove() {
         let network = Network::Regtest;
         let rpc_client = create_rpc_client();

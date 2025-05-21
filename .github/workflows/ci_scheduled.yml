@@ -1,0 +1,28 @@
+name: Scheduled CI
+
+on:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Cargo Test
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Launch the Regtest
+        run: cd scripts && docker compose up -d
+      - run: |
+          set -e
+          cargo test -r e2e_take_1  --features tests --features e2e-tests
+          cargo test -r e2e_take_2  --features tests --features e2e-tests
+          cargo test -r e2e_disprove  --features tests --features e2e-tests
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
