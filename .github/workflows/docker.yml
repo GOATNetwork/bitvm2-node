@@ -26,11 +26,12 @@ jobs:
           toolchain: nightly
           override: true
 
-      - name: Get Rust version
-        id: rust-version
+      - name: Extract version from Cargo.toml
+        id: version
         run: |
-          version=$(rustc --version | cut -d ' ' -f2)
-          echo "RUST_VERSION=$version" >> $GITHUB_ENV
+          VERSION=$(grep '^version =' Cargo.toml | head -n1 | sed -E 's/version = "(.*)"/\1/')
+          echo "CARGO_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Using version: $VERSION"
 
       - name: Build binary
         run: cargo build --release
@@ -56,4 +57,4 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ env.REPO_LOWER }}:latest
-            ghcr.io/${{ env.REPO_LOWER }}:${{ env.RUST_VERSION }}
+            ghcr.io/${{ env.REPO_LOWER }}:${{ env.CARGO_VERSION }}
