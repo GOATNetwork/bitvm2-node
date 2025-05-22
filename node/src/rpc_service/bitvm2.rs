@@ -1,7 +1,4 @@
-use crate::env::{
-    CHEKSIG_P2WSH_INPUT_VBYTES, MODIFY_GRAPH_STATUS_TIME_THRESHOLD, PEGIN_BASE_VBYTES,
-};
-use crate::rpc_service::current_time_secs;
+use crate::env::{CHEKSIG_P2WSH_INPUT_VBYTES, PEGIN_BASE_VBYTES};
 use crate::rpc_service::handler::bitvm2_handler::reflect_goat_address;
 use alloy::hex::ToHexExt;
 use bitcoin::address::NetworkUnchecked;
@@ -14,7 +11,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use store::localdb::FilterGraphParams;
-use store::{Graph, Instance, convert_to_step_state, has_middle_state};
+use store::{Graph, Instance, convert_to_step_state};
 use uuid::Uuid;
 
 #[allow(clippy::upper_case_acronyms)]
@@ -175,17 +172,11 @@ impl From<GraphQueryParams> for FilterGraphParams {
             }
         }
         let (is_bridge_out, from_addr) = reflect_goat_address(value.from_addr.clone());
-        let (status, has_middle_status) = if let Some(status) = value.status {
-            (Some(convert_to_step_state(&status)), has_middle_state(&status))
-        } else {
-            (None, false)
-        };
+        let status = value.status.map(|status| convert_to_step_state(&status));
 
         FilterGraphParams {
             status,
-            has_middle_status,
             is_bridge_out,
-            update_at_threshold: current_time_secs() - MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
             operator: value.operator,
             from_addr,
             graph_id: graph_ip_op,

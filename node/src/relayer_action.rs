@@ -8,7 +8,9 @@ use crate::env::{
     MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
 };
 use crate::rpc_service::{P2pUserData, current_time_secs};
-use crate::utils::{finish_withdraw_disproved, outpoint_spent_txid, update_graph_fields};
+use crate::utils::{
+    finish_withdraw_disproved, obsolete_sibling_graphs, outpoint_spent_txid, update_graph_fields,
+};
 use crate::{
     action::{
         AssertSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
@@ -628,6 +630,7 @@ pub async fn scan_take1(
                             None,
                         )
                         .await?;
+                        obsolete_sibling_graphs(local_db, instance_id, graph_id).await?;
                     }
                 }
             } else {
@@ -755,6 +758,7 @@ pub async fn scan_take2(
                             None,
                         )
                         .await?;
+                        obsolete_sibling_graphs(local_db, instance_id, graph_id).await?;
                     }
                 }
             } else {

@@ -76,9 +76,7 @@ impl LocalDB {
 #[derive(Clone, Debug)]
 pub struct FilterGraphParams {
     pub status: Option<String>,
-    pub has_middle_status: bool,
     pub is_bridge_out: bool,
-    pub update_at_threshold: i64,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
     pub graph_id: Option<String>,
@@ -438,10 +436,6 @@ impl<'a> StorageProcessor<'a> {
 
         if let Some(graph_id) = params.graph_id {
             conditions.push(format!(" hex(graph_id) = \'{graph_id}\' COLLATE NOCASE"));
-        }
-
-        if params.has_middle_status {
-            conditions.push(format!("graph.updated_at >= {}", params.update_at_threshold))
         }
 
         if params.is_bridge_out && params.status.is_none() {

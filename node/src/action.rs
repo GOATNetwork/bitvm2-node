@@ -808,7 +808,12 @@ pub async fn recv_and_dispatch(
                         None,
                     )
                     .await?;
-                    // NOTE: clean up other graphs?
+                    obsolete_sibling_graphs(
+                        local_db,
+                        receive_data.instance_id,
+                        receive_data.graph_id,
+                    )
+                    .await?;
                 }
             }
         }
@@ -960,7 +965,12 @@ pub async fn recv_and_dispatch(
                         None,
                     )
                     .await?;
-                    // NOTE: clean up other graphs?
+                    obsolete_sibling_graphs(
+                        local_db,
+                        receive_data.instance_id,
+                        receive_data.graph_id,
+                    )
+                    .await?;
                 }
             }
         }
@@ -1068,7 +1078,8 @@ pub async fn recv_and_dispatch(
                     None,
                 )
                 .await?;
-                // NOTE: clean up other graphs?
+                obsolete_sibling_graphs(local_db, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
             }
         }
         (GOATMessageContent::Take2Sent(receive_data), Actor::Relayer) => {
@@ -1093,7 +1104,8 @@ pub async fn recv_and_dispatch(
                     None,
                 )
                 .await?;
-                // NOTE: clean up other graphs?
+                obsolete_sibling_graphs(local_db, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
             }
         }
         (GOATMessageContent::DisproveSent(receive_data), Actor::Relayer) => {
@@ -1196,6 +1208,8 @@ pub async fn recv_and_dispatch(
                         .await?;
                     }
                 }
+                obsolete_sibling_graphs(local_db, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
             }
         }
         (GOATMessageContent::Take2Sent(receive_data), Actor::Operator) => {
@@ -1254,6 +1268,8 @@ pub async fn recv_and_dispatch(
                         .await?;
                     }
                 }
+                obsolete_sibling_graphs(local_db, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
             }
         }
 
@@ -1362,7 +1378,8 @@ pub async fn recv_and_dispatch(
                     None,
                 )
                 .await?;
-                // NOTE: clean up other graphs?
+                obsolete_sibling_graphs(local_db, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
             }
         }
         (GOATMessageContent::Take2Sent(receive_data), _) => {
@@ -1389,7 +1406,8 @@ pub async fn recv_and_dispatch(
                     None,
                 )
                 .await?;
-                // NOTE: clean up other graphs?
+                obsolete_sibling_graphs(local_db, receive_data.instance_id, receive_data.graph_id)
+                    .await?;
             }
         }
         (GOATMessageContent::DisproveSent(receive_data), _) => {

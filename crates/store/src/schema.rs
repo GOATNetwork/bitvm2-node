@@ -99,17 +99,21 @@ pub enum GraphStatus {
     OperatorPresigned,
     CommitteePresigned,
     OperatorDataPushed,
-    KickOffing,
     KickOff,
-    Challenging,
     Challenge,
-    Asserting,
     Assert,
     Take1,
     Take2,
+    Disprove, // fail to reimbursement
+
+    Created,
+    Presigned,
+    L2Recorded,
+    KickOffing,
+    Challenging,
+    Asserting,
     Disproving,
-    Disprove,   // fail to reimbursement
-    Reimbursed, // reimbursement by other operators
+    Obsoleted, // reimbursement by other operators
 }
 
 impl FromStr for GraphStatus {
@@ -119,17 +123,21 @@ impl FromStr for GraphStatus {
             "OperatorPresigned" => Ok(GraphStatus::OperatorPresigned),
             "CommitteePresigned" => Ok(GraphStatus::CommitteePresigned),
             "OperatorDataPushed" => Ok(GraphStatus::OperatorDataPushed),
-            "KickOffing" => Ok(GraphStatus::KickOffing),
             "KickOff" => Ok(GraphStatus::KickOff),
-            "Challenging" => Ok(GraphStatus::Challenging),
             "Challenge" => Ok(GraphStatus::Challenge),
-            "Asserting" => Ok(GraphStatus::Asserting),
             "Assert" => Ok(GraphStatus::Assert),
             "Take1" => Ok(GraphStatus::Take1),
             "Take2" => Ok(GraphStatus::Take2),
-            "Disproving" => Ok(GraphStatus::Disproving),
             "Disprove" => Ok(GraphStatus::Disprove),
-            "Reimbursed" => Ok(GraphStatus::Reimbursed),
+            "Obsoleted" => Ok(GraphStatus::Obsoleted),
+
+            "Created" => Ok(GraphStatus::Created),
+            "Presigned" => Ok(GraphStatus::Presigned),
+            "L2Recorded" => Ok(GraphStatus::L2Recorded),
+            "KickOffing" => Ok(GraphStatus::KickOffing),
+            "Challenging" => Ok(GraphStatus::Challenging),
+            "Asserting" => Ok(GraphStatus::Asserting),
+            "Disproving" => Ok(GraphStatus::Disproving),
             _ => Err(()),
         }
     }
@@ -238,34 +246,28 @@ impl Graph {
     }
 }
 
-pub fn modify_graph_status(
-    ori_status: &str,
-    last_updated_at: i64,
-    update_at_threshold: i64,
-) -> String {
-    if last_updated_at < update_at_threshold {
-        match ori_status {
-            // "OperatorDataPushed" => "KickOffing".to_string(),// TODO update
-            "KickOff" => "Challenging".to_string(),
-            "Challenge" => "Asserting".to_string(),
-            "Assert" => "Disproving".to_string(),
-            _ => ori_status.to_string(),
-        }
-    } else {
-        ori_status.to_string()
+pub fn modify_graph_status(ori_status: &str) -> String {
+    match ori_status {
+        "OperatorPresigned" => "Created".to_string(),
+        "CommitteePresigned" => "Presigned".to_string(),
+        "OperatorDataPushed" => "L2Recorded".to_string(),
+        "KickOff" => "Challenging".to_string(),
+        "Challenge" => "Asserting".to_string(),
+        "Assert" => "Disproving".to_string(),
+        _ => ori_status.to_string(),
     }
 }
 
 pub fn convert_to_step_state(ori_status: &str) -> String {
     match ori_status {
+        "Created" => "OperatorPresigned".to_string(),
+        "Presigned" => "CommitteePresigned".to_string(),
+        "L2Recorded" => "OperatorDataPushed".to_string(),
         "Challenging" => "KickOff".to_string(),
         "Asserting" => "Challenge".to_string(),
         "Disproving" => "Assert".to_string(),
         _ => ori_status.to_string(),
     }
-}
-pub fn has_middle_state(ori_status: &str) -> bool {
-    matches!(ori_status, "KickOff" | "Challenge" | "Assert")
 }
 
 // graph full data contain instance.from and instance.to

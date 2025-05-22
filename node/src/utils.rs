@@ -1,6 +1,8 @@
 use crate::action::{CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
 use crate::client::chain::chain_adaptor::WithdrawStatus;
-use crate::client::chain::utils::{validate_committee, validate_operator, validate_relayer};
+use crate::client::chain::utils::{
+    get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
+};
 use crate::client::{BTCClient, GOATClient};
 use crate::env::*;
 use crate::middleware::AllBehaviours;
@@ -1266,16 +1268,16 @@ pub async fn validate_actor(
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let rpc_url = get_goat_url_from_env();
     let provider = ProviderBuilder::new().on_http(rpc_url);
-    let get_goat_gateway_contract_address = get_goat_gateway_contract_from_env();
+    let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
     match role {
         Actor::Committee => {
-            Ok(validate_committee(&provider, get_goat_gateway_contract_address, peer_id).await?)
+            Ok(validate_committee(&provider, goat_gateway_contract_address, peer_id).await?)
         }
         Actor::Operator => {
-            Ok(validate_operator(&provider, get_goat_gateway_contract_address, peer_id).await?)
+            Ok(validate_operator(&provider, goat_gateway_contract_address, peer_id).await?)
         }
         Actor::Relayer => {
-            Ok(validate_relayer(&provider, get_goat_gateway_contract_address, peer_id).await?)
+            Ok(validate_relayer(&provider, goat_gateway_contract_address, peer_id).await?)
         }
         _ => Ok(true),
     }
@@ -1294,4 +1296,34 @@ pub fn get_rand_btc_address(network: Network) -> String {
         Network::Testnet,
     )
     .to_string()
+}
+
+pub async fn obsolete_sibling_graphs(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    reimbursed_graph_id: Uuid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rpc_url = get_goat_url_from_env();
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+    let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
+    let all_graphs =
+        get_graph_ids_by_instance_id(&provider, goat_gateway_contract_address, instance_id).await?;
+    for graph_id in all_graphs {
+        if graph_id != reimbursed_graph_id
+            && ![None, Some(GraphStatus::Disprove), Some(GraphStatus::Obsoleted)]
+                .contains(&get_graph_status(local_db, instance_id, graph_id).await?)
+        {
+            update_graph_fields(
+                local_db,
+                graph_id,
+                Some(GraphStatus::Obsoleted.to_string()),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await?;
+        }
+    }
+    Ok(())
 }

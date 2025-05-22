@@ -1,4 +1,4 @@
-use crate::env::{IpfsTxName, MODIFY_GRAPH_STATUS_TIME_THRESHOLD};
+use crate::env::IpfsTxName;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
@@ -120,7 +120,6 @@ pub async fn graph_presign_check(
         graph_status: HashMap::new(),
         tx: None,
     };
-    let current_time = current_time_secs();
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
@@ -137,16 +136,7 @@ pub async fn graph_presign_check(
         let graphs = storage_process.get_graph_by_instance_id(&instance_id).await?;
         resp_clone.graph_status = graphs
             .into_iter()
-            .map(|v| {
-                (
-                    v.graph_id.to_string(),
-                    modify_graph_status(
-                        &v.status,
-                        v.updated_at,
-                        current_time - MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
-                    ),
-                )
-            })
+            .map(|v| (v.graph_id.to_string(), modify_graph_status(&v.status)))
             .collect();
         Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone)
     };
@@ -489,7 +479,6 @@ pub async fn get_graph(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<GraphGetResponse>) {
     let async_fn = || async move {
-        let current_time = current_time_secs();
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.local_db.acquire().await?;
         let graph_op = storage_process.get_graph(&graph_id).await?;
@@ -502,11 +491,7 @@ pub async fn get_graph(
         let mut graph = graph_op.unwrap();
         // front end unused data
         graph.raw_data = None;
-        graph.status = modify_graph_status(
-            &graph.status,
-            graph.updated_at,
-            current_time - MODIFY_GRAPH_STATUS_TIME_THRESHOLD,
-        );
+        graph.status = modify_graph_status(&graph.status);
         graph.reverse_btc_txid();
         Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: Some(graph) })
     };
@@ -554,7 +539,6 @@ pub async fn get_graphs(
         let mut storage_process = app_state.local_db.acquire().await?;
         let filter_params: FilterGraphParams = params.into();
         let from_addr = filter_params.from_addr.clone();
-        let update_at_threshold = filter_params.update_at_threshold;
         let (graphs, total) = storage_process.filter_graphs(filter_params).await?;
         resp_clone.total = total;
         if graphs.is_empty() {
@@ -582,8 +566,7 @@ pub async fn get_graphs(
                 Err(_) => (0, 0),
             };
             // TODO remove middle status
-            graph.status =
-                modify_graph_status(&graph.status, graph.updated_at, update_at_threshold);
+            graph.status = modify_graph_status(&graph.status);
             let graph = convert_to_rpc_query_data(&graph, from_addr.clone(), &bridge_in_status)?;
             graph_vec.push(GrapRpcQueryDataWrap { graph, confirmations, target_confirmations });
         }
