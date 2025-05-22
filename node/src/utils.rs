@@ -1148,6 +1148,37 @@ pub async fn wait_tx_confirmation(
     }
 }
 
+pub async fn wait_tx_appear(
+    btc_client: &BTCClient,
+    txid: &Txid,
+    interval: u64,
+    max_wait_secs: u64,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
+    let start_time = Instant::now();
+    loop {
+        if start_time.elapsed().as_secs() > max_wait_secs {
+            // println!("Timeout: Transaction not appear after {} seconds", max_wait_secs);
+            return Ok(false);
+        };
+        // FIXME: should not use esplora directly
+        match btc_client.esplora.get_tx(txid).await {
+            Ok(tx) => {
+                if tx.is_some() {
+                    return Ok(true);
+                }
+            }
+            Err(e) => {
+                return Err(format!("Failed to fetch transaction status: {e}").into());
+            }
+        }
+        thread::sleep(Duration::from_secs(interval));
+    }
+}
+
 pub mod defer {
     pub struct Defer<F: FnOnce()> {
         cleanup: Option<F>,
