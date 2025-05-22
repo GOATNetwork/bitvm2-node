@@ -157,7 +157,7 @@ impl GOATClient {
                 graph_id,
                 &tx.compute_txid(),
                 &tx_id_on_line,
-                WithdrawStatus::Initialized,
+                Some(WithdrawStatus::Initialized),
             )
             .await?;
         let raw_kickoff_tx = tx_reconstruct(tx);
@@ -181,7 +181,7 @@ impl GOATClient {
                 graph_id,
                 &tx.compute_txid(),
                 &tx_id_on_line,
-                WithdrawStatus::Processing,
+                Some(WithdrawStatus::Processing),
             )
             .await?;
         let raw_take1_tx = tx_reconstruct(tx);
@@ -206,7 +206,7 @@ impl GOATClient {
                 graph_id,
                 &tx.compute_txid(),
                 &tx_id_on_line,
-                WithdrawStatus::Processing,
+                Some(WithdrawStatus::Processing),
             )
             .await?;
         let raw_take2_tx = tx_reconstruct(tx);
@@ -238,7 +238,7 @@ impl GOATClient {
                 graph_id,
                 &tx.compute_txid(),
                 &tx.compute_txid(),
-                WithdrawStatus::Processing,
+                None,
             )
             .await?;
         let raw_disprove_tx = tx_reconstruct(tx);
@@ -384,7 +384,7 @@ impl GOATClient {
         graph_id: &Uuid,
         tx_act: &Txid,
         tx_id_on_line: &Txid,
-        status: WithdrawStatus,
+        required_status: Option<WithdrawStatus>,
     ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64, Vec<u8>)> {
         // check tx id match
         if tx_id_on_line.ne(tx_act) {
@@ -405,11 +405,13 @@ impl GOATClient {
         }
 
         // check withdraw status
-        let withdraw_data = self.get_withdraw_data(graph_id).await?;
-        if withdraw_data.status != status {
-            tracing::warn!("graph:{} at {} not at processing stage", tag, graph_id);
-            bail!("graph:{} at {} not at processing stage", tag, graph_id);
-        };
+        if let Some(status) = required_status {
+            let withdraw_data = self.get_withdraw_data(graph_id).await?;
+            if withdraw_data.status != status {
+                tracing::warn!("graph:{} at {} not at processing stage", tag, graph_id);
+                bail!("graph:{} at {} not at processing stage", tag, graph_id);
+            };
+        }
         // check hash in btc chain and spv contract
         let (root, proof, leaf, height, index, raw_header) =
             btc_client.get_btc_tx_proof_info(tx_act).await?;
