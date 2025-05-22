@@ -44,7 +44,7 @@ mod tests {
     use goat::scripts::generate_opreturn_script;
 
     #[test]
-    fn test_peg_opreturn_script() {
+    fn test_pegin_opreturn_script() {
         let evm_address = "8943545177806ED17B9F23F0a21ee5948eCaa776";
         let evm_address = hex::decode(evm_address).unwrap();
         let network = Network::Bitcoin;
