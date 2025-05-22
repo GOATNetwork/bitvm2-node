@@ -193,7 +193,7 @@ impl From<GraphQueryParams> for FilterGraphParams {
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphListResponse {
-    pub graphs: Vec<GrapRpcQueryDataWrap>,
+    pub graphs: Vec<GraphRpcQueryDataWrap>,
     pub total: i64,
 }
 
@@ -216,13 +216,14 @@ pub struct GrapRpcQueryData {
     pub assert_final_txid: Option<String>,
     pub take2_txid: Option<String>,
     pub disprove_txid: Option<String>,
+    pub init_withdraw_txid: Option<String>,
     pub operator: String,
     pub updated_at: i64,
     pub created_at: i64,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
-pub struct GrapRpcQueryDataWrap {
+pub struct GraphRpcQueryDataWrap {
     pub graph: GrapRpcQueryData,
     pub confirmations: u32,
     pub target_confirmations: u32,

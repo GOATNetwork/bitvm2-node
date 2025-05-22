@@ -568,7 +568,7 @@ pub async fn get_graphs(
             // TODO remove middle status
             graph.status = modify_graph_status(&graph.status);
             let graph = convert_to_rpc_query_data(&graph, from_addr.clone(), &bridge_in_status)?;
-            graph_vec.push(GrapRpcQueryDataWrap { graph, confirmations, target_confirmations });
+            graph_vec.push(GraphRpcQueryDataWrap { graph, confirmations, target_confirmations });
         }
         graph_vec.sort_by(|a, b| b.graph.created_at.cmp(&a.graph.created_at));
         resp_clone.graphs = graph_vec;
@@ -616,6 +616,7 @@ pub fn convert_to_rpc_query_data(
         assert_final_txid: graph.assert_final_txid.clone(),
         take2_txid: graph.take2_txid.clone(),
         disprove_txid: graph.disprove_txid.clone(),
+        init_withdraw_txid: graph.init_withdraw_txid.clone(),
         operator: graph.operator.clone(),
         updated_at: graph.updated_at,
         created_at: graph.created_at,

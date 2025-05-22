@@ -11,6 +11,10 @@ pub struct MockAdaptor {
 
 #[async_trait]
 impl ChainAdaptor for MockAdaptor {
+    async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
+        todo!()
+    }
+
     async fn pegin_tx_used(&self, _tx_id: &[u8; 32]) -> anyhow::Result<bool> {
         todo!()
     }

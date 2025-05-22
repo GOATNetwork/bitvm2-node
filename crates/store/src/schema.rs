@@ -201,6 +201,7 @@ pub struct Graph {
     pub bridge_out_start_at: i64,
     pub bridge_out_from_addr: String,
     pub bridge_out_to_addr: String,
+    pub init_withdraw_txid: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -293,6 +294,7 @@ pub struct GrapFullData {
     pub bridge_out_start_at: i64,
     pub bridge_out_from_addr: String,
     pub bridge_out_to_addr: String,
+    pub init_withdraw_txid: Option<String>,
     pub operator: String,
     pub updated_at: i64,
     pub created_at: i64,
@@ -509,5 +511,44 @@ pub struct BlockProof {
     pub state: String,
     pub reason: String,
     pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub enum WatchContractStatus {
+    #[default]
+    UnSync,
+    Syncing,
+    Synced,
+    Failed,
+}
+
+impl FromStr for WatchContractStatus {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "UnSync" => Ok(WatchContractStatus::UnSync),
+            "Syncing" => Ok(WatchContractStatus::Syncing),
+            "Synced" => Ok(WatchContractStatus::Synced),
+            "Failed" => Ok(WatchContractStatus::Failed),
+            _ => Err(()),
+        }
+    }
+}
+
+impl std::fmt::Display for WatchContractStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct WatchContract {
+    pub addr: String,
+    pub the_graph_url: String,
+    pub gap: i64,
+    pub from_height: i64,
+    pub status: String,
+    pub extra: Option<String>,
     pub updated_at: i64,
 }

@@ -2,7 +2,11 @@
 
 use crate::action::{ChallengeSent, CreateInstance, DisproveSent};
 use crate::client::chain::chain_adaptor::WithdrawStatus;
-use crate::client::{BTCClient, GOATClient};
+use crate::client::graph_query::{
+    BlockRange, CancelWithdrawEvent, InitWithdrawEvent, UserGraphWithdrawEvent,
+    get_cancel_withdraw_events_query, get_init_withdraw_events_query,
+};
+use crate::client::{BTCClient, GOATClient, GraphQueryClient};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED,
     MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
@@ -16,6 +20,7 @@ use crate::{
         AssertSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
         Take2Ready, send_to_peer,
     },
+    env,
     env::get_network,
     middleware::AllBehaviours,
     utils::tx_on_chain,
@@ -32,11 +37,13 @@ use goat::{
 };
 use libp2p::Swarm;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
-use store::localdb::LocalDB;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use store::localdb::{LocalDB, StorageProcessor, UpdateGraphParams};
 use store::{
     BridgeInStatus, BridgePath, GraphStatus, GraphTickActionMetaData, MessageState, MessageType,
+    WatchContract, WatchContractStatus,
 };
+use tokio::time::sleep;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -138,6 +145,217 @@ pub async fn get_initialized_graphs(
     // call L2 contract : getInitializedInstanceIds
     // returns Vec<(instance_id, graph_id)>
     Ok(goat_client.get_initialized_ids().await?)
+}
+
+pub async fn fetch_and_handle_block_range_events<'a>(
+    client: &GraphQueryClient,
+    storage_processor: &mut StorageProcessor<'a>,
+    from_height: i64,
+    to_height: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let init_withdraw_events: Vec<InitWithdrawEvent> = client
+        .execute_query::<InitWithdrawEvent>(&get_init_withdraw_events_query(Some(BlockRange::new(
+            from_height,
+            to_height,
+        ))))
+        .await?;
+    let cancel_withdraw_events: Vec<CancelWithdrawEvent> = client
+        .execute_query::<CancelWithdrawEvent>(&get_cancel_withdraw_events_query(Some(
+            BlockRange::new(from_height, to_height),
+        )))
+        .await?;
+    info!(
+        "get user init withdraw events: {}, cancel withdraw events: {}, block range {from_height}:{to_height}",
+        init_withdraw_events.len(),
+        cancel_withdraw_events.len()
+    );
+    let mut user_withdraw_events: Vec<UserGraphWithdrawEvent> =
+        init_withdraw_events.into_iter().map(UserGraphWithdrawEvent::InitWithdraw).collect();
+    let mut user_cancel_withdraw_events: Vec<UserGraphWithdrawEvent> =
+        cancel_withdraw_events.into_iter().map(UserGraphWithdrawEvent::CancelWithdraw).collect();
+    user_withdraw_events.append(&mut user_cancel_withdraw_events);
+    user_withdraw_events.sort_by_key(|v| v.get_block_number());
+    for event in user_withdraw_events {
+        match event {
+            UserGraphWithdrawEvent::InitWithdraw(init_event) => {
+                let graph_id = Uuid::from_str(&init_event.graph_id)?;
+                storage_processor
+                    .update_graph_fields(UpdateGraphParams {
+                        graph_id,
+                        status: None,
+                        ipfs_base_url: None,
+                        challenge_txid: None,
+                        disprove_txid: None,
+                        bridge_out_start_at: Some(current_time_secs()),
+                        init_withdraw_txid: Some(init_event.int_withdraw_tx_hash),
+                    })
+                    .await?;
+            }
+            UserGraphWithdrawEvent::CancelWithdraw(init_event) => {
+                let graph_id = Uuid::from_str(&init_event.graph_id)?;
+                storage_processor
+                    .update_graph_fields(UpdateGraphParams {
+                        graph_id,
+                        status: None,
+                        ipfs_base_url: None,
+                        challenge_txid: None,
+                        disprove_txid: None,
+                        bridge_out_start_at: Some(0),
+                        init_withdraw_txid: Some("".to_string()),
+                    })
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn fetch_history_events(
+    local_db: &LocalDB,
+    query_client: &GraphQueryClient,
+    watch_contract: WatchContract,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start into fetch_history_events from:{}", watch_contract.from_height);
+    let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
+    let mut watch_contract = watch_contract.clone();
+    let local_db_clone = local_db.clone();
+    let addr = watch_contract.addr.clone();
+    let async_fn = || async move {
+        loop {
+            let current_finalized =
+                goat_client.chain_service.adaptor.get_finalized_block_number().await;
+            if current_finalized.is_err() {
+                warn!("fail to get finalize block, will try later");
+                sleep(Duration::from_millis(500)).await;
+                continue;
+            }
+            let current_finalized = current_finalized?;
+            if watch_contract.from_height >= current_finalized {
+                info!(
+                    "Not need to fetch history events, as current finalize height: {current_finalized} is litter than watch from height: {}",
+                    watch_contract.from_height,
+                );
+                break;
+            }
+
+            let to_height = current_finalized.min(watch_contract.from_height + watch_contract.gap);
+            let mut tx = local_db.start_transaction().await?;
+
+            fetch_and_handle_block_range_events(
+                &query_client,
+                &mut tx,
+                watch_contract.from_height,
+                to_height,
+            )
+            .await?;
+            info!(
+                "finish load history event from: {}, to: {to_height}",
+                watch_contract.from_height
+            );
+            watch_contract.from_height = to_height + 1;
+            watch_contract.status = WatchContractStatus::Syncing.to_string();
+            watch_contract.updated_at = current_time_secs();
+
+            if to_height >= current_finalized {
+                info!("Finish load history at {to_height}");
+                watch_contract.status = WatchContractStatus::Synced.to_string();
+                tx.create_or_update_watch_contract(&watch_contract).await?;
+                tx.commit().await?;
+                break;
+            }
+            tx.create_or_update_watch_contract(&watch_contract).await?;
+            tx.commit().await?;
+        }
+        Ok::<(), Box<dyn std::error::Error>>(())
+    };
+    // FIXME latter
+    let err = match async_fn().await {
+        Ok(_) => false,
+        Err(err) => {
+            warn!("fetch_history_events failed,err:{:?}", err);
+            true
+        }
+    };
+    if err {
+        let mut storage_processor = local_db_clone.acquire().await?;
+        let _ = storage_processor
+            .update_watch_contract_status(
+                &addr,
+                &WatchContractStatus::Failed.to_string(),
+                current_time_secs(),
+            )
+            .await;
+    }
+    Ok(())
+}
+
+pub async fn monitor_events(
+    goat_client: &GOATClient,
+    local_db: &LocalDB,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("start tick monitor_events");
+    let addr = env::get_goat_gateway_contract_from_env().to_string();
+    let current = current_time_secs();
+    let mut storage_processor = local_db.acquire().await?;
+    let mut watch_contract =
+        if let Some(watch_contract) = storage_processor.get_watch_contract(&addr).await? {
+            watch_contract
+        } else {
+            WatchContract {
+                addr,
+                the_graph_url: env::get_goat_event_the_graph_url_from_env(),
+                gap: env::get_goat_event_filter_gap_from_env(),
+                from_height: env::get_goat_event_filter_gap_from_env(),
+                status: WatchContractStatus::UnSync.to_string(),
+                extra: None,
+                updated_at: current,
+            }
+        };
+    let query_client = GraphQueryClient::new(watch_contract.the_graph_url.clone());
+    let current_finalized = goat_client.chain_service.adaptor.get_finalized_block_number().await?;
+
+    if watch_contract.from_height == 0 || watch_contract.from_height >= current_finalized {
+        warn!(
+            "watch_contract start height is zero or bigger than current height, not do watch jobs"
+        );
+        return Ok(());
+    }
+    if (watch_contract.from_height + watch_contract.gap < current_finalized
+        && (watch_contract.status == WatchContractStatus::UnSync.to_string()
+            || watch_contract.status == WatchContractStatus::Failed.to_string()))
+        || (watch_contract.status == WatchContractStatus::Syncing.to_string()
+            && watch_contract.updated_at + 3600 < current)
+    {
+        let watch_contract_clone = watch_contract.clone();
+        let local_db_clone = local_db.clone();
+        let query_client_clone = query_client.clone();
+        tokio::spawn(async move {
+            let _ =
+                fetch_history_events(&local_db_clone, &query_client_clone, watch_contract_clone)
+                    .await;
+        });
+        return Ok(());
+    }
+
+    if watch_contract.status != WatchContractStatus::Synced.to_string() {
+        info!("Event sync not finished ");
+        return Ok(());
+    }
+    let to_height = current_finalized.min(watch_contract.from_height + watch_contract.gap);
+    let mut tx = local_db.start_transaction().await?;
+    fetch_and_handle_block_range_events(
+        &query_client,
+        &mut tx,
+        watch_contract.from_height,
+        to_height,
+    )
+    .await?;
+    info!("finish load history event from: {}, to: {to_height}", watch_contract.from_height);
+    watch_contract.from_height = to_height + 1;
+    watch_contract.updated_at = current_time_secs();
+    tx.create_or_update_watch_contract(&watch_contract).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn scan_bridge_in_prepare(
@@ -355,14 +573,15 @@ pub async fn scan_post_operator_data(
                         instance.instance_id, graph.graph_id, tx_hash
                     );
                     storage_process
-                        .update_graph_fields(
-                            graph.graph_id,
-                            Some(GraphStatus::OperatorDataPushed.to_string()),
-                            None,
-                            None,
-                            None,
-                            None,
-                        )
+                        .update_graph_fields(UpdateGraphParams {
+                            graph_id: graph.graph_id,
+                            status: Some(GraphStatus::OperatorDataPushed.to_string()),
+                            ipfs_base_url: None,
+                            challenge_txid: None,
+                            disprove_txid: None,
+                            bridge_out_start_at: None,
+                            init_withdraw_txid: None,
+                        })
                         .await?
                 }
                 Err(err) => {
@@ -460,16 +679,6 @@ pub async fn scan_kickoff(
             }
         }
         if send_message {
-            update_graph_fields(
-                local_db,
-                graph_data.graph_id,
-                Some(GraphStatus::KickOff.to_string()),
-                None,
-                None,
-                None,
-                Some(current_time_secs()),
-            )
-            .await?;
             let message_content = GOATMessageContent::KickoffSent(KickoffSent {
                 instance_id,
                 graph_id,
@@ -848,6 +1057,9 @@ pub async fn do_tick_action(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if let Err(err) = monitor_events(goat_client, local_db).await {
+        warn!("monitor_events, err {:?}", err)
+    }
     if let Err(err) = scan_bridge_in_prepare(swarm, local_db).await {
         warn!("scan_bridge_in_prepare, err {:?}", err)
     }

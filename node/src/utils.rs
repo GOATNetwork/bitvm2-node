@@ -49,7 +49,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::LocalDB;
+use store::localdb::{LocalDB, UpdateGraphParams};
 use store::{BridgeInStatus, Graph, GraphStatus, Node};
 use tracing::warn;
 use uuid::Uuid;
@@ -890,7 +890,7 @@ pub async fn get_committee_partial_sigs(
 pub async fn update_graph_fields(
     local_db: &LocalDB,
     graph_id: Uuid,
-    graph_state: Option<String>,
+    status: Option<String>,
     ipfs_base_url: Option<String>,
     challenge_txid: Option<String>,
     disprove_txid: Option<String>,
@@ -898,14 +898,15 @@ pub async fn update_graph_fields(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = local_db.acquire().await?;
     Ok(storage_process
-        .update_graph_fields(
+        .update_graph_fields(UpdateGraphParams {
             graph_id,
-            graph_state,
+            status,
             ipfs_base_url,
             challenge_txid,
             disprove_txid,
             bridge_out_start_at,
-        )
+            init_withdraw_txid: None,
+        })
         .await?)
 }
 pub async fn store_graph(
@@ -962,6 +963,7 @@ pub async fn store_graph(
             bridge_out_start_at: 0,
             bridge_out_from_addr,
             bridge_out_to_addr,
+            init_withdraw_txid: None,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })

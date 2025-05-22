@@ -17,23 +17,23 @@ http://127.0.0.1:8080
 
 #### Create Node
 
-relate struct 
+relate struct
+
 ```rust
 pub enum NodeActor {
-    Committee,
-    Operator,
-    Challenger,
-    Relayer,
-    All,
+  Committee,
+  Operator,
+  Challenger,
+  Relayer,
+  All,
 }
 
-pub enum NodeStatus  { 
+pub enum NodeStatus {
   Online,
   Offline,
 }
 
 ```
-
 
 - **Endpoint**: `POST /v1/nodes`
 - **Description**: Create a new node in the network
@@ -58,16 +58,17 @@ pub enum NodeStatus  {
   "created_at": "number"
 }
 ```
+
 #### Get Nodes
 
 - **Endpoint**: `GET /v1/nodes`
 - **Description**: Retrieve a list of nodes with optional filtering
 - **Query Parameters**:
-    - `actor`: Filter nodes by acotr (e.g., "Committee")
-    - `goat_addr`: Filter nodes by goat address
-    - `status`: Filter nodes by status (e.g., "Online", "Offline")
-    - `offset`: Pagination offset
-    - `limit`: Number of nodes to return
+  - `actor`: Filter nodes by acotr (e.g., "Committee")
+  - `goat_addr`: Filter nodes by goat address
+  - `status`: Filter nodes by status (e.g., "Online", "Offline")
+  - `offset`: Pagination offset
+  - `limit`: Number of nodes to return
 - **Response**:
 
 ```json
@@ -110,22 +111,23 @@ pub enum NodeStatus  {
 
 ### 2. Instance Management
 
-relate struct 
+relate struct
+
 ```rust
 /// 1.instance.network:
 pub enum InstanceNetwork {
-    /// Mainnet Bitcoin.
-    Bitcoin,
-    /// Bitcoin's testnet network. (In future versions this will be combined
-    /// into a single variant containing the version)
-    Testnet,
-    /// Bitcoin's testnet4 network. (In future versions this will be combined
-    /// into a single variant containing the version)
-    Testnet4,
-    /// Bitcoin's signet network.
-    Signet,
-    /// Bitcoin's regtest network.
-    Regtest,
+  /// Mainnet Bitcoin.
+  Bitcoin,
+  /// Bitcoin's testnet network. (In future versions this will be combined
+  /// into a single variant containing the version)
+  Testnet,
+  /// Bitcoin's testnet4 network. (In future versions this will be combined
+  /// into a single variant containing the version)
+  Testnet4,
+  /// Bitcoin's signet network.
+  Signet,
+  /// Bitcoin's regtest network.
+  Regtest,
 }
 
 /// 2. instance.bridge_path
@@ -146,13 +148,12 @@ pub enum InstanceStatus {
 /// 4.instanct.amount in bitcoin sat
 ```
 
-
 #### Get Instance
 
 - **Endpoint**: `GET /v1/instances/{id}`
 - **Description**: Retrieve details of a specific instance
 - **Path Parameters**:
-    - `id`: Instance ID
+  - `id`: Instance ID
 - **Response**:
 
 ```json
@@ -192,10 +193,10 @@ pub enum InstanceStatus {
 - **Endpoint**: `GET /v1/instances`
 - **Description**: Retrieve a list of instances with optional filtering
 - **Query Parameters**:
-    - `from_addr`: Filter by user address
-    - `bridge_path`: select bridge path(e.g. 0: bridge in , 1 : bridge out) 
-    - `offset`: Pagination offset
-    - `limit`: Number of instances to return
+  - `from_addr`: Filter by user address
+  - `bridge_path`: select bridge path(e.g. 0: bridge in , 1 : bridge out)
+  - `offset`: Pagination offset
+  - `limit`: Number of instances to return
 - **Response**: List of instances matching the criteria
 
 ```json
@@ -286,6 +287,7 @@ pub enum InstanceStatus {
 ### 4. Graph Management
 
 relate struct
+
 ```rust
 
 ///1.graph.status
@@ -341,7 +343,7 @@ pub enum GraphBridgePath {
 - **Endpoint**: `GET /v1/graphs/{id}`
 - **Description**: Retrieve details of a specific graph
 - **Path Parameters**:
-    - `id`: Graph ID
+  - `id`: Graph ID
 - **Response**:
   ```json
   {
@@ -360,6 +362,10 @@ pub enum GraphBridgePath {
         "assert_final_txid": "string",
         "take2_txid": "string",
         "disprove_txid": "string",
+        "bridge_out_start_at": "number",
+        "bridge_out_from_addr": "string",
+        "bridge_out_to_addr":"string",
+        "init_withdraw_txid": "string",
         "operator": "string",
         "raw_data": "string",
         "updated_at": "number",
@@ -373,12 +379,12 @@ pub enum GraphBridgePath {
 - **Endpoint**: `GET /v1/graphs`
 - **Description**: Retrieve a list of graphs with optional filtering
 - **Query Parameters**:
-    - `stauts`: exp graph status(e.g:OperatorPresigned,CommitteePresigned, KickOff,Challenge,Assert,Take1,Take2,Disproved)
-    - `operator`: operator address on chain goat 
-    - `from_addr`: instance from address
-    - `graph_field`:peg_in tx hash or graph_id string 
-    - `offset`: Pagination offset
-    - `limit`: Number of graphs to return
+  - `stauts`: exp graph status(e.g:OperatorPresigned,CommitteePresigned, KickOff,Challenge,Assert,Take1,Take2,Disproved)
+  - `operator`: operator address on chain goat
+  - `from_addr`: instance from address
+  - `graph_field`:peg_in tx hash or graph_id string
+  - `offset`: Pagination offset
+  - `limit`: Number of graphs to return
 - **Response**:
   ```json
   {
@@ -402,6 +408,7 @@ pub enum GraphBridgePath {
                 "assert_final_txid": "string",
                 "take2_txid": "string",
                 "disprove_txid": "string",
+                "init_withdraw_txid": "string",
                 "operator": "string",
                 "updated_at": "number",
                 "created_at": "number"
@@ -419,7 +426,7 @@ pub enum GraphBridgePath {
 - **Endpoint**: `POST /v1/graphs/{id}/presign`
 - **Description**: Presign a graph
 - **Path Parameters**:
-    - `id`: Graph ID
+  - `id`: Graph ID
 - **Request Body**:
   ```json
   {
@@ -432,7 +439,7 @@ pub enum GraphBridgePath {
   {
     "instance_id": "string",
     "graph_id": "string",
-    "graph_ipfs_committee_txns": ["string"],
+    "graph_ipfs_committee_txns": ["string"]
   }
   ```
 
@@ -447,41 +454,45 @@ pub enum GraphBridgePath {
   }
   ```
 - **Response**:
+
 ```json
  {
+  "instance_id": "string",
+  "instance_status": "string",
+  "graph_status": {
+    "string": "string"
+  },
+  "tx": {
     "instance_id": "string",
-    "instance_status": "string",
-    "graph_status": {
-        "string": "string"
-    },
-    "tx": {
-        "instance_id": "string",
-        "network": "string",
-        "bridge_path": "number",
-        "from_addr": "string",
-        "to_addr": "string",
-        "amount": "number",
-        "status": "string",
-        "goat_txid": "string",
-        "btc_txid": "string",
-        "pegin_txid": null,
-        "input_uxtos": "json",
-        "fee": "number",
-        "created_at": "number",
-        "updated_at": "number"
-    }
-  } 
+    "network": "string",
+    "bridge_path": "number",
+    "from_addr": "string",
+    "to_addr": "string",
+    "amount": "number",
+    "status": "string",
+    "goat_txid": "string",
+    "btc_txid": "string",
+    "pegin_txid": null,
+    "input_uxtos": "json",
+    "fee": "number",
+    "created_at": "number",
+    "updated_at": "number"
+  }
+} 
 ```
-`ps:graph_status is map<graph_id>graph_status` ,The number of `graph_status` should correspond to the number of graphs for the given instance.
-If a graph for the instancce is created, the count must be greater than or equal to 1. 
+
+`ps:graph_status is map<graph_id>graph_status` ,The number of `graph_status` should correspond to the number of graphs
+for the given instance.
+If a graph for the instancce is created, the count must be greater than or equal to 1.
 
 #### Graph TXN
 
 - **Endpoint**: `GET /v1/graphs/{id}/txn`
-- **Description**: get graph txn: kickoff take1 and so on. 
+- **Description**: get graph txn: kickoff take1 and so on.
 - **Path Parameters**:
   - `id`: Graph ID
 - **Response**:
+
 ```json
 {
   "assert-commit0": "string",
@@ -498,21 +509,23 @@ If a graph for the instancce is created, the count must be greater than or equal
   "take2": "string"
 }
 ```
+
 - **Endpoint**: `GET /v1/graphs/{id}/tx`
 - **Description**: get graph txn: kickoff take1 and so on.
 - **Path Parameters**:
   - `id`: Graph ID
 - **Query Parameters**:
-  - `tx_name`: exp  assert-commit0.hex.. 
+  - `tx_name`: exp assert-commit0.hex..
   - `operator`: operator
 - **Response**:
+
 ```json
 {
   "tx_hex": "string"
 }
 ```
 
-  ## Error Handling
+## Error Handling
 
 All endpoints return appropriate HTTP status codes:
 

@@ -22,6 +22,11 @@ pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
 /// Relayer
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
+
+pub const ENV_GOAT_EVENT_THE_GRAPH_URL: &str = "GOAT_EVENT_THE_GRAPH_URL";
+pub const ENV_GOAT_EVENT_FILTER_FROM: &str = "GOAT_EVENT_FILTER_FROM";
+pub const ENV_GOAT_EVENT_FILTER_GAP: &str = "GOAT_EVENT_FILTER_GAP";
+
 /// Operator
 pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
 /// Operator(private key), Relayer(private key),  Committee(seed)
@@ -258,15 +263,36 @@ impl FromStr for IpfsTxName {
 pub fn get_goat_url_from_env() -> Url {
     let rpc_url_str =
         std::env::var(ENV_GOAT_CHAIN_URL).expect("Failed to read {ENV_GOAT_CHAIN_URL} variable");
-    rpc_url_str.parse::<Url>().expect("Failed to parse {rpc_url_str} to URL")
+    rpc_url_str.parse::<Url>().unwrap_or_else(|_| panic!("Failed to parse {rpc_url_str} to URL"))
 }
 
 pub fn get_goat_gateway_contract_from_env() -> EvmAddress {
     let gateway_address_str = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
-        .expect("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_ADDRESS} variable");
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_ADDRESS} variable"));
     gateway_address_str
         .parse::<EvmAddress>()
-        .expect("Failed to parse {gateway_address_str} to address")
+        .unwrap_or_else(|_| panic!("Failed to parse {gateway_address_str} to address"))
+}
+
+pub fn get_goat_event_filter_from_from_env() -> i64 {
+    let event_filter_from_str = std::env::var(ENV_GOAT_EVENT_FILTER_FROM)
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_EVENT_FILTER_FROM} variable"));
+    event_filter_from_str
+        .parse::<i64>()
+        .unwrap_or_else(|_| panic!("Failed to parse {event_filter_from_str} to i64"))
+}
+
+pub fn get_goat_event_filter_gap_from_env() -> i64 {
+    let event_filter_gap_str = std::env::var(ENV_GOAT_EVENT_FILTER_GAP)
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_EVENT_FILTER_GAP} variable"));
+    event_filter_gap_str
+        .parse::<i64>()
+        .unwrap_or_else(|_| panic!("Failed to parse {event_filter_gap_str} to address"))
+}
+
+pub fn get_goat_event_the_graph_url_from_env() -> String {
+    std::env::var(ENV_GOAT_EVENT_THE_GRAPH_URL)
+        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_EVENT_THE_GRAPH_URL} variable"))
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {
@@ -279,7 +305,10 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     let chain_id = {
         let provider = ProviderBuilder::new().on_http(rpc_url.clone());
         // Call `eth_chainId`
-        provider.get_chain_id().await.expect("cannot get chain_id from {rpc_url}") as u32
+        provider
+            .get_chain_id()
+            .await
+            .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}")) as u32
     };
     GoatInitConfig { rpc_url, gateway_address, private_key, chain_id }
 }

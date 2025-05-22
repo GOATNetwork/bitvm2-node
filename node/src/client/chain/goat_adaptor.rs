@@ -2,6 +2,7 @@ use crate::client::chain::chain_adaptor::{
     BitcoinTx, ChainAdaptor, OperatorData, PeginData, PeginStatus, WithdrawData, WithdrawStatus,
 };
 use crate::client::chain::goat_adaptor::IGateway::IGatewayInstance;
+use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::TxHash;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
@@ -636,6 +637,16 @@ impl ChainAdaptor for GoatAdaptor {
             return Ok(res.status());
         }
         Ok(false)
+    }
+
+    async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
+        if let Some(block) =
+            self.provider.get_block_by_number(BlockNumberOrTag::Finalized, false).await?
+        {
+            Ok(block.header.number as i64)
+        } else {
+            bail!("fail to get finalize block");
+        }
     }
 }
 impl GoatAdaptor {

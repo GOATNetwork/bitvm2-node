@@ -12,6 +12,7 @@ use bitcoin::{Address as BtcAddress, PublicKey, Transaction, TxMerkleNode, Txid}
 use bitcoin::{Block, Network};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
+use serde::de::DeserializeOwned;
 use std::str::FromStr;
 use store::Graph;
 use store::localdb::LocalDB;
@@ -19,6 +20,7 @@ use uuid::Uuid;
 
 pub mod chain;
 pub mod esplora;
+pub mod graph_query;
 
 pub async fn create_local_db(db_path: &str) -> LocalDB {
     let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
@@ -503,6 +505,36 @@ pub fn cast_graph_to_operate_data(graph: &Graph) -> anyhow::Result<OperatorData>
         assert_final_txid: deserialize_hex(&graph.assert_final_txid.clone().unwrap())?,
         take2_txid: deserialize_hex(&graph.take2_txid.clone().unwrap())?,
     })
+}
+
+#[derive(Clone)]
+pub struct GraphQueryClient {
+    client: reqwest::Client,
+    subgraph_url: String,
+}
+
+impl GraphQueryClient {
+    pub fn new(subgraph_url: String) -> Self {
+        let client = reqwest::Client::new();
+        Self { client, subgraph_url }
+    }
+    pub async fn execute_query<T: DeserializeOwned>(&self, query: &str) -> anyhow::Result<Vec<T>> {
+        let response = self
+            .client
+            .post(&self.subgraph_url)
+            .json(&serde_json::json!({
+                "query": query
+            }))
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+        let events = response["data"]["transfers"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Invalid response format"))?;
+        let events: Vec<T> = serde_json::from_value(serde_json::Value::Array(events.clone()))?;
+        Ok(events)
+    }
 }
 
 #[cfg(test)]
