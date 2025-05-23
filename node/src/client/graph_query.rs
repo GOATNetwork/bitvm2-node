@@ -6,6 +6,8 @@ pub enum UserGraphWithdrawEvent {
     CancelWithdraw(CancelWithdrawEvent),
 }
 
+pub const INIT_WITHDRAW_EVENT_ENTITY: &str = "initWithdraws";
+pub const CANCEL_WITHDRAW_EVENT_ENTITY: &str = "cancelWithdraws";
 impl UserGraphWithdrawEvent {
     pub fn get_block_number(&self) -> i64 {
         match self {
@@ -26,8 +28,6 @@ pub struct InitWithdrawEvent {
     pub transaction_hash: String,
     #[serde(rename = "blockNumber")]
     pub block_number: String,
-    #[serde(rename = "IntWithdrawTxHash")]
-    pub int_withdraw_tx_hash: String,
     #[serde(rename = "instanceId")]
     pub instance_id: String,
     #[serde(rename = "graphId")]
@@ -61,6 +61,10 @@ impl BlockRange {
 
 #[derive(Debug)]
 pub struct QueryBuilder {
+    queries: Vec<SingleQuery>,
+}
+#[derive(Debug)]
+struct SingleQuery {
     entity: String,
     fields: Vec<String>,
     filters: Vec<(String, String)>,
@@ -70,9 +74,18 @@ pub struct QueryBuilder {
     skip: Option<usize>,
 }
 
+impl Default for QueryBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl QueryBuilder {
-    pub fn new(entity: &str) -> Self {
-        Self {
+    pub fn new() -> Self {
+        Self { queries: Vec::new() }
+    }
+
+    pub fn add_query(mut self, entity: &str) -> Self {
+        self.queries.push(SingleQuery {
             entity: entity.to_string(),
             fields: Vec::new(),
             filters: Vec::new(),
@@ -80,104 +93,115 @@ impl QueryBuilder {
             order_direction: None,
             first: None,
             skip: None,
+        });
+        self
+    }
+
+    pub fn add_field(mut self, entity: &str, field: &str) -> Self {
+        if let Some(query) = self.queries.iter_mut().find(|q| q.entity == entity) {
+            query.fields.push(field.to_string());
         }
-    }
-
-    pub fn add_field(mut self, field: &str) -> Self {
-        self.fields.push(field.to_string());
         self
     }
 
-    pub fn add_filter(mut self, field: &str, value: &str) -> Self {
-        self.filters.push((field.to_string(), value.to_string()));
+    pub fn add_filter(mut self, entity: &str, field: &str, value: &str) -> Self {
+        if let Some(query) = self.queries.iter_mut().find(|q| q.entity == entity) {
+            query.filters.push((field.to_string(), value.to_string()));
+        }
         self
     }
 
-    pub fn set_order_by(mut self, field: &str, direction: &str) -> Self {
-        self.order_by = Some(field.to_string());
-        self.order_direction = Some(direction.to_string());
+    pub fn set_order_by(mut self, entity: &str, field: &str, direction: &str) -> Self {
+        if let Some(query) = self.queries.iter_mut().find(|q| q.entity == entity) {
+            query.order_by = Some(field.to_string());
+            query.order_direction = Some(direction.to_string());
+        }
         self
     }
 
-    pub fn set_pagination(mut self, first: usize, skip: Option<usize>) -> Self {
-        self.first = Some(first);
-        self.skip = skip;
+    pub fn set_pagination(mut self, entity: &str, first: usize, skip: Option<usize>) -> Self {
+        if let Some(query) = self.queries.iter_mut().find(|q| q.entity == entity) {
+            query.first = Some(first);
+            query.skip = skip;
+        }
         self
     }
 
     pub fn build(self) -> String {
-        let mut query = format!(
-            r#"query {{
-            {}("#,
-            self.entity
-        );
+        let mut query = String::from("query {");
 
-        // Add where clause if there are filters
-        if !self.filters.is_empty() {
-            query.push_str("where: {");
-            for (field, value) in self.filters {
-                query.push_str(&format!("{field}: \"{value}\","));
+        for q in self.queries {
+            query.push_str(&format!("\n{}(", q.entity));
+            // Add where clause if there are filters
+            if !q.filters.is_empty() {
+                query.push_str("where: {");
+                for (field, value) in q.filters {
+                    query.push_str(&format!("{field}: \"{value}\","));
+                }
+                query.push_str("},");
             }
-            query.push_str("},");
+            // Add order by if specified
+            if let (Some(order_by), Some(direction)) = (q.order_by, q.order_direction) {
+                query.push_str(&format!("orderBy: {order_by}, orderDirection: {direction},"));
+            }
+            // Add pagination if specified
+            if let Some(first) = q.first {
+                query.push_str(&format!("first: {first},"));
+            }
+            if let Some(skip) = q.skip {
+                query.push_str(&format!("skip: {skip},"));
+            }
+            // Add fields
+            query.push_str(") {");
+            for field in q.fields {
+                query.push_str(&format!("{field} "));
+            }
+            query.push_str(" }");
         }
 
-        // Add order by if specified
-        if let (Some(order_by), Some(direction)) = (self.order_by, self.order_direction) {
-            query.push_str(&format!("orderBy: {order_by}, orderDirection: {direction},"));
-        }
-
-        // Add pagination if specified
-        if let Some(first) = self.first {
-            query.push_str(&format!("first: {first},"));
-        }
-        if let Some(skip) = self.skip {
-            query.push_str(&format!("skip: {skip},",));
-        }
-
-        // Add fields
-        query.push_str(") {");
-        for field in self.fields {
-            query.push_str(&format!("{field} "));
-        }
-        query.push_str("}}");
-
+        query.push_str("\n}");
         query
     }
 }
 
-pub fn get_init_withdraw_events_query(block_range: Option<BlockRange>) -> String {
-    let mut query_builder = QueryBuilder::new("initWithdrawEvent")
-        .add_field("id")
-        .add_field("IntWithdrawTxHash")
-        .add_field("instanceId")
-        .add_field("graphId")
-        .add_field("transactionHash")
-        .add_field("blockNumber")
-        .set_order_by("blockNumber", "asc");
-    query_builder = query_builder.set_pagination(5, None);
+pub fn get_user_withdraw_events_query(block_range: Option<BlockRange>) -> String {
+    let mut query_builder = QueryBuilder::new()
+        .add_query(INIT_WITHDRAW_EVENT_ENTITY)
+        .add_query(CANCEL_WITHDRAW_EVENT_ENTITY);
+    query_builder = query_builder
+        .add_field(INIT_WITHDRAW_EVENT_ENTITY, "id")
+        .add_field(INIT_WITHDRAW_EVENT_ENTITY, "instanceId")
+        .add_field(INIT_WITHDRAW_EVENT_ENTITY, "graphId")
+        .add_field(INIT_WITHDRAW_EVENT_ENTITY, "transactionHash")
+        .add_field(INIT_WITHDRAW_EVENT_ENTITY, "blockNumber")
+        .set_order_by(INIT_WITHDRAW_EVENT_ENTITY, "blockNumber", "asc");
+
+    query_builder = query_builder
+        .add_field(CANCEL_WITHDRAW_EVENT_ENTITY, "id")
+        .add_field(CANCEL_WITHDRAW_EVENT_ENTITY, "instanceId")
+        .add_field(CANCEL_WITHDRAW_EVENT_ENTITY, "graphId")
+        .add_field(CANCEL_WITHDRAW_EVENT_ENTITY, "transactionHash")
+        .add_field(CANCEL_WITHDRAW_EVENT_ENTITY, "blockNumber")
+        .set_order_by(CANCEL_WITHDRAW_EVENT_ENTITY, "blockNumber", "asc");
 
     if let Some(range) = block_range {
         query_builder = query_builder
-            .add_filter("blockNumber_gte", &range.start_block.to_string())
-            .add_filter("blockNumber_lte", &range.end_block.to_string());
-    }
-    query_builder.build()
-}
-
-pub fn get_cancel_withdraw_events_query(block_range: Option<BlockRange>) -> String {
-    let mut query_builder = QueryBuilder::new("cancelWithdrawEvent")
-        .add_field("id")
-        .add_field("instanceId")
-        .add_field("graphId")
-        .add_field("transactionHash")
-        .add_field("blockNumber")
-        .set_order_by("blockNumber", "asc");
-    query_builder = query_builder.set_pagination(5, None);
-
-    if let Some(range) = block_range {
-        query_builder = query_builder
-            .add_filter("blockNumber_gte", &range.start_block.to_string())
-            .add_filter("blockNumber_lte", &range.end_block.to_string());
+            .add_filter(
+                INIT_WITHDRAW_EVENT_ENTITY,
+                "blockNumber_gte",
+                &range.start_block.to_string(),
+            )
+            .add_filter(INIT_WITHDRAW_EVENT_ENTITY, "blockNumber_lte", &range.end_block.to_string())
+            .add_filter(
+                CANCEL_WITHDRAW_EVENT_ENTITY,
+                "blockNumber_gte",
+                &range.start_block.to_string(),
+            )
+            .add_filter(
+                CANCEL_WITHDRAW_EVENT_ENTITY,
+                "blockNumber_lte",
+                &range.end_block.to_string(),
+            );
     }
     query_builder.build()
 }

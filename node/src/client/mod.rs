@@ -12,7 +12,6 @@ use bitcoin::{Address as BtcAddress, PublicKey, Transaction, TxMerkleNode, Txid}
 use bitcoin::{Block, Network};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
-use serde::de::DeserializeOwned;
 use std::str::FromStr;
 use store::Graph;
 use store::localdb::LocalDB;
@@ -518,7 +517,7 @@ impl GraphQueryClient {
         let client = reqwest::Client::new();
         Self { client, subgraph_url }
     }
-    pub async fn execute_query<T: DeserializeOwned>(&self, query: &str) -> anyhow::Result<Vec<T>> {
+    pub async fn execute_query(&self, query: &str) -> anyhow::Result<serde_json::Value> {
         let response = self
             .client
             .post(&self.subgraph_url)
@@ -529,11 +528,7 @@ impl GraphQueryClient {
             .await?
             .json::<serde_json::Value>()
             .await?;
-        let events = response["data"]["transfers"]
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("Invalid response format"))?;
-        let events: Vec<T> = serde_json::from_value(serde_json::Value::Array(events.clone()))?;
-        Ok(events)
+        Ok(response["data"].clone())
     }
 }
 

@@ -76,6 +76,9 @@ pub const INSTANCE_PRESIGNED_TIME_EXPIRED: i64 = 3600;
 pub const SYNC_GRAPH_INTERVAL: u64 = 3;
 pub const SYNC_GRAPH_MAX_WAIT_SECS: u64 = 30;
 
+// use to judge load history event thread is dead
+pub const LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS: i64 = 3600;
+
 pub fn get_network() -> Network {
     BTC_NETWORK
 }
@@ -275,16 +278,16 @@ pub fn get_goat_gateway_contract_from_env() -> EvmAddress {
 }
 
 pub fn get_goat_event_filter_from_from_env() -> i64 {
-    let event_filter_from_str = std::env::var(ENV_GOAT_EVENT_FILTER_FROM)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_EVENT_FILTER_FROM} variable"));
+    let event_filter_from_str =
+        std::env::var(ENV_GOAT_EVENT_FILTER_FROM).unwrap_or("4567187".to_string());
     event_filter_from_str
         .parse::<i64>()
         .unwrap_or_else(|_| panic!("Failed to parse {event_filter_from_str} to i64"))
 }
 
 pub fn get_goat_event_filter_gap_from_env() -> i64 {
-    let event_filter_gap_str = std::env::var(ENV_GOAT_EVENT_FILTER_GAP)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_EVENT_FILTER_GAP} variable"));
+    let event_filter_gap_str =
+        std::env::var(ENV_GOAT_EVENT_FILTER_GAP).unwrap_or("1000".to_string());
     event_filter_gap_str
         .parse::<i64>()
         .unwrap_or_else(|_| panic!("Failed to parse {event_filter_gap_str} to address"))
@@ -292,7 +295,7 @@ pub fn get_goat_event_filter_gap_from_env() -> i64 {
 
 pub fn get_goat_event_the_graph_url_from_env() -> String {
     std::env::var(ENV_GOAT_EVENT_THE_GRAPH_URL)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_EVENT_THE_GRAPH_URL} variable"))
+        .unwrap_or("https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/bitvm2_gateway_dev/v0.0.1/gn".to_string())
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {

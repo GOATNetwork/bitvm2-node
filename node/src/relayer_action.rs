@@ -3,17 +3,18 @@
 use crate::action::{ChallengeSent, CreateInstance, DisproveSent};
 use crate::client::chain::chain_adaptor::WithdrawStatus;
 use crate::client::graph_query::{
-    BlockRange, CancelWithdrawEvent, InitWithdrawEvent, UserGraphWithdrawEvent,
-    get_cancel_withdraw_events_query, get_init_withdraw_events_query,
+    BlockRange, CANCEL_WITHDRAW_EVENT_ENTITY, CancelWithdrawEvent, INIT_WITHDRAW_EVENT_ENTITY,
+    InitWithdrawEvent, UserGraphWithdrawEvent, get_user_withdraw_events_query,
 };
 use crate::client::{BTCClient, GOATClient, GraphQueryClient};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED,
-    MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
+    LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
 };
 use crate::rpc_service::{P2pUserData, current_time_secs};
 use crate::utils::{
-    finish_withdraw_disproved, obsolete_sibling_graphs, outpoint_spent_txid, update_graph_fields,
+    finish_withdraw_disproved, obsolete_sibling_graphs, outpoint_spent_txid,
+    strip_hex_prefix_owned, update_graph_fields,
 };
 use crate::{
     action::{
@@ -153,17 +154,26 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     from_height: i64,
     to_height: i64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let init_withdraw_events: Vec<InitWithdrawEvent> = client
-        .execute_query::<InitWithdrawEvent>(&get_init_withdraw_events_query(Some(BlockRange::new(
+    let query_res = client
+        .execute_query(&get_user_withdraw_events_query(Some(BlockRange::new(
             from_height,
             to_height,
         ))))
         .await?;
-    let cancel_withdraw_events: Vec<CancelWithdrawEvent> = client
-        .execute_query::<CancelWithdrawEvent>(&get_cancel_withdraw_events_query(Some(
-            BlockRange::new(from_height, to_height),
-        )))
-        .await?;
+
+    let init_withdraw_events: Vec<InitWithdrawEvent> =
+        if let Some(init_withdraw_value) = query_res[INIT_WITHDRAW_EVENT_ENTITY].as_array() {
+            serde_json::from_value(serde_json::Value::Array(init_withdraw_value.clone()))?
+        } else {
+            vec![]
+        };
+
+    let cancel_withdraw_events: Vec<CancelWithdrawEvent> =
+        if let Some(cancel_withdraw_value) = query_res[CANCEL_WITHDRAW_EVENT_ENTITY].as_array() {
+            serde_json::from_value(serde_json::Value::Array(cancel_withdraw_value.clone()))?
+        } else {
+            vec![]
+        };
     info!(
         "get user init withdraw events: {}, cancel withdraw events: {}, block range {from_height}:{to_height}",
         init_withdraw_events.len(),
@@ -178,7 +188,7 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     for event in user_withdraw_events {
         match event {
             UserGraphWithdrawEvent::InitWithdraw(init_event) => {
-                let graph_id = Uuid::from_str(&init_event.graph_id)?;
+                let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.graph_id))?;
                 storage_processor
                     .update_graph_fields(UpdateGraphParams {
                         graph_id,
@@ -187,7 +197,7 @@ pub async fn fetch_and_handle_block_range_events<'a>(
                         challenge_txid: None,
                         disprove_txid: None,
                         bridge_out_start_at: Some(current_time_secs()),
-                        init_withdraw_txid: Some(init_event.int_withdraw_tx_hash),
+                        init_withdraw_txid: Some(init_event.transaction_hash),
                     })
                     .await?;
             }
@@ -215,7 +225,7 @@ pub async fn fetch_history_events(
     query_client: &GraphQueryClient,
     watch_contract: WatchContract,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("start into fetch_history_events from:{}", watch_contract.from_height);
+    info!("Start into fetch_history_events from:{}", watch_contract.from_height);
     let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
     let mut watch_contract = watch_contract.clone();
     let local_db_clone = local_db.clone();
@@ -242,7 +252,7 @@ pub async fn fetch_history_events(
             let mut tx = local_db.start_transaction().await?;
 
             fetch_and_handle_block_range_events(
-                &query_client,
+                query_client,
                 &mut tx,
                 watch_contract.from_height,
                 to_height,
@@ -305,7 +315,7 @@ pub async fn monitor_events(
                 addr,
                 the_graph_url: env::get_goat_event_the_graph_url_from_env(),
                 gap: env::get_goat_event_filter_gap_from_env(),
-                from_height: env::get_goat_event_filter_gap_from_env(),
+                from_height: env::get_goat_event_filter_from_from_env(),
                 status: WatchContractStatus::UnSync.to_string(),
                 extra: None,
                 updated_at: current,
@@ -320,12 +330,15 @@ pub async fn monitor_events(
         );
         return Ok(());
     }
-    if (watch_contract.from_height + watch_contract.gap < current_finalized
-        && (watch_contract.status == WatchContractStatus::UnSync.to_string()
-            || watch_contract.status == WatchContractStatus::Failed.to_string()))
-        || (watch_contract.status == WatchContractStatus::Syncing.to_string()
-            && watch_contract.updated_at + 3600 < current)
-    {
+
+    if watch_contract.from_height + watch_contract.gap < current_finalized {
+        if watch_contract.status == WatchContractStatus::Syncing.to_string()
+            && watch_contract.updated_at + LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS > current
+        {
+            info!("Still in handle local event! will check later");
+            return Ok(());
+        }
+
         let watch_contract_clone = watch_contract.clone();
         let local_db_clone = local_db.clone();
         let query_client_clone = query_client.clone();
@@ -350,7 +363,7 @@ pub async fn monitor_events(
         to_height,
     )
     .await?;
-    info!("finish load history event from: {}, to: {to_height}", watch_contract.from_height);
+    info!("finish monitor event from: {}, to: {to_height}", watch_contract.from_height);
     watch_contract.from_height = to_height + 1;
     watch_contract.updated_at = current_time_secs();
     tx.create_or_update_watch_contract(&watch_contract).await?;

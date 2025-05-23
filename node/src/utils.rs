@@ -1331,6 +1331,10 @@ pub fn get_rand_btc_address(network: Network) -> String {
     .to_string()
 }
 
+pub fn strip_hex_prefix_owned(s: &str) -> String {
+    if s.starts_with("0x") || s.starts_with("0X") { s[2..].to_string() } else { s.to_string() }
+}
+
 pub async fn obsolete_sibling_graphs(
     local_db: &LocalDB,
     instance_id: Uuid,
