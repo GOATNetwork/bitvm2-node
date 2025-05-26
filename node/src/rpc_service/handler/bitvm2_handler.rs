@@ -136,7 +136,12 @@ pub async fn graph_presign_check(
         let graphs = storage_process.get_graph_by_instance_id(&instance_id).await?;
         resp_clone.graph_status = graphs
             .into_iter()
-            .map(|v| (v.graph_id.to_string(), modify_graph_status(&v.status)))
+            .map(|v| {
+                (
+                    v.graph_id.to_string(),
+                    modify_graph_status(&v.status, v.init_withdraw_txid.is_some()),
+                )
+            })
             .collect();
         Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone)
     };
@@ -491,7 +496,7 @@ pub async fn get_graph(
         let mut graph = graph_op.unwrap();
         // front end unused data
         graph.raw_data = None;
-        graph.status = modify_graph_status(&graph.status);
+        graph.status = modify_graph_status(&graph.status, graph.init_withdraw_txid.is_some());
         graph.reverse_btc_txid();
         Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: Some(graph) })
     };
@@ -547,9 +552,9 @@ pub async fn get_graphs(
         let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
         let mut graph_vec = vec![];
         let bridge_in_status = vec![
-            GraphStatus::CommitteePresigned.to_string(),
-            GraphStatus::OperatorDataPushed.to_string(),
-            GraphStatus::OperatorPresigned.to_string(),
+            GraphStatus::Created.to_string(),
+            GraphStatus::Presigned.to_string(),
+            GraphStatus::L2Recorded.to_string(),
         ];
         for mut graph in graphs {
             graph.reverse_btc_txid();
@@ -565,10 +570,16 @@ pub async fn get_graphs(
                 }
                 Err(_) => (0, 0),
             };
-            // TODO remove middle status
-            graph.status = modify_graph_status(&graph.status);
-            let graph = convert_to_rpc_query_data(&graph, from_addr.clone(), &bridge_in_status)?;
-            graph_vec.push(GraphRpcQueryDataWrap { graph, confirmations, target_confirmations });
+            graph.status = modify_graph_status(&graph.status, graph.init_withdraw_txid.is_some());
+            if let Some(graph) =
+                convert_to_rpc_query_data(&graph, from_addr.clone(), &bridge_in_status)?
+            {
+                graph_vec.push(GraphRpcQueryDataWrap {
+                    graph,
+                    confirmations,
+                    target_confirmations,
+                });
+            }
         }
         graph_vec.sort_by(|a, b| b.graph.created_at.cmp(&a.graph.created_at));
         resp_clone.graphs = graph_vec;
@@ -597,7 +608,11 @@ pub fn convert_to_rpc_query_data(
     graph: &GrapFullData,
     from_addr: Option<String>,
     bridge_in_status: &[String],
-) -> Result<GrapRpcQueryData, Box<dyn std::error::Error>> {
+) -> Result<Option<GrapRpcQueryData>, Box<dyn std::error::Error>> {
+    if bridge_in_status.contains(&graph.status) {
+        return Ok(None);
+    }
+
     let mut graph_res = GrapRpcQueryData {
         graph_id: graph.graph_id,
         instance_id: graph.instance_id,
@@ -645,7 +660,7 @@ pub fn convert_to_rpc_query_data(
             graph_res.to_addr = graph.bridge_out_to_addr.clone();
         }
     }
-    Ok(graph_res)
+    Ok(Some(graph_res))
 }
 
 fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {

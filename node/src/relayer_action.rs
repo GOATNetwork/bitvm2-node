@@ -1070,9 +1070,9 @@ pub async fn do_tick_action(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Err(err) = monitor_events(goat_client, local_db).await {
-        warn!("monitor_events, err {:?}", err)
-    }
+    // if let Err(err) = monitor_events(goat_client, local_db).await {
+    //     warn!("monitor_events, err {:?}", err)
+    // }
     if let Err(err) = scan_bridge_in_prepare(swarm, local_db).await {
         warn!("scan_bridge_in_prepare, err {:?}", err)
     }

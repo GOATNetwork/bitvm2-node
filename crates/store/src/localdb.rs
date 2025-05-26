@@ -449,7 +449,9 @@ impl<'a> StorageProcessor<'a> {
         }
 
         if params.is_bridge_out && params.status.is_none() {
-            conditions.push("graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\',\'OperatorDataPushed\')".to_string());
+            conditions.push(
+                "graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\')".to_string(),
+            );
         }
 
         if !conditions.is_empty() {

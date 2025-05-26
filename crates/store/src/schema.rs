@@ -247,11 +247,17 @@ impl Graph {
     }
 }
 
-pub fn modify_graph_status(ori_status: &str) -> String {
+pub fn modify_graph_status(ori_status: &str, is_kickoffing: bool) -> String {
     match ori_status {
         "OperatorPresigned" => "Created".to_string(),
         "CommitteePresigned" => "Presigned".to_string(),
-        "OperatorDataPushed" => "L2Recorded".to_string(),
+        "OperatorDataPushed" => {
+            if is_kickoffing {
+                "KickOffing".to_string()
+            } else {
+                "L2Recorded".to_string()
+            }
+        }
         "KickOff" => "Challenging".to_string(),
         "Challenge" => "Asserting".to_string(),
         "Assert" => "Disproving".to_string(),
