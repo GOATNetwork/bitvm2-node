@@ -34,10 +34,6 @@ use tokio::time::interval;
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Opts {
-    /// Run in daemon mode
-    #[arg(short)]
-    daemon: bool,
-
     /// Setup the bootnode p2p port
     #[arg(long, default_value = "0")]
     p2p_port: u16,
@@ -54,11 +50,6 @@ struct Opts {
     #[arg(long)]
     bootnodes: Vec<String>,
 
-    // #[arg(long)]
-    // local_peer_id: Option<String>,
-
-    // #[arg(long)]
-    // local_key: Option<String>,
     /// Metric endpoint path.
     #[arg(long, default_value = "/metrics")]
     metrics_path: String,
@@ -67,9 +58,6 @@ struct Opts {
     #[arg(long, default_value = "true")]
     enable_kademlia: bool,
 
-    // /// Whether to run the libp2p Autonat protocol.
-    // #[arg(long)]
-    // enable_autonat: bool,
     #[command(subcommand)]
     cmd: Option<Commands>,
 }
@@ -192,12 +180,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 //return Ok(());
             }
         },
-        _ => {
-            //if !opt.daemon {
-            //    tracing::debug!("Help");
-            //    return Ok(());
-            //}
-        }
+        _ => {}
     }
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned

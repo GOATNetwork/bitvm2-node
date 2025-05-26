@@ -25,13 +25,13 @@ Run another node with a bootnode.
 
 # setup the PEER_KEY, BITVM_NODE_PUBKEY, BITVM_SECRET in .env
 
-./target/debug/bitvm2-noded --bootnodes $BOOTNODE -d
+./target/debug/bitvm2-noded --bootnodes $BOOTNODE
 ```
 
 if you launch multiple node in a single server, use different `rpc_addr` and `db_path`, for example,
 
 ```
-./target/debug/bitvm2-noded --bootnodes $BOOTNODE -d --rpc-addr localhost:8081 --db-path /tmp/bitvm2-node-2.db
+./target/debug/bitvm2-noded --bootnodes $BOOTNODE --rpc-addr localhost:8081 --db-path /tmp/bitvm2-node-2.db
 ```
 
 ## Env
@@ -41,7 +41,7 @@ check out the [.env.template](../.env.template) for details
 For example:
 
 ```bash
-ACTOR=Operator RUST_LOG=debug ./target/debug/bitvm2-noded --bootnodes 12D3KooWKqq1xos6tEAm8tzmMchzSdJzmaf4qaXf5fFmgQuTLA76 -d --rpc-addr localhost:8081 --db-path /tmp/bitvm2-node.db2
+ACTOR=Operator RUST_LOG=debug ./target/debug/bitvm2-noded --bootnodes 12D3KooWKqq1xos6tEAm8tzmMchzSdJzmaf4qaXf5fFmgQuTLA76 --rpc-addr localhost:8081 --db-path /tmp/bitvm2-node.db2
 ```
 
 ## Debug
