@@ -1,6 +1,7 @@
 use crate::client::{BTCClient, GOATClient};
 use crate::env::{
-    self, SYNC_GRAPH_INTERVAL, SYNC_GRAPH_MAX_WAIT_SECS, get_local_node_info, get_node_pubkey,
+    self, SYNC_GRAPH_INTERVAL, SYNC_GRAPH_MAX_WAIT_SECS, get_local_node_info,
+    get_node_goat_address, get_node_pubkey,
 };
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;
@@ -350,9 +351,11 @@ pub async fn recv_and_dispatch(
                         operator_wots_pubkeys,
                         operator_inputs,
                     };
-                    let disprove_scripts_bytes =
-                        disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
-                    let mut graph = generate_bitvm_graph(params, disprove_scripts_bytes)?;
+                    let mut graph = generate_bitvm_graph(
+                        params,
+                        disprove_scripts,
+                        get_fixed_disprove_output()?,
+                    )?;
                     operator_pre_sign(keypair, &mut graph)?;
                     store_graph(
                         local_db,
@@ -1053,16 +1056,15 @@ pub async fn recv_and_dispatch(
                     &get_partial_scripts(local_db).await?,
                     &graph.parameters.operator_wots_pubkeys,
                 );
-                let disprove_scripts_bytes =
-                    disprove_scripts.iter().map(|x| x.clone().compile().into_bytes()).collect();
                 let assert_wots_pubkeys = graph.parameters.operator_wots_pubkeys.1.clone();
                 let fee_rate = get_fee_rate(btc_client).await?;
                 let disprove_tx = sign_disprove(
                     &mut graph,
                     disprove_witness,
-                    disprove_scripts_bytes,
+                    disprove_scripts,
                     &assert_wots_pubkeys,
-                    disprove_reward_address()?,
+                    get_node_goat_address().map(|a| a.0.0),
+                    Some(disprove_reward_address()?),
                     fee_rate,
                 )?;
                 let disprove_txid = disprove_tx.compute_txid();

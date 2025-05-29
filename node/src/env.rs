@@ -136,6 +136,23 @@ pub fn get_ipfs_url() -> String {
     std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
 }
 
+pub fn get_node_goat_address() -> Option<EvmAddress> {
+    if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
+        let singer =
+            PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
+        Some(singer.address())
+    } else {
+        let mut addr_op = None;
+        if let Ok(addr_str) = std::env::var(ENV_GOAT_ADDRESS)
+            && let Ok(addr) = EvmAddress::from_str(&addr_str)
+        {
+            addr_op = Some(addr);
+        }
+
+        addr_op
+    }
+}
+
 pub async fn check_node_info() {
     let node_info = get_local_node_info();
     if [Actor::Operator.to_string(), Actor::Challenger.to_string()].contains(&node_info.actor)

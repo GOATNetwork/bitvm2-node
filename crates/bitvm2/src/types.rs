@@ -421,8 +421,7 @@ pub mod node_serializer {
         use super::*;
         use crate::types::WotsPublicKeys;
         use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
-        use bitvm::signatures::signing_winternitz::WinternitzPublicKey;
-        use bitvm::signatures::wots_api::{wots_hash, wots256};
+        use bitvm::signatures::{Wots, Wots16, Wots32, signing_winternitz::WinternitzPublicKey};
         use goat::commitments::NUM_KICKOFF;
         use std::collections::HashMap;
 
@@ -468,8 +467,8 @@ pub mod node_serializer {
             let pubkeys_map: HashMap<u32, Vec<Vec<u8>>> =
                 bincode::deserialize(&map_vec).map_err(serde::de::Error::custom)?;
 
-            const W256_LEN: usize = wots256::N_DIGITS as usize;
-            const WHASH_LEN: usize = wots_hash::N_DIGITS as usize;
+            const W256_LEN: usize = Wots32::TOTAL_DIGIT_LEN as usize;
+            const WHASH_LEN: usize = Wots16::TOTAL_DIGIT_LEN as usize;
 
             let mut pk0 = Vec::with_capacity(NUM_PUBS);
             let (min, max) = (0, NUM_PUBS);
@@ -491,7 +490,7 @@ pub mod node_serializer {
 
                 pk0.push(res);
             }
-            let pk0: [wots256::PublicKey; NUM_PUBS] = pk0
+            let pk0: [<Wots32 as Wots>::PublicKey; NUM_PUBS] = pk0
                 .try_into()
                 .map_err(|_| serde::de::Error::custom("groth16pk.pub size mismatch"))?;
 
@@ -515,7 +514,7 @@ pub mod node_serializer {
 
                 pk1.push(res);
             }
-            let pk1: [wots256::PublicKey; NUM_U256] = pk1
+            let pk1: [<Wots32 as Wots>::PublicKey; NUM_U256] = pk1
                 .try_into()
                 .map_err(|_| serde::de::Error::custom("groth16pk.wots256 size mismatch"))?;
 
@@ -539,7 +538,7 @@ pub mod node_serializer {
 
                 pk2.push(res);
             }
-            let pk2: [wots_hash::PublicKey; NUM_HASH] = pk2
+            let pk2: [<Wots16 as Wots>::PublicKey; NUM_HASH] = pk2
                 .try_into()
                 .map_err(|_| serde::de::Error::custom("groth16pk.wots_hash size mismatch"))?;
 

@@ -4,19 +4,17 @@ use crate::types::{
     WotsSecretKeys, get_magic_bytes,
 };
 use anyhow::{Result, bail};
-use bitcoin::Transaction;
 use bitcoin::{Amount, OutPoint, Witness, XOnlyPublicKey, key::Keypair};
+use bitcoin::{ScriptBuf, Transaction, TxOut};
 use bitvm::chunk::api::{
     NUM_HASH, NUM_PUBS, NUM_U256, api_generate_full_tapscripts, api_generate_partial_script,
     generate_signatures_lit, type_conversion_utils::utils_raw_witnesses_from_signatures,
 };
-use bitvm::signatures::wots_api::HASH_LEN;
 use bitvm::signatures::{
+    HASH_LEN, Wots, Wots16, Wots32,
     signing_winternitz::{LOG_D, WinternitzPublicKey, WinternitzSecret, WinternitzSigningInputs},
     winternitz::Parameters,
-    wots_api::{wots_hash, wots256},
 };
-use bitvm::treepp::*;
 use goat::commitments::{CommitmentMessageId, KICKOFF_MSG_SIZE, NUM_KICKOFF};
 use goat::connectors::{
     connector_0::Connector0, connector_3::Connector3, connector_4::Connector4,
@@ -50,19 +48,23 @@ pub fn generate_wots_keys(seed: &str) -> (WotsSecretKeys, WotsPublicKeys) {
     (secrets, pubkeys)
 }
 
+#[allow(deprecated)]
 pub fn wots_secrets_to_pubkeys(secrets: &WotsSecretKeys) -> WotsPublicKeys {
     let mut pubins = vec![];
     for i in 0..NUM_PUBS {
-        pubins.push(wots256::generate_public_key(&secrets.1[i]));
+        let secret = Wots32::secret_from_str(&secrets.1[i]);
+        pubins.push(Wots32::generate_public_key(&secret));
     }
     let mut fq_arr = vec![];
     for i in 0..NUM_U256 {
-        let p256 = wots256::generate_public_key(&secrets.1[i + NUM_PUBS]);
+        let secret = Wots32::secret_from_str(&secrets.1[i + NUM_PUBS]);
+        let p256 = Wots32::generate_public_key(&secret);
         fq_arr.push(p256);
     }
     let mut h_arr = vec![];
     for i in 0..NUM_HASH {
-        let p160 = wots_hash::generate_public_key(&secrets.1[i + NUM_PUBS + NUM_U256]);
+        let secret = Wots16::secret_from_str(&secrets.1[i + NUM_PUBS + NUM_U256]);
+        let p160 = Wots16::generate_public_key(&secret);
         h_arr.push(p160);
     }
     let g16_wotspubkey: Groth16WotsPublicKeys = Box::new((
@@ -84,6 +86,7 @@ pub fn wots_secrets_to_pubkeys(secrets: &WotsSecretKeys) -> WotsPublicKeys {
     )
 }
 
+#[allow(deprecated)]
 pub fn wots_seed_to_secrets(seed: &str) -> WotsSecretKeys {
     fn sha256(input: &str) -> String {
         let mut hasher = Sha256::new();
@@ -121,14 +124,14 @@ pub fn wots_seed_to_secrets(seed: &str) -> WotsSecretKeys {
     (kickoff_wotsseckey, g16_wotsseckey)
 }
 
-pub fn generate_partial_scripts(ark_vkey: &VerifyingKey) -> Vec<Script> {
+pub fn generate_partial_scripts(ark_vkey: &VerifyingKey) -> Vec<ScriptBuf> {
     api_generate_partial_script(ark_vkey)
 }
 
 pub fn generate_disprove_scripts(
-    partial_scripts: &[Script],
+    partial_scripts: &[ScriptBuf],
     wots_pubkeys: &WotsPublicKeys,
-) -> Vec<Script> {
+) -> Vec<ScriptBuf> {
     api_generate_full_tapscripts(*wots_pubkeys.1, partial_scripts)
 }
 
@@ -141,6 +144,7 @@ pub fn sign_proof(
     generate_signatures_lit(ark_proof, ark_pubin, ark_vkey, wots_sec.1.to_vec()).unwrap()
 }
 
+#[allow(deprecated)]
 pub fn corrupt_proof(
     proof_sigs: &mut Groth16WotsSignatures,
     wots_sec: &Groth16WotsSecretKeys,
@@ -148,30 +152,34 @@ pub fn corrupt_proof(
 ) {
     let mut scramble: [u8; 32] = [1u8; 32];
     scramble[16] = 37;
-    let mut scramble2: [u8; HASH_LEN as usize] = [1u8; HASH_LEN as usize];
-    scramble2[HASH_LEN as usize / 2] = 37;
+    let mut scramble2: [u8; HASH_LEN] = [1u8; HASH_LEN];
+    scramble2[HASH_LEN / 2] = 37;
     println!("corrupted assertion at index {index}");
     if index < NUM_PUBS {
         let i = index;
         let assn = scramble;
-        let sig = wots256::get_signature(&wots_sec[index], &assn);
+        let secret = Wots32::secret_from_str(&wots_sec[index]);
+        let sig = Wots32::sign(&secret, &assn);
         proof_sigs.0[i] = sig;
     } else if index < NUM_PUBS + NUM_U256 {
         let i = index - NUM_PUBS;
         let assn = scramble;
-        let sig = wots256::get_signature(&wots_sec[index], &assn);
+        let secret = Wots32::secret_from_str(&wots_sec[index]);
+        let sig = Wots32::sign(&secret, &assn);
         proof_sigs.1[i] = sig;
     } else if index < NUM_PUBS + NUM_U256 + NUM_HASH {
         let i = index - NUM_PUBS - NUM_U256;
         let assn = scramble2;
-        let sig = wots_hash::get_signature(&wots_sec[index], &assn);
+        let secret = Wots16::secret_from_str(&wots_sec[index]);
+        let sig = Wots16::sign(&secret, &assn);
         proof_sigs.2[i] = sig;
     }
 }
 
 pub fn generate_bitvm_graph(
     params: Bitvm2Parameters,
-    disprove_scripts_bytes: Vec<Vec<u8>>,
+    disprove_scripts: Vec<ScriptBuf>,
+    fixed_disprove_output_0: TxOut,
 ) -> Result<Bitvm2Graph> {
     fn inputs_check(inputs: &CustomInputs) -> Result<()> {
         let inputs_amount_sum: Amount = inputs.inputs.iter().map(|input| input.amount).sum();
@@ -331,7 +339,7 @@ pub fn generate_bitvm_graph(
         network,
         &operator_taproot_pubkey,
         assert_wots_commitment_keys,
-        disprove_scripts_bytes,
+        disprove_scripts,
     );
     let assert_final_input_0_vout: usize = 0;
     let assert_final_input_0 = Input {
@@ -412,6 +420,7 @@ pub fn generate_bitvm_graph(
         &connector_c,
         disprove_input_0,
         disprove_input_1,
+        fixed_disprove_output_0,
     );
 
     let connector_c_taproot_merkle_root = match connector_c.taproot_merkle_root() {

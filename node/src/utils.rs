@@ -34,6 +34,7 @@ use goat::commitments::CommitmentMessageId;
 use goat::connectors::base::TaprootConnector;
 use goat::connectors::connector_6::Connector6;
 use goat::constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK};
+use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::transactions::base::Input;
 use goat::transactions::pre_signed::PreSignedTransaction;
@@ -246,23 +247,21 @@ pub async fn select_operator_inputs(
 /// If cache file does not exist, generate partial scripts by vk an cache it
 pub async fn get_partial_scripts(
     local_db: &LocalDB,
-) -> Result<Vec<Script>, Box<dyn std::error::Error>> {
+) -> Result<Vec<ScriptBuf>, Box<dyn std::error::Error>> {
     let scripts_cache_path = SCRIPT_CACHE_FILE_NAME;
     if Path::new(scripts_cache_path).exists() {
         let file = File::open(scripts_cache_path)?;
         let reader = BufReader::new(file);
         let scripts_bytes: Vec<ScriptBuf> = bincode::deserialize_from(reader)?;
-        Ok(scripts_bytes.into_iter().map(|x| script! {}.push_script(x)).collect())
+        Ok(scripts_bytes)
     } else {
         let partial_scripts = generate_partial_scripts(&get_vk(local_db).await?);
         if let Some(parent) = Path::new(scripts_cache_path).parent() {
             fs::create_dir_all(parent)?;
         };
         let file = File::create(scripts_cache_path)?;
-        let scripts_bytes: Vec<ScriptBuf> =
-            partial_scripts.iter().map(|scr| scr.clone().compile()).collect();
         let writer = BufWriter::new(file);
-        bincode::serialize_into(writer, &scripts_bytes)?;
+        bincode::serialize_into(writer, &partial_scripts)?;
         Ok(partial_scripts)
     }
 }
@@ -438,6 +437,13 @@ pub async fn complete_and_broadcast_challenge_tx(
                     script_sig: ScriptBuf::new(),
                     sequence: Sequence::MAX,
                     witness: Witness::default(),
+                });
+            }
+            if let Some(goat_addr) = get_node_goat_address() {
+                // write challenger’s L2 address to an OP_RETURN output if provided
+                challenge_tx.output.push(TxOut {
+                    script_pubkey: generate_opreturn_script(goat_addr.to_vec()),
+                    value: Amount::ZERO,
                 });
             }
             if change_amount > Amount::from_sat(DUST_AMOUNT) {
@@ -694,7 +700,7 @@ pub async fn validate_assert(
     let proof_sigs = extract_proof_sigs_from_assert_commit_txns(assert_commit_txns)?;
     let disprove_scripts =
         generate_disprove_scripts(&get_partial_scripts(local_db).await?, &wots_pubkeys);
-    let disprove_scripts: [Script; NUM_TAPS] =
+    let disprove_scripts: [ScriptBuf; NUM_TAPS] =
         disprove_scripts.try_into().map_err(|_| "disprove script num mismatch")?;
     Ok(verify_proof(&get_vk(local_db).await?, proof_sigs, &disprove_scripts, &wots_pubkeys))
 }
@@ -1587,4 +1593,11 @@ pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result
         }
     }
     Ok(())
+}
+// TODO
+pub fn get_fixed_disprove_output() -> Result<TxOut, Box<dyn std::error::Error>> {
+    Ok(TxOut {
+        script_pubkey: generate_burn_script_address(get_network()).script_pubkey(),
+        value: Amount::from_sat(DUST_AMOUNT),
+    })
 }

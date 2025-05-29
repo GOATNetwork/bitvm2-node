@@ -9,11 +9,12 @@ pub mod tests {
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
     use crate::utils::{
-        complete_and_broadcast_challenge_tx, get_fee_rate, get_groth16_proof, get_proper_utxo_set,
-        get_vk, node_p2wsh_address, node_p2wsh_script, node_sign,
+        complete_and_broadcast_challenge_tx, get_fee_rate, get_fixed_disprove_output,
+        get_groth16_proof, get_proper_utxo_set, get_vk, node_p2wsh_address, node_p2wsh_script,
+        node_sign,
     };
     use bitcoin::key::Keypair;
-    use bitcoin::{CompressedPublicKey, EcdsaSighashType};
+    use bitcoin::{CompressedPublicKey, EcdsaSighashType, ScriptBuf};
     use bitvm2_lib::committee::{COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonces_aggregation};
     use bitvm2_lib::operator::corrupt_proof;
     use esplora_client::BlockingClient;
@@ -184,7 +185,7 @@ pub mod tests {
         operator_wots_seckeys: WotsSecretKeys,
         operator_wots_pubkeys: WotsPublicKeys,
         proof_sigs: Groth16WotsSignatures,
-        disprove_scripts: Vec<StructuredScript>,
+        disprove_scripts: Vec<ScriptBuf>,
     }
     // TODO: rpc and btc client are redundant?
     async fn e2e_setup(
@@ -303,12 +304,12 @@ pub mod tests {
         let disprove_scripts =
             operator::generate_disprove_scripts(&partial_scripts, &operator_wots_pubkeys);
 
-        let disprove_scripts_bytes = disprove_scripts
-            .iter()
-            .map(|sc| sc.clone().compile().to_bytes().to_vec())
-            .collect::<Vec<Vec<u8>>>();
-
-        let mut graph = operator::generate_bitvm_graph(params, disprove_scripts_bytes).unwrap();
+        let mut graph = operator::generate_bitvm_graph(
+            params,
+            disprove_scripts.clone(),
+            get_fixed_disprove_output().unwrap(),
+        )
+        .unwrap();
 
         // operator pre-sign
         println!("\nopeartor pre-sign");
