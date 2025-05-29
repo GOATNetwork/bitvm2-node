@@ -31,6 +31,7 @@ use goat::commitments::CommitmentMessageId;
 use goat::connectors::base::TaprootConnector;
 use goat::connectors::connector_6::Connector6;
 use goat::constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK};
+use goat::scripts::generate_opreturn_script;
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::transactions::base::Input;
 use goat::transactions::pre_signed::PreSignedTransaction;
@@ -428,6 +429,13 @@ pub async fn complete_and_broadcast_challenge_tx(
                     script_sig: ScriptBuf::new(),
                     sequence: Sequence::MAX,
                     witness: Witness::default(),
+                });
+            }
+            if let Some(goat_addr) = get_node_goat_address() {
+                // write challenger’s L2 address to an OP_RETURN output if provided
+                challenge_tx.output.push(TxOut {
+                    script_pubkey: generate_opreturn_script(goat_addr.to_vec()),
+                    value: Amount::ZERO,
                 });
             }
             if change_amount > Amount::from_sat(DUST_AMOUNT) {
