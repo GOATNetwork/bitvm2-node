@@ -278,9 +278,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 },
 
                _ticker = l2_watch_interval.tick() => {
-                    match monitor_events(&goat_client,&local_db).await{
-                        Ok(_) => {}
-                        Err(e) => { tracing::error!(e) }
+                    if actor == Actor::Relayer {
+                        match monitor_events(&goat_client,&local_db).await{
+                            Ok(_) => {}
+                            Err(e) => { tracing::error!(e) }
+                        }
                     }
                 },
 
