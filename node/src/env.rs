@@ -279,7 +279,7 @@ pub fn get_goat_gateway_contract_from_env() -> EvmAddress {
 
 pub fn get_goat_event_filter_from_from_env() -> i64 {
     let event_filter_from_str =
-        std::env::var(ENV_GOAT_EVENT_FILTER_FROM).unwrap_or("4567187".to_string());
+        std::env::var(ENV_GOAT_EVENT_FILTER_FROM).unwrap_or("4741689".to_string());
     event_filter_from_str
         .parse::<i64>()
         .unwrap_or_else(|_| panic!("Failed to parse {event_filter_from_str} to i64"))
@@ -295,7 +295,7 @@ pub fn get_goat_event_filter_gap_from_env() -> i64 {
 
 pub fn get_goat_event_the_graph_url_from_env() -> String {
     std::env::var(ENV_GOAT_EVENT_THE_GRAPH_URL)
-        .unwrap_or("https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/bitvm2_gateway_dev/v0.0.1/gn".to_string())
+        .unwrap_or("https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/bitvm2_gateway_test/0.0.1/gn".to_string())
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {
