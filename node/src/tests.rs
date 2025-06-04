@@ -310,7 +310,7 @@ pub mod tests {
 
         let mut graph = operator::generate_bitvm_graph(params, disprove_scripts_bytes).unwrap();
 
-        // opeartor pre-sign
+        // operator pre-sign
         println!("\nopeartor pre-sign");
         let _ = operator::operator_pre_sign(operator_keypair, &mut graph).unwrap();
 
