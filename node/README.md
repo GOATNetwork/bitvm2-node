@@ -46,7 +46,7 @@ ACTOR=Operator RUST_LOG=debug ./target/debug/bitvm2-noded --bootnodes 12D3KooWKq
 
 ## Debug
 
-We can send message to the P2P network via the local node's Stdin. The message is formated as `Actor:Message`, for example, If we send a message to Operator,
+We can send message to the P2P network via the local node's Stdin. The message is formatted as `Actor:Message`, for example, If we send a message to Operator,
 
 ```bash
 Challenger: {"key": "123"}
