@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT verifier_key\n            FROM verifier_key\n            WHERE verifier_id = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "verifier_key",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1b26187de83c6e7c1ea8ab2fe6a12b09e81876d6b25656925d2686192c1ccdf2"
+}

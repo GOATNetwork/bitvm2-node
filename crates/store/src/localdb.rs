@@ -1073,12 +1073,14 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_block_proved(
         &mut self,
         block_number: i64,
         proving_time: i64,
         proving_cycles: i64,
         proof: &[u8],
+        public_values: &[u8],
         verifier_id: String,
         state: String,
     ) -> anyhow::Result<()> {
@@ -1092,6 +1094,8 @@ impl<'a> StorageProcessor<'a> {
         let proof_size_mb = proof.len() as f64 / (1024.0 * 1024.0);
         let proof = hex::encode(proof);
 
+        let public_values = hex::encode(public_values);
+
         sqlx::query!(
             r#"
             UPDATE block_proof 
@@ -1101,6 +1105,7 @@ impl<'a> StorageProcessor<'a> {
                 proving_cycles = ?, 
                 proof = ?,
                 proof_size_mb = ?,
+                public_values = ?,
                 verifier_id = ?,
                 state = ?,
                 reason = ?,
@@ -1112,6 +1117,7 @@ impl<'a> StorageProcessor<'a> {
             proving_cycles,
             proof,
             proof_size_mb,
+            public_values,
             verifier_id,
             state,
             "",
@@ -1151,6 +1157,256 @@ impl<'a> StorageProcessor<'a> {
         .await?;
 
         Ok(())
+    }
+
+    pub async fn get_block_proof(
+        &mut self,
+        block_number: i64,
+    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String)> {
+        #[derive(sqlx::FromRow)]
+        struct BlockProofRow {
+            proof: String,
+            public_values: String,
+            verifier_id: String,
+        }
+
+        let row = sqlx::query_as!(
+            BlockProofRow,
+            r#"
+            SELECT proof, public_values, verifier_id
+            FROM block_proof
+            WHERE block_number = ?
+            "#,
+            block_number
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        match row {
+            Some(r) => {
+                let proof = hex::decode(r.proof)?;
+                let public_values = hex::decode(r.public_values)?;
+                Ok((proof, public_values, r.verifier_id))
+            }
+            None => Ok((Default::default(), Default::default(), Default::default())),
+        }
+    }
+
+    pub async fn create_aggregation_task(
+        &mut self,
+        block_number: i64,
+        state: String,
+    ) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO aggregation_proof 
+                (block_number, state, created_at) 
+            VALUES
+                (?, ?, ?)
+            ON CONFLICT(block_number) DO UPDATE SET
+                state = excluded.state,
+                created_at = excluded.created_at
+            "#,
+            block_number,
+            state,
+            timestamp
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_aggregation_succ(
+        &mut self,
+        block_number: i64,
+        proving_time: i64,
+        proving_cycles: i64,
+        proof: &[u8],
+        public_values: &[u8],
+        verifier_id: String,
+        state: String,
+    ) -> anyhow::Result<()> {
+        let end_timestamp =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+
+        let start_timestamp = self.get_aggregation_start_time(block_number).await?;
+
+        let total_time_to_proof = end_timestamp - start_timestamp;
+
+        let proof_size_mb = proof.len() as f64 / (1024.0 * 1024.0);
+        let proof = hex::encode(proof);
+
+        let public_values = hex::encode(public_values);
+
+        sqlx::query!(
+            r#"
+            UPDATE aggregation_proof 
+            SET
+                total_time_to_proof = ?,
+                proving_time = ?, 
+                proving_cycles = ?, 
+                proof = ?,
+                proof_size_mb = ?,
+                public_values = ?,
+                verifier_id = ?,
+                state = ?,
+                reason = ?,
+                updated_at = ?
+            WHERE block_number = ?
+            "#,
+            total_time_to_proof,
+            proving_time,
+            proving_cycles,
+            proof,
+            proof_size_mb,
+            public_values,
+            verifier_id,
+            state,
+            "",
+            end_timestamp,
+            block_number,
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_aggregation_failed(
+        &mut self,
+        block_number: i64,
+        state: String,
+        reason: String,
+    ) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let reason = truncate_string(&reason, 100);
+
+        sqlx::query!(
+            r#"
+            UPDATE aggregation_proof 
+            SET 
+                state = ?,
+                reason = ?,
+                updated_at = ?
+            WHERE block_number = ?
+            "#,
+            state,
+            reason,
+            timestamp,
+            block_number
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_aggregation_start_time(&mut self, block_number: i64) -> anyhow::Result<i64> {
+        #[derive(sqlx::FromRow)]
+        struct TimestampRow {
+            created_at: Option<i64>,
+        }
+
+        let row = sqlx::query_as!(
+            TimestampRow,
+            r#"
+            SELECT
+                created_at as "created_at?: i64"
+            FROM aggregation_proof
+            WHERE block_number = ?
+            "#,
+            block_number
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        Ok(row.and_then(|r| r.created_at).unwrap_or(0))
+    }
+
+    pub async fn get_aggregation_proof(
+        &mut self,
+        block_number: i64,
+    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String)> {
+        #[derive(sqlx::FromRow)]
+        struct AggregationProofRow {
+            proof: String,
+            public_values: String,
+            verifier_id: String,
+        }
+
+        let row = sqlx::query_as!(
+            AggregationProofRow,
+            r#"
+            SELECT proof, public_values, verifier_id
+            FROM aggregation_proof
+            WHERE block_number = ?
+            "#,
+            block_number
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        match row {
+            Some(r) => {
+                let proof = hex::decode(r.proof)?;
+                let public_values = hex::decode(r.public_values)?;
+                Ok((proof, public_values, r.verifier_id))
+            }
+            None => Ok((Default::default(), Default::default(), Default::default())),
+        }
+    }
+
+    pub async fn create_verifier_key(
+        &mut self,
+        verifier_id: String,
+        verifier_key: &[u8],
+    ) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let verifier_key = hex::encode(verifier_key);
+
+        sqlx::query!(
+            r#"
+            INSERT OR IGNORE INTO verifier_key
+                (verifier_id, verifier_key, created_at) 
+            VALUES
+                (?, ?, ?)
+            "#,
+            verifier_id,
+            verifier_key,
+            timestamp
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_verifier_key(&mut self, verifier_id: &str) -> anyhow::Result<Vec<u8>> {
+        #[derive(sqlx::FromRow)]
+        struct VerifierKeyRow {
+            verifier_key: String,
+        }
+
+        let row = sqlx::query_as!(
+            VerifierKeyRow,
+            r#"
+            SELECT verifier_key
+            FROM verifier_key
+            WHERE verifier_id = ?
+            "#,
+            verifier_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        match row {
+            Some(r) => Ok(hex::decode(r.verifier_key)?),
+            None => Ok(Default::default()),
+        }
     }
 
     pub async fn get_watch_contract(

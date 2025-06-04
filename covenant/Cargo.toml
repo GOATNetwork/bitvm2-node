@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "continuous",
+    "aggregation",
 ]
 exclude = []
 resolver = "2"
@@ -11,6 +12,8 @@ exclude = ["**/target"]
 version = "0.1.0"
 
 [workspace.dependencies]
+anyhow = "1.0.98"
+bincode = "1.3.3"
 tracing = { version = "0.1.40", default-features = false }
 cfg-if = "1.0.0"
 spin = { version = "0.9.8", features = ["mutex"] }
@@ -35,10 +38,10 @@ host-executor  = { git = "https://github.com/zkMIPS/reth-processor", branch = "g
 primitives     = { git = "https://github.com/zkMIPS/reth-processor", branch = "goat" }
 provider       = { git = "https://github.com/zkMIPS/reth-processor", branch = "goat" }
 
-#guest-executor = { path = "../../reth-processor/crates/executor/guest" }
-#host-executor = { path = "../../reth-processor/crates/executor/host" }
-#primitives = { path = "../../reth-processor/crates/primitives" }
-#provider= { path = "../../reth-processor/crates/provider" }
+# guest-executor = { path = "../../reth-processor/crates/executor/guest" }
+# host-executor = { path = "../../reth-processor/crates/executor/host", features = ["alerting"] }
+# primitives = { path = "../../reth-processor/crates/primitives" }
+# provider= { path = "../../reth-processor/crates/provider" }
 
 # zkMIPS
 zkm-build = { git = "https://github.com/zkMIPS/zkMIPS" }

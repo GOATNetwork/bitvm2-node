@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR IGNORE INTO verifier_key\n                (verifier_id, verifier_key, created_at) \n            VALUES\n                (?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "5b94ccc730fc5c9027724fd7e4d8ab297f329248f6f9847e7315b40847ca63ac"
+}

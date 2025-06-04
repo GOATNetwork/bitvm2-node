@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT proof, public_values, verifier_id\n            FROM aggregation_proof\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "proof",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "public_values",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "verifier_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c58b3f1b26f0ccc11e4261f90cf50a70ecd325b70acfa8d74dfb0f18e1924019"
+}

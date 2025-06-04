@@ -10,7 +10,7 @@ libc = { version = "0.2", features = ["extra_traits"] }
 bincode = "1.3.3"
 # workspace
 guest-executor = { git = "https://github.com/zkMIPS/reth-processor", branch = "goat" }
-#guest-executor = { path = "../../../reth-processor/crates/executor/guest" }
+# guest-executor = { path = "../../../reth-processor/crates/executor/guest" }
 
 # zkMIPS
 zkm-zkvm = { git = "https://github.com/zkMIPS/zkMIPS", package = "zkm-zkvm" }

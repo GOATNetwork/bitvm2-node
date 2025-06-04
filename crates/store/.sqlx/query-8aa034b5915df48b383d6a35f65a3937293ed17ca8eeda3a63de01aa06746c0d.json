@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE block_proof \n            SET\n                total_time_to_proof = ?,\n                proving_time = ?, \n                proving_cycles = ?, \n                proof = ?,\n                proof_size_mb = ?,\n                public_values = ?,\n                verifier_id = ?,\n                state = ?,\n                reason = ?,\n                updated_at = ?\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "8aa034b5915df48b383d6a35f65a3937293ed17ca8eeda3a63de01aa06746c0d"
+}

@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT proof, public_values, verifier_id\n            FROM block_proof\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "proof",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "public_values",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "verifier_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2d95c9a3c0e30302390d31a087646497adc764aa4daa410ce7439f64325fac87"
+}

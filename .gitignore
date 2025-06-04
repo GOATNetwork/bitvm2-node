@@ -12,10 +12,11 @@ Cargo.lock
 
 # Added by cargo
 
-/target
+target
 .idea
 .env
 
 covenant/guest/target/
+covenant/guest-aggregation/target
 covenant/target/
 report.csv

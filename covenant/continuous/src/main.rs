@@ -8,10 +8,10 @@ use host_executor::{
     EthExecutorComponents, ExecutorComponents, FullExecutor,
 };
 use provider::create_provider;
+use store::localdb::LocalDB;
 use tokio::{sync::Semaphore, task};
 use tracing::{error, info, instrument, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use store::localdb::LocalDB;
 use zkm_sdk::{include_elf, ProverClient};
 
 mod cli;
@@ -85,13 +85,10 @@ async fn main() -> eyre::Result<()> {
                     error!("{error_message}");
 
                     if let Some(alerting_client) = &alerting_client {
-                        alerting_client
-                            .send_alert(format!("{error_message}"))
-                            .await;
+                        alerting_client.send_alert(format!("{error_message}")).await;
                     }
 
-                    if let Err(err) =
-                        db::task_failed(local_db, block_number, err.to_string()).await
+                    if let Err(err) = db::task_failed(local_db, block_number, err.to_string()).await
                     {
                         let error_message = format!(
                             "Database error while updating block {} status: {}",
@@ -101,9 +98,7 @@ async fn main() -> eyre::Result<()> {
                         error!("{error_message}",);
 
                         if let Some(alerting_client) = &alerting_client {
-                            alerting_client
-                                .send_alert(format!("{error_message}"))
-                                .await;
+                            alerting_client.send_alert(format!("{error_message}")).await;
                         }
                     }
                 }

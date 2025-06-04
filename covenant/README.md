@@ -9,3 +9,9 @@ The block execution statistics are stored in a Sqlite database, and the number o
 ```angular2html
 cargo run --bin continuous -- --block-number 1 --rpc-url https://archive.goat.network --chain-id 2345 --prove
 ```
+
+## Aggregation block proof
+
+```angular2html
+cargo run --bin aggregation -- --block-number 2
+```
