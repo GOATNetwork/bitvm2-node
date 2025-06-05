@@ -1,7 +1,9 @@
 use crate::client::chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::client::chain::mock_adaptor::{MockAdaptor, MockAdaptorConfig};
-use alloy::primitives::{TxHash, U256};
+use alloy::primitives::U256;
+use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[async_trait]
@@ -96,7 +98,7 @@ pub trait ChainAdaptor: Send + Sync {
         index: u64,
     ) -> anyhow::Result<bool>;
 
-    async fn is_tx_execute_success(&self, tx_hash: TxHash) -> anyhow::Result<bool>;
+    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {
@@ -106,7 +108,7 @@ pub enum GoatNetwork {
     Local,
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum PeginStatus {
     None,
     Processing,
@@ -128,7 +130,7 @@ impl From<u8> for PeginStatus {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum WithdrawStatus {
     None,
     Processing,
@@ -151,14 +153,14 @@ impl From<u8> for WithdrawStatus {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeginData {
     pub pegin_txid: [u8; 32],
     pub pegin_status: PeginStatus,
     pub pegin_amount: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WithdrawData {
     pub pegin_txid: [u8; 32],
     pub operator_address: [u8; 20],
@@ -167,7 +169,7 @@ pub struct WithdrawData {
     pub lock_amount: U256,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OperatorData {
     pub stake_amount: u64,
     pub operator_pubkey_prefix: u8,

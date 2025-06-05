@@ -495,10 +495,10 @@ pub async fn scan_post_pegin_data(
             warn!("scan post_pegin_data instance:{}, pegin txid is none", instance.instance_id);
             continue;
         }
-        if let Ok(tx_hash) = TxHash::from_str(&instance.goat_txid) {
-            let is_finish_pegin =
-                goat_client.chain_service.adaptor.is_tx_execute_success(tx_hash).await?;
-            if !is_finish_pegin {
+        if let Ok(_tx_hash) = TxHash::from_str(&instance.goat_txid) {
+            let receipt_op =
+                goat_client.chain_service.adaptor.get_tx_receipt(&instance.goat_txid).await?;
+            if receipt_op.is_none() {
                 info!(
                     "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
                 but get receipt status is false, will try later",

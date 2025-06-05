@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  relayer:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    container_name: relayer
+    volumes:
+      - ./relayer:/var/data
+      - ./relayer/.env:/app/.env
+    ports:
+      - "8900:9100"
+      - "8443:8443"
+    env_file:
+      - ./relayer/.env
+    restart: unless-stopped
+
+  challenger_0:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    container_name: challenger_0
+    volumes:
+      - ./challenger_0:/var/data
+      - ./challenger_0/.env:/app/.env
+    ports:
+      - "8901:9100"
+      - "8451:8443"
+    env_file:
+      - ./challenger_0/.env
+    restart: unless-stopped
+    depends_on:
+      - relayer
+
+  operator_0:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    container_name: operator_0
+    volumes:
+      - ./operator_0:/var/data
+      - ./operator_0/.env:/app/.env
+    ports:
+      - "8902:9100"
+      - "8452:8443"
+    env_file:
+      - ./operator_0/.env
+    restart: unless-stopped
+    depends_on:
+      - relayer
+
+  operator_1:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    container_name: operator_1
+    volumes:
+      - ./operator_1:/var/data
+      - ./operator_1/.env:/app/.env
+    ports:
+      - "8903:9100"
+      - "8453:8443"
+    env_file:
+      - ./operator_1/.env
+    restart: unless-stopped
+    depends_on:
+      - relayer
+
+  committee_0:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    container_name: committee_0
+    volumes:
+      - ./committee_0:/var/data
+      - ./committee_0/.env:/app/.env
+    ports:
+      - "8904:9100"
+      - "8454:8443"
+    env_file:
+      - ./committee_0/.env
+    restart: unless-stopped
+    depends_on:
+      - relayer
+
+  committee_1:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    container_name: committee_1
+    volumes:
+      - ./committee_1:/var/data
+      - ./committee_1/.env:/app/.env
+    ports:
+      - "8905:9100"
+      - "8455:8443"
+    env_file:
+      - ./committee_1/.env
+    restart: unless-stopped
+    depends_on:
+      - relayer
+
+
+
+

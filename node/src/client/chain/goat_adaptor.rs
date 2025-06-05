@@ -4,6 +4,7 @@ use crate::client::chain::chain_adaptor::{
 use crate::client::chain::goat_adaptor::IGateway::IGatewayInstance;
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::TxHash;
+use alloy::rpc::types::TransactionReceipt;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
     primitives::{Address as EvmAddress, Bytes, ChainId, FixedBytes, U256},
@@ -632,11 +633,8 @@ impl ChainAdaptor for GoatAdaptor {
         Ok((res.blockHash.0, res.merkleRoot.0))
     }
 
-    async fn is_tx_execute_success(&self, tx_hash: TxHash) -> anyhow::Result<bool> {
-        if let Some(res) = self.provider.get_transaction_receipt(tx_hash).await? {
-            return Ok(res.status());
-        }
-        Ok(false)
+    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
+        Ok(self.provider.get_transaction_receipt(TxHash::from_str(tx_hash)?).await?)
     }
 
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
