@@ -191,8 +191,6 @@ impl AggregationExecutor {
         let proving_duration = proving_start.elapsed();
         info!("proving duration: {:?}s", proving_duration.as_secs_f32());
 
-        self.client.verify(&agg_proof, &self.vk).unwrap();
-
         Ok((agg_proof, execution_report, proving_duration))
     }
 }

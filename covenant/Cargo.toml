@@ -2,6 +2,7 @@
 members = [
     "continuous",
     "aggregation",
+    "groth16",
 ]
 exclude = []
 resolver = "2"
