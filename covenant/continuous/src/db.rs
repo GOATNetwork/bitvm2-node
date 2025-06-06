@@ -26,7 +26,7 @@ impl ExecutionHooks for PersistToDB {
             self.local_db.acquire().await.map_err(|e| eyre!("Failed to acquire local db: {e}"))?;
 
         storage_process
-            .update_block_executing(block_number as i64, ProvableBlockStatus::Queued.to_string())
+            .create_block_proving_task(block_number as i64, ProvableBlockStatus::Queued.to_string())
             .await
             .map_err(|e| eyre!("Failed to start block execution: {e}"))?;
 

@@ -100,7 +100,21 @@ impl Db {
         let vk_bytes = bincode::serialize(vk).unwrap();
         storage_process.create_verifier_key(vk.bytes32(), vk_bytes.as_ref()).await?;
 
+        self.remove_old_proofs(block_number).await?;
+
         Ok(())
+    }
+
+    async fn remove_old_proofs(&self, block_number: u64) -> Result<()> {
+        if block_number % 100 != 0 {
+            return Ok(());
+        }
+
+        let mut storage_process = self.db.acquire().await?;
+
+        let remove_number = (block_number - 100) as i64;
+        storage_process.delete_block_proofs(remove_number).await?;
+        storage_process.delete_aggregation_proofs(remove_number).await
     }
 
     pub async fn on_aggregation_failed(&self, block_number: u64, err: String) -> Result<()> {
