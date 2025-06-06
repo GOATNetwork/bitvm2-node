@@ -1,0 +1,10 @@
+[workspace]
+[package]
+name = "guest-groth16"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+sha2 = { git = "https://github.com/zkMIPS-patches/RustCrypto-hashes", branch = "patch-sha2-0.10.8", package = "sha2" }
+zkm-zkvm = { git = "https://github.com/zkMIPS/zkMIPS", package = "zkm-zkvm", features = ["verify"] }

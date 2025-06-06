@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM block_proof WHERE block_number < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "29acff50d4b895f93286472dca21af4ccd27611bbaf9ee4d2728519377c0fff0"
+}

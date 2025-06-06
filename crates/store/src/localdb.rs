@@ -1015,7 +1015,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(row.and_then(|r| r.created_at).unwrap_or(0))
     }
 
-    pub async fn update_block_executing(
+    pub async fn create_block_proving_task(
         &mut self,
         block_number: i64,
         state: String,
@@ -1038,6 +1038,14 @@ impl<'a> StorageProcessor<'a> {
         )
         .execute(self.conn())
         .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_block_proofs(&mut self, block_number: i64) -> anyhow::Result<()> {
+        sqlx::query!(r#"DELETE FROM block_proof WHERE block_number < ?"#, block_number)
+            .execute(self.conn())
+            .await?;
 
         Ok(())
     }
@@ -1215,6 +1223,14 @@ impl<'a> StorageProcessor<'a> {
         )
         .execute(self.conn())
         .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_aggregation_proofs(&mut self, block_number: i64) -> anyhow::Result<()> {
+        sqlx::query!(r#"DELETE FROM aggregation_proof WHERE block_number < ?"#, block_number)
+            .execute(self.conn())
+            .await?;
 
         Ok(())
     }

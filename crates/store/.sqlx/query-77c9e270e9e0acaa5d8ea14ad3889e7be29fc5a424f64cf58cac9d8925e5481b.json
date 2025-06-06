@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM aggregation_proof WHERE block_number < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "77c9e270e9e0acaa5d8ea14ad3889e7be29fc5a424f64cf58cac9d8925e5481b"
+}
