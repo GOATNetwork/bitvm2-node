@@ -5,9 +5,10 @@ use store::localdb::LocalDB;
 use tracing::{info, info_span};
 use zkm_prover::components::DefaultProverComponents;
 use zkm_sdk::{
-    include_elf, ExecutionReport, HashableKey, Prover, ProverClient, ZKMProof,
+    include_elf, ExecutionReport, HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind,
     ZKMProofWithPublicValues, ZKMProvingKey, ZKMPublicValues, ZKMStdin, ZKMVerifyingKey,
 };
+use zkm_verifier::{convert_ark, load_ark_groth16_verifying_key_from_bytes, GROTH16_VK_BYTES};
 
 mod db;
 #[cfg(test)]
@@ -17,12 +18,36 @@ pub const ELF: &[u8] = include_elf!("guest-groth16");
 
 use crate::db::*;
 
+pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
+pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
+pub type PublicInputs = Vec<ark_bn254::Fr>;
+
+pub async fn get_groth16_vk() -> Result<VerifyingKey> {
+    let ark_groth16_vk = load_ark_groth16_verifying_key_from_bytes(&GROTH16_VK_BYTES)?;
+    Ok(ark_groth16_vk.into())
+}
+
+pub async fn get_groth16_proof(
+    db: &LocalDB,
+    block_number: u64,
+) -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
+    let start = tokio::time::Instant::now();
+
+    let (proof, vk) = generate_groth16_proof(db, block_number).await?;
+
+    // Convert the gnark proof to an arkworks proof.
+    let ark_proof = convert_ark(&proof, &vk.bytes32(), &GROTH16_VK_BYTES)?;
+
+    let total_duration = start.elapsed();
+    info!("total duration: {:?}s", total_duration.as_secs_f32());
+
+    Ok((ark_proof.proof, ark_proof.public_inputs.to_vec(), ark_proof.groth16_vk.vk))
+}
+
 pub async fn generate_groth16_proof(
     db: &LocalDB,
     block_number: u64,
 ) -> Result<(ZKMProofWithPublicValues, ZKMVerifyingKey)> {
-    let start = tokio::time::Instant::now();
-
     let (agg_proof, agg_vk) = get_aggregation_proof(db, block_number).await?;
     info!("get aggregation proof: {}", block_number);
 
@@ -67,17 +92,10 @@ pub async fn generate_groth16_proof(
     let proving_start = tokio::time::Instant::now();
 
     // Generate the aggregation proof.
-    let client = client.clone();
-    let pk = pk.clone();
-    let groth16_proof =
-        tokio::task::spawn_blocking(move || client.prove(pk.as_ref(), stdin).groth16().run())
-            .await??;
+    let groth16_proof = prove(block_number, client.clone(), pk.clone(), stdin).await?;
 
     let proving_duration = proving_start.elapsed();
     info!("proving duration: {:?}s", proving_duration.as_secs_f32());
-
-    let total_duration = start.elapsed();
-    info!("total duration: {:?}s", total_duration.as_secs_f32());
 
     Ok((groth16_proof, vk))
 }
@@ -97,4 +115,24 @@ async fn execute_client(
     })
     .await
     .map_err(|err| anyhow::anyhow!("{err}"))
+}
+
+async fn prove(
+    number: u64,
+    client: Arc<dyn Prover<DefaultProverComponents>>,
+    pk: Arc<ZKMProvingKey>,
+    stdin: ZKMStdin,
+) -> Result<ZKMProofWithPublicValues> {
+    tokio::task::spawn_blocking(move || {
+        info_span!("proving", number).in_scope(|| {
+            client.prove(
+                pk.as_ref(),
+                stdin,
+                Default::default(),
+                Default::default(),
+                ZKMProofKind::Groth16,
+            )
+        })
+    })
+    .await?
 }
