@@ -22,7 +22,7 @@ pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
 pub type PublicInputs = Vec<ark_bn254::Fr>;
 
-pub async fn get_groth16_vk() -> Result<VerifyingKey> {
+pub fn get_groth16_vk() -> Result<VerifyingKey> {
     let ark_groth16_vk = load_ark_groth16_verifying_key_from_bytes(&GROTH16_VK_BYTES)?;
     Ok(ark_groth16_vk.into())
 }

@@ -14,6 +14,8 @@ async fn test_ark_groth16_proof() {
 
     let (proof, public_inputs, groth16_vk) = get_groth16_proof(&db, 2).await.unwrap();
 
+    assert_eq!(groth16_vk, get_groth16_vk().unwrap());
+
     // Verify the arkworks proof.
     let ok = Groth16::<Bn254, LibsnarkReduction>::verify_proof(
         &groth16_vk.into(),
