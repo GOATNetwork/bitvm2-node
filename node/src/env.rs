@@ -36,6 +36,7 @@ pub const ENV_PEER_KEY: &str = "PEER_KEY";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
+pub const ENV_EXTERNAL_SOCKET_ADDR: &str = "EXTERNAL_SOCKET_ADDR";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
 pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
@@ -198,11 +199,13 @@ pub fn get_local_node_info() -> NodeInfo {
 
         addr_op
     };
+    let socket_addr = std::env::var(ENV_EXTERNAL_SOCKET_ADDR).unwrap_or("".to_string());
     NodeInfo {
         peer_id: peer_key,
         actor: actor.to_string(),
         goat_addr: goat_address.unwrap_or("".to_string()),
         btc_pub_key: pubkey_str,
+        socket_addr,
     }
 }
 pub fn get_committee_member_num() -> usize {

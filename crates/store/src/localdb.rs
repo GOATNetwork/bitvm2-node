@@ -427,7 +427,7 @@ impl<'a> StorageProcessor<'a> {
         if let Some(from_addr) = params.from_addr {
             let node_op = sqlx::query_as!(
                 Node,
-                "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  \
+                "SELECT peer_id, actor, goat_addr, btc_pub_key,  socket_addr, created_at, updated_at  \
                     FROM node WHERE goat_addr =?",
                 from_addr
             )
@@ -521,7 +521,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         let node_op = sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  \
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at  \
             FROM node WHERE peer_id = ?",
             peer_id
         )
@@ -542,11 +542,12 @@ impl<'a> StorageProcessor<'a> {
     /// Insert or update node
     pub async fn update_node(&mut self, node: Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            "INSERT OR REPLACE INTO  node (peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?) ",
+            "INSERT OR REPLACE INTO  node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?, ?) ",
             node.peer_id,
             node.actor,
             node.goat_addr,
             node.btc_pub_key,
+            node.socket_addr,
             node.created_at,
             node.updated_at,
         )
@@ -561,7 +562,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<Node>> {
         Ok(sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at FROM node WHERE btc_pub_key = ?",
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at FROM node WHERE btc_pub_key = ?",
             btc_pub_key
         ).fetch_optional(self.conn()).await?)
     }
@@ -649,7 +650,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn node_by_id(&mut self, peer_id: &str) -> anyhow::Result<Option<Node>> {
         let res = sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr,btc_pub_key, created_at,  updated_at FROM  node WHERE peer_id = ?",
+            "SELECT peer_id, actor, goat_addr,btc_pub_key, socket_addr, created_at,  updated_at FROM  node WHERE peer_id = ?",
             peer_id
         ).fetch_optional(self.conn()).await?;
         Ok(res)

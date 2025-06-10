@@ -48,6 +48,7 @@ use secp256k1::Secp256k1;
 use statics::*;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -57,6 +58,7 @@ use store::{
     BridgeInStatus, GoatTxProveStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus, Node,
     ProofWithPis,
 };
+use stun_client::{Attribute, Class, Client};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -1292,6 +1294,7 @@ pub async fn save_node_info(
             actor: node_info.actor.clone(),
             goat_addr: node_info.goat_addr.clone(),
             btc_pub_key: node_info.btc_pub_key.clone(),
+            socket_addr: node_info.socket_addr.clone(),
             updated_at: current_time,
             created_at: current_time,
         })
@@ -1502,4 +1505,23 @@ pub async fn run_gen_groth16_proof_task(
             tx.commit().await?;
         }
     }
+}
+
+pub async fn set_node_external_socker_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
+    let addr = SocketAddr::from_str(rpc_addr)?;
+    let mut client = Client::new("0.0.0.0:0", None).await?;
+    let message = client.binding_request("stun.l.google.com:19302", None).await?;
+    if message.get_class() != Class::SuccessResponse {
+        warn!("fail to get message from stun.l.google.com:19302");
+        return Ok(());
+    }
+    if let Some(socket_addr) = Attribute::get_xor_mapped_address(&message) {
+        unsafe {
+            std::env::set_var(
+                ENV_EXTERNAL_SOCKET_ADDR,
+                SocketAddr::new(socket_addr.ip(), addr.port()).to_string(),
+            );
+        }
+    }
+    Ok(())
 }

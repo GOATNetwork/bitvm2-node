@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at  FROM node WHERE goat_addr =?",
+  "query": "SELECT peer_id, actor, goat_addr,btc_pub_key, socket_addr, created_at,  updated_at FROM  node WHERE peer_id = ?",
   "describe": {
     "columns": [
       {
@@ -24,13 +24,18 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "socket_addr",
         "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
         "type_info": "Integer"
       },
       {
         "name": "updated_at",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Integer"
       }
     ],
@@ -43,8 +48,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "6be91c09a2fbc3860108eb9c5b56a6ebc004f82eb86fe8c41ff1ee59b5826024"
+  "hash": "d92f3078a3244d29a583b4fa1c124ba667390803279a9328d137229f4ec4176f"
 }

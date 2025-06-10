@@ -177,6 +177,7 @@ pub struct NodeInfo {
     pub actor: String,
     pub goat_addr: String,
     pub btc_pub_key: String,
+    pub socket_addr: String,
 }
 
 #[derive(Serialize, Deserialize)]

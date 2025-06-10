@@ -13,6 +13,7 @@ pub struct Node {
     pub actor: String,
     pub goat_addr: String,
     pub btc_pub_key: String,
+    pub socket_addr: String,
     pub updated_at: i64,
     pub created_at: i64,
 }

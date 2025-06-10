@@ -10,6 +10,7 @@ pub struct UpdateOrInsertNodeRequest {
     pub actor: Actor,
     pub goat_addr: String,
     pub btc_pub_key: String,
+    pub socket_addr: String,
 }
 
 /// node_overview
