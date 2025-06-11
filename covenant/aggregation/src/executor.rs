@@ -11,6 +11,7 @@ use zkm_sdk::{
     ExecutionReport, HashableKey, Prover, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues,
     ZKMProvingKey, ZKMPublicValues, ZKMStdin, ZKMVerifyingKey,
 };
+use zkm_verifier::{Groth16Verifier, GROTH16_VK_BYTES};
 
 use crate::db::*;
 
@@ -253,6 +254,13 @@ impl Groth16Executor {
                                 proving_duration,
                             )
                             .await?;
+
+                        Groth16Verifier::verify(
+                            &groth16_proof.bytes(),
+                            &groth16_proof.public_values.to_vec(),
+                            &self.vk.bytes32(),
+                            &GROTH16_VK_BYTES,
+                        ).expect("Groth16 proof is invalid");
                     }
                     Err(err) => {
                         error!("Error generate groth16 proof {}: {}", block_number, err);

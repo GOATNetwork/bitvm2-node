@@ -1583,7 +1583,7 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn create_verifier_key(
         &mut self,
-        verifier_id: String,
+        verifier_id: &str,
         verifier_key: &[u8],
     ) -> anyhow::Result<()> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;

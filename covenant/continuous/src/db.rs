@@ -81,7 +81,7 @@ impl ExecutionHooks for PersistToDB {
 
         let vk_bytes = bincode::serialize(vk).unwrap();
         storage_process
-            .create_verifier_key(vk.bytes32(), vk_bytes.as_ref())
+            .create_verifier_key(vk.bytes32().as_ref(), vk_bytes.as_ref())
             .await
             .map_err(|e| eyre!("Failed to create vk: {e}"))?;
 
