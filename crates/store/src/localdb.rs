@@ -1407,7 +1407,6 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-
     pub async fn create_groth16_task(
         &mut self,
         block_number: i64,
@@ -1576,7 +1575,9 @@ impl<'a> StorageProcessor<'a> {
                 let public_values = hex::decode(r.public_values)?;
                 Ok((proof, public_values, r.verifier_id, r.zkm_version))
             }
-            None => Ok((Default::default(), Default::default(), Default::default(), Default::default())),
+            None => {
+                Ok((Default::default(), Default::default(), Default::default(), Default::default()))
+            }
         }
     }
 
@@ -1772,10 +1773,7 @@ impl<'a> StorageProcessor<'a> {
         )
     }
 
-    pub async fn skip_groth16_proof(
-        &mut self,
-        block_number: i64,
-    ) -> anyhow::Result<bool> {
+    pub async fn skip_groth16_proof(&mut self, block_number: i64) -> anyhow::Result<bool> {
         Ok(self.get_process_withdraw_record(block_number).await?.is_empty())
     }
 
