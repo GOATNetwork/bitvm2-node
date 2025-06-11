@@ -27,7 +27,8 @@ use bitvm2_noded::middleware::{
 };
 use bitvm2_noded::rpc_service;
 use bitvm2_noded::utils::{
-    self, detect_heart_beat, set_node_external_socker_addr_env, run_watch_event_task, save_local_info,
+    self, detect_heart_beat, run_watch_event_task, save_local_info,
+    set_node_external_socker_addr_env,
 };
 
 use anyhow::Result;

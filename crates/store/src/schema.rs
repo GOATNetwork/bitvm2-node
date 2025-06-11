@@ -681,3 +681,11 @@ pub struct GoatTxRecord {
     pub extra: Option<String>,
     pub created_at: i64,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub enum ProofType {
+    #[default]
+    BlockProof,
+    AggregationProof,
+    Groth16Proof,
+}
