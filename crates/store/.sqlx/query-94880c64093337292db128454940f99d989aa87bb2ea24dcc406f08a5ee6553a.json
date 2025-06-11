@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE groth16_proof \n            SET\n                total_time_to_proof = ?,\n                proving_time = ?, \n                proving_cycles = ?, \n                proof = ?,\n                proof_size_b = ?,\n                public_values = ?,\n                verifier_id = ?,\n                zkm_version = ?,\n                state = ?,\n                reason = ?,\n                updated_at = ?\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "94880c64093337292db128454940f99d989aa87bb2ea24dcc406f08a5ee6553a"
+}

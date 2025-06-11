@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE groth16_proof \n            SET \n                state = ?,\n                reason = ?,\n                updated_at = ?\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "c06505c1587f772da4dd2280171fe8cb04d85bbad7be2f8fccf974db63143776"
+}

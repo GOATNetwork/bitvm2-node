@@ -12,12 +12,8 @@ cargo run --bin continuous -- --block-number 1 --rpc-url https://archive.goat.ne
 
 ## Aggregate block proofs
 
+Aggregate block proofs and generate groth16 proofs.
+
 ```shell
 cargo run --bin aggregation -- --block-number 2
-```
-
-## Generate Groth16 proof
-
-```shell
-RUST_LOG=info cargo test -r test_ark_groth16_proof -- --nocapture
 ```

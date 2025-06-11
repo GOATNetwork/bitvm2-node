@@ -4,7 +4,7 @@ use clap::Parser;
 use cli::Args;
 use store::localdb::LocalDB;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use zkm_sdk::include_elf;
+use zkm_sdk::{include_elf, ProverClient, ZKMVerifyingKey};
 
 mod cli;
 mod db;
@@ -14,6 +14,7 @@ use crate::db::*;
 use crate::executor::*;
 
 pub const AGGREGATION_ELF: &[u8] = include_elf!("guest-aggregation");
+pub const GROTH16_ELF: &[u8] = include_elf!("guest-groth16");
 
 #[tokio::main]
 async fn main() {
@@ -39,23 +40,30 @@ async fn main() {
 
     let local_db: LocalDB = LocalDB::new(&format!("sqlite:{}", args.database_url), true).await;
     let local_db = Arc::new(Db::new(Arc::new(local_db)));
+    let client = Arc::new(ProverClient::new());
 
-    let executor = AggregationExecutor::new(local_db, AGGREGATION_ELF).await;
+    let agg_executor =
+        AggregationExecutor::new(local_db.clone(), client.clone(), AGGREGATION_ELF).await;
+    let groth16_executor = Groth16Executor::new(local_db, client, GROTH16_ELF).await;
 
     let (block_number_tx, block_number_rx) = sync_channel::<u64>(2);
     let (input_tx, input_rx) = sync_channel::<AggreationInput>(1);
-    let (proof_tx, proof_rx) = sync_channel::<ProofWithPublicValues>(1);
-    let executor_clone = executor.clone();
+    let (agg_proof_tx, agg_proof_rx) = sync_channel::<ProofWithPublicValues>(1);
+    let (groth16_proof_tx, groth16_proof_rx) =
+        sync_channel::<(ProofWithPublicValues, Arc<ZKMVerifyingKey>)>(1);
+    let agg_executor_clone = agg_executor.clone();
 
     block_number_tx.send(args.block_number).unwrap();
 
     let handle1 =
-        tokio::spawn(executor_clone.data_preparer(block_number_rx, input_tx.clone(), proof_rx));
-    let handle2 = tokio::spawn(executor.proof_aggregator(
-        block_number_tx.clone(),
+        tokio::spawn(agg_executor_clone.data_preparer(block_number_rx, input_tx, agg_proof_rx));
+    let handle2 = tokio::spawn(agg_executor.proof_aggregator(
+        block_number_tx,
         input_rx,
-        proof_tx.clone(),
+        agg_proof_tx,
+        groth16_proof_tx,
     ));
+    let handle3 = tokio::spawn(groth16_executor.proof_generator(groth16_proof_rx));
 
-    let _ = tokio::join!(handle1, handle2);
+    let _ = tokio::join!(handle1, handle2, handle3);
 }

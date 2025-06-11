@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                created_at as \"created_at?: i64\"\n            FROM groth16_proof\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "created_at?: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "88afedc007a04f8a353032d35807bbc77b75fc30a0ebaaffff235cdd1605e021"
+}

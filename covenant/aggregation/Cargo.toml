@@ -4,11 +4,15 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+ark-groth16 = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-serialize = { workspace = true }
 anyhow.workspace = true
 bincode.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+hex.workspace = true
 clap = { version = "4.5.7", features = ["derive", "env"] }
 dotenv = "0.15.0"
 futures-util = "0.3.31"
@@ -17,6 +21,7 @@ tracing-subscriber = "0.3.18"
 # zkMIPS
 zkm-sdk.workspace = true
 zkm-prover.workspace = true
+zkm-verifier.workspace = true
 
 store = { path = "../../crates/store" }
 

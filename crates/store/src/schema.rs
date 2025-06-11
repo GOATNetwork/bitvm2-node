@@ -540,6 +540,23 @@ pub struct AggregationProof {
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct Groth16Proof {
+    pub block_number: i64,
+    pub total_time_to_proof: i64,
+    pub proving_time: i64,
+    pub proving_cycles: i64,
+    pub proof: String,
+    pub proof_size_b: f64,
+    pub public_values: String,
+    pub verifier_id: String,
+    pub zkm_version: String,
+    pub state: String,
+    pub reason: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct VerifierKey {
     pub verifier_id: String,
     pub verifier_key: String,

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT proof, public_values, verifier_id, zkm_version\n            FROM groth16_proof\n            WHERE block_number = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "proof",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "public_values",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "verifier_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6e225aa579f5bcbbd98ce36c97f34f6726b7e06418d1685cbde5e0b09d097747"
+}

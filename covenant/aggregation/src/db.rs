@@ -5,10 +5,14 @@ use anyhow::{anyhow, Result};
 use store::localdb::LocalDB;
 use tokio::time::{sleep, Duration};
 use tracing::info;
+use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_sdk::{
     ExecutionReport, HashableKey, ZKMProof, ZKMProofWithPublicValues, ZKMPublicValues,
     ZKMVerifyingKey,
 };
+use zkm_verifier::GROTH16_VK_BYTES;
+
+const PROOF_COUNT: u64 = 100;
 
 /// An input to the aggregation program.
 ///
@@ -50,7 +54,7 @@ impl Db {
             };
 
             if proof.is_empty() {
-                sleep(Duration::from_millis(500)).await;
+                sleep(Duration::from_secs(1)).await;
                 if is_aggregate {
                     info!("waiting block proof: {}", block_number);
                 } else {
@@ -106,13 +110,13 @@ impl Db {
     }
 
     async fn remove_old_proofs(&self, block_number: u64) -> Result<()> {
-        if block_number % 100 != 0 {
+        if block_number % PROOF_COUNT != 0 {
             return Ok(());
         }
 
         let mut storage_process = self.db.acquire().await?;
 
-        let remove_number = (block_number - 100) as i64;
+        let remove_number = (block_number - PROOF_COUNT) as i64;
         storage_process.delete_block_proofs(remove_number).await?;
         storage_process.delete_aggregation_proofs(remove_number).await
     }
@@ -122,6 +126,66 @@ impl Db {
 
         storage_process
             .update_aggregation_failed(
+                block_number as i64,
+                ProvableBlockStatus::Failed.to_string(),
+                err,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn on_groth16_start(&self, block_number: u64) -> Result<bool> {
+        let mut storage_process = self.db.acquire().await?;
+
+        storage_process
+            .create_groth16_task(block_number as i64, ProvableBlockStatus::Queued.to_string())
+            .await?;
+
+        Ok(true)
+    }
+
+    pub async fn on_groth16_end(
+        &self,
+        block_number: u64,
+        proof: &ZKMProofWithPublicValues,
+        vk: &ZKMVerifyingKey,
+        execution_report: &ExecutionReport,
+        proving_duration: Duration,
+    ) -> Result<()> {
+        let proof_bytes = bincode::serialize(&proof.proof).unwrap();
+        let public_values_bytes = bincode::serialize(&proof.public_values).unwrap();
+
+        let mut storage_process = self.db.acquire().await?;
+
+        storage_process
+            .update_groth16_succ(
+                block_number as i64,
+                (proving_duration.as_secs_f32() * 1000.0) as i64,
+                execution_report.total_instruction_count() as i64,
+                &proof_bytes,
+                &public_values_bytes,
+                vk.bytes32(),
+                ZKM_CIRCUIT_VERSION,
+                ProvableBlockStatus::Proved.to_string(),
+            )
+            .await?;
+
+        let vk_bytes = bincode::serialize(vk).unwrap();
+        storage_process.create_verifier_key(vk.bytes32(), vk_bytes.as_ref()).await?;
+
+        storage_process
+            .create_verifier_key(ZKM_CIRCUIT_VERSION.to_owned(), GROTH16_VK_BYTES.as_ref())
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn on_groth16_failed(&self, block_number: u64, err: String) -> Result<()> {
+        let mut storage_process = self.db.acquire().await?;
+
+        storage_process
+            .update_groth16_failed(
                 block_number as i64,
                 ProvableBlockStatus::Failed.to_string(),
                 err,
