@@ -1772,6 +1772,13 @@ impl<'a> StorageProcessor<'a> {
         )
     }
 
+    pub async fn skip_groth16_proof(
+        &mut self,
+        block_number: i64,
+    ) -> anyhow::Result<bool> {
+        Ok(self.get_process_withdraw_record(block_number).await?.is_empty())
+    }
+
     pub async fn update_goat_tx_record_prove_status(
         &mut self,
         graph_id: &Uuid,

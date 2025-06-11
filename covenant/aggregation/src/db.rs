@@ -138,6 +138,10 @@ impl Db {
     pub async fn on_groth16_start(&self, block_number: u64) -> Result<bool> {
         let mut storage_process = self.db.acquire().await?;
 
+        if storage_process.skip_groth16_proof(block_number as i64).await? {
+            return Ok(false);
+        }
+
         storage_process
             .create_groth16_task(block_number as i64, ProvableBlockStatus::Queued.to_string())
             .await?;
