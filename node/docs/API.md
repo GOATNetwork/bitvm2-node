@@ -239,7 +239,7 @@ pub enum InstanceStatus {
 #### InstanceOverview Instances
 
 - **Endpoint**: `GET /v1/instances/overview`
-- **Description**: Retrieve instance overiew
+- **Description**: Retrieve instance overview
 - **Response**: bridge in and bridge out info
 
 ```json
@@ -379,7 +379,7 @@ pub enum GraphBridgePath {
 - **Endpoint**: `GET /v1/graphs`
 - **Description**: Retrieve a list of graphs with optional filtering
 - **Query Parameters**:
-  - `stauts`: exp graph status(e.g:OperatorPresigned,CommitteePresigned, KickOff,Challenge,Assert,Take1,Take2,Disproved)
+  - `status`: exp graph status(e.g:OperatorPresigned,CommitteePresigned, KickOff,Challenge,Assert,Take1,Take2,Disproved)
   - `operator`: operator address on chain goat
   - `from_addr`: instance from address
   - `graph_field`:peg_in tx hash or graph_id string
