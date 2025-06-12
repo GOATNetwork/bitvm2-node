@@ -1,9 +1,8 @@
+use alloy::network::Ethereum;
 use alloy::primitives::{Address, Bytes, FixedBytes};
-use alloy::{
-    providers::RootProvider,
-    sol,
-    transports::http::{Client, Http},
-};
+use alloy::providers::Identity;
+use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
+use alloy::{providers::RootProvider, sol};
 use uuid::Uuid;
 sol!(
 #[derive(Debug)]
@@ -18,35 +17,47 @@ interface IGateway {
 });
 
 pub async fn validate_committee(
-    provider: &RootProvider<Http<Client>>,
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
     address: Address,
     peer_id: &[u8],
 ) -> anyhow::Result<bool> {
     let gate_way = IGateway::new(address, provider);
-    Ok(gate_way.isCommittee(Bytes::copy_from_slice(peer_id)).call().await?._0)
+    Ok(gate_way.isCommittee(Bytes::copy_from_slice(peer_id)).call().await?)
 }
 
 pub async fn validate_operator(
-    provider: &RootProvider<Http<Client>>,
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
     address: Address,
     peer_id: &[u8],
 ) -> anyhow::Result<bool> {
     let gate_way = IGateway::new(address, provider);
-    Ok(gate_way.isOperator(Bytes::copy_from_slice(peer_id)).call().await?._0)
+    Ok(gate_way.isOperator(Bytes::copy_from_slice(peer_id)).call().await?)
 }
 
 pub async fn validate_relayer(
-    provider: &RootProvider<Http<Client>>,
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
     address: Address,
     peer_id: &[u8],
 ) -> anyhow::Result<bool> {
     let gate_way = IGateway::new(address, provider);
-    let relayer_peer_id = gate_way.relayerPeerId().call().await?._0;
+    let relayer_peer_id = gate_way.relayerPeerId().call().await?;
     Ok(relayer_peer_id == Bytes::copy_from_slice(peer_id))
 }
 
 pub async fn get_graph_ids_by_instance_id(
-    provider: &RootProvider<Http<Client>>,
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
     address: Address,
     instance_id: Uuid,
 ) -> anyhow::Result<Vec<Uuid>> {
@@ -54,7 +65,6 @@ pub async fn get_graph_ids_by_instance_id(
     let graph_ids = gateway
         .getGraphIdsByInstanceId(FixedBytes::<16>::from_slice(instance_id.as_bytes()))
         .call()
-        .await?
-        ._0;
+        .await?;
     Ok(graph_ids.into_iter().map(|v| Uuid::from_bytes(v.0)).collect())
 }

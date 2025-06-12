@@ -4,6 +4,8 @@ use crate::client::chain::chain_adaptor::{
 use crate::client::chain::goat_adaptor::IGateway::IGatewayInstance;
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::TxHash;
+use alloy::providers::Identity;
+use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
@@ -12,7 +14,7 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::{Signer, local::PrivateKeySigner},
     sol,
-    transports::http::{Client, Http, reqwest::Url},
+    transports::http::reqwest::Url,
 };
 use anyhow::{bail, format_err};
 use async_trait::async_trait;
@@ -127,8 +129,17 @@ impl GoatInitConfig {
 pub struct GoatAdaptor {
     chain_id: ChainId,
     _gateway_address: EvmAddress,
-    provider: RootProvider<Http<Client>>,
-    gate_way: IGatewayInstance<Http<Client>, RootProvider<Http<Client>>>,
+    // provider: FillProvider<JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>, RootProvider>,
+    provider: FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+    gate_way: IGatewayInstance<
+        FillProvider<
+            JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+            RootProvider,
+        >,
+    >,
     signer: EthereumWallet,
 }
 
@@ -150,7 +161,7 @@ impl GoatAdaptor {
         tx_request.gas_price = Some(self.provider.clone().get_gas_price().await?);
         tx_request.nonce =
             Some(self.provider.clone().get_transaction_count(tx_request.from.unwrap()).await?);
-        tx_request.gas = Some(self.provider.clone().estimate_gas(&tx_request).await?);
+        tx_request.gas = Some(self.provider.clone().estimate_gas(tx_request.clone()).await?);
 
         // change into unsigned tx
         let unsigned_tx = tx_request
@@ -305,7 +316,7 @@ impl From<IGateway::WithdrawData> for WithdrawData {
 #[async_trait]
 impl ChainAdaptor for GoatAdaptor {
     async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool> {
-        Ok(self.gate_way.peginTxUsed(FixedBytes::<32>::from_slice(tx_id)).call().await?._0)
+        Ok(self.gate_way.peginTxUsed(FixedBytes::<32>::from_slice(tx_id)).call().await?)
     }
 
     async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
@@ -322,8 +333,7 @@ impl ChainAdaptor for GoatAdaptor {
             .gate_way
             .operatorWithdrawn(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
             .call()
-            .await?
-            ._0)
+            .await?)
     }
 
     async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
@@ -392,7 +402,7 @@ impl ChainAdaptor for GoatAdaptor {
     }
 
     async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        Ok(self.gate_way.getBlockHash(U256::from(height)).call().await?._0.0)
+        Ok(self.gate_way.getBlockHash(U256::from(height)).call().await?.0)
     }
 
     async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
@@ -620,8 +630,7 @@ impl ChainAdaptor for GoatAdaptor {
                 U256::from(index),
             )
             .call()
-            .await?
-            ._0)
+            .await?)
     }
 
     async fn parse_btc_block_header(
@@ -638,9 +647,7 @@ impl ChainAdaptor for GoatAdaptor {
     }
 
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
-        if let Some(block) =
-            self.provider.get_block_by_number(BlockNumberOrTag::Finalized, false).await?
-        {
+        if let Some(block) = self.provider.get_block_by_number(BlockNumberOrTag::Finalized).await? {
             Ok(block.header.number as i64)
         } else {
             bail!("fail to get finalize block");
@@ -661,7 +668,7 @@ impl GoatAdaptor {
         } else {
             PrivateKeySigner::random()
         };
-        let provider = ProviderBuilder::new().on_http(config.rpc_url);
+        let provider = ProviderBuilder::new().connect_http(config.rpc_url);
         Self {
             _gateway_address: config.gateway_address,
             provider: provider.clone(),

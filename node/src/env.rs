@@ -144,7 +144,7 @@ pub async fn check_node_info() {
     {
         let rpc_url = get_goat_url_from_env();
         let gateway_address = get_goat_gateway_contract_from_env();
-        let provider = ProviderBuilder::new().on_http(rpc_url);
+        let provider = ProviderBuilder::new().connect_http(rpc_url);
         let peer_id = PeerId::from_str(&node_info.peer_id).expect("fail to decode");
 
         if node_info.actor == Actor::Committee.to_string() {
@@ -309,7 +309,7 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     let gateway_address = get_goat_gateway_contract_from_env();
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let chain_id = {
-        let provider = ProviderBuilder::new().on_http(rpc_url.clone());
+        let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
         // Call `eth_chainId`
         provider
             .get_chain_id()

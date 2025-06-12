@@ -1345,7 +1345,7 @@ pub async fn validate_actor(
     role: Actor,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let rpc_url = get_goat_url_from_env();
-    let provider = ProviderBuilder::new().on_http(rpc_url);
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
     let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
     match role {
         Actor::Committee => {
@@ -1386,7 +1386,7 @@ pub async fn obsolete_sibling_graphs(
     reimbursed_graph_id: Uuid,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rpc_url = get_goat_url_from_env();
-    let provider = ProviderBuilder::new().on_http(rpc_url);
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
     let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
     let all_graphs =
         get_graph_ids_by_instance_id(&provider, goat_gateway_contract_address, instance_id).await?;
