@@ -22,6 +22,7 @@ pub struct Proof {
     pub proof: ZKMProof,
     pub public_values: ZKMPublicValues,
     pub vk: Arc<ZKMVerifyingKey>,
+    pub zkm_version: String,
 }
 
 pub struct Db {
@@ -47,7 +48,7 @@ impl Db {
         let mut storage_process = self.db.acquire().await?;
 
         loop {
-            let (proof, public_values, vk_id) = if is_aggregate {
+            let (proof, public_values, vk_id, zkm_version) = if is_aggregate {
                 storage_process.get_aggregation_proof(block_number as i64).await?
             } else {
                 storage_process.get_block_proof(block_number as i64).await?
@@ -72,7 +73,7 @@ impl Db {
             }
             let vk: ZKMVerifyingKey = bincode::deserialize(&vk)?;
 
-            return Ok(Proof { block_number, proof, public_values, vk: Arc::new(vk) });
+            return Ok(Proof { block_number, proof, public_values, vk: Arc::new(vk), zkm_version });
         }
     }
 
@@ -97,6 +98,7 @@ impl Db {
                 &proof_bytes,
                 &public_values_bytes,
                 vk.bytes32(),
+                &proof.zkm_version,
                 ProvableBlockStatus::Proved.to_string(),
             )
             .await?;

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT proof, public_values, verifier_id\n            FROM block_proof\n            WHERE block_number = ?\n            ",
+  "query": "\n            SELECT proof, public_values, verifier_id, zkm_version\n            FROM block_proof\n            WHERE block_number = ?\n            ",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "name": "verifier_id",
         "ordinal": 2,
         "type_info": "Text"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 3,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -25,8 +30,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "2d95c9a3c0e30302390d31a087646497adc764aa4daa410ce7439f64325fac87"
+  "hash": "88beb6a2a2d354768f4f83e7cb0a9d633cfc5ef259c0fc3dfe471cf038ccf213"
 }

@@ -1121,6 +1121,7 @@ impl<'a> StorageProcessor<'a> {
         proof: &[u8],
         public_values: &[u8],
         verifier_id: String,
+        zkm_version: &str,
         state: String,
     ) -> anyhow::Result<()> {
         let end_timestamp =
@@ -1146,6 +1147,7 @@ impl<'a> StorageProcessor<'a> {
                 proof_size_mb = ?,
                 public_values = ?,
                 verifier_id = ?,
+                zkm_version = ?,
                 state = ?,
                 reason = ?,
                 updated_at = ?
@@ -1158,6 +1160,7 @@ impl<'a> StorageProcessor<'a> {
             proof_size_mb,
             public_values,
             verifier_id,
+            zkm_version,
             state,
             "",
             end_timestamp,
@@ -1201,18 +1204,19 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_block_proof(
         &mut self,
         block_number: i64,
-    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String)> {
+    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String, String)> {
         #[derive(sqlx::FromRow)]
         struct BlockProofRow {
             proof: String,
             public_values: String,
             verifier_id: String,
+            zkm_version: String,
         }
 
         let row = sqlx::query_as!(
             BlockProofRow,
             r#"
-            SELECT proof, public_values, verifier_id
+            SELECT proof, public_values, verifier_id, zkm_version
             FROM block_proof
             WHERE block_number = ?
             "#,
@@ -1225,9 +1229,11 @@ impl<'a> StorageProcessor<'a> {
             Some(r) => {
                 let proof = hex::decode(r.proof)?;
                 let public_values = hex::decode(r.public_values)?;
-                Ok((proof, public_values, r.verifier_id))
+                Ok((proof, public_values, r.verifier_id, r.zkm_version))
             }
-            None => Ok((Default::default(), Default::default(), Default::default())),
+            None => {
+                Ok((Default::default(), Default::default(), Default::default(), Default::default()))
+            }
         }
     }
 
@@ -1275,6 +1281,7 @@ impl<'a> StorageProcessor<'a> {
         proof: &[u8],
         public_values: &[u8],
         verifier_id: String,
+        zkm_version: &str,
         state: String,
     ) -> anyhow::Result<()> {
         let end_timestamp =
@@ -1300,6 +1307,7 @@ impl<'a> StorageProcessor<'a> {
                 proof_size_mb = ?,
                 public_values = ?,
                 verifier_id = ?,
+                zkm_version = ?,
                 state = ?,
                 reason = ?,
                 updated_at = ?
@@ -1312,6 +1320,7 @@ impl<'a> StorageProcessor<'a> {
             proof_size_mb,
             public_values,
             verifier_id,
+            zkm_version,
             state,
             "",
             end_timestamp,
@@ -1377,18 +1386,19 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_aggregation_proof(
         &mut self,
         block_number: i64,
-    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String)> {
+    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String, String)> {
         #[derive(sqlx::FromRow)]
         struct AggregationProofRow {
             proof: String,
             public_values: String,
             verifier_id: String,
+            zkm_version: String,
         }
 
         let row = sqlx::query_as!(
             AggregationProofRow,
             r#"
-            SELECT proof, public_values, verifier_id
+            SELECT proof, public_values, verifier_id, zkm_version
             FROM aggregation_proof
             WHERE block_number = ?
             "#,
@@ -1401,9 +1411,11 @@ impl<'a> StorageProcessor<'a> {
             Some(r) => {
                 let proof = hex::decode(r.proof)?;
                 let public_values = hex::decode(r.public_values)?;
-                Ok((proof, public_values, r.verifier_id))
+                Ok((proof, public_values, r.verifier_id, r.zkm_version))
             }
-            None => Ok((Default::default(), Default::default(), Default::default())),
+            None => {
+                Ok((Default::default(), Default::default(), Default::default(), Default::default()))
+            }
         }
     }
 

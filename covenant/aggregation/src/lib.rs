@@ -3,6 +3,7 @@ use store::localdb::LocalDB;
 use tokio::time::{sleep, Duration};
 use tracing::info;
 use zkm_sdk::{ZKMProofWithPublicValues, ZKMStdin};
+use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_verifier::{convert_ark, load_ark_groth16_verifying_key_from_bytes, GROTH16_VK_BYTES};
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
@@ -14,9 +15,19 @@ pub fn get_latest_groth16_vk() -> Result<VerifyingKey> {
     Ok(ark_groth16_vk.into())
 }
 
+pub async fn get_zkm_version() -> String {
+    ZKM_CIRCUIT_VERSION.to_owned()
+}
+
 pub async fn get_groth16_vk(db: &LocalDB, zkm_version: &str) -> Result<VerifyingKey> {
+    if zkm_version == ZKM_CIRCUIT_VERSION {
+        return get_latest_groth16_vk();
+    }
     let mut storage_process = db.acquire().await?;
     let groth16_vk_bytes = storage_process.get_groth16_vk(zkm_version).await?;
+    if groth16_vk_bytes.is_empty() {
+        return Err(anyhow::anyhow!("No Groth16 VK found for version: {}", zkm_version));
+    }
     let ark_groth16_vk = load_ark_groth16_verifying_key_from_bytes(&groth16_vk_bytes)?;
     Ok(ark_groth16_vk.into())
 }
@@ -81,10 +92,12 @@ mod tests {
         let latest_groth16_vk = get_latest_groth16_vk().unwrap();
         let groth16_vk_v1 = get_groth16_vk(&db, &zkm_version).await.unwrap();
         let groth16_vk_v2 = get_groth16_vk(&db, ZKM_CIRCUIT_VERSION).await.unwrap();
+        let groth16_vk_v3 = get_groth16_vk(&db, get_zkm_version()).await.unwrap();
 
         assert_eq!(groth16_vk, latest_groth16_vk);
         assert_eq!(groth16_vk, groth16_vk_v1);
         assert_eq!(groth16_vk, groth16_vk_v2);
+        assert_eq!(groth16_vk, groth16_vk_v3);
 
         // Verify the arkworks proof.
         let ok = Groth16::<Bn254, LibsnarkReduction>::verify_proof(

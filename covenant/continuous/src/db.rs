@@ -59,6 +59,7 @@ impl ExecutionHooks for PersistToDB {
         block_number: u64,
         proof_bytes: &[u8],
         public_values_bytes: &[u8],
+        zkm_version: &str,
         vk: &ZKMVerifyingKey,
         execution_report: &ExecutionReport,
         proving_duration: Duration,
@@ -74,6 +75,7 @@ impl ExecutionHooks for PersistToDB {
                 proof_bytes,
                 public_values_bytes,
                 vk.bytes32(),
+                zkm_version,
                 ProvableBlockStatus::Proved.to_string(),
             )
             .await
