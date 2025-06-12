@@ -688,7 +688,7 @@ checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
 [[package]]
 name = "zkm-lib"
 version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#c5308061278670d78453cc283343d7d47ddafd8f"
+source = "git+https://github.com/zkMIPS/zkMIPS#eead3607ccbbb7648a661258de2307a3ae1c26d1"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -701,7 +701,7 @@ dependencies = [
 [[package]]
 name = "zkm-primitives"
 version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#c5308061278670d78453cc283343d7d47ddafd8f"
+source = "git+https://github.com/zkMIPS/zkMIPS#eead3607ccbbb7648a661258de2307a3ae1c26d1"
 dependencies = [
  "bincode",
  "hex",
@@ -719,7 +719,7 @@ dependencies = [
 [[package]]
 name = "zkm-zkvm"
 version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#c5308061278670d78453cc283343d7d47ddafd8f"
+source = "git+https://github.com/zkMIPS/zkMIPS#eead3607ccbbb7648a661258de2307a3ae1c26d1"
 dependencies = [
  "bincode",
  "cfg-if",
