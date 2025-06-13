@@ -327,8 +327,10 @@ pub async fn recv_and_dispatch(
                     let keypair = master_key.keypair_for_graph(graph_id);
                     let (_, operator_wots_pubkeys) = master_key.wots_keypair_for_graph(graph_id);
                     let committee_agg_pubkey = key_aggregation(&collected_keys);
-                    let disprove_scripts =
-                        generate_disprove_scripts(&get_partial_scripts()?, &operator_wots_pubkeys);
+                    let disprove_scripts = generate_disprove_scripts(
+                        &get_partial_scripts(local_db).await?,
+                        &operator_wots_pubkeys,
+                    );
                     let operator_inputs = select_operator_inputs(
                         btc_client,
                         get_stake_amount(receive_data.pegin_amount.to_sat()),
@@ -1022,6 +1024,7 @@ pub async fn recv_and_dispatch(
             let mut graph =
                 get_graph(local_db, receive_data.instance_id, receive_data.graph_id).await?;
             if let Some(disprove_witness) = validate_assert(
+                local_db,
                 btc_client,
                 &receive_data.assert_commit_txids,
                 graph.parameters.operator_wots_pubkeys.clone(),
@@ -1030,7 +1033,7 @@ pub async fn recv_and_dispatch(
             {
                 tracing::info!("sending Disprove ...");
                 let disprove_scripts = generate_disprove_scripts(
-                    &get_partial_scripts()?,
+                    &get_partial_scripts(local_db).await?,
                     &graph.parameters.operator_wots_pubkeys,
                 );
                 let disprove_scripts_bytes =

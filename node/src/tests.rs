@@ -299,7 +299,7 @@ pub mod tests {
         };
 
         //let partial_scripts = operator::generate_partial_scripts(&vk);
-        let partial_scripts = crate::utils::get_partial_scripts().unwrap();
+        let partial_scripts = crate::utils::get_partial_scripts(local_db).await.unwrap();
         let disprove_scripts =
             operator::generate_disprove_scripts(&partial_scripts, &operator_wots_pubkeys);
 
@@ -584,7 +584,7 @@ pub mod tests {
             verifier::extract_proof_sigs_from_assert_commit_txns(assert_commit_txns).unwrap();
         let disprove_scripts_array: [_; NUM_TAPS] = disprove_scripts.try_into().unwrap();
         let disprove_witness = verifier::verify_proof(
-            &get_vk().unwrap(),
+            &get_vk(&local_db).await.unwrap(),
             public_proof_sigs,
             &disprove_scripts_array,
             &operator_wots_pubkeys,

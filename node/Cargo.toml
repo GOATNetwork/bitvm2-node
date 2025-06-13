@@ -85,6 +85,7 @@ stun-client = "0.1.4"
 
 # bin
 tempfile = "3.19.1"
+groth16 = { path = "../covenant/groth16" }
 
 [dev-dependencies]
 serial_test = "3.2.0"
