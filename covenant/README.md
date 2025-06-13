@@ -17,3 +17,9 @@ Aggregate block proofs and generate groth16 proofs.
 ```shell
 cargo run --bin aggregation -- --block-number 2
 ```
+
+## Test getting groth16 proofs
+
+```shell
+RUST_LOG=debug cargo test test_groth16_proof
+```

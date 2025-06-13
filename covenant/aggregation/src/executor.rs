@@ -88,11 +88,8 @@ impl AggregationExecutor {
 
                 input_tx.send(agg_input)?;
                 info!("Successfully load proofs: {}, {}", block_number - 1, block_number);
-            } else {
-                break;
             }
         }
-        Ok(())
     }
 
     pub async fn proof_aggregator(
@@ -142,11 +139,8 @@ impl AggregationExecutor {
                     }
                 }
                 block_number_tx.send(block_number + 1)?;
-            } else {
-                break;
             }
         }
-        Ok(())
     }
 
     async fn generate_aggregation_proof(
@@ -283,11 +277,8 @@ impl Groth16Executor {
                         self.db.on_groth16_failed(block_number, err.to_string()).await?;
                     }
                 }
-            } else {
-                break;
             }
         }
-        Ok(())
     }
 
     async fn generate_groth16_proof(
@@ -378,7 +369,7 @@ async fn prove(
 ) -> Result<ZKMProofWithPublicValues> {
     tokio::task::spawn_blocking(move || {
         info_span!("proving", number).in_scope(|| {
-            client.prove(pk.as_ref(), stdin, Default::default(), Default::default(), proof_mode)
+            client.prove(pk.as_ref(), stdin, proof_mode)
         })
     })
     .await?

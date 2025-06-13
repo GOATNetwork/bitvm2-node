@@ -85,6 +85,16 @@ impl Db {
         execution_report: &ExecutionReport,
         proving_duration: Duration,
     ) -> Result<()> {
+        assert_eq!(
+            proof.zkm_version,
+            ZKM_CIRCUIT_VERSION,
+            "{}",
+            format!(
+                "zkMIPS version mismatch, expected {}, got {}",
+                ZKM_CIRCUIT_VERSION, proof.zkm_version,
+            ),
+        );
+
         let proof_bytes = bincode::serialize(&proof.proof).unwrap();
         let public_values_bytes = bincode::serialize(&proof.public_values).unwrap();
 

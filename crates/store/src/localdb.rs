@@ -1133,7 +1133,7 @@ impl<'a> StorageProcessor<'a> {
 
         let total_time_to_proof = end_timestamp - start_timestamp;
 
-        let proof_size_mb = proof.len() as f64 / (1024.0 * 1024.0);
+        let proof_size = proof.len() as i64;
         let proof = hex::encode(proof);
 
         let public_values = hex::encode(public_values);
@@ -1146,7 +1146,7 @@ impl<'a> StorageProcessor<'a> {
                 proving_time = ?, 
                 proving_cycles = ?, 
                 proof = ?,
-                proof_size_mb = ?,
+                proof_size = ?,
                 public_values = ?,
                 verifier_id = ?,
                 zkm_version = ?,
@@ -1159,7 +1159,7 @@ impl<'a> StorageProcessor<'a> {
             proving_time,
             proving_cycles,
             proof,
-            proof_size_mb,
+            proof_size,
             public_values,
             verifier_id,
             zkm_version,
@@ -1292,7 +1292,7 @@ impl<'a> StorageProcessor<'a> {
 
         let total_time_to_proof = end_timestamp - start_timestamp;
 
-        let proof_size_mb = proof.len() as f64 / (1024.0 * 1024.0);
+        let proof_size = proof.len() as i64;
         let proof = hex::encode(proof);
 
         let public_values = hex::encode(public_values);
@@ -1305,7 +1305,7 @@ impl<'a> StorageProcessor<'a> {
                 proving_time = ?, 
                 proving_cycles = ?, 
                 proof = ?,
-                proof_size_mb = ?,
+                proof_size = ?,
                 public_values = ?,
                 verifier_id = ?,
                 zkm_version = ?,
@@ -1318,7 +1318,7 @@ impl<'a> StorageProcessor<'a> {
             proving_time,
             proving_cycles,
             proof,
-            proof_size_mb,
+            proof_size,
             public_values,
             verifier_id,
             zkm_version,
@@ -1466,7 +1466,7 @@ impl<'a> StorageProcessor<'a> {
 
         let total_time_to_proof = end_timestamp - start_timestamp;
 
-        let proof_size_b = proof.len() as f64;
+        let proof_size = proof.len() as f64;
         let proof = hex::encode(proof);
 
         let public_values = hex::encode(public_values);
@@ -1479,7 +1479,7 @@ impl<'a> StorageProcessor<'a> {
                 proving_time = ?, 
                 proving_cycles = ?, 
                 proof = ?,
-                proof_size_b = ?,
+                proof_size = ?,
                 public_values = ?,
                 verifier_id = ?,
                 zkm_version = ?,
@@ -1492,7 +1492,7 @@ impl<'a> StorageProcessor<'a> {
             proving_time,
             proving_cycles,
             proof,
-            proof_size_b,
+            proof_size,
             public_values,
             verifier_id,
             zkm_version,

@@ -733,7 +733,7 @@ pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey, Box<dyn std::error::Er
         return get_test_vk();
     }
 
-    Ok(groth16::get_groth16_vk(db, &groth16::get_zkm_version().await).await?)
+    Ok(groth16::get_groth16_vk(db, &groth16::get_zkm_version()).await?)
 }
 
 pub fn get_test_groth16_proof()
@@ -1039,7 +1039,7 @@ pub async fn store_graph(
             bridge_out_from_addr,
             bridge_out_to_addr,
             init_withdraw_txid: None,
-            zkm_version: groth16::get_zkm_version().await,
+            zkm_version: groth16::get_zkm_version(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
