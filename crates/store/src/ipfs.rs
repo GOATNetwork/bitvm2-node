@@ -161,7 +161,7 @@ pub mod tests {
         // match client.add(base_dir.path()).await {
         //     Ok(hash) => {
         //         println!("add hash: {:?}", hash);
-        //         // FIXME: can not read immidately.
+        //         // FIXME: can not read immediately.
         //     }
         //     Err(e) => panic!("error adding file: {}", e),
         // }
