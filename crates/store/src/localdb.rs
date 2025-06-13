@@ -247,8 +247,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, \
              amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
             assert_final_txid, take2_txid, disprove_txid, operator, raw_data,  bridge_out_start_at, bridge_out_from_addr,  \
-            bridge_out_to_addr, init_withdraw_txid, created_at, updated_at)  \
-            VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+            bridge_out_to_addr, init_withdraw_txid, zkm_version,  created_at, updated_at)  \
+            VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
             graph.graph_id,
             graph.instance_id,
             graph.graph_ipfs_base_url,
@@ -270,6 +270,7 @@ impl<'a> StorageProcessor<'a> {
             graph.bridge_out_from_addr,
             graph.bridge_out_to_addr,
             graph.init_withdraw_txid,
+            graph.zkm_version,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -384,7 +385,7 @@ impl<'a> StorageProcessor<'a> {
             "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, \
              pre_kickoff_txid, pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
               assert_final_txid, take2_txid, disprove_txid, operator, raw_data,bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr,\
-              init_withdraw_txid, created_at, updated_at  FROM graph WHERE  graph_id = ?",
+              init_withdraw_txid, zkm_version, created_at, updated_at  FROM graph WHERE  graph_id = ?",
             graph_id
         ).fetch_optional(self.conn()).await?;
         Ok(res)
@@ -508,7 +509,7 @@ impl<'a> StorageProcessor<'a> {
             "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, \
             pre_kickoff_txid,pegin_txid, amount, status,kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
              assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr, \
-            init_withdraw_txid, created_at, updated_at FROM graph WHERE instance_id = ?",
+            init_withdraw_txid, zkm_version, created_at, updated_at FROM graph WHERE instance_id = ?",
             instance_id
         ).fetch_all(self.conn()).await?;
         Ok(res)
@@ -1767,24 +1768,27 @@ impl<'a> StorageProcessor<'a> {
         )
     }
 
-    pub async fn get_process_withdraw_record(
+    pub async fn get_tx_info_for_gen_proof(
         &mut self,
         block_number: i64,
-    ) -> anyhow::Result<Vec<GoatTxRecord>> {
-        Ok(
-            sqlx::query_as!(
-                GoatTxRecord,
-                "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", tx_type, \
-                 tx_hash, height, is_local, prove_status, extra, created_at From goat_tx_record where height = ?  \
-                 AND tx_type = 'ProceedWithdraw' ORDER BY height asc",
-                block_number
-            ).fetch_all(self.conn())
-                .await?
-        )
+    ) -> anyhow::Result<Vec<(Uuid, String, String)>> {
+        #[derive(sqlx::FromRow)]
+        struct TxInfoRow {
+            graph_id: Uuid,
+            zkm_version: String,
+            tx_hash: String,
+        }
+        let tx_info_rows = sqlx::query_as!(
+            TxInfoRow,
+            "SELECT g.graph_id AS \"graph_id:Uuid\", g.zkm_version AS zkm_version, gtr.tx_hash AS tx_hash 
+FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gtr.height = ? AND gtr.tx_type = 'ProceedWithdraw'",
+            block_number
+        ).fetch_all(self.conn()).await?;
+        Ok(tx_info_rows.into_iter().map(|v| (v.graph_id, v.tx_hash, v.zkm_version)).collect())
     }
 
     pub async fn skip_groth16_proof(&mut self, block_number: i64) -> anyhow::Result<bool> {
-        Ok(self.get_process_withdraw_record(block_number).await?.is_empty())
+        Ok(self.get_tx_info_for_gen_proof(block_number).await?.is_empty())
     }
 
     pub async fn update_goat_tx_record_prove_status(

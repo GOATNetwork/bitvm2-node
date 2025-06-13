@@ -354,6 +354,7 @@ mod tests {
                     "bridge_out_start_at":1000000,
                     "bridge_out_to_addr": "",
                     "bridge_out_from_addr":"",
+                    "zkm_version":"v1.1.0",
                     "operator": hex::encode(generate_random_bytes(33))
                 }
             }))

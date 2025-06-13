@@ -203,6 +203,7 @@ pub struct Graph {
     pub bridge_out_from_addr: String,
     pub bridge_out_to_addr: String,
     pub init_withdraw_txid: Option<String>,
+    pub zkm_version: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

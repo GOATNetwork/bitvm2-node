@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, pre_kickoff_txid,pegin_txid, amount, status,kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr, init_withdraw_txid, created_at, updated_at FROM graph WHERE instance_id = ?",
+  "query": "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, pre_kickoff_txid, pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, assert_final_txid, take2_txid, disprove_txid, operator, raw_data,bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr,init_withdraw_txid, zkm_version, created_at, updated_at  FROM graph WHERE  graph_id = ?",
   "describe": {
     "columns": [
       {
@@ -109,13 +109,18 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "zkm_version",
         "ordinal": 21,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 22,
         "type_info": "Integer"
       },
       {
         "name": "updated_at",
-        "ordinal": 22,
+        "ordinal": 23,
         "type_info": "Integer"
       }
     ],
@@ -145,8 +150,9 @@
       false,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "b1f88c6fdc1830055265c0b108d571f309ef173dc8cd3925d127d9bddbad630f"
+  "hash": "ade5aa9f01b8623c6b13d521ab359335ab617c4be2648681c70a6800decd7fec"
 }

@@ -1013,6 +1013,7 @@ pub async fn store_graph(
                 node_p2wsh_address(network, &graph.parameters.operator_pubkey).to_string();
         }
     }
+
     transaction
         .update_graph(Graph {
             graph_id,
@@ -1038,6 +1039,7 @@ pub async fn store_graph(
             bridge_out_from_addr,
             bridge_out_to_addr,
             init_withdraw_txid: None,
+            zkm_version: groth16::get_zkm_version().await,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
@@ -1537,7 +1539,9 @@ pub async fn run_gen_groth16_proof_task(
     }
 }
 
-pub async fn set_node_external_socker_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
+/// Retrieve the server's public IP via NAT protocol and combine it with
+/// the configured RPC monitoring port`rpc_addr` to generate the external RPC service address.
+pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
     let addr = SocketAddr::from_str(rpc_addr)?;
     let mut client = Client::new("0.0.0.0:0", None).await?;
     let message_res = client.binding_request("stun.l.google.com:19302", None).await;
