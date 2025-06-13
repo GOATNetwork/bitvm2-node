@@ -202,7 +202,7 @@ impl AggregationExecutor {
 
         // Read block numbers.
         let block_numbers = public_values.read::<Vec<u64>>();
-        info!(?block_numbers, "[Aggregation] Execution sucessful");
+        info!(?block_numbers, "[Aggregation] Execution successful");
 
         let proving_start = tokio::time::Instant::now();
 
@@ -336,7 +336,7 @@ impl Groth16Executor {
 
         // Read block number.
         let block_number = public_values.read::<u64>();
-        info!(?block_number, "[Groth16] Execution sucessful");
+        info!(?block_number, "[Groth16] Execution successful");
 
         let proving_start = tokio::time::Instant::now();
 
