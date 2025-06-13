@@ -34,6 +34,9 @@ jobs:
           echo "CARGO_VERSION=$VERSION" >> $GITHUB_ENV
           echo "Using version: $VERSION"
 
+      - name: Install Dependencies
+        run: sudo apt install protobuf-compiler
+
       - name: Build binary
         run: cargo build --release
 

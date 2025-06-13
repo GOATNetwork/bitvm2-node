@@ -555,7 +555,7 @@ If a graph for the instancce is created, the count must be greater than or equal
                     "block_number": "number",
                     "proof_state": "string",
                     "pure_proof_cast": "number",
-                    "started_at": 100,
+                    "started_at": "number",
                     "ended_at": "number"
                 }
             ],
