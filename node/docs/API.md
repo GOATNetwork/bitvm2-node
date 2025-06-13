@@ -21,16 +21,16 @@ relate struct
 
 ```rust
 pub enum NodeActor {
-  Committee,
-  Operator,
-  Challenger,
-  Relayer,
-  All,
+    Committee,
+    Operator,
+    Challenger,
+    Relayer,
+    All,
 }
 
 pub enum NodeStatus {
-  Online,
-  Offline,
+    Online,
+    Offline,
 }
 
 ```
@@ -43,7 +43,8 @@ pub enum NodeStatus {
     "peer_id": "string",
     "actor": "string",
     "eth_addr": "string",
-    "btc_pub_key": "string"
+    "btc_pub_key": "string",
+    "socket_addr": "string"
   }
   ```
 - **Response**:
@@ -54,6 +55,7 @@ pub enum NodeStatus {
   "actor": "string",
   "eth_addr": "string",
   "btc_pub_key": "string",
+  "socket_addr": "string",
   "updated_at": "number",
   "created_at": "number"
 }
@@ -64,11 +66,11 @@ pub enum NodeStatus {
 - **Endpoint**: `GET /v1/nodes`
 - **Description**: Retrieve a list of nodes with optional filtering
 - **Query Parameters**:
-  - `actor`: Filter nodes by acotr (e.g., "Committee")
-  - `goat_addr`: Filter nodes by goat address
-  - `status`: Filter nodes by status (e.g., "Online", "Offline")
-  - `offset`: Pagination offset
-  - `limit`: Number of nodes to return
+    - `actor`: Filter nodes by acotr (e.g., "Committee")
+    - `goat_addr`: Filter nodes by goat address
+    - `status`: Filter nodes by status (e.g., "Online", "Offline")
+    - `offset`: Pagination offset
+    - `limit`: Number of nodes to return
 - **Response**:
 
 ```json
@@ -79,6 +81,7 @@ pub enum NodeStatus {
       "actor": "string",
       "eth_addr": "string",
       "btc_pub_key": "string",
+      "socket_addr": "string",
       "updated_at": "number",
       "created_at": "number"
     }
@@ -116,33 +119,33 @@ relate struct
 ```rust
 /// 1.instance.network:
 pub enum InstanceNetwork {
-  /// Mainnet Bitcoin.
-  Bitcoin,
-  /// Bitcoin's testnet network. (In future versions this will be combined
-  /// into a single variant containing the version)
-  Testnet,
-  /// Bitcoin's testnet4 network. (In future versions this will be combined
-  /// into a single variant containing the version)
-  Testnet4,
-  /// Bitcoin's signet network.
-  Signet,
-  /// Bitcoin's regtest network.
-  Regtest,
+    /// Mainnet Bitcoin.
+    Bitcoin,
+    /// Bitcoin's testnet network. (In future versions this will be combined
+    /// into a single variant containing the version)
+    Testnet,
+    /// Bitcoin's testnet4 network. (In future versions this will be combined
+    /// into a single variant containing the version)
+    Testnet4,
+    /// Bitcoin's signet network.
+    Signet,
+    /// Bitcoin's regtest network.
+    Regtest,
 }
 
 /// 2. instance.bridge_path
 pub enum InstanceBridgePath {
-  BTCToPegBTC = 0,
-  PegBTCToBTC = 1,
+    BTCToPegBTC = 0,
+    PegBTCToBTC = 1,
 }
 
 ///3. instance status: contain two values: InstanceStatusBridgeInStatus or InstanceStatusBridgeOutStatus 
 pub enum InstanceStatus {
-  #[default]
-  Submitted,
-  Presigned, // includes operator and Committee presigns
-  L1Broadcasted,
-  L2Minted, // success
+    #[default]
+    Submitted,
+    Presigned, // includes operator and Committee presigns
+    L1Broadcasted,
+    L2Minted, // success
 }
 
 /// 4.instanct.amount in bitcoin sat
@@ -153,7 +156,7 @@ pub enum InstanceStatus {
 - **Endpoint**: `GET /v1/instances/{id}`
 - **Description**: Retrieve details of a specific instance
 - **Path Parameters**:
-  - `id`: Instance ID
+    - `id`: Instance ID
 - **Response**:
 
 ```json
@@ -193,10 +196,10 @@ pub enum InstanceStatus {
 - **Endpoint**: `GET /v1/instances`
 - **Description**: Retrieve a list of instances with optional filtering
 - **Query Parameters**:
-  - `from_addr`: Filter by user address
-  - `bridge_path`: select bridge path(e.g. 0: bridge in , 1 : bridge out)
-  - `offset`: Pagination offset
-  - `limit`: Number of instances to return
+    - `from_addr`: Filter by user address
+    - `bridge_path`: select bridge path(e.g. 0: bridge in , 1 : bridge out)
+    - `offset`: Pagination offset
+    - `limit`: Number of instances to return
 - **Response**: List of instances matching the criteria
 
 ```json
@@ -292,28 +295,28 @@ relate struct
 
 ///1.graph.status
 pub enum GraphStatus {
-  #[default]
-  OperatorPresigned,
-  CommitteePresigned,
-  OperatorDataPushed,
-  KickOffing,
-  KickOff,
-  Challenging,
-  Challenge,
-  Asserting,
-  Assert,
-  Take1,
-  Take2,
-  Disproving,
-  Disprove,   // fail to reimbursement
-  Reimbursed,
+    #[default]
+    OperatorPresigned,
+    CommitteePresigned,
+    OperatorDataPushed,
+    KickOffing,
+    KickOff,
+    Challenging,
+    Challenge,
+    Asserting,
+    Assert,
+    Take1,
+    Take2,
+    Disproving,
+    Disprove,   // fail to reimbursement
+    Reimbursed,
 }
 
 /// graph.bridge_path 
 
 pub enum GraphBridgePath {
-  BTCToPegBTC = 0,
-  PegBTCToBTC = 1,
+    BTCToPegBTC = 0,
+    PegBTCToBTC = 1,
 }
 
 ```
@@ -343,7 +346,7 @@ pub enum GraphBridgePath {
 - **Endpoint**: `GET /v1/graphs/{id}`
 - **Description**: Retrieve details of a specific graph
 - **Path Parameters**:
-  - `id`: Graph ID
+    - `id`: Graph ID
 - **Response**:
   ```json
   {
@@ -379,12 +382,13 @@ pub enum GraphBridgePath {
 - **Endpoint**: `GET /v1/graphs`
 - **Description**: Retrieve a list of graphs with optional filtering
 - **Query Parameters**:
-  - `status`: exp graph status(e.g:OperatorPresigned,CommitteePresigned, KickOff,Challenge,Assert,Take1,Take2,Disproved)
-  - `operator`: operator address on chain goat
-  - `from_addr`: instance from address
-  - `graph_field`:peg_in tx hash or graph_id string
-  - `offset`: Pagination offset
-  - `limit`: Number of graphs to return
+    - `status`: exp graph status(e.g:OperatorPresigned,CommitteePresigned,
+      KickOff,Challenge,Assert,Take1,Take2,Disproved)
+    - `operator`: operator address on chain goat
+    - `from_addr`: instance from address
+    - `graph_field`:peg_in tx hash or graph_id string
+    - `offset`: Pagination offset
+    - `limit`: Number of graphs to return
 - **Response**:
   ```json
   {
@@ -426,7 +430,7 @@ pub enum GraphBridgePath {
 - **Endpoint**: `POST /v1/graphs/{id}/presign`
 - **Description**: Presign a graph
 - **Path Parameters**:
-  - `id`: Graph ID
+    - `id`: Graph ID
 - **Request Body**:
   ```json
   {
@@ -490,7 +494,7 @@ If a graph for the instancce is created, the count must be greater than or equal
 - **Endpoint**: `GET /v1/graphs/{id}/txn`
 - **Description**: get graph txn: kickoff take1 and so on.
 - **Path Parameters**:
-  - `id`: Graph ID
+    - `id`: Graph ID
 - **Response**:
 
 ```json
@@ -513,10 +517,10 @@ If a graph for the instancce is created, the count must be greater than or equal
 - **Endpoint**: `GET /v1/graphs/{id}/tx`
 - **Description**: get graph txn: kickoff take1 and so on.
 - **Path Parameters**:
-  - `id`: Graph ID
+    - `id`: Graph ID
 - **Query Parameters**:
-  - `tx_name`: exp assert-commit0.hex..
-  - `operator`: operator
+    - `tx_name`: exp assert-commit0.hex..
+    - `operator`: operator
 - **Response**:
 
 ```json
@@ -524,6 +528,53 @@ If a graph for the instancce is created, the count must be greater than or equal
   "tx_hex": "string"
 }
 ```
+
+### 5. Proofs Management
+
+- **Endpoint**: `GET /v1/proofs/`
+- **Description**: Retrieve goat block proofs, contains: block proof,aggregation proof, groth16 proof
+    - **Query Parameters**:
+        - `block_number`: the goat block height
+        - `block_range`: the number block proofs need to query
+        - `graph_id`: graph for locating Layer 2 block height
+        - **Response**:
+          ```json
+          {
+            "block_number": "number",
+            "block_proofs": [
+                {
+                    "block_number": "number",
+                    "proof_state": "string",
+                    "pure_proof_cast": "number",
+                    "started_at": "number",
+                    "ended_at": "number"
+                }
+            ],
+            "aggregation_proofs": [
+                {
+                    "block_number": "number",
+                    "proof_state": "string",
+                    "pure_proof_cast": "number",
+                    "started_at": 100,
+                    "ended_at": "number"
+                }
+            ],
+            "groth16_proofs": [
+                {
+                    "block_number": "number",
+                    "proof_state": "string",
+                    "pure_proof_cast": "number",
+                    "started_at": "number",
+                    "ended_at": "number"
+                }
+            ]
+          }
+    
+          ```
+  PS: `proof_state` proof task state value: `queued`, `proved`, `failed`;
+  `pure_proof_cast` pure compute proof cast, exclude init prepare, waiting and other time cast;
+  `started_at` timestamp, proof task stared at;
+  `ended_at` timestamp, proof task end at.
 
 ## Error Handling
 

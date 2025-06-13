@@ -713,7 +713,7 @@ pub async fn get_groth16_proof(
     }
     let mut db_lock = local_db.acquire().await?;
     let tx_record_op = db_lock
-        .get_graph_goat_tx_record(graph_id, instance_id, &GoatTxType::ProceedWithdraw.to_string())
+        .get_graph_goat_tx_record(graph_id, &GoatTxType::ProceedWithdraw.to_string())
         .await?;
     if tx_record_op.is_none() {
         return Err(
@@ -1540,9 +1540,17 @@ pub async fn run_gen_groth16_proof_task(
 pub async fn set_node_external_socker_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
     let addr = SocketAddr::from_str(rpc_addr)?;
     let mut client = Client::new("0.0.0.0:0", None).await?;
-    let message = client.binding_request("stun.l.google.com:19302", None).await?;
+    let message_res = client.binding_request("stun.l.google.com:19302", None).await;
+    if message_res.is_err() {
+        warn!("fail to get message from stun.l.google.com:19302, err :{:?}", message_res.err());
+        return Ok(());
+    }
+    let message = message_res?;
     if message.get_class() != Class::SuccessResponse {
-        warn!("fail to get message from stun.l.google.com:19302");
+        warn!(
+            "fail to get message from stun.l.google.com:19302, return class :{:?}",
+            message.get_class()
+        );
         return Ok(());
     }
     if let Some(socket_addr) = Attribute::get_xor_mapped_address(&message) {

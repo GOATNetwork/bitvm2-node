@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct ProofsQueryParams {
+    pub block_number: Option<i64>,
     #[serde(default = "default_block_range")]
     pub block_range: i64,
+    pub graph_id: Option<String>,
 }
 
 fn default_block_range() -> i64 {

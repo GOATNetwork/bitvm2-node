@@ -1737,15 +1737,13 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_graph_goat_tx_record(
         &mut self,
         graph_id: &Uuid,
-        instance_id: &Uuid,
         tx_type: &str,
     ) -> anyhow::Result<Option<GoatTxRecord>> {
         Ok(
             sqlx::query_as!(
                 GoatTxRecord,
                 "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", tx_type, tx_hash, \
-                 height, is_local, prove_status, extra, created_at From goat_tx_record where instance_id = ? AND graph_id = ? AND tx_type = ?",
-                instance_id,
+                 height, is_local, prove_status, extra, created_at From goat_tx_record where  graph_id = ? AND tx_type = ?",
                 graph_id,
                 tx_type
             ).fetch_optional(self.conn())
