@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use store::localdb::LocalDB;
+use store::GoatTxType;
 use tokio::time::{sleep, Duration};
 use tracing::info;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
@@ -150,7 +151,10 @@ impl Db {
     pub async fn on_groth16_start(&self, block_number: u64) -> Result<bool> {
         let mut storage_process = self.db.acquire().await?;
 
-        if storage_process.skip_groth16_proof(block_number as i64).await? {
+        if storage_process
+            .skip_groth16_proof(block_number as i64, &GoatTxType::ProceedWithdraw.to_string())
+            .await?
+        {
             return Ok(false);
         }
 

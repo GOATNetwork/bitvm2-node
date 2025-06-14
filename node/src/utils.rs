@@ -1493,7 +1493,10 @@ pub async fn run_gen_groth16_proof_task(
         let tx_records = {
             let mut storage_processor = local_db.acquire().await?;
             storage_processor
-                .get_goat_tx_record_need_proving(&GoatTxType::ProceedWithdraw.to_string())
+                .get_goat_tx_record_need_proving(
+                    &GoatTxType::ProceedWithdraw.to_string(),
+                    &GoatTxProveStatus::Pending.to_string(),
+                )
                 .await?
         };
 

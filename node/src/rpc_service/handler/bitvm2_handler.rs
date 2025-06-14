@@ -21,8 +21,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::FilterGraphParams;
 use store::{
-    BridgeInStatus, BridgePath, GrapFullData, GraphStatus, Instance, Message, MessageState,
-    MessageType, modify_graph_status,
+    BridgeInStatus, BridgePath, GoatTxType, GrapFullData, GraphStatus, Instance, Message,
+    MessageState, MessageType, modify_graph_status,
 };
 use uuid::Uuid;
 
@@ -551,6 +551,7 @@ pub async fn get_graphs(
         }
         let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
         let mut graph_vec = vec![];
+        let mut graph_ids = vec![];
         let bridge_in_status = vec![
             GraphStatus::Created.to_string(),
             GraphStatus::Presigned.to_string(),
@@ -574,6 +575,7 @@ pub async fn get_graphs(
             if let Some(graph) =
                 convert_to_rpc_query_data(&graph, from_addr.clone(), &bridge_in_status)?
             {
+                graph_ids.push(graph.graph_id);
                 graph_vec.push(GraphRpcQueryDataWrap {
                     graph,
                     confirmations,
@@ -582,6 +584,26 @@ pub async fn get_graphs(
             }
         }
         graph_vec.sort_by(|a, b| b.graph.created_at.cmp(&a.graph.created_at));
+
+        let socket_info_map: HashMap<Uuid, (String, i64)> = storage_process
+            .get_socket_addr_for_graph_query_proof(
+                &graph_ids,
+                &GoatTxType::ProceedWithdraw.to_string(),
+            )
+            .await?;
+
+        let graph_vec = graph_vec
+            .into_iter()
+            .map(|mut v| {
+                if let Some((socket_addr, height)) = socket_info_map.get(&v.graph.graph_id) {
+                    v.graph.proof_height = Some(*height);
+                    v.graph.proof_query_url =
+                        Some(format!("http://{socket_addr}/v1/proofs/{height}"));
+                }
+                v
+            })
+            .collect();
+
         resp_clone.graphs = graph_vec;
         Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone)
     };
@@ -633,6 +655,8 @@ pub fn convert_to_rpc_query_data(
         disprove_txid: graph.disprove_txid.clone(),
         init_withdraw_txid: graph.init_withdraw_txid.clone(),
         operator: graph.operator.clone(),
+        proof_height: None,
+        proof_query_url: None,
         updated_at: graph.updated_at,
         created_at: graph.created_at,
     };

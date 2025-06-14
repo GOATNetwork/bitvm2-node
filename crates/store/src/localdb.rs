@@ -5,11 +5,11 @@ use crate::{
     Message, MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofType,
     ProofWithPis, PubKeyCollect, PubKeyCollectMetaData, WatchContract,
 };
-
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
@@ -1744,7 +1744,7 @@ impl<'a> StorageProcessor<'a> {
             sqlx::query_as!(
                 GoatTxRecord,
                 "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", tx_type, tx_hash, \
-                 height, is_local, prove_status, extra, created_at From goat_tx_record where  graph_id = ? AND tx_type = ?",
+                 height, is_local, prove_status, extra, created_at From goat_tx_record where graph_id = ? AND tx_type = ?",
                 graph_id,
                 tx_type
             ).fetch_optional(self.conn())
@@ -1755,14 +1755,16 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_goat_tx_record_need_proving(
         &mut self,
         tx_type: &str,
+        prove_state: &str,
     ) -> anyhow::Result<Vec<GoatTxRecord>> {
         Ok(
             sqlx::query_as!(
                 GoatTxRecord,
                 "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", tx_type, \
                  tx_hash, height, is_local, prove_status, extra, created_at From goat_tx_record where tx_type = ?  \
-                 AND prove_status = 'Proving' ORDER BY height asc",
-                tx_type
+                 AND prove_status = ? ORDER BY height ASC",
+                tx_type,
+                prove_state
             ).fetch_all(self.conn())
                 .await?
         )
@@ -1771,6 +1773,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_tx_info_for_gen_proof(
         &mut self,
         block_number: i64,
+        goat_tx_type: &str,
     ) -> anyhow::Result<Vec<(Uuid, String, String)>> {
         #[derive(sqlx::FromRow)]
         struct TxInfoRow {
@@ -1781,14 +1784,19 @@ impl<'a> StorageProcessor<'a> {
         let tx_info_rows = sqlx::query_as!(
             TxInfoRow,
             "SELECT g.graph_id AS \"graph_id:Uuid\", g.zkm_version AS zkm_version, gtr.tx_hash AS tx_hash 
-FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gtr.height = ? AND gtr.tx_type = 'ProceedWithdraw'",
-            block_number
+FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gtr.height = ? AND gtr.tx_type = ?",
+            block_number,
+            goat_tx_type
         ).fetch_all(self.conn()).await?;
         Ok(tx_info_rows.into_iter().map(|v| (v.graph_id, v.tx_hash, v.zkm_version)).collect())
     }
 
-    pub async fn skip_groth16_proof(&mut self, block_number: i64) -> anyhow::Result<bool> {
-        Ok(self.get_tx_info_for_gen_proof(block_number).await?.is_empty())
+    pub async fn skip_groth16_proof(
+        &mut self,
+        block_number: i64,
+        goat_tx_type: &str,
+    ) -> anyhow::Result<bool> {
+        Ok(self.get_tx_info_for_gen_proof(block_number, goat_tx_type).await?.is_empty())
     }
 
     pub async fn update_goat_tx_record_prove_status(
@@ -1813,24 +1821,26 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
         proof_type: ProofType,
         block_number_min: i64,
         block_number_max: i64,
-    ) -> anyhow::Result<Vec<(i64, String, i64, i64, i64)>> {
+    ) -> anyhow::Result<Vec<(i64, String, i64, i64, String, i64, i64)>> {
         #[derive(sqlx::FromRow)]
         struct ProofInfoRow {
             block_number: i64,
             state: String,
             proving_time: i64,
+            proof_size_b: i64,
+            zkm_version: String,
             created_at: i64,
             updated_at: i64,
         }
         let query = match proof_type {
             ProofType::BlockProof => {
-                "SELECT block_number, state, proving_time, created_at, updated_at FROM block_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size_b, zkm_version, created_at, updated_at FROM block_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
             }
             ProofType::AggregationProof => {
-                "SELECT block_number, state, proving_time, created_at, updated_at FROM aggregation_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size_b, zkm_version, created_at, updated_at FROM aggregation_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
             }
             ProofType::Groth16Proof => {
-                "SELECT block_number, state, proving_time, created_at, updated_at FROM groth16_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size_b, zkm_version, created_at, updated_at FROM groth16_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
             }
         };
 
@@ -1842,8 +1852,91 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
 
         Ok(rows
             .into_iter()
-            .map(|v| (v.block_number, v.state, v.proving_time, v.created_at, v.updated_at))
+            .map(|v| {
+                (
+                    v.block_number,
+                    v.state,
+                    v.proving_time,
+                    v.proof_size_b,
+                    v.zkm_version,
+                    v.created_at,
+                    v.updated_at,
+                )
+            })
             .collect())
+    }
+
+    pub async fn get_proof_overview(
+        &mut self,
+        proof_type: ProofType,
+    ) -> anyhow::Result<(i64, i64)> {
+        #[derive(sqlx::FromRow)]
+        struct OverviewProof {
+            max_block_number: i64,
+            avg_total_proof_time: i64,
+        }
+        let query = match proof_type {
+            ProofType::BlockProof => {
+                r#"WITH top_6_blocks AS (
+                    SELECT total_time_to_proof FROM block_proof WHERE state = 'proved'
+                ORDER BY block_number DESC
+                LIMIT 6
+                )
+                SELECT
+                COALESCE((SELECT MAX(block_number) FROM block_proof), 0) AS max_block_number,
+                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0) AS avg_total_proof_time"#
+            }
+            ProofType::AggregationProof => {
+                r#"WITH top_6_blocks AS (
+                    SELECT total_time_to_proof FROM aggregation_proof WHERE state = 'proved'
+                ORDER BY block_number DESC
+                LIMIT 6
+                )
+                SELECT
+                COALESCE((SELECT MAX(block_number) FROM aggregation_proof), 0) AS max_block_number,
+                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0) AS avg_total_proof_time"#
+            }
+            ProofType::Groth16Proof => {
+                r#"WITH top_6_blocks AS (
+                    SELECT total_time_to_proof FROM groth16_proof WHERE state = 'proved'
+                ORDER BY block_number DESC
+                LIMIT 6
+                )
+                SELECT
+                COALESCE((SELECT MAX(block_number) FROM groth16_proof), 0) AS max_block_number,
+                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0) AS avg_total_proof_time"#
+            }
+        };
+        let res = sqlx::query_as::<_, OverviewProof>(query).fetch_one(self.conn()).await?;
+        Ok((res.max_block_number, res.avg_total_proof_time))
+    }
+
+    pub async fn get_socket_addr_for_graph_query_proof(
+        &mut self,
+        ids: &[Uuid],
+        goat_tx_type: &str,
+    ) -> anyhow::Result<HashMap<Uuid, (String, i64)>> {
+        #[derive(sqlx::FromRow)]
+        struct SocketInfoRow {
+            pub graph_id: Uuid,
+            pub socket_addr: String,
+            pub height: i64,
+        }
+        let query_str = format!(
+            "WITH filtered_tx AS (SELECT graph_id, height  FROM goat_tx_record WHERE tx_type = \'{goat_tx_type}\')  \
+            SELECT g.graph_id AS graph_id, n.socket_addr, COALESCE(ft.height, 0) AS height FROM graph g JOIN node n \
+            ON g.operator = n.btc_pub_key LEFT JOIN filtered_tx ft ON g.graph_id = ft.graph_id WHERE hex(g.graph_id) \
+            COLLATE NOCASE IN ({})",
+            create_place_holders(ids)
+        );
+        let mut query_as = sqlx::query_as::<_, SocketInfoRow>(&query_str);
+        for id in ids {
+            query_as = query_as.bind(hex::encode(id));
+        }
+        let rows = query_as.fetch_all(self.conn()).await?;
+        let res: HashMap<Uuid, (String, i64)> =
+            rows.into_iter().map(|v| (v.graph_id, (v.socket_addr, v.height))).collect();
+        Ok(res)
     }
 }
 

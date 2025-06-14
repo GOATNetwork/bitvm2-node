@@ -414,6 +414,8 @@ pub enum GraphBridgePath {
                 "disprove_txid": "string",
                 "init_withdraw_txid": "string",
                 "operator": "string",
+                "proof_height": "string",
+                "proof_url": "string",
                 "updated_at": "number",
                 "created_at": "number"
             },
@@ -531,50 +533,134 @@ If a graph for the instance is created, the count must be greater than or equal 
 
 ### 5. Proofs Management
 
+#### Get Proofs
 - **Endpoint**: `GET /v1/proofs/`
 - **Description**: Retrieve goat block proofs, contains: block proof,aggregation proof, groth16 proof
-    - **Query Parameters**:
-        - `block_number`: the goat block height
-        - `block_range`: the number block proofs need to query
-        - `graph_id`: graph for locating Layer 2 block height
-        - **Response**:
-          ```json
-          {
+- **Query Parameters**:
+    - `block_number`: the goat block height
+    - `block_range`: the number block proofs need to query
+    - `graph_id`: graph for locating Layer 2 block height
+- **Response**:
+  ```json
+  {
+    "block_number": "number",
+    "block_proofs": [
+        {
             "block_number": "number",
-            "block_proofs": [
-                {
-                    "block_number": "number",
-                    "proof_state": "string",
-                    "pure_proof_cast": "number",
-                    "started_at": "number",
-                    "ended_at": "number"
-                }
-            ],
-            "aggregation_proofs": [
-                {
-                    "block_number": "number",
-                    "proof_state": "string",
-                    "pure_proof_cast": "number",
-                    "started_at": "number",
-                    "ended_at": "number"
-                }
-            ],
-            "groth16_proofs": [
-                {
-                    "block_number": "number",
-                    "proof_state": "string",
-                    "pure_proof_cast": "number",
-                    "started_at": "number",
-                    "ended_at": "number"
-                }
-            ]
-          }
+            "state": "string",
+            "proving_time": "number",
+            "total_time_to_proof": "number",
+            "proof_size": "number",
+            "zkvm_version":"string",
+            "started_at": "number",
+            "updated_at": "number"
+        }
+    ],
+    "aggregation_proofs": [
+        {
+            "block_number": "number",
+            "state": "string",
+            "proving_time": "number",
+            "total_time_to_proof": "number",
+            "proof_size": "number",
+            "zkvm_version":"string",
+            "started_at": "number",
+            "updated_at": "number"
+        }
+    ],
+    "groth16_proofs": [
+        {
+            "block_number": "number",
+            "state": "string",
+            "proving_time": "number",
+            "total_time_to_proof": "number",
+            "proof_size": "number",
+            "zkvm_version":"string",
+            "started_at": "number",
+            "updated_at": "number"
+        }
+    ]
+  }
     
-          ```
-  PS: `proof_state` proof task state value: `queued`, `proved`, `failed`;
-  `pure_proof_cast` pure compute proof cast, exclude init prepare, waiting and other time cast;
+  ```
+  PS: `state` proof task state value: `queued`, `proved`, `failed`;
+  `proving_time` pure compute proof cast, exclude init prepare, waiting and other time cast;
+  `total_time_to_proof` proof cast, clude init prepare, waiting and other time cast;
+  `proof_size` proof size;
+  `zkm_version` zkm version
   `started_at` timestamp, proof task stared at;
-  `ended_at` timestamp, proof task end at.
+  `updated_at` timestamp, proof task updated at.
+
+#### Get Proof
+- **Endpoint**: `GET /v1/proofs/`
+- **Description**: Retrieve goat block proofs, contains: block proof,aggregation proof, groth16 proof
+- **Path Parameters**:
+  - `block_number`: Graph ID
+- **Response**:
+  ```json
+  {
+    "block_number": "number",
+    "block_proofs": [
+        {
+            "block_number": "number",
+            "state": "string",
+            "proving_time": "number",
+            "total_time_to_proof": "number",
+            "proof_size": "number",
+            "zkvm_version":"string",
+            "started_at": "number",
+            "updated_at": "number"
+        }
+    ],
+    "aggregation_proofs": [
+        {
+            "block_number": "number",
+            "state": "string",
+            "proving_time": "number",
+            "total_time_to_proof": "number",
+            "proof_size": "number",
+            "zkvm_version":"string",
+            "started_at": "number",
+            "updated_at": "number"
+        }
+    ],
+    "groth16_proofs": [
+        {
+            "block_number": "number",
+            "state": "string",
+            "proving_time": "number",
+            "total_time_to_proof": "number",
+            "proof_size": "number",
+            "zkvm_version":"string",
+            "started_at": "number",
+            "updated_at": "number"
+        }
+    ]
+  }
+ 
+  ```
+  PS:  `block_proofs`,`aggregation_proofs`,`groth16_proofs` contains one or zero item
+  `state` proof task state value: `queued`, `proved`, `failed`;
+  `proving_time` pure compute proof cast, exclude init prepare, waiting and other time cast;
+  `total_time_to_proof` proof cast, clude init prepare, waiting and other time cast;
+  `proof_size` proof size;
+  `zkm_version` zkm version
+  `started_at` timestamp, proof task stared at;
+  `updated_at` timestamp, proof task updated at.
+
+#### Get Proof Overview
+- **Endpoint**: `GET /v1/proofs/overview`
+- **Description**: Retrieve goat block proofs, contains: block proof,aggregation proof, groth16 proof
+- **Response**:
+```json
+{
+  "total_blocks": "number",
+  "avg_block_proof": "number",
+  "avg_aggregation_proof": "number",
+  "avg_groth16_proof": "number"
+}
+
+```
 
 ## Error Handling
 
