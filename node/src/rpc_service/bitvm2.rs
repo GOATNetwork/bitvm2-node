@@ -218,6 +218,8 @@ pub struct GrapRpcQueryData {
     pub disprove_txid: Option<String>,
     pub init_withdraw_txid: Option<String>,
     pub operator: String,
+    pub proof_height: Option<i64>,
+    pub proof_query_url: Option<String>,
     pub updated_at: i64,
     pub created_at: i64,
 }
