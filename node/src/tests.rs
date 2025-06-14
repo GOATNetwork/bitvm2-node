@@ -162,16 +162,16 @@ pub mod tests {
     fn broadcast_and_wait_for_confirming(
         rpc_client: &BlockingClient,
         tx: &Transaction,
-        confimations: u32,
+        confirmations: u32,
     ) {
         let pre_current_tip = rpc_client.get_height().unwrap();
         rpc_client.broadcast(tx).unwrap();
         println!("Broadcast tx: {}", tx.compute_txid());
         let mut current_tip = rpc_client.get_height().unwrap();
-        while (current_tip - pre_current_tip) < confimations {
+        while (current_tip - pre_current_tip) < confirmations {
             println!(
                 "Wait for at least {} block mined",
-                confimations - (current_tip - pre_current_tip)
+                confirmations - (current_tip - pre_current_tip)
             );
             std::thread::sleep(std::time::Duration::from_secs(1));
             current_tip = rpc_client.get_height().unwrap();
