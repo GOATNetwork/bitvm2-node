@@ -487,7 +487,7 @@ pub enum GraphBridgePath {
 
 `ps:graph_status is map<graph_id>graph_status` ,The number of `graph_status` should correspond to the number of graphs
 for the given instance.
-If a graph for the instancce is created, the count must be greater than or equal to 1.
+If a graph for the instance is created, the count must be greater than or equal to 1.
 
 #### Graph TXN
 
