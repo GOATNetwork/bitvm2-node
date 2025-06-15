@@ -148,7 +148,7 @@ pub enum InstanceStatus {
     L2Minted, // success
 }
 
-/// 4.instanct.amount in bitcoin sat
+/// 4.instance.amount in bitcoin sat
 ```
 
 #### Get Instance
