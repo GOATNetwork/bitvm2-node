@@ -5,6 +5,9 @@ pub enum GatewayEventEntity {
     InitWithdraws,
     CancelWithdraws,
     ProceedWithdraws,
+    WithdrawHappyPaths,
+    WithdrawUnhappyPaths,
+    WithdrawDisproveds,
 }
 
 impl std::fmt::Display for GatewayEventEntity {
@@ -14,6 +17,9 @@ impl std::fmt::Display for GatewayEventEntity {
             GatewayEventEntity::InitWithdraws => write!(f, "initWithdraws"),
             GatewayEventEntity::CancelWithdraws => write!(f, "cancelWithdraws"),
             GatewayEventEntity::ProceedWithdraws => write!(f, "proceedWithdraws"),
+            GatewayEventEntity::WithdrawHappyPaths => write!(f, "withdrawHappyPaths"),
+            GatewayEventEntity::WithdrawUnhappyPaths => write!(f, "withdrawUnhappyPaths"),
+            GatewayEventEntity::WithdrawDisproveds => write!(f, "withdrawDisproveds"),
         }
     }
 }
@@ -45,6 +51,32 @@ impl GatewayEventEntity {
                     .add_field(&tag, "transactionHash")
                     .add_field(&tag, "blockNumber")
                     .add_field(&tag, "kickoffTxid")
+                    .set_order_by(&tag, "blockNumber", "asc");
+            }
+
+            GatewayEventEntity::WithdrawHappyPaths | GatewayEventEntity::WithdrawUnhappyPaths => {
+                builder = builder
+                    .add_field(&tag, "id")
+                    .add_field(&tag, "instanceId")
+                    .add_field(&tag, "graphId")
+                    .add_field(&tag, "transactionHash")
+                    .add_field(&tag, "blockNumber")
+                    .add_field(&tag, "operatorAddress")
+                    .add_field(&tag, "rewardAmountSats")
+                    .set_order_by(&tag, "blockNumber", "asc");
+            }
+
+            GatewayEventEntity::WithdrawDisproveds => {
+                builder = builder
+                    .add_field(&tag, "id")
+                    .add_field(&tag, "instanceId")
+                    .add_field(&tag, "graphId")
+                    .add_field(&tag, "transactionHash")
+                    .add_field(&tag, "blockNumber")
+                    .add_field(&tag, "challengerAddress")
+                    .add_field(&tag, "disproverAddress")
+                    .add_field(&tag, "challengerRewardAmountSats")
+                    .add_field(&tag, "disproverRewardAmountSats")
                     .set_order_by(&tag, "blockNumber", "asc");
             }
         }
@@ -116,6 +148,45 @@ pub struct ProceedWithdrawEvent {
     pub graph_id: String,
     #[serde(rename = "kickoffTxid")]
     pub kickoff_txid: String,
+}
+
+/// WithdrawHappyPath or WithdrawUnhappyPath
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WithdrawPathsEvent {
+    pub id: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "instanceId")]
+    pub instance_id: String,
+    #[serde(rename = "graphId")]
+    pub graph_id: String,
+    #[serde(rename = "operatorAddress")]
+    pub operator_addr: String,
+    #[serde(rename = "rewardAmountSats")]
+    pub reward_amount_sats: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WithdrawDisproved {
+    pub id: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "instanceId")]
+    pub instance_id: String,
+    #[serde(rename = "graphId")]
+    pub graph_id: String,
+    #[serde(rename = "challengerAddress")]
+    pub challenger_addr: String,
+    #[serde(rename = "challengerRewardAmountSats")]
+    pub challenger_amount_sats: String,
+    #[serde(rename = "disproverAddress")]
+    pub disprover_addr: String,
+    #[serde(rename = "disproverRewardAmountSats")]
+    pub disprover_amount_sats: String,
 }
 
 #[derive(Debug, Clone)]

@@ -233,7 +233,8 @@ mod tests {
                 "actor": "Challenger",
                 "btc_pub_key": pub_key,
                 "goat_addr": goat_addr,
-                "socket_addr":"127.0.0.1:8080"
+                "socket_addr":"127.0.0.1:8080",
+                "reward": 0,
             }))
             .send()
             .await?;

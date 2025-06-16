@@ -14,6 +14,7 @@ pub struct Node {
     pub goat_addr: String,
     pub btc_pub_key: String,
     pub socket_addr: String,
+    pub reward: i64,
     pub updated_at: i64,
     pub created_at: i64,
 }
@@ -475,6 +476,7 @@ pub struct GraphTickActionMetaData {
     pub assert_init_txid: Option<String>,
     pub assert_commit_txids: Option<String>,
     pub assert_final_txid: Option<String>,
+    pub challenge_txid: Option<String>,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
