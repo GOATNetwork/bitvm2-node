@@ -50,7 +50,7 @@ async fn main() {
     let (input_tx, input_rx) = sync_channel::<AggreationInput>(2);
     let (agg_proof_tx, agg_proof_rx) = sync_channel::<ProofWithPublicValues>(2);
     let (groth16_proof_tx, groth16_proof_rx) =
-        sync_channel::<(ProofWithPublicValues, Arc<ZKMVerifyingKey>)>(100);
+        sync_channel::<(ProofWithPublicValues, Arc<ZKMVerifyingKey>)>(50);
     let agg_executor_clone = agg_executor.clone();
 
     block_number_tx.send(args.block_number).unwrap();
