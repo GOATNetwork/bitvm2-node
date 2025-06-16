@@ -14,7 +14,7 @@ pub fn get_latest_groth16_vk() -> Result<VerifyingKey> {
     Ok(load_ark_groth16_verifying_key_from_bytes(&GROTH16_VK_BYTES)?)
 }
 
-pub async fn get_zkm_version() -> String {
+pub fn get_zkm_version() -> String {
     ZKM_CIRCUIT_VERSION.to_owned()
 }
 
@@ -81,21 +81,19 @@ mod tests {
     async fn test_groth16_proof() {
         tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
-        const DB_URL: &str = "/tmp/bitvm2-node.db";
+        const DB_URL: &str = "/tmp/.bitvm2-node.db";
         let db: LocalDB = LocalDB::new(&format!("sqlite:{}", DB_URL), true).await;
 
         let (proof, public_inputs, groth16_vk, zkm_version) =
             get_groth16_proof(&db, 2).await.unwrap();
 
-        let latest_groth16_vk = get_latest_groth16_vk().unwrap();
-        let groth16_vk_v1 = get_groth16_vk(&db, &zkm_version).await.unwrap();
-        let groth16_vk_v2 = get_groth16_vk(&db, ZKM_CIRCUIT_VERSION).await.unwrap();
-        let groth16_vk_v3 = get_groth16_vk(&db, &get_zkm_version().await).await.unwrap();
+        assert_eq!(zkm_version, ZKM_CIRCUIT_VERSION);
+        assert_eq!(&get_zkm_version(), ZKM_CIRCUIT_VERSION);
 
+        let latest_groth16_vk = get_latest_groth16_vk().unwrap();
+        let groth16_vk1 = get_groth16_vk(&db, &zkm_version).await.unwrap();
         assert_eq!(groth16_vk, latest_groth16_vk);
-        assert_eq!(groth16_vk, groth16_vk_v1);
-        assert_eq!(groth16_vk, groth16_vk_v2);
-        assert_eq!(groth16_vk, groth16_vk_v3);
+        assert_eq!(groth16_vk1, latest_groth16_vk);
 
         // Verify the arkworks proof.
         let ok = Groth16::<Bn254, LibsnarkReduction>::verify_proof(

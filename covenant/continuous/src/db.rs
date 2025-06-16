@@ -7,6 +7,7 @@ use eyre::eyre;
 use host_executor::ExecutionHooks;
 use reth_primitives_traits::NodePrimitives;
 use store::localdb::LocalDB;
+use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_sdk::{ExecutionReport, HashableKey, ZKMVerifyingKey};
 
 #[derive(Clone)]
@@ -64,6 +65,16 @@ impl ExecutionHooks for PersistToDB {
         execution_report: &ExecutionReport,
         proving_duration: Duration,
     ) -> eyre::Result<()> {
+        assert_eq!(
+            zkm_version,
+            ZKM_CIRCUIT_VERSION,
+            "{}",
+            format!(
+                "zkMIPS version mismatch, expected {}, got {}",
+                ZKM_CIRCUIT_VERSION, zkm_version,
+            ),
+        );
+
         let mut storage_process =
             self.local_db.acquire().await.map_err(|e| eyre!("Failed to acquire local db: {e}"))?;
 
