@@ -61,6 +61,7 @@ pub struct GraphTickActionData {
     pub assert_init_txid: Option<Txid>,
     pub assert_commit_txids: Option<[Txid; COMMIT_TX_NUM]>,
     pub assert_final_txid: Option<Txid>,
+    pub challenge_txid: Option<Txid>,
 }
 
 impl From<GraphTickActionMetaData> for GraphTickActionData {
@@ -101,6 +102,7 @@ impl From<GraphTickActionMetaData> for GraphTickActionData {
             assert_init_txid: tx_convert(value.assert_init_txid),
             assert_commit_txids,
             assert_final_txid: tx_convert(value.assert_final_txid),
+            challenge_txid: tx_convert(value.challenge_txid),
         }
     }
 }
@@ -1122,6 +1124,11 @@ pub async fn scan_take2(
                     goat_client,
                     &graph_id,
                     &btc_client.fetch_btc_tx(&disprove_txid).await?,
+                    &btc_client
+                        .fetch_btc_tx(
+                            &graph_data.challenge_txid.expect("fail to get challenge txid"),
+                        )
+                        .await?,
                 )
                 .await?;
 

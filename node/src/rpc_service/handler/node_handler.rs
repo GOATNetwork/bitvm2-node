@@ -24,6 +24,7 @@ pub async fn create_node(
             goat_addr: payload.goat_addr.clone(),
             btc_pub_key: payload.btc_pub_key.clone(),
             socket_addr: payload.socket_addr.clone(),
+            reward: 0,
             updated_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
                 as i64,
             created_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()

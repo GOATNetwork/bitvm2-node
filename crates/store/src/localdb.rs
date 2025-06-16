@@ -428,7 +428,7 @@ impl<'a> StorageProcessor<'a> {
         if let Some(from_addr) = params.from_addr {
             let node_op = sqlx::query_as!(
                 Node,
-                "SELECT peer_id, actor, goat_addr, btc_pub_key,  socket_addr, created_at, updated_at  \
+                "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at  \
                     FROM node WHERE goat_addr =?",
                 from_addr
             )
@@ -522,7 +522,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         let node_op = sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at  \
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at  \
             FROM node WHERE peer_id = ?",
             peer_id
         )
@@ -540,10 +540,10 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    /// Insert or update node
+    /// Insert or update node without reward field
     pub async fn update_node(&mut self, node: Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            "INSERT OR REPLACE INTO  node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?, ?) ",
+            "INSERT OR REPLACE INTO  node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ",
             node.peer_id,
             node.actor,
             node.goat_addr,
@@ -557,13 +557,30 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    // Do not update the `updated_at` field; this field is updated based on heartbeat messages 
+    // and is used to determine whether a node is alive.
+    pub async fn add_node_reward_by_addr(
+        &mut self,
+        goat_addr: &str,
+        reward_add: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query!(
+            "UPDATE node SET reward = reward +  ? WHERE  goat_addr = ?",
+            reward_add,
+            goat_addr
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_node_by_btc_pub_key(
         &mut self,
         btc_pub_key: &str,
     ) -> anyhow::Result<Option<Node>> {
         Ok(sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at FROM node WHERE btc_pub_key = ?",
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at FROM node WHERE btc_pub_key = ?",
             btc_pub_key
         ).fetch_optional(self.conn()).await?)
     }
@@ -579,7 +596,7 @@ impl<'a> StorageProcessor<'a> {
         status_expect: Option<String>,
     ) -> anyhow::Result<(Vec<Node>, i64)> {
         let mut nodes_query_str =
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at FROM node"
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at FROM node"
                 .to_string();
         let mut nodes_count_str = "SELECT count(*) as total_nodes FROM node".to_string();
         let mut conditions: Vec<String> = vec![];
@@ -651,7 +668,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn node_by_id(&mut self, peer_id: &str) -> anyhow::Result<Option<Node>> {
         let res = sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr,btc_pub_key, socket_addr, created_at,  updated_at FROM  node WHERE peer_id = ?",
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at FROM node WHERE peer_id = ?",
             peer_id
         ).fetch_optional(self.conn()).await?;
         Ok(res)
@@ -926,7 +943,7 @@ impl<'a> StorageProcessor<'a> {
             sqlx::query_as!(
                 GraphTickActionMetaData,
                 "SELECT graph.graph_id as \"graph_id:Uuid\", graph.instance_id as \"instance_id:Uuid\", graph.status, graph.kickoff_txid,  graph.take1_txid, \
-                 graph.take2_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid, \
+                 graph.take2_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid,  graph.challenge_txid, \
                  IFNULL(message_broadcast.msg_times, 0) as msg_times, IFNULL(message_broadcast.msg_type, '') as msg_type  \
                   FROM graph LEFT JOIN message_broadcast ON graph.graph_id =  message_broadcast.graph_id AND  \
                   graph.instance_id =  message_broadcast.instance_id AND message_broadcast.msg_type =  ?  \

@@ -1,5 +1,5 @@
 use crate::client::chain::chain_adaptor::{
-    BitcoinTx, GoatNetwork, OperatorData, PeginData, WithdrawData, WithdrawStatus,
+    BitcoinTx, BitcoinTxProof, GoatNetwork, OperatorData, PeginData, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
 };
 use crate::client::chain::evmchain::EvmChain;
@@ -165,7 +165,11 @@ impl GOATClient {
         let raw_kickoff_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
-            .process_withdraw(graph_id, &raw_kickoff_tx, &raw_header, height, &proof, index)
+            .process_withdraw(
+                graph_id,
+                &raw_kickoff_tx,
+                &BitcoinTxProof { raw_header, height, proof, index },
+            )
             .await
     }
     pub async fn finish_withdraw_happy_path(
@@ -189,7 +193,11 @@ impl GOATClient {
         let raw_take1_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
-            .finish_withdraw_happy_path(graph_id, &raw_take1_tx, &raw_header, height, &proof, index)
+            .finish_withdraw_happy_path(
+                graph_id,
+                &raw_take1_tx,
+                &BitcoinTxProof { raw_header, height, proof, index },
+            )
             .await
     }
 
@@ -217,10 +225,7 @@ impl GOATClient {
             .finish_withdraw_unhappy_path(
                 graph_id,
                 &raw_take2_tx,
-                &raw_header,
-                height,
-                &proof,
-                index,
+                &BitcoinTxProof { raw_header, height, proof, index },
             )
             .await
     }
@@ -229,30 +234,41 @@ impl GOATClient {
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
-        tx: &bitcoin::Transaction,
+        disprove_tx: &Transaction,
+        challenge_tx: &Transaction,
     ) -> anyhow::Result<String> {
-        // let operator_data = self.get_operator_data(graph_id).await?;
-        // let tx_id_on_line = Txid::from_slice(&operator_data.assert_final_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
                 "disprove",
                 graph_id,
-                &tx.compute_txid(),
-                &tx.compute_txid(),
+                &disprove_tx.compute_txid(),
+                &disprove_tx.compute_txid(),
                 None,
             )
             .await?;
-        let raw_disprove_tx = tx_reconstruct(tx);
+        let raw_disprove_tx = tx_reconstruct(disprove_tx);
+        let disprove_proof = BitcoinTxProof { raw_header, height, proof, index };
+        let (_root, proof, _leaf, height, index, raw_header) = self
+            .check_withdraw_actions_and_get_proof(
+                btc_client,
+                "challenge",
+                graph_id,
+                &challenge_tx.compute_txid(),
+                &challenge_tx.compute_txid(),
+                None,
+            )
+            .await?;
+        let raw_challenge_tx = tx_reconstruct(challenge_tx);
+        let challenge_proof = BitcoinTxProof { raw_header, height, proof, index };
         self.chain_service
             .adaptor
             .finish_withdraw_disproved(
                 graph_id,
                 &raw_disprove_tx,
-                &raw_header,
-                height,
-                &proof,
-                index,
+                &disprove_proof,
+                &raw_challenge_tx,
+                &challenge_proof,
             )
             .await
     }
@@ -331,7 +347,11 @@ impl GOATClient {
         let raw_pegin_tx = tx_reconstruct(tx);
         self.chain_service
             .adaptor
-            .post_pegin_data(instance_id, &raw_pegin_tx, &raw_header, height, &proof, index)
+            .post_pegin_data(
+                instance_id,
+                &raw_pegin_tx,
+                &BitcoinTxProof { raw_header, height, proof, index },
+            )
             .await
     }
 

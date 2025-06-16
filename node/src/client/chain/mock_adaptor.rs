@@ -133,10 +133,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         instance_id: &Uuid,
         raw_pgin_tx: &BitcoinTx,
-        _raw_header: &[u8],
-        _height: u64,
-        _proof: &[[u8; 32]],
-        _index: u64,
+        _pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         info!("call post_pegin_data");
         let tx = Transaction {
@@ -250,10 +247,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         graph_id: &Uuid,
         _raw_kickoff_tx: &BitcoinTx,
-        _raw_header: &[u8],
-        _height: u64,
-        _proof: &[[u8; 32]],
-        _index: u64,
+        _kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
@@ -272,10 +266,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         graph_id: &Uuid,
         _raw_take1_tx: &BitcoinTx,
-        _raw_header: &[u8],
-        _height: u64,
-        _proof: &[[u8; 32]],
-        _index: u64,
+        _take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
@@ -294,10 +285,7 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         graph_id: &Uuid,
         _raw_take2_tx: &BitcoinTx,
-        _raw_header: &[u8],
-        _height: u64,
-        _proof: &[[u8; 32]],
-        _index: u64,
+        _take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
@@ -316,10 +304,9 @@ impl ChainAdaptor for MockAdaptor {
         &self,
         graph_id: &Uuid,
         _raw_disproved_tx: &BitcoinTx,
-        _raw_header: &[u8],
-        _height: u64,
-        _proof: &[[u8; 32]],
-        _index: u64,
+        _disproved_proof: &BitcoinTxProof,
+        _raw_challenge_tx: &BitcoinTx,
+        _challenge_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {

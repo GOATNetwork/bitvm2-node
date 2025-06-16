@@ -1,5 +1,6 @@
 use crate::client::chain::chain_adaptor::{
-    BitcoinTx, ChainAdaptor, OperatorData, PeginData, PeginStatus, WithdrawData, WithdrawStatus,
+    BitcoinTx, BitcoinTxProof, ChainAdaptor, OperatorData, PeginData, PeginStatus, WithdrawData,
+    WithdrawStatus,
 };
 use crate::client::chain::goat_adaptor::IGateway::IGatewayInstance;
 use alloy::eips::BlockNumberOrTag;
@@ -75,6 +76,13 @@ sol!(
             bytes4 locktime;
         }
 
+        struct BitcoinTxProof {
+            bytes rawHeader;
+            uint256 height;
+            bytes32[] proof;
+            uint256 index;
+        }
+
         address public  pegBTC;
         address public  bitcoinSPV;
         address public  relayer;
@@ -92,15 +100,15 @@ sol!(
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getWithdrawableInstances() external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
-        function postPeginData(bytes16 instanceId,BitcoinTx calldata rawPeginTx, bytes calldata rawHeader, uint256 height,bytes32[] calldata proof,uint256 index) external ;
-        function postOperatorData(bytes16 instanceId,bytes16 graphId,OperatorData calldata operatorData) public;
-        function postOperatorDataBatch(bytes16 instanceId,bytes16[] calldata graphIds,OperatorData[] calldata operatorData) external;
+        function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof) external ;
+        function postOperatorData(bytes16 instanceId, bytes16 graphId, OperatorData calldata operatorData) public;
+        function postOperatorDataBatch(bytes16 instanceId, bytes16[] calldata graphIds,OperatorData[] calldata operatorData) external;
         function initWithdraw(bytes16 instanceId, bytes16 graphId) external;
         function cancelWithdraw(bytes16 graphId) external;
-        function proceedWithdraw(bytes16 graphId,BitcoinTx calldata rawKickoffTx, bytes calldata rawHeader, uint256 height,bytes32[] calldata proof,uint256 index) external;
-        function finishWithdrawHappyPath(bytes16 graphId,BitcoinTx calldata rawTake1Tx,bytes calldata rawHeader, uint256 height,bytes32[] calldata proof,uint256 index) external;
-        function finishWithdrawUnhappyPath(bytes16 graphId,BitcoinTx calldata rawTake2Tx, bytes calldata rawHeader,uint256 height,bytes32[] calldata proof,uint256 index) external;
-        function finishWithdrawDisproved(bytes16 graphId,BitcoinTx calldata rawDisproveTx, bytes calldata rawHeader,uint256 height,bytes32[] calldata proof,uint256 index) external;
+        function proceedWithdraw(bytes16 graphId, BitcoinTx calldata rawKickoffTx, BitcoinTxProof calldata kickoffProof) external;
+        function finishWithdrawHappyPath(bytes16 graphId, BitcoinTx calldata rawTake1Tx, BitcoinTxProof calldata take1Proof) external;
+        function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
+        function finishWithdrawDisproved(bytes16 graphId, BitcoinTx calldata rawDisproveTx, BitcoinTxProof calldata disproveProof, BitcoinTx calldata rawChallengeTx, BitcoinTxProof calldata ngeCProof) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof,bytes32 leaf,uint256 index) public pure returns (bool);
 
     }
@@ -215,13 +223,26 @@ impl GoatAdaptor {
     }
 }
 
-impl From<BitcoinTx> for IGateway::BitcoinTx {
-    fn from(value: BitcoinTx) -> Self {
+impl From<&BitcoinTx> for IGateway::BitcoinTx {
+    fn from(value: &BitcoinTx) -> Self {
         Self {
             version: FixedBytes::<4>::from_slice(&value.version.to_le_bytes()),
             inputVector: Bytes::copy_from_slice(&value.input_vector),
             outputVector: Bytes::copy_from_slice(&value.output_vector),
             locktime: FixedBytes::<4>::from(value.lock_time),
+        }
+    }
+}
+
+impl From<&BitcoinTxProof> for IGateway::BitcoinTxProof {
+    fn from(value: &BitcoinTxProof) -> Self {
+        let proof: Vec<FixedBytes<32>> =
+            value.proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
+        Self {
+            rawHeader: Bytes::copy_from_slice(&value.raw_header),
+            height: U256::from(value.height),
+            proof,
+            index: U256::from(value.index),
         }
     }
 }
@@ -377,22 +398,14 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         instance_id: &Uuid,
         raw_pgin_tx: &BitcoinTx,
-        raw_header: &[u8],
-        height: u64,
-        proof: &[[u8; 32]],
-        index: u64,
+        pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let proof: Vec<FixedBytes<32>> =
-            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request: TransactionRequest = self
             .gate_way
             .postPeginData(
                 FixedBytes::<16>::from_slice(instance_id.as_bytes()),
-                (*raw_pgin_tx).clone().into(),
-                Bytes::copy_from_slice(raw_header),
-                U256::try_from(height)?,
-                proof,
-                U256::try_from(index)?,
+                raw_pgin_tx.into(),
+                pegin_proof.into(),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -504,22 +517,14 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_kickoff_tx: &BitcoinTx,
-        raw_header: &[u8],
-        height: u64,
-        proof: &[[u8; 32]],
-        index: u64,
+        kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let proof: Vec<FixedBytes<32>> =
-            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .proceedWithdraw(
                 FixedBytes::from_slice(graph_id.as_bytes()),
-                (*raw_kickoff_tx).clone().into(),
-                Bytes::copy_from_slice(raw_header),
-                U256::from(height),
-                proof,
-                U256::from(index),
+                raw_kickoff_tx.into(),
+                kickoff_proof.into(),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -532,22 +537,14 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_take1_tx: &BitcoinTx,
-        raw_header: &[u8],
-        height: u64,
-        proof: &[[u8; 32]],
-        index: u64,
+        take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let proof: Vec<FixedBytes<32>> =
-            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .finishWithdrawHappyPath(
                 FixedBytes::from_slice(graph_id.as_bytes()),
-                (*raw_take1_tx).clone().into(),
-                Bytes::copy_from_slice(raw_header),
-                U256::from(height),
-                proof,
-                U256::from(index),
+                raw_take1_tx.into(),
+                take1_proof.into(),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -560,22 +557,14 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_take2_tx: &BitcoinTx,
-        raw_header: &[u8],
-        height: u64,
-        proof: &[[u8; 32]],
-        index: u64,
+        take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let proof: Vec<FixedBytes<32>> =
-            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .finishWithdrawUnhappyPath(
                 FixedBytes::from_slice(graph_id.as_bytes()),
-                (*raw_take2_tx).clone().into(),
-                Bytes::copy_from_slice(raw_header),
-                U256::from(height),
-                proof,
-                U256::from(index),
+                raw_take2_tx.into(),
+                take2_proof.into(),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -588,22 +577,18 @@ impl ChainAdaptor for GoatAdaptor {
         &self,
         graph_id: &Uuid,
         raw_disproved_tx: &BitcoinTx,
-        raw_header: &[u8],
-        height: u64,
-        proof: &[[u8; 32]],
-        index: u64,
+        disproved_proof: &BitcoinTxProof,
+        raw_challenge_tx: &BitcoinTx,
+        challenge_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let proof: Vec<FixedBytes<32>> =
-            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
         let tx_request = self
             .gate_way
             .finishWithdrawDisproved(
                 FixedBytes::from_slice(graph_id.as_bytes()),
-                (*raw_disproved_tx).clone().into(),
-                Bytes::copy_from_slice(raw_header),
-                U256::from(height),
-                proof,
-                U256::from(index),
+                raw_disproved_tx.into(),
+                disproved_proof.into(),
+                raw_challenge_tx.into(),
+                challenge_proof.into(),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)

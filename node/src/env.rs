@@ -27,7 +27,7 @@ pub const ENV_GOAT_EVENT_THE_GRAPH_URL: &str = "GOAT_EVENT_THE_GRAPH_URL";
 pub const ENV_GOAT_EVENT_FILTER_FROM: &str = "GOAT_EVENT_FILTER_FROM";
 pub const ENV_GOAT_EVENT_FILTER_GAP: &str = "GOAT_EVENT_FILTER_GAP";
 
-/// Operator
+/// Operator Challenge
 pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
 /// Operator(private key), Relayer(private key),  Committee(seed)
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
@@ -136,8 +136,10 @@ pub fn get_ipfs_url() -> String {
 
 pub async fn check_node_info() {
     let node_info = get_local_node_info();
-    if node_info.actor == Actor::Operator.to_string() && node_info.goat_addr.is_empty() {
-        panic!("Operator must set goat address or goat secret key");
+    if vec![Actor::Operator.to_string(), Actor::Challenger.to_string()].contains(&node_info.actor)
+        && node_info.goat_addr.is_empty()
+    {
+        panic!("Operator and Challenger must set goat address or goat secret key");
     }
     if Actor::Committee.to_string() == node_info.actor
         || Actor::Operator.to_string() == node_info.actor

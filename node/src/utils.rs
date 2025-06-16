@@ -816,9 +816,12 @@ pub async fn finish_withdraw_disproved(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
-    tx: &Transaction,
+    disprove_tx: &Transaction,
+    challenge_tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = goat_client.finish_withdraw_disproved(btc_client, graph_id, tx).await?;
+    let tx_hash = goat_client
+        .finish_withdraw_disproved(btc_client, graph_id, disprove_tx, challenge_tx)
+        .await?;
     tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
@@ -1079,12 +1082,11 @@ pub async fn update_graph(
 ) -> Result<(), Box<dyn std::error::Error>> {
     store_graph(local_db, instance_id, graph_id, graph, status).await
 }
-
 pub async fn get_graph(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
+) -> Result<Graph, Box<dyn std::error::Error>> {
     let mut storage_process = local_db.acquire().await?;
     let graph_op = storage_process.get_graph(&graph_id).await?;
     if graph_op.is_none() {
@@ -1099,7 +1101,15 @@ pub async fn get_graph(
         )
         .into());
     }
+    Ok(graph)
+}
 
+pub async fn get_bitvm2_graph_from_db(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
+    let graph = get_graph(local_db, instance_id, graph_id).await?;
     if graph.raw_data.is_none() {
         return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
     }
@@ -1327,6 +1337,7 @@ pub async fn save_node_info(
             goat_addr: node_info.goat_addr.clone(),
             btc_pub_key: node_info.btc_pub_key.clone(),
             socket_addr: node_info.socket_addr.clone(),
+            reward: 0,
             updated_at: current_time,
             created_at: current_time,
         })
