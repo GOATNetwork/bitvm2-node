@@ -579,7 +579,7 @@ impl<'a> StorageProcessor<'a> {
         status_expect: Option<String>,
     ) -> anyhow::Result<(Vec<Node>, i64)> {
         let mut nodes_query_str =
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, created_at, updated_at FROM node"
+            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at FROM node"
                 .to_string();
         let mut nodes_count_str = "SELECT count(*) as total_nodes FROM node".to_string();
         let mut conditions: Vec<String> = vec![];
@@ -1827,20 +1827,20 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
             block_number: i64,
             state: String,
             proving_time: i64,
-            proof_size_b: i64,
+            proof_size: i64,
             zkm_version: String,
             created_at: i64,
             updated_at: i64,
         }
         let query = match proof_type {
             ProofType::BlockProof => {
-                "SELECT block_number, state, proving_time, proof_size_b, zkm_version, created_at, updated_at FROM block_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at FROM block_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
             }
             ProofType::AggregationProof => {
-                "SELECT block_number, state, proving_time, proof_size_b, zkm_version, created_at, updated_at FROM aggregation_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at FROM aggregation_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
             }
             ProofType::Groth16Proof => {
-                "SELECT block_number, state, proving_time, proof_size_b, zkm_version, created_at, updated_at FROM groth16_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at FROM groth16_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
             }
         };
 
@@ -1857,7 +1857,7 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
                     v.block_number,
                     v.state,
                     v.proving_time,
-                    v.proof_size_b,
+                    v.proof_size,
                     v.zkm_version,
                     v.created_at,
                     v.updated_at,

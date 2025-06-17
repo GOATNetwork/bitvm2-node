@@ -1454,7 +1454,11 @@ pub async fn run_watch_event_task(
             match monitor_events(
                 &goat_client,
                 &local_db,
-                vec![GatewayEventEntity::InitWithdraws, GatewayEventEntity::CancelWithdraws],
+                vec![
+                    GatewayEventEntity::InitWithdraws,
+                    GatewayEventEntity::CancelWithdraws,
+                    GatewayEventEntity::ProceedWithdraws,
+                ],
             )
             .await
             {

@@ -535,54 +535,78 @@ If a graph for the instance is created, the count must be greater than or equal 
 
 #### Get Proofs
 - **Endpoint**: `GET /v1/proofs/`
-- **Description**: Retrieve goat block proofs, contains: block proof,aggregation proof, groth16 proof
+- **Description**: Retrieve list goat block proofs, contains: block proof,aggregation proof, groth16 proof
 - **Query Parameters**:
     - `block_number`: the goat block height
     - `block_range`: the number block proofs need to query
     - `graph_id`: graph for locating Layer 2 block height
 - **Response**:
-  ```json
+ ```json
   {
-    "block_number": "number",
     "block_proofs": [
         {
             "block_number": "number",
-            "state": "string",
-            "proving_time": "number",
-            "total_time_to_proof": "number",
-            "proof_size": "number",
-            "zkvm_version":"string",
-            "started_at": "number",
-            "updated_at": "number"
+            "block_proof": {
+                "state": "string",
+                "proving_time": "number",
+                "total_time_to_proof": "number",
+                "proof_size": "string",
+                "zkm_version": "string",
+                "started_at": "number",
+                "updated_at": "number"
+            },
+            "aggregation_proof": {
+                "state": "string",
+                "proving_time": "number",
+                "total_time_to_proof": "number",
+                "proof_size": "string",
+                "zkm_version": "string",
+                "started_at": "number",
+                "updated_at": "number"
+            },
+            "groth16_proof": {
+                "state": "string",
+                "proving_time": "number",
+                "total_time_to_proof": "number",
+                "proof_size": "number",
+                "zkm_version": "string",
+                "started_at": "number",
+                "updated_at": "number"
+            }
+        },
+      {
+        "block_number": "number",
+        "block_proof": {
+          "state": "string",
+          "proving_time": "number",
+          "total_time_to_proof": "number",
+          "proof_size": "string",
+          "zkm_version": "string",
+          "started_at": "number",
+          "updated_at": "number"
+        },
+        "aggregation_proof": {
+          "state": "string",
+          "proving_time": "number",
+          "total_time_to_proof": "number",
+          "proof_size": "string",
+          "zkm_version": "string",
+          "started_at": "number",
+          "updated_at": "number"
+        },
+        "groth16_proof": {
+          "state": "string",
+          "proving_time": "number",
+          "total_time_to_proof": "number",
+          "proof_size": "number",
+          "zkm_version": "string",
+          "started_at": "number",
+          "updated_at": "number"
         }
-    ],
-    "aggregation_proofs": [
-        {
-            "block_number": "number",
-            "state": "string",
-            "proving_time": "number",
-            "total_time_to_proof": "number",
-            "proof_size": "number",
-            "zkvm_version":"string",
-            "started_at": "number",
-            "updated_at": "number"
-        }
-    ],
-    "groth16_proofs": [
-        {
-            "block_number": "number",
-            "state": "string",
-            "proving_time": "number",
-            "total_time_to_proof": "number",
-            "proof_size": "number",
-            "zkvm_version":"string",
-            "started_at": "number",
-            "updated_at": "number"
-        }
+      }
     ]
   }
-    
-  ```
+  ``` 
   PS: `state` proof task state value: `queued`, `proved`, `failed`;
   `proving_time` pure compute proof cast, exclude init prepare, waiting and other time cast;
   `total_time_to_proof` proof cast, clude init prepare, waiting and other time cast;
@@ -599,47 +623,41 @@ If a graph for the instance is created, the count must be greater than or equal 
 - **Response**:
   ```json
   {
-    "block_number": "number",
     "block_proofs": [
         {
             "block_number": "number",
-            "state": "string",
-            "proving_time": "number",
-            "total_time_to_proof": "number",
-            "proof_size": "number",
-            "zkvm_version":"string",
-            "started_at": "number",
-            "updated_at": "number"
-        }
-    ],
-    "aggregation_proofs": [
-        {
-            "block_number": "number",
-            "state": "string",
-            "proving_time": "number",
-            "total_time_to_proof": "number",
-            "proof_size": "number",
-            "zkvm_version":"string",
-            "started_at": "number",
-            "updated_at": "number"
-        }
-    ],
-    "groth16_proofs": [
-        {
-            "block_number": "number",
-            "state": "string",
-            "proving_time": "number",
-            "total_time_to_proof": "number",
-            "proof_size": "number",
-            "zkvm_version":"string",
-            "started_at": "number",
-            "updated_at": "number"
+            "block_proof": {
+                "state": "string",
+                "proving_time": "number",
+                "total_time_to_proof": "number",
+                "proof_size": "string",
+                "zkm_version": "string",
+                "started_at": "number",
+                "updated_at": "number"
+            },
+            "aggregation_proof": {
+                "state": "string",
+                "proving_time": "number",
+                "total_time_to_proof": "number",
+                "proof_size": "string",
+                "zkm_version": "string",
+                "started_at": "number",
+                "updated_at": "number"
+            },
+            "groth16_proof": {
+                "state": "string",
+                "proving_time": "number",
+                "total_time_to_proof": "number",
+                "proof_size": "number",
+                "zkm_version": "string",
+                "started_at": "number",
+                "updated_at": "number"
+            }
         }
     ]
   }
- 
   ```
-  PS:  `block_proofs`,`aggregation_proofs`,`groth16_proofs` contains one or zero item
+  PS:  `block_proofs` contains one or zero item
   `state` proof task state value: `queued`, `proved`, `failed`;
   `proving_time` pure compute proof cast, exclude init prepare, waiting and other time cast;
   `total_time_to_proof` proof cast, clude init prepare, waiting and other time cast;

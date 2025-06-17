@@ -23,6 +23,7 @@ use bitvm2_lib::actors::Actor;
 use http::{HeaderMap, Method, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
+use reqwest::Client;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use store::localdb::LocalDB;
@@ -43,6 +44,7 @@ pub struct AppState {
     pub metrics_state: MetricsState,
     pub actor: Actor,
     pub peer_id: String,
+    pub client: Client,
 }
 
 impl AppState {
@@ -55,7 +57,8 @@ impl AppState {
         // let local_db = create_local_db(db_path).await;
         let btc_client = BTCClient::new(None, get_network());
         let metrics_state = MetricsState::new(registry);
-        Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id }))
+        let client = Client::new();
+        Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, client }))
     }
 }
 

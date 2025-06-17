@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProofsQueryParams {
     pub block_number: Option<i64>,
     #[serde(default = "default_block_range")]
@@ -8,13 +8,27 @@ pub struct ProofsQueryParams {
     pub graph_id: Option<String>,
 }
 
+// impl ProofsOverview{
+//     // pub fn to_url_params() -> String{
+//     //     let mut param = vec![];
+//     //     if b
+//     // }
+// }
+
 fn default_block_range() -> i64 {
     5
 }
 
-#[derive(Debug, Serialize)]
-pub struct ProofItem {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BlockProofs {
     pub block_number: i64,
+    pub block_proof: Option<ProofItem>,
+    pub aggregation_proof: Option<ProofItem>,
+    pub groth16_proof: Option<ProofItem>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProofItem {
     pub state: String,
     pub proving_time: i64,
     pub total_time_to_proof: i64,
@@ -24,15 +38,12 @@ pub struct ProofItem {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Proofs {
-    pub block_number: i64,
-    pub block_proofs: Vec<ProofItem>,
-    pub aggregation_proofs: Vec<ProofItem>,
-    pub groth16_proofs: Vec<ProofItem>,
+    pub block_proofs: Vec<BlockProofs>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProofsOverview {
     pub total_blocks: i64,
     pub avg_block_proof: i64,
