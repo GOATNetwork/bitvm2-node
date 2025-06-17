@@ -90,7 +90,7 @@ impl Db {
             ZKM_CIRCUIT_VERSION,
             "{}",
             format!(
-                "zkMIPS version mismatch, expected {}, got {}",
+                "zkMIPS version mismatch, expected {}, actual {}",
                 ZKM_CIRCUIT_VERSION, proof.zkm_version,
             ),
         );
