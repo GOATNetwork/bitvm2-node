@@ -1469,6 +1469,9 @@ pub async fn run_watch_event_task(
                     GatewayEventEntity::InitWithdraws,
                     GatewayEventEntity::CancelWithdraws,
                     GatewayEventEntity::ProceedWithdraws,
+                    GatewayEventEntity::WithdrawHappyPaths,
+                    GatewayEventEntity::WithdrawUnhappyPaths,
+                    GatewayEventEntity::WithdrawDisproveds,
                 ],
             )
             .await

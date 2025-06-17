@@ -47,6 +47,8 @@ pub struct NodeDesc {
     pub actor: String,
     pub goat_addr: String,
     pub btc_pub_key: String,
+    pub socket_addr: String,
+    pub reward: i64,
     pub updated_at: i64,
     pub status: String, //dynamic status: online/offline
 }

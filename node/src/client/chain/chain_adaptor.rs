@@ -86,6 +86,9 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<bool>;
 
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
+
+    async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)>;
+    async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {

@@ -557,7 +557,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    // Do not update the `updated_at` field; this field is updated based on heartbeat messages 
+    // Do not update the `updated_at` field; this field is updated based on heartbeat messages
     // and is used to determine whether a node is alive.
     pub async fn add_node_reward_by_addr(
         &mut self,

@@ -83,6 +83,10 @@ sol!(
             uint256 index;
         }
 
+        uint64 public minPeginFeeSats;
+        uint64 public peginFeeRate;
+        uint64 public minStakeAmountSats;
+        uint64 public stakeRate;
         address public  pegBTC;
         address public  bitcoinSPV;
         address public  relayer;
@@ -99,7 +103,7 @@ sol!(
         function parseBtcBlockHeader(bytes calldata rawHeader) public pure returns (bytes32 blockHash, bytes32 merkleRoot);
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
-        function getWithdrawableInstances() external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
+        function getWithdrawableInstances(bytes32 operatorPubkey) external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
         function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof) external ;
         function postOperatorData(bytes16 instanceId, bytes16 graphId, OperatorData calldata operatorData) public;
         function postOperatorDataBatch(bytes16 instanceId, bytes16[] calldata graphIds,OperatorData[] calldata operatorData) external;
@@ -637,6 +641,20 @@ impl ChainAdaptor for GoatAdaptor {
         } else {
             bail!("fail to get finalize block");
         }
+    }
+
+    async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        Ok((
+            self.gate_way.minStakeAmountSats().call().await?,
+            self.gate_way.stakeRate().call().await?,
+        ))
+    }
+
+    async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        Ok((
+            self.gate_way.minPeginFeeSats().call().await?,
+            self.gate_way.peginFeeRate().call().await?,
+        ))
     }
 }
 impl GoatAdaptor {

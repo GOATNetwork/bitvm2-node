@@ -336,6 +336,14 @@ impl ChainAdaptor for MockAdaptor {
         info!("call is_tx_execute_success");
         Ok(None)
     }
+
+    async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        Ok((0, 0))
+    }
+
+    async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        Ok((0, 0))
+    }
 }
 
 impl MockAdaptor {

@@ -80,6 +80,8 @@ pub const SYNC_GRAPH_MAX_WAIT_SECS: u64 = 30;
 // use to judge load history event thread is dead
 pub const LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS: i64 = 3600;
 
+pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
+
 pub fn get_network() -> Network {
     BTC_NETWORK
 }
@@ -136,7 +138,7 @@ pub fn get_ipfs_url() -> String {
 
 pub async fn check_node_info() {
     let node_info = get_local_node_info();
-    if vec![Actor::Operator.to_string(), Actor::Challenger.to_string()].contains(&node_info.actor)
+    if [Actor::Operator.to_string(), Actor::Challenger.to_string()].contains(&node_info.actor)
         && node_info.goat_addr.is_empty()
     {
         panic!("Operator and Challenger must set goat address or goat secret key");

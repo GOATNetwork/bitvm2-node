@@ -1179,6 +1179,10 @@ pub async fn recv_and_dispatch(
                 get_graph(local_db, receive_data.instance_id, receive_data.graph_id).await?;
 
             if graph.challenge_txid.is_none() || graph.assert_final_txid.is_none() {
+                tracing::warn!(
+                    "graph_id:{} challenge tx is none or assert final txid is none",
+                    receive_data.graph_id
+                );
                 return Err(format!(
                     "graph_id:{} challenge tx is none or assert final txid is none",
                     receive_data.graph_id

@@ -86,6 +86,8 @@ pub async fn get_nodes(
                     status,
                     goat_addr: v.goat_addr,
                     btc_pub_key: v.btc_pub_key,
+                    socket_addr: v.socket_addr,
+                    reward: v.reward,
                 }
             })
             .collect();

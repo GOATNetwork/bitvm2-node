@@ -4,7 +4,7 @@ use crate::action::{ChallengeSent, CreateInstance, DisproveSent};
 use crate::client::chain::chain_adaptor::WithdrawStatus;
 use crate::client::graph_query::{
     BlockRange, CancelWithdrawEvent, GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent,
-    UserGraphWithdrawEvent, get_gateway_events_query,
+    UserGraphWithdrawEvent, WithdrawDisproved, WithdrawPathsEvent, get_gateway_events_query,
 };
 use crate::client::{BTCClient, GOATClient, GraphQueryClient};
 use crate::env::{
@@ -168,6 +168,8 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     let mut init_withdraw_events: Vec<InitWithdrawEvent> = vec![];
     let mut cancel_withdraw_events = vec![];
     let mut proceed_withdraw_events: Vec<ProceedWithdrawEvent> = vec![];
+    let mut withdraw_paths_events: Vec<WithdrawPathsEvent> = vec![];
+    let mut withdraw_disproved_events: Vec<WithdrawDisproved> = vec![];
     for event_entity in event_entities {
         let entity = event_entity.clone();
         if let Some(value_vec) = query_res[entity.to_string()].as_array() {
@@ -184,6 +186,16 @@ pub async fn fetch_and_handle_block_range_events<'a>(
                     proceed_withdraw_events =
                         serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
                 }
+                GatewayEventEntity::WithdrawHappyPaths
+                | GatewayEventEntity::WithdrawUnhappyPaths => {
+                    let mut events: Vec<WithdrawPathsEvent> =
+                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    withdraw_paths_events.append(&mut events);
+                }
+                GatewayEventEntity::WithdrawDisproveds => {
+                    withdraw_disproved_events =
+                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                }
             };
         }
     }
@@ -195,6 +207,8 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     handle_user_withdraw_events(storage_processor, init_withdraw_events, cancel_withdraw_events)
         .await?;
     handle_proceed_withdraw_events(storage_processor, proceed_withdraw_events).await?;
+    handle_withdraw_paths_events(storage_processor, withdraw_paths_events).await?;
+    handle_withdraw_disproved_events(storage_processor, withdraw_disproved_events).await?;
     Ok(())
 }
 
@@ -266,6 +280,34 @@ async fn handle_proceed_withdraw_events<'a>(
     Ok(())
 }
 
+async fn handle_withdraw_paths_events<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    withdraw_paths_events: Vec<WithdrawPathsEvent>,
+) -> Result<(), Box<dyn Error>> {
+    for event in withdraw_paths_events {
+        let reward_add: i64 = event.reward_amount_sats.parse::<i64>()?;
+        storage_processor.add_node_reward_by_addr(&event.operator_addr, reward_add).await?;
+    }
+    Ok(())
+}
+
+async fn handle_withdraw_disproved_events<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    withdraw_disproved_events: Vec<WithdrawDisproved>,
+) -> Result<(), Box<dyn Error>> {
+    for event in withdraw_disproved_events {
+        let challenger_reward_add: i64 = event.challenger_amount_sats.parse::<i64>()?;
+        let disprover_reward_add: i64 = event.disprover_amount_sats.parse::<i64>()?;
+        storage_processor
+            .add_node_reward_by_addr(&event.challenger_addr, challenger_reward_add)
+            .await?;
+        storage_processor
+            .add_node_reward_by_addr(&event.disprover_addr, disprover_reward_add)
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn fetch_history_events(
     local_db: &LocalDB,
     query_client: &GraphQueryClient,
@@ -326,7 +368,6 @@ pub async fn fetch_history_events(
         }
         Ok::<(), Box<dyn std::error::Error>>(())
     };
-    // FIXME latter
     let err = match async_fn().await {
         Ok(_) => false,
         Err(err) => {

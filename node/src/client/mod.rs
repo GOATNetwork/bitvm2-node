@@ -5,6 +5,7 @@ use crate::client::chain::chain_adaptor::{
 use crate::client::chain::evmchain::EvmChain;
 use crate::client::chain::goat_adaptor::GoatInitConfig;
 use crate::client::esplora::get_esplora_url;
+use crate::env::GATEWAY_RATE_MULTIPLIER;
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::consensus::encode::{deserialize_hex, serialize};
@@ -280,11 +281,7 @@ impl GOATClient {
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
         let tx_id = tx.compute_txid();
-        tracing::info!(
-            "post_pegin_data instance_id:{}, pegin_tx:{}",
-            instance_id,
-            tx_id.to_string()
-        );
+        tracing::info!("post_pegin_data instance_id:{instance_id}, pegin_tx:{}", tx_id.to_string());
         let mut pegin_txid_posted =
             self.chain_service.adaptor.get_pegin_data(instance_id).await?.pegin_txid;
         if pegin_txid_posted != [0_u8; 32] {
@@ -300,8 +297,8 @@ impl GOATClient {
         }
 
         if self.chain_service.adaptor.pegin_tx_used(&tx_id.to_byte_array()).await? {
-            tracing::warn!("instance_id:{} this pegin tx has already been posted", instance_id,);
-            bail!("instance_id:{} this pegin tx has already been posted", instance_id,);
+            tracing::warn!("instance_id:{instance_id} this pegin tx has already been posted");
+            bail!("instance_id:{instance_id} this pegin tx has already been posted");
         }
         let (root, proof, _leaf, height, index, raw_header) =
             btc_client.get_btc_tx_proof_info(&tx_id).await?;
@@ -311,14 +308,12 @@ impl GOATClient {
         let block_hash_online = self.get_block_hash(height).await?;
         if block_hash_online != block_hash {
             tracing::warn!(
-                "instance_id:{}  root mismatch, from chain:{},  in contract:{}",
-                instance_id,
+                "instance_id:{instance_id}  root mismatch, from chain:{},  in contract:{}",
                 hex::encode(block_hash),
                 hex::encode(block_hash_online)
             );
             bail!(
-                "instance_id:{}  root mismatch, from chain:{},  in contract:{}",
-                instance_id,
+                "instance_id:{instance_id}  root mismatch, from chain:{},  in contract:{}",
                 hex::encode(block_hash),
                 hex::encode(block_hash_online)
             );
@@ -326,22 +321,33 @@ impl GOATClient {
 
         if merkle_root != root {
             tracing::warn!(
-                "instance_id:{} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
-                instance_id,
+                "instance_id:{instance_id} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
                 hex::encode(merkle_root),
                 hex::encode(root)
             );
             bail!(
-                "instance_id:{} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
-                instance_id,
+                "instance_id:{instance_id} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
                 hex::encode(merkle_root),
                 hex::encode(root)
             );
         }
         // check proof
         if !self.verify_merkle_proof(&merkle_root, &proof, &tx_id.to_byte_array(), index).await? {
-            tracing::warn!("instance_id:{} check proof failed", instance_id,);
-            bail!("instance_id:{} check proof failed", instance_id,);
+            tracing::warn!("instance_id:{instance_id} check proof failed");
+            bail!("instance_id:{instance_id} check proof failed");
+        }
+        let pegin_amount_sats = tx.output[0].value.to_sat();
+        let (min_pegin_fee_sats, pegin_fee_rate) =
+            self.chain_service.adaptor.get_pegin_fee_check_info().await?;
+        let pegin_fee_sats =
+            min_pegin_fee_sats + pegin_amount_sats * pegin_fee_rate / GATEWAY_RATE_MULTIPLIER;
+        if pegin_fee_sats >= pegin_amount_sats {
+            tracing::warn!(
+                "instance_id:{instance_id} pegin amount:{pegin_amount_sats} cannot cover fee:{pegin_fee_sats}"
+            );
+            bail!(
+                "instance_id:{instance_id} pegin amount:{pegin_amount_sats} cannot cover fee:{pegin_fee_sats}"
+            );
         }
 
         let raw_pegin_tx = tx_reconstruct(tx);
@@ -363,39 +369,37 @@ impl GOATClient {
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
         let operator_data = cast_graph_to_operate_data(graph)?;
-        let pegin_txid = self.chain_service.adaptor.get_pegin_data(instance_id).await?.pegin_txid;
-        if pegin_txid != operator_data.pegin_txid {
+        let pegin_data = self.chain_service.adaptor.get_pegin_data(instance_id).await?;
+        if pegin_data.pegin_txid != operator_data.pegin_txid {
             tracing::warn!(
-                "instance_id:{} graph_id {} operator data pegin txid mismatch, exp:{},  act:{}",
-                instance_id,
-                graph_id,
-                hex::encode(pegin_txid),
+                "instance_id:{instance_id} graph_id {graph_id} operator data pegin txid mismatch, exp:{},  act:{}",
+                hex::encode(pegin_data.pegin_txid),
                 hex::encode(operator_data.pegin_txid),
             );
             bail!(
-                "instance_id:{} graph_id {} operator data pegin txid mismatch, exp:{},  act:{}",
-                instance_id,
-                graph_id,
-                hex::encode(pegin_txid),
+                "instance_id:{instance_id} graph_id {graph_id} operator data pegin txid mismatch, exp:{},  act:{}",
+                hex::encode(pegin_data.pegin_txid),
                 hex::encode(operator_data.pegin_txid),
             );
         }
 
-        // todo use env
-        if operator_data.stake_amount < 700000 {
+        let (min_stake_sats, stake_rate) =
+            self.chain_service.adaptor.get_stake_amount_check_info().await?;
+
+        let min_stake_for_pegin =
+            min_stake_sats + pegin_data.pegin_amount * stake_rate / GATEWAY_RATE_MULTIPLIER;
+
+        if operator_data.stake_amount < min_stake_for_pegin {
             tracing::warn!(
-                "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
-                instance_id,
-                graph_id,
+                "instance_id:{instance_id} graph_id {graph_id} operator data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
                 operator_data.stake_amount,
             );
             bail!(
-                "instance_id:{} graph_id {} operator data insufficient stake amount, staking:{}",
-                instance_id,
-                graph_id,
+                "instance_id:{instance_id} graph_id {graph_id} operator data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
                 operator_data.stake_amount,
             );
         }
+
         self.chain_service.adaptor.post_operator_data(instance_id, graph_id, &operator_data).await
     }
 
