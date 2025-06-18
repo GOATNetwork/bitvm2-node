@@ -154,7 +154,8 @@ impl AggregationExecutor {
                 "{}",
                 format!(
                     "zkMIPS version mismatch, expected {}, actual {}",
-                    self.client.version(), input.zkm_version,
+                    self.client.version(),
+                    input.zkm_version,
                 ),
             );
         });
@@ -270,7 +271,8 @@ impl Groth16Executor {
                             &groth16_proof.public_values.to_vec(),
                             &self.vk.bytes32(),
                             &GROTH16_VK_BYTES,
-                        ).expect("Groth16 proof is invalid");
+                        )
+                        .expect("Groth16 proof is invalid");
                     }
                     Err(err) => {
                         error!("Error generate groth16 proof {}: {}", block_number, err);
@@ -368,9 +370,7 @@ async fn prove(
     stdin: ZKMStdin,
 ) -> Result<ZKMProofWithPublicValues> {
     tokio::task::spawn_blocking(move || {
-        info_span!("proving", number).in_scope(|| {
-            client.prove(pk.as_ref(), stdin, proof_mode)
-        })
+        info_span!("proving", number).in_scope(|| client.prove(pk.as_ref(), stdin, proof_mode))
     })
     .await?
 }

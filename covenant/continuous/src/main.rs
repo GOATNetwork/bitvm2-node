@@ -7,15 +7,20 @@ use host_executor::{
     alerting::AlertingClient, create_eth_block_execution_strategy_factory, BlockExecutor,
     EthExecutorComponents, ExecutorComponents, FullExecutor,
 };
+use logroller::{LogRollerBuilder, Rotation, RotationAge};
 use provider::create_provider;
 use store::localdb::LocalDB;
 use tokio::{sync::Semaphore, task};
 use tracing::{error, info, instrument, warn};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::util::SubscriberInitExt;
 use zkm_sdk::{include_elf, ProverClient};
 
 mod cli;
 mod db;
+
+const LOG_DIR: &str = "./logs";
+const LOG_FILE: &str = "continuous.log";
+const LOG_FIELS_COUNT: u64 = 7;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -27,14 +32,19 @@ async fn main() -> eyre::Result<()> {
     }
 
     // Initialize the logger.
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(
-            EnvFilter::from_default_env()
-                .add_directive("zkm_core_machine=warn".parse().unwrap())
-                .add_directive("zkm_core_executor=warn".parse().unwrap())
-                .add_directive("zkm_prover=warn".parse().unwrap()),
+    let appender = LogRollerBuilder::new(LOG_DIR, LOG_FILE)
+        .rotation(Rotation::AgeBased(RotationAge::Daily))
+        .max_keep_files(LOG_FIELS_COUNT)
+        .build()
+        .unwrap();
+    let (non_blocking, _guard) = tracing_appender::non_blocking(appender);
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            "continuous=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn",
         )
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .finish()
         .init();
 
     let args = Args::parse();

@@ -9,14 +9,17 @@ ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
 anyhow.workspace = true
 bincode.workspace = true
+chrono.workspace = true
 serde.workspace = true
 tokio.workspace = true
+tracing-appender.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
+logroller.workspace = true
 hex.workspace = true
 clap = { version = "4.5.7", features = ["derive", "env"] }
 dotenv = "0.15.0"
 futures-util = "0.3.31"
-tracing-subscriber = "0.3.18"
 
 # zkMIPS
 zkm-sdk.workspace = true
