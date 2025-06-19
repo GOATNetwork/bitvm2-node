@@ -33,7 +33,7 @@ async fn main() -> eyre::Result<()> {
     let args = Args::parse();
 
     // Initialize the logger.
-    let appender = LogRollerBuilder::new(args.log_dir, LOG_FILE)
+    let appender = LogRollerBuilder::new(args.log_dir.as_ref(), LOG_FILE)
         .rotation(Rotation::AgeBased(RotationAge::Daily))
         .max_keep_files(LOG_FIELS_COUNT)
         .build()

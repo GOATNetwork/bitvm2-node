@@ -31,6 +31,8 @@ pub struct AggregationExecutor {
     client: Arc<dyn Prover<DefaultProverComponents>>,
     pk: Arc<ZKMProvingKey>,
     vk: Arc<ZKMVerifyingKey>,
+    block_number: u64,
+    is_start_block: bool,
 }
 
 impl AggregationExecutor {
@@ -38,11 +40,13 @@ impl AggregationExecutor {
         db: Arc<Db>,
         client: Arc<dyn Prover<DefaultProverComponents>>,
         elf: &[u8],
+        block_number: u64,
+        is_start_block: bool,
     ) -> Self {
         // Setup the proving and verifying keys.
         let (pk, vk) = client.setup(elf);
 
-        Self { db, client, pk: Arc::new(pk), vk: Arc::new(vk) }
+        Self { db, client, pk: Arc::new(pk), vk: Arc::new(vk), block_number, is_start_block }
     }
 
     pub async fn data_preparer(
@@ -58,32 +62,28 @@ impl AggregationExecutor {
             if let Ok(block_number) = block_number {
                 self.db.on_aggregation_start(block_number).await?;
 
-                let agg_input = match block_number {
-                    2 => {
+                let agg_input = if self.is_start_block && block_number == self.block_number {
+                    restart = false;
+                    let block_proof1 = self.db.load_proof(block_number - 1, false).await?;
+                    let block_proof2 = self.db.load_proof(block_number, false).await?;
+                    AggreationInput((block_proof1, block_proof2))
+                } else {
+                    let block_proof = self.db.load_proof(block_number, false).await?;
+                    let pre_agg_proof = if restart {
                         restart = false;
-                        let block_proof1 = self.db.load_proof(1, false).await?;
-                        let block_proof2 = self.db.load_proof(2, false).await?;
-                        AggreationInput((block_proof1, block_proof2))
-                    }
-                    n if n > 2 => {
-                        let block_proof = self.db.load_proof(block_number, false).await?;
-                        let pre_agg_proof = if restart {
-                            restart = false;
-                            self.db.load_proof(block_number - 1, true).await?
-                        } else {
-                            let agg_proof = agg_proof_rx.recv()?;
-                            assert_eq!(agg_proof.block_number, block_number - 1);
-                            Proof {
-                                block_number: block_number - 1,
-                                proof: agg_proof.proof,
-                                public_values: agg_proof.public_values,
-                                vk: self.vk.clone(),
-                                zkm_version: agg_proof.zkm_version,
-                            }
-                        };
-                        AggreationInput((pre_agg_proof, block_proof))
-                    }
-                    _ => panic!("block number >= 2"),
+                        self.db.load_proof(block_number - 1, true).await?
+                    } else {
+                        let agg_proof = agg_proof_rx.recv()?;
+                        assert_eq!(agg_proof.block_number, block_number - 1);
+                        Proof {
+                            block_number: block_number - 1,
+                            proof: agg_proof.proof,
+                            public_values: agg_proof.public_values,
+                            vk: self.vk.clone(),
+                            zkm_version: agg_proof.zkm_version,
+                        }
+                    };
+                    AggreationInput((pre_agg_proof, block_proof))
                 };
 
                 input_tx.send(agg_input)?;

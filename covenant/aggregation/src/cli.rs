@@ -7,6 +7,10 @@ pub struct Args {
     #[clap(long)]
     pub block_number: u64,
 
+    /// Aggregation starts with two block proofs.
+    #[clap(long)]
+    pub start: bool,
+
     /// The database connection string.
     #[clap(long, env, default_value = "/tmp/.bitvm2-node.db")]
     pub database_url: String,
