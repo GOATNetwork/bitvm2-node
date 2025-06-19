@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO groth16_proof \n                (block_number, state, created_at, updated_at)\n            VALUES\n                (?, ?, ?, ?)\n            ON CONFLICT(block_number) DO UPDATE SET\n                state = excluded.state,\n                created_at = excluded.created_at,\n                updated_at = excluded.updated_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "3d7e1b5136cb29ddf368c7a71b1136c38fe3b500c8b3d85a945feb24e6994ea6"
+}

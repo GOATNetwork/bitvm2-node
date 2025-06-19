@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at)\n            VALUES (?, ?, ?, ?, ?, ?, ?)\n            ON CONFLICT (peer_id) DO UPDATE SET\n                actor = excluded.actor,\n                goat_addr = excluded.goat_addr,\n                btc_pub_key = excluded.btc_pub_key,\n                socket_addr = excluded.socket_addr,\n                updated_at = excluded.updated_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "a7729c6cd14e16a07d78123dae4d46f110b0b2e3116ed3f3893fda9db37a0dfc"
+}

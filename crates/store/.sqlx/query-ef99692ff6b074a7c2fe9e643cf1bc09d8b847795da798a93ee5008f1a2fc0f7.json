@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM instance WHERE bridge_path = ? ",
+  "query": "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM instance WHERE bridge_path = ? and status != ? ",
   "describe": {
     "columns": [
       {
@@ -15,12 +15,12 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       true,
       false
     ]
   },
-  "hash": "fadd7d7d844fa8339f6823691905637a024feb52135ef269d89ad120fabba889"
+  "hash": "ef99692ff6b074a7c2fe9e643cf1bc09d8b847795da798a93ee5008f1a2fc0f7"
 }

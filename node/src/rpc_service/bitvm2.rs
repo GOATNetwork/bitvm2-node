@@ -1,5 +1,5 @@
 use crate::env::{CHEKSIG_P2WSH_INPUT_VBYTES, PEGIN_BASE_VBYTES};
-use crate::rpc_service::handler::bitvm2_handler::reflect_goat_address;
+use crate::utils::reflect_goat_address;
 use alloy::hex::ToHexExt;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::encode::serialize_hex;

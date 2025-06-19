@@ -543,7 +543,16 @@ impl<'a> StorageProcessor<'a> {
     /// Insert or update node without reward field
     pub async fn update_node(&mut self, node: Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            "INSERT OR REPLACE INTO  node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ",
+            r#"
+            INSERT INTO node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (peer_id) DO UPDATE SET
+                actor = excluded.actor,
+                goat_addr = excluded.goat_addr,
+                btc_pub_key = excluded.btc_pub_key,
+                socket_addr = excluded.socket_addr,
+                updated_at = excluded.updated_at
+            "#,
             node.peer_id,
             node.actor,
             node.goat_addr,
@@ -674,10 +683,15 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn get_sum_bridge_in(&mut self, bridge_path: u8) -> anyhow::Result<(i64, i64)> {
+    pub async fn get_sum_bridge_in(
+        &mut self,
+        bridge_path: u8,
+        filter_status: &str,
+    ) -> anyhow::Result<(i64, i64)> {
         let record = sqlx::query!(
-            "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM instance WHERE bridge_path = ? ",
-            bridge_path
+            "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM instance WHERE bridge_path = ? and status != ? ",
+            bridge_path,
+            filter_status
         )
             .fetch_one(self.conn())
             .await?;
@@ -687,7 +701,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_sum_bridge_out(&mut self) -> anyhow::Result<(i64, i64)> {
         let record = sqlx::query!(
             "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM graph WHERE status NOT IN \
-            ('OperatorPresigned','CommitteePresigned','OperatorDataPushed')"
+            ('OperatorPresigned','CommitteePresigned','OperatorDataPushed', 'Obsoleted')"
         )
         .fetch_one(self.conn())
         .await?;
@@ -1074,17 +1088,19 @@ impl<'a> StorageProcessor<'a> {
 
         sqlx::query!(
             r#"
-            INSERT INTO block_proof 
-                (block_number, state, created_at) 
+            INSERT INTO block_proof
+                (block_number, state, created_at, updated_at)
             VALUES 
-                (?, ?, ?)
+                (?, ?, ?, ?)
             ON CONFLICT(block_number) DO UPDATE SET
                 state = excluded.state,
-                created_at = excluded.created_at
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
             "#,
             block_number,
             state,
-            timestamp
+            timestamp,
+            timestamp,
         )
         .execute(self.conn())
         .await?;
@@ -1265,16 +1281,18 @@ impl<'a> StorageProcessor<'a> {
         sqlx::query!(
             r#"
             INSERT INTO aggregation_proof 
-                (block_number, state, created_at) 
+                (block_number, state, created_at, updated_at)
             VALUES
-                (?, ?, ?)
+                (?, ?, ?, ?)
             ON CONFLICT(block_number) DO UPDATE SET
                 state = excluded.state,
-                created_at = excluded.created_at
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
             "#,
             block_number,
             state,
-            timestamp
+            timestamp,
+            timestamp,
         )
         .execute(self.conn())
         .await?;
@@ -1447,15 +1465,17 @@ impl<'a> StorageProcessor<'a> {
         sqlx::query!(
             r#"
             INSERT INTO groth16_proof 
-                (block_number, state, created_at) 
+                (block_number, state, created_at, updated_at)
             VALUES
-                (?, ?, ?)
+                (?, ?, ?, ?)
             ON CONFLICT(block_number) DO UPDATE SET
                 state = excluded.state,
-                created_at = excluded.created_at
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
             "#,
             block_number,
             state,
+            timestamp,
             timestamp
         )
         .execute(self.conn())
@@ -1838,13 +1858,13 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
         proof_type: ProofType,
         block_number_min: i64,
         block_number_max: i64,
-    ) -> anyhow::Result<Vec<(i64, String, i64, i64, String, i64, i64)>> {
+    ) -> anyhow::Result<Vec<(i64, String, i64, f64, String, i64, i64)>> {
         #[derive(sqlx::FromRow)]
         struct ProofInfoRow {
             block_number: i64,
             state: String,
             proving_time: i64,
-            proof_size: i64,
+            proof_size: f64,
             zkm_version: String,
             created_at: i64,
             updated_at: i64,
@@ -1886,11 +1906,11 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
     pub async fn get_proof_overview(
         &mut self,
         proof_type: ProofType,
-    ) -> anyhow::Result<(i64, i64)> {
+    ) -> anyhow::Result<(i64, f64)> {
         #[derive(sqlx::FromRow)]
         struct OverviewProof {
             max_block_number: i64,
-            avg_total_proof_time: i64,
+            avg_total_proof_time: f64,
         }
         let query = match proof_type {
             ProofType::BlockProof => {
@@ -1901,7 +1921,7 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
                 )
                 SELECT
                 COALESCE((SELECT MAX(block_number) FROM block_proof), 0) AS max_block_number,
-                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0) AS avg_total_proof_time"#
+                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0.0) AS avg_total_proof_time"#
             }
             ProofType::AggregationProof => {
                 r#"WITH top_6_blocks AS (
@@ -1911,7 +1931,7 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
                 )
                 SELECT
                 COALESCE((SELECT MAX(block_number) FROM aggregation_proof), 0) AS max_block_number,
-                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0) AS avg_total_proof_time"#
+                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0.0) AS avg_total_proof_time"#
             }
             ProofType::Groth16Proof => {
                 r#"WITH top_6_blocks AS (
@@ -1921,7 +1941,7 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
                 )
                 SELECT
                 COALESCE((SELECT MAX(block_number) FROM groth16_proof), 0) AS max_block_number,
-                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0) AS avg_total_proof_time"#
+                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0.0) AS avg_total_proof_time"#
             }
         };
         let res = sqlx::query_as::<_, OverviewProof>(query).fetch_one(self.conn()).await?;

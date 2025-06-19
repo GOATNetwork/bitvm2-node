@@ -1,9 +1,9 @@
-use crate::rpc_service::handler::bitvm2_handler::reflect_goat_address;
 use crate::rpc_service::node::{
     ALIVE_TIME_JUDGE_THRESHOLD, NodeDesc, NodeListResponse, NodeOverViewResponse, NodeQueryParams,
     UpdateOrInsertNodeRequest,
 };
 use crate::rpc_service::{AppState, current_time_secs};
+use crate::utils::reflect_goat_address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitvm2_lib::actors::Actor;

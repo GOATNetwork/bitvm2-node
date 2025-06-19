@@ -10,6 +10,7 @@ use crate::env::*;
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::monitor_events;
 use crate::rpc_service::current_time_secs;
+use alloy::primitives::Address as EvmAddress;
 use alloy::providers::ProviderBuilder;
 use ark_serialize::CanonicalDeserialize;
 use bitcoin::consensus::encode::serialize_hex;
@@ -1600,4 +1601,14 @@ pub fn get_fixed_disprove_output() -> Result<TxOut, Box<dyn std::error::Error>> 
         script_pubkey: generate_burn_script_address(get_network()).script_pubkey(),
         value: Amount::from_sat(DUST_AMOUNT),
     })
+}
+
+pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
+    if let Some(addr) = addr_op
+        && let Ok(addr) = EvmAddress::from_str(&addr)
+    {
+        return (true, Some(addr.to_string()));
+    }
+
+    (false, None)
 }

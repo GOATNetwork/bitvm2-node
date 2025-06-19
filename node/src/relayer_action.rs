@@ -14,7 +14,7 @@ use crate::env::{
 use crate::rpc_service::{P2pUserData, current_time_secs};
 use crate::utils::{
     create_goat_tx_record, finish_withdraw_disproved, obsolete_sibling_graphs, outpoint_spent_txid,
-    strip_hex_prefix_owned, update_graph_fields,
+    reflect_goat_address, strip_hex_prefix_owned, update_graph_fields,
 };
 use crate::{
     action::{
@@ -200,9 +200,13 @@ pub async fn fetch_and_handle_block_range_events<'a>(
         }
     }
     info!(
-        "get user init withdraw events: {}, cancel withdraw events: {}, block range {from_height}:{to_height}",
+        "get user init withdraw events: {}, cancel withdraw events: {}, proceed_withdraw_events:{}, \
+         withdraw_paths_events:{},  withdraw_disproved_events:{},  block range {from_height}:{to_height}",
         init_withdraw_events.len(),
-        cancel_withdraw_events.len()
+        cancel_withdraw_events.len(),
+        proceed_withdraw_events.len(),
+        withdraw_paths_events.len(),
+        withdraw_disproved_events.len(),
     );
     handle_user_withdraw_events(storage_processor, init_withdraw_events, cancel_withdraw_events)
         .await?;
@@ -286,7 +290,16 @@ async fn handle_withdraw_paths_events<'a>(
 ) -> Result<(), Box<dyn Error>> {
     for event in withdraw_paths_events {
         let reward_add: i64 = event.reward_amount_sats.parse::<i64>()?;
-        storage_processor.add_node_reward_by_addr(&event.operator_addr, reward_add).await?;
+        let (flag, goat_addr) = reflect_goat_address(Some(event.operator_addr.clone()));
+        if !flag {
+            warn!(
+                "handle_withdraw_paths_events failed as cast operator address failed, detail: {}, {}",
+                event.transaction_hash, event.operator_addr
+            );
+            continue;
+        }
+
+        storage_processor.add_node_reward_by_addr(&goat_addr.unwrap(), reward_add).await?;
     }
     Ok(())
 }
@@ -298,11 +311,28 @@ async fn handle_withdraw_disproved_events<'a>(
     for event in withdraw_disproved_events {
         let challenger_reward_add: i64 = event.challenger_amount_sats.parse::<i64>()?;
         let disprover_reward_add: i64 = event.disprover_amount_sats.parse::<i64>()?;
+        let (flag, challenger_addr) = reflect_goat_address(Some(event.challenger_addr.clone()));
+        if !flag {
+            warn!(
+                "handle_withdraw_disproved_events failed as cast challenger address failed, detail: {}, {}",
+                event.transaction_hash, event.challenger_addr
+            );
+            continue;
+        }
+        let (flag, disprover_addr) = reflect_goat_address(Some(event.disprover_addr.clone()));
+        if !flag {
+            warn!(
+                "handle_withdraw_disproved_events failed as cast disprover address failed, detail: {}, {}",
+                event.transaction_hash, event.disprover_addr
+            );
+            continue;
+        }
+
         storage_processor
-            .add_node_reward_by_addr(&event.challenger_addr, challenger_reward_add)
+            .add_node_reward_by_addr(&challenger_addr.unwrap(), challenger_reward_add)
             .await?;
         storage_processor
-            .add_node_reward_by_addr(&event.disprover_addr, disprover_reward_add)
+            .add_node_reward_by_addr(&disprover_addr.unwrap(), disprover_reward_add)
             .await?;
     }
     Ok(())
@@ -329,12 +359,12 @@ pub async fn fetch_history_events(
                 continue;
             }
             let current_finalized = current_finalized?;
-            if watch_contract.from_height >= current_finalized {
+            if watch_contract.from_height > current_finalized {
                 info!(
-                    "Not need to fetch history events, as current finalize height: {current_finalized} is litter than watch from height: {}",
+                    "fetch history events will finish, as current finalize height: {current_finalized} is litter than watch from height: {}",
                     watch_contract.from_height,
                 );
-                break;
+                continue;
             }
 
             let to_height = current_finalized.min(watch_contract.from_height + watch_contract.gap);

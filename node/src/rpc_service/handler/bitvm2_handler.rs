@@ -2,8 +2,7 @@ use crate::env::IpfsTxName;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
-use crate::utils::node_p2wsh_address;
-use alloy::primitives::Address as EvmAddress;
+use crate::utils::{node_p2wsh_address, reflect_goat_address};
 use anyhow::bail;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -454,8 +453,12 @@ pub async fn get_instances_overview(
 ) -> (StatusCode, Json<InstanceOverviewResponse>) {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        let (pegin_sum, pegin_count) =
-            storage_process.get_sum_bridge_in(BridgePath::BTCToPgBTC.to_u8()).await?;
+        let (pegin_sum, pegin_count) = storage_process
+            .get_sum_bridge_in(
+                BridgePath::BTCToPgBTC.to_u8(),
+                &BridgeInStatus::PresignedFailed.to_string(),
+            )
+            .await?;
         let (pegout_sum, pegout_count) = storage_process.get_sum_bridge_out().await?;
         let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
         Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
@@ -616,24 +619,14 @@ pub async fn get_graphs(
     }
 }
 
-pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
-    if let Some(addr) = addr_op
-        && let Ok(addr) = EvmAddress::from_str(&addr)
-    {
-        return (true, Some(addr.to_string()));
-    }
-
-    (false, None)
-}
-
 pub fn convert_to_rpc_query_data(
     graph: &GrapFullData,
     from_addr: Option<String>,
     bridge_in_status: &[String],
 ) -> Result<Option<GrapRpcQueryData>, Box<dyn std::error::Error>> {
-    if bridge_in_status.contains(&graph.status) {
-        return Ok(None);
-    }
+    // if bridge_in_status.contains(&graph.status) {
+    //     return Ok(None);
+    // }
 
     let mut graph_res = GrapRpcQueryData {
         graph_id: graph.graph_id,

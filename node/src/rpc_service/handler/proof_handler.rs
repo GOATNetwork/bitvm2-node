@@ -192,7 +192,7 @@ pub async fn get_proofs_overview(
 }
 
 fn convert_to_proof_items(
-    input: Vec<(i64, String, i64, i64, String, i64, i64)>,
+    input: Vec<(i64, String, i64, f64, String, i64, i64)>,
 ) -> HashMap<i64, ProofItem> {
     input
         .into_iter()

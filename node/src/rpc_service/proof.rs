@@ -32,7 +32,7 @@ pub struct ProofItem {
     pub state: String,
     pub proving_time: i64,
     pub total_time_to_proof: i64,
-    pub proof_size: i64,
+    pub proof_size: f64,
     pub zkm_version: String,
     pub started_at: i64,
     pub updated_at: i64,
@@ -46,7 +46,7 @@ pub struct Proofs {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProofsOverview {
     pub total_blocks: i64,
-    pub avg_block_proof: i64,
-    pub avg_aggregation_proof: i64,
-    pub avg_groth16_proof: i64,
+    pub avg_block_proof: f64,
+    pub avg_aggregation_proof: f64,
+    pub avg_groth16_proof: f64,
 }
