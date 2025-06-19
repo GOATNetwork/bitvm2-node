@@ -18,7 +18,6 @@ use zkm_sdk::{include_elf, ProverClient};
 mod cli;
 mod db;
 
-const LOG_DIR: &str = "./logs";
 const LOG_FILE: &str = "continuous.log";
 const LOG_FIELS_COUNT: u64 = 7;
 
@@ -31,8 +30,10 @@ async fn main() -> eyre::Result<()> {
         std::env::set_var("RUST_LOG", "info");
     }
 
+    let args = Args::parse();
+
     // Initialize the logger.
-    let appender = LogRollerBuilder::new(LOG_DIR, LOG_FILE)
+    let appender = LogRollerBuilder::new(args.log_dir, LOG_FILE)
         .rotation(Rotation::AgeBased(RotationAge::Daily))
         .max_keep_files(LOG_FIELS_COUNT)
         .build()
@@ -47,7 +48,6 @@ async fn main() -> eyre::Result<()> {
         .finish()
         .init();
 
-    let args = Args::parse();
     let config = args.as_config().await?;
 
     let elf = include_elf!("covenant-guest").to_vec();
