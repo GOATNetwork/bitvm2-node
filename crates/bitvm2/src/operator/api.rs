@@ -272,15 +272,22 @@ pub fn generate_bitvm_graph(
         outpoint: OutPoint { txid: kickoff_txid, vout: take1_input_2_vout as u32 },
         amount: kickoff.tx().output[take1_input_2_vout].value,
     };
+    let take1_input_3_vout: usize = 2;
+    let take1_input_3 = Input {
+        outpoint: OutPoint { txid: kickoff_txid, vout: take1_input_3_vout as u32 },
+        amount: kickoff.tx().output[take1_input_3_vout].value,
+    };
     let take1 = Take1Transaction::new_for_validation(
         network,
         &operator_pubkey,
         &connector_0,
         &connector_3,
         &connector_a,
+        &connector_b,
         take1_input_0,
         take1_input_1,
         take1_input_2,
+        take1_input_3,
     );
 
     // challenge
@@ -506,8 +513,11 @@ pub fn operator_sign_take1(
         &operator_context.operator_taproot_public_key,
         &operator_context.n_of_n_taproot_public_key,
     );
+    let connector_b =
+        ConnectorB::new(operator_context.network, &operator_context.operator_taproot_public_key);
     graph.take1.sign_input_1(&operator_context, &connector_a);
     graph.take1.sign_input_2(&operator_context);
+    graph.take1.sign_input_3(&operator_context, &connector_b);
     Ok(graph.take1.finalize())
 }
 

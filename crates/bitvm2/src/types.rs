@@ -231,15 +231,22 @@ impl Bitvm2Graph {
             outpoint: OutPoint { txid: kickoff_txid, vout: take1_input_2_vout as u32 },
             amount: kickoff.tx().output[take1_input_2_vout].value,
         };
+        let take1_input_3_vout: usize = 2;
+        let take1_input_3 = Input {
+            outpoint: OutPoint { txid: kickoff_txid, vout: take1_input_3_vout as u32 },
+            amount: kickoff.tx().output[take1_input_3_vout].value,
+        };
         let take1 = Take1Transaction::new_for_validation(
             network,
             &operator_pubkey,
             &connector_0,
             &connector_3,
             &connector_a,
+            &connector_b,
             take1_input_0,
             take1_input_1,
             take1_input_2,
+            take1_input_3,
         );
 
         // challenge
