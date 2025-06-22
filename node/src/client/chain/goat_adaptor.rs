@@ -180,7 +180,7 @@ impl GoatAdaptor {
         tracing::info!("finish send tx_hash: {}", tx_hash.to_string());
 
         // TODO update latter
-        let mut is_sucess = false;
+        let mut is_success = false;
         for i in 0..5 {
             time::sleep(Duration::from_millis(2000)).await;
             match self.provider.get_transaction_receipt(*tx_hash).await {
@@ -202,13 +202,13 @@ impl GoatAdaptor {
                         continue;
                     }
                     if receipt.unwrap().status() {
-                        is_sucess = true;
+                        is_success = true;
                         break;
                     }
                 }
             };
         }
-        if !is_sucess {
+        if !is_success {
             bail!("tx_hash:{} execute failed on chain", tx_hash.to_string());
         }
         Ok(*tx_hash)
