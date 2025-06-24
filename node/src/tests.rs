@@ -242,7 +242,7 @@ pub mod tests {
         broadcast_and_wait_for_confirming(rpc_client, &funding_operator_txn, 1);
 
         let (proof, scalars, vk) =
-            get_groth16_proof(local_db, &instance_id, &graph_id).await.unwrap();
+            get_groth16_proof(local_db, &instance_id, &graph_id, "".to_string()).await.unwrap();
         let proof_sigs = operator::sign_proof(&vk, proof, scalars, &operator_wots_seckeys);
 
         let depositor_evm_address: [u8; 20] =

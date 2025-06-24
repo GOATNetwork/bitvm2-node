@@ -228,7 +228,7 @@ fn convert_to_proof_items(
 async fn get_online_operator_url(local_db: &LocalDB) -> anyhow::Result<String> {
     let mut storage_processor = local_db.acquire().await?;
     let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
-    let (nodes, _) = storage_processor
+    let (mut nodes, _) = storage_processor
         .node_list(
             Some(Actor::Operator.to_string()),
             None,
@@ -241,5 +241,6 @@ async fn get_online_operator_url(local_db: &LocalDB) -> anyhow::Result<String> {
     if nodes.is_empty() {
         bail!("no operator is online")
     }
+    nodes.sort_by_key(|v| v.created_at);
     Ok(nodes[0].socket_addr.clone())
 }

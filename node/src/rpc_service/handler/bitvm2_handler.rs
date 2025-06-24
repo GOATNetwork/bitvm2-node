@@ -586,8 +586,6 @@ pub async fn get_graphs(
                 });
             }
         }
-        graph_vec.sort_by(|a, b| b.graph.created_at.cmp(&a.graph.created_at));
-
         let socket_info_map: HashMap<Uuid, (String, i64)> = storage_process
             .get_socket_addr_for_graph_query_proof(
                 &graph_ids,
@@ -598,7 +596,9 @@ pub async fn get_graphs(
         let graph_vec = graph_vec
             .into_iter()
             .map(|mut v| {
-                if let Some((socket_addr, height)) = socket_info_map.get(&v.graph.graph_id) {
+                if let Some((socket_addr, height)) = socket_info_map.get(&v.graph.graph_id)
+                    && *height > 0
+                {
                     v.graph.proof_height = Some(*height);
                     v.graph.proof_query_url =
                         Some(format!("http://{socket_addr}/v1/proofs/{height}"));
@@ -623,12 +623,12 @@ pub fn convert_to_rpc_query_data(
     graph: &GrapFullData,
     from_addr: Option<String>,
     bridge_in_status: &[String],
-) -> Result<Option<GrapRpcQueryData>, Box<dyn std::error::Error>> {
+) -> Result<Option<GraphRpcQueryData>, Box<dyn std::error::Error>> {
     // if bridge_in_status.contains(&graph.status) {
     //     return Ok(None);
     // }
 
-    let mut graph_res = GrapRpcQueryData {
+    let mut graph_res = GraphRpcQueryData {
         graph_id: graph.graph_id,
         instance_id: graph.instance_id,
         bridge_path: graph.bridge_path,

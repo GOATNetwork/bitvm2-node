@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT instance_id AS \"instance_id:Uuid\",\n                    network,\n                    bridge_path,\n                    from_addr,\n                    to_addr,\n                    amount,\n                    status,\n                    goat_txid,\n                    btc_txid,\n                    pegin_txid,\n                    input_uxtos,\n                    fee,\n                    created_at,\n                    updated_at\n            FROM instance\n            WHERE instance_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "instance_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "network",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "bridge_path",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "from_addr",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "to_addr",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "status",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "goat_txid",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "btc_txid",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "pegin_txid",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "input_uxtos",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "fee",
+        "ordinal": 11,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 12,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 13,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a93d4ebae1450f336944ac9163a052e244ad7511df3c589cdf928e6c45de960e"
+}

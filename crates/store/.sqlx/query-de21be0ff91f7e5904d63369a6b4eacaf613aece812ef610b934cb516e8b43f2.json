@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                instance_id AS \"instance_id:Uuid\",\n                graph_id AS \"graph_id:Uuid\",\n                proof,\n                pis,\n                goat_block_number,\n                proof_cast,\n                created_at\n            FROM proof_with_pis\n            WHERE instance_id = ?\n              AND graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "instance_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "proof",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "pis",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "goat_block_number",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "proof_cast",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "de21be0ff91f7e5904d63369a6b4eacaf613aece812ef610b934cb516e8b43f2"
+}

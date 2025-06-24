@@ -8,15 +8,8 @@ pub struct ProofsQueryParams {
     pub graph_id: Option<String>,
 }
 
-// impl ProofsOverview{
-//     // pub fn to_url_params() -> String{
-//     //     let mut param = vec![];
-//     //     if b
-//     // }
-// }
-
 fn default_block_range() -> i64 {
-    5
+    6
 }
 
 #[derive(Debug, Deserialize, Serialize)]

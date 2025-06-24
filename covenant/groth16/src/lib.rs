@@ -1,7 +1,5 @@
 use anyhow::Result;
 use store::localdb::LocalDB;
-use tokio::time::{Duration, sleep};
-use tracing::info;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_sdk::{ZKMProofWithPublicValues, ZKMStdin};
 use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, load_ark_groth16_verifying_key_from_bytes};
@@ -36,35 +34,25 @@ pub async fn get_groth16_proof(
 ) -> Result<(Groth16Proof, PublicInputs, VerifyingKey, String)> {
     let mut storage_process = db.acquire().await?;
 
-    loop {
-        let (proof, public_values, verifier_id, zkm_version) =
-            storage_process.get_groth16_proof(block_number as i64).await?;
+    let (proof, public_values, verifier_id, zkm_version) =
+        storage_process.get_groth16_proof(block_number as i64).await?;
 
-        if proof.is_empty() {
-            sleep(Duration::from_secs(1)).await;
-            info!("waiting groth16 proof: {}", block_number);
-            continue;
-        }
-
-        let groth16_vk = storage_process.get_groth16_vk(&zkm_version).await?;
-
-        let proof = ZKMProofWithPublicValues {
-            proof: bincode::deserialize(&proof)?,
-            public_values: bincode::deserialize(&public_values)?,
-            zkm_version: zkm_version.to_string(),
-            stdin: ZKMStdin::default(),
-        };
-
-        // Convert the gnark proof to an arkworks proof.
-        let ark_proof = convert_ark(&proof, &verifier_id, &groth16_vk)?;
-
-        return Ok((
-            ark_proof.proof,
-            ark_proof.public_inputs.to_vec(),
-            ark_proof.groth16_vk.vk,
-            zkm_version,
-        ));
+    if proof.is_empty() {
+        return Err(anyhow::anyhow!("Groth16 proof is not ready at {block_number}"));
     }
+
+    let groth16_vk = storage_process.get_groth16_vk(&zkm_version).await?;
+
+    let proof = ZKMProofWithPublicValues {
+        proof: bincode::deserialize(&proof)?,
+        public_values: bincode::deserialize(&public_values)?,
+        zkm_version: zkm_version.to_string(),
+        stdin: ZKMStdin::default(),
+    };
+
+    // Convert the gnark proof to an arkworks proof.
+    let ark_proof = convert_ark(&proof, &verifier_id, &groth16_vk)?;
+    Ok((ark_proof.proof, ark_proof.public_inputs.to_vec(), ark_proof.groth16_vk.vk, zkm_version))
 }
 
 #[cfg(test)]

@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT peer_id,\n                    actor,\n                    goat_addr,\n                    btc_pub_key,\n                    socket_addr,\n                    reward,\n                    created_at,\n                    updated_at\n             FROM node\n             WHERE peer_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "peer_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "actor",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "goat_addr",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "btc_pub_key",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "socket_addr",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "reward",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 7,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9984b7bd37153fbc7f004ff9f3d0d28eee494715b84670651ba5fc21201aea97"
+}

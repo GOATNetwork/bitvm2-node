@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR\n             REPLACE INTO nonce_collect (instance_id, graph_id, nonces, committee_pubkey,\n                                         partial_sigs, created_at, updated_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "b4156ce7ce99c22c40ff404d72f1dfd0e1f6a837fd38168ab12aef312b9cf86f"
+}

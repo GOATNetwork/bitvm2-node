@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT instance_id AS \"instance_id:Uuid\",\n                        graph_id  AS \"graph_id:Uuid\",\n                        tx_type,\n                        tx_hash,\n                        height,\n                        is_local,\n                        prove_status,\n                        extra,\n                        created_at\n            FROM goat_tx_record\n            WHERE graph_id = ?\n                AND tx_type = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "instance_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "tx_type",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "tx_hash",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "height",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_local",
+        "ordinal": 5,
+        "type_info": "Bool"
+      },
+      {
+        "name": "prove_status",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "extra",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "09ed375fb80b741c07ecf312e84de317aa19d883cd287e6c3ff5ba849d2c25c0"
+}

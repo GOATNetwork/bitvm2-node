@@ -652,6 +652,7 @@ pub enum GoatTxProveStatus {
     NoNeed,
     Pending,
     Proved,
+    Failed,
 }
 
 impl FromStr for GoatTxProveStatus {
@@ -661,6 +662,7 @@ impl FromStr for GoatTxProveStatus {
             "NoNeed" => Ok(GoatTxProveStatus::NoNeed),
             "Pending" => Ok(GoatTxProveStatus::Pending),
             "Proved" => Ok(GoatTxProveStatus::Proved),
+            "Failed" => Ok(GoatTxProveStatus::Failed),
             _ => Err(()),
         }
     }
@@ -683,6 +685,11 @@ pub struct GoatTxRecord {
     pub prove_status: String,
     pub extra: Option<String>,
     pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct GoatTxProceedWithdrawExtra {
+    pub challenge_txid: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

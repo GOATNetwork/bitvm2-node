@@ -8,6 +8,10 @@ name = "bitvm2-noded"
 path = "src/main.rs"
 
 [[bin]]
+name = "fake-assert"
+path = "src/bin/fake_assert.rs"
+
+[[bin]]
 name = "fake-kickoff"
 path = "src/bin/fake_kickoff.rs"
 

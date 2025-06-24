@@ -88,7 +88,7 @@ pub fn sign_disprove(
             value: Amount::from_sat(DUST_AMOUNT),
         });
         let fee_amount = Amount::from_sat(
-            (graph.disprove.tx().weight().to_vbytes_ceil() as f64 * fee_rate).ceil() as u64,
+            (graph.disprove.tx().weight().to_vbytes_ceil() as f64 * fee_rate).ceil() as u64 + 1000,
         );
         let mut reward_txout = graph.disprove.tx_mut().output.pop().unwrap();
         let remaining_output_amount =

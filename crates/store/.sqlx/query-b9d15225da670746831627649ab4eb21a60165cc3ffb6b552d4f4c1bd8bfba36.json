@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR\n             REPLACE INTO pubkey_collect (instance_id, pubkeys, created_at, updated_at)\n             VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "b9d15225da670746831627649ab4eb21a60165cc3ffb6b552d4f4c1bd8bfba36"
+}

@@ -1,9 +1,10 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, GoatTxRecord, GrapFullData, Graph, GraphTickActionMetaData, Instance,
-    Message, MessageBroadcast, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofType,
-    ProofWithPis, PubKeyCollect, PubKeyCollectMetaData, WatchContract,
+    COMMITTEE_PRE_SIGN_NUM, GoatTxProveStatus, GoatTxRecord, GrapFullData, Graph,
+    GraphTickActionMetaData, Instance, Message, Node, NodesOverview, NonceCollect,
+    NonceCollectMetaData, ProofType, ProofWithPis, PubKeyCollect, PubKeyCollectMetaData,
+    WatchContract,
 };
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
@@ -118,8 +119,10 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn create_instance(&mut self, instance: Instance) -> anyhow::Result<bool> {
         let res = sqlx::query!(
-            "INSERT OR REPLACE INTO  instance (instance_id, network, bridge_path, from_addr, to_addr, amount, \
-            status, goat_txid, btc_txid, pegin_txid,  input_uxtos, fee, created_at, updated_at)  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR
+            REPLACE INTO instance (instance_id, network, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid,
+                       pegin_txid, input_uxtos, fee, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.network,
             instance.bridge_path,
@@ -143,12 +146,26 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<Option<Instance>> {
         let row = sqlx::query_as!(
             Instance,
-            "SELECT instance_id as \"instance_id:Uuid\", network,   bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
-            btc_txid ,pegin_txid, input_uxtos, fee ,created_at, updated_at \
-            FROM  instance where instance_id = ?",
+            "SELECT instance_id AS \"instance_id:Uuid\",
+                    network,
+                    bridge_path,
+                    from_addr,
+                    to_addr,
+                    amount,
+                    status,
+                    goat_txid,
+                    btc_txid,
+                    pegin_txid,
+                    input_uxtos,
+                    fee,
+                    created_at,
+                    updated_at
+            FROM instance
+            WHERE instance_id = ?",
             instance_id
-        ).fetch_optional(self.conn())
-            .await?;
+        )
+        .fetch_optional(self.conn())
+        .await?;
         Ok(row)
     }
 
@@ -172,11 +189,22 @@ impl<'a> StorageProcessor<'a> {
         offset: Option<u32>,
         limit: Option<u32>,
     ) -> anyhow::Result<(Vec<Instance>, i64)> {
-        let mut instance_query_str =
-            "SELECT instance_id, network,  bridge_path, from_addr, to_addr,\
-                     amount, status, goat_txid, btc_txid ,pegin_txid, \
-                    created_at, updated_at, input_uxtos, fee FROM instance"
-                .to_string();
+        let mut instance_query_str = "SELECT instance_id,
+                    network,
+                    bridge_path,
+                    from_addr,
+                    to_addr,
+                    amount,
+                    status,
+                    goat_txid,
+                    btc_txid,
+                    pegin_txid,
+                    created_at,
+                    updated_at,
+                    input_uxtos,
+                    fee
+             FROM instance"
+            .to_string();
         let mut instance_count_str = "SELECT count(*) as total_instances FROM instance".to_string();
         let mut conditions: Vec<String> = vec![];
         if let Some(from_addr) = from_addr {
@@ -219,9 +247,20 @@ impl<'a> StorageProcessor<'a> {
     /// Update Instance
     pub async fn update_instance(&mut self, instance: Instance) -> anyhow::Result<u64> {
         let row = sqlx::query!(
-            "UPDATE instance SET bridge_path = ?, from_addr= ?, to_addr= ?,  network =?, \
-        amount= ?, status= ?, goat_txid= ?, btc_txid= ?, pegin_txid= ?,  input_uxtos = ?,  \
-        fee = ?, updated_at = ? WHERE instance_id = ?",
+            "UPDATE instance
+             SET bridge_path = ?,
+                 from_addr = ?,
+                 to_addr = ?,
+                 network = ?,
+                 amount = ?,
+                 status = ?,
+                 goat_txid = ?,
+                 btc_txid = ?,
+                 pegin_txid = ?,
+                 input_uxtos = ?,
+                 fee = ?,
+                 updated_at = ?
+            WHERE instance_id = ?",
             instance.bridge_path,
             instance.from_addr,
             instance.to_addr,
@@ -244,11 +283,14 @@ impl<'a> StorageProcessor<'a> {
     /// Insert or update graph
     pub async fn update_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            "INSERT OR REPLACE INTO  graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid, \
-             amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
-            assert_final_txid, take2_txid, disprove_txid, operator, raw_data,  bridge_out_start_at, bridge_out_from_addr,  \
-            bridge_out_to_addr, init_withdraw_txid, zkm_version,  created_at, updated_at)  \
-            VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+            "INSERT OR
+             REPLACE INTO graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid,
+                    amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid,
+                    assert_commit_txids,
+                    assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,
+                    bridge_out_from_addr,
+                    bridge_out_to_addr, init_withdraw_txid, zkm_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
             graph.graph_id,
             graph.instance_id,
             graph.graph_ipfs_base_url,
@@ -304,12 +346,26 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         let instance_option = sqlx::query_as!(
             Instance,
-            "SELECT instance_id as \"instance_id:Uuid\", network,   bridge_path, from_addr, to_addr, amount, status, goat_txid,  \
-            btc_txid ,pegin_txid, input_uxtos, fee ,created_at, updated_at \
-            FROM  instance where instance_id = ?",
+            "SELECT instance_id AS \"instance_id:Uuid\",
+                    network,
+                    bridge_path,
+                    from_addr,
+                    to_addr,
+                    amount,
+                    status,
+                    goat_txid,
+                    btc_txid,
+                    pegin_txid,
+                    input_uxtos,
+                    fee,
+                    created_at,
+                    updated_at
+            FROM instance
+            WHERE instance_id = ?",
             instance_id
-        ).fetch_optional(self.conn())
-            .await?;
+        )
+        .fetch_optional(self.conn())
+        .await?;
         if instance_option.is_none() {
             warn!("instance :{instance_id:?} not exit");
             return Ok(());
@@ -326,7 +382,13 @@ impl<'a> StorageProcessor<'a> {
             if let Some(goat_txid) = goat_txid { goat_txid } else { instance.goat_txid };
         let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let _ = sqlx::query!(
-            "UPDATE instance SET status =?, pegin_txid =?, goat_txid = ?, fee = ?, updated_at = ? WHERE instance_id = ?",
+            "UPDATE instance
+             SET status     = ?,
+                 pegin_txid = ?,
+                 goat_txid  = ?,
+                 fee        = ?,
+                 updated_at = ?
+             WHERE instance_id = ?",
             status,
             pegin_txid,
             goat_txid,
@@ -334,8 +396,8 @@ impl<'a> StorageProcessor<'a> {
             current_time,
             instance_id
         )
-            .execute(self.conn())
-            .await?;
+        .execute(self.conn())
+        .await?;
         Ok(())
     }
 
@@ -382,12 +444,36 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {
         let res = sqlx::query_as!(
             Graph,
-            "SELECT  graph_id as \"graph_id:Uuid \", instance_id  as \"instance_id:Uuid \", graph_ipfs_base_url, \
-             pre_kickoff_txid, pegin_txid, amount, status, kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
-              assert_final_txid, take2_txid, disprove_txid, operator, raw_data,bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr,\
-              init_withdraw_txid, zkm_version, created_at, updated_at  FROM graph WHERE  graph_id = ?",
+            "SELECT graph_id  AS \"graph_id:Uuid \",
+                    instance_id  AS \"instance_id:Uuid \",
+                    graph_ipfs_base_url,
+                    pre_kickoff_txid,
+                    pegin_txid,
+                    amount,
+                    status,
+                    kickoff_txid,
+                    challenge_txid,
+                    take1_txid,
+                    assert_init_txid,
+                    assert_commit_txids,
+                    assert_final_txid,
+                    take2_txid,
+                    disprove_txid,
+                    operator,
+                    raw_data,
+                    bridge_out_start_at,
+                    bridge_out_from_addr,
+                    bridge_out_to_addr,
+                    init_withdraw_txid,
+                    zkm_version,
+                    created_at,
+                    updated_at
+             FROM graph
+             WHERE graph_id = ?",
             graph_id
-        ).fetch_optional(self.conn()).await?;
+        )
+        .fetch_optional(self.conn())
+        .await?;
         Ok(res)
     }
 
@@ -398,7 +484,7 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(operator_raw) = sqlx::query_as!(
             OperatorRow,
-            "SELECT   operator  FROM graph WHERE  graph_id = ?",
+            "SELECT  operator  FROM graph WHERE  graph_id = ?",
             graph_id
         )
         .fetch_optional(self.conn())
@@ -414,26 +500,58 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         mut params: FilterGraphParams,
     ) -> anyhow::Result<(Vec<GrapFullData>, i64)> {
-        let mut graph_query_str = "SELECT graph.graph_id, graph.instance_id, instance.bridge_path AS bridge_path, graph.status AS status, \
-            instance.network AS network, instance.from_addr AS from_addr,  instance.to_addr AS to_addr,  \
-            graph.amount, graph.pegin_txid, graph.kickoff_txid, graph.challenge_txid,  \
-            graph.take1_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid,  \
-            graph.take2_txid, graph.disprove_txid, graph.operator, graph.bridge_out_start_at, graph.bridge_out_from_addr, graph.bridge_out_to_addr,\
-            graph.init_withdraw_txid, graph.created_at, graph.updated_at FROM graph  INNER JOIN  instance ON  graph.instance_id = instance.instance_id".to_string();
-
-        let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs FROM graph \
-         INNER JOIN instance ON  graph.instance_id = instance.instance_id"
+        let mut graph_query_str = "SELECT graph.graph_id,
+                                                 graph.instance_id,
+                                                 instance.bridge_path AS bridge_path,
+                                                 graph.status         AS status,
+                                                 instance.network     AS network,
+                                                 instance.from_addr   AS from_addr,
+                                                 instance.to_addr     AS to_addr,
+                                                 graph.amount,
+                                                 graph.pegin_txid,
+                                                 graph.kickoff_txid,
+                                                 graph.challenge_txid,
+                                                 graph.take1_txid,
+                                                 graph.assert_init_txid,
+                                                 graph.assert_commit_txids,
+                                                 graph.assert_final_txid,
+                                                 graph.take2_txid,
+                                                 graph.disprove_txid,
+                                                 graph.operator,
+                                                 graph.bridge_out_start_at,
+                                                 graph.bridge_out_from_addr,
+                                                 graph.bridge_out_to_addr,
+                                                 graph.init_withdraw_txid,
+                                                 CASE
+                                                     WHEN graph.bridge_out_start_at > 0
+                                                     THEN graph.bridge_out_start_at
+                                                     ELSE graph.created_at
+                                                 END AS created_at,
+                                                 graph.updated_at
+                                          FROM graph
+                                                INNER JOIN instance ON graph.instance_id = instance.instance_id".to_string();
+        let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs
+                                          FROM graph
+                                                   INNER JOIN instance ON graph.instance_id = instance.instance_id"
             .to_string();
 
         if let Some(from_addr) = params.from_addr {
             let node_op = sqlx::query_as!(
                 Node,
-                "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at  \
-                    FROM node WHERE goat_addr =?",
+                "SELECT peer_id,
+                        actor,
+                        goat_addr,
+                        btc_pub_key,
+                        socket_addr,
+                        reward,
+                        created_at,
+                        updated_at
+                 FROM node
+                 WHERE goat_addr = ?",
                 from_addr
             )
-                .fetch_optional(self.conn())
-                .await?;
+            .fetch_optional(self.conn())
+            .await?;
             if node_op.is_none() {
                 warn!("no node find refer to goat address:{from_addr}");
                 return Ok((vec![], 0));
@@ -481,6 +599,15 @@ impl<'a> StorageProcessor<'a> {
             graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
         }
 
+        graph_query_str = format!(
+            "{graph_query_str}
+                                                ORDER BY
+                                                CASE
+                                                   WHEN graph.bridge_out_start_at > 0
+                                                   THEN graph.bridge_out_start_at
+                                                   ELSE graph.created_at
+                                                END DESC "
+        );
         if let Some(limit) = params.limit {
             graph_query_str = format!("{graph_query_str} LIMIT {limit}");
         }
@@ -506,12 +633,36 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as!(
             Graph,
-            "SELECT  graph_id as \"graph_id:Uuid \" , instance_id as \"instance_id:Uuid \", graph_ipfs_base_url, \
-            pre_kickoff_txid,pegin_txid, amount, status,kickoff_txid, challenge_txid, take1_txid, assert_init_txid, assert_commit_txids, \
-             assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,  bridge_out_from_addr, bridge_out_to_addr, \
-            init_withdraw_txid, zkm_version, created_at, updated_at FROM graph WHERE instance_id = ?",
+            "SELECT graph_id AS \"graph_id:Uuid \",
+                    instance_id AS \"instance_id:Uuid \",
+                    graph_ipfs_base_url,
+                    pre_kickoff_txid,
+                    pegin_txid,
+                    amount,
+                    status,
+                    kickoff_txid,
+                    challenge_txid,
+                    take1_txid,
+                    assert_init_txid,
+                    assert_commit_txids,
+                    assert_final_txid,
+                    take2_txid,
+                    disprove_txid,
+                    operator,
+                    raw_data,
+                    bridge_out_start_at,
+                    bridge_out_from_addr,
+                    bridge_out_to_addr,
+                    init_withdraw_txid,
+                    zkm_version,
+                    created_at,
+                    updated_at
+             FROM graph
+             WHERE instance_id = ?",
             instance_id
-        ).fetch_all(self.conn()).await?;
+        )
+        .fetch_all(self.conn())
+        .await?;
         Ok(res)
     }
 
@@ -522,8 +673,16 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         let node_op = sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at  \
-            FROM node WHERE peer_id = ?",
+            "SELECT peer_id,
+                    actor,
+                    goat_addr,
+                    btc_pub_key,
+                    socket_addr,
+                    reward,
+                    created_at,
+                    updated_at
+             FROM node
+             WHERE peer_id = ?",
             peer_id
         )
         .fetch_optional(self.conn())
@@ -589,9 +748,20 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<Node>> {
         Ok(sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at FROM node WHERE btc_pub_key = ?",
+            "SELECT peer_id,
+                    actor,
+                    goat_addr,
+                    btc_pub_key,
+                    socket_addr,
+                    reward,
+                    created_at,
+                    updated_at
+             FROM node
+             WHERE btc_pub_key = ?",
             btc_pub_key
-        ).fetch_optional(self.conn()).await?)
+        )
+        .fetch_optional(self.conn())
+        .await?)
     }
 
     /// Query node list
@@ -604,9 +774,16 @@ impl<'a> StorageProcessor<'a> {
         time_threshold: i64,
         status_expect: Option<String>,
     ) -> anyhow::Result<(Vec<Node>, i64)> {
-        let mut nodes_query_str =
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at FROM node"
-                .to_string();
+        let mut nodes_query_str = "SELECT peer_id,
+                    actor,
+                    goat_addr,
+                    btc_pub_key,
+                    socket_addr,
+                    reward,
+                    created_at,
+                    updated_at
+             FROM node"
+            .to_string();
         let mut nodes_count_str = "SELECT count(*) as total_nodes FROM node".to_string();
         let mut conditions: Vec<String> = vec![];
         if let Some(actor) = actor {
@@ -645,11 +822,17 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn node_overview(&mut self, time_threshold: i64) -> anyhow::Result<NodesOverview> {
         let records = sqlx::query!(
-            "SELECT count(*) as total, actor , SUM(CASE WHEN updated_at>= ? THEN 1 ELSE 0 END) AS online,  \
-        SUM(CASE WHEN updated_at< ? THEN 1 ELSE 0 END)  AS offline FROM node GROUP BY actor",
+            "SELECT count(*)                                         AS total,
+                    actor,
+                    SUM(CASE WHEN updated_at >= ? THEN 1 ELSE 0 END) AS online,
+                    SUM(CASE WHEN updated_at < ? THEN 1 ELSE 0 END)  AS offline
+             FROM node
+             GROUP BY actor",
             time_threshold,
             time_threshold
-        ).fetch_all(self.conn()).await?;
+        )
+        .fetch_all(self.conn())
+        .await?;
 
         let mut res = NodesOverview::default();
         for record in records {
@@ -677,9 +860,20 @@ impl<'a> StorageProcessor<'a> {
     pub async fn node_by_id(&mut self, peer_id: &str) -> anyhow::Result<Option<Node>> {
         let res = sqlx::query_as!(
             Node,
-            "SELECT peer_id, actor, goat_addr, btc_pub_key, socket_addr, reward, created_at, updated_at FROM node WHERE peer_id = ?",
+            "SELECT peer_id,
+                    actor,
+                    goat_addr,
+                    btc_pub_key,
+                    socket_addr,
+                    reward,
+                    created_at,
+                    updated_at
+             FROM node
+             WHERE peer_id = ?",
             peer_id
-        ).fetch_optional(self.conn()).await?;
+        )
+        .fetch_optional(self.conn())
+        .await?;
         Ok(res)
     }
 
@@ -689,19 +883,24 @@ impl<'a> StorageProcessor<'a> {
         filter_status: &str,
     ) -> anyhow::Result<(i64, i64)> {
         let record = sqlx::query!(
-            "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM instance WHERE bridge_path = ? and status != ? ",
+            "SELECT SUM(amount) AS total, COUNT(*) AS tx_count
+             FROM instance
+             WHERE bridge_path = ?
+               AND status != ?",
             bridge_path,
             filter_status
         )
-            .fetch_one(self.conn())
-            .await?;
+        .fetch_one(self.conn())
+        .await?;
         Ok((record.total.unwrap_or(0), record.tx_count))
     }
 
     pub async fn get_sum_bridge_out(&mut self) -> anyhow::Result<(i64, i64)> {
         let record = sqlx::query!(
-            "SELECT SUM(amount) as total, COUNT(*) as tx_count FROM graph WHERE status NOT IN \
-            ('OperatorPresigned','CommitteePresigned','OperatorDataPushed', 'Obsoleted')"
+            "SELECT SUM(amount) AS total, COUNT(*) AS tx_count
+            FROM graph
+            WHERE status NOT IN
+                  ('OperatorPresigned', 'CommitteePresigned', 'OperatorDataPushed', 'Obsoleted')"
         )
         .fetch_one(self.conn())
         .await?;
@@ -709,7 +908,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn get_nodes_info(&mut self, time_threshold: i64) -> anyhow::Result<(i64, i64)> {
-        let total = sqlx::query!("SELECT COUNT(peer_id) as total FROM node")
+        let total = sqlx::query!("SELECT COUNT(peer_id) AS total FROM node")
             .fetch_one(self.conn())
             .await?
             .total;
@@ -717,7 +916,7 @@ impl<'a> StorageProcessor<'a> {
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 - time_threshold;
         tracing::info!("{time_pri}");
         let alive = sqlx::query!(
-            "SELECT COUNT(peer_id)  as alive FROM node WHERE updated_at  >= ? ",
+            "SELECT COUNT(peer_id)  AS alive FROM node WHERE updated_at  >= ? ",
             time_pri
         )
         .fetch_one(self.conn())
@@ -747,9 +946,14 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn set_messages_expired(&mut self, expired: i64) -> anyhow::Result<()> {
         sqlx::query!(
-            "Update message Set state = 'Expired' WHERE state IN ( 'Pending', 'Processing') AND  updated_at < ?", expired)
-            .execute(self.conn())
-            .await?;
+            "Update message
+             Set state = 'Expired'
+             WHERE state IN ('Pending', 'Processing')
+               AND updated_at < ?",
+            expired
+        )
+        .execute(self.conn())
+        .await?;
         Ok(())
     }
 
@@ -760,10 +964,18 @@ impl<'a> StorageProcessor<'a> {
         expired: i64,
     ) -> anyhow::Result<Vec<Message>> {
         let res = sqlx::query_as!(
-           Message,
-           "SELECT id, from_peer, actor, msg_type, content, state FROM message WHERE msg_type = ?  \
-           AND state = ? AND updated_at >= ?",msg_type,state, expired
-        ).fetch_all(self.conn()).await?;
+            Message,
+            "SELECT id, from_peer, actor, msg_type, content, state
+            FROM message
+            WHERE msg_type = ?
+              AND state = ?
+              AND updated_at >= ?",
+            msg_type,
+            state,
+            expired
+        )
+        .fetch_all(self.conn())
+        .await?;
         Ok(res)
     }
 
@@ -773,7 +985,8 @@ impl<'a> StorageProcessor<'a> {
         current_time: i64,
     ) -> anyhow::Result<bool> {
         let res = sqlx::query!(
-            "INSERT INTO  message (from_peer, actor, msg_type, content, state, updated_at, created_at) VALUES (?,?, ?,?, ?,?,?)",
+            "INSERT INTO message (from_peer, actor, msg_type, content, state, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             msg.from_peer,
             msg.actor,
             msg.msg_type,
@@ -794,9 +1007,14 @@ impl<'a> StorageProcessor<'a> {
         pubkeys: &[String],
     ) -> anyhow::Result<()> {
         let pubkey_collect = sqlx::query_as!(
-            PubKeyCollect ,
-            "SELECT instance_id as \"instance_id:Uuid\", pubkeys, created_at, updated_at  FROM pubkey_collect WHERE instance_id = ?",
-            instance_id).fetch_optional(self.conn()).await?;
+            PubKeyCollect,
+            "SELECT instance_id AS \"instance_id:Uuid\", pubkeys, created_at, updated_at
+             FROM pubkey_collect
+             WHERE instance_id = ?",
+            instance_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
 
         let pubkeys = pubkeys.to_owned();
         let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -820,12 +1038,16 @@ impl<'a> StorageProcessor<'a> {
         };
         let pubkeys_str = serde_json::to_string(&pubkeys)?;
         let _ = sqlx::query!(
-            "INSERT OR REPLACE INTO  pubkey_collect (instance_id, pubkeys, created_at, updated_at) VALUES ( ?,?, ?,?)",
+            "INSERT OR
+             REPLACE INTO pubkey_collect (instance_id, pubkeys, created_at, updated_at)
+             VALUES (?, ?, ?, ?)",
             instance_id,
             pubkeys_str,
             created_at,
             updated_at,
-        ).execute(self.conn()).await;
+        )
+        .execute(self.conn())
+        .await;
         Ok(())
     }
 
@@ -834,9 +1056,14 @@ impl<'a> StorageProcessor<'a> {
         instance_id: Uuid,
     ) -> anyhow::Result<Option<PubKeyCollectMetaData>> {
         let pubkey_collect = sqlx::query_as!(
-            PubKeyCollect ,
-            "SELECT instance_id as \"instance_id:Uuid\", pubkeys, created_at, updated_at  FROM pubkey_collect WHERE instance_id = ?",
-            instance_id).fetch_optional(self.conn()).await?;
+            PubKeyCollect,
+            "SELECT instance_id AS \"instance_id:Uuid\", pubkeys, created_at, updated_at
+             FROM pubkey_collect
+             WHERE instance_id = ?",
+            instance_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
         match pubkey_collect {
             Some(pubkey_collect) => {
                 let pubkeys: Vec<String> = serde_json::from_str(&pubkey_collect.pubkeys)?;
@@ -876,10 +1103,22 @@ impl<'a> StorageProcessor<'a> {
             (source.len() > pre_len, source)
         };
         let nonce_collect = sqlx::query_as!(
-            NonceCollect ,
-            "SELECT instance_id as \"instance_id:Uuid\", graph_id as \"graph_id:Uuid\",nonces, committee_pubkey, \
-            partial_sigs, created_at, updated_at  FROM nonce_collect WHERE instance_id = ? AND graph_id = ?",
-            instance_id, graph_id).fetch_optional(self.conn()).await?;
+            NonceCollect,
+            "SELECT instance_id AS \"instance_id:Uuid\",
+                    graph_id  AS \"graph_id:Uuid\",
+                    nonces,
+                    committee_pubkey,
+                    partial_sigs,
+                    created_at,
+                    updated_at
+             FROM nonce_collect
+             WHERE instance_id = ?
+               AND graph_id = ?",
+            instance_id,
+            graph_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
 
         let nonces = nonces.to_owned();
         let partial_sigs = partial_sigs.to_owned();
@@ -905,8 +1144,10 @@ impl<'a> StorageProcessor<'a> {
         let nonce_str = serde_json::to_string(&nonces)?;
         let signs_str = serde_json::to_string(&partial_sigs)?;
         let _ = sqlx::query!(
-            "INSERT OR REPLACE INTO  nonce_collect (instance_id, graph_id, nonces, committee_pubkey,\
-             partial_sigs, created_at, updated_at) VALUES ( ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR
+             REPLACE INTO nonce_collect (instance_id, graph_id, nonces, committee_pubkey,
+                                         partial_sigs, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             instance_id,
             graph_id,
             nonce_str,
@@ -914,7 +1155,9 @@ impl<'a> StorageProcessor<'a> {
             signs_str,
             created_at,
             updated_at,
-        ).execute(self.conn()).await;
+        )
+        .execute(self.conn())
+        .await;
         Ok(())
     }
 
@@ -924,10 +1167,22 @@ impl<'a> StorageProcessor<'a> {
         graph_id: Uuid,
     ) -> anyhow::Result<Option<NonceCollectMetaData>> {
         let nonce_collect = sqlx::query_as!(
-            NonceCollect ,
-            "SELECT instance_id as \"instance_id:Uuid\", graph_id as \"graph_id:Uuid\",nonces, committee_pubkey, \
-            partial_sigs, created_at, updated_at  FROM nonce_collect WHERE instance_id = ? AND graph_id = ?",
-            instance_id, graph_id).fetch_optional(self.conn()).await?;
+            NonceCollect,
+            "SELECT instance_id AS \"instance_id:Uuid\",
+                    graph_id AS \"graph_id:Uuid\",
+                    nonces,
+                    committee_pubkey,
+                    partial_sigs,
+                    created_at,
+                    updated_at
+             FROM nonce_collect
+             WHERE instance_id = ?
+               AND graph_id = ?",
+            instance_id,
+            graph_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
         match nonce_collect {
             Some(nonce_collect) => {
                 let stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
@@ -956,12 +1211,23 @@ impl<'a> StorageProcessor<'a> {
         Ok(
             sqlx::query_as!(
                 GraphTickActionMetaData,
-                "SELECT graph.graph_id as \"graph_id:Uuid\", graph.instance_id as \"instance_id:Uuid\", graph.status, graph.kickoff_txid,  graph.take1_txid, \
-                 graph.take2_txid, graph.assert_init_txid, graph.assert_commit_txids, graph.assert_final_txid,  graph.challenge_txid, \
-                 IFNULL(message_broadcast.msg_times, 0) as msg_times, IFNULL(message_broadcast.msg_type, '') as msg_type  \
-                  FROM graph LEFT JOIN message_broadcast ON graph.graph_id =  message_broadcast.graph_id AND  \
-                  graph.instance_id =  message_broadcast.instance_id AND message_broadcast.msg_type =  ?  \
-                  WHERE  graph.status = ?",msg_type,graph_status).fetch_all(self.conn()).await?
+                "SELECT graph.graph_id AS \"graph_id:Uuid\",
+                        graph.instance_id AS \"instance_id:Uuid\",
+                        graph.status,
+                        graph.kickoff_txid,
+                        graph.take1_txid,
+                        graph.take2_txid,
+                        graph.assert_init_txid,
+                        graph.assert_commit_txids,
+                        graph.assert_final_txid,
+                        graph.challenge_txid,
+                        IFNULL(message_broadcast.msg_times, 0) AS msg_times,
+                        IFNULL(message_broadcast.msg_type, '') AS msg_type
+                 FROM graph
+                          LEFT JOIN message_broadcast ON graph.graph_id = message_broadcast.graph_id AND
+                                                         graph.instance_id = message_broadcast.instance_id AND
+                                                         message_broadcast.msg_type = ?
+                 WHERE graph.status = ?", msg_type, graph_status).fetch_all(self.conn()).await?
         )
     }
 
@@ -973,49 +1239,44 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<i64> {
         let res = sqlx::query(
             format!(
-                "SELECT msg_times FROM message_broadcast WHERE hex(instance_id) = \'{}\' COLLATE NOCASE AND  hex(graph_id) = \'{}\' COLLATE NOCASE \
-                AND msg_type = \'{}\' ", hex::encode(instance_id), hex::encode(graph_id), msg_type).as_str(),
-        ).fetch_optional(self.conn()).await?;
+                "SELECT msg_times \
+                 FROM message_broadcast \
+                 WHERE hex(instance_id) = \'{}\' COLLATE NOCASE \
+                        AND  hex(graph_id) = \'{}\' COLLATE NOCASE \
+                        AND msg_type = \'{}\'",
+                hex::encode(instance_id),
+                hex::encode(graph_id),
+                msg_type
+            )
+            .as_str(),
+        )
+        .fetch_optional(self.conn())
+        .await?;
         match res {
             Some(row) => Ok(row.get::<i64, &str>("msg_times")),
             None => Ok(0),
         }
     }
-
-    pub async fn update_message_broadcast_times(
+    pub async fn add_message_broadcast_times(
         &mut self,
         instance_id: &Uuid,
         graph_id: &Uuid,
         msg_type: &str,
-        msg_times: i64,
+        add_times: i64,
     ) -> anyhow::Result<()> {
         let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-        let message_broadcast_info = sqlx::query_as!(
-            MessageBroadcast,
-            "SELECT instance_id as \"instance_id:Uuid\", graph_id as \"graph_id:Uuid\", msg_type, msg_times, \
-            created_at, updated_at FROM message_broadcast WHERE instance_id =? AND graph_id = ? ",
-            instance_id,
-           graph_id
-        ).fetch_optional(self.conn())
-            .await?;
-
-        let created_at = if let Some(message_broadcast_info) = message_broadcast_info {
-            message_broadcast_info.created_at
-        } else {
-            current_time
-        };
         sqlx::query!(
-            "INSERT OR REPLACE INTO  message_broadcast (instance_id, graph_id, msg_type, msg_times, created_at, updated_at)  VALUES (?,?,?,?,?,?) ",
+            "INSERT INTO message_broadcast (instance_id, graph_id, msg_type, msg_times, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(instance_id, graph_id, msg_type) DO UPDATE SET updated_at = excluded.updated_at,
+                                                           msg_times  = message_broadcast.msg_times + excluded.msg_times",
             instance_id,
             graph_id,
             msg_type,
-            msg_times,
-            created_at,
-            current_time
-
-        )
-            .execute(self.conn())
-            .await?;
+            add_times,
+            current_time,
+            current_time,
+        ).execute(self.conn()).await?;
         Ok(())
     }
 
@@ -1024,8 +1285,9 @@ impl<'a> StorageProcessor<'a> {
         proof_with_pis: ProofWithPis,
     ) -> anyhow::Result<()> {
         sqlx::query!(
-            "INSERT OR REPLACE INTO proof_with_pis (instance_id, graph_id,  proof, pis, proof_cast, goat_block_number, created_at) \
-       VALUES  (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR
+            REPLACE INTO proof_with_pis (instance_id, graph_id, proof, pis, proof_cast, goat_block_number, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)",
             proof_with_pis.instance_id,
             proof_with_pis.graph_id,
             proof_with_pis.proof,
@@ -1046,12 +1308,22 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<ProofWithPis>> {
         Ok(sqlx::query_as!(
             ProofWithPis,
-            "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", proof, pis,  goat_block_number, proof_cast, created_at From proof_with_pis where instance_id = ? AND graph_id = ?",
+            "SELECT
+                instance_id AS \"instance_id:Uuid\",
+                graph_id AS \"graph_id:Uuid\",
+                proof,
+                pis,
+                goat_block_number,
+                proof_cast,
+                created_at
+            FROM proof_with_pis
+            WHERE instance_id = ?
+              AND graph_id = ?",
             instance_id,
             graph_id
         )
-            .fetch_optional(self.conn())
-            .await?)
+        .fetch_optional(self.conn())
+        .await?)
     }
 
     pub async fn get_block_execution_start_time(
@@ -1710,11 +1982,13 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<WatchContract>> {
         Ok(sqlx::query_as!(
             WatchContract,
-            "SELECT addr, the_graph_url, from_height, gap, status, extra,updated_at FROM watch_contract WHERE addr = ? ",
+            "SELECT addr, the_graph_url, from_height, gap, status, extra, updated_at
+             FROM watch_contract
+             WHERE addr = ? ",
             addr
         )
-            .fetch_optional(self.conn())
-            .await?)
+        .fetch_optional(self.conn())
+        .await?)
     }
 
     pub async fn create_or_update_watch_contract(
@@ -1722,8 +1996,9 @@ impl<'a> StorageProcessor<'a> {
         watch_contract: &WatchContract,
     ) -> anyhow::Result<()> {
         let _ = sqlx::query!(
-            "INSERT OR REPLACE INTO watch_contract (addr,the_graph_url, gap, from_height, status, extra, updated_at)  \
-       VALUES  (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR
+             REPLACE INTO watch_contract (addr, the_graph_url, gap, from_height, status, extra, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             watch_contract.addr,
             watch_contract.the_graph_url,
             watch_contract.gap,
@@ -1756,19 +2031,52 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         goat_tx_record: &GoatTxRecord,
     ) -> anyhow::Result<()> {
-        let _ = sqlx::query!(
-            "INSERT OR REPLACE INTO goat_tx_record (instance_id, graph_id, tx_type, tx_hash, height, is_local, \
-       prove_status, extra, created_at)  VALUES  (?, ?, ?, ?, ?, ?, ?, ?,?) ",
-            goat_tx_record.instance_id,
-            goat_tx_record.graph_id,
-            goat_tx_record.tx_type,
-            goat_tx_record.tx_hash,
-            goat_tx_record.height,
-            goat_tx_record.is_local,
-            goat_tx_record.prove_status,
-            goat_tx_record.extra,
-            goat_tx_record.created_at
-        ).execute(self.conn()).await;
+        let mut update_goat_tx_record = goat_tx_record.clone();
+        if let Some(goat_tx_record_store) =
+            self.get_graph_goat_tx_record(&goat_tx_record.graph_id, &goat_tx_record.tx_type).await?
+        {
+            update_goat_tx_record.created_at = goat_tx_record_store.created_at;
+            update_goat_tx_record.is_local = goat_tx_record_store.is_local;
+            if update_goat_tx_record.height < goat_tx_record_store.height {
+                update_goat_tx_record.height = goat_tx_record_store.height;
+            }
+            if goat_tx_record_store.extra.is_some() && update_goat_tx_record.extra.is_none() {
+                update_goat_tx_record.extra = goat_tx_record_store.extra.clone();
+            }
+
+            if !goat_tx_record_store.tx_hash.is_empty() {
+                update_goat_tx_record.tx_hash = goat_tx_record_store.tx_hash.clone();
+            }
+
+            if GoatTxProveStatus::Pending.to_string() == goat_tx_record_store.prove_status {
+                update_goat_tx_record.prove_status = goat_tx_record_store.prove_status.clone();
+            }
+        }
+        sqlx::query!(
+            "INSERT OR
+            REPLACE INTO goat_tx_record (instance_id,
+                            graph_id,
+                            tx_type,
+                            tx_hash,
+                            height,
+                            is_local,
+                            prove_status,
+                            extra,
+                            created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            update_goat_tx_record.instance_id,
+            update_goat_tx_record.graph_id,
+            update_goat_tx_record.tx_type,
+            update_goat_tx_record.tx_hash,
+            update_goat_tx_record.height,
+            update_goat_tx_record.is_local,
+            update_goat_tx_record.prove_status,
+            update_goat_tx_record.extra,
+            update_goat_tx_record.created_at
+        )
+        .execute(self.conn())
+        .await?;
+
         Ok(())
     }
 
@@ -1777,34 +2085,51 @@ impl<'a> StorageProcessor<'a> {
         graph_id: &Uuid,
         tx_type: &str,
     ) -> anyhow::Result<Option<GoatTxRecord>> {
-        Ok(
-            sqlx::query_as!(
-                GoatTxRecord,
-                "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", tx_type, tx_hash, \
-                 height, is_local, prove_status, extra, created_at From goat_tx_record where graph_id = ? AND tx_type = ?",
-                graph_id,
-                tx_type
-            ).fetch_optional(self.conn())
-                .await?
+        Ok(sqlx::query_as!(
+            GoatTxRecord,
+            "SELECT instance_id AS \"instance_id:Uuid\",
+                        graph_id  AS \"graph_id:Uuid\",
+                        tx_type,
+                        tx_hash,
+                        height,
+                        is_local,
+                        prove_status,
+                        extra,
+                        created_at
+            FROM goat_tx_record
+            WHERE graph_id = ?
+                AND tx_type = ?",
+            graph_id,
+            tx_type
         )
+        .fetch_optional(self.conn())
+        .await?)
     }
 
-    pub async fn get_goat_tx_record_need_proving(
+    pub async fn get_goat_tx_record_by_prove_status(
         &mut self,
         tx_type: &str,
-        prove_state: &str,
+        prove_status: &str,
     ) -> anyhow::Result<Vec<GoatTxRecord>> {
-        Ok(
-            sqlx::query_as!(
-                GoatTxRecord,
-                "SELECT instance_id as \"instance_id:Uuid\" , graph_id as \"graph_id:Uuid\", tx_type, \
-                 tx_hash, height, is_local, prove_status, extra, created_at From goat_tx_record where tx_type = ?  \
-                 AND prove_status = ? ORDER BY height ASC",
-                tx_type,
-                prove_state
-            ).fetch_all(self.conn())
-                .await?
+        Ok(sqlx::query_as!(
+            GoatTxRecord,
+            "SELECT instance_id AS \"instance_id:Uuid\",
+                        graph_id  AS \"graph_id:Uuid\",
+                        tx_type, tx_hash,
+                        height,
+                        is_local,
+                        prove_status,
+                        extra,
+                        created_at
+            FROM goat_tx_record
+            WHERE tx_type = ?
+                AND prove_status = ?
+                ORDER BY height ASC",
+            tx_type,
+            prove_status
         )
+        .fetch_all(self.conn())
+        .await?)
     }
 
     pub async fn get_tx_info_for_gen_proof(
@@ -1820,11 +2145,17 @@ impl<'a> StorageProcessor<'a> {
         }
         let tx_info_rows = sqlx::query_as!(
             TxInfoRow,
-            "SELECT g.graph_id AS \"graph_id:Uuid\", g.zkm_version AS zkm_version, gtr.tx_hash AS tx_hash 
-FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gtr.height = ? AND gtr.tx_type = ?",
+            "SELECT g.graph_id AS \"graph_id:Uuid\",
+                    g.zkm_version AS zkm_version, gtr.tx_hash AS tx_hash
+             FROM graph g
+                     INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id
+             WHERE gtr.height = ?
+               AND gtr.tx_type = ?",
             block_number,
             goat_tx_type
-        ).fetch_all(self.conn()).await?;
+        )
+        .fetch_all(self.conn())
+        .await?;
         Ok(tx_info_rows.into_iter().map(|v| (v.graph_id, v.tx_hash, v.zkm_version)).collect())
     }
 
@@ -1844,12 +2175,18 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
         status: &str,
     ) -> anyhow::Result<()> {
         sqlx::query!(
-            "UPDATE goat_tx_record SET prove_status = ?  where instance_id = ? AND graph_id = ? AND tx_type = ? ",
+            "UPDATE goat_tx_record
+             SET prove_status = ?
+             where instance_id = ?
+               AND graph_id = ?
+               AND tx_type = ?",
             status,
             instance_id,
             graph_id,
             tx_type
-            ).execute(self.conn()).await?;
+        )
+        .execute(self.conn())
+        .await?;
         Ok(())
     }
 
@@ -1871,13 +2208,22 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
         }
         let query = match proof_type {
             ProofType::BlockProof => {
-                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at FROM block_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at
+                FROM block_proof
+                WHERE block_number BETWEEN ? AND ?
+                ORDER BY block_number ASC"
             }
             ProofType::AggregationProof => {
-                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at FROM aggregation_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at
+                 FROM aggregation_proof
+                 WHERE block_number BETWEEN ? AND ?
+                 ORDER BY block_number ASC"
             }
             ProofType::Groth16Proof => {
-                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at FROM groth16_proof WHERE block_number BETWEEN ? AND ? ORDER BY block_number ASC"
+                "SELECT block_number, state, proving_time, proof_size, zkm_version, created_at, updated_at
+                 FROM groth16_proof
+                 WHERE block_number BETWEEN ? AND ?
+                 ORDER BY block_number ASC"
             }
         };
 
@@ -1960,10 +2306,14 @@ FROM graph g INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id WHERE gt
             pub height: i64,
         }
         let query_str = format!(
-            "WITH filtered_tx AS (SELECT graph_id, height  FROM goat_tx_record WHERE tx_type = \'{goat_tx_type}\')  \
-            SELECT g.graph_id AS graph_id, n.socket_addr, COALESCE(ft.height, 0) AS height FROM graph g JOIN node n \
-            ON g.operator = n.btc_pub_key LEFT JOIN filtered_tx ft ON g.graph_id = ft.graph_id WHERE hex(g.graph_id) \
-            COLLATE NOCASE IN ({})",
+            "WITH filtered_tx AS (SELECT graph_id, height FROM goat_tx_record WHERE tx_type = \'{goat_tx_type}\')
+            SELECT g.graph_id AS graph_id, n.socket_addr, COALESCE(ft.height, 0) AS height
+            FROM graph g
+                     JOIN node n
+                          ON g.operator = n.btc_pub_key
+                     LEFT JOIN filtered_tx ft ON g.graph_id = ft.graph_id
+            WHERE hex(g.graph_id)
+                      COLLATE NOCASE IN ({})",
             create_place_holders(ids)
         );
         let mut query_as = sqlx::query_as::<_, SocketInfoRow>(&query_str);

@@ -130,16 +130,16 @@ pub async fn get_message_broadcast_times(
     Ok(storage_process.get_message_broadcast_times(instance_id, graph_id, msg_type).await?)
 }
 
-pub async fn update_message_broadcast_times(
+pub async fn add_message_broadcast_times(
     local_db: &LocalDB,
     instance_id: &Uuid,
     graph_id: &Uuid,
     msg_type: &str,
-    msg_times: i64,
+    add_times: i64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = local_db.acquire().await?;
     Ok(storage_process
-        .update_message_broadcast_times(instance_id, graph_id, msg_type, msg_times)
+        .add_message_broadcast_times(instance_id, graph_id, msg_type, add_times)
         .await?)
 }
 
@@ -275,8 +275,8 @@ async fn handle_proceed_withdraw_events<'a>(
                 tx_hash: event.transaction_hash,
                 height: event.block_number.parse::<i64>()?,
                 is_local: false,
-                prove_status: GoatTxProveStatus::Pending.to_string(),
-                extra: Some(event.kickoff_txid),
+                prove_status: GoatTxProveStatus::NoNeed.to_string(),
+                extra: None,
                 created_at: current_time_secs(),
             })
             .await?
@@ -779,12 +779,12 @@ pub async fn scan_withdraw(
         .await?;
         if msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
-            update_message_broadcast_times(
+            add_message_broadcast_times(
                 local_db,
                 &instance_id,
                 &graph_id,
                 &MessageType::KickoffReady.to_string(),
-                msg_times + 1,
+                1,
             )
             .await?;
         }
@@ -842,7 +842,7 @@ pub async fn scan_kickoff(
                         instance_id,
                         &tx_hash,
                         GoatTxType::ProceedWithdraw,
-                        GoatTxProveStatus::Pending.to_string(),
+                        GoatTxProveStatus::NoNeed.to_string(),
                     )
                     .await?;
 
@@ -871,12 +871,12 @@ pub async fn scan_kickoff(
             });
             if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                update_message_broadcast_times(
+                add_message_broadcast_times(
                     local_db,
                     &graph_data.instance_id,
                     &graph_data.graph_id,
                     &MessageType::KickoffSent.to_string(),
-                    graph_data.msg_times + 1,
+                    1,
                 )
                 .await?;
             }
@@ -939,12 +939,12 @@ pub async fn scan_assert(
                 assert_final_txid: graph_data.assert_final_txid.unwrap(),
             });
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-            update_message_broadcast_times(
+            add_message_broadcast_times(
                 local_db,
                 &graph_data.instance_id,
                 &graph_data.graph_id,
                 "AssertSent",
-                graph_data.msg_times + 1,
+                1,
             )
             .await?;
         }
@@ -1047,6 +1047,14 @@ pub async fn scan_take1(
                     challenge_txid: spent_txid,
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
+                add_message_broadcast_times(
+                    local_db,
+                    &instance_id,
+                    &graph_id,
+                    &MessageType::ChallengeSent.to_string(),
+                    1,
+                )
+                .await?;
                 // modify graph status and will no longer perform scan-take1 on this graph
                 update_graph_fields(
                     local_db,
@@ -1061,6 +1069,10 @@ pub async fn scan_take1(
             }
             // if take-1/challenge already sent, no need for Take1Ready
             continue;
+        } else {
+            info!(
+                "graph_id:{graph_id}, kickoff_txid: {kickoff_txid} output index 1 not been spent"
+            );
         }
         if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             // check if kickoff's timelock for take1 is expired
@@ -1077,12 +1089,12 @@ pub async fn scan_take1(
                         swarm,
                         GOATMessage::from_typed(Actor::Operator, &message_content)?,
                     )?;
-                    update_message_broadcast_times(
+                    add_message_broadcast_times(
                         local_db,
                         &instance_id,
                         &graph_id,
                         &MessageType::Take1Ready.to_string(),
-                        graph_data.msg_times + 1,
+                        1,
                     )
                     .await?;
                     info!(
@@ -1132,6 +1144,7 @@ pub async fn scan_take2(
         }
         let take2_txid = graph_data.take2_txid.unwrap();
         let assert_final_txid = graph_data.assert_final_txid.unwrap();
+        let kickoff_txid = graph_data.kickoff_txid.unwrap();
         if let Some(spent_txid) = outpoint_spent_txid(btc_client, &assert_final_txid, 1).await? {
             if spent_txid == take2_txid {
                 // take2 sent, try to call finish_withdraw_unhappy_path
@@ -1190,16 +1203,30 @@ pub async fn scan_take2(
                     None,
                 )
                 .await?;
+
+                let challenge_txid = if graph_data.challenge_txid.is_none() {
+                    if let Some(spent_txid) =
+                        outpoint_spent_txid(btc_client, &kickoff_txid, 1).await?
+                        && spent_txid != graph_data.take1_txid.unwrap()
+                    {
+                        spent_txid
+                    } else {
+                        warn!(
+                            "graph:{} challenge tx_id is none, can not start withdraw disproved, fix me",
+                            graph_data.graph_id
+                        );
+                        continue;
+                    }
+                } else {
+                    graph_data.challenge_txid.unwrap()
+                };
+
                 let tx_hash = finish_withdraw_disproved(
                     btc_client,
                     goat_client,
                     &graph_id,
                     &btc_client.fetch_btc_tx(&disprove_txid).await?,
-                    &btc_client
-                        .fetch_btc_tx(
-                            &graph_data.challenge_txid.expect("fail to get challenge txid"),
-                        )
-                        .await?,
+                    &btc_client.fetch_btc_tx(&challenge_txid).await?,
                 )
                 .await?;
 
@@ -1220,6 +1247,14 @@ pub async fn scan_take2(
                     disprove_txid: spent_txid,
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
+                add_message_broadcast_times(
+                    local_db,
+                    &instance_id,
+                    &graph_id,
+                    &MessageType::DisproveSent.to_string(),
+                    1,
+                )
+                .await?;
                 update_graph_fields(
                     local_db,
                     graph_id,
@@ -1233,6 +1268,10 @@ pub async fn scan_take2(
             }
             // if take-2/disprove already sent, no need for Take2Ready
             continue;
+        } else {
+            info!(
+                "graph_id:{graph_id}, assert_final_txid: {assert_final_txid} output index 1 not been spent"
+            );
         }
         if graph_data.msg_times < MESSAGE_BROADCAST_MAX_TIMES {
             // check if assert_final's timelock for take2 is expired
@@ -1249,12 +1288,12 @@ pub async fn scan_take2(
                         swarm,
                         GOATMessage::from_typed(Actor::Operator, &message_content)?,
                     )?;
-                    update_message_broadcast_times(
+                    add_message_broadcast_times(
                         local_db,
                         &instance_id,
                         &graph_id,
                         &MessageType::Take2Ready.to_string(),
-                        graph_data.msg_times + 1,
+                        1,
                     )
                     .await?;
                     info!(

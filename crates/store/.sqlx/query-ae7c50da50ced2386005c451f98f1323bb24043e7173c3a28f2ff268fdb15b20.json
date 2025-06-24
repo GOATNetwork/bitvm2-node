@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR\n             REPLACE INTO watch_contract (addr, the_graph_url, gap, from_height, status, extra, updated_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "ae7c50da50ced2386005c451f98f1323bb24043e7173c3a28f2ff268fdb15b20"
+}

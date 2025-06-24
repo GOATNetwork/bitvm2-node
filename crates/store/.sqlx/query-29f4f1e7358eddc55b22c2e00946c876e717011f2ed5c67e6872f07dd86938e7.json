@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT  operator  FROM graph WHERE  graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "operator",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "29f4f1e7358eddc55b22c2e00946c876e717011f2ed5c67e6872f07dd86938e7"
+}

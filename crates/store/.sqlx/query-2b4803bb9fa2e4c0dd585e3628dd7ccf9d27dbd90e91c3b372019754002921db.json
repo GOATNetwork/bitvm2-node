@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT instance_id AS \"instance_id:Uuid\",\n                    graph_id  AS \"graph_id:Uuid\",\n                    nonces,\n                    committee_pubkey,\n                    partial_sigs,\n                    created_at,\n                    updated_at\n             FROM nonce_collect\n             WHERE instance_id = ?\n               AND graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "instance_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "nonces",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "committee_pubkey",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "partial_sigs",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2b4803bb9fa2e4c0dd585e3628dd7ccf9d27dbd90e91c3b372019754002921db"
+}

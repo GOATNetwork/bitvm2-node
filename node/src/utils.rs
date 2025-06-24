@@ -1,4 +1,6 @@
-use crate::action::{CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
+use crate::action::{
+    ChallengeSent, CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer,
+};
 use crate::client::chain::chain_adaptor::WithdrawStatus;
 use crate::client::chain::utils::{
     get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
@@ -13,7 +15,7 @@ use crate::rpc_service::current_time_secs;
 use alloy::primitives::Address as EvmAddress;
 use alloy::providers::ProviderBuilder;
 use ark_serialize::CanonicalDeserialize;
-use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
 use bitcoin::key::Keypair;
 use bitcoin::{
     Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
@@ -57,8 +59,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
 use store::localdb::{LocalDB, UpdateGraphParams};
 use store::{
-    BridgeInStatus, GoatTxProveStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus, Node,
-    ProofWithPis,
+    BridgeInStatus, GoatTxProceedWithdrawExtra, GoatTxProveStatus, GoatTxRecord, GoatTxType, Graph,
+    GraphStatus, Node, ProofWithPis,
 };
 use stun_client::{Attribute, Class, Client};
 use tracing::warn;
@@ -714,26 +716,41 @@ pub async fn get_groth16_proof(
     local_db: &LocalDB,
     instance_id: &Uuid,
     graph_id: &Uuid,
+    challenge_txid: String,
 ) -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
         return get_test_groth16_proof();
     }
-    let mut db_lock = local_db.acquire().await?;
-    let tx_record_op = db_lock
-        .get_graph_goat_tx_record(graph_id, &GoatTxType::ProceedWithdraw.to_string())
-        .await?;
-    if tx_record_op.is_none() {
-        return Err(
-            format!("instance_id:{instance_id}, graph_id:{graph_id} not find goat tx!").into()
-        );
-    }
-    let (proof, pis, vk, version) =
-        groth16::get_groth16_proof(local_db, tx_record_op.unwrap().height as u64).await?;
 
-    tracing::info!(
-        "instance_id:{instance_id}, graph_id:{graph_id} finish get groth16 proof at version: {version}"
-    );
-    Ok((proof, pis, vk))
+    let mut storage_processor = local_db.acquire().await?;
+    if let Some(tx_record) = storage_processor
+        .get_graph_goat_tx_record(graph_id, &GoatTxType::ProceedWithdraw.to_string())
+        .await?
+        && let Ok((proof, pis, vk, version)) =
+            groth16::get_groth16_proof(local_db, tx_record.height as u64).await
+    {
+        tracing::info!(
+            "instance_id:{instance_id}, graph_id:{graph_id} finish get groth16 proof at version: {version}"
+        );
+        Ok((proof, pis, vk))
+    } else {
+        storage_processor
+            .create_or_update_goat_tx_record(&GoatTxRecord {
+                instance_id: *instance_id,
+                graph_id: *graph_id,
+                tx_type: GoatTxType::ProceedWithdraw.to_string(),
+                tx_hash: "".to_string(),
+                height: 0,
+                is_local: false,
+                prove_status: GoatTxProveStatus::Pending.to_string(),
+                extra: Some(
+                    serde_json::to_string(&GoatTxProceedWithdrawExtra { challenge_txid }).unwrap(),
+                ),
+                created_at: 0,
+            })
+            .await?;
+        Err(format!("instance_id:{instance_id}, graph_id:{graph_id} not ready!").into())
+    }
 }
 pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey, Box<dyn std::error::Error>> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
@@ -1518,7 +1535,7 @@ pub async fn run_gen_groth16_proof_task(
         let tx_records = {
             let mut storage_processor = local_db.acquire().await?;
             storage_processor
-                .get_goat_tx_record_need_proving(
+                .get_goat_tx_record_by_prove_status(
                     &GoatTxType::ProceedWithdraw.to_string(),
                     &GoatTxProveStatus::Pending.to_string(),
                 )
@@ -1611,4 +1628,79 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
     }
 
     (false, None)
+}
+
+pub async fn operator_scan_ready_proof(
+    local_db: &LocalDB,
+) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+    tracing::info!("start operator_scan_ready_proof");
+    let mut storage_proccessor = local_db.acquire().await?;
+    let check_txs = storage_proccessor
+        .get_goat_tx_record_by_prove_status(
+            &GoatTxType::ProceedWithdraw.to_string(),
+            &GoatTxProveStatus::Pending.to_string(),
+        )
+        .await?;
+
+    let parse_challenge_txid_fn =
+        |extra_data: Option<String>| -> Result<Txid, Box<dyn std::error::Error>> {
+            if extra_data.is_none() {
+                return Err("extra data is none".into());
+            }
+            let extra: GoatTxProceedWithdrawExtra = serde_json::from_str(&extra_data.unwrap())?;
+            Ok(deserialize_hex(&extra.challenge_txid)?)
+        };
+
+    let mut message_content: Option<GOATMessageContent> = None;
+    for tx in check_txs {
+        if tx.height == 0 {
+            tracing::info!("Graph id :{} proceed withdraw tx online just waiting", tx.graph_id);
+            continue;
+        }
+        let challenge_txid_res = parse_challenge_txid_fn(tx.extra.clone());
+        if let Ok(challenge_txid) = challenge_txid_res {
+            let (proof, _, _, _) = storage_proccessor.get_groth16_proof(tx.height).await?;
+            if proof.is_empty() {
+                tracing::info!("Graph id :{} proof is empty just waiting", tx.graph_id);
+                continue;
+            }
+            tracing::info!("Graph id :{} proof is ready", tx.graph_id);
+            message_content = Some(GOATMessageContent::ChallengeSent(ChallengeSent {
+                instance_id: tx.instance_id,
+                graph_id: tx.graph_id,
+                challenge_txid,
+            }));
+            storage_proccessor
+                .update_goat_tx_record_prove_status(
+                    &tx.graph_id,
+                    &tx.instance_id,
+                    &tx.tx_type,
+                    &GoatTxProveStatus::Proved.to_string(),
+                )
+                .await?;
+        } else {
+            warn!(
+                "Graph id :{} proceed withdraw tx extra parse fail, error:{:?}",
+                tx.graph_id,
+                challenge_txid_res.err()
+            );
+            storage_proccessor
+                .update_goat_tx_record_prove_status(
+                    &tx.graph_id,
+                    &tx.instance_id,
+                    &tx.tx_type,
+                    &GoatTxProveStatus::Failed.to_string(),
+                )
+                .await?;
+        }
+        if message_content.is_some() {
+            break;
+        }
+    }
+    if message_content.is_none() {
+        Ok(None)
+    } else {
+        let message = GOATMessage::from_typed(Actor::Operator, &message_content.unwrap())?;
+        Ok(Some(serde_json::to_vec(&message)?))
+    }
 }

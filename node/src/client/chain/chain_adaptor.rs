@@ -143,6 +143,12 @@ impl From<u8> for WithdrawStatus {
     }
 }
 
+impl std::fmt::Display for WithdrawStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeginData {
     pub pegin_txid: [u8; 32],

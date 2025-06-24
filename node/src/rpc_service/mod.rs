@@ -181,8 +181,10 @@ mod tests {
     use crate::client::create_local_db;
     use crate::rpc_service::{self, Actor};
     use crate::utils::{generate_random_bytes, get_rand_btc_address};
-    use bitcoin::Network;
+    use bitcoin::{Network, PublicKey};
+    use bitvm2_lib::keys::NodeMasterKey;
     use prometheus_client::registry::Registry;
+    use secp256k1::{Keypair, Secp256k1};
     use serde_json::json;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -345,6 +347,13 @@ mod tests {
 
         let graph_state = "OperatorPresigned";
         info!("test api:update_graphs");
+
+        let pub_key: PublicKey =
+            NodeMasterKey::new(Keypair::new(&Secp256k1::new(), &mut rand::thread_rng()))
+                .master_keypair()
+                .public_key()
+                .into();
+
         let resp = client
             .put(format!("http://{addr}/v1/graphs/{graph_id}"))
             .json(&json!({
@@ -361,7 +370,7 @@ mod tests {
                     "bridge_out_to_addr": "",
                     "bridge_out_from_addr":"",
                     "zkm_version":"v1.1.0",
-                    "operator": hex::encode(generate_random_bytes(33))
+                    "operator":pub_key.to_string()
                 }
             }))
             .send()
@@ -371,10 +380,7 @@ mod tests {
         info!("Post Response: {res_body}");
 
         info!("test api:get_graphs");
-        let resp = client
-            .get(format!("http://{addr}/v1/graphs?status=Take2&offset=0&limit=10"))
-            .send()
-            .await?;
+        let resp = client.get(format!("http://{addr}/v1/graphs?offset=0&limit=10")).send().await?;
         assert!(resp.status().is_success());
         let res_body = resp.text().await?;
         info!("Post Response: {res_body}");

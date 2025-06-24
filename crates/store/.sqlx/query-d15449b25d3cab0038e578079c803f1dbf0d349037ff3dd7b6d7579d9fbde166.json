@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT addr, the_graph_url, from_height, gap, status, extra, updated_at\n             FROM watch_contract\n             WHERE addr = ? ",
+  "describe": {
+    "columns": [
+      {
+        "name": "addr",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "the_graph_url",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "from_height",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "gap",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "status",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "extra",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "d15449b25d3cab0038e578079c803f1dbf0d349037ff3dd7b6d7579d9fbde166"
+}

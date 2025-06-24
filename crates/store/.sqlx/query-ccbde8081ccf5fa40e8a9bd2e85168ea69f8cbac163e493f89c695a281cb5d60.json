@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT g.graph_id AS \"graph_id:Uuid\",\n                    g.zkm_version AS zkm_version, gtr.tx_hash AS tx_hash\n             FROM graph g\n                     INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id\n             WHERE gtr.height = ?\n               AND gtr.tx_type = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "tx_hash",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ccbde8081ccf5fa40e8a9bd2e85168ea69f8cbac163e493f89c695a281cb5d60"
+}

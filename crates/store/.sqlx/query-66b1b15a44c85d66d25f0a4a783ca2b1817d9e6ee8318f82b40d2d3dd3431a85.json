@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE instance\n             SET bridge_path = ?,\n                 from_addr = ?,\n                 to_addr = ?,\n                 network = ?,\n                 amount = ?,\n                 status = ?,\n                 goat_txid = ?,\n                 btc_txid = ?,\n                 pegin_txid = ?,\n                 input_uxtos = ?,\n                 fee = ?,\n                 updated_at = ?\n            WHERE instance_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 13
+    },
+    "nullable": []
+  },
+  "hash": "66b1b15a44c85d66d25f0a4a783ca2b1817d9e6ee8318f82b40d2d3dd3431a85"
+}

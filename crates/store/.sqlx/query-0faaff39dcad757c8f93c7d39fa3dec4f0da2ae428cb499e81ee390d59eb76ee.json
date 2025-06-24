@@ -1,0 +1,158 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT graph_id  AS \"graph_id:Uuid \",\n                    instance_id  AS \"instance_id:Uuid \",\n                    graph_ipfs_base_url,\n                    pre_kickoff_txid,\n                    pegin_txid,\n                    amount,\n                    status,\n                    kickoff_txid,\n                    challenge_txid,\n                    take1_txid,\n                    assert_init_txid,\n                    assert_commit_txids,\n                    assert_final_txid,\n                    take2_txid,\n                    disprove_txid,\n                    operator,\n                    raw_data,\n                    bridge_out_start_at,\n                    bridge_out_from_addr,\n                    bridge_out_to_addr,\n                    init_withdraw_txid,\n                    zkm_version,\n                    created_at,\n                    updated_at\n             FROM graph\n             WHERE graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id:Uuid ",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "instance_id:Uuid ",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "graph_ipfs_base_url",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "pre_kickoff_txid",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "pegin_txid",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "status",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "kickoff_txid",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "challenge_txid",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "take1_txid",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "assert_init_txid",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "assert_commit_txids",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "assert_final_txid",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "take2_txid",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "disprove_txid",
+        "ordinal": 14,
+        "type_info": "Text"
+      },
+      {
+        "name": "operator",
+        "ordinal": 15,
+        "type_info": "Text"
+      },
+      {
+        "name": "raw_data",
+        "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "bridge_out_start_at",
+        "ordinal": 17,
+        "type_info": "Integer"
+      },
+      {
+        "name": "bridge_out_from_addr",
+        "ordinal": 18,
+        "type_info": "Text"
+      },
+      {
+        "name": "bridge_out_to_addr",
+        "ordinal": 19,
+        "type_info": "Text"
+      },
+      {
+        "name": "init_withdraw_txid",
+        "ordinal": 20,
+        "type_info": "Text"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 21,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 22,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 23,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0faaff39dcad757c8f93c7d39fa3dec4f0da2ae428cb499e81ee390d59eb76ee"
+}

@@ -52,8 +52,6 @@ uuid = { version = "1.7", features = ["v4", "serde"] }
 zeroize = "1.8.1"
 
 bincode = "1.3.3"
-zkm-build = { git = "https://github.com/zkMIPS/zkMIPS" }
-zkm-core-executor = { git = "https://github.com/zkMIPS/zkMIPS" }
 zkm-prover = { git = "https://github.com/zkMIPS/zkMIPS" }
 zkm-sdk = { git = "https://github.com/zkMIPS/zkMIPS" }
 zkm-verifier = { git = "https://github.com/zkMIPS/zkMIPS", features = ["ark"] }

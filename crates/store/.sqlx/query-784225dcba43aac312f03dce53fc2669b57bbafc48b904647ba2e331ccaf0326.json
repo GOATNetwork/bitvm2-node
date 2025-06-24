@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO message_broadcast (instance_id, graph_id, msg_type, msg_times, created_at, updated_at)\n             VALUES (?, ?, ?, ?, ?, ?)\n             ON CONFLICT(instance_id, graph_id, msg_type) DO UPDATE SET updated_at = excluded.updated_at,\n                                                           msg_times  = message_broadcast.msg_times + excluded.msg_times",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "784225dcba43aac312f03dce53fc2669b57bbafc48b904647ba2e331ccaf0326"
+}

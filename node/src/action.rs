@@ -225,18 +225,33 @@ pub async fn recv_and_dispatch(
     id: MessageId,
     message: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut local_message: Vec<u8> = vec![];
     // Tick
     if id == GOATMessage::default_message_id() {
         tracing::debug!("Get the running task, and broadcast the task status or result");
         if actor == Actor::Relayer {
             do_tick_action(swarm, local_db, btc_client, goat_client).await?;
         }
-        return Ok(());
+        if actor == Actor::Operator
+            && let Some(message) = operator_scan_ready_proof(local_db).await?
+        {
+            local_message = message.clone();
+        } else {
+            return Ok(());
+        }
     }
 
-    update_node_timestamp(local_db, &from_peer_id.to_string()).await?;
+    if local_message.is_empty() {
+        update_node_timestamp(local_db, &from_peer_id.to_string()).await?;
+    }
 
-    let message: GOATMessage = serde_json::from_slice(message)?;
+    let message: GOATMessage = if local_message.is_empty() {
+        serde_json::from_slice(message)?
+    } else {
+        tracing::info!("use local message");
+        serde_json::from_slice(&local_message)?
+    };
+    // let message: GOATMessage = serde_json::from_slice(message)?;
     let content: GOATMessageContent = message.to_typed()?;
     match &content {
         // Make logs more readable
@@ -899,9 +914,13 @@ pub async fn recv_and_dispatch(
                 let keypair = master_key.keypair_for_graph(receive_data.graph_id);
                 let (operator_wots_seckeys, operator_wots_pubkeys) =
                     master_key.wots_keypair_for_graph(receive_data.graph_id);
-                let (proof, pubin, vk) =
-                    get_groth16_proof(local_db, &receive_data.instance_id, &receive_data.graph_id)
-                        .await?;
+                let (proof, pubin, vk) = get_groth16_proof(
+                    local_db,
+                    &receive_data.instance_id,
+                    &receive_data.graph_id,
+                    serialize_hex(&receive_data.challenge_txid),
+                )
+                .await?;
                 let mut proof_sigs = sign_proof(&vk, proof, pubin, &operator_wots_seckeys);
                 if !is_valid_withdraw(goat_client, receive_data.instance_id, receive_data.graph_id)
                     .await?
