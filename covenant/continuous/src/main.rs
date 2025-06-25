@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use alloy_provider::{network::Ethereum, Provider};
 use clap::Parser;
@@ -125,7 +125,7 @@ async fn main() -> eyre::Result<()> {
 
         if failed.load(Ordering::Relaxed) {
             error!("Exit due to the exit of the child thread");
-            return Ok(())
+            return Ok(());
         }
 
         block_number += 1;
