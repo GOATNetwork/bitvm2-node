@@ -44,6 +44,7 @@ async fn main() -> eyre::Result<()> {
             "continuous=info,host-executor=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn",
         )
         .with_writer(non_blocking)
+        .with_max_level(tracing::Level::INFO)
         .with_ansi(false)
         .finish()
         .init();
