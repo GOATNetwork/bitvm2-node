@@ -18,7 +18,7 @@ pub const AGGREGATION_ELF: &[u8] = include_elf!("guest-aggregation");
 pub const GROTH16_ELF: &[u8] = include_elf!("guest-groth16");
 
 const LOG_FILE: &str = "aggregation.log";
-const LOG_FIELS_COUNT: u64 = 7;
+const LOG_FIELS_COUNT: u64 = 2;
 
 #[tokio::main]
 async fn main() {

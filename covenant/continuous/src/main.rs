@@ -19,7 +19,7 @@ mod cli;
 mod db;
 
 const LOG_FILE: &str = "continuous.log";
-const LOG_FIELS_COUNT: u64 = 7;
+const LOG_FIELS_COUNT: u64 = 2;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -41,7 +41,7 @@ async fn main() -> eyre::Result<()> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(appender);
     tracing_subscriber::fmt()
         .with_env_filter(
-            "continuous=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn",
+            "continuous=info,host-executor=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn",
         )
         .with_writer(non_blocking)
         .with_ansi(false)
@@ -77,9 +77,8 @@ async fn main() -> eyre::Result<()> {
 
     let concurrent_executions_semaphore = Arc::new(Semaphore::new(args.max_concurrent_executions));
     let mut block_number = args.block_number;
-    let mut block_count = 0;
 
-    while block_number < u64::MAX {
+    loop {
         info!("process block: {:?}", block_number);
 
         let executor = executor.clone();
@@ -111,6 +110,8 @@ async fn main() -> eyre::Result<()> {
                             alerting_client.send_alert(format!("{error_message}")).await;
                         }
                     }
+
+                    return;
                 }
             }
 
@@ -118,13 +119,7 @@ async fn main() -> eyre::Result<()> {
         });
 
         block_number += 1;
-        block_count += 1;
-        if block_count % 100 == 0 {
-            info!("Processed {} blocks", block_count);
-        }
     }
-
-    Ok(())
 }
 
 #[instrument(skip(executor, max_retries))]

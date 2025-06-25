@@ -1,10 +1,10 @@
 use anyhow::Result;
 use store::localdb::LocalDB;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 use tracing::info;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_sdk::{ZKMProofWithPublicValues, ZKMStdin};
-use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, load_ark_groth16_verifying_key_from_bytes};
+use zkm_verifier::{convert_ark, load_ark_groth16_verifying_key_from_bytes, GROTH16_VK_BYTES};
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
@@ -70,7 +70,7 @@ pub async fn get_groth16_proof(
 #[cfg(test)]
 mod tests {
     use ark_bn254::Bn254;
-    use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+    use ark_groth16::{r1cs_to_qap::LibsnarkReduction, Groth16};
     use store::localdb::LocalDB;
     use tracing::Level;
     use zkm_prover::ZKM_CIRCUIT_VERSION;
