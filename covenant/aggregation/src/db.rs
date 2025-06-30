@@ -13,7 +13,7 @@ use zkm_sdk::{
 };
 use zkm_verifier::GROTH16_VK_BYTES;
 
-const PROOF_COUNT: u64 = 100;
+const PROOF_COUNT: u64 = 20;
 
 /// An input to the aggregation program.
 ///
