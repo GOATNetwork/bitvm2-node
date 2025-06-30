@@ -170,7 +170,6 @@ impl Db {
         block_number: u64,
         proof: &ZKMProofWithPublicValues,
         vk: &ZKMVerifyingKey,
-        execution_report: &ExecutionReport,
         proving_duration: Duration,
     ) -> Result<()> {
         assert_eq!(proof.zkm_version, ZKM_CIRCUIT_VERSION);
@@ -184,7 +183,7 @@ impl Db {
             .update_groth16_succ(
                 block_number as i64,
                 (proving_duration.as_secs_f32() * 1000.0) as i64,
-                execution_report.total_instruction_count() as i64,
+                0,
                 &proof_bytes,
                 &public_values_bytes,
                 vk.bytes32(),

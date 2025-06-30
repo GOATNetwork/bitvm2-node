@@ -1666,7 +1666,7 @@ dependencies = [
 [[package]]
 name = "guest-executor"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#6b7c39b5992df10394326e75af334d7742dae3dd"
 dependencies = [
  "alloy-consensus",
  "alloy-evm",
@@ -2169,7 +2169,7 @@ dependencies = [
 [[package]]
 name = "mpt"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#6b7c39b5992df10394326e75af334d7742dae3dd"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -2682,7 +2682,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#6b7c39b5992df10394326e75af334d7742dae3dd"
 dependencies = [
  "alloy-genesis",
  "alloy-rpc-types",

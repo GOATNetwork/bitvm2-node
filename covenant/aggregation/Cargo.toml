@@ -30,3 +30,6 @@ store = { path = "../../crates/store" }
 
 [build-dependencies]
 zkm-build.workspace = true
+
+[features]
+debug = []

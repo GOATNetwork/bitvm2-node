@@ -39,14 +39,12 @@ impl AggregationExecutor {
     pub async fn new(
         db: Arc<Db>,
         client: Arc<dyn Prover<DefaultProverComponents>>,
-        elf: &[u8],
+        pk: Arc<ZKMProvingKey>,
+        vk: Arc<ZKMVerifyingKey>,
         block_number: u64,
         is_start_block: bool,
     ) -> Self {
-        // Setup the proving and verifying keys.
-        let (pk, vk) = client.setup(elf);
-
-        Self { db, client, pk: Arc::new(pk), vk: Arc::new(vk), block_number, is_start_block }
+        Self { db, client, pk, vk, block_number, is_start_block }
     }
 
     pub async fn data_preparer(
@@ -97,7 +95,7 @@ impl AggregationExecutor {
         block_number_tx: SyncSender<u64>,
         input_rx: Receiver<AggreationInput>,
         agg_proof_tx: SyncSender<ProofWithPublicValues>,
-        groth16_proof_tx: SyncSender<(ProofWithPublicValues, Arc<ZKMVerifyingKey>)>,
+        groth16_proof_tx: SyncSender<ProofWithPublicValues>,
     ) -> Result<()> {
         loop {
             let proofs = input_rx.recv();
@@ -116,22 +114,15 @@ impl AggregationExecutor {
                             )
                             .await?;
 
-                        agg_proof_tx.send(ProofWithPublicValues {
+                        let agg_proof = ProofWithPublicValues {
                             block_number,
                             proof: agg_proof.proof.clone(),
                             public_values: agg_proof.public_values.clone(),
                             zkm_version: agg_proof.zkm_version.clone(),
-                        })?;
+                        };
 
-                        groth16_proof_tx.send((
-                            ProofWithPublicValues {
-                                block_number,
-                                proof: agg_proof.proof,
-                                public_values: agg_proof.public_values,
-                                zkm_version: agg_proof.zkm_version,
-                            },
-                            self.vk.clone(),
-                        ))?;
+                        agg_proof_tx.send(agg_proof.clone())?;
+                        groth16_proof_tx.send(agg_proof)?;
                     }
                     Err(err) => {
                         error!("Error generate aggregation proof {}: {}", block_number, err);
@@ -230,21 +221,16 @@ impl Groth16Executor {
     pub async fn new(
         db: Arc<Db>,
         client: Arc<dyn Prover<DefaultProverComponents>>,
-        elf: &[u8],
+        pk: Arc<ZKMProvingKey>,
+        vk: Arc<ZKMVerifyingKey>,
     ) -> Self {
-        // Setup the proving and verifying keys.
-        let (pk, vk) = client.setup(elf);
-
-        Self { db, client, pk: Arc::new(pk), vk: Arc::new(vk) }
+        Self { db, client, pk, vk }
     }
 
-    pub async fn proof_generator(
-        self,
-        groth16_rx: Receiver<(ProofWithPublicValues, Arc<ZKMVerifyingKey>)>,
-    ) -> Result<()> {
+    pub async fn proof_generator(self, groth16_rx: Receiver<ProofWithPublicValues>) -> Result<()> {
         loop {
             let recv = groth16_rx.recv();
-            if let Ok((agg_proof, agg_vk)) = recv {
+            if let Ok(agg_proof) = recv {
                 let block_number = agg_proof.block_number;
 
                 let should_generate_proof = self.db.on_groth16_start(block_number).await?;
@@ -253,15 +239,14 @@ impl Groth16Executor {
                     continue;
                 }
 
-                match self.generate_groth16_proof(block_number, agg_proof, agg_vk).await {
-                    Ok((groth16_proof, ref exec_report, proving_duration)) => {
+                match self.generate_groth16_proof(block_number, agg_proof).await {
+                    Ok((groth16_proof, proving_duration)) => {
                         info!("Successfully generate groth16 proof {}", block_number);
                         self.db
                             .on_groth16_end(
                                 block_number,
                                 &groth16_proof,
                                 &self.vk,
-                                exec_report,
                                 proving_duration,
                             )
                             .await?;
@@ -287,8 +272,7 @@ impl Groth16Executor {
         &self,
         block_number: u64,
         agg_proof: ProofWithPublicValues,
-        agg_vk: Arc<ZKMVerifyingKey>,
-    ) -> Result<(ZKMProofWithPublicValues, ExecutionReport, Duration)> {
+    ) -> Result<(ZKMProofWithPublicValues, Duration)> {
         assert_eq!(
             agg_proof.zkm_version,
             self.client.version(),
@@ -301,47 +285,29 @@ impl Groth16Executor {
         );
 
         let mut stdin = ZKMStdin::new();
+        stdin.write::<ZKMPublicValues>(&agg_proof.public_values);
 
-        // Write the block number.
-        stdin.write::<u64>(&block_number);
-
-        // Write the verification key.
-        stdin.write::<[u32; 8]>(&agg_vk.hash_u32());
-
-        // Write the public values.
-        stdin.write::<Vec<u8>>(&agg_proof.public_values.to_vec());
-
-        // Write the proofs.
-        //
-        // Note: this data will not actually be read by the guest, instead it will be
-        // witnessed by the prover during the recursive aggregation process inside zkMIPS itself.
         let ZKMProof::Compressed(proof) = agg_proof.proof else { panic!() };
-        stdin.write_proof(*proof, agg_vk.vk.clone());
-
-        // Only execute the program.
-        let (stdin, execute_result) =
-            execute_client(block_number, self.client.clone(), self.pk.clone(), stdin).await?;
-
-        let (mut public_values, execution_report) = execute_result?;
-
-        let cycles: u64 = execution_report.total_instruction_count();
-        info!("[Groth16] total cycles: {:?}", cycles);
-
-        // Read block number.
-        let block_number = public_values.read::<u64>();
-        info!(?block_number, "[Groth16] Execution successful");
+        stdin.write_proof(*proof, self.vk.vk.clone());
 
         let proving_start = tokio::time::Instant::now();
 
-        // Generate the aggregation proof.
-        let groth16_proof =
-            prove(block_number, ZKMProofKind::Groth16, self.client.clone(), self.pk.clone(), stdin)
-                .await?;
+        let groth16_proof = prove(
+            block_number,
+            ZKMProofKind::CompressToGroth16,
+            self.client.clone(),
+            self.pk.clone(),
+            stdin,
+        )
+        .await?;
 
         let proving_duration = proving_start.elapsed();
         info!("[Groth16] proving duration: {:?}s", proving_duration.as_secs_f32());
 
-        Ok((groth16_proof, execution_report, proving_duration))
+        #[cfg(feature = "debug")]
+        client.verify(&groth16_proof, &self.vk).unwrap();
+
+        Ok((groth16_proof, proving_duration))
     }
 }
 

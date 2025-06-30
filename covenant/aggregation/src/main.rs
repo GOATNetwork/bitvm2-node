@@ -5,7 +5,7 @@ use cli::Args;
 use logroller::{LogRollerBuilder, Rotation, RotationAge};
 use store::localdb::LocalDB;
 use tracing_subscriber::util::SubscriberInitExt;
-use zkm_sdk::{include_elf, ProverClient, ZKMVerifyingKey};
+use zkm_sdk::{include_elf, ProverClient};
 
 mod cli;
 mod db;
@@ -15,7 +15,6 @@ use crate::db::*;
 use crate::executor::*;
 
 pub const AGGREGATION_ELF: &[u8] = include_elf!("guest-aggregation");
-pub const GROTH16_ELF: &[u8] = include_elf!("guest-groth16");
 
 const LOG_FILE: &str = "aggregation.log";
 const LOG_FIELS_COUNT: u64 = 2;
@@ -30,7 +29,7 @@ async fn main() {
     }
 
     let args = Args::parse();
-    assert!(args.block_number > 2, "Block number must be greater than 2");
+    assert!(args.block_number > 1, "Block number must be greater than 1");
 
     // Initialize the logger.
     let appender = LogRollerBuilder::new(args.log_dir.as_ref(), LOG_FILE)
@@ -52,21 +51,26 @@ async fn main() {
     let local_db = Arc::new(Db::new(Arc::new(local_db)));
     let client = Arc::new(ProverClient::new());
 
+    // Setup the proving and verifying keys.
+    let (pk, vk) = client.setup(AGGREGATION_ELF);
+    let pk = Arc::new(pk);
+    let vk = Arc::new(vk);
+
     let agg_executor = AggregationExecutor::new(
         local_db.clone(),
         client.clone(),
-        AGGREGATION_ELF,
+        pk.clone(),
+        vk.clone(),
         args.block_number,
         args.start,
     )
     .await;
-    let groth16_executor = Groth16Executor::new(local_db, client, GROTH16_ELF).await;
+    let groth16_executor = Groth16Executor::new(local_db, client, pk, vk).await;
 
     let (block_number_tx, block_number_rx) = sync_channel::<u64>(2);
     let (input_tx, input_rx) = sync_channel::<AggreationInput>(2);
     let (agg_proof_tx, agg_proof_rx) = sync_channel::<ProofWithPublicValues>(2);
-    let (groth16_proof_tx, groth16_proof_rx) =
-        sync_channel::<(ProofWithPublicValues, Arc<ZKMVerifyingKey>)>(50);
+    let (groth16_proof_tx, groth16_proof_rx) = sync_channel::<ProofWithPublicValues>(50);
     let agg_executor_clone = agg_executor.clone();
 
     block_number_tx.send(args.block_number).unwrap();
