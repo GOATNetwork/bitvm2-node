@@ -67,10 +67,10 @@ async fn main() {
     .await;
     let groth16_executor = Groth16Executor::new(local_db, client, pk, vk).await;
 
-    let (block_number_tx, block_number_rx) = sync_channel::<u64>(2);
-    let (input_tx, input_rx) = sync_channel::<AggreationInput>(2);
-    let (agg_proof_tx, agg_proof_rx) = sync_channel::<ProofWithPublicValues>(2);
-    let (groth16_proof_tx, groth16_proof_rx) = sync_channel::<ProofWithPublicValues>(50);
+    let (block_number_tx, block_number_rx) = sync_channel::<u64>(20);
+    let (input_tx, input_rx) = sync_channel::<AggreationInput>(20);
+    let (agg_proof_tx, agg_proof_rx) = sync_channel::<ProofWithPublicValues>(20);
+    let (groth16_proof_tx, groth16_proof_rx) = sync_channel::<ProofWithPublicValues>(20);
     let agg_executor_clone = agg_executor.clone();
 
     block_number_tx.send(args.block_number).unwrap();

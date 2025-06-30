@@ -5,7 +5,7 @@ use std::sync::{
 
 use anyhow::Result;
 use tokio::time::Duration;
-use tracing::{debug, error, info, info_span};
+use tracing::{debug, error, info};
 use zkm_prover::components::DefaultProverComponents;
 use zkm_sdk::{
     ExecutionReport, HashableKey, Prover, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues,
@@ -121,8 +121,8 @@ impl AggregationExecutor {
                             zkm_version: agg_proof.zkm_version.clone(),
                         };
 
-                        agg_proof_tx.send(agg_proof.clone())?;
-                        groth16_proof_tx.send(agg_proof)?;
+                        groth16_proof_tx.send(agg_proof.clone())?;
+                        agg_proof_tx.send(agg_proof)?;
                     }
                     Err(err) => {
                         error!("Error generate aggregation proof {}: {}", block_number, err);
@@ -151,12 +151,10 @@ impl AggregationExecutor {
             );
         });
 
-        let mut stdin = ZKMStdin::new();
-
-        // Write the block numbers.
         let block_numbers: Vec<u64> =
             inputs.iter().map(|input| input.block_number).collect::<Vec<_>>();
-        stdin.write::<Vec<u64>>(&block_numbers);
+
+        let mut stdin = ZKMStdin::new();
 
         // Write the verification keys.
         let vkeys = inputs.iter().map(|input| input.vk.hash_u32()).collect::<Vec<_>>();
@@ -177,33 +175,23 @@ impl AggregationExecutor {
         }
 
         // Only execute the program.
-        let block_number = block_numbers.last().unwrap().to_owned();
-        let (stdin, execute_result) =
-            execute_client(block_number, self.client.clone(), self.pk.clone(), stdin).await?;
+        let execute_result = self.client.execute(&self.pk.elf, &stdin);
 
-        let (mut public_values, execution_report) = execute_result?;
+        let (_public_values, execution_report) = execute_result?;
 
         let cycles: u64 = execution_report.total_instruction_count();
         info!("[Aggregation] total cycles: {:?}", cycles);
 
-        // Read block numbers.
-        let block_numbers = public_values.read::<Vec<u64>>();
         info!(?block_numbers, "[Aggregation] Execution successful");
 
         let proving_start = tokio::time::Instant::now();
 
         // Generate the aggregation proof.
-        let agg_proof = prove(
-            block_number,
-            ZKMProofKind::Compressed,
-            self.client.clone(),
-            self.pk.clone(),
-            stdin,
-        )
-        .await?;
+        let agg_proof = self.client.prove(self.pk.as_ref(), stdin, ZKMProofKind::Compressed)?;
 
         let proving_duration = proving_start.elapsed();
-        info!("[Aggregation] proving duration: {:?}s", proving_duration.as_secs_f32());
+        let block_number = block_numbers.last().unwrap();
+        info!("[Aggregation] [{}] proving duration: {:?}s", block_number, proving_duration.as_secs_f32());
 
         Ok((agg_proof, execution_report, proving_duration))
     }
@@ -292,51 +280,11 @@ impl Groth16Executor {
 
         let proving_start = tokio::time::Instant::now();
 
-        let groth16_proof = prove(
-            block_number,
-            ZKMProofKind::CompressToGroth16,
-            self.client.clone(),
-            self.pk.clone(),
-            stdin,
-        )
-        .await?;
+        let groth16_proof = self.client.prove(self.pk.as_ref(), stdin, ZKMProofKind::CompressToGroth16)?;
 
         let proving_duration = proving_start.elapsed();
-        info!("[Groth16] proving duration: {:?}s", proving_duration.as_secs_f32());
-
-        #[cfg(feature = "debug")]
-        client.verify(&groth16_proof, &self.vk).unwrap();
+        info!("[Groth16] [{}] proving duration: {:?}s", block_number, proving_duration.as_secs_f32());
 
         Ok((groth16_proof, proving_duration))
     }
-}
-
-// Block execution in zkMIPS is a long-running, blocking task, so run it in a separate thread.
-async fn execute_client(
-    number: u64,
-    client: Arc<dyn Prover<DefaultProverComponents>>,
-    pk: Arc<ZKMProvingKey>,
-    stdin: ZKMStdin,
-) -> Result<(ZKMStdin, Result<(ZKMPublicValues, ExecutionReport)>)> {
-    tokio::task::spawn_blocking(move || {
-        info_span!("execute_client", number).in_scope(|| {
-            let result = client.execute(&pk.elf, &stdin);
-            (stdin, result)
-        })
-    })
-    .await
-    .map_err(|err| anyhow::anyhow!("{err}"))
-}
-
-async fn prove(
-    number: u64,
-    proof_mode: ZKMProofKind,
-    client: Arc<dyn Prover<DefaultProverComponents>>,
-    pk: Arc<ZKMProvingKey>,
-    stdin: ZKMStdin,
-) -> Result<ZKMProofWithPublicValues> {
-    tokio::task::spawn_blocking(move || {
-        info_span!("proving", number).in_scope(|| client.prove(pk.as_ref(), stdin, proof_mode))
-    })
-    .await?
 }
