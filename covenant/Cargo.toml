@@ -2,7 +2,7 @@
 members = [
     "continuous",
     "aggregation",
-    "groth16"
+    "groth16",
 ]
 exclude = []
 resolver = "2"
@@ -145,9 +145,3 @@ p256 = { git = "https://github.com/zkMIPS-patches/elliptic-curves", branch = "pa
 alloy-primitives-v1-0-0 = { git = "https://github.com/zkMIPS-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.0.0" }
 alloy-primitives-v1-1-0 = { git = "https://github.com/zkMIPS-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.1.0" }
 alloy-primitives-v1-1-2 = { git = "https://github.com/zkMIPS-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.1.2" }
-
-[patch."https://github.com/zkMIPS/zkMIPS.git"]
-zkm-build = { git = "https://github.com/felicityin/zkMIPS", branch = "sdk" }
-zkm-core-executor = { git = "https://github.com/felicityin/zkMIPS", branch = "sdk" }
-zkm-prover = { git = "https://github.com/felicityin/zkMIPS", branch = "sdk" }
-zkm-sdk = { git = "https://github.com/felicityin/zkMIPS", branch = "sdk" }

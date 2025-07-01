@@ -298,9 +298,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-hardforks"
-version = "0.2.7"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "977d2492ce210e34baf7b36afaacea272c96fbe6774c47e23f97d14033c0e94f"
+checksum = "4ce138b29a2f8e7ed97c064af8359dfa6559c12cba5e821ae4eb93081a56557e"
 dependencies = [
  "alloy-chains",
  "alloy-eip2124",
@@ -442,10 +442,11 @@ dependencies = [
 
 [[package]]
 name = "alloy-op-hardforks"
-version = "0.2.7"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08b147547aff595aa3d4c2fc2c8146263e18d3372909def423619ed631ecbcfa"
+checksum = "4a9a510692bef4871797062ca09ec7873c45dc68c7f3f72291165320f53606a3"
 dependencies = [
+ "alloy-chains",
  "alloy-hardforks",
  "auto_impl",
 ]
@@ -463,7 +464,7 @@ dependencies = [
  "derive_more 2.0.1",
  "foldhash",
  "hashbrown 0.15.4",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "itoa",
  "k256",
  "keccak-asm",
@@ -507,7 +508,7 @@ dependencies = [
  "lru 0.13.0",
  "parking_lot",
  "pin-project",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -573,7 +574,7 @@ dependencies = [
  "async-stream",
  "futures",
  "pin-project",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "tokio",
@@ -758,7 +759,7 @@ dependencies = [
  "alloy-sol-macro-input",
  "const-hex",
  "heck 0.5.0",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "proc-macro-error2",
  "proc-macro2",
  "quote",
@@ -833,7 +834,7 @@ source = "git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat#0
 dependencies = [
  "alloy-json-rpc 0.14.0 (git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat)",
  "alloy-transport",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde_json",
  "tower 0.5.2",
  "tracing",
@@ -1716,7 +1717,7 @@ dependencies = [
  "pairing 0.23.0",
  "rand_core 0.6.4",
  "subtle",
- "zkm-lib 1.1.0 (git+https://github.com/zkMIPS/zkMIPS)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -2032,15 +2033,15 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.15.11"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+checksum = "2e09ced7ebbccb63b4c65413d821f2e00ce54c5ca4514ddc6b3c892fdbcbc69d"
 dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
  "unicode-width",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2239,9 +2240,9 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "crunchy"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43da5946c66ffcc7745f48db692ffbb10a83bfe0afd96235c5c2a4fb23994929"
+checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "crypto-bigint"
@@ -3640,7 +3641,7 @@ dependencies = [
 [[package]]
 name = "guest-executor"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
 dependencies = [
  "alloy-consensus 0.14.0 (git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat)",
  "alloy-evm",
@@ -3687,7 +3688,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http 0.2.12",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "slab",
  "tokio",
  "tokio-util",
@@ -3696,9 +3697,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9421a676d1b147b16b82c9225157dc629087ef8ec4d5e2960f9437a90dac0a5"
+checksum = "17da50a276f1e01e0ba6c029e47b7100754904ee8a278f886546e98575380785"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -3706,7 +3707,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http 1.3.1",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "slab",
  "tokio",
  "tokio-util",
@@ -3938,7 +3939,7 @@ dependencies = [
 [[package]]
 name = "host-executor"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
 dependencies = [
  "alloy-chains",
  "alloy-consensus 0.14.0 (git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat)",
@@ -3958,7 +3959,7 @@ dependencies = [
  "mpt",
  "op-alloy-network",
  "primitives",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "reth-chainspec",
  "reth-errors",
  "reth-ethereum-primitives",
@@ -4086,7 +4087,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "h2 0.4.10",
+ "h2 0.4.11",
  "http 1.3.1",
  "http-body 1.0.1",
  "httparse",
@@ -4377,9 +4378,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.9.0"
+version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
+checksum = "fe4cd85333e22411419a0bcae1297d25e58c9443848b11dc6a86fefe8c78a661"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.4",
@@ -4388,14 +4389,14 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.17.11"
+version = "0.17.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
+checksum = "4adb2ee6ad319a912210a36e56e3623555817bcc877a7e6e8802d1d69c4d8056"
 dependencies = [
  "console",
- "number_prefix",
  "portable-atomic",
  "unicode-width",
+ "unit-prefix",
  "web-time",
 ]
 
@@ -4578,7 +4579,7 @@ dependencies = [
  "serdect",
  "sha2",
  "signature",
- "zkm-lib 1.1.0 (git+https://github.com/zkMIPS/zkMIPS)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -4688,9 +4689,9 @@ checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "libredox"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
+checksum = "1580801010e535496706ba011c15f8532df6b42297d2e471fec38ceadd8c0638"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
@@ -4953,7 +4954,7 @@ dependencies = [
 [[package]]
 name = "mpt"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -5214,12 +5215,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "number_prefix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
-
-[[package]]
 name = "nums"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5418,7 +5413,7 @@ dependencies = [
  "hex",
  "primeorder",
  "sha2",
- "zkm-lib 1.1.0 (git+https://github.com/zkMIPS/zkMIPS)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -5928,7 +5923,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
  "fixedbitset",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
 ]
 
 [[package]]
@@ -6133,7 +6128,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
 dependencies = [
  "alloy-genesis",
  "alloy-rpc-types",
@@ -6297,7 +6292,7 @@ dependencies = [
 [[package]]
 name = "provider"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
 dependencies = [
  "alloy-json-rpc 0.14.0 (git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat)",
  "alloy-provider",
@@ -6618,16 +6613,16 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.20"
+version = "0.12.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eabf4c97d9130e2bf606614eb937e86edac8292eaa6f422f995d7e8de1eb1813"
+checksum = "4c8cea6b35bcceb099f30173754403d2eba0a5dc18cea3630fccd88251909288"
 dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-core",
  "futures-util",
- "h2 0.4.10",
+ "h2 0.4.11",
  "http 1.3.1",
  "http-body 1.0.1",
  "http-body-util",
@@ -7447,7 +7442,7 @@ dependencies = [
 [[package]]
 name = "rpc-db"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#3816f6eacd924bf1350cd3797482f9dbff9f0768"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
 dependencies = [
  "alloy-primitives",
  "alloy-provider",
@@ -7780,6 +7775,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1375ba8ef45a6f15d83fa8748f1079428295d403d6ea991d09ab100155fbc06d"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7994,16 +8001,17 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.13.0"
+version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf65a400f8f66fb7b0552869ad70157166676db75ed8181f8104ea91cf9d0b42"
+checksum = "f2c45cd61fefa9db6f254525d46e392b852e0e61d9a1fd36e5bd183450a556d5"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "hex",
  "indexmap 1.9.3",
- "indexmap 2.9.0",
- "schemars",
+ "indexmap 2.10.0",
+ "schemars 0.9.0",
+ "schemars 1.0.3",
  "serde",
  "serde_derive",
  "serde_json",
@@ -8013,9 +8021,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.13.0"
+version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81679d9ed988d5e9a5e6531dc3f2c28efbd639cbd1dfb628df08edea6004da77"
+checksum = "de90945e6565ce0d9a25098082ed4ee4002e047cb59892c318d66821e14bb30f"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -8262,7 +8270,7 @@ dependencies = [
  "futures-util",
  "hashbrown 0.15.4",
  "hashlink",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "memchr",
  "once_cell",
@@ -8442,7 +8450,7 @@ dependencies = [
  "anyhow",
  "futures",
  "hex",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "sqlx",
@@ -8545,7 +8553,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "rand 0.8.5",
  "rustc-hex",
- "zkm-lib 1.1.0 (git+https://github.com/zkMIPS/zkMIPS)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -9009,7 +9017,7 @@ version = "0.19.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "toml_datetime",
  "winnow 0.5.40",
 ]
@@ -9020,7 +9028,7 @@ version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -9360,7 +9368,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.6.0",
  "prost 0.13.5",
- "reqwest 0.12.20",
+ "reqwest 0.12.21",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -9449,6 +9457,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unit-prefix"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "323402cff2dd658f39ca17c789b502021b3f18707c91cdf22e3838e1b4023817"
 
 [[package]]
 name = "unroll"
@@ -10391,7 +10405,7 @@ dependencies = [
 [[package]]
 name = "zkm-build"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -10403,7 +10417,7 @@ dependencies = [
 [[package]]
 name = "zkm-core-executor"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "anyhow",
  "bincode",
@@ -10436,14 +10450,14 @@ dependencies = [
  "typenum",
  "vec_map",
  "zkm-curves",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-core-machine"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -10488,14 +10502,14 @@ dependencies = [
  "zkm-core-executor",
  "zkm-curves",
  "zkm-derive",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-curves"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "cfg-if",
  "curve25519-dalek",
@@ -10510,14 +10524,14 @@ dependencies = [
  "serde",
  "snowbridge-amcl",
  "typenum",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-derive"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -10526,51 +10540,20 @@ dependencies = [
 [[package]]
 name = "zkm-lib"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "bincode",
  "cfg-if",
  "elliptic-curve",
  "serde",
  "sha2",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
-]
-
-[[package]]
-name = "zkm-lib"
-version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#1f5a8c6fb6513ca98d5cc7c95f55d92e9f384ff8"
-dependencies = [
- "bincode",
- "cfg-if",
- "elliptic-curve",
- "serde",
- "sha2",
- "zkm-primitives 1.1.0 (git+https://github.com/zkMIPS/zkMIPS)",
+ "zkm-primitives",
 ]
 
 [[package]]
 name = "zkm-primitives"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
-dependencies = [
- "bincode",
- "hex",
- "lazy_static",
- "num-bigint 0.4.6",
- "p3-field",
- "p3-koala-bear",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "serde",
- "sha2",
-]
-
-[[package]]
-name = "zkm-primitives"
-version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#1f5a8c6fb6513ca98d5cc7c95f55d92e9f384ff8"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "bincode",
  "hex",
@@ -10588,7 +10571,7 @@ dependencies = [
 [[package]]
 name = "zkm-prover"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "anyhow",
  "bincode",
@@ -10616,7 +10599,7 @@ dependencies = [
  "tracing-subscriber 0.3.19",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-recursion-circuit",
  "zkm-recursion-compiler",
  "zkm-recursion-core",
@@ -10627,7 +10610,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-circuit"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "hashbrown 0.14.5",
  "itertools 0.13.0",
@@ -10650,7 +10633,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-recursion-compiler",
  "zkm-recursion-core",
  "zkm-recursion-gnark-ffi",
@@ -10660,7 +10643,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-compiler"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "backtrace",
  "itertools 0.13.0",
@@ -10672,7 +10655,7 @@ dependencies = [
  "tracing",
  "vec_map",
  "zkm-core-machine",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-recursion-core",
  "zkm-recursion-derive",
  "zkm-stark",
@@ -10681,7 +10664,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-core"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "backtrace",
  "ff 0.13.1",
@@ -10710,14 +10693,14 @@ dependencies = [
  "zkhash",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-recursion-derive"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -10726,7 +10709,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-gnark-ffi"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "anyhow",
  "bincode",
@@ -10751,7 +10734,7 @@ dependencies = [
 [[package]]
 name = "zkm-sdk"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "alloy-signer 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "alloy-signer-local",
@@ -10790,7 +10773,7 @@ dependencies = [
  "zkm-build",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-prover",
  "zkm-stark",
 ]
@@ -10798,7 +10781,7 @@ dependencies = [
 [[package]]
 name = "zkm-stark"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "arrayref",
  "hashbrown 0.14.5",
@@ -10833,14 +10816,14 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber 0.3.19",
  "zkm-derive",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
 [[package]]
 name = "zkm-verifier"
 version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#1f5a8c6fb6513ca98d5cc7c95f55d92e9f384ff8"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -10859,7 +10842,7 @@ dependencies = [
 [[package]]
 name = "zkm-zkvm"
 version = "1.1.0"
-source = "git+https://github.com/felicityin/zkMIPS?branch=sdk#802fcb89de40e21c6922b70e402388c224deae6d"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -10868,8 +10851,8 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "sha2",
- "zkm-lib 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
- "zkm-primitives 1.1.0 (git+https://github.com/felicityin/zkMIPS?branch=sdk)",
+ "zkm-lib",
+ "zkm-primitives",
 ]
 
 [[package]]
