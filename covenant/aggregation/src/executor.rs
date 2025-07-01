@@ -142,7 +142,7 @@ impl AggregationExecutor {
                 input.zkm_version,
                 self.client.version(),
                 "{}",
-                format!(
+                format_args!(
                     "zkMIPS version mismatch, expected {}, actual {}",
                     self.client.version(),
                     input.zkm_version,
@@ -264,7 +264,7 @@ impl Groth16Executor {
             agg_proof.zkm_version,
             self.client.version(),
             "{}",
-            format!(
+            format_args!(
                 "zkMIPS version mismatch, expected {}, actual {}",
                 self.client.version(),
                 agg_proof.zkm_version

@@ -69,7 +69,7 @@ impl ExecutionHooks for PersistToDB {
             zkm_version,
             ZKM_CIRCUIT_VERSION,
             "{}",
-            format!(
+            format_args!(
                 "zkMIPS version mismatch, expected {}, actual {}",
                 ZKM_CIRCUIT_VERSION, zkm_version,
             ),

@@ -78,7 +78,7 @@ impl MMRHost {
             && self.nodes[current_level].len() % 2 == 1)
         {
             let sibling_index =
-                if current_index % 2 == 0 { current_index + 1 } else { current_index - 1 };
+                if current_index.is_multiple_of(2) { current_index + 1 } else { current_index - 1 };
             proof.push(self.nodes[current_level][sibling_index as usize]);
             current_index /= 2;
             current_level += 1;

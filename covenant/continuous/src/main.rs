@@ -93,26 +93,25 @@ async fn main() -> eyre::Result<()> {
 
         task::spawn(async move {
             match process_block(block_number, executor, args.execution_retries).await {
-                Ok(_) => info!("Successfully processed block {}", block_number),
+                Ok(_) => info!("Successfully processed block {block_number}"),
                 Err(err) => {
-                    let error_message = format!("Error executing block {}: {}", block_number, err);
+                    let error_message = format!("Error executing block {block_number}: {err}");
                     error!("{error_message}");
 
                     if let Some(alerting_client) = &alerting_client {
-                        alerting_client.send_alert(format!("{error_message}")).await;
+                        alerting_client.send_alert(error_message).await;
                     }
 
                     if let Err(err) = db::task_failed(local_db, block_number, err.to_string()).await
                     {
                         let error_message = format!(
-                            "Database error while updating block {} status: {}",
-                            block_number, err
+                            "Database error while updating block {block_number} status: {err}",
                         );
 
                         error!("{error_message}",);
 
                         if let Some(alerting_client) = &alerting_client {
-                            alerting_client.send_alert(format!("{error_message}")).await;
+                            alerting_client.send_alert(error_message).await;
                         }
                     }
 

@@ -90,7 +90,7 @@ impl Db {
             proof.zkm_version,
             ZKM_CIRCUIT_VERSION,
             "{}",
-            format!(
+            format_args!(
                 "zkMIPS version mismatch, expected {}, actual {}",
                 ZKM_CIRCUIT_VERSION, proof.zkm_version,
             ),
@@ -123,7 +123,7 @@ impl Db {
     }
 
     async fn remove_old_proofs(&self, block_number: u64) -> Result<()> {
-        if block_number % PROOF_COUNT != 0 {
+        if !block_number.is_multiple_of(PROOF_COUNT) {
             return Ok(());
         }
 

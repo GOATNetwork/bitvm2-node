@@ -82,7 +82,7 @@ mod tests {
         tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
         const DB_URL: &str = "/tmp/.bitvm2-node.db";
-        let db: LocalDB = LocalDB::new(&format!("sqlite:{}", DB_URL), true).await;
+        let db: LocalDB = LocalDB::new(&format!("sqlite:{DB_URL}"), true).await;
 
         let (proof, public_inputs, groth16_vk, zkm_version) =
             get_groth16_proof(&db, 2).await.unwrap();
