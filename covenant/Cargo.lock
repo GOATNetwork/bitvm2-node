@@ -3641,7 +3641,7 @@ dependencies = [
 [[package]]
 name = "guest-executor"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-consensus 0.14.0 (git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat)",
  "alloy-evm",
@@ -3939,7 +3939,7 @@ dependencies = [
 [[package]]
 name = "host-executor"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-chains",
  "alloy-consensus 0.14.0 (git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat)",
@@ -4954,7 +4954,7 @@ dependencies = [
 [[package]]
 name = "mpt"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -6128,7 +6128,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-genesis",
  "alloy-rpc-types",
@@ -6292,7 +6292,7 @@ dependencies = [
 [[package]]
 name = "provider"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-json-rpc 0.14.0 (git+https://github.com/zkMIPS-patches/alloy?branch=patch-0.14.0-goat)",
  "alloy-provider",
@@ -7442,7 +7442,7 @@ dependencies = [
 [[package]]
 name = "rpc-db"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-primitives",
  "alloy-provider",

@@ -1666,7 +1666,7 @@ dependencies = [
 [[package]]
 name = "guest-executor"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-consensus",
  "alloy-evm",
@@ -2169,7 +2169,7 @@ dependencies = [
 [[package]]
 name = "mpt"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -2682,7 +2682,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#586587be6ac456ff3e61fb2f035871242f6b9c99"
+source = "git+https://github.com/zkMIPS/reth-processor?branch=goat#53400a39ddbf39a3c55463b6b5b1e60221f035e7"
 dependencies = [
  "alloy-genesis",
  "alloy-rpc-types",
@@ -3673,6 +3673,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1375ba8ef45a6f15d83fa8748f1079428295d403d6ea991d09ab100155fbc06d"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3781,16 +3793,17 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.13.0"
+version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf65a400f8f66fb7b0552869ad70157166676db75ed8181f8104ea91cf9d0b42"
+checksum = "f2c45cd61fefa9db6f254525d46e392b852e0e61d9a1fd36e5bd183450a556d5"
 dependencies = [
  "base64",
  "chrono",
  "hex",
  "indexmap 1.9.3",
  "indexmap 2.10.0",
- "schemars",
+ "schemars 0.9.0",
+ "schemars 1.0.3",
  "serde",
  "serde_derive",
  "serde_json",
@@ -3800,9 +3813,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.13.0"
+version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81679d9ed988d5e9a5e6531dc3f2c28efbd639cbd1dfb628df08edea6004da77"
+checksum = "de90945e6565ce0d9a25098082ed4ee4002e047cb59892c318d66821e14bb30f"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -4799,7 +4812,7 @@ dependencies = [
 [[package]]
 name = "zkm-lib"
 version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#337322f6152e1c6020f13b248b1a9f543b2c5312"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -4812,7 +4825,7 @@ dependencies = [
 [[package]]
 name = "zkm-primitives"
 version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#337322f6152e1c6020f13b248b1a9f543b2c5312"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "bincode",
  "hex",
@@ -4830,7 +4843,7 @@ dependencies = [
 [[package]]
 name = "zkm-zkvm"
 version = "1.1.0"
-source = "git+https://github.com/zkMIPS/zkMIPS#337322f6152e1c6020f13b248b1a9f543b2c5312"
+source = "git+https://github.com/zkMIPS/zkMIPS#02a6b78101208ceb6551a5f48fe2328a0801eb74"
 dependencies = [
  "bincode",
  "cfg-if",
