@@ -113,15 +113,15 @@ impl AggregationExecutor {
                             )
                             .await?;
 
-                        let agg_proof = ProofWithPublicValues {
+                        let proof = ProofWithPublicValues {
                             block_number,
-                            proof: agg_proof.proof.clone(),
-                            public_values: agg_proof.public_values.clone(),
-                            zkm_version: agg_proof.zkm_version.clone(),
+                            proof: agg_proof.proof,
+                            public_values: agg_proof.public_values,
+                            zkm_version: agg_proof.zkm_version,
                         };
 
-                        groth16_proof_tx.send(agg_proof.clone())?;
-                        agg_proof_tx.send(agg_proof)?;
+                        groth16_proof_tx.send(proof.clone())?;
+                        agg_proof_tx.send(proof)?;
                     }
                     Err(err) => {
                         error!("Error generate aggregation proof {}: {}", block_number, err);
