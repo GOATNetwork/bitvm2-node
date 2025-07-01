@@ -43,7 +43,7 @@ jobs:
         timeout-minutes: 30
         with:
           profile: minimal
-          toolchain: nightly
+          toolchain: nightly-2025-06-30
           override: true
       - name: Install Dependencies
         run: sudo apt install protobuf-compiler
@@ -55,7 +55,7 @@ jobs:
     strategy:
       matrix:
         toolchain:
-          - nightly
+          - nightly-2025-06-30
     steps:
       - uses: actions/checkout@v4
       - name: Install Dependencies
