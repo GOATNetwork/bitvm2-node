@@ -58,8 +58,6 @@ impl AggregationExecutor {
         loop {
             let block_number = block_number_rx.recv();
             if let Ok(block_number) = block_number {
-                self.db.on_aggregation_start(block_number).await?;
-
                 let agg_input = if self.is_start_block && block_number == self.block_number {
                     restart = false;
                     let block_proof1 = self.db.load_proof(block_number - 1, false).await?;
@@ -84,6 +82,7 @@ impl AggregationExecutor {
                     AggreationInput((pre_agg_proof, block_proof))
                 };
 
+                self.db.on_aggregation_start(block_number).await?;
                 input_tx.send(agg_input)?;
                 info!("Successfully load proofs: {}, {}", block_number - 1, block_number);
             }
