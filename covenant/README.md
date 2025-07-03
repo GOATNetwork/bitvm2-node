@@ -1,6 +1,6 @@
 # BitVM2 Covenant
 
-See [Reth Processor](https://github.com/zkMIPS/reth-processor/blob/main/README.md)
+See [Reth Processor](https://github.com/ziren/reth-processor/blob/main/README.md)
 
 ## Parallel block execution
 

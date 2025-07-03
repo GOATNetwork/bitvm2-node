@@ -91,7 +91,7 @@ impl Db {
             ZKM_CIRCUIT_VERSION,
             "{}",
             format_args!(
-                "zkMIPS version mismatch, expected {}, actual {}",
+                "Ziren version mismatch, expected {}, actual {}",
                 ZKM_CIRCUIT_VERSION, proof.zkm_version,
             ),
         );

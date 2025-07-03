@@ -143,7 +143,7 @@ impl AggregationExecutor {
                 self.client.version(),
                 "{}",
                 format_args!(
-                    "zkMIPS version mismatch, expected {}, actual {}",
+                    "Ziren version mismatch, expected {}, actual {}",
                     self.client.version(),
                     input.zkm_version,
                 ),
@@ -167,7 +167,7 @@ impl AggregationExecutor {
         // Write the proofs.
         //
         // Note: this data will not actually be read by the aggregation program, instead it will be
-        // witnessed by the prover during the recursive aggregation process inside zkMIPS itself.
+        // witnessed by the prover during the recursive aggregation process inside Ziren itself.
         for input in inputs {
             let ZKMProof::Compressed(proof) = input.proof else { panic!() };
             stdin.write_proof(*proof, input.vk.vk.clone());
@@ -265,7 +265,7 @@ impl Groth16Executor {
             self.client.version(),
             "{}",
             format_args!(
-                "zkMIPS version mismatch, expected {}, actual {}",
+                "Ziren version mismatch, expected {}, actual {}",
                 self.client.version(),
                 agg_proof.zkm_version
             ),

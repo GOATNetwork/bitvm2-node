@@ -18,7 +18,7 @@ dotenv = "0.15.0"
 futures-util = "0.3.31"
 tracing-subscriber = "0.3.18"
 
-# zkMIPS
+# Ziren
 zkm-sdk.workspace = true
 zkm-prover.workspace = true
 zkm-verifier.workspace = true

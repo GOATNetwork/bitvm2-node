@@ -24,7 +24,7 @@ host-executor.workspace = true
 primitives.workspace = true
 provider.workspace = true
 
-# zkMIPS
+# Ziren
 zkm-prover.workspace = true
 zkm-sdk.workspace = true
 

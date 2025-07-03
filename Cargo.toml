@@ -52,9 +52,11 @@ uuid = { version = "1.7", features = ["v4", "serde"] }
 zeroize = "1.8.1"
 
 bincode = "1.3.3"
-zkm-prover = { git = "https://github.com/zkMIPS/zkMIPS" }
-zkm-sdk = { git = "https://github.com/zkMIPS/zkMIPS" }
-zkm-verifier = { git = "https://github.com/zkMIPS/zkMIPS", features = ["ark"] }
+zkm-build = { git = "https://github.com/ProjectZKM/Ziren" }
+zkm-core-executor = { git = "https://github.com/ProjectZKM/Ziren" }
+zkm-prover = { git = "https://github.com/ProjectZKM/Ziren" }
+zkm-sdk = { git = "https://github.com/ProjectZKM/Ziren" }
+zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"] }
 
 bitvm2-lib = { path = "crates/bitvm2" }
 identity = { path = "crates/identity" }
