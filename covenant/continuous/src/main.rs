@@ -42,7 +42,7 @@ async fn main() -> eyre::Result<()> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(appender);
     tracing_subscriber::fmt()
         .with_env_filter(
-            "continuous=info,host-executor=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn",
+            "continuous=info,host-executor=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn,zkm-sdk=info",
         )
         .with_writer(non_blocking)
         .with_max_level(tracing::Level::INFO)

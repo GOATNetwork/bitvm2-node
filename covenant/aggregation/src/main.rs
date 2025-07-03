@@ -40,9 +40,10 @@ async fn main() {
     let (non_blocking, _guard) = tracing_appender::non_blocking(appender);
     tracing_subscriber::fmt()
         .with_env_filter(
-            "aggregation=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn",
+            "aggregation=info,zkm_core_machine=warn,zkm_core_executor=error,zkm_prover=warn,zkm-sdk=info",
         )
         .with_writer(non_blocking)
+        .with_max_level(tracing::Level::INFO)
         .with_ansi(false)
         .finish()
         .init();
