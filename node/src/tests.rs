@@ -24,6 +24,7 @@ pub mod tests {
     use store::localdb::LocalDB;
     use uuid::Uuid;
 
+    use alloy::primitives::Address as EvmAddress;
     use bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction, TxIn, TxOut};
     use bitcoin_script::builder::StructuredScript;
     use bitvm::chunk::api::NUM_TAPS;
@@ -583,7 +584,7 @@ pub mod tests {
         // verify proof published by assert-txns:
         let public_proof_sigs =
             verifier::extract_proof_sigs_from_assert_commit_txns(assert_commit_txns).unwrap();
-        let disprove_scripts_array: [_; NUM_TAPS] = disprove_scripts.try_into().unwrap();
+        let disprove_scripts_array: [_; NUM_TAPS] = disprove_scripts.clone().try_into().unwrap();
         let disprove_witness = verifier::verify_proof(
             &get_vk(&local_db).await.unwrap(),
             public_proof_sigs,
@@ -591,20 +592,15 @@ pub mod tests {
             &operator_wots_pubkeys,
         )
         .unwrap();
-
-        // FIXME: avoid clone
-        let disprove_scripts_bytes = disprove_scripts_array
-            .iter()
-            .map(|x| x.clone().compile().into_bytes())
-            .collect::<Vec<Vec<u8>>>();
-
         let mock_challenger_reward_address = generate_burn_script_address(network);
+        let mock_challenger_evm_address = Some([0_u8; 20]);
         let disprove_tx = verifier::sign_disprove(
             &mut graph,
             disprove_witness,
-            disprove_scripts_bytes.to_vec(),
+            disprove_scripts,
             &operator_wots_pubkeys.1,
-            mock_challenger_reward_address,
+            mock_challenger_evm_address,
+            Some(mock_challenger_reward_address),
             fee_rate,
         )
         .unwrap();
