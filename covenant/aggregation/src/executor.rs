@@ -166,20 +166,13 @@ where
 
         let mut stdin = ZKMStdin::new();
 
-        // Write the verification keys.
-        let vkeys = inputs.iter().map(|input| input.vk.hash_u32()).collect::<Vec<_>>();
-        stdin.write::<Vec<[u32; 8]>>(&vkeys);
-
-        // Write the public values.
-        let public_values =
-            inputs.iter().map(|input| input.public_values.to_vec()).collect::<Vec<_>>();
-        stdin.write::<Vec<Vec<u8>>>(&public_values);
-
-        // Write the proofs.
-        //
-        // Note: this data will not actually be read by the aggregation program, instead it will be
-        // witnessed by the prover during the recursive aggregation process inside Ziren itself.
         for input in inputs {
+            stdin.write::<[u32; 8]>(&input.vk.hash_u32());
+
+            stdin.write::<Vec<u8>>(&input.public_values.to_vec());
+
+            // Note: this data will not actually be read by the aggregation program, instead it will be
+            // witnessed by the prover during the recursive aggregation process inside Ziren itself.
             let ZKMProof::Compressed(proof) = input.proof else { panic!() };
             stdin.write_proof(*proof, input.vk.vk.clone());
         }

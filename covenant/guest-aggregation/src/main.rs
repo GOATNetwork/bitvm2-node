@@ -9,31 +9,28 @@ use crate::io::ZKMPublicValues;
 mod io;
 
 pub fn main() {
-    // Read the verification keys.
-    let vkeys = zkm_zkvm::io::read::<Vec<[u32; 8]>>();
-
-    // Read the public values.
-    let public_values = zkm_zkvm::io::read::<Vec<Vec<u8>>>();
-
-    assert!(vkeys.len() > 1);
-    assert_eq!(vkeys.len(), public_values.len());
-
-    let states: Vec<(B256, B256)> = public_values.iter().map(|public_value_bytes| {
-        let mut public_value = ZKMPublicValues::from(public_value_bytes);
+    let vkey_pre = zkm_zkvm::io::read::<[u32; 8]>();
+    let public_values_pre = zkm_zkvm::io::read::<Vec<u8>>();
+    let states_pre: (B256, B256) = {
+        let mut public_value = ZKMPublicValues::from(&public_values_pre);
         // (prev_state_root, cur_state_root)
         (public_value.read::<B256>(), public_value.read::<B256>())
-    }).collect();
+    };
+
+    let vkey_cur = zkm_zkvm::io::read::<[u32; 8]>();
+    let public_values_cur = zkm_zkvm::io::read::<Vec<u8>>();
+    let states_cur: (B256, B256) = {
+        let mut public_value = ZKMPublicValues::from(&public_values_cur);
+        // (prev_state_root, cur_state_root)
+        (public_value.read::<B256>(), public_value.read::<B256>())
+    };
+
+    assert_eq!(states_pre.1, states_cur.0);
 
     // Verify the proofs.
-    for i in 0..vkeys.len() {
-        if i > 0 {
-            assert_eq!(states[i-1].1, states[i].0);
-        }
+    zkm_zkvm::lib::verify::verify_zkm_proof(&vkey_pre, &Sha256::digest(&public_values_pre).into());
+    zkm_zkvm::lib::verify::verify_zkm_proof(&vkey_cur, &Sha256::digest(&public_values_cur).into());
 
-        let public_values_digest = Sha256::digest(&public_values[i]);
-        zkm_zkvm::lib::verify::verify_zkm_proof(&vkeys[i], &public_values_digest.into());
-    }
-
-    zkm_zkvm::io::commit(&states.first().unwrap().0); // prev state root
-    zkm_zkvm::io::commit(&states.last().unwrap().1); // cur state root
+    zkm_zkvm::io::commit(&states_pre.0); // prev state root
+    zkm_zkvm::io::commit(&states_cur.1); // cur state root
 }
