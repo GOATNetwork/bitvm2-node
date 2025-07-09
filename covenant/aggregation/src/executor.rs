@@ -8,7 +8,7 @@ use tokio::time::Duration;
 use tracing::{debug, error, info};
 use zkm_prover::components::DefaultProverComponents;
 use zkm_sdk::{
-    ExecutionReport, HashableKey, Prover, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues,
+    HashableKey, Prover, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues,
     ZKMProvingKey, ZKMPublicValues, ZKMStdin, ZKMVerifyingKey,
 };
 use zkm_verifier::{Groth16Verifier, GROTH16_VK_BYTES};
@@ -101,14 +101,14 @@ impl AggregationExecutor {
             if let Ok(proofs) = proofs {
                 let block_number = proofs.0 .1.block_number;
                 match self.generate_aggregation_proof(vec![proofs.0 .0, proofs.0 .1]).await {
-                    Ok((agg_proof, ref exec_report, proving_duration)) => {
+                    Ok((agg_proof, cycles, proving_duration)) => {
                         info!("Successfully generate aggregation proof: {}", block_number);
                         self.db
                             .on_aggregation_end(
                                 block_number,
                                 &agg_proof,
                                 &self.vk,
-                                exec_report,
+                                cycles,
                                 proving_duration,
                             )
                             .await?;
@@ -136,7 +136,7 @@ impl AggregationExecutor {
     async fn generate_aggregation_proof(
         &self,
         inputs: Vec<Proof>,
-    ) -> Result<(ZKMProofWithPublicValues, ExecutionReport, Duration)> {
+    ) -> Result<(ZKMProofWithPublicValues, u64, Duration)> {
         inputs.iter().for_each(|input| {
             assert_eq!(
                 input.zkm_version,
@@ -192,7 +192,7 @@ impl AggregationExecutor {
         let block_number = block_numbers.last().unwrap();
         info!("[Aggregation] [{}] proving duration: {:?}s", block_number, proving_duration.as_secs_f32());
 
-        Ok((agg_proof, execution_report, proving_duration))
+        Ok((agg_proof, cycles, proving_duration))
     }
 }
 

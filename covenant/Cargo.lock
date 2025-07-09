@@ -3641,7 +3641,7 @@ dependencies = [
 [[package]]
 name = "guest-executor"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor#043b318b9e0a386de9a25f693336fb295cbe3930"
+source = "git+https://github.com/ProjectZKM/reth-processor#facba77f5553265e676076f5f82b72048f410108"
 dependencies = [
  "alloy-consensus 0.14.0 (git+https://github.com/ziren-patches/alloy?branch=patch-0.14.0)",
  "alloy-evm",
@@ -3939,7 +3939,7 @@ dependencies = [
 [[package]]
 name = "host-executor"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor#043b318b9e0a386de9a25f693336fb295cbe3930"
+source = "git+https://github.com/ProjectZKM/reth-processor#facba77f5553265e676076f5f82b72048f410108"
 dependencies = [
  "alloy-chains",
  "alloy-consensus 0.14.0 (git+https://github.com/ziren-patches/alloy?branch=patch-0.14.0)",
@@ -3955,6 +3955,7 @@ dependencies = [
  "csv",
  "either",
  "eyre",
+ "futures",
  "guest-executor",
  "mpt",
  "op-alloy-network",
@@ -4965,7 +4966,7 @@ dependencies = [
 [[package]]
 name = "mpt"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor#043b318b9e0a386de9a25f693336fb295cbe3930"
+source = "git+https://github.com/ProjectZKM/reth-processor#facba77f5553265e676076f5f82b72048f410108"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -6139,7 +6140,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor#043b318b9e0a386de9a25f693336fb295cbe3930"
+source = "git+https://github.com/ProjectZKM/reth-processor#facba77f5553265e676076f5f82b72048f410108"
 dependencies = [
  "alloy-genesis",
  "alloy-rpc-types",
@@ -6303,7 +6304,7 @@ dependencies = [
 [[package]]
 name = "provider"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor#043b318b9e0a386de9a25f693336fb295cbe3930"
+source = "git+https://github.com/ProjectZKM/reth-processor#facba77f5553265e676076f5f82b72048f410108"
 dependencies = [
  "alloy-json-rpc 0.14.0 (git+https://github.com/ziren-patches/alloy?branch=patch-0.14.0)",
  "alloy-provider",
@@ -7454,15 +7455,18 @@ dependencies = [
 [[package]]
 name = "rpc-db"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor#043b318b9e0a386de9a25f693336fb295cbe3930"
+source = "git+https://github.com/ProjectZKM/reth-processor#facba77f5553265e676076f5f82b72048f410108"
 dependencies = [
  "alloy-primitives",
  "alloy-provider",
  "alloy-rpc-types",
+ "indexmap 2.10.0",
  "reth-storage-errors",
  "revm-database-interface",
  "revm-primitives",
  "revm-state",
+ "serde",
+ "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

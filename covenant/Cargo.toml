@@ -58,6 +58,7 @@ zkm-core-executor = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-prover = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-sdk = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"] }
+
 # zkm-build = { path = "../zkMIPS/crates/build" }
 # zkm-core-executor = { path = "../zkMIPS/crates/core/executor" }
 # zkm-prover = { path = "../zkMIPS/crates/prover" }

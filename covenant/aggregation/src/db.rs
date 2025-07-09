@@ -8,7 +8,7 @@ use tokio::time::{sleep, Duration};
 use tracing::info;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_sdk::{
-    ExecutionReport, HashableKey, ZKMProof, ZKMProofWithPublicValues, ZKMPublicValues,
+    HashableKey, ZKMProof, ZKMProofWithPublicValues, ZKMPublicValues,
     ZKMVerifyingKey,
 };
 use zkm_verifier::GROTH16_VK_BYTES;
@@ -83,7 +83,7 @@ impl Db {
         block_number: u64,
         proof: &ZKMProofWithPublicValues,
         vk: &ZKMVerifyingKey,
-        execution_report: &ExecutionReport,
+        cycles: u64,
         proving_duration: Duration,
     ) -> Result<()> {
         assert_eq!(
@@ -105,7 +105,7 @@ impl Db {
             .update_aggregation_succ(
                 block_number as i64,
                 (proving_duration.as_secs_f32() * 1000.0) as i64,
-                execution_report.total_instruction_count() as i64,
+                cycles as i64,
                 &proof_bytes,
                 &public_values_bytes,
                 vk.bytes32(),

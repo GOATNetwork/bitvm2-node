@@ -14,6 +14,8 @@ use store::localdb::LocalDB;
 use tokio::{sync::Semaphore, task};
 use tracing::{error, info, instrument, warn};
 use tracing_subscriber::util::SubscriberInitExt;
+#[cfg(feature = "network_prover")]
+use zkm_sdk::NetworkProver;
 use zkm_sdk::{include_elf, ProverClient};
 
 mod cli;
@@ -63,10 +65,23 @@ async fn main() -> eyre::Result<()> {
     let http_provider = create_provider(args.provider.rpc_url.unwrap());
     let alerting_client =
         args.pager_duty_integration_key.map(|key| Arc::new(AlertingClient::new(key)));
-    let prover_client = Arc::new(ProverClient::new());
+
+    #[cfg(feature = "network_prover")]
+    let prover_client = {
+        let np = NetworkProver::from_env().map_err(|_| {
+            eyre::eyre!("Failed to create NetworkProver from environment variables")
+        })?;
+        Arc::new(np)
+    };
+    #[cfg(not(feature = "network_prover"))]
+    let prover_client = {
+        tracing::info!("Use local ProverClient");
+        Arc::new(ProverClient::new())
+    };
 
     let executor = Arc::new(
         FullExecutor::<EthExecutorComponents<_>, _>::try_new(
+            http_provider.clone(),
             http_provider,
             elf,
             block_execution_strategy_factory,
@@ -139,7 +154,7 @@ async fn process_block<C, P>(
 ) -> eyre::Result<()>
 where
     C: ExecutorComponents<Network = Ethereum>,
-    P: Provider<Ethereum> + Clone,
+    P: Provider<Ethereum> + Clone + 'static,
 {
     let mut retry_count = 0;
 

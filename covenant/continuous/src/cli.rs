@@ -98,6 +98,7 @@ impl Args {
             custom_beneficiary: None,
             prove_mode: self.prove.then_some(ZKMProofKind::Compressed),
             opcode_tracking: false,
+            debug_rpc_url: None,
         };
 
         Ok(config)
