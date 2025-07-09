@@ -226,8 +226,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
     let ipfs = IPFS::new(&ipfs_url);
 
+    if actor == Actor::Operator {
+        set_node_external_socket_addr_env(&rpc_addr).await?;
+    }
     // validate node info
-    set_node_external_socket_addr_env(&rpc_addr).await?;
     check_node_info().await;
     save_local_info(&local_db).await;
 

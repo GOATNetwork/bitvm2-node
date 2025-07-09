@@ -820,6 +820,26 @@ impl<'a> StorageProcessor<'a> {
         Ok((nodes, total_nodes))
     }
 
+    pub async fn get_proof_server_node(&mut self) -> anyhow::Result<Option<Node>> {
+        Ok(sqlx::query_as!(
+            Node,
+            "SELECT peer_id,
+                    actor,
+                    goat_addr,
+                    btc_pub_key,
+                    socket_addr,
+                    reward,
+                    created_at,
+                    updated_at
+             FROM node
+             WHERE socket_addr != ''
+             ORDER BY updated_at DESC
+             LIMIT 1",
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
     pub async fn node_overview(&mut self, time_threshold: i64) -> anyhow::Result<NodesOverview> {
         let records = sqlx::query!(
             "SELECT count(*)                                         AS total,
@@ -1842,6 +1862,42 @@ impl<'a> StorageProcessor<'a> {
         .execute(self.conn())
         .await?;
 
+        Ok(())
+    }
+
+    pub async fn add_groth16_proof(
+        &mut self,
+        block_number: i64,
+        proof: &[u8],
+        public_values: &[u8],
+        verifier_id: &str,
+        zkm_version: &str,
+        state: &str,
+    ) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let proof = hex::encode(proof);
+        let public_values = hex::encode(public_values);
+        sqlx::query!(
+            "INSERT INTO groth16_proof
+                         (block_number, proof, public_values, verifier_id, zkm_version, state, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         ON CONFLICT(block_number) DO UPDATE SET proof         = excluded.proof,
+                                                                 public_values = excluded.public_values,
+                                                                 verifier_id   = excluded.verifier_id,
+                                                                 zkm_version   = excluded.zkm_version,
+                                                                 state         = excluded.state,
+                                                                 updated_at    = excluded.updated_at",
+            block_number,
+            proof,
+            public_values,
+            verifier_id,
+            zkm_version,
+            state,
+            timestamp,
+            timestamp
+        )
+        .execute(self.conn())
+        .await?;
         Ok(())
     }
 

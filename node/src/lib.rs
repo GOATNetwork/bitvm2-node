@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 pub mod action;
 pub mod bitcoin;
 pub mod client;

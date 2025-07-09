@@ -1,4 +1,9 @@
+use ark_bn254::Bn254;
+use ark_groth16::Groth16;
+use ark_groth16::r1cs_to_qap::LibsnarkReduction;
 use serde::{Deserialize, Serialize};
+use zkm_sdk::{ZKMProofWithPublicValues, ZKMStdin};
+use zkm_verifier::convert_ark;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProofsQueryParams {
@@ -42,4 +47,31 @@ pub struct ProofsOverview {
     pub avg_block_proof: f64,
     pub avg_aggregation_proof: f64,
     pub avg_groth16_proof: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Groth16ProofValue {
+    pub proof: Vec<u8>,
+    pub public_values: Vec<u8>,
+    pub verifier_id: String,
+    pub zkm_version: String,
+    pub groth16_vk: Vec<u8>,
+}
+
+impl Groth16ProofValue {
+    pub fn verify(&self) -> anyhow::Result<bool> {
+        let proof = ZKMProofWithPublicValues {
+            proof: bincode::deserialize(&self.proof)?,
+            public_values: bincode::deserialize(&self.public_values)?,
+            zkm_version: self.zkm_version.clone(),
+            stdin: ZKMStdin::default(),
+        };
+        let ark_proof = convert_ark(&proof, &self.verifier_id, &self.groth16_vk)?;
+        Ok(Groth16::<Bn254, LibsnarkReduction>::verify_proof(
+            &ark_proof.groth16_vk.vk.into(),
+            &ark_proof.proof,
+            ark_proof.public_inputs.as_ref(),
+        )
+        .unwrap_or(false))
+    }
 }

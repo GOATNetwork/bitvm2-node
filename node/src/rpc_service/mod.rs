@@ -2,12 +2,14 @@ mod bitvm2;
 
 mod handler;
 mod node;
-mod proof;
+pub(crate) mod proof;
 
 use crate::client::BTCClient;
 use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
-use crate::rpc_service::handler::proof_handler::{get_proof, get_proofs, get_proofs_overview};
+use crate::rpc_service::handler::proof_handler::{
+    get_groth16_proof, get_proof, get_proofs, get_proofs_overview,
+};
 use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
 use axum::body::Body;
 use axum::extract::Request;
@@ -97,6 +99,7 @@ pub async fn serve(
         .route("/v1/graphs/{id}/tx", get(get_graph_tx))
         .route("/v1/proofs", get(get_proofs))
         .route("/v1/proofs/{block_number}", get(get_proof))
+        .route("/v1/proofs/groth16/{block_number}", get(get_groth16_proof))
         .route("/v1/proofs/overview", get(get_proofs_overview))
         .route("/metrics", get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))

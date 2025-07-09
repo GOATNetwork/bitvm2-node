@@ -679,6 +679,27 @@ If a graph for the instance is created, the count must be greater than or equal 
 }
 
 ```
+#### Get Proof Detail
+- **Endpoint**: `GET /v1/proofs/groth16`
+- **Description**: Retrieve goat block groth16_proof info
+- **Path Parameters**:
+  - `block_number`: Graph ID
+- **Response**:
+```json
+{
+    "proof": [
+        "byte array"
+    ],
+    "public_values": [
+        "byte array"
+    ],
+    "verifier_id": "string",
+    "zkm_version": "string",
+    "groth16_vk": [
+        "byte array"
+    ]
+}
+```
 
 ## Error Handling
 

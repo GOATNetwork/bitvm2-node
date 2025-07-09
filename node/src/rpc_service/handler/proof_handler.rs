@@ -1,8 +1,8 @@
-use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
+use crate::env::get_proof_server_url;
+use crate::rpc_service::AppState;
 use crate::rpc_service::proof::{
-    BlockProofs, ProofItem, Proofs, ProofsOverview, ProofsQueryParams,
+    BlockProofs, Groth16ProofValue, ProofItem, Proofs, ProofsOverview, ProofsQueryParams,
 };
-use crate::rpc_service::{AppState, current_time_secs};
 use anyhow::bail;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::LocalDB;
-use store::{GoatTxType, NODE_STATUS_ONLINE, ProofType};
+use store::{GoatTxType, ProofType};
 use uuid::Uuid;
 
 #[axum::debug_handler]
@@ -225,22 +225,57 @@ fn convert_to_proof_items(
         .collect()
 }
 
+// get_detail_proof
+#[axum::debug_handler]
+pub async fn get_groth16_proof(
+    uri: Uri,
+    Path(block_number): Path<i64>,
+    State(app_state): State<Arc<AppState>>,
+) -> (StatusCode, Json<Option<Groth16ProofValue>>) {
+    let async_fn = || async move {
+        if app_state.actor == Actor::Relayer {
+            let operator_url = get_online_operator_url(&app_state.local_db).await?;
+            let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
+            if !resp.status().is_success() {
+                return Err(format!("fail to get response from {operator_url}").into());
+            }
+            let res = resp.json::<Option<Groth16ProofValue>>().await?;
+            return Ok::<Option<Groth16ProofValue>, Box<dyn std::error::Error>>(res);
+        }
+        let mut storage_process = app_state.local_db.acquire().await?;
+        let (proof, public_values, verifier_id, zkm_version) =
+            storage_process.get_groth16_proof(block_number).await?;
+
+        if proof.is_empty() {
+            return Err(format!("Groth16 proof is not ready at {block_number}").into());
+        }
+        let groth16_vk = storage_process.get_groth16_vk(&zkm_version).await?;
+        Ok::<Option<Groth16ProofValue>, Box<dyn std::error::Error>>(Some(Groth16ProofValue {
+            proof,
+            public_values,
+            verifier_id,
+            zkm_version,
+            groth16_vk,
+        }))
+    };
+    match async_fn().await {
+        Ok(res) => (StatusCode::OK, Json(res)),
+        Err(err) => {
+            tracing::warn!("get_detail_proof failed, error:{}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+        }
+    }
+}
+
 async fn get_online_operator_url(local_db: &LocalDB) -> anyhow::Result<String> {
+    let env_set_url = get_proof_server_url();
+    if let Some(url) = env_set_url {
+        return Ok(url);
+    }
     let mut storage_processor = local_db.acquire().await?;
-    let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
-    let (mut nodes, _) = storage_processor
-        .node_list(
-            Some(Actor::Operator.to_string()),
-            None,
-            None,
-            None,
-            time_threshold,
-            Some(NODE_STATUS_ONLINE.to_string()),
-        )
-        .await?;
-    if nodes.is_empty() {
+    if let Some(node) = storage_processor.get_proof_server_node().await? {
+        Ok(node.socket_addr.clone())
+    } else {
         bail!("no operator is online")
     }
-    nodes.sort_by_key(|v| v.created_at);
-    Ok(nodes[0].socket_addr.clone())
 }

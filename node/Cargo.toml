@@ -85,6 +85,9 @@ ark-groth16 = { workspace = true }
 ark-serialize = { workspace = true }
 async-trait = { workspace = true }
 
+zkm-sdk = { workspace = true }
+zkm-verifier = { workspace = true }
+
 stun-client = "0.1.4"
 
 # bin

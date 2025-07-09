@@ -12,6 +12,7 @@ use crate::env::*;
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::monitor_events;
 use crate::rpc_service::current_time_secs;
+use crate::rpc_service::proof::Groth16ProofValue;
 use alloy::primitives::Address as EvmAddress;
 use alloy::providers::ProviderBuilder;
 use ark_serialize::CanonicalDeserialize;
@@ -1587,6 +1588,10 @@ pub async fn run_gen_groth16_proof_task(
 /// Retrieve the server's public IP via NAT protocol and combine it with
 /// the configured RPC monitoring port`rpc_addr` to generate the external RPC service address.
 pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
+    if get_proof_server_url().is_some() {
+        // not provide proof server
+        return Ok(());
+    }
     let addr = SocketAddr::from_str(rpc_addr)?;
     let mut client = Client::new("0.0.0.0:0", None).await?;
     let message_res = client.binding_request("stun.l.google.com:19302", None).await;
@@ -1632,8 +1637,11 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
 
 pub async fn operator_scan_ready_proof(
     local_db: &LocalDB,
+    remote_proof_server_socket: Option<String>,
+    uri: &str
 ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
     tracing::info!("start operator_scan_ready_proof");
+    let client = reqwest::Client::new();
     let mut storage_proccessor = local_db.acquire().await?;
     let check_txs = storage_proccessor
         .get_goat_tx_record_by_prove_status(
@@ -1659,11 +1667,50 @@ pub async fn operator_scan_ready_proof(
         }
         let challenge_txid_res = parse_challenge_txid_fn(tx.extra.clone());
         if let Ok(challenge_txid) = challenge_txid_res {
-            let (proof, _, _, _) = storage_proccessor.get_groth16_proof(tx.height).await?;
-            if proof.is_empty() {
-                tracing::info!("Graph id :{} proof is empty just waiting", tx.graph_id);
-                continue;
+            if let Some(socket) = remote_proof_server_socket.clone() {
+                let resp = client
+                    .get(format!("http://{socket}{uri}/{}", tx.height))
+                    .send()
+                    .await?;
+                if resp.status().is_success()
+                    && let Some(proof_value) = resp.json::<Option<Groth16ProofValue>>().await?
+                {
+                    if !proof_value.verify()? {
+                        warn!(
+                            "fail to get detail proof  from {socket} for height {}, verify failed",
+                            tx.height
+                        );
+                        continue;
+                    }
+
+                    storage_proccessor
+                        .create_verifier_key(&proof_value.zkm_version, &proof_value.groth16_vk)
+                        .await?;
+                    storage_proccessor
+                        .add_groth16_proof(
+                            tx.height,
+                            &proof_value.proof,
+                            &proof_value.public_values,
+                            &proof_value.verifier_id,
+                            &proof_value.zkm_version,
+                            "proved",
+                        )
+                        .await?;
+                } else {
+                    warn!(
+                        "fail to get detail proof  from {socket} for height {}, will try later",
+                        tx.height
+                    );
+                    continue;
+                }
+            } else {
+                let (proof, _, _, _) = storage_proccessor.get_groth16_proof(tx.height).await?;
+                if proof.is_empty() {
+                    tracing::info!("Graph id :{} proof is empty just waiting", tx.graph_id);
+                    continue;
+                }
             }
+
             tracing::info!("Graph id :{} proof is ready", tx.graph_id);
             message_content = Some(GOATMessageContent::ChallengeSent(ChallengeSent {
                 instance_id: tx.instance_id,

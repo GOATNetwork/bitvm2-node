@@ -33,6 +33,7 @@ pub const ENV_GOAT_ADDRESS: &str = "GOAT_ADDRESS";
 pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
 /// All actors
 pub const ENV_PEER_KEY: &str = "PEER_KEY";
+pub const ENV_PROOF_SEVER_URL: &str = "PROOF_SEVER_URL";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
@@ -356,4 +357,8 @@ pub fn get_proto_base() -> String {
 
 pub fn get_rpc_support_actors() -> Vec<Actor> {
     vec![Actor::Relayer]
+}
+
+pub fn get_proof_server_url() -> Option<String> {
+    std::env::var(ENV_PROOF_SEVER_URL).ok()
 }
