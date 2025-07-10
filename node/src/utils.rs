@@ -1638,7 +1638,7 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
 pub async fn operator_scan_ready_proof(
     local_db: &LocalDB,
     remote_proof_server_socket: Option<String>,
-    uri: &str
+    uri: &str,
 ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
     tracing::info!("start operator_scan_ready_proof");
     let client = reqwest::Client::new();
@@ -1668,10 +1668,7 @@ pub async fn operator_scan_ready_proof(
         let challenge_txid_res = parse_challenge_txid_fn(tx.extra.clone());
         if let Ok(challenge_txid) = challenge_txid_res {
             if let Some(socket) = remote_proof_server_socket.clone() {
-                let resp = client
-                    .get(format!("http://{socket}{uri}/{}", tx.height))
-                    .send()
-                    .await?;
+                let resp = client.get(format!("http://{socket}{uri}/{}", tx.height)).send().await?;
                 if resp.status().is_success()
                     && let Some(proof_value) = resp.json::<Option<Groth16ProofValue>>().await?
                 {

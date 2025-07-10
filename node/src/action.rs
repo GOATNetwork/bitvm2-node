@@ -5,7 +5,7 @@ use crate::env::{
 };
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;
-use crate::rpc_service::current_time_secs;
+use crate::rpc_service::{current_time_secs, routes};
 use crate::utils::{statics::*, *};
 use crate::{defer, dismiss_defer};
 use anyhow::Result;
@@ -233,9 +233,12 @@ pub async fn recv_and_dispatch(
             do_tick_action(swarm, local_db, btc_client, goat_client).await?;
         }
         if actor == Actor::Operator
-            && let Some(message) =
-                operator_scan_ready_proof(local_db, get_proof_server_url(), "/v1/proofs/groth16")
-                    .await?
+            && let Some(message) = operator_scan_ready_proof(
+                local_db,
+                get_proof_server_url(),
+                routes::v1::PROOFS_GROTH16_BASE,
+            )
+            .await?
         {
             local_message = message.clone();
         } else {

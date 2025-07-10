@@ -3,6 +3,7 @@ mod bitvm2;
 mod handler;
 mod node;
 pub(crate) mod proof;
+pub mod routes;
 
 use crate::client::BTCClient;
 use crate::env::get_network;
@@ -79,29 +80,29 @@ pub async fn serve(
 ) -> anyhow::Result<String> {
     let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, registry).await?;
     let server = Router::new()
-        .route("/", get(root))
-        .route("/v1/nodes", post(create_node))
-        .route("/v1/nodes", get(get_nodes))
-        .route("/v1/nodes/{:id}", get(get_node))
-        .route("/v1/nodes/overview", get(get_nodes_overview))
-        .route("/v1/instances/settings", get(instance_settings))
-        .route("/v1/instances", get(get_instances))
-        .route("/v1/instances", post(create_instance))
-        .route("/v1/instances/{:id}", get(get_instance))
-        .route("/v1/instances/{:id}", put(update_instance))
-        .route("/v1/instances/action/bridge_in_tx_prepare", post(bridge_in_tx_prepare))
-        .route("/v1/instances/overview", get(get_instances_overview))
-        .route("/v1/graphs/{:id}", get(get_graph))
-        .route("/v1/graphs/{:id}", put(update_graph))
-        .route("/v1/graphs", get(get_graphs))
-        .route("/v1/graphs/presign_check", get(graph_presign_check))
-        .route("/v1/graphs/{id}/txn", get(get_graph_txn))
-        .route("/v1/graphs/{id}/tx", get(get_graph_tx))
-        .route("/v1/proofs", get(get_proofs))
-        .route("/v1/proofs/{block_number}", get(get_proof))
-        .route("/v1/proofs/groth16/{block_number}", get(get_groth16_proof))
-        .route("/v1/proofs/overview", get(get_proofs_overview))
-        .route("/metrics", get(metrics_handler))
+        .route(routes::ROOT, get(root))
+        .route(routes::v1::NODES_BASE, post(create_node))
+        .route(routes::v1::NODES_BASE, get(get_nodes))
+        .route(routes::v1::NODES_BY_ID, get(get_node))
+        .route(routes::v1::NODES_OVERVIEW, get(get_nodes_overview))
+        .route(routes::v1::INSTANCES_SETTINGS, get(instance_settings))
+        .route(routes::v1::INSTANCES_BASE, get(get_instances))
+        .route(routes::v1::INSTANCES_BASE, post(create_instance))
+        .route(routes::v1::INSTANCES_BY_ID, get(get_instance))
+        .route(routes::v1::INSTANCES_BY_ID, put(update_instance))
+        .route(routes::v1::INSTANCES_ACTION_BRIDGE_IN, post(bridge_in_tx_prepare))
+        .route(routes::v1::INSTANCES_OVERVIEW, get(get_instances_overview))
+        .route(routes::v1::GRAPHS_BY_ID, get(get_graph))
+        .route(routes::v1::GRAPHS_BY_ID, put(update_graph))
+        .route(routes::v1::GRAPHS_BASE, get(get_graphs))
+        .route(routes::v1::GRAPHS_PRESIGN_CHECK, get(graph_presign_check))
+        .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
+        .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
+        .route(routes::v1::PROOFS_BASE, get(get_proofs))
+        .route(routes::v1::PROOFS_BY_BLOCK_NUMBER, get(get_proof))
+        .route(routes::v1::PROOFS_GROTH16_BY_BLOCK_NUMBER, get(get_groth16_proof))
+        .route(routes::v1::PROOFS_OVERVIEW, get(get_proofs_overview))
+        .route(routes::METRICS, get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![
             Method::GET,
