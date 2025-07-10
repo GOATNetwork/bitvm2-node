@@ -22,4 +22,8 @@ pub struct Args {
     /// Retry count on failed execution.
     #[clap(long, env, default_value_t = 1)]
     pub execution_retries: usize,
+
+    /// Execute guest.
+    #[clap(long)]
+    pub exec: bool,
 }

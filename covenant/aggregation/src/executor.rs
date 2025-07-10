@@ -2,16 +2,19 @@ use std::sync::{
     mpsc::{Receiver, SyncSender},
     Arc,
 };
+use std::sync::RwLock;
 
 use anyhow::Result;
 use tokio::time::Duration;
+use lazy_static::lazy_static;
 use tracing::{debug, error, info};
-use zkm_prover::components::DefaultProverComponents;
 use zkm_sdk::{
     HashableKey, Prover, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues,
-    ZKMProvingKey, ZKMPublicValues, ZKMStdin, ZKMVerifyingKey,
+    ZKMProvingKey, ZKMPublicValues, ZKMStdin, ZKMVerifyingKey, NetworkProver, ProverClient,
 };
+use sha2::{Digest, Sha256};
 use zkm_verifier::{Groth16Verifier, GROTH16_VK_BYTES};
+use zkm_prover::components::DefaultProverComponents;
 
 use crate::db::*;
 
@@ -26,25 +29,33 @@ pub struct ProofWithPublicValues {
 }
 
 #[derive(Clone)]
-pub struct AggregationExecutor {
+pub struct AggregationExecutor<P>
+where 
+    P: Prover<DefaultProverComponents> + MaybeProveWithCycles + 'static
+{
     db: Arc<Db>,
-    client: Arc<dyn Prover<DefaultProverComponents>>,
+    client: Arc<P>,
     pk: Arc<ZKMProvingKey>,
     vk: Arc<ZKMVerifyingKey>,
     block_number: u64,
     is_start_block: bool,
+    exec: bool,
 }
 
-impl AggregationExecutor {
+impl<P> AggregationExecutor<P>
+where 
+    P: Prover<DefaultProverComponents> + MaybeProveWithCycles + 'static
+{
     pub async fn new(
         db: Arc<Db>,
-        client: Arc<dyn Prover<DefaultProverComponents>>,
+        client: Arc<P>,
         pk: Arc<ZKMProvingKey>,
         vk: Arc<ZKMVerifyingKey>,
         block_number: u64,
         is_start_block: bool,
+        exec: bool,
     ) -> Self {
-        Self { db, client, pk, vk, block_number, is_start_block }
+        Self { db, client, pk, vk, block_number, is_start_block, exec }
     }
 
     pub async fn data_preparer(
@@ -174,25 +185,27 @@ impl AggregationExecutor {
         }
 
         // Only execute the program.
-        let execute_result = self.client.execute(&self.pk.elf, &stdin);
+        if self.exec {
+            let execute_result = self.client.execute(&self.pk.elf, &stdin);
 
-        let (_public_values, execution_report) = execute_result?;
+            let (_public_values, execution_report) = execute_result?;
 
-        let cycles: u64 = execution_report.total_instruction_count();
-        info!("[Aggregation] total cycles: {:?}", cycles);
+            let cycles: u64 = execution_report.total_instruction_count();
+            info!("[Aggregation] total cycles: {:?}", cycles);
 
-        info!(?block_numbers, "[Aggregation] Execution successful");
+            info!(?block_numbers, "[Aggregation] Execution successful");
+        }
 
         let proving_start = tokio::time::Instant::now();
 
         // Generate the aggregation proof.
-        let agg_proof = self.client.prove(self.pk.as_ref(), stdin, ZKMProofKind::Compressed)?;
+        let (agg_proof, cycles) = self.client.prove_with_cycles(self.pk.as_ref(), &stdin, ZKMProofKind::Compressed).await?;
 
         let proving_duration = proving_start.elapsed();
         let block_number = block_numbers.last().unwrap();
         info!("[Aggregation] [{}] proving duration: {:?}s", block_number, proving_duration.as_secs_f32());
 
-        Ok((agg_proof, cycles, proving_duration))
+        Ok((agg_proof, cycles.unwrap_or_default(), proving_duration))
     }
 }
 
@@ -285,5 +298,69 @@ impl Groth16Executor {
         info!("[Groth16] [{}] proving duration: {:?}s", block_number, proving_duration.as_secs_f32());
 
         Ok((groth16_proof, proving_duration))
+    }
+}
+
+
+lazy_static! {
+    static ref ELF_ID: RwLock<String> = RwLock::new(Default::default());
+}
+
+pub trait MaybeProveWithCycles {
+    fn prove_with_cycles(
+        &self,
+        pk: &ZKMProvingKey,
+        stdin: &ZKMStdin,
+        mode: ZKMProofKind,
+    ) -> impl std::future::Future<
+        Output = Result<(ZKMProofWithPublicValues, Option<u64>)>,
+    > + Send;
+}
+
+impl MaybeProveWithCycles for ProverClient {
+    async fn prove_with_cycles(
+        &self,
+        pk: &ZKMProvingKey,
+        stdin: &ZKMStdin,
+        mode: ZKMProofKind,
+    ) -> Result<(ZKMProofWithPublicValues, Option<u64>)> {
+        let mut prove = self.prove(pk, stdin.clone());
+        prove = match mode {
+            ZKMProofKind::Core => prove.core(),
+            ZKMProofKind::Compressed => prove.compressed(),
+            ZKMProofKind::Groth16 => prove.groth16(),
+            ZKMProofKind::Plonk => prove.plonk(),
+            ZKMProofKind::CompressToGroth16 => unreachable!(),
+        };
+        let proof = prove.run()?;
+
+        Ok((proof, None))
+    }
+}
+
+impl MaybeProveWithCycles for NetworkProver {
+    async fn prove_with_cycles(
+        &self,
+        pk: &ZKMProvingKey,
+        stdin: &ZKMStdin,
+        mode: ZKMProofKind,
+    ) -> Result<(ZKMProofWithPublicValues, Option<u64>)> {
+        let elf_id = hex::encode(Sha256::digest(&pk.elf));
+
+        let (elf, elf_id) = if *ELF_ID.read().unwrap() != elf_id {
+            let mut id = ELF_ID.write().unwrap();
+            *id = elf_id;
+
+            (&pk.elf, None)
+        } else {
+            (&Default::default(), Some(elf_id))
+        };
+        tracing::info!("elf id: {:?}", elf_id);
+
+        let (proof, cycles) = self
+            .prove_with_cycles(elf, stdin.clone(), mode, elf_id, None)
+            .await?;
+
+        return Ok((proof, Some(cycles)));
     }
 }
