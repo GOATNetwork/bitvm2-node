@@ -6,7 +6,7 @@ edition = "2024"
 resolver = "3"
 members = [
     "crates/bitvm2",
-    "crates/store", "crates/identity", "node", "crates/spv",
+    "crates/store", "node", "crates/spv",
 ]
 default-members = ["node"]
 
@@ -57,6 +57,5 @@ zkm-sdk = { git = "https://github.com/zkMIPS/zkMIPS" }
 zkm-verifier = { git = "https://github.com/zkMIPS/zkMIPS", features = ["ark"] }
 
 bitvm2-lib = { path = "crates/bitvm2" }
-identity = { path = "crates/identity" }
 store = { path = "crates/store" }
 spv = { path = "crates/spv" }

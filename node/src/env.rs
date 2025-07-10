@@ -11,7 +11,6 @@ use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
 use libp2p::PeerId;
-use musig2::k256::sha2;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;

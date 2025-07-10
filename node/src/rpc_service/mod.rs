@@ -183,8 +183,9 @@ async fn print_req_and_resp_detail(
 #[cfg(test)]
 mod tests {
     use crate::client::create_local_db;
+    use crate::env::{ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS};
     use crate::rpc_service::{self, Actor};
-    use crate::utils::{generate_random_bytes, get_rand_btc_address};
+    use crate::utils::{generate_local_key, generate_random_bytes, get_rand_btc_address};
     use bitcoin::{Network, PublicKey};
     use bitvm2_lib::keys::NodeMasterKey;
     use prometheus_client::registry::Registry;
@@ -196,16 +197,17 @@ mod tests {
     use tracing::info;
     use tracing_subscriber::EnvFilter;
     use uuid::Uuid;
-    use crate::env::{ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS};
 
     fn init() {
         unsafe {
             std::env::set_var("RUST_LOG", "info");
             std::env::set_var(ENV_GOAT_CHAIN_URL, "https://rpc.testnet3.goat.network");
-            std::env::set_var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df");
+            std::env::set_var(
+                ENV_GOAT_GATEWAY_CONTRACT_ADDRESS,
+                "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df",
+            );
         }
         let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
-
     }
 
     fn temp_file() -> String {
@@ -223,7 +225,7 @@ mod tests {
         init();
         let addr = available_addr();
         let actor = Actor::Challenger;
-        let local_key = identity::generate_local_key();
+        let local_key = generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
         let pub_key = hex::encode(generate_random_bytes(33));
         let goat_addr = format!("0x{}", hex::encode(generate_random_bytes(20)));
@@ -283,7 +285,7 @@ mod tests {
         init();
         let addr = available_addr();
         let actor = Actor::Challenger;
-        let local_key = identity::generate_local_key();
+        let local_key = generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
         let local_db = create_local_db(&temp_file()).await;
         tokio::spawn(rpc_service::serve(

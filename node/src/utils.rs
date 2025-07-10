@@ -1748,3 +1748,7 @@ pub async fn operator_scan_ready_proof(
         Ok(Some(serde_json::to_vec(&message)?))
     }
 }
+
+pub fn generate_local_key() -> libp2p::identity::Keypair {
+    libp2p::identity::Keypair::generate_ed25519()
+}

@@ -43,7 +43,6 @@ libp2p-metrics = { workspace = true }
 futures = { workspace = true }
 
 bitvm2-lib = { workspace = true }
-identity = { workspace = true }
 store = { workspace = true }
 
 clap = { workspace = true }
