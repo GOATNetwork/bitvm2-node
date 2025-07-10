@@ -196,9 +196,16 @@ mod tests {
     use tracing::info;
     use tracing_subscriber::EnvFilter;
     use uuid::Uuid;
+    use crate::env::{ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS};
 
-    fn init_tracing() {
+    fn init() {
+        unsafe {
+            std::env::set_var("RUST_LOG", "info");
+            std::env::set_var(ENV_GOAT_CHAIN_URL, "https://rpc.testnet3.goat.network");
+            std::env::set_var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df");
+        }
         let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+
     }
 
     fn temp_file() -> String {
@@ -213,7 +220,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_nodes_api() -> Result<(), Box<dyn std::error::Error>> {
-        init_tracing();
+        init();
         let addr = available_addr();
         let actor = Actor::Challenger;
         let local_key = identity::generate_local_key();
@@ -236,7 +243,7 @@ mod tests {
             .post(format!("http://{addr}/v1/nodes"))
             .json(&json!({
                 "peer_id": peer_id,
-                "actor": "Challenger",
+                "actor": "Operator",
                 "btc_pub_key": pub_key,
                 "goat_addr": goat_addr,
                 "socket_addr":"127.0.0.1:8080",
@@ -273,7 +280,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bitvm2_api() -> Result<(), Box<dyn std::error::Error>> {
-        init_tracing();
+        init();
         let addr = available_addr();
         let actor = Actor::Challenger;
         let local_key = identity::generate_local_key();
