@@ -35,7 +35,7 @@ jobs:
           echo "Using version: $VERSION"
 
       - name: Install Dependencies
-        run: sudo apt install protobuf-compiler
+        run: sudo apt-get update && sudo apt install protobuf-compiler -y
 
       - name: Build binary
         run: cargo build --release
