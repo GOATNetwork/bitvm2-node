@@ -5,9 +5,7 @@ use cli::Args;
 use logroller::{LogRollerBuilder, Rotation, RotationAge};
 use store::localdb::LocalDB;
 use tracing_subscriber::util::SubscriberInitExt;
-#[cfg(feature = "common_prover")]
-use zkm_sdk::ProverClient;
-use zkm_sdk::{include_elf, NetworkProver, Prover};
+use zkm_sdk::{include_elf, ProverClient};
 
 mod cli;
 mod db;
@@ -53,16 +51,7 @@ async fn main() {
     let local_db: LocalDB = LocalDB::new(&format!("sqlite:{}", args.database_url), true).await;
     let local_db = Arc::new(Db::new(Arc::new(local_db)));
 
-    #[cfg(feature = "common_prover")]
-    let client = {
-        tracing::info!("Use common ProverClient");
-        Arc::new(ProverClient::new())
-    };
-    #[cfg(not(feature = "common_prover"))]
-    let client = {
-        let np = NetworkProver::from_env().unwrap();
-        Arc::new(np)
-    };
+    let client = Arc::new(ProverClient::new());
 
     // Setup the proving and verifying keys.
     let (pk, vk) = client.setup(AGGREGATION_ELF);
@@ -79,16 +68,7 @@ async fn main() {
         args.exec,
     )
     .await;
-    let agg_executor_clone = AggregationExecutor::new(
-        local_db.clone(),
-        client.clone(),
-        pk.clone(),
-        vk.clone(),
-        args.block_number,
-        args.start,
-        args.exec,
-    )
-    .await;
+    let agg_executor_clone = agg_executor.clone();
     let groth16_executor = Groth16Executor::new(local_db, client, pk, vk).await;
 
     let (block_number_tx, block_number_rx) = sync_channel::<u64>(20);

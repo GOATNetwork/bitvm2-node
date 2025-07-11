@@ -14,9 +14,7 @@ use store::localdb::LocalDB;
 use tokio::{sync::Semaphore, task};
 use tracing::{error, info, instrument, warn};
 use tracing_subscriber::util::SubscriberInitExt;
-#[cfg(feature = "common_prover")]
-use zkm_sdk::ProverClient;
-use zkm_sdk::{include_elf, NetworkProver};
+use zkm_sdk::{include_elf, ProverClient};
 
 mod cli;
 mod db;
@@ -66,18 +64,7 @@ async fn main() -> eyre::Result<()> {
     let alerting_client =
         args.pager_duty_integration_key.map(|key| Arc::new(AlertingClient::new(key)));
 
-    #[cfg(feature = "common_prover")]
-    let prover_client = {
-        tracing::info!("Use common ProverClient");
-        Arc::new(ProverClient::new())
-    };
-    #[cfg(not(feature = "common_prover"))]
-    let prover_client = {
-        let np = NetworkProver::from_env().map_err(|_| {
-            eyre::eyre!("Failed to create NetworkProver from environment variables")
-        })?;
-        Arc::new(np)
-    };
+    let prover_client = Arc::new(ProverClient::new());
 
     let executor = Arc::new(
         FullExecutor::<EthExecutorComponents<_, _>, _>::try_new(

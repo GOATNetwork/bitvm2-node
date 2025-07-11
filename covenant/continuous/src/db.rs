@@ -62,7 +62,7 @@ impl ExecutionHooks for PersistToDB {
         public_values_bytes: &[u8],
         zkm_version: &str,
         vk: &ZKMVerifyingKey,
-        cycles: Option<u64>,
+        cycles: u64,
         proving_duration: Duration,
     ) -> eyre::Result<()> {
         assert_eq!(
@@ -82,7 +82,7 @@ impl ExecutionHooks for PersistToDB {
             .update_block_proved(
                 block_number as i64,
                 (proving_duration.as_secs_f32() * 1000.0) as i64,
-                cycles.unwrap_or_default() as i64,
+                cycles as i64,
                 proof_bytes,
                 public_values_bytes,
                 vk.bytes32(),
