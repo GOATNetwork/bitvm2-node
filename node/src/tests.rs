@@ -583,7 +583,7 @@ pub mod tests {
         // verify proof published by assert-txns:
         let public_proof_sigs =
             verifier::extract_proof_sigs_from_assert_commit_txns(assert_commit_txns).unwrap();
-        let disprove_scripts_array: [_; NUM_TAPS] = disprove_scripts.try_into().unwrap();
+        let disprove_scripts_array = disprove_scripts.try_into().unwrap();
         let disprove_witness = verifier::verify_proof(
             &get_vk(&local_db).await.unwrap(),
             public_proof_sigs,
@@ -592,19 +592,13 @@ pub mod tests {
         )
         .unwrap();
 
-        // FIXME: avoid clone
-        let disprove_scripts_bytes = disprove_scripts_array
-            .iter()
-            .map(|x| x.clone().compile().into_bytes())
-            .collect::<Vec<Vec<u8>>>();
-
-        let mock_challenger_reward_address = generate_burn_script_address(network);
         let disprove_tx = verifier::sign_disprove(
             &mut graph,
             disprove_witness,
-            disprove_scripts_bytes.to_vec(),
+            disprove_scripts_array.to_vec(),
             &operator_wots_pubkeys.1,
-            mock_challenger_reward_address,
+            None,
+            None,
             fee_rate,
         )
         .unwrap();
