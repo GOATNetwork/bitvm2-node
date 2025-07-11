@@ -46,7 +46,7 @@ jobs:
           toolchain: nightly-2025-06-30
           override: true
       - name: Install Dependencies
-        run: sudo apt install protobuf-compiler
+        run: sudo apt-get update && sudo apt install protobuf-compiler -y
       - run: rustup component add clippy
       - run: cargo clippy --all-targets -- -D warnings
   test:
@@ -59,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Dependencies
-        run: sudo apt install protobuf-compiler
+        run: sudo apt-get update && sudo apt install protobuf-compiler -y
       - name: Launch the Regtest
         run: cd scripts && docker compose up -d
       - name: Run all unit tests
