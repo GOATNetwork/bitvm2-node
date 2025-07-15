@@ -1,12 +1,11 @@
+use std::sync::OnceLock;
 use std::sync::{
     mpsc::{Receiver, SyncSender},
     Arc,
 };
-use std::sync::RwLock;
 
 use anyhow::Result;
 use tokio::time::Duration;
-use lazy_static::lazy_static;
 use tracing::{debug, error, info};
 use zkm_sdk::{
     HashableKey, Prover, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues,
@@ -20,9 +19,7 @@ use crate::db::*;
 
 pub struct AggreationInput((Proof, Proof));
 
-lazy_static! {
-    static ref ELF_ID: RwLock<String> = RwLock::new(Default::default());
-}
+static ELF_ID: OnceLock<String> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct ProofWithPublicValues {
@@ -187,19 +184,17 @@ impl AggregationExecutor {
             info!(?block_numbers, "[Aggregation] Execution successful");
         }
 
-        let elf_id = hex::encode(Sha256::digest(&self.pk.elf));
+        let client_clone = self.client.clone();
+        let pk = self.pk.clone();
 
-        let elf_id = if *ELF_ID.read().unwrap() != elf_id {
-            let mut id = ELF_ID.write().unwrap();
-            *id = elf_id;
+        let elf_id = if ELF_ID.get().is_none() {
+            ELF_ID.set(hex::encode(Sha256::digest(&pk.elf))).unwrap();
             None
         } else {
-            Some(elf_id)
+            Some(ELF_ID.get().unwrap().clone())
         };
         tracing::info!("elf id: {:?}", elf_id);
 
-        let client_clone = self.client.clone();
-        let pk = self.pk.clone();
         let proving_start = tokio::time::Instant::now();
 
         // Generate the aggregation proof.
