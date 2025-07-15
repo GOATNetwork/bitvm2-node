@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use anyhow::Result;
 use store::localdb::LocalDB;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
@@ -10,16 +8,11 @@ pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
 pub type PublicInputs = Vec<ark_bn254::Fr>;
 
-static CONCURRENCY: OnceLock<u32> = OnceLock::new();
-
 pub fn get_block_proof_concurrency() -> u32 {
-    let concurrency = CONCURRENCY.get_or_init(|| {
-        std::env::var("MAX_CONCURRENT_EXECUTIONS")
-            .unwrap_or_else(|_| "1".to_string())
-            .parse::<u32>()
-            .unwrap_or(1)
-    });
-    *concurrency
+    std::env::var("MAX_CONCURRENT_EXECUTIONS")
+        .unwrap_or_else(|_| "1".to_string())
+        .parse::<u32>()
+        .unwrap_or(1)
 }
 
 pub fn get_latest_groth16_vk() -> Result<VerifyingKey> {
