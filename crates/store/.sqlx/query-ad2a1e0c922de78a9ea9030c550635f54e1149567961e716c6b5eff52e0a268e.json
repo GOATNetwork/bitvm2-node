@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT block_proof_concurrency FROM proof_config WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "block_proof_concurrency",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ad2a1e0c922de78a9ea9030c550635f54e1149567961e716c6b5eff52e0a268e"
+}

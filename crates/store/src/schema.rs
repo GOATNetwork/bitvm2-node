@@ -562,6 +562,13 @@ pub struct Groth16Proof {
     pub updated_at: i64,
 }
 
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct ProofConfig {
+    pub id: i64,
+    pub block_proof_concurrency: i64,
+    pub updated_at: i64,
+}
+
 /// This data structure is not intended for database table creation ;
 /// it serves the purpose of supporting information related to query proofs.
 #[derive(Clone, Debug, FromRow)]

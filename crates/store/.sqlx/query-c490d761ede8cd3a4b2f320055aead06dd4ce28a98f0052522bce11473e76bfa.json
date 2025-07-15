@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO proof_config\n                (id, block_proof_concurrency, updated_at)\n            VALUES\n                (?, ?, ?)\n            ON CONFLICT(id) DO UPDATE SET\n                block_proof_concurrency = excluded.block_proof_concurrency,\n                updated_at = excluded.updated_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "c490d761ede8cd3a4b2f320055aead06dd4ce28a98f0052522bce11473e76bfa"
+}

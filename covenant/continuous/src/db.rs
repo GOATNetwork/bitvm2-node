@@ -19,6 +19,17 @@ impl PersistToDB {
     pub async fn new(local_db: &LocalDB) -> Self {
         Self { local_db: local_db.clone() }
     }
+
+    pub async fn set_block_proof_concurrency(&self, concurrency: u32) -> eyre::Result<()> {
+        let mut storage_process =
+            self.local_db.acquire().await.map_err(|e| eyre!("Failed to acquire local db: {e}"))?;
+
+        storage_process
+            .set_block_proof_concurrency(concurrency as i64)
+            .await
+            .map_err(|e| eyre!("Failed to start block execution: {e}"))?;
+        Ok(())
+    }
 }
 
 impl ExecutionHooks for PersistToDB {
