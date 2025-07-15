@@ -169,17 +169,31 @@ pub async fn get_proofs_overview(
         }
 
         let mut storage_process = app_state.local_db.acquire().await?;
-        let (total_blocks, avg_block_proof) =
+        let (total_blocks, sum_block_proof_time, block_proof_count) =
             storage_process.get_proof_overview(ProofType::BlockProof).await?;
-        let (_, avg_aggregation_proof) =
+        let (_, sum_aggregation_proof_time, aggregation_proof_count) =
             storage_process.get_proof_overview(ProofType::AggregationProof).await?;
-        let (_, avg_groth16_proof) =
+        let (_, sum_groth16_proof_times, groth16_proof_count) =
             storage_process.get_proof_overview(ProofType::Groth16Proof).await?;
+        let (block_proof_conc, agg_proof_conc, groth16_proof_conc) =
+            get_proof_concurrency(&app_state.local_db).await?;
         Ok::<Option<ProofsOverview>, Box<dyn std::error::Error>>(Some(ProofsOverview {
             total_blocks,
-            avg_block_proof,
-            avg_aggregation_proof,
-            avg_groth16_proof,
+            avg_block_proof: calculate_proof_avg_proof_time(
+                sum_block_proof_time,
+                block_proof_count,
+                block_proof_conc,
+            ),
+            avg_aggregation_proof: calculate_proof_avg_proof_time(
+                sum_aggregation_proof_time,
+                aggregation_proof_count,
+                agg_proof_conc,
+            ),
+            avg_groth16_proof: calculate_proof_avg_proof_time(
+                sum_groth16_proof_times,
+                groth16_proof_count,
+                groth16_proof_conc,
+            ),
         }))
     };
     match async_fn().await {
@@ -270,4 +284,15 @@ async fn get_online_operator_url(local_db: &LocalDB) -> anyhow::Result<String> {
     } else {
         bail!("no operator is online")
     }
+}
+
+fn calculate_proof_avg_proof_time(sum_time: i64, proof_counts: i64, concurrency: i64) -> f64 {
+    if proof_counts * concurrency == 0 {
+        return 0.0;
+    }
+    sum_time as f64 / (concurrency as f64 * proof_counts as f64)
+}
+
+async fn get_proof_concurrency(local_db: &LocalDB) -> anyhow::Result<(i64, i64, i64)> {
+    Ok((groth16::get_block_proof_concurrency(local_db).await? as i64, 1, 1))
 }

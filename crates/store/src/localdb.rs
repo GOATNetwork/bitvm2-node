@@ -2323,46 +2323,57 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_proof_overview(
         &mut self,
         proof_type: ProofType,
-    ) -> anyhow::Result<(i64, f64)> {
+    ) -> anyhow::Result<(i64, i64, i64)> {
         #[derive(sqlx::FromRow)]
         struct OverviewProof {
             max_block_number: i64,
-            avg_total_proof_time: f64,
+            total_proof_time_sum: i64,
+            proof_record_count: i64,
         }
         let query = match proof_type {
             ProofType::BlockProof => {
                 r#"WITH top_6_blocks AS (
-                    SELECT total_time_to_proof FROM block_proof WHERE state = 'proved'
-                ORDER BY block_number DESC
-                LIMIT 6
-                )
-                SELECT
-                COALESCE((SELECT MAX(block_number) FROM block_proof), 0) AS max_block_number,
-                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0.0) AS avg_total_proof_time"#
+                        SELECT total_time_to_proof
+                        FROM block_proof
+                        WHERE state = 'proved'
+                        ORDER BY block_number DESC
+                        LIMIT 6
+                    )
+                    SELECT
+                        COALESCE((SELECT MAX(block_number) FROM block_proof), 0) AS max_block_number,
+                        COALESCE((SELECT SUM(total_time_to_proof) FROM top_6_blocks), 0) AS total_proof_time_sum,
+                        COALESCE((SELECT COUNT(*) FROM top_6_blocks), 0) AS proof_record_count
+                    "#
             }
             ProofType::AggregationProof => {
                 r#"WITH top_6_blocks AS (
-                    SELECT total_time_to_proof FROM aggregation_proof WHERE state = 'proved'
-                ORDER BY block_number DESC
-                LIMIT 6
-                )
-                SELECT
-                COALESCE((SELECT MAX(block_number) FROM aggregation_proof), 0) AS max_block_number,
-                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0.0) AS avg_total_proof_time"#
+                        SELECT total_time_to_proof
+                        FROM aggregation_proof
+                        WHERE state = 'proved'
+                        ORDER BY block_number DESC
+                        LIMIT 6
+                    )
+                    SELECT
+                        COALESCE((SELECT MAX(block_number) FROM aggregation_proof), 0) AS max_block_number,
+                        COALESCE((SELECT SUM(total_time_to_proof) FROM top_6_blocks), 0) AS total_proof_time_sum,
+                        COALESCE((SELECT COUNT(*) FROM top_6_blocks), 0) AS proof_record_count"#
             }
             ProofType::Groth16Proof => {
                 r#"WITH top_6_blocks AS (
-                    SELECT total_time_to_proof FROM groth16_proof WHERE state = 'proved'
-                ORDER BY block_number DESC
-                LIMIT 6
-                )
-                SELECT
-                COALESCE((SELECT MAX(block_number) FROM groth16_proof), 0) AS max_block_number,
-                COALESCE((SELECT AVG(total_time_to_proof) FROM top_6_blocks),0.0) AS avg_total_proof_time"#
+                        SELECT total_time_to_proof
+                        FROM groth16_proof
+                        WHERE state = 'proved'
+                        ORDER BY block_number DESC
+                        LIMIT 6
+                    )
+                    SELECT
+                        COALESCE((SELECT MAX(block_number) FROM groth16_proof), 0) AS max_block_number,
+                        COALESCE((SELECT SUM(total_time_to_proof) FROM top_6_blocks), 0) AS total_proof_time_sum,
+                        COALESCE((SELECT COUNT(*) FROM top_6_blocks), 0) AS proof_record_count"#
             }
         };
         let res = sqlx::query_as::<_, OverviewProof>(query).fetch_one(self.conn()).await?;
-        Ok((res.max_block_number, res.avg_total_proof_time))
+        Ok((res.max_block_number, res.total_proof_time_sum, res.proof_record_count))
     }
 
     pub async fn get_socket_addr_for_graph_query_proof(
