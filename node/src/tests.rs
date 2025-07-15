@@ -10,8 +10,8 @@ pub mod tests {
     };
     use crate::utils::{
         complete_and_broadcast_challenge_tx, get_fee_rate, get_fixed_disprove_output,
-        get_groth16_proof, get_proper_utxo_set, get_vk, node_p2wsh_address, node_p2wsh_script,
-        node_sign,
+        get_groth16_proof, get_proper_utxo_set, get_test_groth16_proof, get_vk, node_p2wsh_address,
+        node_p2wsh_script, node_sign,
     };
     use bitcoin::key::Keypair;
     use bitcoin::{CompressedPublicKey, EcdsaSighashType, ScriptBuf};
@@ -391,6 +391,20 @@ pub mod tests {
             disprove_scripts,
         }
     }
+
+    #[test]
+    fn check_test_proof() {
+        use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+        let (proof, pubins, vk) = get_test_groth16_proof().expect("fail to get test groth16 proof");
+        let ok = Groth16::<ark_bn254::Bn254, LibsnarkReduction>::verify_proof(
+            &vk.into(),
+            &proof,
+            &pubins,
+        )
+        .unwrap();
+        assert!(ok);
+    }
+
     /////////////
     #[tokio::test]
     #[cfg(all(feature = "tests", feature = "e2e-tests"))]
