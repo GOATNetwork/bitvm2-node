@@ -456,10 +456,16 @@ pub async fn get_instances_overview(
         let (pegin_sum, pegin_count) = storage_process
             .get_sum_bridge_in(
                 BridgePath::BTCToPgBTC.to_u8(),
-                &BridgeInStatus::PresignedFailed.to_string(),
+                &[BridgeInStatus::L1Broadcasted.to_string(), BridgeInStatus::L2Minted.to_string()],
             )
             .await?;
-        let (pegout_sum, pegout_count) = storage_process.get_sum_bridge_out().await?;
+        let (pegout_sum, pegout_count) = storage_process
+            .get_sum_bridge_out(&[
+                GraphStatus::Take1.to_string(),
+                GraphStatus::Take2.to_string(),
+                GraphStatus::Disprove.to_string(),
+            ])
+            .await?;
         let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
         Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
             instances_overview: InstanceOverview {

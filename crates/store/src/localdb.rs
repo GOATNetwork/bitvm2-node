@@ -900,31 +900,49 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_sum_bridge_in(
         &mut self,
         bridge_path: u8,
-        filter_status: &str,
+        statuses: &[String],
     ) -> anyhow::Result<(i64, i64)> {
-        let record = sqlx::query!(
+        #[derive(sqlx::FromRow)]
+        struct BridgeInRow {
+            pub total: i64,
+            pub tx_count: i64,
+        }
+
+        let query_str = format!(
             "SELECT SUM(amount) AS total, COUNT(*) AS tx_count
              FROM instance
-             WHERE bridge_path = ?
-               AND status != ?",
-            bridge_path,
-            filter_status
-        )
-        .fetch_one(self.conn())
-        .await?;
-        Ok((record.total.unwrap_or(0), record.tx_count))
+             WHERE bridge_path = {bridge_path}
+               AND status IN ({})",
+            create_place_holders(statuses)
+        );
+        let mut query = sqlx::query_as::<_, BridgeInRow>(&query_str);
+        for status in statuses {
+            query = query.bind(status);
+        }
+        let record = query.fetch_one(self.conn()).await?;
+        Ok((record.total, record.tx_count))
     }
 
-    pub async fn get_sum_bridge_out(&mut self) -> anyhow::Result<(i64, i64)> {
-        let record = sqlx::query!(
+    pub async fn get_sum_bridge_out(&mut self, statuses: &[String]) -> anyhow::Result<(i64, i64)> {
+        #[derive(sqlx::FromRow)]
+        struct BridgeOutRow {
+            pub total: i64,
+            pub tx_count: i64,
+        }
+
+        let query_str = format!(
             "SELECT SUM(amount) AS total, COUNT(*) AS tx_count
             FROM graph
-            WHERE status NOT IN
-                  ('OperatorPresigned', 'CommitteePresigned', 'OperatorDataPushed', 'Obsoleted')"
-        )
-        .fetch_one(self.conn())
-        .await?;
-        Ok((record.total.unwrap_or(0), record.tx_count))
+            WHERE status IN
+                  ({})",
+            create_place_holders(statuses)
+        );
+        let mut query = sqlx::query_as::<_, BridgeOutRow>(&query_str);
+        for status in statuses {
+            query = query.bind(status);
+        }
+        let record = query.fetch_one(self.conn()).await?;
+        Ok((record.total, record.tx_count))
     }
 
     pub async fn get_nodes_info(&mut self, time_threshold: i64) -> anyhow::Result<(i64, i64)> {
