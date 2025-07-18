@@ -12,7 +12,6 @@ use crate::rpc_service::handler::proof_handler::{
     get_groth16_proof, get_proof, get_proofs, get_proofs_overview,
 };
 use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
-use crate::utils::get_mode_log_level;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
@@ -156,34 +155,30 @@ async fn print_req_and_resp_detail(
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let log_level = get_mode_log_level("bitvm2_noded");
-    if log_level != Level::INFO {
-        let mut print_str = format!(
-            "API Request: method:{}, uri:{}, content_type:{:?}, body:",
-            req.method(),
-            req.uri(),
-            req.headers().get("content-type")
-        );
-        let (parts, body) = req.into_parts();
-        let bytes = body.collect().await.unwrap().to_bytes();
-        if !bytes.is_empty() {
-            print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
-        }
-        tracing::debug!("{}", print_str);
-        let req = Request::from_parts(parts, axum::body::Body::from(bytes));
-        let resp = next.run(req).await;
-
-        let mut print_str = format!("API Response: status:{}, body:", resp.status(),);
-        let (parts, body) = resp.into_parts();
-        let bytes = body.collect().await.unwrap().to_bytes();
-        if !bytes.is_empty() {
-            print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
-        }
-        tracing::debug!("{}", print_str);
-        Ok(Response::from_parts(parts, axum::body::Body::from(bytes)))
-    } else {
-        Ok(next.run(req).await)
+    // TODO remove after the service stabilizes.
+    let mut print_str = format!(
+        "API Request: method:{}, uri:{}, content_type:{:?}, body:",
+        req.method(),
+        req.uri(),
+        req.headers().get("content-type")
+    );
+    let (parts, body) = req.into_parts();
+    let bytes = body.collect().await.unwrap().to_bytes();
+    if !bytes.is_empty() {
+        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
     }
+    tracing::debug!("{}", print_str);
+    let req = Request::from_parts(parts, axum::body::Body::from(bytes));
+    let resp = next.run(req).await;
+
+    let mut print_str = format!("API Response: status:{}, body:", resp.status(),);
+    let (parts, body) = resp.into_parts();
+    let bytes = body.collect().await.unwrap().to_bytes();
+    if !bytes.is_empty() {
+        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
+    }
+    tracing::debug!("{}", print_str);
+    Ok(Response::from_parts(parts, axum::body::Body::from(bytes)))
 }
 
 #[cfg(test)]

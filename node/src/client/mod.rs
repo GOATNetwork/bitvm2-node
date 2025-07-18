@@ -6,6 +6,7 @@ use crate::client::chain::evmchain::EvmChain;
 use crate::client::chain::goat_adaptor::GoatInitConfig;
 use crate::client::esplora::get_esplora_url;
 use crate::env::GATEWAY_RATE_MULTIPLIER;
+use crate::utils::get_stake_amount;
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::consensus::encode::{deserialize_hex, serialize};
@@ -545,7 +546,7 @@ pub fn cast_graph_to_operate_data(graph: &Graph) -> anyhow::Result<OperatorData>
     let pubkey_vec = PublicKey::from_str(&graph.operator)?.to_bytes();
 
     Ok(OperatorData {
-        stake_amount: graph.amount as u64,
+        stake_amount: get_stake_amount(graph.amount as u64).to_sat(),
         operator_pubkey_prefix: pubkey_vec[0],
         operator_pubkey: pubkey_vec[1..33].try_into()?,
         pegin_txid: deserialize_hex(&graph.pegin_txid)?,
