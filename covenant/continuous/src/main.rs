@@ -58,6 +58,7 @@ async fn main() -> eyre::Result<()> {
         create_eth_block_execution_strategy_factory(&config.genesis, None);
 
     let local_db = LocalDB::new(&format!("sqlite:{}", args.database_url), true).await;
+    local_db.migrate().await;
     let sqlite_db = db::PersistToDB::new(&local_db).await;
     let local_db = Arc::new(local_db);
 

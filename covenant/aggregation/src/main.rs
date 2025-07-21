@@ -51,6 +51,7 @@ async fn main() {
     tracing::info!("args: {:?}", args);
 
     let local_db: LocalDB = LocalDB::new(&format!("sqlite:{}", args.database_url), true).await;
+    local_db.migrate().await;
     let local_db = Arc::new(Db::new(Arc::new(local_db)));
 
     let client = Arc::new(ProverClient::new());
