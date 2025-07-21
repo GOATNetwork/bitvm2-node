@@ -52,7 +52,7 @@ impl AggregationExecutor {
         agg_count: u64,
         exec: bool,
     ) -> Self {
-        db.set_aggregate_block_count(agg_count as u32).await.unwrap();
+        db.set_aggregate_block_count().await.unwrap();
         Self { db, client, pk, vk, block_number, is_start_block, agg_count, exec }
     }
 

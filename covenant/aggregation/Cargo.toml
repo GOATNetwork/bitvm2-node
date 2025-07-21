@@ -21,6 +21,7 @@ clap = { version = "4.5.7", features = ["derive", "env"] }
 dotenv = "0.15.0"
 futures-util = "0.3.31"
 sha2 = "0.10.8"
+lazy_static = "1.5.0"
 
 # Ziren
 zkm-sdk.workspace = true

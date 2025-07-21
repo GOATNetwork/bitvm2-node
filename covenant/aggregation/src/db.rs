@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -9,6 +10,8 @@ use tracing::info;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_sdk::{HashableKey, ZKMProof, ZKMProofWithPublicValues, ZKMPublicValues, ZKMVerifyingKey};
 use zkm_verifier::GROTH16_VK_BYTES;
+
+use crate::LAST_REMOVED_NUMBER;
 
 const PROOF_COUNT: u64 = 20;
 
@@ -25,17 +28,18 @@ pub struct Proof {
 
 pub struct Db {
     db: Arc<LocalDB>,
+    aggregate_block_count: u64,
 }
 
 impl Db {
-    pub fn new(db: Arc<LocalDB>) -> Self {
-        Self { db }
+    pub fn new(db: Arc<LocalDB>, aggregate_block_count: u64) -> Self {
+        Self { db, aggregate_block_count }
     }
 
-    pub async fn set_aggregate_block_count(&self, aggregate_block_count: u32) -> Result<()> {
+    pub async fn set_aggregate_block_count(&self) -> Result<()> {
         let mut storage_process = self.db.acquire().await?;
 
-        storage_process.set_aggregate_block_count(aggregate_block_count as i64).await?;
+        storage_process.set_aggregate_block_count(self.aggregate_block_count as i64).await?;
         Ok(())
     }
 
@@ -127,7 +131,10 @@ impl Db {
     }
 
     async fn remove_old_proofs(&self, block_number: u64) -> Result<()> {
-        if !block_number.is_multiple_of(PROOF_COUNT) {
+        let last_removed_number = LAST_REMOVED_NUMBER.load(Ordering::Relaxed);
+        tracing::info!("last removed number: {}", last_removed_number);
+
+        if block_number < last_removed_number + PROOF_COUNT {
             return Ok(());
         }
 
@@ -135,7 +142,10 @@ impl Db {
 
         let remove_number = (block_number - PROOF_COUNT) as i64;
         storage_process.delete_block_proofs(remove_number).await?;
-        storage_process.delete_aggregation_proofs(remove_number).await
+        storage_process.delete_aggregation_proofs(remove_number).await?;
+
+        LAST_REMOVED_NUMBER.store(block_number, Ordering::Relaxed);
+        Ok(())
     }
 
     pub async fn on_aggregation_failed(&self, block_number: u64, err: String) -> Result<()> {

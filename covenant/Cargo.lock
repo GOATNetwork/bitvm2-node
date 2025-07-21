@@ -63,6 +63,7 @@ dependencies = [
  "dotenv",
  "futures-util",
  "hex",
+ "lazy_static",
  "logroller",
  "serde",
  "sha2",
