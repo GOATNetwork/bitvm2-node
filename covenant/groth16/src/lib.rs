@@ -8,10 +8,10 @@ pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
 pub type PublicInputs = Vec<ark_bn254::Fr>;
 
-pub async fn get_proof_config(db: &LocalDB) -> Result<(u32, u32)> {
+pub async fn get_proof_config(db: &LocalDB) -> Result<(i64, i64)> {
     let mut storage_process = db.acquire().await?;
-    let (block_concurrency, agg_block_count) = storage_process.get_proof_config().await?;
-    Ok((block_concurrency as u32, agg_block_count as u32))
+    let (block_concurrency, aggregated_block_count) = storage_process.get_proof_config().await?;
+    Ok((block_concurrency, aggregated_block_count))
 }
 
 pub fn get_latest_groth16_vk() -> Result<VerifyingKey> {

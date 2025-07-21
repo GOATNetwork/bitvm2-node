@@ -2039,13 +2039,10 @@ impl<'a> StorageProcessor<'a> {
         .fetch_optional(self.conn())
         .await?;
 
-        if row.is_none() {
-            return Ok((1, 1));
+        if let Some(row) = row {
+            Ok((row.block_proof_concurrency.unwrap_or(1), row.aggregate_block_count.unwrap_or(1)))
         } else {
-            return Ok((
-                row.as_ref().unwrap().block_proof_concurrency.unwrap_or(1),
-                row.as_ref().unwrap().aggregate_block_count.unwrap_or(1),
-            ));
+            Ok((1, 1))
         }
     }
 
