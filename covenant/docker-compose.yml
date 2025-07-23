@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  continuous:
+    image: ghcr.io/${GIT_USER}/continuous:${TAG:-latest}
+    container_name: continuous
+    command: ["continuous", "--block-number", "${C_BLOCK_NUMBER:-1}", "--chain-id", "${CHAIN_ID}"]
+    volumes:
+      - ${DB_DIR}:/var/data
+      - ./logs:/app/logs
+      - ./.env.continuous:/app/.env
+    env_file:
+      - ./.env.continuous
+    restart: unless-stopped
+
+  aggregation:
+    image: ghcr.io/${GIT_USER}/aggregation:${TAG:-latest}
+    container_name: aggregation
+    command: ["aggregation", "--block-number", "${A_BLOCK_NUMBER:-2}", "--start"]
+    volumes:
+      - ${DB_DIR}:/var/data
+      - ./logs:/app/logs
+      - ./.env.aggregation:/app/.env
+    env_file:
+      - ./.env.aggregation
+    restart: unless-stopped

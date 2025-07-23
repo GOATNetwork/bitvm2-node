@@ -21,3 +21,12 @@ covenant/guest/target/
 covenant/guest-aggregation/target
 covenant/target/
 report.csv
+
+ca.srl
+openssl.cnf
+ssl.csr
+ssl.key
+ssl.pem
+.env1
+covenant/ca.pem
+covenant/ca.key

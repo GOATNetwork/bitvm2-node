@@ -13,14 +13,14 @@ use zkm_sdk::ZKMProofKind;
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
     /// The block number of the block to execute.
-    #[clap(long)]
+    #[clap(long, env)]
     pub block_number: u64,
 
     #[clap(flatten)]
     pub provider: ProviderArgs,
 
     /// The path to the genesis json file to use for the execution.
-    #[clap(long)]
+    #[clap(long, env)]
     pub genesis_path: Option<PathBuf>,
 
     /// The database connection string.
@@ -40,7 +40,7 @@ pub struct Args {
     pub execution_retries: usize,
 
     /// Whether to generate a proof or just execute the block.
-    #[clap(long)]
+    #[clap(long, env)]
     pub prove: bool,
 
     /// PagerDuty integration key.

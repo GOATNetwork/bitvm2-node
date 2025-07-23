@@ -3,12 +3,12 @@ use clap::Parser;
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
-    /// The block number.
-    #[clap(long)]
+    /// Start or restart aggregation block number.
+    #[clap(long, env, default_value_t = 2)]
     pub block_number: u64,
 
-    /// Aggregation starts with two block proofs.
-    #[clap(long)]
+    /// Whether it is the initial block of the aggregation.
+    #[clap(long, env)]
     pub start: bool,
 
     /// The database connection string.
@@ -23,11 +23,11 @@ pub struct Args {
     #[clap(long, env, default_value_t = 1)]
     pub execution_retries: usize,
 
-    /// Execute guest.
-    #[clap(long)]
+    /// Whether to execute guest.
+    #[clap(long, env)]
     pub exec: bool,
 
-    /// Aggregate proofs count.
+    /// Count blocks once in aggregation.
     #[clap(long, env, default_value_t = 1)]
     pub aggregate_block_count: u64,
 }
