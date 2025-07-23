@@ -64,7 +64,7 @@ async fn main() -> eyre::Result<()> {
 
     sqlite_db.set_block_proof_concurrency(args.max_concurrent_executions as u32).await?;
 
-    let http_provider = create_provider(args.provider.rpc_url.unwrap());
+    let http_provider = create_provider(config.rpc_url.clone().unwrap());
     let alerting_client =
         args.pager_duty_integration_key.map(|key| Arc::new(AlertingClient::new(key)));
 

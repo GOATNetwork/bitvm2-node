@@ -30,3 +30,4 @@ ssl.pem
 .env1
 covenant/ca.pem
 covenant/ca.key
+docker.sh

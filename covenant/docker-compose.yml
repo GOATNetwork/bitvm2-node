@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  continuous:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-continuous-latest}
+    network_mode: "host"
+    container_name: continuous
+    volumes:
+      - ${DB_DIR}:/var/data
+      - ./logs:/app/logs
+      - ./.env.continuous:/app/.env
+    env_file:
+      - ./.env.continuous
+    environment:
+      - BLOCK_NUMBER=${BLOCK_NUMBER_C:-1}
+    restart: unless-stopped
+
+  aggregation:
+    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-aggregation-latest}
+    network_mode: "host"
+    container_name: aggregation
+    volumes:
+      - ${DB_DIR}:/var/data
+      - ./logs:/app/logs
+      - ./.env.aggregation:/app/.env
+    env_file:
+      - ./.env.aggregation
+    environment:
+      - BLOCK_NUMBER=${BLOCK_NUMBER_A:-2}
+      - START=${START:-true}
+    restart: unless-stopped

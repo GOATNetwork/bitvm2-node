@@ -13,14 +13,20 @@ use zkm_sdk::ZKMProofKind;
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
     /// The block number of the block to execute.
-    #[clap(long)]
+    #[clap(long, env)]
     pub block_number: u64,
 
-    #[clap(flatten)]
-    pub provider: ProviderArgs,
+    /// The rpc url used to fetch data about the block. If not provided, will use the
+    /// RPC_{chain_id} env var.
+    #[clap(long)]
+    pub rpc_url: Option<Url>,
+
+    /// The chain ID. If not provided, requires the rpc_url argument to be provided.
+    #[clap(long, env)]
+    pub chain_id: Option<u64>,
 
     /// The path to the genesis json file to use for the execution.
-    #[clap(long)]
+    #[clap(long, env)]
     pub genesis_path: Option<PathBuf>,
 
     /// The database connection string.
@@ -40,7 +46,7 @@ pub struct Args {
     pub execution_retries: usize,
 
     /// Whether to generate a proof or just execute the block.
-    #[clap(long)]
+    #[clap(long, env)]
     pub prove: bool,
 
     /// PagerDuty integration key.
@@ -54,7 +60,7 @@ impl Args {
         // here and decide on whether to panic later.
         //
         // On the other hand chain ID is always needed.
-        let (rpc_url, chain_id) = match (self.provider.rpc_url.clone(), self.provider.chain_id) {
+        let (rpc_url, chain_id) = match (self.rpc_url.clone(), self.chain_id) {
             (Some(rpc_url), Some(chain_id)) => (Some(rpc_url), chain_id),
             (None, Some(chain_id)) => {
                 match std::env::var(format!("RPC_{chain_id}")) {
@@ -103,16 +109,4 @@ impl Args {
 
         Ok(config)
     }
-}
-
-/// The arguments for configuring the chain data provider.
-#[derive(Debug, Clone, Parser)]
-pub struct ProviderArgs {
-    /// The rpc url used to fetch data about the block. If not provided, will use the
-    /// RPC_{chain_id} env var.
-    #[clap(long)]
-    pub rpc_url: Option<Url>,
-    /// The chain ID. If not provided, requires the rpc_url argument to be provided.
-    #[clap(long)]
-    pub chain_id: Option<u64>,
 }

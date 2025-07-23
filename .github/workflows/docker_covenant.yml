@@ -1,0 +1,81 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [ main ]  # or your deployment branch
+  workflow_dispatch:    # allow manual trigger
+
+env:
+  IMAGE_REPO: ${{ github.repository }}
+
+jobs:
+  build-and-push-covenant:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write  # needed for GitHub Container Registry
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        timeout-minutes: 30
+        with:
+          toolchain: nightly
+          override: true
+
+      - name: Install Ziren toolchain
+        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
+
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt install protobuf-compiler -y
+
+      - name: Build binarys
+        run: source ~/.zkm-toolchain/env && cd covenant && cargo build --release
+
+      - name: Generate certs
+        run: cd covenant/continuous/tool && ./certgen.sh
+
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version =' ./covenant/Cargo.toml | head -n1 | sed -E 's/version = "(.*)"/\1/')
+          echo "CARGO_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Using version: $VERSION"
+
+      - name: Set lowercase repo name
+        id: lowercase
+        run: echo "REPO_LOWER=$(echo '${{ env.IMAGE_REPO }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Log in to GitHub Container Registry (ghcr.io)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image (aggregation)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./covenant
+          file: ./covenant/Dockerfile.aggregation
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LOWER }}:aggregation-latest
+            ghcr.io/${{ env.REPO_LOWER }}:aggregation-${{ env.CARGO_VERSION }}
+
+      - name: Build and push Docker image (continuous)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./covenant
+          file: ./covenant/Dockerfile.continuous
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LOWER }}:continuous-latest
+            ghcr.io/${{ env.REPO_LOWER }}:continuous-${{ env.CARGO_VERSION }}
