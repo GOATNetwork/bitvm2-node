@@ -270,10 +270,10 @@ impl<'a> StorageProcessor<'a> {
             instance.goat_txid,
             instance.btc_txid,
             instance.pegin_txid,
-            instance.instance_id,
             instance.input_uxtos,
             instance.fee,
             instance.updated_at,
+            instance.instance_id,
         )
         .execute(self.conn())
         .await?;
