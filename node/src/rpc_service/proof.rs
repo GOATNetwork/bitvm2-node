@@ -2,6 +2,7 @@ use ark_bn254::Bn254;
 use ark_groth16::Groth16;
 use ark_groth16::r1cs_to_qap::LibsnarkReduction;
 use serde::{Deserialize, Serialize};
+use store::ProofInfo;
 use zkm_sdk::{ZKMProofWithPublicValues, ZKMStdin};
 use zkm_verifier::convert_ark;
 
@@ -29,12 +30,40 @@ pub struct BlockProofs {
 pub struct ProofItem {
     pub state: String,
     pub proving_time: i64,
+    pub contain_blocks: String,
     pub total_time_to_proof: i64,
     pub proof_size: f64,
     pub proving_cycles: i64,
     pub zkm_version: String,
     pub started_at: i64,
     pub updated_at: i64,
+}
+
+impl From<ProofInfo> for ProofItem {
+    fn from(proof_info: ProofInfo) -> Self {
+        let total_time_to_proof = if proof_info.updated_at >= proof_info.created_at {
+            proof_info.updated_at - proof_info.created_at
+        } else {
+            0
+        };
+        let contain_blocks = if proof_info.real_numbers.is_empty() {
+            format!("{}", proof_info.block_number)
+        } else {
+            proof_info.real_numbers
+        };
+
+        Self {
+            state: proof_info.state,
+            proving_time: proof_info.proving_time,
+            contain_blocks,
+            total_time_to_proof,
+            proof_size: proof_info.proof_size,
+            proving_cycles: proof_info.proving_cycles,
+            zkm_version: proof_info.zkm_version,
+            started_at: proof_info.created_at,
+            updated_at: proof_info.updated_at,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

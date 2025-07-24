@@ -579,6 +579,7 @@ pub struct ProofConfig {
 #[derive(Clone, Debug, FromRow)]
 pub struct ProofInfo {
     pub block_number: i64,
+    pub real_numbers: String,
     pub proving_cycles: i64,
     pub state: String,
     pub proving_time: i64,

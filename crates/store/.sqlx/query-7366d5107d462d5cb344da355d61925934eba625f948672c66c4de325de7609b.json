@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT proof, public_values, verifier_id, zkm_version\n            FROM groth16_proof\n            WHERE block_number = ?\n            ",
+  "query": "\n            SELECT proof, public_values, verifier_id, zkm_version\n            FROM groth16_proof\n            WHERE block_number >= ? AND start_number <= ?\n            ",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "6e225aa579f5bcbbd98ce36c97f34f6726b7e06418d1685cbde5e0b09d097747"
+  "hash": "7366d5107d462d5cb344da355d61925934eba625f948672c66c4de325de7609b"
 }

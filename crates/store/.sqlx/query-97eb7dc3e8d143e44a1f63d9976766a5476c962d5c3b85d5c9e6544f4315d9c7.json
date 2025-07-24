@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT block_number, real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at\n                 FROM groth16_proof\n                 WHERE   block_number >= ? AND  start_number  <= ? LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "block_number",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "real_numbers",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "proving_cycles",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "state",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "proving_time",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "proof_size",
+        "ordinal": 5,
+        "type_info": "Float"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "97eb7dc3e8d143e44a1f63d9976766a5476c962d5c3b85d5c9e6544f4315d9c7"
+}

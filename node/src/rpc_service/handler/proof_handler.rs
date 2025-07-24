@@ -43,17 +43,20 @@ pub async fn get_proof(
                 .get_range_proofs(ProofType::AggregationProof, block_number, block_number)
                 .await?,
         );
-        let groth16_proofs_map = convert_to_proof_items(
-            storage_process
-                .get_range_proofs(ProofType::Groth16Proof, block_number, block_number)
-                .await?,
-        );
+
+        let groth16_proof = if let Some(groth16_proof_info) =
+            storage_process.get_groth16_proof_info(block_number).await?
+        {
+            Some(groth16_proof_info.into())
+        } else {
+            None
+        };
         Ok::<Option<Proofs>, Box<dyn std::error::Error>>(Some(Proofs {
             block_proofs: vec![BlockProofs {
                 block_number,
                 block_proof: block_proofs_map.get(&block_number).cloned(),
                 aggregation_proof: aggregation_proofs_map.get(&block_number).cloned(),
-                groth16_proof: groth16_proofs_map.get(&block_number).cloned(),
+                groth16_proof,
             }],
         }))
     };
@@ -206,29 +209,7 @@ pub async fn get_proofs_overview(
 }
 
 fn convert_to_proof_items(input: Vec<ProofInfo>) -> HashMap<i64, ProofItem> {
-    input
-        .into_iter()
-        .map(|proof_info| {
-            let total_time_to_proof = if proof_info.updated_at >= proof_info.created_at {
-                proof_info.updated_at - proof_info.created_at
-            } else {
-                0
-            };
-            (
-                proof_info.block_number,
-                ProofItem {
-                    state: proof_info.state,
-                    proving_time: proof_info.proving_time,
-                    total_time_to_proof,
-                    proof_size: proof_info.proof_size,
-                    proving_cycles: proof_info.proving_cycles,
-                    zkm_version: proof_info.zkm_version,
-                    started_at: proof_info.created_at,
-                    updated_at: proof_info.updated_at,
-                },
-            )
-        })
-        .collect()
+    input.into_iter().map(|proof_info| (proof_info.block_number, proof_info.into())).collect()
 }
 
 // get_detail_proof

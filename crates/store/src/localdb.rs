@@ -1966,8 +1966,9 @@ impl<'a> StorageProcessor<'a> {
             r#"
             SELECT proof, public_values, verifier_id, zkm_version
             FROM groth16_proof
-            WHERE block_number = ?
+            WHERE block_number >= ? AND start_number <= ?
             "#,
+            block_number,
             block_number
         )
         .fetch_optional(self.conn())
@@ -2389,6 +2390,16 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    pub async fn get_groth16_proof_info(
+        &mut self,
+
+        block_number: i64,
+    ) -> anyhow::Result<Option<ProofInfo>> {
+        Ok(sqlx::query_as!(ProofInfo, "SELECT block_number, real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
+                 FROM groth16_proof
+                 WHERE   block_number >= ? AND  start_number  <= ? LIMIT 1", block_number, block_number).fetch_optional(self.conn()).await?)
+    }
+
     pub async fn get_range_proofs(
         &mut self,
         proof_type: ProofType,
@@ -2397,19 +2408,19 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Vec<ProofInfo>> {
         let query = match proof_type {
             ProofType::BlockProof => {
-                "SELECT block_number, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
+                "SELECT block_number, CAST(block_number AS TEXT) AS real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
                 FROM block_proof
                 WHERE block_number BETWEEN ? AND ?
                 ORDER BY block_number ASC"
             }
             ProofType::AggregationProof => {
-                "SELECT block_number, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
+                "SELECT block_number, CAST(block_number AS TEXT) AS real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
                  FROM aggregation_proof
                  WHERE block_number BETWEEN ? AND ?
                  ORDER BY block_number ASC"
             }
             ProofType::Groth16Proof => {
-                "SELECT block_number, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
+                "SELECT block_number, CAST(block_number AS TEXT) AS real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
                  FROM groth16_proof
                  WHERE block_number BETWEEN ? AND ?
                  ORDER BY block_number ASC"
