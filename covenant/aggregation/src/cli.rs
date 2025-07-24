@@ -8,6 +8,7 @@ pub struct Args {
     pub block_number: u64,
 
     /// Whether it is the initial block of the aggregation.
+    /// If it is false, it means a restart​.
     #[clap(long, env)]
     pub start: bool,
 

@@ -9,6 +9,18 @@ use primitives::genesis::Genesis;
 use url::Url;
 use zkm_sdk::ZKMProofKind;
 
+/// The arguments for configuring the chain data provider.
+#[derive(Debug, Clone, Parser)]
+pub struct ProviderArgs {
+    /// The rpc url used to fetch data about the block. If not provided, will use the
+    /// RPC_{chain_id} env var.
+    #[clap(long)]
+    pub rpc_url: Option<Url>,
+    /// The chain ID. If not provided, requires the rpc_url argument to be provided.
+    #[clap(long, env)]
+    pub chain_id: Option<u64>,
+}
+
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -103,16 +115,4 @@ impl Args {
 
         Ok(config)
     }
-}
-
-/// The arguments for configuring the chain data provider.
-#[derive(Debug, Clone, Parser)]
-pub struct ProviderArgs {
-    /// The rpc url used to fetch data about the block. If not provided, will use the
-    /// RPC_{chain_id} env var.
-    #[clap(long)]
-    pub rpc_url: Option<Url>,
-    /// The chain ID. If not provided, requires the rpc_url argument to be provided.
-    #[clap(long)]
-    pub chain_id: Option<u64>,
 }

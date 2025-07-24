@@ -6,9 +6,9 @@ on:
       - main
     tags:
       - v[0-9]+.*
-  pull_request:
-    branches:
-      - main
+  # pull_request:
+  #   branches:
+  #     - main
 
 env:
   CARGO_TERM_COLOR: always
