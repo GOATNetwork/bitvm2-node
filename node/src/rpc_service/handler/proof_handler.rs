@@ -44,13 +44,10 @@ pub async fn get_proof(
                 .await?,
         );
 
-        let groth16_proof = if let Some(groth16_proof_info) =
-            storage_process.get_groth16_proof_info(block_number).await?
-        {
-            Some(groth16_proof_info.into())
-        } else {
-            None
-        };
+        let groth16_proof = storage_process
+            .get_groth16_proof_info(block_number)
+            .await?
+            .map(|groth16_proof_info| groth16_proof_info.into());
         Ok::<Option<Proofs>, Box<dyn std::error::Error>>(Some(Proofs {
             block_proofs: vec![BlockProofs {
                 block_number,
