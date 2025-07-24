@@ -2295,8 +2295,8 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         tx_type: &str,
         prove_status: &str,
-        block_number: i64,
-        limit: i64,
+        start_number: i64,
+        end_number: i64,
     ) -> anyhow::Result<Vec<i64>> {
         let records = sqlx::query!(
             "SELECT DISTINCT height
@@ -2304,12 +2304,12 @@ impl<'a> StorageProcessor<'a> {
             WHERE tx_type = ?
                 AND prove_status = ?
                 AND height > ?
-                ORDER BY height ASC
-                limit ?",
+                AND height <= ?
+                ORDER BY height ASC",
             tx_type,
             prove_status,
-            block_number,
-            limit,
+            start_number,
+            end_number,
         )
         .fetch_all(self.conn())
         .await?;

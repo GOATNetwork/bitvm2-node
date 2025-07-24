@@ -174,7 +174,7 @@ impl Db {
                 &GoatTxType::ProceedWithdraw.to_string(),
                 &GoatTxProveStatus::Pending.to_string(),
                 (block_number - self.aggregate_block_count) as i64,
-                (self.aggregate_block_count) as i64,
+                block_number as i64,
             )
             .await?;
 

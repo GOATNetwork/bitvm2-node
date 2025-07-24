@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT height\n            FROM goat_tx_record\n            WHERE tx_type = ?\n                AND prove_status = ?\n                AND height > ?\n                AND height <= ?\n                ORDER BY height ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "height",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ef9bcc437a922f73adce7e661d285c907ed63b43513011cb42f9dee0ad5c094f"
+}
