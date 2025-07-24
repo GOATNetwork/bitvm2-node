@@ -21,31 +21,24 @@ sh docker.sh push
 # Start Proof Services
 
 ```
-export GIT_USER=
+# DB directory in host.
 export DB_DIR=
-export CHAIN_ID=
 
-# block number for the continuous service
-export C_BLOCK_NUMBER=
+BLOCK_NUMBER_C=1 docker-compose up -d continuous
 
-# block number for the aggregation service
-export A_BLOCK_NUMBER=
+BLOCK_NUMBER_A=2 docker-compose up -d aggregation
 
-docker-compose up -d
-
-# docker-compose start continuous
-
-# docker-compose start aggregation
+# BLOCK_NUMBER_C=1 BLOCK_NUMBER_A=2 docker-compose up -d
 ```
 
 # Stop Proof Services
 
 ```
-docker-compose down
+docker-compose down continuous
 
-# docker-compose stop continuous
+docker-compose down aggregation
 
-# docker-compose stop aggregation
+# docker-compose down
 ```
 
 # View logs

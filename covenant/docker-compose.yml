@@ -3,24 +3,28 @@ version: '3.8'
 services:
   continuous:
     image: ghcr.io/${GIT_USER}/continuous:${TAG:-latest}
+    network_mode: "host"
     container_name: continuous
-    command: ["continuous", "--block-number", "${C_BLOCK_NUMBER:-1}", "--chain-id", "${CHAIN_ID}"]
     volumes:
       - ${DB_DIR}:/var/data
       - ./logs:/app/logs
       - ./.env.continuous:/app/.env
     env_file:
       - ./.env.continuous
+    environment:
+      - BLOCK_NUMBER=${BLOCK_NUMBER_C}
     restart: unless-stopped
 
   aggregation:
     image: ghcr.io/${GIT_USER}/aggregation:${TAG:-latest}
+    network_mode: "host"
     container_name: aggregation
-    command: ["aggregation", "--block-number", "${A_BLOCK_NUMBER:-2}", "--start"]
     volumes:
       - ${DB_DIR}:/var/data
       - ./logs:/app/logs
       - ./.env.aggregation:/app/.env
     env_file:
       - ./.env.aggregation
+    environment:
+      - BLOCK_NUMBER=${BLOCK_NUMBER_A}
     restart: unless-stopped

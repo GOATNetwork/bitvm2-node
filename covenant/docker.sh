@@ -6,9 +6,9 @@ build_images() {
 
     cd tool && ./certgen.sh && cd ../../
 
-    docker build -t aggregation:latest . -f ./Dockerfile-aggregation
+    docker build -t aggregation:latest . -f ./Dockerfile.aggregation
 
-    docker build -t continuous:latest . -f ./Dockerfile-continuous
+    docker build -t continuous:latest . -f ./Dockerfile.continuous
 }
 
 push_images() {
