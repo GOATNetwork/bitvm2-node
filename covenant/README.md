@@ -17,7 +17,7 @@ cargo run --bin continuous -- --block-number 1 --rpc-url https://archive.goat.ne
 Aggregate block proofs and generate groth16 proofs.
 
 ```shell
-cargo run --bin aggregation -- --block-number 2 --start
+cargo run --bin aggregation -- --block-number 1 --start
 ```
 
 ### Test getting groth16 proofs
@@ -34,11 +34,11 @@ RUST_LOG=debug cargo test test_groth16_proof
 # DB directory in host.
 export DB_DIR=
 
-BLOCK_NUMBER_C=1 docker-compose up -d continuous
+BLOCK_NUMBER=1 docker-compose up -d continuous
 
-BLOCK_NUMBER_A=2 docker-compose up -d aggregation
+BLOCK_NUMBER=2 docker-compose up -d aggregation
 
-# BLOCK_NUMBER_C=1 BLOCK_NUMBER_A=2 docker-compose up -d
+# BLOCK_NUMBER=1 docker-compose up -d
 ```
 
 ### Stop Proof Services
@@ -57,4 +57,8 @@ docker-compose down aggregation
 tail -f logs/continuous.log.2025-07-23
 
 tail -f logs/aggregation.log.2025-07-23
+
+docker logs -f continuous
+
+docker logs -f aggregation
 ```
