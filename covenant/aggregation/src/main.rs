@@ -34,7 +34,6 @@ async fn main() {
     }
 
     let args = Args::parse();
-    assert!(args.block_number > 1, "Block number must be greater than 1");
 
     // Initialize the logger.
     let appender = LogRollerBuilder::new(args.log_dir.as_ref(), LOG_FILE)
@@ -55,11 +54,17 @@ async fn main() {
 
     tracing::info!("args: {:?}", args);
 
-    LAST_REMOVED_NUMBER.store(args.block_number, Ordering::Relaxed);
-
     let local_db: LocalDB = LocalDB::new(&format!("sqlite:{}", args.database_url), true).await;
     local_db.migrate().await;
-    let local_db = Arc::new(Db::new(Arc::new(local_db), args.aggregate_block_count));
+
+    let db = Db::new(Arc::new(local_db), args.aggregate_block_count);
+
+    let block_number =
+        calc_block_number(&db, !args.start, args.block_number, args.aggregate_block_count).await;
+    tracing::info!("first or last block number: {}", block_number);
+    LAST_REMOVED_NUMBER.store(block_number, Ordering::Relaxed);
+
+    let local_db = Arc::new(db);
 
     let client = Arc::new(ProverClient::new());
 
@@ -73,7 +78,7 @@ async fn main() {
         client.clone(),
         pk.clone(),
         vk.clone(),
-        args.block_number,
+        block_number,
         args.start,
         args.aggregate_block_count,
         args.exec,
@@ -87,7 +92,7 @@ async fn main() {
     let (agg_proof_tx, agg_proof_rx) = sync_channel::<ProofWithPublicValues>(20);
     let (groth16_proof_tx, groth16_proof_rx) = sync_channel::<ProofWithPublicValues>(20);
 
-    block_number_tx.send(args.block_number).unwrap();
+    block_number_tx.send(block_number).unwrap();
 
     let handle1 =
         tokio::spawn(agg_executor_clone.data_preparer(block_number_rx, input_tx, agg_proof_rx));
@@ -100,4 +105,18 @@ async fn main() {
     let handle3 = tokio::spawn(groth16_executor.proof_generator(groth16_proof_rx));
 
     let _ = tokio::join!(handle1, handle2, handle3);
+}
+
+async fn calc_block_number(db: &Db, restart: bool, arg_number: u64, agg_block_count: u64) -> u64 {
+    // Restart aggregation service.
+    if restart {
+        let last_number = db.get_last_number().await.unwrap();
+        tracing::info!("last number: {:?}", last_number);
+        if last_number.is_some() {
+            return last_number.unwrap() as u64 + agg_block_count;
+        }
+    }
+
+    // First execution of aggregation service.
+    arg_number + agg_block_count - 1
 }

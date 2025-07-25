@@ -68,11 +68,7 @@ impl AggregationExecutor {
             let block_number = block_number_rx.recv();
             if let Ok(block_number) = block_number {
                 let mut proofs = vec![];
-                let start_number = if self.agg_count == 1 {
-                    block_number - 1
-                } else {
-                    block_number - self.agg_count + 1
-                };
+                let start_number = block_number - self.agg_count + 1;
 
                 for number in start_number..=block_number {
                     let block_proof = self.db.load_proof(number, false).await?;

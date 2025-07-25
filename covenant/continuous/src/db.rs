@@ -20,6 +20,16 @@ impl PersistToDB {
         Self { local_db: local_db.clone() }
     }
 
+    pub async fn get_last_number(&self) -> eyre::Result<Option<i64>> {
+        let mut storage_process =
+            self.local_db.acquire().await.map_err(|e| eyre!("Failed to acquire local db: {e}"))?;
+
+        storage_process
+            .get_last_continuous_number()
+            .await
+            .map_err(|e| eyre!("Failed to get last number: {e}"))
+    }
+
     pub async fn set_block_proof_concurrency(&self, concurrency: u32) -> eyre::Result<()> {
         let mut storage_process =
             self.local_db.acquire().await.map_err(|e| eyre!("Failed to acquire local db: {e}"))?;

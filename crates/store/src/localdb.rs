@@ -1583,6 +1583,27 @@ impl<'a> StorageProcessor<'a> {
             }
         }
     }
+
+    pub async fn get_last_continuous_number(&mut self) -> anyhow::Result<Option<i64>> {
+        #[derive(sqlx::FromRow)]
+        struct BlockNumberRow {
+            block_number: Option<i64>,
+        }
+
+        let row = sqlx::query_as!(
+            BlockNumberRow,
+            r#"
+            SELECT MAX(block_number) as block_number
+            FROM block_proof
+            WHERE state = 'proved'
+            "#,
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        Ok(if let Some(r) = row { r.block_number } else { None })
+    }
+
     pub async fn create_aggregation_task(
         &mut self,
         block_number: i64,
@@ -1765,6 +1786,26 @@ impl<'a> StorageProcessor<'a> {
                 Ok((Default::default(), Default::default(), Default::default(), Default::default()))
             }
         }
+    }
+
+    pub async fn get_last_aggregation_number(&mut self) -> anyhow::Result<Option<i64>> {
+        #[derive(sqlx::FromRow)]
+        struct BlockNumberRow {
+            block_number: Option<i64>,
+        }
+
+        let row = sqlx::query_as!(
+            BlockNumberRow,
+            r#"
+            SELECT MAX(block_number) as block_number
+            FROM aggregation_proof
+            WHERE state = 'proved'
+            "#,
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        Ok(if let Some(r) = row { r.block_number } else { None })
     }
 
     pub async fn create_groth16_task(

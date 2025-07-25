@@ -59,7 +59,11 @@ async fn main() -> eyre::Result<()> {
 
     let local_db = LocalDB::new(&format!("sqlite:{}", args.database_url), true).await;
     local_db.migrate().await;
+
     let sqlite_db = db::PersistToDB::new(&local_db).await;
+    let mut block_number = calc_block_number(&sqlite_db, !args.start, args.block_number).await;
+    tracing::info!("first or last block number: {}", block_number);
+
     let local_db = Arc::new(local_db);
 
     sqlite_db.set_block_proof_concurrency(args.max_concurrent_executions as u32).await?;
@@ -84,7 +88,6 @@ async fn main() -> eyre::Result<()> {
     );
 
     let concurrent_executions_semaphore = Arc::new(Semaphore::new(args.max_concurrent_executions));
-    let mut block_number = args.block_number;
 
     let failed = Arc::new(AtomicBool::new(false));
 
@@ -167,4 +170,18 @@ where
             }
         }
     }
+}
+
+async fn calc_block_number(db: &db::PersistToDB, restart: bool, arg_number: u64) -> u64 {
+    // Restart aggregation service.
+    if restart {
+        let last_number = db.get_last_number().await.unwrap();
+        tracing::info!("last number: {:?}", last_number);
+        if last_number.is_some() {
+            return (last_number.unwrap() + 1) as u64;
+        }
+    }
+
+    // First execution of aggregation service.
+    arg_number
 }

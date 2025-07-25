@@ -36,6 +36,11 @@ impl Db {
         Self { db, aggregate_block_count }
     }
 
+    pub async fn get_last_number(&self) -> Result<Option<i64>> {
+        let mut storage_process = self.db.acquire().await?;
+        storage_process.get_last_aggregation_number().await
+    }
+
     pub async fn set_aggregation_info(&self, start_aggregation_number: u64) -> Result<()> {
         let mut storage_process = self.db.acquire().await?;
         storage_process
@@ -70,9 +75,9 @@ impl Db {
             if proof.is_empty() {
                 sleep(Duration::from_secs(1)).await;
                 if is_aggregate {
-                    info!("waiting block proof: {}", block_number);
-                } else {
                     info!("waiting aggregation proof: {}", block_number);
+                } else {
+                    info!("waiting block proof: {}", block_number);
                 }
                 continue;
             }

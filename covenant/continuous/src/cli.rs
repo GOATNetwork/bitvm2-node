@@ -13,8 +13,13 @@ use zkm_sdk::ZKMProofKind;
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
     /// The block number of the block to execute.
-    #[clap(long, env)]
+    #[clap(long, env, default_value_t = 1)]
     pub block_number: u64,
+
+    /// Whether it is the initial block.
+    /// If it is false, it means a restart​.
+    #[clap(long, env)]
+    pub start: bool,
 
     /// The rpc url used to fetch data about the block. If not provided, will use the
     /// RPC_{chain_id} env var.

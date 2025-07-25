@@ -15,7 +15,6 @@ pub fn main() {
     // Read the public values.
     let public_values = zkm_zkvm::io::read::<Vec<Vec<u8>>>();
 
-    assert!(vkeys.len() > 1);
     assert_eq!(vkeys.len(), public_values.len());
 
     let states: Vec<(B256, B256)> = public_values.iter().map(|public_value_bytes| {

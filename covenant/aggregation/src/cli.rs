@@ -4,7 +4,7 @@ use clap::Parser;
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
     /// Start or restart aggregation block number.
-    #[clap(long, env, default_value_t = 2)]
+    #[clap(long, env, default_value_t = 1)]
     pub block_number: u64,
 
     /// Whether it is the initial block of the aggregation.

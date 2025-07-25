@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT MAX(block_number) as block_number\n            FROM aggregation_proof\n            WHERE state = 'proved'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "block_number",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "6eb4f0bbcdb1561310937b30b354797e378813ea4224fe395dee16ea7acff0bb"
+}

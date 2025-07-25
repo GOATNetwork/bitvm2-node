@@ -12,7 +12,8 @@ services:
     env_file:
       - ./.env.continuous
     environment:
-      - BLOCK_NUMBER=${BLOCK_NUMBER_C:-1}
+      - BLOCK_NUMBER=${BLOCK_NUMBER:-1}
+      - START=${START:-true}
     restart: unless-stopped
 
   aggregation:
@@ -26,6 +27,6 @@ services:
     env_file:
       - ./.env.aggregation
     environment:
-      - BLOCK_NUMBER=${BLOCK_NUMBER_A:-2}
+      - BLOCK_NUMBER=${BLOCK_NUMBER:-1}
       - START=${START:-true}
     restart: unless-stopped
