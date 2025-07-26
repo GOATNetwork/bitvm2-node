@@ -150,11 +150,20 @@ where
     C: ExecutorComponents<Network = Ethereum>,
     P: Provider<Ethereum> + Clone + 'static,
 {
-    let mut retry_count = 0;
-
     // Wait for the block to be available in the HTTP provider
-    executor.wait_for_block(number).await?;
+    let mut retry_count = 0;
+    loop {
+        match executor.wait_for_block(number).await {
+            Ok(_) => break,
+            Err(err) => {
+                warn!("Failed to wait block {number}: {err}, retrying {retry_count}...");
+                retry_count += 1;
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+        }
+    }
 
+    let mut retry_count = 0;
     loop {
         match executor.execute(number).await {
             Ok(_) => {
@@ -162,11 +171,12 @@ where
             }
             Err(err) => {
                 warn!("Failed to execute block {number}: {err}, retrying {retry_count}...");
-                retry_count += 1;
                 if retry_count > max_retries {
                     error!("Max retries {retry_count} reached for block: {number}");
                     return Err(err);
                 }
+                retry_count += 1;
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         }
     }

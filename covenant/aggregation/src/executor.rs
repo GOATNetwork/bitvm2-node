@@ -39,6 +39,7 @@ pub struct AggregationExecutor {
     is_start_block: bool,
     exec: bool,
     agg_count: u64,
+    max_retries: u32,
 }
 
 impl AggregationExecutor {
@@ -51,9 +52,10 @@ impl AggregationExecutor {
         is_start_block: bool,
         agg_count: u64,
         exec: bool,
+        max_retries: u32,
     ) -> Self {
         db.set_aggregation_info(block_number).await.unwrap();
-        Self { db, client, pk, vk, block_number, is_start_block, agg_count, exec }
+        Self { db, client, pk, vk, block_number, is_start_block, agg_count, exec, max_retries }
     }
 
     pub async fn data_preparer(
@@ -120,32 +122,47 @@ impl AggregationExecutor {
             let proofs = input_rx.recv();
             if let Ok(proofs) = proofs {
                 let block_number = proofs.0.last().unwrap().block_number;
-                match self.generate_aggregation_proof(proofs.0).await {
-                    Ok((agg_proof, cycles, proving_duration)) => {
-                        info!("Successfully generate aggregation proof: {}", block_number);
-                        self.db
-                            .on_aggregation_end(
+                let proofs = proofs.0;
+                let mut retry_count = 0;
+                loop {
+                    match self.generate_aggregation_proof(proofs.clone()).await {
+                        Ok((agg_proof, cycles, proving_duration)) => {
+                            info!("Successfully generate aggregation proof: {}", block_number);
+                            self.db
+                                .on_aggregation_end(
+                                    block_number,
+                                    &agg_proof,
+                                    &self.vk,
+                                    cycles,
+                                    proving_duration,
+                                )
+                                .await?;
+
+                            let proof = ProofWithPublicValues {
                                 block_number,
-                                &agg_proof,
-                                &self.vk,
-                                cycles,
-                                proving_duration,
-                            )
-                            .await?;
+                                proof: agg_proof.proof,
+                                public_values: agg_proof.public_values,
+                                zkm_version: agg_proof.zkm_version,
+                            };
 
-                        let proof = ProofWithPublicValues {
-                            block_number,
-                            proof: agg_proof.proof,
-                            public_values: agg_proof.public_values,
-                            zkm_version: agg_proof.zkm_version,
-                        };
-
-                        groth16_proof_tx.send(proof.clone())?;
-                        agg_proof_tx.send(proof)?;
-                    }
-                    Err(err) => {
-                        error!("Error generate aggregation proof {}: {}", block_number, err);
-                        self.db.on_aggregation_failed(block_number, err.to_string()).await?;
+                            groth16_proof_tx.send(proof.clone())?;
+                            agg_proof_tx.send(proof)?;
+                            break;
+                        }
+                        Err(err) => {
+                            error!("Error generate aggregation proof {}: {}", block_number, err);
+                            if retry_count > self.max_retries {
+                                error!(
+                                    "Max retries {retry_count} reached for block: {block_number}"
+                                );
+                                self.db
+                                    .on_aggregation_failed(block_number, err.to_string())
+                                    .await?;
+                                return Err(err);
+                            }
+                            retry_count += 1;
+                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        }
                     }
                 }
                 block_number_tx.send(block_number + self.agg_count)?;
@@ -243,6 +260,7 @@ pub struct Groth16Executor {
     client: Arc<dyn Prover<DefaultProverComponents>>,
     pk: Arc<ZKMProvingKey>,
     vk: Arc<ZKMVerifyingKey>,
+    max_retries: u32,
 }
 
 impl Groth16Executor {
@@ -251,8 +269,9 @@ impl Groth16Executor {
         client: Arc<dyn Prover<DefaultProverComponents>>,
         pk: Arc<ZKMProvingKey>,
         vk: Arc<ZKMVerifyingKey>,
+        max_retries: u32,
     ) -> Self {
-        Self { db, client, pk, vk }
+        Self { db, client, pk, vk, max_retries }
     }
 
     pub async fn proof_generator(self, groth16_rx: Receiver<ProofWithPublicValues>) -> Result<()> {
@@ -267,29 +286,41 @@ impl Groth16Executor {
                     continue;
                 }
 
-                match self.generate_groth16_proof(block_number, agg_proof).await {
-                    Ok((groth16_proof, proving_duration)) => {
-                        info!("Successfully generate groth16 proof {}", block_number);
-                        self.db
-                            .on_groth16_end(
-                                block_number,
-                                &groth16_proof,
-                                &self.vk,
-                                proving_duration,
-                            )
-                            .await?;
+                let mut retry_count = 0;
+                loop {
+                    match self.generate_groth16_proof(block_number, agg_proof.clone()).await {
+                        Ok((groth16_proof, proving_duration)) => {
+                            info!("Successfully generate groth16 proof {}", block_number);
+                            self.db
+                                .on_groth16_end(
+                                    block_number,
+                                    &groth16_proof,
+                                    &self.vk,
+                                    proving_duration,
+                                )
+                                .await?;
 
-                        Groth16Verifier::verify(
-                            &groth16_proof.bytes(),
-                            &groth16_proof.public_values.to_vec(),
-                            &self.vk.bytes32(),
-                            &GROTH16_VK_BYTES,
-                        )
-                        .expect("Groth16 proof is invalid");
-                    }
-                    Err(err) => {
-                        error!("Error generate groth16 proof {}: {}", block_number, err);
-                        self.db.on_groth16_failed(block_number, err.to_string()).await?;
+                            Groth16Verifier::verify(
+                                &groth16_proof.bytes(),
+                                &groth16_proof.public_values.to_vec(),
+                                &self.vk.bytes32(),
+                                &GROTH16_VK_BYTES,
+                            )
+                            .expect("Groth16 proof is invalid");
+                            break;
+                        }
+                        Err(err) => {
+                            error!("Error generate groth16 proof {}: {}", block_number, err);
+                            if retry_count > self.max_retries {
+                                error!(
+                                    "Max retries {retry_count} reached for block: {block_number}"
+                                );
+                                self.db.on_groth16_failed(block_number, err.to_string()).await?;
+                                return Err(err);
+                            }
+                            retry_count += 1;
+                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        }
                     }
                 }
             }

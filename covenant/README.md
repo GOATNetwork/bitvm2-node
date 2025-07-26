@@ -9,7 +9,7 @@ See [Reth Processor](https://github.com/ziren/reth-processor/blob/main/README.md
 The block execution statistics are stored in a Sqlite database, and the number of blocks executed in parallel can be customized with the `MAX_CONCURRENT_EXECUTIONS` environment variable.
 
 ```shell
-cargo run --bin continuous -- --block-number 1 --rpc-url https://archive.goat.network --chain-id 2345 --prove
+cargo run --bin continuous -- --block-number 1 --start --rpc-url https://archive.goat.network --chain-id 2345 --prove
 ```
 
 ### Aggregate block proofs
@@ -34,21 +34,21 @@ RUST_LOG=debug cargo test test_groth16_proof
 # DB directory in host.
 export DB_DIR=
 
-BLOCK_NUMBER=1 docker-compose up -d continuous
+# BLOCK_NUMBER=1 docker-compose up -d continuous
 
-BLOCK_NUMBER=2 docker-compose up -d aggregation
+# BLOCK_NUMBER=1 docker-compose up -d aggregation
 
-# BLOCK_NUMBER=1 docker-compose up -d
+BLOCK_NUMBER=1 docker-compose up -d
 ```
 
 ### Stop Proof Services
 
 ```
-docker-compose down continuous
+# docker-compose down continuous
 
-docker-compose down aggregation
+# docker-compose down aggregation
 
-# docker-compose down
+docker-compose down
 ```
 
 ### View logs

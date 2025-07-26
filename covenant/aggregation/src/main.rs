@@ -82,10 +82,12 @@ async fn main() {
         args.start,
         args.aggregate_block_count,
         args.exec,
+        args.execution_retries,
     )
     .await;
     let agg_executor_clone = agg_executor.clone();
-    let groth16_executor = Groth16Executor::new(local_db, client, pk, vk).await;
+    let groth16_executor =
+        Groth16Executor::new(local_db, client, pk, vk, args.execution_retries).await;
 
     let (block_number_tx, block_number_rx) = sync_channel::<u64>(20);
     let (input_tx, input_rx) = sync_channel::<AggreationInput>(20);

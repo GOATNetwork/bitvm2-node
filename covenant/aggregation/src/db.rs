@@ -18,6 +18,7 @@ const PROOF_COUNT: u64 = 20;
 /// An input to the aggregation program.
 ///
 /// Consists of a proof and a verification key.
+#[derive(Clone)]
 pub struct Proof {
     pub block_number: u64,
     pub proof: ZKMProof,
