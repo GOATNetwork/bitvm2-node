@@ -157,6 +157,10 @@ where
             Ok(_) => break,
             Err(err) => {
                 warn!("Failed to wait block {number}: {err}, retrying {retry_count}...");
+                if retry_count > max_retries {
+                    error!("Max retries {retry_count} reached for block: {number}");
+                    return Err(err);
+                }
                 retry_count += 1;
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
