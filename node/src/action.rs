@@ -772,7 +772,7 @@ pub async fn recv_and_dispatch(
                 )
                 .await?;
                 tracing::info!("challenge sent, txid: {}", challenge_txid.to_string());
-                let _ = wait_tx_appear(btc_client, &challenge_txid, 2, 300).await;
+                let _ = wait_tx_confirmation(btc_client, &challenge_txid, 2, 300).await;
                 let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,
@@ -855,7 +855,7 @@ pub async fn recv_and_dispatch(
                     let take1_txid = take1_tx.compute_txid();
                     broadcast_tx(btc_client, &take1_tx).await?;
                     tracing::info!("take1 sent, txid: {}", take1_txid.to_string());
-                    let _ = wait_tx_appear(btc_client, &take1_txid, 2, 300).await;
+                    let _ = wait_tx_confirmation(btc_client, &take1_txid, 2, 300).await;
                     let message_content = GOATMessageContent::Take1Sent(Take1Sent {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
@@ -1024,7 +1024,7 @@ pub async fn recv_and_dispatch(
                     let take2_txid = take2_tx.compute_txid();
                     broadcast_tx(btc_client, &take2_tx).await?;
                     tracing::info!("take2 sent, txid: {}", take2_txid.to_string());
-                    let _ = wait_tx_appear(btc_client, &take2_txid, 2, 300).await;
+                    let _ = wait_tx_confirmation(btc_client, &take2_txid, 2, 300).await;
                     let message_content = GOATMessageContent::Take2Sent(Take2Sent {
                         instance_id: receive_data.instance_id,
                         graph_id: receive_data.graph_id,
@@ -1109,7 +1109,7 @@ pub async fn recv_and_dispatch(
                 )
                 .await;
                 broadcast_tx(btc_client, &disprove_tx).await?;
-                let _ = wait_tx_appear(btc_client, &disprove_txid, 2, 300).await;
+                let _ = wait_tx_confirmation(btc_client, &disprove_txid, 2, 300).await;
                 let message_content = GOATMessageContent::DisproveSent(DisproveSent {
                     instance_id: receive_data.instance_id,
                     graph_id: receive_data.graph_id,

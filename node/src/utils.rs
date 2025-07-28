@@ -272,7 +272,7 @@ pub async fn get_partial_scripts(
 pub async fn get_fee_rate(client: &BTCClient) -> Result<f64, Box<dyn std::error::Error>> {
     match client.network {
         //TODO mempool api /fee-estimates failed, fix it latter
-        Network::Testnet | Network::Regtest => Ok(1.0),
+        Network::Testnet | Network::Regtest => Ok(10.0),
         _ => {
             let res = client.esplora.get_fee_estimates().await?;
             Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(format!(
@@ -1226,6 +1226,7 @@ pub async fn wait_tx_confirmation(
     }
 }
 
+#[allow(dead_code)]
 pub async fn wait_tx_appear(
     btc_client: &BTCClient,
     txid: &Txid,
