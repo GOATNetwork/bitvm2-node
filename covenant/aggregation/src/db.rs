@@ -33,8 +33,10 @@ pub struct Db {
 }
 
 impl Db {
-    pub fn new(db: Arc<LocalDB>, aggregate_block_count: u64) -> Self {
-        Self { db, aggregate_block_count }
+    pub async fn new(db: Arc<LocalDB>, aggregate_block_count: u64) -> Self {
+        let db = Self { db, aggregate_block_count };
+        db.set_aggregation_count(aggregate_block_count).await.expect("Set aggregation count err");
+        db
     }
 
     pub async fn get_last_number(&self) -> Result<Option<i64>> {
@@ -42,14 +44,23 @@ impl Db {
         storage_process.get_last_aggregation_number().await
     }
 
-    pub async fn set_aggregation_info(&self, start_aggregation_number: u64) -> Result<()> {
+    pub async fn get_init_number(&self) -> Result<i64> {
         let mut storage_process = self.db.acquire().await?;
-        storage_process
-            .set_aggregation_info(
-                self.aggregate_block_count as i64,
-                start_aggregation_number as i64,
-            )
-            .await?;
+
+        let (_, _, start_aggregation_number) = storage_process.get_proof_config().await?;
+
+        Ok(start_aggregation_number)
+    }
+
+    pub async fn set_aggregation_count(&self, aggregate_block_count: u64) -> Result<()> {
+        let mut storage_process = self.db.acquire().await?;
+        storage_process.set_aggregation_count(aggregate_block_count as i64).await?;
+        Ok(())
+    }
+
+    pub async fn set_init_number(&self, block_number: u64) -> Result<()> {
+        let mut storage_process = self.db.acquire().await?;
+        storage_process.set_init_number(block_number as i64).await?;
         Ok(())
     }
 
@@ -209,6 +220,7 @@ impl Db {
     pub async fn on_groth16_end(
         &self,
         block_number: u64,
+        init_number: u64,
         proof: &ZKMProofWithPublicValues,
         vk: &ZKMVerifyingKey,
         proving_duration: Duration,
@@ -223,6 +235,7 @@ impl Db {
         storage_process
             .update_groth16_succ(
                 block_number as i64,
+                init_number as i64,
                 (proving_duration.as_secs_f32() * 1000.0) as i64,
                 0,
                 &proof_bytes,

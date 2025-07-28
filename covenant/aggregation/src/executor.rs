@@ -54,7 +54,6 @@ impl AggregationExecutor {
         exec: bool,
         max_retries: u32,
     ) -> Self {
-        db.set_aggregation_info(block_number).await.unwrap();
         Self { db, client, pk, vk, block_number, is_start_block, agg_count, exec, max_retries }
     }
 
@@ -260,6 +259,7 @@ pub struct Groth16Executor {
     client: Arc<dyn Prover<DefaultProverComponents>>,
     pk: Arc<ZKMProvingKey>,
     vk: Arc<ZKMVerifyingKey>,
+    init_number: u64,
     max_retries: u32,
 }
 
@@ -269,9 +269,10 @@ impl Groth16Executor {
         client: Arc<dyn Prover<DefaultProverComponents>>,
         pk: Arc<ZKMProvingKey>,
         vk: Arc<ZKMVerifyingKey>,
+        init_number: u64,
         max_retries: u32,
     ) -> Self {
-        Self { db, client, pk, vk, max_retries }
+        Self { db, client, pk, vk, init_number, max_retries }
     }
 
     pub async fn proof_generator(self, groth16_rx: Receiver<ProofWithPublicValues>) -> Result<()> {
@@ -294,6 +295,7 @@ impl Groth16Executor {
                             self.db
                                 .on_groth16_end(
                                     block_number,
+                                    self.init_number,
                                     &groth16_proof,
                                     &self.vk,
                                     proving_duration,

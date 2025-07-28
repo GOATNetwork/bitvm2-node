@@ -549,6 +549,7 @@ pub struct AggregationProof {
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Groth16Proof {
     pub block_number: i64,
+    pub init_number: i64,
     pub start_number: i64,
     pub real_numbers: i64,
     pub total_time_to_proof: i64,

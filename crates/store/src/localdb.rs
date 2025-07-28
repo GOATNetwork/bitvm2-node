@@ -1847,6 +1847,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_groth16_succ(
         &mut self,
         block_number: i64,
+        init_number: i64,
         proving_time: i64,
         proving_cycles: i64,
         proof: &[u8],
@@ -1871,6 +1872,7 @@ impl<'a> StorageProcessor<'a> {
             r#"
             UPDATE groth16_proof 
             SET
+                init_number = ?,
                 total_time_to_proof = ?,
                 proving_time = ?, 
                 proving_cycles = ?, 
@@ -1884,6 +1886,7 @@ impl<'a> StorageProcessor<'a> {
                 updated_at = ?
             WHERE block_number = ?
             "#,
+            init_number,
             total_time_to_proof,
             proving_time,
             proving_cycles,
@@ -2057,10 +2060,9 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn set_aggregation_info(
+    pub async fn set_aggregation_count(
         &mut self,
         aggregate_block_count: i64,
-        start_aggregation_number: i64,
     ) -> anyhow::Result<()> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
 
@@ -2069,11 +2071,30 @@ impl<'a> StorageProcessor<'a> {
             UPDATE proof_config
             SET 
                 aggregate_block_count = ?,
-                start_aggregation_number = ?,
                 updated_at = ?
             WHERE id = ?
             "#,
             aggregate_block_count,
+            timestamp,
+            1,
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn set_init_number(&mut self, start_aggregation_number: i64) -> anyhow::Result<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+
+        sqlx::query!(
+            r#"
+            UPDATE proof_config
+            SET
+                start_aggregation_number = ?,
+                updated_at = ?
+            WHERE id = ?
+            "#,
             start_aggregation_number,
             timestamp,
             1,

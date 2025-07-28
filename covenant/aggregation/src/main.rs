@@ -57,12 +57,20 @@ async fn main() {
     let local_db: LocalDB = LocalDB::new(&format!("sqlite:{}", args.database_url), true).await;
     local_db.migrate().await;
 
-    let db = Db::new(Arc::new(local_db), args.aggregate_block_count);
+    let db = Db::new(Arc::new(local_db), args.aggregate_block_count).await;
+    if args.start {
+        db.set_init_number(args.block_number)
+            .await
+            .expect("Set init number {args.block_number} err");
+    }
 
     let block_number =
         calc_block_number(&db, !args.start, args.block_number, args.aggregate_block_count).await;
     tracing::info!("first or last block number: {}", block_number);
     LAST_REMOVED_NUMBER.store(block_number, Ordering::Relaxed);
+
+    let init_number = get_init_number(&db, args.start, args.block_number).await;
+    tracing::info!("init number: {}", init_number);
 
     let local_db = Arc::new(db);
 
@@ -86,8 +94,9 @@ async fn main() {
     )
     .await;
     let agg_executor_clone = agg_executor.clone();
+
     let groth16_executor =
-        Groth16Executor::new(local_db, client, pk, vk, args.execution_retries).await;
+        Groth16Executor::new(local_db, client, pk, vk, init_number, args.execution_retries).await;
 
     let (block_number_tx, block_number_rx) = sync_channel::<u64>(20);
     let (input_tx, input_rx) = sync_channel::<AggreationInput>(20);
@@ -119,6 +128,16 @@ async fn calc_block_number(db: &Db, restart: bool, arg_number: u64, agg_block_co
         }
     }
 
-    // First execution of aggregation service.
+    // Start aggregation from the new height.
     arg_number + agg_block_count - 1
+}
+
+async fn get_init_number(db: &Db, start: bool, arg_number: u64) -> u64 {
+    // Use the new height as the initial number.
+    if start {
+        return arg_number;
+    }
+
+    // Restart service.
+    db.get_init_number().await.expect("Get init number err") as u64
 }

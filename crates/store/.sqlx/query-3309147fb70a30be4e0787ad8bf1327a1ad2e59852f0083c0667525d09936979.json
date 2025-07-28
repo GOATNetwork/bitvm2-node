@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE proof_config\n            SET\n                start_aggregation_number = ?,\n                updated_at = ?\n            WHERE id = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "3309147fb70a30be4e0787ad8bf1327a1ad2e59852f0083c0667525d09936979"
+}
