@@ -9,9 +9,9 @@ pub mod tests {
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
     use crate::utils::{
-        complete_and_broadcast_challenge_tx, get_fee_rate, get_fixed_disprove_output,
-        get_groth16_proof, get_proper_utxo_set, get_test_groth16_proof, get_vk, node_p2wsh_address,
-        node_p2wsh_script, node_sign,
+        complete_and_broadcast_challenge_tx, get_challenge_amount, get_fee_rate,
+        get_fixed_disprove_output, get_groth16_proof, get_proper_utxo_set, get_stake_amount,
+        get_test_groth16_proof, get_vk, node_p2wsh_address, node_p2wsh_script, node_sign,
     };
     use bitcoin::key::Keypair;
     use bitcoin::{CompressedPublicKey, EcdsaSighashType, ScriptBuf};
@@ -59,19 +59,8 @@ pub mod tests {
 
     pub fn get_regtest_address(network: Network) -> (PrivateKey, Address) {
         let secp = secp256k1::Secp256k1::new();
-        // Create a P2WPKH (bech32) address
         let private_key =
             PrivateKey::from_wif("cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5").unwrap();
-        // Derive the public key
-        let address = Address::p2wpkh(
-            &CompressedPublicKey::from_private_key(&secp, &private_key).unwrap(),
-            network,
-        );
-        let default_address = Address::from_str("bcrt1qvnhz5qn4q9vt2sgumajnm8gt53ggvmyyfwd0jg")
-            .unwrap()
-            .require_network(network)
-            .unwrap();
-        assert_eq!(address, default_address);
         let funding_address =
             node_p2wsh_address(network, &PublicKey::from_private_key(&secp, &private_key));
         println!("funding address: {funding_address}");
@@ -84,7 +73,6 @@ pub mod tests {
     ) {
         let network = btc_client.network;
         let (funder_privkey, _) = get_regtest_address(network);
-        let _challenge_amount = Amount::from_btc(0.01).unwrap();
 
         let secp = secp256k1::Secp256k1::new();
         println!("Broadcast challenge tx");
@@ -92,7 +80,6 @@ pub mod tests {
             btc_client,
             Keypair::from_secret_key(&secp, &funder_privkey.inner),
             challenge_tx,
-            // challenge_amount,
         )
         .await
         .unwrap();
@@ -222,8 +209,8 @@ pub mod tests {
         );
 
         let pegin_amount = Amount::from_btc(0.1).unwrap();
-        let stake_amount = Amount::from_btc(0.02).unwrap();
-        let challenge_amount = Amount::from_btc(0.01).unwrap();
+        let stake_amount = get_stake_amount(pegin_amount.to_sat());
+        let challenge_amount = get_challenge_amount(pegin_amount.to_sat());
 
         // fund the operator
         let extra_fee =
