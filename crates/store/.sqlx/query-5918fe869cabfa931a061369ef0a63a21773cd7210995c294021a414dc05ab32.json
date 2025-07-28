@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT MAX(block_number) as block_number\n            FROM block_proof\n            WHERE state = 'proved'\n            ",
+  "query": "\n            SELECT MIN(block_number) as block_number\n            FROM block_proof\n            WHERE state != 'proved'\n            ",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       true
     ]
   },
-  "hash": "e3d4a3dab1d739ddfc1dd6d05f67dca1ce6bc1addb391880440a9230bdd98465"
+  "hash": "5918fe869cabfa931a061369ef0a63a21773cd7210995c294021a414dc05ab32"
 }

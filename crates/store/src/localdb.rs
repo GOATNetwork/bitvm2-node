@@ -1593,9 +1593,9 @@ impl<'a> StorageProcessor<'a> {
         let row = sqlx::query_as!(
             BlockNumberRow,
             r#"
-            SELECT MAX(block_number) as block_number
+            SELECT MIN(block_number) as block_number
             FROM block_proof
-            WHERE state = 'proved'
+            WHERE state != 'proved'
             "#,
         )
         .fetch_optional(self.conn())

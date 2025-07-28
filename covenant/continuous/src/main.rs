@@ -188,7 +188,7 @@ async fn calc_block_number(db: &db::PersistToDB, restart: bool, arg_number: u64)
         let last_number = db.get_last_number().await.unwrap();
         tracing::info!("last number: {:?}", last_number);
         if last_number.is_some() {
-            return (last_number.unwrap() + 1) as u64;
+            return (last_number.unwrap()) as u64;
         }
     }
 
