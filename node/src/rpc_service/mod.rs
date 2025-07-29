@@ -314,18 +314,18 @@ mod tests {
             .json(&json!({
                 "instance_id": instance_id,
                 "network": "testnet",
-                "amount": 15000,
-                "fee_rate": 80,
+                "amount": 15000000,
+                "fee_rate": 6,
                 "utxo": [
                     {
                         "txid": hex::encode(generate_random_bytes(32)),
                         "vout": 0,
-                        "value": 10000
+                        "value": 10000000
                     },
                     {
                         "txid": hex::encode(generate_random_bytes(32)),
                         "vout": 1,
-                        "value": 20000
+                        "value": 200000000
                     }
                 ],
                 "from": from_addr,

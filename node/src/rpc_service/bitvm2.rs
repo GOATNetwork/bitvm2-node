@@ -270,9 +270,9 @@ impl From<&BridgeInTransactionPreparerRequest> for P2pUserData {
         let user_inputs = CustomInputs {
             inputs,
             input_amount: Amount::from_sat(input_amount),
-            //TODO
             fee_amount: Amount::from_sat(
-                PEGIN_BASE_VBYTES + CHEKSIG_P2WSH_INPUT_VBYTES * input_size,
+                (PEGIN_BASE_VBYTES + CHEKSIG_P2WSH_INPUT_VBYTES * input_size)
+                    * value.fee_rate as u64,
             ),
             change_address,
         };
