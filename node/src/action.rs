@@ -1509,7 +1509,7 @@ pub async fn recv_and_dispatch(
                         swarm,
                         local_db,
                         receive_data.instance_id,
-                        receive_data.graph_id,
+                        graph_id,
                     )
                     .await?;
                     if status_op.is_none() {
