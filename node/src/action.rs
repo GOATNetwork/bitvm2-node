@@ -1,8 +1,5 @@
 use crate::client::{BTCClient, GOATClient};
-use crate::env::{
-    self, SYNC_GRAPH_INTERVAL, SYNC_GRAPH_MAX_WAIT_SECS, get_local_node_info,
-    get_node_goat_address, get_node_pubkey,
-};
+use crate::env::{self, get_local_node_info, get_node_goat_address, get_node_pubkey};
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;
 use crate::rpc_service::current_time_secs;
@@ -57,7 +54,7 @@ pub enum GOATMessageContent {
     InstanceDiscarded(InstanceDiscarded),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CreateInstance {
     pub instance_id: Uuid,
     pub network: Network,
@@ -66,7 +63,7 @@ pub struct CreateInstance {
     pub user_inputs: CustomInputs,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CreateGraphPrepare {
     pub instance_id: Uuid,
     pub network: Network,
@@ -77,14 +74,14 @@ pub struct CreateGraphPrepare {
     pub committee_members_num: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CreateGraph {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub graph: SimplifiedBitvm2Graph,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NonceGeneration {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
@@ -93,7 +90,7 @@ pub struct NonceGeneration {
     pub committee_members_num: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CommitteePresign {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
@@ -103,7 +100,7 @@ pub struct CommitteePresign {
     pub committee_members_num: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GraphFinalize {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
@@ -111,27 +108,27 @@ pub struct GraphFinalize {
     pub graph_ipfs_cid: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct KickoffReady {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct KickoffSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub kickoff_txid: Txid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ChallengeSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub challenge_txid: Txid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AssertSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
@@ -140,40 +137,40 @@ pub struct AssertSent {
     pub assert_final_txid: Txid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Take1Ready {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Take1Sent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub take1_txid: Txid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Take2Ready {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Take2Sent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub take2_txid: Txid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct DisproveSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub disprove_txid: Txid,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct NodeInfo {
     pub peer_id: String,
     pub actor: String,
@@ -182,13 +179,13 @@ pub struct NodeInfo {
     pub socket_addr: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SyncGraphRequest {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SyncGraph {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
@@ -196,7 +193,7 @@ pub struct SyncGraph {
     pub graph_status: GraphStatus,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct InstanceDiscarded {
     // (graph_id, instance_id, OperatorPubkey)
     pub graph_infos: Vec<(Uuid, Uuid, String)>,
@@ -661,21 +658,34 @@ pub async fn recv_and_dispatch(
         // peg-out
         // KickoffReady sent by relayer
         (GOATMessageContent::KickoffReady(receive_data), Actor::Operator) => {
-            sync_graph(
+            tracing::info!("Handle KickoffReady");
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
-            let graph_status =
-                get_graph_status(local_db, receive_data.instance_id, receive_data.graph_id)
-                    .await?
-                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if ![GraphStatus::CommitteePresigned, GraphStatus::OperatorDataPushed]
-                .contains(&graph_status)
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle KickoffReady: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::KickoffReady(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Operator.to_string(),
+                    &MessageType::KickoffReady.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
+            if let Some(graph_status) = status_op
+                && ![GraphStatus::CommitteePresigned, GraphStatus::OperatorDataPushed]
+                    .contains(&graph_status)
             {
                 tracing::warn!(
                     "receive KickoffReady but currently in {graph_status} Status, ignored"
@@ -722,25 +732,37 @@ pub async fn recv_and_dispatch(
         // KickoffSent sent by relayer
         (GOATMessageContent::KickoffSent(receive_data), Actor::Challenger) => {
             tracing::info!("Handle KickoffSent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
-            let graph_status =
-                get_graph_status(local_db, receive_data.instance_id, receive_data.graph_id)
-                    .await?
-                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if ![
-                GraphStatus::CommitteePresigned,
-                GraphStatus::OperatorDataPushed,
-                GraphStatus::KickOff,
-            ]
-            .contains(&graph_status)
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle KickoffSent: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::KickoffSent(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Challenger, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Challenger.to_string(),
+                    &MessageType::KickoffSent.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
+            if let Some(graph_status) = status_op
+                && ![
+                    GraphStatus::CommitteePresigned,
+                    GraphStatus::OperatorDataPushed,
+                    GraphStatus::KickOff,
+                ]
+                .contains(&graph_status)
             {
                 tracing::warn!(
                     "receive KickoffSent for graph {} but currently in {graph_status} Status, ignored",
@@ -804,25 +826,38 @@ pub async fn recv_and_dispatch(
         }
         // Take1Ready sent by relayer
         (GOATMessageContent::Take1Ready(receive_data), Actor::Operator) => {
-            sync_graph(
+            tracing::info!("Handle Take1Ready");
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
-            let graph_status =
-                get_graph_status(local_db, receive_data.instance_id, receive_data.graph_id)
-                    .await?
-                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if ![
-                GraphStatus::CommitteePresigned,
-                GraphStatus::OperatorDataPushed,
-                GraphStatus::KickOff,
-            ]
-            .contains(&graph_status)
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle Take1Ready: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::Take1Ready(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Operator.to_string(),
+                    &MessageType::Take1Ready.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
+            if let Some(graph_status) = status_op
+                && ![
+                    GraphStatus::CommitteePresigned,
+                    GraphStatus::OperatorDataPushed,
+                    GraphStatus::KickOff,
+                ]
+                .contains(&graph_status)
             {
                 tracing::warn!(
                     "receive Take1Ready for graph {}, but currently in {graph_status} Status, ignored",
@@ -884,26 +919,39 @@ pub async fn recv_and_dispatch(
         // ChallengeSent sent by challenger
         // if challenger
         (GOATMessageContent::ChallengeSent(receive_data), Actor::Operator) => {
-            sync_graph(
+            tracing::info!("Handle ChallengeSent");
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
-            let graph_status =
-                get_graph_status(local_db, receive_data.instance_id, receive_data.graph_id)
-                    .await?
-                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if ![
-                GraphStatus::CommitteePresigned,
-                GraphStatus::OperatorDataPushed,
-                GraphStatus::KickOff,
-                GraphStatus::Challenge,
-            ]
-            .contains(&graph_status)
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle ChallengeSent: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::ChallengeSent(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Operator.to_string(),
+                    &MessageType::ChallengeSent.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
+            if let Some(graph_status) = status_op
+                && ![
+                    GraphStatus::CommitteePresigned,
+                    GraphStatus::OperatorDataPushed,
+                    GraphStatus::KickOff,
+                    GraphStatus::Challenge,
+                ]
+                .contains(&graph_status)
             {
                 tracing::warn!(
                     "receive ChallengeSent for graph {} but currently in {graph_status} Status, ignored",
@@ -989,15 +1037,31 @@ pub async fn recv_and_dispatch(
         }
         // Take2Ready sent by relayer
         (GOATMessageContent::Take2Ready(receive_data), Actor::Operator) => {
-            sync_graph(
+            tracing::info!("Handle Take2Ready");
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle Take2Ready: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::Take2Ready(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Operator.to_string(),
+                    &MessageType::Take2Ready.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
             let mut graph =
                 get_bitvm2_graph_from_db(local_db, receive_data.instance_id, receive_data.graph_id)
                     .await?;
@@ -1053,20 +1117,33 @@ pub async fn recv_and_dispatch(
         // AssertSent sent by relayer
         (GOATMessageContent::AssertSent(receive_data), Actor::Challenger) => {
             tracing::info!("Handle AssertSent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
-            let graph_status =
-                get_graph_status(local_db, receive_data.instance_id, receive_data.graph_id)
-                    .await?
-                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if [GraphStatus::Take2, GraphStatus::Disprove].contains(&graph_status) {
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle AssertSent: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::AssertSent(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Challenger, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Challenger.to_string(),
+                    &MessageType::AssertSent.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
+            if let Some(graph_status) = status_op
+                && [GraphStatus::Take2, GraphStatus::Disprove].contains(&graph_status)
+            {
                 tracing::warn!(
                     "receive AssertSent for graph {} but currently in {graph_status} Status, ignored",
                     receive_data.graph_id
@@ -1282,29 +1359,48 @@ pub async fn recv_and_dispatch(
         // Operator recycle prekickoff utxo
         (GOATMessageContent::Take1Sent(receive_data), Actor::Operator) => {
             tracing::info!("Handle Take1Sent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle Take1Sent: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::Take1Sent(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Operator.to_string(),
+                    &MessageType::Take1Sent.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
             let graph =
                 get_bitvm2_graph_from_db(local_db, receive_data.instance_id, receive_data.graph_id)
                     .await?;
             if tx_on_chain(btc_client, &graph.take1.tx().compute_txid()).await? {
-                update_graph_fields(
-                    local_db,
-                    receive_data.graph_id,
-                    Some(GraphStatus::Take1.to_string()),
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-                .await?;
+                if let Some(graph_status) = status_op
+                    && graph_status != GraphStatus::Take1
+                {
+                    update_graph_fields(
+                        local_db,
+                        receive_data.graph_id,
+                        Some(GraphStatus::Take1.to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?;
+                }
                 if let Some(graph_id) = get_my_graph_for_instance(
                     goat_client,
                     receive_data.instance_id,
@@ -1312,15 +1408,30 @@ pub async fn recv_and_dispatch(
                 )
                 .await?
                 {
-                    sync_graph(
+                    let status_op = sync_graph_without_waiting(
                         swarm,
                         local_db,
                         receive_data.instance_id,
                         graph_id,
-                        SYNC_GRAPH_INTERVAL,
-                        SYNC_GRAPH_MAX_WAIT_SECS,
                     )
                     .await?;
+                    if status_op.is_none() {
+                        tracing::info!(
+                            "save unhandle Take1Sent: graph_id: {} into db, will be hanlded later",
+                            receive_data.graph_id,
+                        );
+                        let message_content = GOATMessageContent::Take1Sent(receive_data.clone());
+                        let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                        save_unhandle_message(
+                            local_db,
+                            &from_peer_id.to_string(),
+                            &Actor::Operator.to_string(),
+                            &MessageType::Take1Sent.to_string(),
+                            serde_json::to_vec(&message)?,
+                        )
+                        .await?;
+                        return Ok(());
+                    }
                     let graph =
                         get_bitvm2_graph_from_db(local_db, receive_data.instance_id, graph_id)
                             .await?;
@@ -1345,29 +1456,48 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::Take2Sent(receive_data), Actor::Operator) => {
             tracing::info!("Handle Take2Sent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
+            if status_op.is_none() {
+                tracing::info!(
+                    "save unhandle Take2Sent: graph_id: {} into db, will be hanlded later",
+                    receive_data.graph_id,
+                );
+                let message_content = GOATMessageContent::Take2Sent(receive_data.clone());
+                let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                save_unhandle_message(
+                    local_db,
+                    &from_peer_id.to_string(),
+                    &Actor::Operator.to_string(),
+                    &MessageType::Take2Sent.to_string(),
+                    serde_json::to_vec(&message)?,
+                )
+                .await?;
+                return Ok(());
+            }
             let graph =
                 get_bitvm2_graph_from_db(local_db, receive_data.instance_id, receive_data.graph_id)
                     .await?;
             if tx_on_chain(btc_client, &graph.take2.tx().compute_txid()).await? {
-                update_graph_fields(
-                    local_db,
-                    receive_data.graph_id,
-                    Some(GraphStatus::Take2.to_string()),
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-                .await?;
+                if let Some(graph_status) = status_op
+                    && graph_status != GraphStatus::Take2
+                {
+                    update_graph_fields(
+                        local_db,
+                        receive_data.graph_id,
+                        Some(GraphStatus::Take2.to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?;
+                }
                 if let Some(graph_id) = get_my_graph_for_instance(
                     goat_client,
                     receive_data.instance_id,
@@ -1375,15 +1505,30 @@ pub async fn recv_and_dispatch(
                 )
                 .await?
                 {
-                    sync_graph(
+                    let status_op = sync_graph_without_waiting(
                         swarm,
                         local_db,
                         receive_data.instance_id,
-                        graph_id,
-                        SYNC_GRAPH_INTERVAL,
-                        SYNC_GRAPH_MAX_WAIT_SECS,
+                        receive_data.graph_id,
                     )
                     .await?;
+                    if status_op.is_none() {
+                        tracing::info!(
+                            "save unhandle Take2Sent: graph_id: {} into db, will be hanlded later",
+                            receive_data.graph_id,
+                        );
+                        let message_content = GOATMessageContent::Take2Sent(receive_data.clone());
+                        let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+                        save_unhandle_message(
+                            local_db,
+                            &from_peer_id.to_string(),
+                            &Actor::Operator.to_string(),
+                            &MessageType::Take2Sent.to_string(),
+                            serde_json::to_vec(&message)?,
+                        )
+                        .await?;
+                        return Ok(());
+                    }
                     let graph =
                         get_bitvm2_graph_from_db(local_db, receive_data.instance_id, graph_id)
                             .await?;
@@ -1492,21 +1637,23 @@ pub async fn recv_and_dispatch(
         // Other participants update graph status
         (GOATMessageContent::KickoffSent(receive_data), _) => {
             tracing::info!("Handle KickoffSent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
-            let graph_status =
-                get_graph_status(local_db, receive_data.instance_id, receive_data.graph_id)
-                    .await?
-                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if ![GraphStatus::CommitteePresigned, GraphStatus::OperatorDataPushed]
-                .contains(&graph_status)
+            if status_op.is_none() {
+                tracing::info!(
+                    "KickoffSent: graph {} not found in local database. Skipping update and waiting for sync from other nodes.",
+                    receive_data.graph_id,
+                );
+                return Ok(());
+            }
+            if let Some(graph_status) = status_op
+                && ![GraphStatus::CommitteePresigned, GraphStatus::OperatorDataPushed]
+                    .contains(&graph_status)
             {
                 tracing::warn!(
                     "receive KickoffSent for graph {} but currently in {graph_status} Status, ignored",
@@ -1532,25 +1679,27 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::ChallengeSent(receive_data), _) => {
             tracing::info!("Handle ChallengeSent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
-            let graph_status =
-                get_graph_status(local_db, receive_data.instance_id, receive_data.graph_id)
-                    .await?
-                    .ok_or(format!("graph {} not found", receive_data.graph_id))?;
-            if ![
-                GraphStatus::CommitteePresigned,
-                GraphStatus::OperatorDataPushed,
-                GraphStatus::KickOff,
-            ]
-            .contains(&graph_status)
+            if status_op.is_none() {
+                tracing::info!(
+                    "ChallengeSent: graph {} not found in local database. Skipping update and waiting for sync from other nodes.",
+                    receive_data.graph_id,
+                );
+                return Ok(());
+            }
+            if let Some(graph_status) = status_op
+                && ![
+                    GraphStatus::CommitteePresigned,
+                    GraphStatus::OperatorDataPushed,
+                    GraphStatus::KickOff,
+                ]
+                .contains(&graph_status)
             {
                 tracing::warn!(
                     "receive ChallengeSent for graph {} but currently in {graph_status} Status, ignored",
@@ -1582,15 +1731,20 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::Take1Sent(receive_data), _) => {
             tracing::info!("Handle Take1Sent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
+            if status_op.is_none() {
+                tracing::info!(
+                    "Take1Sent: graph {} not found in local database. Skipping update and waiting for sync from other nodes.",
+                    receive_data.graph_id,
+                );
+                return Ok(());
+            }
             let graph =
                 get_bitvm2_graph_from_db(local_db, receive_data.instance_id, receive_data.graph_id)
                     .await?;
@@ -1611,15 +1765,20 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::Take2Sent(receive_data), _) => {
             tracing::info!("Handle Take2Sent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
+            if status_op.is_none() {
+                tracing::info!(
+                    "Take2Sent: graph {} not found in local database. Skipping update and waiting for sync from other nodes.",
+                    receive_data.graph_id,
+                );
+                return Ok(());
+            }
             let graph =
                 get_bitvm2_graph_from_db(local_db, receive_data.instance_id, receive_data.graph_id)
                     .await?;
@@ -1640,15 +1799,20 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::DisproveSent(receive_data), _) => {
             tracing::info!("Handle DisproveSent");
-            sync_graph(
+            let status_op = sync_graph_without_waiting(
                 swarm,
                 local_db,
                 receive_data.instance_id,
                 receive_data.graph_id,
-                SYNC_GRAPH_INTERVAL,
-                SYNC_GRAPH_MAX_WAIT_SECS,
             )
             .await?;
+            if status_op.is_none() {
+                tracing::info!(
+                    "DisproveSent: graph {} not found in local database. Skipping update and waiting for sync from other nodes.",
+                    receive_data.graph_id,
+                );
+                return Ok(());
+            }
             let graph =
                 get_bitvm2_graph_from_db(local_db, receive_data.instance_id, receive_data.graph_id)
                     .await?;
@@ -1744,36 +1908,6 @@ async fn sync_graph_without_waiting(
         send_to_peer(swarm, GOATMessage::from_typed(Actor::Relayer, &message_content)?)?;
         Ok(None)
     }
-}
-
-async fn sync_graph(
-    swarm: &mut Swarm<AllBehaviours>,
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    interval: u64,
-    max_wait_secs: u64,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use std::{
-        thread,
-        time::{Duration, Instant},
-    };
-    if get_graph_status(local_db, instance_id, graph_id).await?.is_none() {
-        let message_content =
-            GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id });
-        send_to_peer(swarm, GOATMessage::from_typed(Actor::Relayer, &message_content)?)?;
-        let start_time = Instant::now();
-        loop {
-            if start_time.elapsed().as_secs() > max_wait_secs {
-                return Err("sync graph timeout".into());
-            }
-            if get_graph_status(local_db, instance_id, graph_id).await?.is_some() {
-                break;
-            }
-            thread::sleep(Duration::from_secs(interval));
-        }
-    }
-    Ok(())
 }
 
 pub fn send_to_peer(
