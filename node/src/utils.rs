@@ -23,7 +23,6 @@ use bitcoin::{
 };
 use bitcoin_script::{Script, script};
 use bitvm::chunk::api::NUM_TAPS;
-use bitvm::signatures::signing_winternitz::{WinternitzSigningInputs, generate_winternitz_witness};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::committee::COMMITTEE_PRE_SIGN_NUM;
 use bitvm2_lib::keys::OperatorMasterKey;
@@ -41,9 +40,7 @@ use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
 use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::transactions::base::Input;
 use goat::transactions::pre_signed::PreSignedTransaction;
-use goat::transactions::signing::{
-    generate_taproot_leaf_schnorr_signature, populate_p2wsh_witness, populate_taproot_input_witness,
-};
+use goat::transactions::signing::{populate_p2tr_key_spend_witness, populate_p2wsh_witness};
 use goat::utils::num_blocks_per_network;
 use libp2p::Swarm;
 use musig2::{PartialSignature, PubNonce};
@@ -342,15 +339,14 @@ pub async fn recycle_prekickoff_tx(
         .await?
         .ok_or(format!("pre-kickoff tx {prekickoff_txid} not on chain"))?;
     let fee_rate = get_fee_rate(client).await?;
-    let recycle_tx_vbytes = 3105;
+    let recycle_tx_vbytes = 120;
     let fee_amount = Amount::from_sat((recycle_tx_vbytes as f64 * fee_rate).ceil() as u64);
     if prekickoff_tx.output[0].value > fee_amount + Amount::from_sat(DUST_AMOUNT) {
         let node_recycle_address =
             node_p2wsh_address(network, &master_key.master_keypair().public_key().into());
         let node_graph_keypair = master_key.keypair_for_graph(graph_id);
         let (operator_taproot_pubkey, _) = node_graph_keypair.x_only_public_key();
-        let (operator_wots_seckeys, operator_wots_pubkeys) =
-            master_key.wots_keypair_for_graph(graph_id);
+        let (_, operator_wots_pubkeys) = master_key.wots_keypair_for_graph(graph_id);
         let kickoff_wots_commitment_keys =
             CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
         let connector_6 =
@@ -371,31 +367,17 @@ pub async fn recycle_prekickoff_tx(
             input: vec![txin_0],
             output: vec![txout_0],
         };
-
-        let script = &connector_6.generate_taproot_leaf_script(0);
         let prev_outs = [prekickoff_tx.output[0].clone()];
-        let taproot_spend_info = connector_6.generate_taproot_spend_info();
-        let mut unlock_data: Vec<Vec<u8>> = Vec::new();
+        let taproot_merkle_root = connector_6.generate_taproot_spend_info().merkle_root();
 
-        // get schnorr signature
-        let schnorr_signature = generate_taproot_leaf_schnorr_signature(
+        populate_p2tr_key_spend_witness(
             &mut tx,
-            &prev_outs,
             0,
+            &prev_outs,
             TapSighashType::All,
-            script,
+            taproot_merkle_root,
             &node_graph_keypair,
         );
-        unlock_data.push(schnorr_signature.to_vec());
-
-        // get winternitz signature for evm withdraw txid
-        let winternitz_signing_inputs = WinternitzSigningInputs {
-            message: [0u8; 32].as_ref(),
-            signing_key: &operator_wots_seckeys.0[0],
-        };
-        unlock_data.extend(generate_winternitz_witness(&winternitz_signing_inputs).to_vec());
-
-        populate_taproot_input_witness(&mut tx, 0, &taproot_spend_info, script, unlock_data);
 
         broadcast_tx(client, &tx).await?;
 
