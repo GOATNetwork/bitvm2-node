@@ -1419,7 +1419,7 @@ pub fn generate_random_bytes(len: usize) -> Vec<u8> {
     (0..len).map(|_| rng.gen_range(0..255)).collect()
 }
 
-pub fn get_rand_btc_address(network: Network) -> String {
+pub fn get_rand_btc_address_p2wpkh(network: Network) -> String {
     let secp = Secp256k1::new();
     Address::p2wpkh(
         &CompressedPublicKey::try_from(PrivateKey::generate(network).public_key(&secp))
@@ -1427,6 +1427,20 @@ pub fn get_rand_btc_address(network: Network) -> String {
         Network::Testnet,
     )
     .to_string()
+}
+
+pub fn get_rand_btc_address_p2pkh(network: Network) -> String {
+    let secp = Secp256k1::new();
+    Address::p2pkh(
+        CompressedPublicKey::try_from(PrivateKey::generate(network).public_key(&secp))
+            .expect("Could not compress public key"),
+        Network::Testnet,
+    )
+    .to_string()
+}
+
+pub fn get_rand_goat_address() -> String {
+    EvmAddress::from_slice(&generate_random_bytes(20)).to_string()
 }
 
 pub fn strip_hex_prefix_owned(s: &str) -> String {
@@ -1713,4 +1727,9 @@ pub async fn operator_scan_ready_proof(
 
 pub fn generate_local_key() -> libp2p::identity::Keypair {
     libp2p::identity::Keypair::generate_ed25519()
+}
+
+pub fn temp_file() -> String {
+    let tmp_db = tempfile::NamedTempFile::new().unwrap();
+    tmp_db.path().as_os_str().to_str().unwrap().to_string()
 }

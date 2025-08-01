@@ -67,14 +67,12 @@ pub async fn bridge_in_tx_prepare(
             input_uxtos: serde_json::to_string(&payload.utxo)?,
             ..Default::default()
         };
-
         let mut tx = app_state.local_db.start_transaction().await?;
         let instance_pre_op = tx.get_instance(&instance_id).await?;
         if instance_pre_op.is_some() {
             tracing::info!("{instance_id} is used");
             return Err(format!("{instance_id} is used").into());
         }
-
         let _ = tx.create_instance(instance.clone()).await?;
         let p2p_user_data: P2pUserData = (&payload).into();
         if !p2p_user_data.user_inputs.validate_amount() {
@@ -93,7 +91,6 @@ pub async fn bridge_in_tx_prepare(
             current_time_secs(),
         )
         .await?;
-
         tx.commit().await?;
         Ok::<BridgeInTransactionPrepareResponse, Box<dyn std::error::Error>>(
             BridgeInTransactionPrepareResponse {},
@@ -152,7 +149,6 @@ pub async fn graph_presign_check(
         }
     }
 }
-
 #[axum::debug_handler]
 pub async fn get_graph_tx(
     Query(params): Query<GraphTxGetParams>,
@@ -359,16 +355,7 @@ pub async fn get_instances(
                 InstanceListResponse::default(),
             );
         }
-
-        if instances.is_empty() {
-            return Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
-                instance_wraps: vec![],
-                total,
-            });
-        }
-
         let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
-
         let mut items = vec![];
         for mut instance in instances {
             instance.reverse_btc_txid();
@@ -380,7 +367,6 @@ pub async fn get_instances(
             )
             .await?;
             let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
-
             items.push(InstanceWrap {
                 utxo: Some(utxo),
                 instance: Some(instance),
@@ -503,7 +489,6 @@ pub async fn get_graph(
             });
         };
         let mut graph = graph_op.unwrap();
-        // front end unused data
         graph.raw_data = None;
         graph.status = modify_graph_status(&graph.status, graph.init_withdraw_txid.is_some());
         graph.reverse_btc_txid();
@@ -629,10 +614,6 @@ pub fn convert_to_rpc_query_data(
     from_addr: Option<String>,
     bridge_in_status: &[String],
 ) -> Result<Option<GraphRpcQueryData>, Box<dyn std::error::Error>> {
-    // if bridge_in_status.contains(&graph.status) {
-    //     return Ok(None);
-    // }
-
     let mut graph_res = GraphRpcQueryData {
         graph_id: graph.graph_id,
         instance_id: graph.instance_id,

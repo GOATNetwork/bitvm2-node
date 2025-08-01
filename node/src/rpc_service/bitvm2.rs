@@ -287,3 +287,80 @@ impl From<&BridgeInTransactionPreparerRequest> for P2pUserData {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::{generate_random_bytes, get_rand_btc_address_p2wpkh, get_rand_goat_address};
+    use alloy::primitives::Address;
+    use store::localdb::FilterGraphParams;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_from_graph_query_params_basic() {
+        let params = GraphQueryParams {
+            status: Some("pending".to_string()),
+            operator: Some("op1".to_string()),
+            from_addr: Some(get_rand_goat_address()),
+            graph_field: None,
+            offset: Some(10),
+            limit: Some(20),
+        };
+        let filter: FilterGraphParams = params.into();
+        assert!(filter.status.is_some());
+        assert_eq!(filter.operator, Some("op1".to_string()));
+        assert_eq!(filter.offset, Some(10));
+        assert_eq!(filter.limit, Some(20));
+        assert!(filter.is_bridge_out);
+    }
+
+    #[test]
+    fn test_from_graph_query_params_with_graph_field_txid() {
+        let params = GraphQueryParams {
+            status: None,
+            operator: None,
+            from_addr: None,
+            graph_field: Some(hex::encode(generate_random_bytes(32))),
+            offset: None,
+            limit: None,
+        };
+        let filter: FilterGraphParams = params.into();
+        assert!(filter.pegin_txid.is_some() || filter.graph_id.is_some());
+    }
+
+    #[test]
+    fn test_from_graph_query_params_with_graph_field_uuid() {
+        let params = GraphQueryParams {
+            status: None,
+            operator: None,
+            from_addr: None,
+            graph_field: Some(Uuid::new_v4().to_string()),
+            offset: None,
+            limit: None,
+        };
+        let filter: FilterGraphParams = params.into();
+        assert!(filter.graph_id.is_some() || filter.pegin_txid.is_some());
+    }
+
+    #[test]
+    fn test_from_bridge_in_transaction_preparer_request() {
+        let request = BridgeInTransactionPreparerRequest {
+            instance_id: Uuid::new_v4().to_string(),
+            network: "testnet".to_string(),
+            amount: 1000,
+            fee_rate: 10,
+            utxo: vec![UTXO { txid: hex::encode(generate_random_bytes(32)), vout: 0, value: 5000 }],
+            from: get_rand_btc_address_p2wpkh(Network::Testnet), // testnet address
+            to: get_rand_goat_address(),                         // ETH address
+        };
+
+        let p2p_user_data: P2pUserData = (&request).into();
+        assert_eq!(p2p_user_data.instance_id.to_string(), request.instance_id);
+        assert_eq!(p2p_user_data.network, Network::Testnet);
+        assert_eq!(p2p_user_data.pegin_amount, Amount::from_sat(request.amount as u64));
+        let expected_address = Address::from_str(&request.to).unwrap();
+        assert_eq!(p2p_user_data.depositor_evm_address, expected_address.into_array());
+        assert_eq!(p2p_user_data.user_inputs.inputs.len(), request.utxo.len());
+        assert_eq!(p2p_user_data.user_inputs.input_amount, Amount::from_sat(request.amount as u64));
+    }
+}

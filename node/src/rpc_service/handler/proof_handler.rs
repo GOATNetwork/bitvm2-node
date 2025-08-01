@@ -284,3 +284,54 @@ async fn get_proof_config(local_db: &LocalDB) -> anyhow::Result<(i64, i64, i64)>
         groth16::get_proof_config(local_db).await?;
     Ok((block_concurrency, aggregated_block_count, 1))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::client::create_local_db;
+    use crate::env::ENV_PROOF_SEVER_URL;
+    use crate::rpc_service::handler::proof_handler::{
+        calculate_proof_avg_proof_time, get_online_operator_url,
+    };
+    use crate::utils::temp_file;
+    use bitvm2_lib::actors::Actor;
+    use store::Node;
+
+    #[tokio::test]
+    async fn test_get_online_operator_url_with_env() {
+        let remote_proof_server = "123.12.11.1:1234";
+        unsafe {
+            std::env::set_var(ENV_PROOF_SEVER_URL, remote_proof_server);
+        }
+        let local_db = create_local_db(&temp_file()).await;
+        let proof_server =
+            get_online_operator_url(&local_db).await.expect("Failed to get online operator url");
+        assert_eq!(proof_server, remote_proof_server);
+    }
+    #[tokio::test]
+    async fn test_get_online_operator_url_without_env() {
+        let remote_proof_server = "123.12.11.1:1234";
+        let local_db = create_local_db(&temp_file()).await;
+        let mut storage_processor =
+            local_db.acquire().await.expect("Failed to get online operator url");
+        storage_processor
+            .update_node(Node {
+                peer_id: "peerId".to_string(),
+                actor: Actor::Operator.to_string(),
+                socket_addr: remote_proof_server.to_string(),
+                ..Default::default()
+            })
+            .await
+            .expect("Failed to update node");
+        let proof_server =
+            get_online_operator_url(&local_db).await.expect("Failed to get online operator url");
+        assert_eq!(proof_server, remote_proof_server);
+    }
+
+    #[test]
+    fn test_calculate_proof_avg_proof_time() {
+        assert_eq!(calculate_proof_avg_proof_time(100, 5, 0), 0.0);
+        assert_eq!(calculate_proof_avg_proof_time(100, 0, 1), 0.0);
+        assert_eq!(calculate_proof_avg_proof_time(0, 1, 1), 0.0);
+        assert_eq!(calculate_proof_avg_proof_time(100, 5, 2), 10.0);
+    }
+}
