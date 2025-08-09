@@ -60,6 +60,7 @@ use store::{
     GraphStatus, Message, MessageState, MessageType, Node,
 };
 use stun_client::{Attribute, Class, Client};
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -1481,45 +1482,55 @@ pub async fn run_watch_event_task(
     actor: Actor,
     local_db: LocalDB,
     interval: u64,
+    cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
     let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
+
     loop {
-        tokio::time::sleep(Duration::from_secs(interval)).await;
-        if actor.clone() == Actor::Relayer {
-            match monitor_events(
-                actor.clone(),
-                &goat_client,
-                &local_db,
-                vec![
-                    GatewayEventEntity::InitWithdraws,
-                    GatewayEventEntity::CancelWithdraws,
-                    GatewayEventEntity::ProceedWithdraws,
-                    GatewayEventEntity::WithdrawHappyPaths,
-                    GatewayEventEntity::WithdrawUnhappyPaths,
-                    GatewayEventEntity::WithdrawDisproveds,
-                ],
-            )
-            .await
-            {
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::error!(e)
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(interval)) => {
+                // Execute the normal monitoring logic
+                if actor.clone() == Actor::Relayer {
+                    match monitor_events(
+                        actor.clone(),
+                        &goat_client,
+                        &local_db,
+                        vec![
+                            GatewayEventEntity::InitWithdraws,
+                            GatewayEventEntity::CancelWithdraws,
+                            GatewayEventEntity::ProceedWithdraws,
+                            GatewayEventEntity::WithdrawHappyPaths,
+                            GatewayEventEntity::WithdrawUnhappyPaths,
+                            GatewayEventEntity::WithdrawDisproveds,
+                        ],
+                    )
+                    .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(e)
+                        }
+                    }
+                }
+                if actor.clone() == Actor::Operator {
+                    match monitor_events(
+                        actor.clone(),
+                        &goat_client,
+                        &local_db,
+                        vec![GatewayEventEntity::ProceedWithdraws],
+                    )
+                    .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(e)
+                        }
+                    }
                 }
             }
-        }
-        if actor.clone() == Actor::Operator {
-            match monitor_events(
-                actor.clone(),
-                &goat_client,
-                &local_db,
-                vec![GatewayEventEntity::ProceedWithdraws],
-            )
-            .await
-            {
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::error!(e)
-                }
+            _ = cancellation_token.cancelled() => {
+                tracing::info!("Watch event task received shutdown signal");
+                return Ok("watch_shutdown".to_string());
             }
         }
     }

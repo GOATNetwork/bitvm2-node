@@ -5,7 +5,6 @@ use crate::relayer_action::do_tick_action;
 use crate::rpc_service::current_time_secs;
 use crate::utils::{statics::*, *};
 use crate::{defer, dismiss_defer};
-use anyhow::Result;
 use bitcoin::PublicKey;
 use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
 use bitcoin::{Amount, Network, Txid};

@@ -32,6 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
@@ -78,6 +79,7 @@ pub async fn serve(
     actor: Actor,
     peer_id: String,
     registry: Arc<Mutex<Registry>>,
+    cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
     let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, registry).await?;
     let server = Router::new()
@@ -145,8 +147,22 @@ pub async fn serve(
 
     let listener = TcpListener::bind(addr).await.unwrap();
     tracing::info!("RPC listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, server).await.unwrap();
-    Ok("Rpc Server stop".to_string())
+
+    tokio::select! {
+        result = axum::serve(listener, server) => {
+            match result {
+                Ok(_) => Ok("RPC server finished normally".to_string()),
+                Err(e) => {
+                    tracing::error!("RPC server error: {}", e);
+                    Err(anyhow::anyhow!("RPC server error: {}", e))
+                }
+            }
+        }
+        _ = cancellation_token.cancelled() => {
+            tracing::info!("RPC service received shutdown signal");
+            Ok("rpc_shutdown".to_string())
+        }
+    }
 }
 
 /// This method introduces performance overhead and is temporarily used for debugging with the frontend.
@@ -209,6 +225,7 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use store::{GoatTxProveStatus, GoatTxRecord, GoatTxType, GraphStatus};
     use tokio::time::sleep;
+    use tokio_util::sync::CancellationToken;
     use tracing::info;
     use tracing_subscriber::EnvFilter;
     use uuid::Uuid;
@@ -291,6 +308,7 @@ mod tests {
             actor.clone(),
             peer_id.clone(),
             Arc::new(Mutex::new(Registry::default())),
+            CancellationToken::new(),
         ));
         sleep(Duration::from_secs(1)).await;
         let client = Client::new();
@@ -352,6 +370,7 @@ mod tests {
             actor.clone(),
             peer_id.clone(),
             Arc::new(Mutex::new(Registry::default())),
+            CancellationToken::new(),
         ));
         sleep(Duration::from_secs(1)).await;
         let instance_id_0 = Uuid::new_v4().to_string();
@@ -846,6 +865,7 @@ mod tests {
             relayer,
             relayer_peer_id,
             Arc::new(Mutex::new(Registry::default())),
+            CancellationToken::new(),
         ));
 
         info!("Start operator server");
@@ -858,6 +878,7 @@ mod tests {
             operator,
             operator_peer_id,
             Arc::new(Mutex::new(Registry::default())),
+            CancellationToken::new(),
         ));
 
         let (mut start_block, end_block) = (100, 106);

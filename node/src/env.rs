@@ -80,6 +80,8 @@ pub const LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS: i64 = 3600;
 
 pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 
+pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
+pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
 pub fn get_network() -> Network {
     BTC_NETWORK
 }
