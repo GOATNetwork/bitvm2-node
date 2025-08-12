@@ -4,6 +4,7 @@ use alloy::primitives::U256;
 use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use strum::Display;
 use uuid::Uuid;
 
 #[async_trait]
@@ -120,7 +121,7 @@ impl From<u8> for PeginStatus {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display)]
 pub enum WithdrawStatus {
     None,
     Processing,
@@ -140,12 +141,6 @@ impl From<u8> for WithdrawStatus {
             5 => WithdrawStatus::Disproved,
             _ => WithdrawStatus::None,
         }
-    }
-}
-
-impl std::fmt::Display for WithdrawStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
     }
 }
 

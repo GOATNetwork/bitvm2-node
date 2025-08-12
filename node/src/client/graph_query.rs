@@ -1,27 +1,20 @@
 use serde::{Deserialize, Serialize};
+use strum::Display;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
 pub enum GatewayEventEntity {
+    #[strum(serialize = "initWithdraws")]
     InitWithdraws,
+    #[strum(serialize = "cancelWithdraws")]
     CancelWithdraws,
+    #[strum(serialize = "proceedWithdraws")]
     ProceedWithdraws,
+    #[strum(serialize = "withdrawHappyPaths")]
     WithdrawHappyPaths,
+    #[strum(serialize = "withdrawUnhappyPaths")]
     WithdrawUnhappyPaths,
+    #[strum(serialize = "withdrawDisproveds")]
     WithdrawDisproveds,
-}
-
-impl std::fmt::Display for GatewayEventEntity {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // write!(f, "{self:?}")
-        match self {
-            GatewayEventEntity::InitWithdraws => write!(f, "initWithdraws"),
-            GatewayEventEntity::CancelWithdraws => write!(f, "cancelWithdraws"),
-            GatewayEventEntity::ProceedWithdraws => write!(f, "proceedWithdraws"),
-            GatewayEventEntity::WithdrawHappyPaths => write!(f, "withdrawHappyPaths"),
-            GatewayEventEntity::WithdrawUnhappyPaths => write!(f, "withdrawUnhappyPaths"),
-            GatewayEventEntity::WithdrawDisproveds => write!(f, "withdrawDisproveds"),
-        }
-    }
 }
 
 impl GatewayEventEntity {

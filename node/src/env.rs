@@ -14,6 +14,7 @@ use libp2p::PeerId;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
+use strum::{Display, EnumString};
 use tracing::info;
 use zeroize::Zeroizing;
 
@@ -233,20 +234,34 @@ pub fn get_committee_member_num() -> usize {
     COMMITTEE_MEMBER_NUMBER
 }
 
+#[derive(Display, EnumString)]
 pub enum IpfsTxName {
+    #[strum(serialize = "assert-commit0.hex")]
     AssertCommit0,
+    #[strum(serialize = "assert-commit1.hex")]
     AssertCommit1,
+    #[strum(serialize = "assert-commit2.hex")]
     AssertCommit2,
+    #[strum(serialize = "assert-commit3.hex")]
     AssertCommit3,
+    #[strum(serialize = "assert-final.hex")]
     AssertFinal,
+    #[strum(serialize = "assert-init.hex")]
     AssertInit,
+    #[strum(serialize = "challenge.hex")]
     Challenge,
+    #[strum(serialize = "disprove.hex")]
     Disprove,
+    #[strum(serialize = "kickoff.hex")]
     Kickoff,
+    #[strum(serialize = "pegin.hex")]
     Pegin,
+    #[strum(serialize = "take1.hex")]
     Take1,
+    #[strum(serialize = "take2.hex")]
     Take2,
 }
+
 impl IpfsTxName {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -262,27 +277,6 @@ impl IpfsTxName {
             IpfsTxName::Pegin => "pegin.hex",
             IpfsTxName::Take1 => "take1.hex",
             IpfsTxName::Take2 => "take2.hex",
-        }
-    }
-}
-
-impl FromStr for IpfsTxName {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "assert-commit0.hex" => Ok(IpfsTxName::AssertCommit0),
-            "assert-commit1.hex" => Ok(IpfsTxName::AssertCommit1),
-            "assert-commit2.hex" => Ok(IpfsTxName::AssertCommit2),
-            "assert-commit3.hex" => Ok(IpfsTxName::AssertCommit3),
-            "assert-final.hex" => Ok(IpfsTxName::AssertFinal),
-            "assert-init.hex" => Ok(IpfsTxName::AssertInit),
-            "challenge.hex" => Ok(IpfsTxName::Challenge),
-            "disprove.hex" => Ok(IpfsTxName::Disprove),
-            "kickoff.hex" => Ok(IpfsTxName::Kickoff),
-            "pegin.hex" => Ok(IpfsTxName::Pegin),
-            "take1.hex" => Ok(IpfsTxName::Take1),
-            "take2.hex" => Ok(IpfsTxName::Take2),
-            _ => Err(()),
         }
     }
 }

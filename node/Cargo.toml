@@ -88,6 +88,7 @@ zkm-sdk = { workspace = true }
 zkm-verifier = { workspace = true }
 
 stun-client = "0.1.4"
+strum = { version = "0.26", features = ["derive"] }
 
 # bin
 tempfile = "3.19.1"

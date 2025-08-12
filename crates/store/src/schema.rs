@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::str::FromStr;
+use strum::{Display, EnumString};
 use uuid::Uuid;
 
 pub const NODE_STATUS_ONLINE: &str = "Online";
@@ -33,7 +34,7 @@ pub struct NodesOverview {
     pub offline_relayer: i64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
 pub enum BridgeInStatus {
     #[default]
     Submitted,
@@ -72,30 +73,8 @@ impl Instance {
     }
 }
 
-impl FromStr for BridgeInStatus {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Submitted" => Ok(BridgeInStatus::Submitted),
-            "Presigned" => Ok(BridgeInStatus::Presigned),
-            "PresignedFailed" => Ok(BridgeInStatus::PresignedFailed),
-            "L1Broadcasted" => Ok(BridgeInStatus::L1Broadcasted),
-            "L2Minted" => Ok(BridgeInStatus::L2Minted),
-            "L2MintedFailed" => Ok(BridgeInStatus::L2MintedFailed),
-            "Discarded" => Ok(BridgeInStatus::Discarded),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::fmt::Display for BridgeInStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
 /// graph status
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
 pub enum GraphStatus {
     #[default]
     OperatorPresigned,
@@ -117,38 +96,6 @@ pub enum GraphStatus {
     Disproving,
     Obsoleted, // reimbursement by other operators
     Discarded,
-}
-
-impl FromStr for GraphStatus {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "OperatorPresigned" => Ok(GraphStatus::OperatorPresigned),
-            "CommitteePresigned" => Ok(GraphStatus::CommitteePresigned),
-            "OperatorDataPushed" => Ok(GraphStatus::OperatorDataPushed),
-            "KickOff" => Ok(GraphStatus::KickOff),
-            "Challenge" => Ok(GraphStatus::Challenge),
-            "Assert" => Ok(GraphStatus::Assert),
-            "Take1" => Ok(GraphStatus::Take1),
-            "Take2" => Ok(GraphStatus::Take2),
-            "Disprove" => Ok(GraphStatus::Disprove),
-            "Obsoleted" => Ok(GraphStatus::Obsoleted),
-            "Discarded" => Ok(GraphStatus::Discarded),
-            "Created" => Ok(GraphStatus::Created),
-            "Presigned" => Ok(GraphStatus::Presigned),
-            "L2Recorded" => Ok(GraphStatus::L2Recorded),
-            "KickOffing" => Ok(GraphStatus::KickOffing),
-            "Challenging" => Ok(GraphStatus::Challenging),
-            "Asserting" => Ok(GraphStatus::Asserting),
-            "Disproving" => Ok(GraphStatus::Disproving),
-            _ => Err(()),
-        }
-    }
-}
-impl std::fmt::Display for GraphStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
 }
 
 pub enum BridgePath {
@@ -362,7 +309,7 @@ impl GraphFullData {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display, EnumString)]
 pub enum MessageState {
     Pending,
     Processing,
@@ -370,28 +317,6 @@ pub enum MessageState {
     Failed,
     Expired,
     Cancelled,
-}
-
-impl std::fmt::Display for MessageState {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-impl FromStr for MessageState {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Pending" => Ok(MessageState::Pending),
-            "Processing" => Ok(MessageState::Processing),
-            "Processed" => Ok(MessageState::Processed),
-            "Failed" => Ok(MessageState::Failed),
-            "Expired" => Ok(MessageState::Expired),
-            "Cancelled" => Ok(MessageState::Cancelled),
-            _ => Err(()),
-        }
-    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -439,7 +364,7 @@ pub struct NonceCollectMetaData {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Display, EnumString)]
 pub enum MessageType {
     BridgeInData,
     CreateInstance,
@@ -458,11 +383,6 @@ pub enum MessageType {
     Take2Sent,
     DisproveSent,
     InstanceDiscarded,
-}
-impl std::fmt::Display for MessageType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
 }
 
 // template query data struct
@@ -600,32 +520,13 @@ pub struct VerifierKey {
     pub created_at: i64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
 pub enum WatchContractStatus {
     #[default]
     UnSync,
     Syncing,
     Synced,
     Failed,
-}
-
-impl FromStr for WatchContractStatus {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "UnSync" => Ok(WatchContractStatus::UnSync),
-            "Syncing" => Ok(WatchContractStatus::Syncing),
-            "Synced" => Ok(WatchContractStatus::Synced),
-            "Failed" => Ok(WatchContractStatus::Failed),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::fmt::Display for WatchContractStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -639,7 +540,7 @@ pub struct WatchContract {
     pub updated_at: i64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
 pub enum GoatTxType {
     #[default]
     Normal,
@@ -653,56 +554,13 @@ pub enum GoatTxType {
     WithdrawDisproved,
 }
 
-impl FromStr for GoatTxType {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Normal" => Ok(GoatTxType::Normal),
-            "PostPeginData" => Ok(GoatTxType::PostPeginData),
-            "PostOperatorData" => Ok(GoatTxType::PostOperatorData),
-            "InitWithdraw" => Ok(GoatTxType::InitWithdraw),
-            "CancelWithdraw" => Ok(GoatTxType::CancelWithdraw),
-            "ProceedWithdraw" => Ok(GoatTxType::ProceedWithdraw),
-            "WithdrawHappyPath" => Ok(GoatTxType::WithdrawHappyPath),
-            "WithdrawUnhappyPath" => Ok(GoatTxType::WithdrawUnhappyPath),
-            "WithdrawDisproved" => Ok(GoatTxType::WithdrawDisproved),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::fmt::Display for GoatTxType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
 pub enum GoatTxProveStatus {
     #[default]
     NoNeed,
     Pending,
     Proved,
     Failed,
-}
-
-impl FromStr for GoatTxProveStatus {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "NoNeed" => Ok(GoatTxProveStatus::NoNeed),
-            "Pending" => Ok(GoatTxProveStatus::Pending),
-            "Proved" => Ok(GoatTxProveStatus::Proved),
-            "Failed" => Ok(GoatTxProveStatus::Failed),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::fmt::Display for GoatTxProveStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -723,10 +581,45 @@ pub struct GoatTxProceedWithdrawExtra {
     pub challenge_txid: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
 pub enum ProofType {
     #[default]
     BlockProof,
     AggregationProof,
     Groth16Proof,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_graph_status_from_str() {
+        assert_eq!(GraphStatus::from_str("Created").unwrap(), GraphStatus::Created);
+        assert_eq!(
+            GraphStatus::from_str("OperatorPresigned").unwrap(),
+            GraphStatus::OperatorPresigned
+        );
+        assert!(GraphStatus::from_str("Invalid").is_err());
+    }
+
+    #[test]
+    fn test_graph_status_display() {
+        assert_eq!(GraphStatus::Created.to_string(), "Created");
+        assert_eq!(GraphStatus::OperatorPresigned.to_string(), "OperatorPresigned");
+    }
+
+    #[test]
+    fn test_bridge_in_status_from_str() {
+        assert_eq!(BridgeInStatus::from_str("Submitted").unwrap(), BridgeInStatus::Submitted);
+        assert_eq!(BridgeInStatus::from_str("L2Minted").unwrap(), BridgeInStatus::L2Minted);
+        assert!(BridgeInStatus::from_str("Invalid").is_err());
+    }
+
+    #[test]
+    fn test_message_type_from_str() {
+        assert_eq!(MessageType::from_str("BridgeInData").unwrap(), MessageType::BridgeInData);
+        assert_eq!(MessageType::from_str("CreateInstance").unwrap(), MessageType::CreateInstance);
+        assert!(MessageType::from_str("Invalid").is_err());
+    }
 }

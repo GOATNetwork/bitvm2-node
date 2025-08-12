@@ -56,16 +56,12 @@ impl std::ops::DerefMut for BitvmSwarmWrapper {
     }
 }
 
-#[derive(Clone, Debug)]
+use strum::Display;
+
+#[derive(Clone, Debug, Display)]
 pub enum TickMessageType {
     HeartBeat,
     RegularlyAction,
-}
-
-impl std::fmt::Display for TickMessageType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
 }
 
 #[allow(async_fn_in_trait)]
