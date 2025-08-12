@@ -6,7 +6,7 @@ edition = "2024"
 resolver = "3"
 members = [
     "crates/bitvm2",
-    "crates/store", "node", "crates/spv",
+    "crates/store", "node", "crates/header-chain", "crates/bitcoin-light-client",
 ]
 default-members = ["node"]
 
@@ -60,4 +60,4 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"]
 
 bitvm2-lib = { path = "crates/bitvm2" }
 store = { path = "crates/store" }
-spv = { path = "crates/spv" }
+header-chain = { path = "crates/header-chain" }

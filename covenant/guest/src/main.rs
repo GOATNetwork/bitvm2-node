@@ -1,6 +1,8 @@
 #![no_main]
 zkm_zkvm::entrypoint!(main);
 
+mod header_chain_circuit;
+
 use guest_executor::verify_block;
 
 pub fn main() {

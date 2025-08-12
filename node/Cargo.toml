@@ -67,7 +67,7 @@ esplora-client = { workspace = true }
 bitvm = { workspace = true }
 bitcoin = { workspace = true }
 
-spv = { workspace = true }
+header-chain = { workspace = true }
 goat = { workspace = true }
 uuid = { workspace = true }
 hex = { workspace = true }
