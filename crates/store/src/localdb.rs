@@ -13,6 +13,14 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
+fn get_current_timestamp_secs() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
+fn get_current_timestamp_millis() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
+}
+
 #[derive(Clone, Debug)]
 pub struct LocalDB {
     pub path: String,
@@ -171,7 +179,7 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn get_instance_network(&mut self, instance_id: &Uuid) -> anyhow::Result<String> {
         if let Some(raw) =
-            sqlx::query!("SELECT  network FROM  instance where instance_id = ?", instance_id)
+            sqlx::query!(r#"SELECT network FROM instance WHERE instance_id = ?"#, instance_id)
                 .fetch_optional(self.conn())
                 .await?
         {
@@ -247,7 +255,7 @@ impl<'a> StorageProcessor<'a> {
     /// Update Instance
     pub async fn update_instance(&mut self, instance: Instance) -> anyhow::Result<u64> {
         let row = sqlx::query!(
-            "UPDATE instance
+            r#"UPDATE instance
              SET bridge_path = ?,
                  from_addr = ?,
                  to_addr = ?,
@@ -260,7 +268,7 @@ impl<'a> StorageProcessor<'a> {
                  input_uxtos = ?,
                  fee = ?,
                  updated_at = ?
-            WHERE instance_id = ?",
+            WHERE instance_id = ?"#,
             instance.bridge_path,
             instance.from_addr,
             instance.to_addr,
@@ -283,14 +291,14 @@ impl<'a> StorageProcessor<'a> {
     /// Insert or update graph
     pub async fn update_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            "INSERT OR
+            r#"INSERT OR
              REPLACE INTO graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid,
                     amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid,
                     assert_commit_txids,
                     assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,
                     bridge_out_from_addr,
                     bridge_out_to_addr, init_withdraw_txid, zkm_version, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             graph.graph_id,
             graph.instance_id,
             graph.graph_ipfs_base_url,
@@ -327,7 +335,7 @@ impl<'a> StorageProcessor<'a> {
         time_threshold: i64,
     ) -> anyhow::Result<u64> {
         let row = sqlx::query!(
-            "UPDATE instance SET status = ? WHERE status = ? AND updated_at < ?",
+            r#"UPDATE instance SET status = ? WHERE status = ? AND updated_at < ?"#,
             expired_status,
             current_status,
             time_threshold
@@ -380,7 +388,7 @@ impl<'a> StorageProcessor<'a> {
         };
         let goat_txid =
             if let Some(goat_txid) = goat_txid { goat_txid } else { instance.goat_txid };
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let current_time = get_current_timestamp_secs();
         let _ = sqlx::query!(
             "UPDATE instance
              SET status     = ?,
@@ -406,7 +414,7 @@ impl<'a> StorageProcessor<'a> {
         status: &str,
         ids: &[Uuid],
     ) -> anyhow::Result<()> {
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let current_time = get_current_timestamp_secs();
         let query_str = format!(
             "UPDATE instance \
             SET status = \'{status}\',
@@ -451,7 +459,7 @@ impl<'a> StorageProcessor<'a> {
         if update_fields.is_empty() {
             return Ok(());
         }
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let current_time = get_current_timestamp_secs();
         update_fields.push(format!("updated_at = {current_time}"));
 
         let update_str = format!(
@@ -695,7 +703,7 @@ impl<'a> StorageProcessor<'a> {
         status: &str,
         ids: &[Uuid],
     ) -> anyhow::Result<()> {
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let current_time = get_current_timestamp_secs();
         let query_str = format!(
             "UPDATE graph SET \
                 status = \'{status}\',
@@ -763,7 +771,7 @@ impl<'a> StorageProcessor<'a> {
             return Ok(());
         }
         let _ =
-            sqlx::query!("UPDATE  node SET updated_at = ? WHERE peer_id = ? ", timestamp, peer_id)
+            sqlx::query!(r#"UPDATE node SET updated_at = ? WHERE peer_id = ?"#, timestamp, peer_id)
                 .execute(self.conn())
                 .await;
 
@@ -804,7 +812,7 @@ impl<'a> StorageProcessor<'a> {
         reward_add: i64,
     ) -> anyhow::Result<()> {
         sqlx::query!(
-            "UPDATE node SET reward = reward +  ? WHERE  goat_addr = ?",
+            r#"UPDATE node SET reward = reward + ? WHERE goat_addr = ?"#,
             reward_add,
             goat_addr
         )
@@ -913,12 +921,12 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn node_overview(&mut self, time_threshold: i64) -> anyhow::Result<NodesOverview> {
         let records = sqlx::query!(
-            "SELECT count(*)                                         AS total,
+            r#"SELECT count(*) AS total,
                     actor,
                     SUM(CASE WHEN updated_at >= ? THEN 1 ELSE 0 END) AS online,
-                    SUM(CASE WHEN updated_at < ? THEN 1 ELSE 0 END)  AS offline
+                    SUM(CASE WHEN updated_at < ? THEN 1 ELSE 0 END) AS offline
              FROM node
-             GROUP BY actor",
+             GROUP BY actor"#,
             time_threshold,
             time_threshold
         )
@@ -951,7 +959,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn node_by_id(&mut self, peer_id: &str) -> anyhow::Result<Option<Node>> {
         let res = sqlx::query_as!(
             Node,
-            "SELECT peer_id,
+            r#"SELECT peer_id,
                     actor,
                     goat_addr,
                     btc_pub_key,
@@ -960,7 +968,7 @@ impl<'a> StorageProcessor<'a> {
                     created_at,
                     updated_at
              FROM node
-             WHERE peer_id = ?",
+             WHERE peer_id = ?"#,
             peer_id
         )
         .fetch_optional(self.conn())
@@ -1017,7 +1025,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn get_nodes_info(&mut self, time_threshold: i64) -> anyhow::Result<(i64, i64)> {
-        let total = sqlx::query!("SELECT COUNT(peer_id) AS total FROM node")
+        let total = sqlx::query!(r#"SELECT COUNT(peer_id) AS total FROM node"#)
             .fetch_one(self.conn())
             .await?
             .total;
@@ -1025,7 +1033,7 @@ impl<'a> StorageProcessor<'a> {
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 - time_threshold;
         tracing::info!("{time_pri}");
         let alive = sqlx::query!(
-            "SELECT COUNT(peer_id)  AS alive FROM node WHERE updated_at  >= ? ",
+            r#"SELECT COUNT(peer_id) AS alive FROM node WHERE updated_at >= ?"#,
             time_pri
         )
         .fetch_one(self.conn())
@@ -1055,10 +1063,10 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn set_messages_expired(&mut self, expired: i64) -> anyhow::Result<()> {
         sqlx::query!(
-            "Update message
-             Set state = 'Expired'
+            r#"UPDATE message
+             SET state = 'Expired'
              WHERE state IN ('Pending', 'Processing')
-               AND updated_at < ?",
+               AND updated_at < ?"#,
             expired
         )
         .execute(self.conn())
@@ -1074,11 +1082,11 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Vec<Message>> {
         let res = sqlx::query_as!(
             Message,
-            "SELECT id, from_peer, actor, msg_type, content, state
+            r#"SELECT id, from_peer, actor, msg_type, content, state
             FROM message
             WHERE msg_type = ?
               AND state = ?
-              AND updated_at >= ?",
+              AND updated_at >= ?"#,
             msg_type,
             state,
             expired
@@ -1094,10 +1102,10 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Vec<Message>> {
         let res = sqlx::query_as!(
             Message,
-            "SELECT id, from_peer, actor, msg_type, content, state
+            r#"SELECT id, from_peer, actor, msg_type, content, state
             FROM message
             WHERE state = ?
-              AND updated_at >= ? ORDER BY id ASC",
+              AND updated_at >= ? ORDER BY id ASC"#,
             state,
             expired
         )
@@ -1112,8 +1120,8 @@ impl<'a> StorageProcessor<'a> {
         current_time: i64,
     ) -> anyhow::Result<bool> {
         let res = sqlx::query!(
-            "INSERT INTO message (from_peer, actor, msg_type, content, state, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            r#"INSERT INTO message (from_peer, actor, msg_type, content, state, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"#,
             msg.from_peer,
             msg.actor,
             msg.msg_type,
@@ -1144,8 +1152,8 @@ impl<'a> StorageProcessor<'a> {
         .await?;
 
         let pubkeys = pubkeys.to_owned();
-        let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-        let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let mut created_at = get_current_timestamp_secs();
+        let updated_at = get_current_timestamp_secs();
         let pubkeys = if let Some(pubkey_collect) = pubkey_collect {
             let mut stored_pubkeys: Vec<String> = serde_json::from_str(&pubkey_collect.pubkeys)?;
             let pre_len = stored_pubkeys.len();
@@ -1249,8 +1257,8 @@ impl<'a> StorageProcessor<'a> {
 
         let nonces = nonces.to_owned();
         let partial_sigs = partial_sigs.to_owned();
-        let mut created_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-        let updated_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let mut created_at = get_current_timestamp_secs();
+        let updated_at = get_current_timestamp_secs();
         let (nonces, partial_sigs) = if let Some(nonce_collect) = nonce_collect {
             created_at = nonce_collect.created_at;
             let stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
@@ -1389,7 +1397,7 @@ impl<'a> StorageProcessor<'a> {
         msg_type: &str,
         add_times: i64,
     ) -> anyhow::Result<()> {
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let current_time = get_current_timestamp_secs();
         sqlx::query!(
             "INSERT INTO message_broadcast (instance_id, graph_id, msg_type, msg_times, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?)
@@ -1481,7 +1489,7 @@ impl<'a> StorageProcessor<'a> {
         block_number: i64,
         state: String,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -1520,7 +1528,7 @@ impl<'a> StorageProcessor<'a> {
         gas_used: i64,
         state: String,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -1556,8 +1564,7 @@ impl<'a> StorageProcessor<'a> {
         zkm_version: &str,
         state: String,
     ) -> anyhow::Result<()> {
-        let end_timestamp =
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let end_timestamp = get_current_timestamp_millis();
 
         let start_timestamp = self.get_block_execution_start_time(block_number).await?;
 
@@ -1610,7 +1617,7 @@ impl<'a> StorageProcessor<'a> {
         state: String,
         reason: String,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
         let reason = truncate_string(&reason, 100);
 
         sqlx::query!(
@@ -1694,7 +1701,7 @@ impl<'a> StorageProcessor<'a> {
         block_number: i64,
         state: String,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -1738,8 +1745,7 @@ impl<'a> StorageProcessor<'a> {
         zkm_version: &str,
         state: String,
     ) -> anyhow::Result<()> {
-        let end_timestamp =
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let end_timestamp = get_current_timestamp_millis();
 
         let start_timestamp = self.get_aggregation_start_time(block_number).await?;
 
@@ -1792,7 +1798,7 @@ impl<'a> StorageProcessor<'a> {
         state: String,
         reason: String,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
         let reason = truncate_string(&reason, 100);
 
         sqlx::query!(
@@ -1900,7 +1906,7 @@ impl<'a> StorageProcessor<'a> {
         real_numbers: String,
         state: String,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -1941,9 +1947,7 @@ impl<'a> StorageProcessor<'a> {
         zkm_version: &str,
         state: String,
     ) -> anyhow::Result<()> {
-        let end_timestamp =
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
-
+        let end_timestamp = get_current_timestamp_millis();
         let start_timestamp = self.get_groth16_start_time(block_number).await?;
 
         let total_time_to_proof = end_timestamp - start_timestamp;
@@ -1997,7 +2001,7 @@ impl<'a> StorageProcessor<'a> {
         state: String,
         reason: String,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
         let reason = truncate_string(&reason, 100);
 
         sqlx::query!(
@@ -2032,7 +2036,7 @@ impl<'a> StorageProcessor<'a> {
         zkm_version: &str,
         state: &str,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
         let proof = hex::encode(proof);
         let public_values = hex::encode(public_values);
         sqlx::query!(
@@ -2123,7 +2127,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn set_block_proof_concurrency(&mut self, concurrency: i64) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -2149,7 +2153,7 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         aggregate_block_count: i64,
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -2170,7 +2174,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn set_init_number(&mut self, start_aggregation_number: i64) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -2226,7 +2230,7 @@ impl<'a> StorageProcessor<'a> {
         verifier_id: &str,
         verifier_key: &[u8],
     ) -> anyhow::Result<()> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp = get_current_timestamp_millis();
         let verifier_key = hex::encode(verifier_key);
 
         sqlx::query!(
