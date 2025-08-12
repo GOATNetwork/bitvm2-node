@@ -6,7 +6,7 @@ edition = "2024"
 resolver = "3"
 members = [
     "crates/bitvm2",
-    "crates/store", "node", "crates/header-chain", "crates/bitcoin-light-client",
+    "crates/store", "node", "crates/header-chain",
 ]
 default-members = ["node"]
 

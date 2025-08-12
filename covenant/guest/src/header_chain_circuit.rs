@@ -10,7 +10,7 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
         HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
         HeaderChainPrevProofType::PrevProof(prev_proof) => {
             assert_eq!(prev_proof.method_id, input.method_id);
-            // TODO:
+            // TODO: recursive prove
             // guest.verify(input.method_id, &prev_proof);
             prev_proof.chain_state
         }

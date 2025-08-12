@@ -1,0 +1,1 @@
+pub fn verify_withdrawal_tx(slot_id: U256, )
