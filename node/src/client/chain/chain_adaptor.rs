@@ -1,6 +1,6 @@
 use crate::client::chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::client::chain::mock_adaptor::{MockAdaptor, MockAdaptorConfig};
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,13 @@ pub trait ChainAdaptor: Send + Sync {
     async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData>;
     async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool>;
     async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData>;
-    async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData>;
+    async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData>;
+
+    async fn answer_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        pub_key: &[u8; 32],
+    ) -> anyhow::Result<String>;
     async fn post_pegin_data(
         &self,
         instance_id: &Uuid,
@@ -22,18 +28,12 @@ pub trait ChainAdaptor: Send + Sync {
         pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
-    async fn post_operator_data(
+    async fn post_graph_data(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
-        operator_data: &OperatorData,
-    ) -> anyhow::Result<String>;
-
-    async fn post_operator_data_batch(
-        &self,
-        instance_id: &Uuid,
-        graph_ids: &[Uuid],
-        operator_datas: &[OperatorData],
+        operator_data: &GraphData,
+        committee_signs: &[u8],
     ) -> anyhow::Result<String>;
 
     async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
@@ -102,10 +102,12 @@ pub enum GoatNetwork {
 #[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum PeginStatus {
     None,
-    Processing,
+    Pending,
     Withdrawbale,
+    Processing,
     Locked,
     Claimed,
+    Discarded,
 }
 
 impl From<u8> for PeginStatus {
@@ -146,9 +148,13 @@ impl From<u8> for WithdrawStatus {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeginData {
+    pub status: PeginStatus,
+    pub pegin_amount_sats: u64,
+    pub fee_rate: u64,
+    pub user_inputs: Vec<u8>,
     pub pegin_txid: [u8; 32],
-    pub pegin_status: PeginStatus,
-    pub pegin_amount: u64,
+    pub created_at: u64,
+    pub committee_addresses: Vec<Address>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -161,18 +167,17 @@ pub struct WithdrawData {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct OperatorData {
-    pub stake_amount: u64,
+pub struct GraphData {
+    pub stake_amount_sats: u64,
     pub operator_pubkey_prefix: u8,
     pub operator_pubkey: [u8; 32],
     pub pegin_txid: [u8; 32],
-    pub pre_kickoff_txid: [u8; 32],
     pub kickoff_txid: [u8; 32],
     pub take1_txid: [u8; 32],
-    pub assert_init_txid: [u8; 32],
-    pub assert_commit_txids: [[u8; 32]; 4],
-    pub assert_final_txid: [u8; 32],
     pub take2_txid: [u8; 32],
+    pub assert_timeout_txid: [u8; 32],
+    pub commit_timout_txid: [u8; 32],
+    pub nack_txids: Vec<[u8; 32]>,
 }
 
 #[derive(Clone, Debug)]

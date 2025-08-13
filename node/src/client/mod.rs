@@ -1,5 +1,5 @@
 use crate::client::chain::chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, GoatNetwork, OperatorData, PeginData, WithdrawData, WithdrawStatus,
+    BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
 };
 use crate::client::chain::evmchain::EvmChain;
@@ -14,7 +14,6 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Address as BtcAddress, PublicKey, Transaction, TxMerkleNode, Txid};
 use bitcoin::{Block, Network};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
-use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use std::str::FromStr;
 use store::Graph;
 use store::localdb::LocalDB;
@@ -131,8 +130,8 @@ impl GOATClient {
     pub async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool> {
         self.chain_service.adaptor.is_operator_withdraw(graph_id).await
     }
-    pub async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData> {
-        self.chain_service.adaptor.get_operator_data(graph_id).await
+    pub async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
+        self.chain_service.adaptor.get_graph_data(graph_id).await
     }
     pub async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
         self.chain_service.adaptor.get_withdraw_data(graph_id).await
@@ -152,7 +151,7 @@ impl GOATClient {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
-        let operator_data = self.get_operator_data(graph_id).await?;
+        let operator_data = self.get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
@@ -180,7 +179,7 @@ impl GOATClient {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
-        let operator_data = self.get_operator_data(graph_id).await?;
+        let operator_data = self.get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
@@ -209,7 +208,7 @@ impl GOATClient {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
-        let operator_data = self.get_operator_data(graph_id).await?;
+        let operator_data = self.get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
@@ -367,10 +366,11 @@ impl GOATClient {
         instance_id: &Uuid,
         graph_id: &Uuid,
         graph: &Graph,
+        committee_signs: &[u8],
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
-        let operator_data = cast_graph_to_operate_data(graph)?;
-        let operator_data_online = self.get_operator_data(graph_id).await?;
+        let operator_data = cast_graph_to_graph_data(graph)?;
+        let operator_data_online = self.get_graph_data(graph_id).await?;
         if operator_data_online.pegin_txid != [0_u8; 32] {
             tracing::warn!(
                 "instance_id:{instance_id} graph_id {graph_id} operator data already posted",
@@ -396,20 +396,23 @@ impl GOATClient {
             self.chain_service.adaptor.get_stake_amount_check_info().await?;
 
         let min_stake_for_pegin =
-            min_stake_sats + pegin_data.pegin_amount * stake_rate / GATEWAY_RATE_MULTIPLIER;
+            min_stake_sats + pegin_data.pegin_amount_sats * stake_rate / GATEWAY_RATE_MULTIPLIER;
 
-        if operator_data.stake_amount < min_stake_for_pegin {
+        if operator_data.stake_amount_sats < min_stake_for_pegin {
             tracing::warn!(
                 "instance_id:{instance_id} graph_id {graph_id} operator data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
-                operator_data.stake_amount,
+                operator_data.stake_amount_sats,
             );
             bail!(
                 "instance_id:{instance_id} graph_id {graph_id} operator data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
-                operator_data.stake_amount,
+                operator_data.stake_amount_sats,
             );
         }
 
-        self.chain_service.adaptor.post_operator_data(instance_id, graph_id, &operator_data).await
+        self.chain_service
+            .adaptor
+            .post_graph_data(instance_id, graph_id, &operator_data, committee_signs)
+            .await
     }
 
     async fn check_withdraw_actions_and_get_proof(
@@ -527,7 +530,7 @@ pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {
     }
 }
 
-pub fn cast_graph_to_operate_data(graph: &Graph) -> anyhow::Result<OperatorData> {
+pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
     if graph.take1_txid.is_none()
         || graph.assert_init_txid.is_none()
         || graph.assert_commit_txids.is_none()
@@ -537,26 +540,21 @@ pub fn cast_graph_to_operate_data(graph: &Graph) -> anyhow::Result<OperatorData>
         tracing::warn!("grap {}, has none field", graph.graph_id);
         bail!("grap {}, has none field", graph.graph_id);
     }
-    let assert_commit_txid_strs: Vec<String> =
-        serde_json::from_str(&graph.assert_commit_txids.clone().unwrap())?;
-    let mut assert_commit_txids: [[u8; 32]; COMMIT_TX_NUM] = [[0; 32]; COMMIT_TX_NUM];
-    for i in 0..COMMIT_TX_NUM {
-        assert_commit_txids[i] = deserialize_hex(&assert_commit_txid_strs[i])?;
-    }
+
+    // TODO Update
     let pubkey_vec = PublicKey::from_str(&graph.operator)?.to_bytes();
 
-    Ok(OperatorData {
-        stake_amount: get_stake_amount(graph.amount as u64).to_sat(),
+    Ok(GraphData {
+        stake_amount_sats: get_stake_amount(graph.amount as u64).to_sat(),
         operator_pubkey_prefix: pubkey_vec[0],
         operator_pubkey: pubkey_vec[1..33].try_into()?,
         pegin_txid: deserialize_hex(&graph.pegin_txid)?,
-        pre_kickoff_txid: deserialize_hex(&graph.pre_kickoff_txid.clone().unwrap())?,
         kickoff_txid: deserialize_hex(&graph.kickoff_txid.clone().unwrap())?,
         take1_txid: deserialize_hex(&graph.take1_txid.clone().unwrap())?,
-        assert_init_txid: deserialize_hex(&graph.assert_init_txid.clone().unwrap())?,
-        assert_commit_txids,
-        assert_final_txid: deserialize_hex(&graph.assert_final_txid.clone().unwrap())?,
         take2_txid: deserialize_hex(&graph.take2_txid.clone().unwrap())?,
+        assert_timeout_txid: [0_u8; 32],
+        commit_timout_txid: [0_u8; 32],
+        nack_txids: vec![],
     })
 }
 

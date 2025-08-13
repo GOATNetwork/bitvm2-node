@@ -1,5 +1,5 @@
 use crate::client::chain::chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, ChainAdaptor, OperatorData, PeginData, PeginStatus, WithdrawData,
+    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, WithdrawData,
     WithdrawStatus,
 };
 use crate::client::chain::goat_adaptor::IGateway::IGatewayInstance;
@@ -22,19 +22,25 @@ use async_trait::async_trait;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time;
-use uuid::Uuid;
-
 sol!(
     #[derive(Debug)]
     #[allow(missing_docs)]
     #[sol(rpc)]
     interface IGateway {
+        enum DisproveTxType {
+             AssertTimeout,
+             OperatorCommitTimeout,
+             OperatorNack,
+             Disprove
+        }
         enum PeginStatus {
             None,
-            Processing,
+            Pending,
             Withdrawbale,
+            Processing,
             Locked,
-            Claimed
+            Claimed,
+            Discarded,
         }
         enum WithdrawStatus {
             None,
@@ -45,9 +51,13 @@ sol!(
             Disproved
         }
         struct PeginData {
-            bytes32 peginTxid;
             PeginStatus status;
-            uint64 peginAmount;
+            uint64 peginAmountSats;
+            uint64 feeRate;
+            bytes userInputs;
+            bytes32 peginTxid;
+            uint256 createdAt;
+            address[] committeeAddresses;
         }
         struct WithdrawData {
             bytes32 peginTxid;
@@ -55,20 +65,22 @@ sol!(
             WithdrawStatus status;
             bytes16 instanceId;
             uint256 lockAmount;
+            uint256 btcBlockHeightAtWithdraw;
         }
-        struct OperatorData {
-            uint64 stakeAmount;
+
+        struct GraphData {
+            uint64 stakeAmountSats;
             bytes1 operatorPubkeyPrefix;
             bytes32 operatorPubkey;
             bytes32 peginTxid;
-            bytes32 preKickoffTxid;
             bytes32 kickoffTxid;
             bytes32 take1Txid;
-            bytes32 assertInitTxid;
-            bytes32[4] assertCommitTxids;
-            bytes32 assertFinalTxid;
             bytes32 take2Txid;
+            bytes32 assertTimoutTxid;
+            bytes32 commitTimoutTxid;
+            bytes32[] NackTxids;
         }
+
         struct BitcoinTx {
             bytes4 version;
             bytes inputVector;
@@ -93,7 +105,7 @@ sol!(
         mapping(bytes32 => bool) public peginTxUsed;
         mapping(bytes16 instanceId => PeginData) public peginDataMap;
         mapping(bytes16 graphId => bool) public operatorWithdrawn;
-        mapping(bytes16 graphId => OperatorData) public operatorDataMap;
+        mapping(bytes16 graphId => GraphData) public graphDataMap;
         mapping(bytes16 graphId => WithdrawData) public withdrawDataMap;
         bytes16[] public instanceIds;
         mapping(bytes16 instanceId => bytes16[] graphIds)
@@ -104,19 +116,25 @@ sol!(
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getWithdrawableInstances(bytes32 operatorPubkey) external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
+
         function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof) external ;
-        function postOperatorData(bytes16 instanceId, bytes16 graphId, OperatorData calldata operatorData) public;
-        function postOperatorDataBatch(bytes16 instanceId, bytes16[] calldata graphIds,OperatorData[] calldata operatorData) external;
+        function postGraphData(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData, bytes calldata committeeSigs) public;
         function initWithdraw(bytes16 instanceId, bytes16 graphId) external;
         function cancelWithdraw(bytes16 graphId) external;
         function proceedWithdraw(bytes16 graphId, BitcoinTx calldata rawKickoffTx, BitcoinTxProof calldata kickoffProof) external;
         function finishWithdrawHappyPath(bytes16 graphId, BitcoinTx calldata rawTake1Tx, BitcoinTxProof calldata take1Proof) external;
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, BitcoinTx calldata rawDisproveTx, BitcoinTxProof calldata disproveProof, BitcoinTx calldata rawChallengeTx, BitcoinTxProof calldata ngeCProof) external;
-        function verifyMerkleProof(bytes32 root,bytes32[] memory proof,bytes32 leaf,uint256 index) public pure returns (bool);
+        function verifyMerkleProof(bytes32 root,bytes32[] memory proof, bytes32 leaf,uint256 index) public pure returns (bool);
+        function answerPeginRequest(bytes16 instanceId, bytes32 pubkey) onlyCommittee() external;
+
+        // TODO
+        // function getCommitteeAddresses(bytes16 instanceId) external view returns (address[] memory);
 
     }
 );
+
+use uuid::Uuid;
 
 pub struct GoatInitConfig {
     pub rpc_url: Url,
@@ -251,41 +269,39 @@ impl From<&BitcoinTxProof> for IGateway::BitcoinTxProof {
     }
 }
 
-impl From<OperatorData> for IGateway::OperatorData {
-    fn from(value: OperatorData) -> Self {
-        let mut commit_ids_arr = [FixedBytes::<32>::ZERO; 4];
-        for (i, v) in (0..value.assert_commit_txids.len()).zip(value.assert_commit_txids) {
-            commit_ids_arr[i] = FixedBytes::from_slice(&v);
-        }
+impl From<GraphData> for IGateway::GraphData {
+    fn from(value: GraphData) -> Self {
         Self {
-            stakeAmount: value.stake_amount,
+            stakeAmountSats: value.stake_amount_sats,
             operatorPubkeyPrefix: FixedBytes::from(value.operator_pubkey_prefix),
             operatorPubkey: FixedBytes::from_slice(&value.operator_pubkey),
             peginTxid: FixedBytes::from_slice(&value.pegin_txid),
-            preKickoffTxid: FixedBytes::from_slice(&value.pre_kickoff_txid),
             kickoffTxid: FixedBytes::from_slice(&value.kickoff_txid),
             take1Txid: FixedBytes::from_slice(&value.take1_txid),
-            assertInitTxid: FixedBytes::from_slice(&value.assert_init_txid),
-            assertCommitTxids: commit_ids_arr,
-            assertFinalTxid: FixedBytes::from_slice(&value.assert_final_txid),
             take2Txid: FixedBytes::from_slice(&value.take2_txid),
+            assertTimoutTxid: FixedBytes::from_slice(&value.assert_timeout_txid),
+            commitTimoutTxid: FixedBytes::from_slice(&value.commit_timout_txid),
+            NackTxids: value
+                .nack_txids
+                .into_iter()
+                .map(|txid| FixedBytes::from_slice(&txid))
+                .collect::<Vec<_>>(),
         }
     }
 }
-impl From<IGateway::OperatorData> for OperatorData {
-    fn from(value: IGateway::OperatorData) -> Self {
-        OperatorData {
-            stake_amount: value.stakeAmount,
+impl From<IGateway::GraphData> for GraphData {
+    fn from(value: IGateway::GraphData) -> Self {
+        GraphData {
+            stake_amount_sats: value.stakeAmountSats,
             operator_pubkey_prefix: value.operatorPubkeyPrefix.0[0],
             operator_pubkey: value.operatorPubkey.0,
             pegin_txid: value.peginTxid.0,
-            pre_kickoff_txid: value.kickoffTxid.0,
             kickoff_txid: value.kickoffTxid.0,
             take1_txid: value.take1Txid.0,
-            assert_init_txid: value.take1Txid.0,
-            assert_commit_txids: value.assertCommitTxids.map(|v| v.0),
-            assert_final_txid: value.assertFinalTxid.0,
             take2_txid: value.take2Txid.0,
+            assert_timeout_txid: value.assertTimoutTxid.0,
+            commit_timout_txid: value.commitTimoutTxid.0,
+            nack_txids: value.NackTxids.into_iter().map(|txid| txid.into()).collect(),
         }
     }
 }
@@ -294,10 +310,12 @@ impl From<IGateway::PeginStatus> for PeginStatus {
     fn from(value: IGateway::PeginStatus) -> Self {
         match value {
             IGateway::PeginStatus::None => PeginStatus::None,
-            IGateway::PeginStatus::Processing => PeginStatus::Processing,
+            IGateway::PeginStatus::Pending => PeginStatus::Pending,
             IGateway::PeginStatus::Withdrawbale => PeginStatus::Withdrawbale,
+            IGateway::PeginStatus::Processing => PeginStatus::Processing,
             IGateway::PeginStatus::Locked => PeginStatus::Locked,
             IGateway::PeginStatus::Claimed => PeginStatus::Claimed,
+            IGateway::PeginStatus::Discarded => PeginStatus::Discarded,
             _ => PeginStatus::None,
         }
     }
@@ -313,15 +331,6 @@ impl From<IGateway::WithdrawStatus> for WithdrawStatus {
             IGateway::WithdrawStatus::Complete => WithdrawStatus::Complete,
             IGateway::WithdrawStatus::Disproved => WithdrawStatus::Disproved,
             _ => WithdrawStatus::None,
-        }
-    }
-}
-impl From<IGateway::PeginData> for PeginData {
-    fn from(value: IGateway::PeginData) -> Self {
-        Self {
-            pegin_txid: value.peginTxid.0,
-            pegin_status: value.status.into(),
-            pegin_amount: value.peginAmount,
         }
     }
 }
@@ -350,7 +359,22 @@ impl ChainAdaptor for GoatAdaptor {
             .peginDataMap(FixedBytes::<16>::from_slice(instance_id.as_bytes()))
             .call()
             .await?;
-        Ok(PeginData { pegin_txid: res._0.0, pegin_status: res._1.into(), pegin_amount: res._2 })
+
+        // let committee_addresses = self
+        //     .gate_way
+        //     .getCommitteeAddresses(FixedBytes::<16>::from_slice(instance_id.as_bytes()))
+        //     .call()
+        //     .await?;
+
+        Ok(PeginData {
+            status: res._0.into(),
+            pegin_amount_sats: res._1,
+            fee_rate: res._2,
+            user_inputs: res._3.to_vec(),
+            pegin_txid: res._4.0,
+            created_at: res._5.try_into().expect("fail to decoded"),
+            committee_addresses: vec![],
+        })
     }
 
     async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool> {
@@ -376,25 +400,25 @@ impl ChainAdaptor for GoatAdaptor {
         })
     }
 
-    async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData> {
+    async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
         let res = self
             .gate_way
-            .operatorDataMap(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
+            .graphDataMap(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
             .call()
             .await?;
 
-        Ok(OperatorData {
-            stake_amount: res._0,
+        // TODO
+        Ok(GraphData {
+            stake_amount_sats: res._0,
             operator_pubkey_prefix: res._1.0[0],
             operator_pubkey: res._2.0,
             pegin_txid: res._3.0,
-            pre_kickoff_txid: res._4.0,
-            kickoff_txid: res._5.0,
-            take1_txid: res._6.0,
-            assert_init_txid: res._7.0,
-            assert_commit_txids: [[0; 32]; 4], // fixed later
-            assert_final_txid: res._8.0,
-            take2_txid: res._9.0,
+            kickoff_txid: res._4.0,
+            take1_txid: res._5.0,
+            take2_txid: res._6.0,
+            assert_timeout_txid: res._7.0,
+            commit_timout_txid: res._8.0,
+            nack_txids: vec![],
         })
     }
 
@@ -447,18 +471,20 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
     }
 
-    async fn post_operator_data(
+    async fn post_graph_data(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
-        operator_data: &OperatorData,
+        operator_data: &GraphData,
+        committee_signs: &[u8],
     ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
-            .postOperatorData(
+            .postGraphData(
                 FixedBytes::from_slice(instance_id.as_bytes()),
                 FixedBytes::from_slice(graph_id.as_bytes()),
                 (*operator_data).clone().into(),
+                Bytes::copy_from_slice(committee_signs),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -466,30 +492,6 @@ impl ChainAdaptor for GoatAdaptor {
 
         let res = self.handle_transaction_request(tx_request).await?;
         Ok(res.to_string())
-    }
-
-    async fn post_operator_data_batch(
-        &self,
-        instance_id: &Uuid,
-        graph_ids: &[Uuid],
-        operator_datas: &[OperatorData],
-    ) -> anyhow::Result<String> {
-        let graph_ids =
-            graph_ids.iter().map(|v| FixedBytes::<16>::from_slice(&v.into_bytes())).collect();
-        let operator_datas: Vec<IGateway::OperatorData> =
-            operator_datas.iter().map(|v| (*v).clone().into()).collect();
-        let tx_request = self
-            .gate_way
-            .postOperatorDataBatch(
-                FixedBytes::from_slice(instance_id.as_bytes()),
-                graph_ids,
-                operator_datas,
-            )
-            .from(self.get_default_signer_address())
-            .chain_id(self.chain_id)
-            .into_transaction_request();
-        let tx_hash = self.handle_transaction_request(tx_request).await?;
-        Ok(tx_hash.to_string())
     }
 
     async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<String> {
@@ -655,6 +657,25 @@ impl ChainAdaptor for GoatAdaptor {
             self.gate_way.minPeginFeeSats().call().await?,
             self.gate_way.peginFeeRate().call().await?,
         ))
+    }
+
+    async fn answer_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        pub_key: &[u8; 32],
+    ) -> anyhow::Result<String> {
+        let tx_request = self
+            .gate_way
+            .answerPeginRequest(
+                FixedBytes::from_slice(instance_id.as_bytes()),
+                FixedBytes::from_slice(pub_key),
+            )
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+
+        let res = self.handle_transaction_request(tx_request).await?;
+        Ok(res.to_string())
     }
 }
 impl GoatAdaptor {

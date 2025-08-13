@@ -794,8 +794,9 @@ pub async fn scan_post_operator_data(
             if graph.status != GraphStatus::CommitteePresigned.to_string() {
                 continue;
             }
+            // TODO update
             match goat_client
-                .post_operate_data(&instance.instance_id, &graph.graph_id, &graph)
+                .post_operate_data(&instance.instance_id, &graph.graph_id, &graph, &vec![])
                 .await
             {
                 Ok(tx_hash) => {

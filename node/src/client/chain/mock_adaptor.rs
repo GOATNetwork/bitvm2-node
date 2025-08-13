@@ -1,5 +1,6 @@
 use crate::client::chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
+use alloy::primitives::TxHash;
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use async_trait::async_trait;
@@ -119,14 +120,22 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn get_operator_data(&self, graph_id: &Uuid) -> anyhow::Result<OperatorData> {
+    async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
         info!("call get_operator_data");
-        let operator_data_map = self.load_hash_map::<OperatorData>(OPERATOR_DATA_MAP, None)?;
+        let operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;
         if let Some(operator_data) = operator_data_map.get(&graph_id.to_string()) {
             Ok(operator_data.clone())
         } else {
             bail!("not find operator data")
         }
+    }
+
+    async fn answer_pegin_request(
+        &self,
+        _instance_id: &Uuid,
+        _pub_key: &[u8; 32],
+    ) -> anyhow::Result<String> {
+        Ok(TxHash::default().to_string())
     }
 
     async fn post_pegin_data(
@@ -146,9 +155,13 @@ impl ChainAdaptor for MockAdaptor {
         pegin_data_map.insert(
             instance_id.to_string(),
             PeginData {
+                status: PeginStatus::None,
+                pegin_amount_sats: 0,
+                fee_rate: 0,
+                user_inputs: vec![],
                 pegin_txid: tx.compute_txid().to_byte_array(),
-                pegin_status: PeginStatus::None,
-                pegin_amount: 0,
+                created_at: 0,
+                committee_addresses: vec![],
             },
         );
 
@@ -156,30 +169,16 @@ impl ChainAdaptor for MockAdaptor {
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn post_operator_data(
+    async fn post_graph_data(
         &self,
         _instance_id: &Uuid,
         graph_id: &Uuid,
-        operator_data: &OperatorData,
+        operator_data: &GraphData,
+        _committee_signs: &[u8],
     ) -> anyhow::Result<String> {
         info!("call post_operator_data");
-        let mut operator_data_map = self.load_hash_map::<OperatorData>(OPERATOR_DATA_MAP, None)?;
+        let mut operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;
         operator_data_map.insert(graph_id.to_string(), operator_data.clone());
-        self.save_hash_map(OPERATOR_DATA_MAP, operator_data_map, None)?;
-        Ok(hex::encode(generate_random_bytes(32)))
-    }
-
-    async fn post_operator_data_batch(
-        &self,
-        _instance_id: &Uuid,
-        graph_ids: &[Uuid],
-        operator_datas: &[OperatorData],
-    ) -> anyhow::Result<String> {
-        info!("call post_operator_data_batch");
-        let mut operator_data_map = self.load_hash_map::<OperatorData>(OPERATOR_DATA_MAP, None)?;
-        for (i, graph_id) in graph_ids.iter().enumerate() {
-            operator_data_map.insert(graph_id.to_string(), operator_datas[i].clone());
-        }
         self.save_hash_map(OPERATOR_DATA_MAP, operator_data_map, None)?;
         Ok(hex::encode(generate_random_bytes(32)))
     }
