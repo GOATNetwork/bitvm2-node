@@ -12,8 +12,6 @@ bincode = "1.3.3"
 guest-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
 # guest-executor = { path = "../../../reth-processor/crates/executor/guest" }
 
-#header-chain = { path = "../../crates/header-chain" }
-
 # Ziren
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm" }
 
