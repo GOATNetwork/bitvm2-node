@@ -1,12 +1,12 @@
 use crate::action::{
     ChallengeSent, CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer,
 };
-use crate::client::chain::chain_adaptor::WithdrawStatus;
-use crate::client::chain::utils::{
+use crate::client::goat_chain::WithdrawStatus;
+use crate::client::goat_chain::utils::{
     get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
 };
 use crate::client::graph_query::GatewayEventEntity;
-use crate::client::{BTCClient, GOATClient};
+use crate::client::{BTCClient, goat_chain::GOATClient};
 use crate::env;
 use crate::env::*;
 use crate::middleware::AllBehaviours;
@@ -140,7 +140,7 @@ pub async fn is_valid_withdraw(
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = client.get_withdraw_data(&graph_id).await?.status;
     Ok([WithdrawStatus::Initialized, WithdrawStatus::Processing].contains(&withdraw_status))
     // TODO: Only WithdrawStatus::Processing should be considered valid,
     // here WithdrawStatus::Initialized is also treated as valid to facilitate test
@@ -154,7 +154,7 @@ pub async fn is_withdraw_initialized_on_l2(
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let withdraw_status = client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = client.get_withdraw_data(&graph_id).await?.status;
     Ok(withdraw_status == WithdrawStatus::Initialized)
 }
 
@@ -566,8 +566,7 @@ pub async fn should_challenge(
     }
 
     // check if withdraw is initialized on L2
-    let withdraw_status =
-        goat_client.chain_service.adaptor.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = goat_client.get_withdraw_data(&graph_id).await?.status;
     if withdraw_status == WithdrawStatus::Initialized
         || withdraw_status == WithdrawStatus::Processing
     {
@@ -1166,10 +1165,7 @@ pub async fn get_my_graph_for_instance(
     instance_id: Uuid,
     operator_pubkey: PublicKey,
 ) -> Result<Option<Uuid>, Box<dyn std::error::Error>> {
-    // FIXME: don't use chain_service directly
     let ids_vec = goat_client
-        .chain_service
-        .adaptor
         .get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
         .await?;
     Ok(ids_vec.iter().find(|(a, _)| *a == instance_id).map(|(_, b)| *b))

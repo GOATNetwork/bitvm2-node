@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::action::NodeInfo;
-use crate::client::chain::utils::{validate_committee, validate_operator};
-use crate::client::chain::{chain_adaptor::GoatNetwork, goat_adaptor::GoatInitConfig};
+use crate::client::goat_chain::utils::{validate_committee, validate_operator};
+use crate::client::goat_chain::{GoatInitConfig, GoatNetwork};
 use alloy::primitives::Address as EvmAddress;
 use alloy::primitives::Address;
 use alloy::providers::{Provider, ProviderBuilder};

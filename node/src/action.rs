@@ -1,4 +1,4 @@
-use crate::client::{BTCClient, GOATClient};
+use crate::client::{BTCClient, goat_chain::GOATClient};
 use crate::env::{self, get_local_node_info, get_node_goat_address, get_node_pubkey};
 use crate::middleware::AllBehaviours;
 use crate::relayer_action::do_tick_action;

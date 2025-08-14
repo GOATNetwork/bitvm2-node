@@ -1,4 +1,4 @@
-use crate::client::chain::chain_adaptor::*;
+use crate::client::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
 use alloy::primitives::TxHash;
 use alloy::rpc::types::TransactionReceipt;
@@ -90,40 +90,40 @@ impl ChainAdaptor for MockAdaptor {
         Ok(true)
     }
 
-    async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
+    async fn get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
         info!("call get_pegin_data");
         let pegin_data_map = self.load_hash_map::<PeginData>(PEGIN_DATA_MAP, None)?;
-        if let Some(pegin_data) = pegin_data_map.get(&instance_id.to_string()) {
+        if let Some(pegin_data) = pegin_data_map.get(&hex::encode(instance_id)) {
             Ok(pegin_data.clone())
         } else {
             bail!("not find pegin data")
         }
     }
 
-    async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool> {
+    async fn is_operator_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<bool> {
         info!("call get_withdraw_data");
         let withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
+        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             Ok(withdraw_data.status == WithdrawStatus::Processing)
         } else {
             bail!("not find withdraw data")
         }
     }
 
-    async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
+    async fn get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData> {
         info!("call get_withdraw_data");
         let withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
+        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             Ok(withdraw_data.clone())
         } else {
             bail!("not find withdraw data")
         }
     }
 
-    async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
+    async fn get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
         info!("call get_operator_data");
         let operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;
-        if let Some(operator_data) = operator_data_map.get(&graph_id.to_string()) {
+        if let Some(operator_data) = operator_data_map.get(&hex::encode(graph_id)) {
             Ok(operator_data.clone())
         } else {
             bail!("not find operator data")
@@ -132,7 +132,7 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn answer_pegin_request(
         &self,
-        _instance_id: &Uuid,
+        _instance_id: &[u8; 16],
         _pub_key: &[u8; 32],
     ) -> anyhow::Result<String> {
         Ok(TxHash::default().to_string())
@@ -140,7 +140,7 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn post_pegin_data(
         &self,
-        instance_id: &Uuid,
+        instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         _pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
@@ -153,7 +153,7 @@ impl ChainAdaptor for MockAdaptor {
         };
         let mut pegin_data_map = self.load_hash_map::<PeginData>(PEGIN_DATA_MAP, None)?;
         pegin_data_map.insert(
-            instance_id.to_string(),
+            hex::encode(instance_id),
             PeginData {
                 status: PeginStatus::None,
                 pegin_amount_sats: 0,
@@ -171,14 +171,14 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn post_graph_data(
         &self,
-        _instance_id: &Uuid,
-        graph_id: &Uuid,
+        _instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
         operator_data: &GraphData,
         _committee_signs: &[u8],
     ) -> anyhow::Result<String> {
         info!("call post_operator_data");
         let mut operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;
-        operator_data_map.insert(graph_id.to_string(), operator_data.clone());
+        operator_data_map.insert(hex::encode(graph_id), operator_data.clone());
         self.save_hash_map(OPERATOR_DATA_MAP, operator_data_map, None)?;
         Ok(hex::encode(generate_random_bytes(32)))
     }
@@ -209,32 +209,37 @@ impl ChainAdaptor for MockAdaptor {
         Ok(vec![])
     }
 
-    async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<String> {
+    async fn init_withdraw(
+        &self,
+        instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
+    ) -> anyhow::Result<String> {
         info!("call init_withdraw");
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         let mut withdraw_data = withdraw_data_map
-            .get(&graph_id.to_string())
+            .get(&hex::encode(graph_id))
             .unwrap_or(&WithdrawData {
                 pegin_txid: generate_random_bytes(32).try_into().expect("fail to cast"),
                 operator_address: generate_random_bytes(20).try_into().expect("fail to cast"),
                 status: WithdrawStatus::Initialized,
                 instance_id: *instance_id,
                 lock_amount: Default::default(),
+                btc_block_height_withdraw: Default::default(),
             })
             .clone();
         withdraw_data.status = WithdrawStatus::Initialized;
-        withdraw_data_map.insert(graph_id.to_string(), withdraw_data);
+        withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
         self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
+    async fn cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
+        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             info!("call cancel_withdraw");
             let mut withdraw_data = withdraw_data.clone();
             withdraw_data.status = WithdrawStatus::Canceled;
-            withdraw_data_map.insert(graph_id.to_string(), withdraw_data);
+            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
             self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
             Ok(hex::encode(generate_random_bytes(32)))
         } else {
@@ -244,16 +249,16 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn process_withdraw(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         _raw_kickoff_tx: &BitcoinTx,
         _kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
+        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             info!("call process_withdraw");
             let mut withdraw_data = withdraw_data.clone();
             withdraw_data.status = WithdrawStatus::Processing;
-            withdraw_data_map.insert(graph_id.to_string(), withdraw_data);
+            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
             self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
             Ok(hex::encode(generate_random_bytes(32)))
         } else {
@@ -263,16 +268,16 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn finish_withdraw_happy_path(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         _raw_take1_tx: &BitcoinTx,
         _take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
+        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             info!("call finish_withdraw_happy_path");
             let mut withdraw_data = withdraw_data.clone();
             withdraw_data.status = WithdrawStatus::Complete;
-            withdraw_data_map.insert(graph_id.to_string(), withdraw_data);
+            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
             self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
             Ok(hex::encode(generate_random_bytes(32)))
         } else {
@@ -282,16 +287,16 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn finish_withdraw_unhappy_path(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         _raw_take2_tx: &BitcoinTx,
         _take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
+        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             info!("call finish_withdraw_unhappy_path");
             let mut withdraw_data = withdraw_data.clone();
             withdraw_data.status = WithdrawStatus::Complete;
-            withdraw_data_map.insert(graph_id.to_string(), withdraw_data);
+            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
             self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
             Ok(hex::encode(generate_random_bytes(32)))
         } else {
@@ -301,18 +306,18 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn finish_withdraw_disproved(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         _raw_disproved_tx: &BitcoinTx,
         _disproved_proof: &BitcoinTxProof,
         _raw_challenge_tx: &BitcoinTx,
         _challenge_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&graph_id.to_string()) {
+        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             info!("call finish_withdraw_disproved");
             let mut withdraw_data = withdraw_data.clone();
             withdraw_data.status = WithdrawStatus::Complete;
-            withdraw_data_map.insert(graph_id.to_string(), withdraw_data);
+            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
             self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
             Ok(hex::encode(generate_random_bytes(32)))
         } else {

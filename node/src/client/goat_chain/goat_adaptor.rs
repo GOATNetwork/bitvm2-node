@@ -1,8 +1,8 @@
-use crate::client::chain::chain_adaptor::{
+use crate::client::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, WithdrawData,
     WithdrawStatus,
 };
-use crate::client::chain::goat_adaptor::IGateway::IGatewayInstance;
+use crate::client::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::TxHash;
 use alloy::providers::Identity;
@@ -341,8 +341,9 @@ impl From<IGateway::WithdrawData> for WithdrawData {
             pegin_txid: value.peginTxid.0,
             operator_address: value.operatorAddress.0.map(|v| v),
             status: value.status.into(),
-            instance_id: Uuid::from_slice(value.instanceId.as_slice()).expect("decode uuid"),
+            instance_id: value.instanceId.0,
             lock_amount: value.lockAmount,
+            btc_block_height_withdraw: value.btcBlockHeightAtWithdraw,
         }
     }
 }
@@ -353,12 +354,9 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(self.gate_way.peginTxUsed(FixedBytes::<32>::from_slice(tx_id)).call().await?)
     }
 
-    async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
-        let res = self
-            .gate_way
-            .peginDataMap(FixedBytes::<16>::from_slice(instance_id.as_bytes()))
-            .call()
-            .await?;
+    async fn get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
+        let res =
+            self.gate_way.peginDataMap(FixedBytes::<16>::from_slice(instance_id)).call().await?;
 
         // let committee_addresses = self
         //     .gate_way
@@ -377,35 +375,25 @@ impl ChainAdaptor for GoatAdaptor {
         })
     }
 
-    async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool> {
-        Ok(self
-            .gate_way
-            .operatorWithdrawn(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
-            .call()
-            .await?)
+    async fn is_operator_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<bool> {
+        Ok(self.gate_way.operatorWithdrawn(FixedBytes::<16>::from_slice(graph_id)).call().await?)
     }
 
-    async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
-        let res = self
-            .gate_way
-            .withdrawDataMap(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
-            .call()
-            .await?;
+    async fn get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData> {
+        let res =
+            self.gate_way.withdrawDataMap(FixedBytes::<16>::from_slice(graph_id)).call().await?;
         Ok(WithdrawData {
             pegin_txid: res._0.0,
             operator_address: res._1.0.0,
             status: res._2.into(),
-            instance_id: Uuid::from_slice(res._3.as_slice())?,
+            instance_id: res._3.0,
             lock_amount: res._4,
+            btc_block_height_withdraw: res._5,
         })
     }
 
-    async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
-        let res = self
-            .gate_way
-            .graphDataMap(FixedBytes::<16>::from_slice(graph_id.as_bytes()))
-            .call()
-            .await?;
+    async fn get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
+        let res = self.gate_way.graphDataMap(FixedBytes::<16>::from_slice(graph_id)).call().await?;
 
         // TODO
         Ok(GraphData {
@@ -424,14 +412,14 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn post_pegin_data(
         &self,
-        instance_id: &Uuid,
+        instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let tx_request: TransactionRequest = self
             .gate_way
             .postPeginData(
-                FixedBytes::<16>::from_slice(instance_id.as_bytes()),
+                FixedBytes::<16>::from_slice(instance_id),
                 raw_pgin_tx.into(),
                 pegin_proof.into(),
             )
@@ -473,16 +461,16 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn post_graph_data(
         &self,
-        instance_id: &Uuid,
-        graph_id: &Uuid,
+        instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
         operator_data: &GraphData,
         committee_signs: &[u8],
     ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .postGraphData(
-                FixedBytes::from_slice(instance_id.as_bytes()),
-                FixedBytes::from_slice(graph_id.as_bytes()),
+                FixedBytes::from_slice(instance_id),
+                FixedBytes::from_slice(graph_id),
                 (*operator_data).clone().into(),
                 Bytes::copy_from_slice(committee_signs),
             )
@@ -494,13 +482,14 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(res.to_string())
     }
 
-    async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<String> {
+    async fn init_withdraw(
+        &self,
+        instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
+    ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
-            .initWithdraw(
-                FixedBytes::from_slice(instance_id.as_bytes()),
-                FixedBytes::from_slice(graph_id.as_bytes()),
-            )
+            .initWithdraw(FixedBytes::from_slice(instance_id), FixedBytes::from_slice(graph_id))
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
@@ -508,10 +497,10 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
+    async fn cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
-            .cancelWithdraw(FixedBytes::from_slice(graph_id.as_bytes()))
+            .cancelWithdraw(FixedBytes::from_slice(graph_id))
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
@@ -521,14 +510,14 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn process_withdraw(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_kickoff_tx: &BitcoinTx,
         kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .proceedWithdraw(
-                FixedBytes::from_slice(graph_id.as_bytes()),
+                FixedBytes::from_slice(graph_id),
                 raw_kickoff_tx.into(),
                 kickoff_proof.into(),
             )
@@ -541,14 +530,14 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn finish_withdraw_happy_path(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_take1_tx: &BitcoinTx,
         take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .finishWithdrawHappyPath(
-                FixedBytes::from_slice(graph_id.as_bytes()),
+                FixedBytes::from_slice(graph_id),
                 raw_take1_tx.into(),
                 take1_proof.into(),
             )
@@ -561,14 +550,14 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn finish_withdraw_unhappy_path(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_take2_tx: &BitcoinTx,
         take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .finishWithdrawUnhappyPath(
-                FixedBytes::from_slice(graph_id.as_bytes()),
+                FixedBytes::from_slice(graph_id),
                 raw_take2_tx.into(),
                 take2_proof.into(),
             )
@@ -581,7 +570,7 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn finish_withdraw_disproved(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_disproved_tx: &BitcoinTx,
         disproved_proof: &BitcoinTxProof,
         raw_challenge_tx: &BitcoinTx,
@@ -590,7 +579,7 @@ impl ChainAdaptor for GoatAdaptor {
         let tx_request = self
             .gate_way
             .finishWithdrawDisproved(
-                FixedBytes::from_slice(graph_id.as_bytes()),
+                FixedBytes::from_slice(graph_id),
                 raw_disproved_tx.into(),
                 disproved_proof.into(),
                 raw_challenge_tx.into(),
@@ -661,13 +650,13 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn answer_pegin_request(
         &self,
-        instance_id: &Uuid,
+        instance_id: &[u8; 16],
         pub_key: &[u8; 32],
     ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .answerPeginRequest(
-                FixedBytes::from_slice(instance_id.as_bytes()),
+                FixedBytes::from_slice(instance_id),
                 FixedBytes::from_slice(pub_key),
             )
             .from(self.get_default_signer_address())

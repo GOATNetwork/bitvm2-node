@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
 use crate::action::{ChallengeSent, CreateInstance, DisproveSent, InstanceDiscarded};
-use crate::client::chain::chain_adaptor::WithdrawStatus;
+use crate::client::goat_chain::WithdrawStatus;
 use crate::client::graph_query::{
     BlockRange, CancelWithdrawEvent, GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent,
     UserGraphWithdrawEvent, WithdrawDisproved, WithdrawPathsEvent, get_gateway_events_query,
 };
-use crate::client::{BTCClient, GOATClient, GraphQueryClient};
+use crate::client::{BTCClient, GraphQueryClient, goat_chain::GOATClient};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED,
     LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
@@ -364,8 +364,7 @@ pub async fn fetch_history_events(
     let addr = watch_contract.addr.clone();
     let async_fn = || async move {
         loop {
-            let current_finalized =
-                goat_client.chain_service.adaptor.get_finalized_block_number().await;
+            let current_finalized = goat_client.get_finalized_block_number().await;
             if current_finalized.is_err() {
                 warn!("fail to get finalize block, will try later");
                 sleep(Duration::from_millis(500)).await;
@@ -457,7 +456,7 @@ pub async fn monitor_events(
             }
         };
     let query_client = GraphQueryClient::new(watch_contract.the_graph_url.clone());
-    let current_finalized = goat_client.chain_service.adaptor.get_finalized_block_number().await?;
+    let current_finalized = goat_client.get_finalized_block_number().await?;
 
     if watch_contract.from_height == 0 || watch_contract.from_height >= current_finalized {
         warn!(
@@ -702,8 +701,7 @@ pub async fn scan_post_pegin_data(
             continue;
         }
         if let Ok(_tx_hash) = TxHash::from_str(&instance.goat_txid) {
-            let receipt_op =
-                goat_client.chain_service.adaptor.get_tx_receipt(&instance.goat_txid).await?;
+            let receipt_op = goat_client.get_tx_receipt(&instance.goat_txid).await?;
             if receipt_op.is_none() {
                 info!(
                     "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \

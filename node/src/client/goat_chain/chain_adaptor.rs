@@ -1,5 +1,5 @@
-use crate::client::chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
-use crate::client::chain::mock_adaptor::{MockAdaptor, MockAdaptorConfig};
+use crate::client::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
+use crate::client::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
 use alloy::primitives::{Address, U256};
 use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;
@@ -11,27 +11,27 @@ use uuid::Uuid;
 pub trait ChainAdaptor: Send + Sync {
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64>;
     async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool>;
-    async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData>;
-    async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool>;
-    async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData>;
-    async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData>;
+    async fn get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData>;
+    async fn is_operator_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<bool>;
+    async fn get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData>;
+    async fn get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData>;
 
     async fn answer_pegin_request(
         &self,
-        instance_id: &Uuid,
+        instance_id: &[u8; 16],
         pub_key: &[u8; 32],
     ) -> anyhow::Result<String>;
     async fn post_pegin_data(
         &self,
-        instance_id: &Uuid,
+        instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
     async fn post_graph_data(
         &self,
-        instance_id: &Uuid,
-        graph_id: &Uuid,
+        instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
         operator_data: &GraphData,
         committee_signs: &[u8],
     ) -> anyhow::Result<String>;
@@ -48,30 +48,34 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
-    async fn init_withdraw(&self, instance_id: &Uuid, graph_id: &Uuid) -> anyhow::Result<String>;
-    async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String>;
+    async fn init_withdraw(
+        &self,
+        instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
+    ) -> anyhow::Result<String>;
+    async fn cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String>;
     async fn process_withdraw(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_kickoff_tx: &BitcoinTx,
         kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
     async fn finish_withdraw_happy_path(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_take1_tx: &BitcoinTx,
         take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
     async fn finish_withdraw_unhappy_path(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_take2_tx: &BitcoinTx,
         take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
     async fn finish_withdraw_disproved(
         &self,
-        graph_id: &Uuid,
+        graph_id: &[u8; 16],
         raw_disproved_tx: &BitcoinTx,
         disproved_proof: &BitcoinTxProof,
         raw_challenge_tx: &BitcoinTx,
@@ -162,8 +166,9 @@ pub struct WithdrawData {
     pub pegin_txid: [u8; 32],
     pub operator_address: [u8; 20],
     pub status: WithdrawStatus,
-    pub instance_id: Uuid,
+    pub instance_id: [u8; 16],
     pub lock_amount: U256,
+    pub btc_block_height_withdraw: U256,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

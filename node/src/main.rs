@@ -1,7 +1,7 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
 use bitvm2_lib::actors::Actor;
-use bitvm2_noded::client::{BTCClient, GOATClient};
+use bitvm2_noded::client::{BTCClient, goat_chain::GOATClient};
 use bitvm2_noded::env::{
     self, ENV_PEER_KEY, check_node_info, get_ipfs_url, get_network, get_node_pubkey,
 };
