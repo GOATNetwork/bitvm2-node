@@ -2,13 +2,11 @@ use crate::client::btc_chain::BTCClient;
 use crate::env::IpfsTxName;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
-use crate::rpc_service::{AppState, current_time_secs};
-use crate::utils::{node_p2wsh_address, reflect_goat_address};
+use crate::rpc_service::AppState;
+use crate::utils::node_p2wsh_address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::encode::serialize_hex;
-use bitcoin::{Address, AddressType};
 use bitcoin::{Network, PublicKey, Txid};
 use bitvm2_lib::types::Bitvm2Graph;
 use goat::transactions::pre_signed::PreSignedTransaction;
@@ -19,8 +17,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::FilterGraphParams;
 use store::{
-    BridgeInStatus, BridgePath, GoatTxType, GraphFullData, GraphStatus, Instance, Message,
-    MessageState, MessageType, modify_graph_status,
+    BridgeInStatus, GoatTxType, GraphFullData, GraphStatus, modify_graph_status,
 };
 use uuid::Uuid;
 
@@ -33,77 +30,6 @@ pub async fn instance_settings(
         Json(InstanceSettingResponse { bridge_in_amount: vec![0.1, 0.05, 0.02, 0.01] }),
     )
 }
-
-#[axum::debug_handler]
-pub async fn bridge_in_tx_prepare(
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<BridgeInTransactionPreparerRequest>,
-) -> (StatusCode, Json<BridgeInTransactionPrepareResponse>) {
-    let async_fn = || async move {
-        let instance_id = Uuid::parse_str(&payload.instance_id)?;
-        let is_segwit_addr = is_segwit_address(&payload.from, &payload.network)?;
-        if !is_segwit_addr {
-            return Err(
-                format!("payload from field {} is not btc segwit address", payload.from).into()
-            );
-        }
-        let (is_goat_addr, to_address) = reflect_goat_address(Some(payload.to.clone()));
-        if !is_goat_addr {
-            return Err(
-                format!("payload to field {}  is not goat chain address", payload.to).into()
-            );
-        }
-        let instance = Instance {
-            instance_id,
-            network: payload.network.clone(),
-            bridge_path: BridgePath::BTCToPgBTC.to_u8(),
-            from_addr: payload.from.clone(),
-            to_addr: to_address.unwrap().to_string(),
-            amount: payload.amount,
-            created_at: current_time_secs(),
-            updated_at: current_time_secs(),
-            status: BridgeInStatus::Submitted.to_string(),
-            input_uxtos: serde_json::to_string(&payload.utxo)?,
-            ..Default::default()
-        };
-        let mut tx = app_state.local_db.start_transaction().await?;
-        let instance_pre_op = tx.get_instance(&instance_id).await?;
-        if instance_pre_op.is_some() {
-            tracing::info!("{instance_id} is used");
-            return Err(format!("{instance_id} is used").into());
-        }
-        let _ = tx.create_instance(instance.clone()).await?;
-        let p2p_user_data: P2pUserData = (&payload).into();
-        if !p2p_user_data.user_inputs.validate_amount() {
-            return Err("inputs_amount_sum < inputs.fee_amount + inputs.input_amount".into());
-        }
-        let content = serde_json::to_vec::<P2pUserData>(&p2p_user_data)?;
-        tx.create_message(
-            Message {
-                id: 0,
-                actor: app_state.actor.to_string(),
-                from_peer: app_state.peer_id.clone(),
-                msg_type: MessageType::BridgeInData.to_string(),
-                content,
-                state: MessageState::Pending.to_string(),
-            },
-            current_time_secs(),
-        )
-        .await?;
-        tx.commit().await?;
-        Ok::<BridgeInTransactionPrepareResponse, Box<dyn std::error::Error>>(
-            BridgeInTransactionPrepareResponse {},
-        )
-    };
-    match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
-        Err(err) => {
-            tracing::warn!("bridge_in_tx_prepare  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(BridgeInTransactionPrepareResponse {}))
-        }
-    }
-}
-
 #[axum::debug_handler]
 pub async fn graph_presign_check(
     Query(params): Query<GraphPresignCheckParams>,
@@ -335,14 +261,7 @@ pub async fn get_instances(
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let (instances, total) = storage_process
-            .instance_list(
-                params.from_addr,
-                params.bridge_path,
-                None,
-                None,
-                params.offset,
-                params.limit,
-            )
+            .instance_list(params.from_addr, None, None, params.offset, params.limit)
             .await?;
 
         if instances.is_empty() {
@@ -357,14 +276,14 @@ pub async fn get_instances(
             instance.reverse_btc_txid();
             let (confirmations, target_confirmations) = get_tx_confirmation_info(
                 &app_state.btc_client,
-                instance.pegin_txid.clone(),
+                instance.pegin_confirm_txid.clone(),
                 current_height,
                 6,
             )
             .await?;
-            let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
+            // let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
             items.push(InstanceWrap {
-                utxo: Some(utxo),
+                utxo: None,
                 instance: Some(instance),
                 confirmations,
                 target_confirmations,
@@ -403,10 +322,10 @@ pub async fn get_instance(
         let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
         let current_height = app_state.btc_client.get_height().await?;
-        let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
+        // let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
         let (confirmations, target_confirmations) = get_tx_confirmation_info(
             &app_state.btc_client,
-            instance.pegin_txid.clone(),
+            instance.pegin_confirm_txid.clone(),
             current_height,
             6,
         )
@@ -414,7 +333,7 @@ pub async fn get_instance(
 
         Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
             instance_wrap: InstanceWrap {
-                utxo: Some(utxo),
+                utxo: None,
                 instance: Some(instance),
                 confirmations,
                 target_confirmations,
@@ -436,10 +355,10 @@ pub async fn get_instances_overview(
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let (pegin_sum, pegin_count) = storage_process
-            .get_sum_bridge_in(
-                BridgePath::BTCToPgBTC.to_u8(),
-                &[BridgeInStatus::L1Broadcasted.to_string(), BridgeInStatus::L2Minted.to_string()],
-            )
+            .get_sum_bridge_in(&[
+                BridgeInStatus::L1Broadcasted.to_string(),
+                BridgeInStatus::L2Minted.to_string(),
+            ])
             .await?;
         let (pegout_sum, pegout_count) = storage_process
             .get_sum_bridge_out(&[
@@ -662,11 +581,11 @@ pub fn convert_to_rpc_query_data(
     Ok(Some(graph_res))
 }
 
-fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {
-    let addr: Address<NetworkUnchecked> = Address::from_str(address)?;
-    let addr = addr.require_network(Network::from_str(network)?)?;
-    Ok(matches!(
-        addr.address_type(),
-        Some(AddressType::P2wpkh) | Some(AddressType::P2wsh) | Some(AddressType::P2tr)
-    ))
-}
+// fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {
+//     let addr: Address<NetworkUnchecked> = Address::from_str(address)?;
+//     let addr = addr.require_network(Network::from_str(network)?)?;
+//     Ok(matches!(
+//         addr.address_type(),
+//         Some(AddressType::P2wpkh) | Some(AddressType::P2wsh) | Some(AddressType::P2tr)
+//     ))
+// }

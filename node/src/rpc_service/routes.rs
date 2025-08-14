@@ -9,7 +9,6 @@ pub mod v1 {
     pub const INSTANCES_BASE: &str = "/v1/instances";
     pub const INSTANCES_SETTINGS: &str = "/v1/instances/settings";
     pub const INSTANCES_BY_ID: &str = "/v1/instances/{:id}";
-    pub const INSTANCES_ACTION_BRIDGE_IN: &str = "/v1/instances/action/bridge_in_tx_prepare";
     pub const INSTANCES_OVERVIEW: &str = "/v1/instances/overview";
     pub const GRAPHS_BASE: &str = "/v1/graphs";
     pub const GRAPHS_BY_ID: &str = "/v1/graphs/{:id}";

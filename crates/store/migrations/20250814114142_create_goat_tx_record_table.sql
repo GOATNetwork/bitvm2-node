@@ -10,7 +10,7 @@ CREATE TABLE goat_tx_record
     `is_local`    BOOL   NOT NULL DEFAULT 1,
     `extra`       TEXT,
     `created_at`  BIGINT NOT NULL DEFAULT 0,
+    prove_status  TEXT   NOT NULL DEFAULT 'NoNeed',
     PRIMARY KEY (`instance_id`, `graph_id`, `tx_type`)
 );
 CREATE INDEX id_goat_tx_hash ON goat_tx_record (`tx_hash`);
-

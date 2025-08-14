@@ -50,26 +50,38 @@ pub enum BridgeInStatus {
 pub struct Instance {
     pub instance_id: Uuid,
     pub network: String,
-    pub bridge_path: u8,
     pub from_addr: String,
     pub to_addr: String,
-    pub amount: i64,    // in sat
-    pub status: String, // BridgeInStatus
-    pub goat_txid: String,
-    pub btc_txid: String,
-    pub pegin_txid: Option<String>,
-    pub input_uxtos: String,
+    pub amount: i64,
     pub fee: i64,
+    pub status: String,
+    pub pegin_request_txid: String,
+    pub pegin_request_height: i64,
+    pub pegin_prepare_txid: Option<String>,
+    pub pegin_confirm_txid: Option<String>,
+    pub pegin_cancel_txid: Option<String>,
+    pub unsign_pegin_confirm_tx: Option<String>,
+    #[sqlx(json)]
+    pub committees_sigs: Vec<String>,
+    #[sqlx(json)]
+    pub committees: Vec<String>,
+    pub pegin_data_txid: String,
+    pub timeout: i64,
     pub created_at: i64,
-    pub updated_at: i64, // updating time
+    pub updated_at: i64,
 }
 
 impl Instance {
     pub fn reverse_btc_txid(&mut self) {
-        if let Some(pegin_txid) = self.pegin_txid.clone() {
-            self.pegin_txid = Some(reversed_btc_txid(&pegin_txid));
+        if let Some(pegin_prepare_txid) = self.pegin_prepare_txid.clone() {
+            self.pegin_prepare_txid = Some(reversed_btc_txid(&pegin_prepare_txid));
         }
-        self.btc_txid = reversed_btc_txid(&self.btc_txid);
+        if let Some(pegin_confirm_txid) = self.pegin_confirm_txid.clone() {
+            self.pegin_confirm_txid = Some(reversed_btc_txid(&pegin_confirm_txid));
+        }
+        if let Some(pegin_cancel_txid) = self.pegin_cancel_txid.clone() {
+            self.pegin_cancel_txid = Some(reversed_btc_txid(&pegin_cancel_txid));
+        }
     }
 }
 
@@ -98,23 +110,6 @@ pub enum GraphStatus {
     Discarded,
 }
 
-pub enum BridgePath {
-    BTCToPgBTC = 0,
-    PgBTCToBTC = 1,
-}
-impl BridgePath {
-    pub fn from_u8(n: u8) -> Option<Self> {
-        match n {
-            0 => Some(BridgePath::BTCToPgBTC),
-            1 => Some(BridgePath::PgBTCToBTC),
-            _ => None,
-        }
-    }
-
-    pub fn to_u8(self) -> u8 {
-        self as u8
-    }
-}
 /// graph detail
 /// Field `graph_ipfs_base_url` is the IFPS address, which serves as a directory address containing the following files within that directory.
 /// ├── assert-commit0.hex
@@ -410,17 +405,6 @@ pub struct MessageBroadcast {
     pub msg_type: String,
     pub msg_times: i64,
     pub updated_at: i64,
-    pub created_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct ProofWithPis {
-    pub instance_id: Uuid,
-    pub graph_id: Option<Uuid>,
-    pub proof: String,
-    pub pis: String,
-    pub goat_block_number: i64,
-    pub proof_cast: i64,
     pub created_at: i64,
 }
 

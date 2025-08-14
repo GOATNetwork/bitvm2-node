@@ -64,7 +64,6 @@ pub struct GraphPresignCheckResponse {
 #[derive(Debug, Deserialize)]
 pub struct InstanceListRequest {
     pub from_addr: Option<String>,
-    pub bridge_path: Option<u8>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
 }

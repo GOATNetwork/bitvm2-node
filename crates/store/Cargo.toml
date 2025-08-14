@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-sqlx = {  version = "0.8.3", features = [ "sqlite", "runtime-tokio", "uuid"] }
+sqlx = {  version = "0.8.3", features = [ "sqlite", "runtime-tokio", "uuid", "json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 anyhow = { workspace = true }
 uuid = { workspace = true }

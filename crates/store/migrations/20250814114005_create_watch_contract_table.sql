@@ -1,5 +1,4 @@
 -- Add migration script here
-
 DROP TABLE IF EXISTS `watch_contract`;
 CREATE TABLE watch_contract
 (

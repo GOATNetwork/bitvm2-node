@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE instance\n             SET    network = ?, \n                    from_addr = ?,\n                    to_addr = ?,\n                    amount = ?,\n                    fee = ?,\n                    status = ?,\n                    pegin_request_txid = ?,\n                    pegin_request_height = ?,\n                    pegin_prepare_txid = ?,\n                    pegin_confirm_txid = ?,\n                    pegin_cancel_txid = ?,\n                    unsign_pegin_confirm_tx = ?,\n                    committees_sigs = ?,\n                    committees = ?,\n                    pegin_data_txid = ?,\n                    timeout = ?,\n                    updated_at = ?\n            WHERE instance_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 18
+    },
+    "nullable": []
+  },
+  "hash": "4388c39cc9b18232145c60e31c8d9c9af27e090520a2eeab599a0171ca863821"
+}

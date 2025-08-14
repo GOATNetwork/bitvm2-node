@@ -43,7 +43,7 @@ use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::localdb::{LocalDB, StorageProcessor, UpdateGraphParams};
 use store::{
-    BridgeInStatus, BridgePath, GoatTxProveStatus, GoatTxRecord, GoatTxType, GraphStatus,
+    BridgeInStatus, GoatTxProveStatus, GoatTxRecord, GoatTxType, GraphStatus,
     GraphTickActionMetaData, MessageState, MessageType, WatchContract, WatchContractStatus,
 };
 use tokio::time::sleep;
@@ -408,8 +408,8 @@ pub async fn fetch_history_events(
             }
             tx.create_or_update_watch_contract(&watch_contract).await?;
             tx.commit().await?;
-        }
-        Ok::<(), Box<dyn std::error::Error>>(())
+
+        }       Ok::<(), Box<dyn std::error::Error>>(())
     };
     let err = match async_fn().await {
         Ok(_) => false,
@@ -569,24 +569,17 @@ pub async fn scan_l1_broadcast_txs(
     info!("Starting into scan_l1_broadcast_txs");
     let mut storage_process = local_db.acquire().await?;
     let (instances, _) = storage_process
-        .instance_list(
-            None,
-            Some(BridgePath::BTCToPgBTC.to_u8()),
-            Some(BridgeInStatus::Presigned.to_string()),
-            None,
-            None,
-            None,
-        )
+        .instance_list(None, Some(BridgeInStatus::Presigned.to_string()), None, None, None)
         .await?;
 
     info!("Starting into scan_l1_broadcast_txs, need to check instance_size:{} ", instances.len());
-    let mut discarded_instances: Vec<Uuid> = vec![];
+    let discarded_instances: Vec<Uuid> = vec![];
     for instance in instances {
-        if instance.pegin_txid.is_none() {
+        if instance.pegin_confirm_txid.is_none() {
             warn!("instance:{}, pegin txid is none", instance.instance_id);
             continue;
         }
-        let tx_id = deserialize_hex(instance.pegin_txid.unwrap().as_str())?;
+        let tx_id = deserialize_hex(instance.pegin_confirm_txid.unwrap().as_str())?;
         if tx_on_chain(btc_client, &tx_id).await? {
             info!("scan_bridge_in: {} onchain ", tx_id.to_string());
             let update_res = storage_process
@@ -605,17 +598,18 @@ pub async fn scan_l1_broadcast_txs(
                 continue;
             }
         } else {
+            // TODO
             info!("scan_l1_broadcast_txs: {} not onchain ", tx_id.to_string());
-            if let Ok(is_discarded) = check_pegin_tx_input_status(
-                btc_client,
-                instance.instance_id,
-                instance.input_uxtos.clone(),
-            )
-            .await
-                && is_discarded
-            {
-                discarded_instances.push(instance.instance_id);
-            }
+            // if let Ok(is_discarded) = check_pegin_tx_input_status(
+            //     btc_client,
+            //     instance.instance_id,
+            //     instance.input_uxtos.clone(),
+            // )
+            // .await
+            //     && is_discarded
+            // {
+            //     discarded_instances.push(instance.instance_id);
+            // }
         }
     }
     if !discarded_instances.is_empty() {
@@ -684,29 +678,25 @@ pub async fn scan_post_pegin_data(
     info!("Starting into post_pegin_data");
     let mut storage_process = local_db.acquire().await?;
     let (instances, _) = storage_process
-        .instance_list(
-            None,
-            Some(BridgePath::BTCToPgBTC.to_u8()),
-            Some(BridgeInStatus::L1Broadcasted.to_string()),
-            None,
-            None,
-            None,
-        )
+        .instance_list(None, Some(BridgeInStatus::L1Broadcasted.to_string()), None, None, None)
         .await?;
 
     info!("Starting into scan post_pegin_data, need to send instance_size:{} ", instances.len());
     for instance in instances {
-        if instance.pegin_txid.is_none() {
-            warn!("scan post_pegin_data instance:{}, pegin txid is none", instance.instance_id);
+        if instance.pegin_confirm_txid.is_none() {
+            warn!(
+                "scan post_pegin_data instance:{}, pegin confirm txid is none",
+                instance.instance_id
+            );
             continue;
         }
-        if let Ok(_tx_hash) = TxHash::from_str(&instance.goat_txid) {
-            let receipt_op = goat_client.get_tx_receipt(&instance.goat_txid).await?;
+        if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_txid) {
+            let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_txid).await?;
             if receipt_op.is_none() {
                 info!(
                     "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
                 but get receipt status is false, will try later",
-                    instance.instance_id, instance.goat_txid
+                    instance.instance_id, instance.pegin_data_txid
                 );
                 continue;
             }
@@ -719,14 +709,18 @@ pub async fn scan_post_pegin_data(
                 )
                 .await?;
         } else {
-            let pegin_tx =
-                btc_client.fetch_btc_tx(&deserialize_hex(&instance.pegin_txid.unwrap())?).await?;
-            match goat_client.post_pegin_data(btc_client, &instance.instance_id, &pegin_tx).await {
+            let pegin_confirm_tx = btc_client
+                .fetch_btc_tx(&deserialize_hex(&instance.pegin_confirm_txid.unwrap())?)
+                .await?;
+            match goat_client
+                .post_pegin_data(btc_client, &instance.instance_id, &pegin_confirm_tx)
+                .await
+            {
                 Err(err) => {
                     warn!(
                         "scan post_pegin_data instance id {}, tx:{} post_pegin_data failed err:{:?}",
                         instance.instance_id,
-                        pegin_tx.compute_txid().to_string(),
+                        pegin_confirm_tx.compute_txid().to_string(),
                         err
                     );
                     continue;
@@ -769,7 +763,6 @@ pub async fn scan_post_operator_data(
     let (instances, _) = storage_process
         .instance_list(
             None,
-            Some(BridgePath::BTCToPgBTC.to_u8()),
             Some(BridgeInStatus::L2Minted.to_string()),
             Some(current_time - GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED),
             None,

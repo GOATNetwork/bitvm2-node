@@ -3,7 +3,7 @@ use crate::schema::NODE_STATUS_ONLINE;
 use crate::{
     COMMITTEE_PRE_SIGN_NUM, GoatTxRecord, Graph, GraphFullData, GraphTickActionMetaData, Instance,
     Message, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofInfo, ProofType,
-    ProofWithPis, PubKeyCollect, PubKeyCollectMetaData, WatchContract,
+    PubKeyCollect, PubKeyCollectMetaData, WatchContract,
 };
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
@@ -126,23 +126,31 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn create_instance(&mut self, instance: Instance) -> anyhow::Result<bool> {
+        let committees_sigs_json = serde_json::to_string(&instance.committees_sigs)?;
+        let committees_json = serde_json::to_string(&instance.committees)?;
         let res = sqlx::query!(
             "INSERT OR
-            REPLACE INTO instance (instance_id, network, bridge_path, from_addr, to_addr, amount, status, goat_txid, btc_txid,
-                       pegin_txid, input_uxtos, fee, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fee,  status, pegin_request_txid, pegin_request_height,
+                       pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_sigs,
+                       committees, pegin_data_txid, timeout,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.network,
-            instance.bridge_path,
             instance.from_addr,
             instance.to_addr,
             instance.amount,
-            instance.status,
-            instance.goat_txid,
-            instance.btc_txid,
-            instance.pegin_txid,
-            instance.input_uxtos,
             instance.fee,
+            instance.status,
+            instance.pegin_request_txid,
+            instance.pegin_request_height,
+            instance.pegin_prepare_txid,
+            instance.pegin_confirm_txid,
+            instance.pegin_cancel_txid,
+            instance.unsign_pegin_confirm_tx,
+            committees_sigs_json,
+            committees_json,
+            instance.pegin_data_txid,
+            instance.timeout,
             instance.created_at,
             instance.updated_at
         )
@@ -152,26 +160,30 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn get_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<Option<Instance>> {
-        let row = sqlx::query_as!(
-            Instance,
+        let row = sqlx::query_as::<_, Instance>(
             "SELECT instance_id AS \"instance_id:Uuid\",
                     network,
-                    bridge_path,
                     from_addr,
                     to_addr,
                     amount,
-                    status,
-                    goat_txid,
-                    btc_txid,
-                    pegin_txid,
-                    input_uxtos,
                     fee,
+                    status,
+                    pegin_request_txid,
+                    pegin_request_height,
+                    pegin_prepare_txid,
+                    pegin_confirm_txid,
+                    pegin_cancel_txid,
+                    unsign_pegin_confirm_tx,
+                    committees_sigs,
+                    committees,
+                    pegin_data_txid,
+                    timeout,
                     created_at,
                     updated_at
             FROM instance
-            WHERE instance_id = ?",
-            instance_id
+            WHERE instance_id = ?"
         )
+        .bind(instance_id)
         .fetch_optional(self.conn())
         .await?;
         Ok(row)
@@ -191,7 +203,6 @@ impl<'a> StorageProcessor<'a> {
     pub async fn instance_list(
         &mut self,
         from_addr: Option<String>,
-        bridge_path: Option<u8>,
         status: Option<String>,
         earliest_updated: Option<i64>,
         offset: Option<u32>,
@@ -199,18 +210,23 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<(Vec<Instance>, i64)> {
         let mut instance_query_str = "SELECT instance_id,
                     network,
-                    bridge_path,
                     from_addr,
                     to_addr,
                     amount,
+                    fee,
                     status,
-                    goat_txid,
-                    btc_txid,
-                    pegin_txid,
+                    pegin_request_txid,
+                    pegin_request_height,
+                    pegin_prepare_txid,
+                    pegin_confirm_txid,
+                    pegin_cancel_txid,
+                    unsign_pegin_confirm_tx,
+                    committees_sigs,
+                    committees,
+                    pegin_data_txid,
+                    timeout,
                     created_at,
-                    updated_at,
-                    input_uxtos,
-                    fee
+                    updated_at
              FROM instance"
             .to_string();
         let mut instance_count_str = "SELECT count(*) as total_instances FROM instance".to_string();
@@ -221,10 +237,6 @@ impl<'a> StorageProcessor<'a> {
         if let Some(status) = status {
             conditions.push(format!("status = \'{status}\'"));
         }
-        if let Some(bridge_path) = bridge_path {
-            conditions.push(format!("bridge_path = {bridge_path}"));
-        }
-
         if let Some(earliest_updated) = earliest_updated {
             conditions.push(format!("updated_at >= {earliest_updated}"));
         }
@@ -254,32 +266,44 @@ impl<'a> StorageProcessor<'a> {
 
     /// Update Instance
     pub async fn update_instance(&mut self, instance: Instance) -> anyhow::Result<u64> {
+        let committees_sigs_json = serde_json::to_string(&instance.committees_sigs)?;
+        let committees_json = serde_json::to_string(&instance.committees)?;
         let row = sqlx::query!(
             r#"UPDATE instance
-             SET bridge_path = ?,
-                 from_addr = ?,
-                 to_addr = ?,
-                 network = ?,
-                 amount = ?,
-                 status = ?,
-                 goat_txid = ?,
-                 btc_txid = ?,
-                 pegin_txid = ?,
-                 input_uxtos = ?,
-                 fee = ?,
-                 updated_at = ?
+             SET    network = ?, 
+                    from_addr = ?,
+                    to_addr = ?,
+                    amount = ?,
+                    fee = ?,
+                    status = ?,
+                    pegin_request_txid = ?,
+                    pegin_request_height = ?,
+                    pegin_prepare_txid = ?,
+                    pegin_confirm_txid = ?,
+                    pegin_cancel_txid = ?,
+                    unsign_pegin_confirm_tx = ?,
+                    committees_sigs = ?,
+                    committees = ?,
+                    pegin_data_txid = ?,
+                    timeout = ?,
+                    updated_at = ?
             WHERE instance_id = ?"#,
-            instance.bridge_path,
+            instance.network,
             instance.from_addr,
             instance.to_addr,
-            instance.network,
             instance.amount,
-            instance.status,
-            instance.goat_txid,
-            instance.btc_txid,
-            instance.pegin_txid,
-            instance.input_uxtos,
             instance.fee,
+            instance.status,
+            instance.pegin_request_txid,
+            instance.pegin_request_height,
+            instance.pegin_prepare_txid,
+            instance.pegin_confirm_txid,
+            instance.pegin_cancel_txid,
+            instance.unsign_pegin_confirm_tx,
+            committees_sigs_json,
+            committees_json,
+            instance.pegin_data_txid,
+            instance.timeout,
             instance.updated_at,
             instance.instance_id,
         )
@@ -350,28 +374,32 @@ impl<'a> StorageProcessor<'a> {
         instance_id: &Uuid,
         status: Option<String>,
         pegin_tx_info: Option<(String, i64)>,
-        goat_txid: Option<String>,
+        pegin_data_txid: Option<String>,
     ) -> anyhow::Result<()> {
-        let instance_option = sqlx::query_as!(
-            Instance,
+        let instance_option = sqlx::query_as::<_, Instance>(
             "SELECT instance_id AS \"instance_id:Uuid\",
                     network,
-                    bridge_path,
                     from_addr,
                     to_addr,
                     amount,
-                    status,
-                    goat_txid,
-                    btc_txid,
-                    pegin_txid,
-                    input_uxtos,
                     fee,
+                    status,
+                    pegin_request_txid,
+                    pegin_request_height,
+                    pegin_prepare_txid,
+                    pegin_confirm_txid,
+                    pegin_cancel_txid,
+                    unsign_pegin_confirm_tx,
+                    committees_sigs,
+                    committees,
+                    pegin_data_txid,
+                    timeout,
                     created_at,
                     updated_at
             FROM instance
-            WHERE instance_id = ?",
-            instance_id
+            WHERE instance_id = ?"
         )
+        .bind(instance_id)
         .fetch_optional(self.conn())
         .await?;
         if instance_option.is_none() {
@@ -381,26 +409,29 @@ impl<'a> StorageProcessor<'a> {
         let instance = instance_option.unwrap();
         let status = if let Some(status) = status { status } else { instance.status };
 
-        let (pegin_txid, fee) = if let Some((pegin_txid, fee)) = pegin_tx_info {
-            (Some(pegin_txid), fee)
+        let (pegin_confirm_txid, fee) = if let Some((pegin_confirm_txid, fee)) = pegin_tx_info {
+            (Some(pegin_confirm_txid), fee)
         } else {
-            (instance.pegin_txid, instance.fee)
+            (instance.pegin_confirm_txid, 0)
         };
-        let goat_txid =
-            if let Some(goat_txid) = goat_txid { goat_txid } else { instance.goat_txid };
+        let pegin_data_txid = if let Some(pegin_data_txid) = pegin_data_txid {
+            pegin_data_txid
+        } else {
+            instance.pegin_data_txid
+        };
         let current_time = get_current_timestamp_secs();
         let _ = sqlx::query!(
             "UPDATE instance
              SET status     = ?,
-                 pegin_txid = ?,
-                 goat_txid  = ?,
-                 fee        = ?,
+                 fee = ? ,
+                 pegin_confirm_txid = ?,
+                 pegin_data_txid  = ?,
                  updated_at = ?
              WHERE instance_id = ?",
             status,
-            pegin_txid,
-            goat_txid,
             fee,
+            pegin_confirm_txid,
+            pegin_data_txid,
             current_time,
             instance_id
         )
@@ -976,11 +1007,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn get_sum_bridge_in(
-        &mut self,
-        bridge_path: u8,
-        statuses: &[String],
-    ) -> anyhow::Result<(i64, i64)> {
+    pub async fn get_sum_bridge_in(&mut self, statuses: &[String]) -> anyhow::Result<(i64, i64)> {
         #[derive(sqlx::FromRow)]
         struct BridgeInRow {
             pub total: i64,
@@ -990,8 +1017,7 @@ impl<'a> StorageProcessor<'a> {
         let query_str = format!(
             "SELECT SUM(amount) AS total, COUNT(*) AS tx_count
              FROM instance
-             WHERE bridge_path = {bridge_path}
-               AND status IN ({})",
+             WHERE status IN ({})",
             create_place_holders(statuses)
         );
         let mut query = sqlx::query_as::<_, BridgeInRow>(&query_str);
@@ -1411,52 +1437,6 @@ impl<'a> StorageProcessor<'a> {
             current_time,
         ).execute(self.conn()).await?;
         Ok(())
-    }
-
-    pub async fn create_or_update_proof_with_pis(
-        &mut self,
-        proof_with_pis: ProofWithPis,
-    ) -> anyhow::Result<()> {
-        sqlx::query!(
-            "INSERT OR
-            REPLACE INTO proof_with_pis (instance_id, graph_id, proof, pis, proof_cast, goat_block_number, created_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)",
-            proof_with_pis.instance_id,
-            proof_with_pis.graph_id,
-            proof_with_pis.proof,
-            proof_with_pis.pis,
-            proof_with_pis.proof_cast,
-            proof_with_pis.goat_block_number,
-            proof_with_pis.created_at
-        )
-            .execute(self.conn())
-            .await?;
-        Ok(())
-    }
-
-    pub async fn get_proof_with_pis(
-        &mut self,
-        instance_id: &Uuid,
-        graph_id: &Uuid,
-    ) -> anyhow::Result<Option<ProofWithPis>> {
-        Ok(sqlx::query_as!(
-            ProofWithPis,
-            "SELECT
-                instance_id AS \"instance_id:Uuid\",
-                graph_id AS \"graph_id:Uuid\",
-                proof,
-                pis,
-                goat_block_number,
-                proof_cast,
-                created_at
-            FROM proof_with_pis
-            WHERE instance_id = ?
-              AND graph_id = ?",
-            instance_id,
-            graph_id
-        )
-        .fetch_optional(self.conn())
-        .await?)
     }
 
     pub async fn get_block_execution_start_time(
