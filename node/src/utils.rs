@@ -5,7 +5,7 @@ use crate::client::goat_chain::WithdrawStatus;
 use crate::client::goat_chain::utils::{
     get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
 };
-use crate::client::graph_query::GatewayEventEntity;
+use crate::client::graphs::graph_query::GatewayEventEntity;
 use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use crate::env;
 use crate::env::*;

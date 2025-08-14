@@ -88,13 +88,9 @@ async fn main() {
     let input_index = 0;
     let script = connector_6.generate_taproot_leaf_script(0);
     let taproot_spend_info = connector_6.generate_taproot_spend_info();
-    let input_value = btc_client
-        .get_tx(&kickoff.input[0].previous_output.txid)
-        .await
-        .unwrap()
-        .unwrap()
-        .output[0]
-        .value;
+    let input_value =
+        btc_client.get_tx(&kickoff.input[0].previous_output.txid).await.unwrap().unwrap().output[0]
+            .value;
     let prev_outs = vec![TxOut {
         value: input_value,
         script_pubkey: connector_6.generate_taproot_address().script_pubkey(),

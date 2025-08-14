@@ -1,9 +1,9 @@
+use crate::client::btc_chain::esplora::get_esplora_url;
 use anyhow::bail;
-use bitcoin::{Block, Network,Address as BtcAddress, Transaction, TxMerkleNode, Txid};
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
+use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
-use crate::client::btc_chain::esplora::get_esplora_url;
 
 pub mod esplora;
 pub struct BTCClient {
@@ -56,7 +56,11 @@ impl BTCClient {
     }
 
     /// Get output status
-    pub async fn get_output_status(&self, txid: &Txid, vout: u64) -> anyhow::Result<Option<esplora_client::OutputStatus>> {
+    pub async fn get_output_status(
+        &self,
+        txid: &Txid,
+        vout: u64,
+    ) -> anyhow::Result<Option<esplora_client::OutputStatus>> {
         Ok(self.esplora.get_output_status(txid, vout).await?)
     }
 
@@ -120,4 +124,3 @@ impl BTCClient {
         ))
     }
 }
-

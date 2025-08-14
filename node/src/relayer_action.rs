@@ -2,11 +2,11 @@
 
 use crate::action::{ChallengeSent, CreateInstance, DisproveSent, InstanceDiscarded};
 use crate::client::goat_chain::WithdrawStatus;
-use crate::client::graph_query::{
+use crate::client::graphs::graph_query::{
     BlockRange, CancelWithdrawEvent, GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent,
     UserGraphWithdrawEvent, WithdrawDisproved, WithdrawPathsEvent, get_gateway_events_query,
 };
-use crate::client::{btc_chain::BTCClient, GraphQueryClient, goat_chain::GOATClient};
+use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient, graphs::GraphQueryClient};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED,
     LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,

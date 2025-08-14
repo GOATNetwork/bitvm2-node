@@ -10,12 +10,12 @@ use std::str::FromStr;
 use store::Graph;
 use uuid::Uuid;
 pub mod utils;
+use crate::client::btc_chain::BTCClient;
 pub use chain_adaptor::{
     BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
 };
 pub use goat_adaptor::GoatInitConfig;
-use crate::client::btc_chain::BTCClient;
 
 pub struct GOATClient {
     chain_service: EvmChain,

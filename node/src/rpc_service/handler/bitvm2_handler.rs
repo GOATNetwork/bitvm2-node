@@ -248,7 +248,8 @@ pub async fn get_graph_txn(
             take2: serialize_hex(bitvm2_graph.take2.tx()),
         };
         if let Some(challenge_txid) = graph.challenge_txid
-            && let Ok(tx_hex) = app_state.btc_client.get_tx_hex_by_serialize_tx_id(&challenge_txid).await
+            && let Ok(tx_hex) =
+                app_state.btc_client.get_tx_hex_by_serialize_tx_id(&challenge_txid).await
         {
             resp.challenge = tx_hex;
         }
@@ -306,8 +307,6 @@ pub async fn update_instance(
         }
     }
 }
-
-
 
 async fn get_tx_confirmation_info(
     btc_client: &BTCClient,
@@ -671,5 +670,3 @@ fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {
         Some(AddressType::P2wpkh) | Some(AddressType::P2wsh) | Some(AddressType::P2tr)
     ))
 }
-
-
