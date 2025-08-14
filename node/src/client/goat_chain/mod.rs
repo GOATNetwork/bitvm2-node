@@ -1,4 +1,3 @@
-use crate::client::BTCClient;
 use crate::client::goat_chain::evmchain::EvmChain;
 use crate::env::GATEWAY_RATE_MULTIPLIER;
 use crate::utils::get_stake_amount;
@@ -16,6 +15,8 @@ pub use chain_adaptor::{
     get_chain_adaptor,
 };
 pub use goat_adaptor::GoatInitConfig;
+use crate::client::btc_chain::BTCClient;
+
 pub struct GOATClient {
     chain_service: EvmChain,
 }

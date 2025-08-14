@@ -6,7 +6,7 @@ use crate::client::graph_query::{
     BlockRange, CancelWithdrawEvent, GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent,
     UserGraphWithdrawEvent, WithdrawDisproved, WithdrawPathsEvent, get_gateway_events_query,
 };
-use crate::client::{BTCClient, GraphQueryClient, goat_chain::GOATClient};
+use crate::client::{btc_chain::BTCClient, GraphQueryClient, goat_chain::GOATClient};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED,
     LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS, MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_EXPIRE_TIME,
@@ -1125,7 +1125,7 @@ pub async fn scan_take1(
     )
     .await?;
     graph_datas.append(&mut graph_datas_challenge);
-    let current_height = btc_client.esplora.get_height().await?;
+    let current_height = btc_client.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
     info!("scan_take1 get graph datas size: {}", graph_datas.len());
     for graph_data in graph_datas {
@@ -1252,7 +1252,7 @@ pub async fn scan_take1(
             if is_need_to_send_msg(graph_data.msg_times, graph_data.last_msg_send_at) {
                 // check if kickoff's timelock for take1 is expired
                 if let Some(kickoff_height) =
-                    btc_client.esplora.get_tx_status(&kickoff_txid).await?.block_height
+                    btc_client.get_tx_status(&kickoff_txid).await?.block_height
                 {
                     info!(
                         "graph_id:{graph_id}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"
@@ -1303,7 +1303,7 @@ pub async fn scan_take2(
         MessageType::Take2Ready.to_string(),
     )
     .await?;
-    let current_height = btc_client.esplora.get_height().await?;
+    let current_height = btc_client.get_height().await?;
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
 
     info!("scan_take2 get graph datas size: {}", graph_datas.len());
@@ -1452,7 +1452,7 @@ pub async fn scan_take2(
             if is_need_to_send_msg(graph_data.msg_times, graph_data.last_msg_send_at) {
                 // check if assert_final's timelock for take2 is expired
                 if let Some(asset_final_height) =
-                    btc_client.esplora.get_tx_status(&assert_final_txid).await?.block_height
+                    btc_client.get_tx_status(&assert_final_txid).await?.block_height
                 {
                     info!(
                         "graph_id:{graph_id}, asset_final_height:{asset_final_height}, lock_blocks:{lock_blocks}, current_height:{current_height}"

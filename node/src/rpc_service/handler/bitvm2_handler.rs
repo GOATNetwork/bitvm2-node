@@ -1,17 +1,16 @@
+use crate::client::btc_chain::BTCClient;
 use crate::env::IpfsTxName;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::{node_p2wsh_address, reflect_goat_address};
-use anyhow::bail;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::{Address, AddressType};
 use bitcoin::{Network, PublicKey, Txid};
 use bitvm2_lib::types::Bitvm2Graph;
-use esplora_client::AsyncClient;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::collections::HashMap;
@@ -194,7 +193,7 @@ pub async fn get_graph_tx(
                 let mut ori_tx_hex = serialize_hex(bitvm2_graph.challenge.tx());
                 if let Some(challenge_txid) = graph.challenge_txid
                     && let Ok(tx_hex) =
-                        get_btc_tx_hex(&app_state.btc_client.esplora, &challenge_txid).await
+                        app_state.btc_client.get_tx_hex_by_serialize_tx_id(&challenge_txid).await
                 {
                     ori_tx_hex = tx_hex
                 }
@@ -249,7 +248,7 @@ pub async fn get_graph_txn(
             take2: serialize_hex(bitvm2_graph.take2.tx()),
         };
         if let Some(challenge_txid) = graph.challenge_txid
-            && let Ok(tx_hex) = get_btc_tx_hex(&app_state.btc_client.esplora, &challenge_txid).await
+            && let Ok(tx_hex) = app_state.btc_client.get_tx_hex_by_serialize_tx_id(&challenge_txid).await
         {
             resp.challenge = tx_hex;
         }
@@ -308,12 +307,10 @@ pub async fn update_instance(
     }
 }
 
-pub async fn get_btc_height(btc_client: &AsyncClient) -> anyhow::Result<u32> {
-    Ok(btc_client.get_height().await?)
-}
+
 
 async fn get_tx_confirmation_info(
-    btc_client: &AsyncClient,
+    btc_client: &BTCClient,
     btc_tx_id: Option<String>,
     current_height: u32,
     target_confirm_num: u32,
@@ -355,12 +352,12 @@ pub async fn get_instances(
                 InstanceListResponse::default(),
             );
         }
-        let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
+        let current_height = app_state.btc_client.get_height().await?;
         let mut items = vec![];
         for mut instance in instances {
             instance.reverse_btc_txid();
             let (confirmations, target_confirmations) = get_tx_confirmation_info(
-                &app_state.btc_client.esplora,
+                &app_state.btc_client,
                 instance.pegin_txid.clone(),
                 current_height,
                 6,
@@ -406,10 +403,10 @@ pub async fn get_instance(
         }
         let mut instance = instance_op.unwrap();
         instance.reverse_btc_txid();
-        let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
+        let current_height = app_state.btc_client.get_height().await?;
         let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
         let (confirmations, target_confirmations) = get_tx_confirmation_info(
-            &app_state.btc_client.esplora,
+            &app_state.btc_client,
             instance.pegin_txid.clone(),
             current_height,
             6,
@@ -543,7 +540,7 @@ pub async fn get_graphs(
         if graphs.is_empty() {
             return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone);
         }
-        let current_height = get_btc_height(&app_state.btc_client.esplora).await?;
+        let current_height = app_state.btc_client.get_height().await?;
         let mut graph_vec = vec![];
         let mut graph_ids = vec![];
         let bridge_in_status = vec![
@@ -556,7 +553,7 @@ pub async fn get_graphs(
             let (confirmations, target_confirmations) = match graph.get_check_tx_param() {
                 Ok((tx_id, confirm_num)) => {
                     get_tx_confirmation_info(
-                        &app_state.btc_client.esplora,
+                        &app_state.btc_client,
                         tx_id,
                         current_height,
                         confirm_num,
@@ -675,10 +672,4 @@ fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {
     ))
 }
 
-async fn get_btc_tx_hex(client: &AsyncClient, tx_id: &str) -> anyhow::Result<String> {
-    let tx_id: Txid = deserialize_hex(tx_id)?;
-    if let Some(tx) = client.get_tx(&tx_id).await? {
-        return Ok(bitcoin::consensus::encode::serialize_hex(&tx));
-    }
-    bail!("not found tx:{} on chain", tx_id.to_string());
-}
+

@@ -6,7 +6,7 @@ pub(crate) mod proof;
 pub mod routes;
 pub use bitvm2::UTXO;
 
-use crate::client::BTCClient;
+use crate::client::btc_chain::BTCClient;
 use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::proof_handler::{

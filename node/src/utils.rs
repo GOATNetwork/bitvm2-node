@@ -6,7 +6,7 @@ use crate::client::goat_chain::utils::{
     get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
 };
 use crate::client::graph_query::GatewayEventEntity;
-use crate::client::{BTCClient, goat_chain::GOATClient};
+use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use crate::env;
 use crate::env::*;
 use crate::middleware::AllBehaviours;
@@ -113,7 +113,7 @@ pub async fn should_generate_graph(
         return Ok(false);
     };
     let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let utxos = client.esplora.get_address_utxo(node_address.clone()).await?;
+    let utxos = client.get_address_utxo(node_address.clone()).await?;
     let utxo_spent_fee = Amount::from_sat(
         (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
     );
@@ -167,10 +167,10 @@ pub async fn is_take1_timelock_expired(
     kickoff_txid: Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
-    let tx_status = client.esplora.get_tx_status(&kickoff_txid).await?;
+    let tx_status = client.get_tx_status(&kickoff_txid).await?;
     match tx_status.block_height {
         Some(tx_height) => {
-            let current_height = client.esplora.get_height().await?;
+            let current_height = client.get_height().await?;
             Ok(current_height >= tx_height + lock_blocks)
         }
         _ => Ok(false),
@@ -186,10 +186,10 @@ pub async fn is_take2_timelock_expired(
     assert_final_txid: Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
-    let tx_status = client.esplora.get_tx_status(&assert_final_txid).await?;
+    let tx_status = client.get_tx_status(&assert_final_txid).await?;
     match tx_status.block_height {
         Some(tx_height) => {
-            let current_height = client.esplora.get_height().await?;
+            let current_height = client.get_height().await?;
             Ok(current_height >= tx_height + lock_blocks)
         }
         _ => Ok(false),
@@ -268,12 +268,12 @@ pub async fn get_partial_scripts(
 }
 
 pub async fn get_fee_rate(client: &BTCClient) -> Result<f64, Box<dyn std::error::Error>> {
-    match client.network {
+    match client.network() {
         //TODO mempool api /fee-estimates failed, fix it latter
         Network::Testnet | Network::Regtest => Ok(10.0),
         _ => {
-            let res = client.esplora.get_fee_estimates().await?;
-            Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(format!(
+            let res = client.get_fee_estimates().await?;
+            Ok(*res.get(&(DEFAULT_CONFIRMATION_TARGET as u16)).ok_or(format!(
                 "fee for {DEFAULT_CONFIRMATION_TARGET} confirmation target not found"
             ))?)
         }
@@ -289,7 +289,8 @@ pub async fn broadcast_tx(
     client: &BTCClient,
     tx: &Transaction,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(client.esplora.broadcast(tx).await?)
+    client.broadcast(tx).await?;
+    Ok(())
 }
 
 /// Signs and broadcasts pre-kickoff transaction.
@@ -305,7 +306,6 @@ pub async fn sign_and_broadcast_prekickoff_tx(
     for i in 0..prekickoff_tx.input.len() {
         let prev_outpoint = &prekickoff_tx.input[i].previous_output;
         let prev_tx = client
-            .esplora
             .get_tx(&prev_outpoint.txid)
             .await?
             .ok_or(format!("previous tx {} not found", prev_outpoint.txid))?;
@@ -335,7 +335,6 @@ pub async fn recycle_prekickoff_tx(
 ) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
     let network = get_network();
     let prekickoff_tx = client
-        .esplora
         .get_tx(&prekickoff_txid)
         .await?
         .ok_or(format!("pre-kickoff tx {prekickoff_txid} not on chain"))?;
@@ -481,7 +480,7 @@ pub async fn get_proper_utxo_set(
     }
     println!("get utxos from: {address}");
 
-    let utxos = client.esplora.get_address_utxo(address).await?;
+    let utxos = client.get_address_utxo(address).await?;
     let mut sorted_utxos = utxos;
     sorted_utxos.sort_by(|a, b| b.value.cmp(&a.value));
 
@@ -561,7 +560,7 @@ pub async fn should_challenge(
     kickoff_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // check if kickoff is confirmed on L1
-    if btc_client.esplora.get_tx(kickoff_txid).await?.is_none() {
+    if btc_client.get_tx(kickoff_txid).await?.is_none() {
         return Ok(false);
     }
 
@@ -574,7 +573,7 @@ pub async fn should_challenge(
     };
 
     let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let utxos = btc_client.esplora.get_address_utxo(node_address.clone()).await?;
+    let utxos = btc_client.get_address_utxo(node_address.clone()).await?;
     let utxo_spent_fee = Amount::from_sat(
         (get_fee_rate(btc_client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
     );
@@ -600,7 +599,7 @@ pub async fn tx_on_chain(
     client: &BTCClient,
     txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    match client.esplora.get_tx(txid).await? {
+    match client.get_tx(txid).await? {
         Some(_) => Ok(true),
         _ => Ok(false),
     }
@@ -611,7 +610,7 @@ pub async fn outpoint_available(
     txid: &Txid,
     vout: u64,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    match client.esplora.get_output_status(txid, vout).await? {
+    match client.get_output_status(txid, vout).await? {
         Some(status) => Ok(!status.spent),
         _ => Ok(false),
     }
@@ -622,7 +621,7 @@ pub async fn outpoint_spent_txid(
     txid: &Txid,
     vout: u64,
 ) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
-    match client.esplora.get_output_status(txid, vout).await? {
+    match client.get_output_status(txid, vout).await? {
         Some(status) => Ok(status.txid),
         _ => Ok(None),
     }
@@ -634,7 +633,7 @@ pub async fn validate_challenge(
     kickoff_txid: &Txid,
     challenge_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let challenge_tx = match btc_client.esplora.get_tx(challenge_txid).await? {
+    let challenge_tx = match btc_client.get_tx(challenge_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
     };
@@ -648,7 +647,7 @@ pub async fn validate_disprove(
     assert_final_txid: &Txid,
     disprove_txid: &Txid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let disprove_tx = match btc_client.esplora.get_tx(disprove_txid).await? {
+    let disprove_tx = match btc_client.get_tx(disprove_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
     };
@@ -674,7 +673,7 @@ pub async fn validate_assert(
 ) -> Result<Option<(usize, Script)>, Box<dyn std::error::Error>> {
     let mut txs = Vec::with_capacity(COMMIT_TX_NUM);
     for txid in assert_commit_txns.iter() {
-        let tx = match btc_client.esplora.get_tx(txid).await? {
+        let tx = match btc_client.get_tx(txid).await? {
             Some(v) => v,
             _ => return Ok(None), // nothing to disprove if assert-commit-txns not on chain
         };
@@ -1225,7 +1224,7 @@ pub async fn wait_tx_confirmation(
             return Ok(false);
         };
         // FIXME: should not use esplora directly
-        match btc_client.esplora.get_tx_status(txid).await {
+        match btc_client.get_tx_status(txid).await {
             Ok(status) => {
                 if let Some(_height) = status.block_height {
                     // println!("Transaction confirmed in block {}", height);
@@ -1260,7 +1259,7 @@ pub async fn wait_tx_appear(
             return Ok(false);
         };
         // FIXME: should not use esplora directly
-        match btc_client.esplora.get_tx(txid).await {
+        match btc_client.get_tx(txid).await {
             Ok(tx) => {
                 if tx.is_some() {
                     return Ok(true);

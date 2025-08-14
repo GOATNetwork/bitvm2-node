@@ -8,7 +8,7 @@ use bitvm::execute_raw_script_with_inputs;
 use bitvm2_lib::keys::OperatorMasterKey;
 use bitvm2_lib::operator::{corrupt_proof, sign_proof};
 use bitvm2_lib::types::{Groth16Proof, VerifyingKey};
-use bitvm2_noded::client::BTCClient;
+use bitvm2_noded::client::btc_chain::BTCClient;
 use bitvm2_noded::{
     env::{ENV_ACTOR, ENV_BITVM_SECRET, IpfsTxName},
     utils::{broadcast_tx, tx_on_chain},
@@ -91,7 +91,7 @@ pub async fn wait_tx_confirmation(
             return Ok(false);
         };
         // FIXME: should not use esplora directly
-        match btc_client.esplora.get_tx_status(txid).await {
+        match btc_client.get_tx_status(txid).await {
             Ok(status) => {
                 if let Some(_height) = status.block_height {
                     // println!("Transaction confirmed in block {}", height);

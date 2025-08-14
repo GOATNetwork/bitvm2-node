@@ -1,5 +1,5 @@
 use crate::action::{GOATMessage, GOATMessageContent, recv_and_dispatch, send_to_peer};
-use crate::client::{BTCClient, goat_chain::GOATClient};
+use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use crate::env::get_local_node_info;
 use crate::middleware::swarm::{BitvmSwarmWrapper, P2pMessageHandler, TickMessageType};
 use crate::utils::detect_heart_beat;

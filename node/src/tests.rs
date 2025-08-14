@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 pub mod tests {
-    use crate::client::BTCClient;
+    use crate::client::btc_chain::BTCClient;
     use crate::env::{
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
@@ -71,7 +71,7 @@ pub mod tests {
         btc_client: &BTCClient,
         challenge_tx: Transaction,
     ) {
-        let network = btc_client.network;
+        let network = btc_client.network();
         let (funder_privkey, _) = get_regtest_address(network);
 
         let secp = secp256k1::Secp256k1::new();
