@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT count(*)                                         AS total,\n                    actor,\n                    SUM(CASE WHEN updated_at >= ? THEN 1 ELSE 0 END) AS online,\n                    SUM(CASE WHEN updated_at < ? THEN 1 ELSE 0 END)  AS offline\n             FROM node\n             GROUP BY actor",
+  "query": "SELECT count(*) AS total,\n                    actor,\n                    SUM(CASE WHEN updated_at >= ? THEN 1 ELSE 0 END) AS online,\n                    SUM(CASE WHEN updated_at < ? THEN 1 ELSE 0 END) AS offline\n             FROM node\n             GROUP BY actor",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "0cacadee9a37b5d992e7cb818e3b700acc21d7336808916b4941eb1685687a57"
+  "hash": "eadebe2165d10478ab46f5e271204df52235713edaf0a8c5f308d28efd140f43"
 }

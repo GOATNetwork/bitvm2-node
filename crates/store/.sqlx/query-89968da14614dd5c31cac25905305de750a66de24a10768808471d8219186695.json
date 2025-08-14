@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  network FROM  instance where instance_id = ?",
+  "query": "SELECT network FROM instance WHERE instance_id = ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "586bbe662d8830dc6c125f24a34163972245d453027266d158ed9d68f7e10d26"
+  "hash": "89968da14614dd5c31cac25905305de750a66de24a10768808471d8219186695"
 }

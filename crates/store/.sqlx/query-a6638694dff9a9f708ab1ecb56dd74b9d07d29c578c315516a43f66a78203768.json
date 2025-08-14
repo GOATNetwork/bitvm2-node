@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE node SET reward = reward + ? WHERE goat_addr = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "a6638694dff9a9f708ab1ecb56dd74b9d07d29c578c315516a43f66a78203768"
+}

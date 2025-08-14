@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR\n             REPLACE INTO graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid,\n                    amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid,\n                    assert_commit_txids,\n                    assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,\n                    bridge_out_from_addr,\n                    bridge_out_to_addr, init_withdraw_txid, zkm_version, created_at, updated_at)\n            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 24
+    },
+    "nullable": []
+  },
+  "hash": "c8499da40c0150517541437c1846355fed6af3f2853aa1563220c6cbea9ee3f0"
+}

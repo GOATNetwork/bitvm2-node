@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COUNT(peer_id)  AS alive FROM node WHERE updated_at  >= ? ",
+  "query": "SELECT COUNT(peer_id) AS alive FROM node WHERE updated_at >= ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "67610a75395e6fac74cb6327ca37c05a25295e00a84fc9a44931664b773813d0"
+  "hash": "23d9febaeaf6acb396a14bdbc88a445a0c1a1e223f5928854480d3e8362c9693"
 }
