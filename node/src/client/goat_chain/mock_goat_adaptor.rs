@@ -85,6 +85,14 @@ impl ChainAdaptor for MockAdaptor {
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
         Ok(1)
     }
+    async fn get_latest_block_number(&self) -> anyhow::Result<i64> {
+        Ok(1)
+    }
+
+    async fn get_tx_receipt(&self, _tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
+        info!("call is_tx_execute_success");
+        Ok(None)
+    }
 
     async fn pegin_tx_used(&self, _tx_id: &[u8; 32]) -> anyhow::Result<bool> {
         Ok(true)
@@ -130,6 +138,10 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
+    async fn get_response_window_blocks(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
     async fn answer_pegin_request(
         &self,
         _instance_id: &[u8; 16],
@@ -162,6 +174,7 @@ impl ChainAdaptor for MockAdaptor {
                 pegin_txid: tx.compute_txid().to_byte_array(),
                 created_at: 0,
                 committee_addresses: vec![],
+                committee_pubkeys: vec![],
             },
         );
 
@@ -334,11 +347,6 @@ impl ChainAdaptor for MockAdaptor {
     ) -> anyhow::Result<bool> {
         info!("call verify_merkle_proof");
         Ok(true)
-    }
-
-    async fn get_tx_receipt(&self, _tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
-        info!("call is_tx_execute_success");
-        Ok(None)
     }
 
     async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {

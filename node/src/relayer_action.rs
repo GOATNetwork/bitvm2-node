@@ -794,7 +794,7 @@ pub async fn scan_post_operator_data(
             }
             // TODO update
             match goat_client
-                .post_operate_data(&instance.instance_id, &graph.graph_id, &graph, &vec![])
+                .post_operate_data(&instance.instance_id, &graph.graph_id, &graph, &[])
                 .await
             {
                 Ok(tx_hash) => {

@@ -273,7 +273,7 @@ pub async fn get_fee_rate(client: &BTCClient) -> Result<f64, Box<dyn std::error:
         Network::Testnet | Network::Regtest => Ok(10.0),
         _ => {
             let res = client.get_fee_estimates().await?;
-            Ok(*res.get(&(DEFAULT_CONFIRMATION_TARGET as u16)).ok_or(format!(
+            Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(format!(
                 "fee for {DEFAULT_CONFIRMATION_TARGET} confirmation target not found"
             ))?)
         }

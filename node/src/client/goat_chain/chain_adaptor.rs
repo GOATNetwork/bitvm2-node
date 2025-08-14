@@ -10,12 +10,15 @@ use uuid::Uuid;
 #[async_trait]
 pub trait ChainAdaptor: Send + Sync {
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64>;
+    async fn get_latest_block_number(&self) -> anyhow::Result<i64>;
+    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
     async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool>;
     async fn get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData>;
     async fn is_operator_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<bool>;
     async fn get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData>;
     async fn get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData>;
 
+    async fn get_response_window_blocks(&self) -> anyhow::Result<u64>;
     async fn answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
@@ -90,8 +93,6 @@ pub trait ChainAdaptor: Send + Sync {
         index: u64,
     ) -> anyhow::Result<bool>;
 
-    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
-
     async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)>;
     async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)>;
 }
@@ -103,7 +104,7 @@ pub enum GoatNetwork {
     Local,
 }
 
-#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display)]
 pub enum PeginStatus {
     None,
     Pending,
@@ -159,6 +160,7 @@ pub struct PeginData {
     pub pegin_txid: [u8; 32],
     pub created_at: u64,
     pub committee_addresses: Vec<Address>,
+    pub committee_pubkeys: Vec<[u8; 32]>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -24,9 +24,16 @@ impl EvmChain {
     pub async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
         self.adaptor.get_finalized_block_number().await
     }
+    pub async fn get_latest_block_number(&self) -> anyhow::Result<i64> {
+        self.adaptor.get_latest_block_number().await
+    }
 
     pub async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool> {
         self.adaptor.pegin_tx_used(tx_id).await
+    }
+
+    pub async fn get_response_window_blocks(&self) -> anyhow::Result<u64> {
+        self.adaptor.get_response_window_blocks().await
     }
 
     pub async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {

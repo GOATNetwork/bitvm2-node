@@ -11,6 +11,7 @@ use store::Graph;
 use uuid::Uuid;
 pub mod utils;
 use crate::client::btc_chain::BTCClient;
+use crate::client::goat_chain::chain_adaptor::PeginStatus;
 pub use chain_adaptor::{
     BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
@@ -83,11 +84,44 @@ impl GOATClient {
         self.chain_service.get_finalized_block_number().await
     }
 
+    pub async fn get_latest_block_number(&self) -> anyhow::Result<i64> {
+        self.chain_service.get_latest_block_number().await
+    }
+
+    pub async fn get_response_window_blocks(&self) -> anyhow::Result<u64> {
+        self.chain_service.get_response_window_blocks().await
+    }
+
     pub async fn answer_pegin_request(
         &self,
         instance_id: &Uuid,
         pub_key: &[u8; 32],
     ) -> anyhow::Result<String> {
+        // TODO add only committee check
+        let pegin_data = self.get_pegin_data(instance_id).await?;
+        if pegin_data.status != PeginStatus::Pending {
+            tracing::warn!(
+                "instance_id:{instance_id} pegin_data.status is {}, not PeginStatus::Pending",
+                pegin_data.status,
+            );
+            bail!(
+                "instance_id:{instance_id} pegin_data.status is {}, not PeginStatus::Pending",
+                pegin_data.status,
+            );
+        }
+        let next_block = self.get_latest_block_number().await? + 1;
+        let window_blocks = self.get_response_window_blocks().await?;
+        if pegin_data.created_at + window_blocks < next_block as u64 {
+            tracing::warn!(
+                "instance_id:{instance_id} response window expired. created_at:{}, window_blocks: {window_blocks}, next_block: {next_block}",
+                pegin_data.created_at,
+            );
+            bail!(
+                "instance_id:{instance_id} response window expired. created_at:{}, window_blocks: {window_blocks}, next_block: {next_block}",
+                pegin_data.created_at,
+            );
+        }
+
         self.chain_service.answer_pegin_request(instance_id, pub_key).await
     }
 
