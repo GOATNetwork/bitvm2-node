@@ -53,7 +53,7 @@ async fn main() -> eyre::Result<()> {
     let config = args.as_config().await?;
     info!("args: {:?}", args);
 
-    let elf = include_elf!("covenant-guest").to_vec();
+    let elf = include_elf!("covenant-guest-v2").to_vec();
     let block_execution_strategy_factory =
         create_eth_block_execution_strategy_factory(&config.genesis, None);
 

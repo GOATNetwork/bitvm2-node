@@ -18,6 +18,7 @@ target
 logs
 
 covenant/guest/target/
+covenant/guest-v2/target/
 covenant/guest-aggregation/target
 covenant/target/
 report.csv
