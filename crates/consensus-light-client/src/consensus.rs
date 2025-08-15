@@ -1,23 +1,34 @@
-use k256::ecdsa::signature::Verifier;
-use k256::ecdsa::Signature;
-use k256::sha2::{Digest, Sha256};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as b64;
-use k256::elliptic_curve::sec1::FromEncodedPoint;
+use k256::ecdsa::Signature;
+use k256::ecdsa::signature::Verifier;
 use k256::elliptic_curve::generic_array::GenericArray;
 use k256::elliptic_curve::generic_array::typenum::U64;
+use k256::elliptic_curve::sec1::FromEncodedPoint;
+use k256::sha2::{Digest, Sha256};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
 struct Commit {
     height: String,
     round: i64,
     block_id: BlockId,
     signatures: Vec<CommitSig>,
 }
+#[derive(Debug, Serialize, Deserialize)]
 struct BlockId {
     hash: String, // often base64 encoded
-    // parts omitted
+    parts: Parts,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Parts {
+    total: i64,
+    hash: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct CommitSig {
     block_id_flag: i32,
     validator_address: Option<String>, // consensus address hex
@@ -41,105 +52,49 @@ struct PubKey {
 
 /// Try to verify the base64 signature with the pubkey (PubKey.value is base64)
 /// Supports:
-/// - ed25519 (tendermint type names: "tendermint/PubKeyEd25519" or "ed25519")
 /// - secp256k1 (type names: "tendermint/PubKeySecp256k1" or "secp256k1")
 ///
 /// message is raw bytes (in our simplified example: block_id.hash bytes).
 fn verify_signature(pubkey: &PubKey, signature_b64: &str, message: &[u8]) -> Option<bool> {
-    if signature_b64.is_empty() {
-        return Some(false);
-    }
-    let sig_bytes = match b64.decode(signature_b64.as_bytes()) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("bad sig base64: {}", e);
-            return None;
-        }
-    };
-
-    let pk_bytes = match b64.decode(pubkey.value.as_bytes()) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("bad pubkey base64: {}", e);
-            return None;
-        }
-    };
-
-    let t = pubkey.r#type.to_lowercase();
-    assert!(t.contains("secp256k1"));
-    // secp256k1: Tendermint historically encodes compressed pubkey 33 bytes (but sometimes raw 33/65)
-    // signature might be 64-bytes compact (r||s) or DER.
-    // We'll try compact first, then DER.
-    // Use k256 ECDSA verify with SHA256 digest over message (common practice),
-    // but note: Tendermint ECDSA signature scheme details may vary across chains.
-
+    let sig_bytes = b64.decode(signature_b64).ok()?;
+    let pk_bytes = b64.decode(&pubkey.value).ok()?;
+    let ep = k256::EncodedPoint::from_bytes(&pk_bytes).ok()?;
+    let pk = k256::PublicKey::from_encoded_point(&ep).unwrap();
+    let vk = k256::ecdsa::VerifyingKey::from(pk);
     let digest = Sha256::digest(message);
-    // try parse pubkey as SEC1 (compressed or uncompressed)
-    let vk = match k256::EncodedPoint::from_bytes(&pk_bytes) {
-        Ok(ep) => {
-            let pk = k256::PublicKey::from_encoded_point(&ep).unwrap();
-            k256::ecdsa::VerifyingKey::from(pk)
-        },
-        Err(_) => {
-            eprintln!("secp256k1 pubkey parse error");
-            return None;
+
+    let verified = if sig_bytes.len() == 64 {
+        let sig_arr: &GenericArray<u8, U64> = GenericArray::from_slice(&sig_bytes);
+        match Signature::from_bytes(sig_arr) {
+            Ok(sig) => vk.verify(digest.as_slice(), &sig).is_ok(),
+            Err(_) => panic!("invalid signature length = 64"),
+        }
+    } else {
+        match Signature::from_der(&sig_bytes) {
+            Ok(sig) => vk.verify(digest.as_slice(), &sig).is_ok(),
+            Err(_) => panic!("invalid signature length != 64"),
         }
     };
-
-    // try compact (64) -> K256::Signature::from_bytes expects DER or fixed?
-    if sig_bytes.len() == 64 {
-        // k256::ecdsa::Signature::from_bytes expects ASN.1 DER OR compact? K256 provides from_bytes expecting DER
-        // But k256::ecdsa::Signature::from_slice accepts 64-bytes r||s via Signature::from_bytes (new)
-
-        let sig_arr: &GenericArray<u8, U64> = GenericArray::from_slice(&sig_bytes);
-        match Signature::from_bytes(&sig_arr) {
-            Ok(k256_sig) => match vk.verify(digest.as_slice(), &k256_sig) {
-                Ok(_) => return Some(true),
-                Err(_) => return Some(false),
-            },
-            Err(e) => {
-                eprintln!("k256 signature parse err: {}", e);
-                // fallthrough to try DER below
-            }
-        }
-    }
-    // try DER
-    match Signature::from_der(&sig_bytes) {
-        Ok(der_sig) => match vk.verify(digest.as_slice(), &der_sig) {
-            Ok(_) => Some(true),
-            Err(_) => Some(false),
-        },
-        Err(e) => {
-            eprintln!("k256 sig der parse err: {}", e);
-            None
-        }
-    }
+    Some(verified)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
     fn test_basic_cometbft_sig() {
-        // curl "http://127.0.0.1:26657/validators?height=100"
-        let validators: Vec<ValidatorInfo> = serde_json::from_str(r#"
-    [
-      {
-        "address": "57E4AA9111E3899547D51D8F1510878F4A1FE2D6",
-        "pub_key": {
-          "type": "tendermint/PubKeySecp256k1",
-          "value": "A3iE47FwKrLG6qAU0Z3wig+ikNbu+hRTTDxSoXpfBAQO"
-        },
-        "voting_power": "250000",
-        "proposer_priority": "-500000"
-      },
+        // curl "http://127.0.0.1:26657/validators?height=5756784"
+        let validators: Vec<ValidatorInfo> = serde_json::from_str(
+            r#"[
       {
         "address": "762E41E7DD3E0708B6A39F1DEC870CD89932ECDC",
         "pub_key": {
           "type": "tendermint/PubKeySecp256k1",
           "value": "ApAw3FDpmYkCasdiEx/J77A8SsOrZc2CAasCWk87bIKw"
         },
-        "voting_power": "250000",
-        "proposer_priority": "250000"
+        "voting_power": "8286030",
+        "proposer_priority": "2071468"
       },
       {
         "address": "A075E25AD183E70ABD35639D8A9DF57889A9D733",
@@ -147,12 +102,120 @@ mod tests {
           "type": "tendermint/PubKeySecp256k1",
           "value": "A9jvL81us8nBr9uq3Th0F/lFBHE5QQtevvLGnS+az927"
         },
-        "voting_power": "250000",
-        "proposer_priority": "250000"
+        "voting_power": "8142753",
+        "proposer_priority": "-3211466"
+      },
+      {
+        "address": "3A80B97491EF7CEDB4CBA67D0F8DE18D23200B79",
+        "pub_key": {
+          "type": "tendermint/PubKeySecp256k1",
+          "value": "A1de8RhxYmFBQhzpjk3I9jKqDZhfXAZ8pY4tQYJMLKvJ"
+        },
+        "voting_power": "7998934",
+        "proposer_priority": "-11369921"
+      },
+      {
+        "address": "DE864C2A398543EF059026C3BF401F505E98D747",
+        "pub_key": {
+          "type": "tendermint/PubKeySecp256k1",
+          "value": "Akz/2W6tdsYEanZw+uQEipuCscRt68m0IFpRnrIdc8km"
+        },
+        "voting_power": "1949866",
+        "proposer_priority": "10427059"
+      },
+      {
+        "address": "57E4AA9111E3899547D51D8F1510878F4A1FE2D6",
+        "pub_key": {
+          "type": "tendermint/PubKeySecp256k1",
+          "value": "A3iE47FwKrLG6qAU0Z3wig+ikNbu+hRTTDxSoXpfBAQO"
+        },
+        "voting_power": "327600",
+        "proposer_priority": "2082863"
       }
-    ]"#).unwrap();
+    ]"#,
+        )
+        .unwrap();
 
         println!("{:?}", validators);
 
+        // curl "http://127.0.0.1:26657/commit?height=5756784"
+        let commit: Commit = serde_json::from_str(
+            r#"{
+        "height": "5756784",
+        "round": 0,
+        "block_id": {
+          "hash": "886575C444D229B77160B3513EA860A0D49D3B2891BA86AA995A77C45A113EC8",
+          "parts": {
+            "total": 1,
+            "hash": "5BC90CEBDAB9356F4B9E7262BF27BAAB04229A50D1DE1300D58EEC9219C3CCFA"
+          }
+        },
+        "signatures": [
+          {
+            "block_id_flag": 2,
+            "validator_address": "762E41E7DD3E0708B6A39F1DEC870CD89932ECDC",
+            "timestamp": "2025-08-15T11:50:11.224608171Z",
+            "signature": "BwCZwWV8T7hXwYch4aabIZr9D4ea1IYCS5dUg6Yi6N8NTB1hivnsbqlyD5zIARYBX3LaSBqK0KxMFlr2MTz7jQ=="
+          },
+          {
+            "block_id_flag": 2,
+            "validator_address": "A075E25AD183E70ABD35639D8A9DF57889A9D733",
+            "timestamp": "2025-08-15T11:50:11.325396406Z",
+            "signature": "Rbgfztf+vuEaRmGE2/uQy6IVgBXx64Vf0fn9+U9KJDB5pun6oanuxGaVhCiRnvlc+0LzfGK5BX7CIDoVqgBcvw=="
+          },
+          {
+            "block_id_flag": 2,
+            "validator_address": "3A80B97491EF7CEDB4CBA67D0F8DE18D23200B79",
+            "timestamp": "2025-08-15T11:50:11.224650549Z",
+            "signature": "usI+3XqwcH3GAjaZQxK9/xC/q6T+WiNaZDqkvbUWKx4rLRl1ByQ0YdX5Iju/vd9/EbVoQXEPArYagTnYCQFA7A=="
+          },
+          {
+            "block_id_flag": 2,
+            "validator_address": "DE864C2A398543EF059026C3BF401F505E98D747",
+            "timestamp": "2025-08-15T11:50:11.263064889Z",
+            "signature": "tpK6uwJR6izDFtYDfUNbFU+t5F6kAyOHIxz0plSoRONXUqQYjbEZGvox/aThUMIyJxM/+YoPaodSlitmxg9UQg=="
+          },
+          {
+            "block_id_flag": 2,
+            "validator_address": "57E4AA9111E3899547D51D8F1510878F4A1FE2D6",
+            "timestamp": "2025-08-15T11:50:11.225315076Z",
+            "signature": "rm3mQL5uz45OkJ71gr7xKnlsOXS0dEQfD9WvKQq1YoIBAQwZw/B60VjyKuj3m4CIdweNIziU9b76gs4B4XIN4A=="
+          }
+        ]
+      }"#
+        ).unwrap();
+
+        // 3. build map: address -> validator info
+        let mut val_map: std::collections::HashMap<String, ValidatorInfo> = std::collections::HashMap::new();
+        for v in validators {
+            val_map.insert(v.address.clone(), v);
+        }
+
+        // 4. iterate signatures and verify
+        for sig in commit.signatures {
+            let addr = sig.validator_address.clone().unwrap_or_default();
+            if addr.is_empty() {
+                println!("absent signature (validator didn't sign) or nil_vote");
+                continue;
+            }
+
+            match val_map.get(&addr) {
+                Some(v) => {
+                    // message we verify against - simplified: block_id.hash
+                    let message = hex::decode(commit.block_id.hash.trim_start_matches("0x")).unwrap();
+                    let ok = verify_signature(&v.pub_key, &sig.signature, &message);
+                    println!(
+                        "validator {} (pubkey type: {}) -> signature present: {} -> verified: {}",
+                        addr,
+                        v.pub_key.r#type,
+                        !sig.signature.is_empty(),
+                        ok.unwrap_or(false)
+                    );
+                }
+                None => {
+                    println!("signature from unknown validator address: {}", addr);
+                }
+            }
+        }
     }
 }
