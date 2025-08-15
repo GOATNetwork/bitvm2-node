@@ -1,6 +1,6 @@
 mod bitvm2;
 
-mod handler;
+pub mod handler;
 mod node;
 pub(crate) mod proof;
 pub mod routes;
@@ -12,7 +12,6 @@ use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::handler::proof_handler::{
     get_groth16_proof, get_proof, get_proofs, get_proofs_overview,
 };
-use crate::rpc_service::handler::{bitvm2_handler::*, node_handler::*};
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
@@ -37,6 +36,10 @@ use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
+
+// Re-export all handler functions for documentation
+pub use crate::rpc_service::handler::bitvm2_handler::*;
+pub use crate::rpc_service::handler::node_handler::*;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -67,8 +70,24 @@ impl AppState {
     }
 }
 
-/// Serve the Multiaddr we are listening on and the host files.
-// basic handler that responds with a static string
+/// Root path handler
+///
+/// Returns a simple welcome message for health checks and basic connection testing.
+///
+/// # Returns
+///
+/// - `200 OK`: Returns welcome message
+///
+/// # Example
+///
+/// ```http
+/// GET /
+/// ```
+///
+/// Response example:
+/// ```
+/// "Hello, World!"
+/// ```
 async fn root() -> &'static str {
     "Hello, World!"
 }

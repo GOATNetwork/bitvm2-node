@@ -16,6 +16,59 @@ use store::localdb::LocalDB;
 use store::{GoatTxType, ProofInfo, ProofType};
 use uuid::Uuid;
 
+/// Get proof information for a specific block
+///
+/// Get proof information for a specific block based on block number, including block proof, aggregation proof, and Groth16 proof.
+/// If the current node is a Relayer role, it will forward the request to an Operator node.
+///
+/// # Parameters
+///
+/// - `block_number`: Block number
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns proof information
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/proofs/100
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "block_proofs": [
+///     {
+///       "block_number": 100,
+///       "block_proof": {
+///         "proof": "base64_encoded_proof",
+///         "public_values": "base64_encoded_public_values",
+///         "verifier_id": "verifier_1",
+///         "zkm_version": "v1.0.0",
+///         "proving_time": 5000,
+///         "proof_size": 1024
+///       },
+///       "aggregation_proof": {
+///         "proof": "base64_encoded_aggregation_proof",
+///         "public_values": "base64_encoded_public_values",
+///         "verifier_id": "verifier_1",
+///         "zkm_version": "v1.0.0",
+///         "proving_time": 3000,
+///         "proof_size": 512
+///       },
+///       "groth16_proof": {
+///         "proof": "base64_encoded_groth16_proof",
+///         "public_values": "base64_encoded_public_values",
+///         "verifier_id": "verifier_1",
+///         "zkm_version": "v1.0.0",
+///         "groth16_vk": "base64_encoded_verifier_key"
+///       }
+///     }
+///   ]
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_proof(
     uri: Uri,
@@ -67,6 +120,52 @@ pub async fn get_proof(
     }
 }
 
+/// Get proof list
+///
+/// Get proof list based on query parameters, supports querying by block number or graph ID, and can specify block range.
+/// If the current node is a Relayer role, it will forward the request to an Operator node.
+///
+/// # Query Parameters
+///
+/// - `block_number`: Block number (mutually exclusive with graph_id)
+/// - `graph_id`: Graph ID (mutually exclusive with block_number)
+/// - `block_range`: Block range for getting consecutive block proofs (default: 1)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns proof list
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/proofs?block_number=100&block_range=5
+/// ```
+///
+/// Or query by graph ID:
+/// ```http
+/// GET /v1/proofs?graph_id=123e4567-e89b-12d3-a456-426614174000&block_range=3
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "block_proofs": [
+///     {
+///       "block_number": 96,
+///       "block_proof": {...},
+///       "aggregation_proof": {...},
+///       "groth16_proof": {...}
+///     },
+///     {
+///       "block_number": 97,
+///       "block_proof": {...},
+///       "aggregation_proof": {...},
+///       "groth16_proof": {...}
+///     }
+///   ]
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_proofs(
     uri: Uri,
@@ -153,6 +252,41 @@ pub async fn get_proofs(
         }
     }
 }
+
+/// Get proof overview statistics
+///
+/// Returns overall statistics for the proof system, including average times and counts for various types of proofs.
+/// If the current node is a Relayer role, it will forward the request to an Operator node.
+///
+/// # Query Parameters
+///
+/// - `block_proof_count`: Number of block proofs for calculating average time (default: 10)
+/// - `agg_proof_count`: Number of aggregation proofs for calculating average time (default: 10)
+/// - `groth16_proof_count`: Number of Groth16 proofs for calculating average time (default: 10)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns proof overview information
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/proofs/overview?block_proof_count=20&agg_proof_count=15&groth16_proof_count=10
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "total_blocks": 1000,
+///   "avg_block_proof": 2500.5,
+///   "avg_aggregation_proof": 1500.2,
+///   "avg_groth16_proof": 8000.0,
+///   "block_proof_count": 950,
+///   "aggregation_proof_count": 900,
+///   "groth16_proof_count": 50
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_proofs_overview(
     uri: Uri,
@@ -217,7 +351,36 @@ fn convert_to_proof_items(input: Vec<ProofInfo>) -> HashMap<i64, ProofItem> {
     input.into_iter().map(|proof_info| (proof_info.block_number, proof_info.into())).collect()
 }
 
-// get_detail_proof
+/// Get detailed Groth16 proof information for a specific block
+///
+/// Get detailed Groth16 proof information for a specific block based on block number, including proof data, public values, verifier ID, etc.
+/// If the current node is a Relayer role, it will forward the request to an Operator node.
+///
+/// # Parameters
+///
+/// - `block_number`: Block number
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns Groth16 proof information
+/// - `500 Internal Server Error`: Server internal error or proof not found
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/proofs/groth16/100
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "proof": "base64_encoded_groth16_proof",
+///   "public_values": "base64_encoded_public_values",
+///   "verifier_id": "verifier_1",
+///   "zkm_version": "v1.0.0",
+///   "groth16_vk": "base64_encoded_verifier_key"
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_groth16_proof(
     uri: Uri,

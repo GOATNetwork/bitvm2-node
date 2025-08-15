@@ -181,7 +181,7 @@ impl<'a> StorageProcessor<'a> {
                     created_at,
                     updated_at
             FROM instance
-            WHERE instance_id = ?"
+            WHERE instance_id = ?",
         )
         .bind(instance_id)
         .fetch_optional(self.conn())
@@ -397,7 +397,7 @@ impl<'a> StorageProcessor<'a> {
                     created_at,
                     updated_at
             FROM instance
-            WHERE instance_id = ?"
+            WHERE instance_id = ?",
         )
         .bind(instance_id)
         .fetch_optional(self.conn())

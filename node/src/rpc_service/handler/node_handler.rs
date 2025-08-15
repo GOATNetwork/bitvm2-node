@@ -12,6 +12,49 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 
+/// Create or update node information
+///
+/// Create a new node record or update existing node information. Node information includes peer_id, role, addresses, etc.
+/// The function uses INSERT OR REPLACE, so it can also update existing nodes.
+///
+/// # Request Body
+///
+/// Contains complete node information including peer_id, role, addresses, etc.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully created or updated node
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// POST /v1/nodes
+/// Content-Type: application/json
+///
+/// {
+///   "peer_id": "QmPeerId...",
+///   "actor": "Operator",
+///   "btc_pub_key": "02...",
+///   "goat_addr": "0x...",
+///   "socket_addr": "127.0.0.1:8080",
+///   "reward": 0
+/// }
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "peer_id": "QmPeerId...",
+///   "actor": "Operator",
+///   "btc_pub_key": "02...",
+///   "goat_addr": "0x...",
+///   "socket_addr": "127.0.0.1:8080",
+///   "reward": 0,
+///   "updated_at": 1640995200,
+///   "created_at": 1640995200
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn create_node(
     State(app_state): State<Arc<AppState>>,
@@ -43,6 +86,47 @@ pub async fn create_node(
     }
 }
 
+/// Get node list
+///
+/// Get node list based on query parameters, supports filtering by role, address, status and pagination.
+///
+/// # Query Parameters
+///
+/// - `actor`: Node role filter (optional, supports: Operator, Challenger, Relayer, All)
+/// - `goat_addr`: GOAT address filter (optional)
+/// - `status`: Node status filter (optional, supports: Online, Offline)
+/// - `offset`: Pagination offset (default: 0)
+/// - `limit`: Items per page (default: 10)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns node list
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/nodes?actor=Operator&status=Online&offset=0&limit=10
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "nodes": [
+///     {
+///       "peer_id": "QmPeerId...",
+///       "actor": "Operator",
+///       "status": "Online",
+///       "goat_addr": "0x...",
+///       "btc_pub_key": "02...",
+///       "socket_addr": "127.0.0.1:8080",
+///       "reward": 0,
+///       "updated_at": 1640995200
+///     }
+///   ],
+///   "total": 1
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
@@ -106,6 +190,36 @@ pub async fn get_nodes(
     }
 }
 
+/// Get node overview statistics
+///
+/// Returns overall statistics for nodes in the network, including node counts by role and online status.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns node overview information
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/nodes/overview
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "nodes_overview": {
+///     "total_nodes": 8,
+///     "online_nodes": 5,
+///     "operator_count": 2,
+///     "challenger_count": 3,
+///     "relayer_count": 3,
+///     "online_operator_count": 1,
+///     "online_challenger_count": 2,
+///     "online_relayer_count": 2
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_nodes_overview(
     State(app_state): State<Arc<AppState>>,
@@ -128,6 +242,38 @@ pub async fn get_nodes_overview(
     }
 }
 
+/// Get detailed information for a specific node
+///
+/// Get detailed information for a single node based on peer_id.
+///
+/// # Parameters
+///
+/// - `peer_id`: Node's peer_id
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns node details
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/nodes/QmPeerId...
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "peer_id": "QmPeerId...",
+///   "actor": "Operator",
+///   "btc_pub_key": "02...",
+///   "goat_addr": "0x...",
+///   "socket_addr": "127.0.0.1:8080",
+///   "reward": 0,
+///   "updated_at": 1640995200,
+///   "created_at": 1640995200
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_node(
     Path(peer_id): Path<String>,

@@ -1,8 +1,8 @@
 use crate::client::btc_chain::BTCClient;
 use crate::env::IpfsTxName;
+use crate::rpc_service::AppState;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
-use crate::rpc_service::AppState;
 use crate::utils::node_p2wsh_address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -16,11 +16,30 @@ use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::FilterGraphParams;
-use store::{
-    BridgeInStatus, GoatTxType, GraphFullData, GraphStatus, modify_graph_status,
-};
+use store::{BridgeInStatus, GoatTxType, GraphFullData, GraphStatus, modify_graph_status};
 use uuid::Uuid;
 
+/// Get instance settings
+///
+/// Returns bridge-in amount configuration information for frontend display of available bridge amount options.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns instance settings
+/// - Response body contains available bridge-in amount list
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances/settings
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "bridge_in_amount": [0.1, 0.05, 0.02, 0.01]
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn instance_settings(
     State(_app_state): State<Arc<AppState>>,
@@ -30,6 +49,43 @@ pub async fn instance_settings(
         Json(InstanceSettingResponse { bridge_in_amount: vec![0.1, 0.05, 0.02, 0.01] }),
     )
 }
+
+/// Check graph presign status
+///
+/// Check the presign status of graphs based on instance ID, returns instance status and all related graph status information.
+///
+/// # Parameters
+///
+/// - `instance_id`: Instance ID (UUID format)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns presign check result
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/presign_check?instance_id=123e4567-e89b-12d3-a456-426614174000
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///   "instance_status": "Submitted",
+///   "graph_status": {
+///     "graph-id-1": "OperatorPresigned",
+///     "graph-id-2": "Created"
+///   },
+///   "tx": {
+///     "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "status": "Submitted",
+///     "amount": 1000,
+///     ...
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn graph_presign_check(
     Query(params): Query<GraphPresignCheckParams>,
@@ -74,6 +130,41 @@ pub async fn graph_presign_check(
         }
     }
 }
+
+/// Get specific transaction hex data for a graph
+///
+/// Get corresponding Bitcoin transaction hex data based on graph ID and transaction name.
+///
+/// # Parameters
+///
+/// - `graph_id`: Graph ID (UUID format)
+/// - `tx_name`: Transaction name, supported values include:
+///   - `pegin`: Bridge-in transaction
+///   - `kickoff`: Kickoff transaction
+///   - `assert-commit0` to `assert-commit3`: Assert commit transactions
+///   - `assert-init`: Assert init transaction
+///   - `assert-final`: Assert final transaction
+///   - `challenge`: Challenge transaction
+///   - `take1`, `take2`: Withdrawal transactions
+///   - `disprove`: Disprove transaction
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns transaction hex data
+/// - `500 Internal Server Error`: Server internal error or graph not found
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/tx?tx_name=pegin
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "tx_hex": "0200000001..."
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_graph_tx(
     Query(params): Query<GraphTxGetParams>,
@@ -142,6 +233,42 @@ pub async fn get_graph_tx(
     }
 }
 
+/// Get all transaction hex data for a graph
+///
+/// Get hex data for all transactions in a graph based on graph ID, including all assert, challenge, withdrawal, etc. transactions.
+///
+/// # Parameters
+///
+/// - `graph_id`: Graph ID (UUID format)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns all transaction data
+/// - `500 Internal Server Error`: Server internal error or graph not found
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/txn
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "assert_commit0": "0200000001...",
+///   "assert_commit1": "0200000001...",
+///   "assert_commit2": "0200000001...",
+///   "assert_commit3": "0200000001...",
+///   "assert_init": "0200000001...",
+///   "assert_final": "0200000001...",
+///   "challenge": "0200000001...",
+///   "disprove": "0200000001...",
+///   "kickoff": "0200000001...",
+///   "pegin": "0200000001...",
+///   "take1": "0200000001...",
+///   "take2": "0200000001..."
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_graph_txn(
     Path(graph_id): Path<String>,
@@ -190,6 +317,55 @@ pub async fn get_graph_txn(
     }
 }
 
+/// Create new bridge instance
+///
+/// Create a new bridge instance for managing asset transfers from Bitcoin to GOAT network.
+/// The function uses INSERT OR REPLACE, so it can also update existing instances.
+///
+/// # Request Body
+///
+/// Contains complete instance information wrapped in an InstanceUpdateRequest.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully created/updated instance
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// POST /v1/instances
+/// Content-Type: application/json
+///
+/// {
+///   "instance": {
+///     "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "network": "testnet",
+///     "from_addr": "tb1q...",
+///     "to_addr": "0x...",
+///     "amount": 20000,
+///     "fee": 1000,
+///     "status": "Committed",
+///     "pegin_request_txid": "0x...",
+///     "pegin_request_height": 123456,
+///     "pegin_prepare_txid": null,
+///     "pegin_confirm_txid": null,
+///     "pegin_cancel_txid": null,
+///     "unsign_pegin_confirm_tx": null,
+///     "committees_sigs": [],
+///     "committees": [],
+///     "pegin_data_txid": "",
+///     "timeout": 3600,
+///     "created_at": 1640995200,
+///     "updated_at": 1640995200
+///   }
+/// }
+/// ```
+///
+/// Response example:
+/// ```json
+/// {}
+/// ```
 #[axum::debug_handler]
 pub async fn create_instance(
     State(app_state): State<Arc<AppState>>,
@@ -209,6 +385,59 @@ pub async fn create_instance(
     }
 }
 
+/// Update existing bridge instance
+///
+/// Update information for a specified instance, including status, transaction IDs, and other fields.
+///
+/// # Parameters
+///
+/// - `instance_id`: Instance ID (UUID format)
+///
+/// # Request Body
+///
+/// Contains complete instance information wrapped in an InstanceUpdateRequest.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully updated instance
+/// - `400 Bad Request`: Instance ID in path doesn't match the one in request body
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// PUT /v1/instances/123e4567-e89b-12d3-a456-426614174000
+/// Content-Type: application/json
+///
+/// {
+///   "instance": {
+///     "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "network": "testnet",
+///     "from_addr": "tb1q...",
+///     "to_addr": "0x...",
+///     "amount": 20000,
+///     "fee": 1000,
+///     "status": "Presigned",
+///     "pegin_request_txid": "0x...",
+///     "pegin_request_height": 123456,
+///     "pegin_prepare_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
+///     "pegin_confirm_txid": null,
+///     "pegin_cancel_txid": null,
+///     "unsign_pegin_confirm_tx": null,
+///     "committees_sigs": [],
+///     "committees": [],
+///     "pegin_data_txid": "",
+///     "timeout": 3600,
+///     "created_at": 1640995200,
+///     "updated_at": 1640995200
+///   }
+/// }
+/// ```
+///
+/// Response example:
+/// ```json
+/// {}
+/// ```
 #[axum::debug_handler]
 pub async fn update_instance(
     Path(instance_id): Path<String>,
@@ -253,6 +482,44 @@ async fn get_tx_confirmation_info(
     Ok((blocks_pass, target_confirm_num))
 }
 
+/// Get bridge instance list
+///
+/// Get bridge instance list based on query parameters, supports filtering by address and pagination.
+///
+/// # Query Parameters
+///
+/// - `from_addr`: Source address filter (optional)
+/// - `offset`: Pagination offset (default: 0)
+/// - `limit`: Items per page (default: 10)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns instance list
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances?from_addr=tb1q...&offset=0&limit=10
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "instance_wraps": [
+///     {
+///       "instance": {
+///         "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///         "status": "Presigned",
+///         "amount": 20000,
+///         ...
+///       },
+///       "confirmations": 3,
+///       "target_confirmations": 6
+///     }
+///   ],
+///   "total": 1
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_instances(
     Query(params): Query<InstanceListRequest>,
@@ -304,6 +571,39 @@ pub async fn get_instances(
     }
 }
 
+/// Get detailed information for a specific bridge instance
+///
+/// Get detailed information for a single bridge instance based on instance ID, including confirmation status.
+///
+/// # Parameters
+///
+/// - `instance_id`: Instance ID (UUID format)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns instance details
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances/123e4567-e89b-12d3-a456-426614174000
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "instance_wrap": {
+///     "instance": {
+///       "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///       "status": "Presigned",
+///       "amount": 20000,
+///       ...
+///     },
+///     "confirmations": 3,
+///     "target_confirmations": 6
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_instance(
     Path(instance_id): Path<String>,
@@ -349,6 +649,34 @@ pub async fn get_instance(
     }
 }
 
+/// Get bridge instance overview statistics
+///
+/// Returns overall statistics for the bridge system, including total amounts, transaction counts, online nodes, etc.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns overview information
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances/overview
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "instances_overview": {
+///     "total_bridge_in_amount": 100000,
+///     "total_bridge_in_txn": 50,
+///     "total_bridge_out_amount": 80000,
+///     "total_bridge_out_txn": 30,
+///     "online_nodes": 5,
+///     "total_nodes": 8
+///   }
+/// }
+/// ```
 pub async fn get_instances_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> (StatusCode, Json<InstanceOverviewResponse>) {
@@ -382,12 +710,42 @@ pub async fn get_instances_overview(
     match async_fn().await {
         Ok(resp) => (StatusCode::OK, Json(resp)),
         Err(err) => {
-            tracing::warn!("graph_list  err:{:?}", err);
+            tracing::warn!("get_instances_overview  err:{:?}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceOverviewResponse::default()))
         }
     }
 }
 
+/// Get detailed information for a specific graph
+///
+/// Get detailed information for a single graph based on graph ID, excluding raw data.
+///
+/// # Parameters
+///
+/// - `graph_id`: Graph ID (UUID format)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns graph details
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "graph": {
+///     "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "instance_id": "456e7890-e89b-12d3-a456-426614174000",
+///     "status": "OperatorPresigned",
+///     "amount": 1000,
+///     ...
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_graph(
     Path(graph_id): Path<String>,
@@ -418,6 +776,65 @@ pub async fn get_graph(
     }
 }
 
+/// Update information for a specific graph
+///
+/// Update information for a specified graph, including status, transaction IDs, and other fields.
+/// The function uses INSERT OR REPLACE, so it can also create new graphs.
+///
+/// # Parameters
+///
+/// - `graph_id`: Graph ID (UUID format)
+///
+/// # Request Body
+///
+/// Contains complete graph information wrapped in a GraphUpdateRequest.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully updated/created graph
+/// - `400 Bad Request`: Graph ID in path doesn't match the one in request body
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// PUT /v1/graphs/123e4567-e89b-12d3-a456-426614174000
+/// Content-Type: application/json
+///
+/// {
+///   "graph": {
+///     "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "instance_id": "456e7890-e89b-12d3-a456-426614174000",
+///     "graph_ipfs_base_url": "ipfs://...",
+///     "pegin_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
+///     "amount": 1000,
+///     "status": "OperatorPresigned",
+///     "pre_kickoff_txid": null,
+///     "kickoff_txid": null,
+///     "challenge_txid": null,
+///     "take1_txid": null,
+///     "assert_init_txid": null,
+///     "assert_commit_txids": null,
+///     "assert_final_txid": null,
+///     "take2_txid": null,
+///     "disprove_txid": null,
+///     "operator": "0x...",
+///     "raw_data": null,
+///     "bridge_out_start_at": 0,
+///     "bridge_out_from_addr": "",
+///     "bridge_out_to_addr": "",
+///     "init_withdraw_txid": null,
+///     "zkm_version": "v1.0.0",
+///     "created_at": 1640995200,
+///     "updated_at": 1640995200
+///   }
+/// }
+/// ```
+///
+/// Response example:
+/// ```json
+/// {}
+/// ```
 #[axum::debug_handler]
 pub async fn update_graph(
     Path(graph_id): Path<String>,
@@ -442,6 +859,47 @@ pub async fn update_graph(
         }
     }
 }
+
+/// Get graph list
+///
+/// Get graph list based on query parameters, supports various filtering conditions and pagination.
+///
+/// # Query Parameters
+///
+/// - `from_addr`: Source address filter (optional)
+/// - `status`: Status filter (optional)
+/// - `offset`: Pagination offset (default: 0)
+/// - `limit`: Items per page (default: 10)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns graph list
+/// - `500 Internal Server Error`: Server internal error
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs?status=OperatorPresigned&offset=0&limit=10
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "graphs": [
+///     {
+///       "graph": {
+///         "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///         "status": "OperatorPresigned",
+///         "amount": 1000,
+///         ...
+///       },
+///       "confirmations": 3,
+///       "target_confirmations": 6
+///     }
+///   ],
+///   "total": 1
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_graphs(
     Query(params): Query<GraphQueryParams>,

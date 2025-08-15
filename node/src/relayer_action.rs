@@ -408,8 +408,8 @@ pub async fn fetch_history_events(
             }
             tx.create_or_update_watch_contract(&watch_contract).await?;
             tx.commit().await?;
-
-        }       Ok::<(), Box<dyn std::error::Error>>(())
+        }
+        Ok::<(), Box<dyn std::error::Error>>(())
     };
     let err = match async_fn().await {
         Ok(_) => false,
