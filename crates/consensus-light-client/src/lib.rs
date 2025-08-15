@@ -1,2 +1,2 @@
-mod consensus;
-pub use consensus::*;
+mod cometbft;
+pub use cometbft::*;

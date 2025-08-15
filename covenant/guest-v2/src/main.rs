@@ -11,6 +11,8 @@ use std::sync::Arc;
 use alloy_primitives::{Address, address};
 use revm::DatabaseRef;
 
+use consensus_light_client::verify_validator_set_hash;
+
 //use bitcoin::Address as addddddd;
 //use header_chain::{HeaderChainCircuitInput, BlockHeaderCircuitOutput, ChainState, HeaderChainPrevProofType};
 

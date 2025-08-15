@@ -11,6 +11,7 @@ bincode = "1.3.3"
 # workspace
 guest-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
 #header-chain = { path = "../../crates/header-chain" }
+consensus-light-client = { path = "../../crates/consensus-light-client" }
 #bitcoin = { git = "https://github.com/eigmax/rust-bitcoin", branch = "patch-0.32.7", default-features = false, features = ["serde", "rand", "secp-recovery"] }
 
 # Ziren
