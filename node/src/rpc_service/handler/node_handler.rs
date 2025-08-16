@@ -74,7 +74,7 @@ pub async fn create_node(
                 as i64,
         };
         let mut storage_process = app_state.local_db.acquire().await?;
-        let _ = storage_process.update_node(node.clone()).await?;
+        let _ = storage_process.upsert_node(node.clone()).await?;
         Ok::<Node, Box<dyn std::error::Error>>(node)
     };
     match async_fn().await {

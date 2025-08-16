@@ -477,7 +477,7 @@ mod tests {
         let mut storage_processor =
             local_db.acquire().await.expect("Failed to get online operator url");
         storage_processor
-            .update_node(Node {
+            .upsert_node(Node {
                 peer_id: "peerId".to_string(),
                 actor: Actor::Operator.to_string(),
                 socket_addr: remote_proof_server.to_string(),

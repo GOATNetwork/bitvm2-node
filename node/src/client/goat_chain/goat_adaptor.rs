@@ -504,7 +504,7 @@ impl ChainAdaptor for GoatAdaptor {
             ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
         let graph_ids: Vec<Uuid> =
             ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
+        Ok(instance_ids.into_iter().zip(graph_ids).collect())
     }
 
     async fn get_instanceids_by_pubkey(
@@ -520,7 +520,7 @@ impl ChainAdaptor for GoatAdaptor {
             ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
         let graph_ids: Vec<Uuid> =
             ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
+        Ok(instance_ids.into_iter().zip(graph_ids).collect())
     }
 
     async fn init_withdraw(

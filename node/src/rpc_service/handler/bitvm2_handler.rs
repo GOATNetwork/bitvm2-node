@@ -16,7 +16,7 @@ use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::FilterGraphParams;
-use store::{BridgeInStatus, GoatTxType, GraphFullData, GraphStatus, modify_graph_status};
+use store::{GoatTxType, GraphFullData, GraphStatus, InstanceStatus, modify_graph_status};
 use uuid::Uuid;
 
 /// Get instance settings
@@ -93,7 +93,7 @@ pub async fn graph_presign_check(
 ) -> (StatusCode, Json<GraphPresignCheckResponse>) {
     let resp = GraphPresignCheckResponse {
         instance_id: params.instance_id.to_string(),
-        instance_status: BridgeInStatus::Submitted.to_string(),
+        instance_status: InstanceStatus::UserInited.to_string(),
         graph_status: HashMap::new(),
         tx: None,
     };
@@ -101,7 +101,7 @@ pub async fn graph_presign_check(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
         let mut storage_process = app_state.local_db.acquire().await?;
-        let instance_op = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.find_instance(&instance_id).await?;
         if instance_op.is_none() {
             tracing::info!("instance_id {} has no record in database", instance_id);
             return Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone);
@@ -373,7 +373,7 @@ pub async fn create_instance(
 ) -> (StatusCode, Json<InstanceUpdateResponse>) {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.create_instance(payload.instance).await?;
+        storage_process.upsert_instance(payload.instance).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {
@@ -451,7 +451,7 @@ pub async fn update_instance(
 
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.update_instance(payload.instance).await?;
+        storage_process.upsert_instance(payload.instance).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {
@@ -528,7 +528,7 @@ pub async fn get_instances(
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let (instances, total) = storage_process
-            .instance_list(params.from_addr, None, None, params.offset, params.limit)
+            .find_instances(params.from_addr, None, None, params.offset, params.limit)
             .await?;
 
         if instances.is_empty() {
@@ -612,7 +612,7 @@ pub async fn get_instance(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&instance_id)?;
         let mut storage_process = app_state.local_db.acquire().await?;
-        let instance_op = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.find_instance(&instance_id).await?;
         if instance_op.is_none() {
             tracing::info!("instance_id {} has no record in database", instance_id);
             return Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
@@ -684,8 +684,8 @@ pub async fn get_instances_overview(
         let mut storage_process = app_state.local_db.acquire().await?;
         let (pegin_sum, pegin_count) = storage_process
             .get_sum_bridge_in(&[
-                BridgeInStatus::L1Broadcasted.to_string(),
-                BridgeInStatus::L2Minted.to_string(),
+                InstanceStatus::L1Broadcasted.to_string(),
+                InstanceStatus::L2Minted.to_string(),
             ])
             .await?;
         let (pegout_sum, pegout_count) = storage_process
@@ -848,7 +848,7 @@ pub async fn update_graph(
 
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        let _ = storage_process.update_graph(payload.graph).await?;
+        let _ = storage_process.upsert_graph(payload.graph).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {

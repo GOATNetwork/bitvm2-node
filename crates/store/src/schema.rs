@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::collections::HashMap;
 use std::str::FromStr;
 use strum::{Display, EnumString};
 use uuid::Uuid;
@@ -35,15 +36,24 @@ pub struct NodesOverview {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
-pub enum BridgeInStatus {
+pub enum InstanceStatus {
     #[default]
-    Submitted,
-    Presigned,
-    PresignedFailed, // includes operator and Committee presigns
-    L1Broadcasted,
-    L2Minted, // success
-    L2MintedFailed,
-    Discarded, // Pegin tx utxo has been spent
+    UserInited, // from contract event request
+    // committee won't answer if userRequest is invalid(e.g. insufficient fee)
+    CommitteesAnswered,        // enough committee responsed & window expired
+    UserBroadcastPeginPrepare, // user pegin prepare
+    Presigned,                 // all committee signed PeginConfirm
+    PresignedFailed,           // includes operator and Committee presigns
+    RelayerL1Broadcasted,      // PeginConfirm broadcast by relayer
+    RelayerL2Minted,           // success
+    RelayerL2MintedFailed,
+    Timeout,      // time to cancle bridgein
+    UserCanceled, // user broadcast Pegin-cancel tx
+
+    L1Broadcasted,  // TODO remvo
+    L2Minted,       // TODO remove
+    L2MintedFailed, // TODO remove
+    Discarded,      // Pegin tx utxo has been spent
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -62,9 +72,7 @@ pub struct Instance {
     pub pegin_cancel_txid: Option<String>,
     pub unsign_pegin_confirm_tx: Option<String>,
     #[sqlx(json)]
-    pub committees_sigs: Vec<String>,
-    #[sqlx(json)]
-    pub committees: Vec<String>,
+    pub committees_answers: HashMap<String, String>,
     pub pegin_data_txid: String,
     pub timeout: i64,
     pub created_at: i64,
@@ -595,9 +603,8 @@ mod tests {
 
     #[test]
     fn test_bridge_in_status_from_str() {
-        assert_eq!(BridgeInStatus::from_str("Submitted").unwrap(), BridgeInStatus::Submitted);
-        assert_eq!(BridgeInStatus::from_str("L2Minted").unwrap(), BridgeInStatus::L2Minted);
-        assert!(BridgeInStatus::from_str("Invalid").is_err());
+        assert_eq!(InstanceStatus::from_str("L2Minted").unwrap(), InstanceStatus::L2Minted);
+        assert!(InstanceStatus::from_str("Invalid").is_err());
     }
 
     #[test]
