@@ -59,10 +59,11 @@ zkm-prover = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-sdk = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"] }
 
-# zkm-build = { path = "../Ziren/crates/build" }
-# zkm-core-executor = { path = "../Ziren/crates/core/executor" }
-# zkm-prover = { path = "../Ziren/crates/prover" }
-# zkm-sdk = { path = "../Ziren/crates/sdk" }
+#zkm-build = { path = "../../Ziren/crates/build" }
+#zkm-core-executor = { path = "../../Ziren/crates/core/executor" }
+#zkm-prover = { path = "../../Ziren/crates/prover" }
+#zkm-sdk = { path = "../../Ziren/crates/sdk" }
+#zkm-verifier = { path = "../../Ziren/crates/verifier" }
 
 # reth
 reth-primitives-traits = { git = "https://github.com/ziren-patches/reth", branch = "patch-1.3.10", default-features = false }

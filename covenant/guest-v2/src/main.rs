@@ -10,11 +10,8 @@ use guest_executor::io::EthClientExecutorInput;
 use std::sync::Arc;
 use alloy_primitives::{Address, address};
 use revm::DatabaseRef;
-
 use consensus_light_client::verify_validator_set_hash;
-
-//use bitcoin::Address as addddddd;
-//use header_chain::{HeaderChainCircuitInput, BlockHeaderCircuitOutput, ChainState, HeaderChainPrevProofType};
+use header_chain::{HeaderChainCircuitInput, BlockHeaderCircuitOutput, ChainState, HeaderChainPrevProofType};
 
 pub fn verify_block(input: EthClientExecutorInput) -> (B256, B256, B256) {
     // Execute the block.
@@ -41,27 +38,27 @@ pub fn verify_withdraw_tx(l2_contract_address: Address, base_slot: U256, key: U2
     wtns_db.storage_ref(l2_contract_address, slot_id.into()).unwrap()
 }
 
-// /// The main entry point of the header chain circuit.
-// pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircuitOutput {
-//     // println!("Detected network: {:?}", NETWORK_TYPE);
-//     // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
-//     let mut chain_state = match input.prev_proof {
-//         HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
-//         HeaderChainPrevProofType::PrevProof(prev_proof) => {
-//             assert_eq!(prev_proof.method_id, input.method_id);
-//             // FIXME
-//             // guest.verify(input.method_id, &prev_proof);
-//             prev_proof.chain_state
-//         }
-//     };
-// 
-//     chain_state.apply_blocks(input.block_headers);
-// 
-//     BlockHeaderCircuitOutput {
-//         method_id: input.method_id,
-//         chain_state,
-//     }
-// }
+/// The main entry point of the header chain circuit.
+pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircuitOutput {
+    // println!("Detected network: {:?}", NETWORK_TYPE);
+    // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
+    let mut chain_state = match input.prev_proof {
+        HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
+        HeaderChainPrevProofType::PrevProof(prev_proof) => {
+            assert_eq!(prev_proof.method_id, input.method_id);
+            // FIXME
+            // guest.verify(input.method_id, &prev_proof);
+            prev_proof.chain_state
+        }
+    };
+
+    chain_state.apply_blocks(input.block_headers);
+
+    BlockHeaderCircuitOutput {
+        method_id: input.method_id,
+        chain_state,
+    }
+}
 
 pub fn main() {
     // let btc_header_chain_input = zkm_zkvm::io::read_vec();

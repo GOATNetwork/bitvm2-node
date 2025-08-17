@@ -13,3 +13,4 @@ revm-primitives = { git = "https://github.com/ziren-patches/revm", branch = "pat
 ], default-features = false }
 sha2 = { git = "https://github.com/ziren-patches/RustCrypto-hashes", branch = "patch-sha2-0.10.8", package = "sha2" }
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
+#zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint" }
