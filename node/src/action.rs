@@ -1,8 +1,8 @@
 use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use crate::env::{self, get_local_node_info, get_node_goat_address, get_node_pubkey};
 use crate::middleware::AllBehaviours;
-use crate::relayer_action::do_tick_action;
 use crate::rpc_service::current_time_secs;
+use crate::scheduled_tasks::{committee_scheduled_tasks, relayer_scheduled_tasks};
 use crate::utils::{statics::*, *};
 use crate::{defer, dismiss_defer};
 use bitcoin::PublicKey;
@@ -20,7 +20,7 @@ use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
 use serde::{Deserialize, Serialize};
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
-use store::{GoatTxProveStatus, GoatTxType, GraphStatus, MessageType};
+use store::{GoatTxProcessingStatus, GoatTxType, GraphStatus, MessageType};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -233,7 +233,10 @@ pub async fn recv_and_dispatch(
     if id == GOATMessage::default_message_id() {
         tracing::debug!("Get the running task, and broadcast the task status or result");
         if actor == Actor::Relayer {
-            do_tick_action(swarm, local_db, btc_client, goat_client).await?;
+            relayer_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
+        }
+        if actor == Actor::Committee {
+            committee_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
         }
         if let Some(message) = pop_local_unhandle_msg(local_db, actor.clone()).await? {
             local_message = message.clone();
@@ -1230,7 +1233,7 @@ pub async fn recv_and_dispatch(
                     receive_data.instance_id,
                     &tx_hash,
                     GoatTxType::WithdrawHappyPath,
-                    GoatTxProveStatus::NoNeed.to_string(),
+                    GoatTxProcessingStatus::Skipped.to_string(),
                 )
                 .await?;
                 update_graph_fields(
@@ -1267,7 +1270,7 @@ pub async fn recv_and_dispatch(
                     receive_data.instance_id,
                     &tx_hash,
                     GoatTxType::WithdrawUnhappyPath,
-                    GoatTxProveStatus::NoNeed.to_string(),
+                    GoatTxProcessingStatus::Skipped.to_string(),
                 )
                 .await?;
                 update_graph_fields(
@@ -1337,7 +1340,7 @@ pub async fn recv_and_dispatch(
                     receive_data.instance_id,
                     &tx_hash,
                     GoatTxType::WithdrawDisproved,
-                    GoatTxProveStatus::NoNeed.to_string(),
+                    GoatTxProcessingStatus::Skipped.to_string(),
                 )
                 .await?;
                 update_graph_fields(

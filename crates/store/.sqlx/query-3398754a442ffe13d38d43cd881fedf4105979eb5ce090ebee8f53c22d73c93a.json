@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR\n            REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fee,  status, pegin_request_txid, pegin_request_height,\n                        user_xonly_pubkey, user_change_addr, user_refund_addr, pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_answers,\n                       pegin_data_txid, timeout,  created_at, updated_at)\n            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 21
+    },
+    "nullable": []
+  },
+  "hash": "3398754a442ffe13d38d43cd881fedf4105979eb5ce090ebee8f53c22d73c93a"
+}

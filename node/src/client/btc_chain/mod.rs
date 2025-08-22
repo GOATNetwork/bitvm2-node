@@ -6,6 +6,8 @@ use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, 
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 
 pub mod esplora;
+
+#[derive(Debug, Clone)]
 pub struct BTCClient {
     esplora: AsyncClient,
     network: Network,

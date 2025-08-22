@@ -3,6 +3,7 @@ pub mod goat_chain;
 pub mod graphs;
 mod local_db;
 
+pub use goat_chain::Utxo;
 pub use local_db::create_local_db;
 
 #[cfg(test)]

@@ -4,7 +4,6 @@ pub mod handler;
 mod node;
 pub(crate) mod proof;
 pub mod routes;
-pub use bitvm2::UTXO;
 
 use crate::client::btc_chain::BTCClient;
 use crate::env::get_network;
@@ -21,7 +20,6 @@ use axum::{
     Router, middleware,
     routing::{get, post},
 };
-pub use bitvm2::P2pUserData;
 use bitvm2_lib::actors::Actor;
 use http::{HeaderMap, Method, StatusCode};
 use http_body_util::BodyExt;
@@ -84,10 +82,8 @@ impl AppState {
 /// GET /
 /// ```
 ///
-/// Response example:
-/// ```
-/// "Hello, World!"
-/// ```
+/// Response example: "Hello World"
+///
 async fn root() -> &'static str {
     "Hello, World!"
 }
@@ -222,12 +218,10 @@ mod tests {
     use crate::env::{
         ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_PROOF_SEVER_URL, IpfsTxName,
     };
-    use crate::rpc_service::bitvm2::UTXO;
     use crate::rpc_service::{self, Actor, routes};
     use crate::utils::{
-        generate_local_key, generate_random_bytes, get_graph, get_rand_btc_address_p2pkh,
-        get_rand_btc_address_p2wpkh, get_rand_goat_address, store_graph, temp_file,
-        update_graph_fields,
+        generate_local_key, generate_random_bytes, get_graph, get_rand_btc_address_p2wpkh,
+        get_rand_goat_address, store_graph, temp_file, update_graph_fields,
     };
     use bitcoin::Network;
     use bitvm2_lib::types::Bitvm2Graph;
@@ -241,7 +235,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use store::{GoatTxProveStatus, GoatTxRecord, GoatTxType, GraphStatus};
+    use store::{GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus};
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
     use tracing::info;
@@ -292,7 +286,7 @@ mod tests {
     }
     fn init(remote_proof_server: Option<String>) {
         unsafe {
-            std::env::set_var("RUST_LOG", "info");
+            std::env::set_var("RUST_LOG", "debug");
             std::env::set_var(ENV_GOAT_CHAIN_URL, "https://rpc.testnet3.goat.network");
             std::env::set_var(
                 ENV_GOAT_GATEWAY_CONTRACT_ADDRESS,
@@ -440,15 +434,23 @@ mod tests {
                    "instance":{
                     "instance_id": instance_id_1,
                     "network": "testnet",
-                    "bridge_path": 0,
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
                     "amount": 20000,
-                    "status": "Committed",
-                    "goat_txid": hex::encode(generate_random_bytes(32)),
-                    "btc_txid": "",
-                    "input_uxtos":"",
                     "fee": 1000,
+                    "status": "UserInited",
+                    "pegin_request_txid": "",
+                    "pegin_request_height":10000,
+                    "user_xonly_pubkey":[241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
+                    "user_change_addr":"",
+                    "user_refund_addr":"",
+                    "pegin_prepare_txid": "",
+                    "pegin_confirm_txid": "",
+                    "pegin_cancel_txid": "",
+                    "unsign_pegin_confirm_tx": "",
+                    "committees_answers": {},
+                    "pegin_data_txid": "",
+                    "timeout":10000,
                     "created_at":  SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                     "updated_at":  SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                 }
@@ -463,15 +465,22 @@ mod tests {
                    "instance":{
                     "instance_id": instance_id_1,
                     "network": "testnet",
-                    "bridge_path": 0,
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
                     "amount": 80000,
                     "status": "Presigned",
-                    "goat_txid": hex::encode(generate_random_bytes(32)),
-                    "btc_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-                    "pegin_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-                    "input_uxtos": serde_json::to_string(&[UTXO { txid: "".to_string(), vout: 0, value: 0 }]).unwrap(),
+                     "pegin_request_txid": hex::encode(generate_random_bytes(32)),
+                    "pegin_request_height":10000,
+                    "user_xonly_pubkey":[241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
+                    "user_change_addr":"",
+                    "user_refund_addr":"",
+                    "pegin_prepare_txid": hex::encode(generate_random_bytes(32)),
+                    "pegin_confirm_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
+                    "pegin_cancel_txid": hex::encode(generate_random_bytes(32)),
+                    "unsign_pegin_confirm_tx": hex::encode(generate_random_bytes(50)),
+                    "committees_answers": {},
+                    "pegin_data_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
+                    "timeout":10000,
                     "fee": 2000,
                     "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                     "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
@@ -490,15 +499,22 @@ mod tests {
                    "instance":{
                     "instance_id": Uuid::new_v4(),
                     "network": "testnet",
-                    "bridge_path": 0,
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
                     "amount": 80000,
                     "status": "Presigned",
-                    "goat_txid": hex::encode(generate_random_bytes(32)),
-                    "btc_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-                    "pegin_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-                    "input_uxtos": serde_json::to_string(&[UTXO { txid: "".to_string(), vout: 0, value: 0 }]).unwrap(),
+                    "pegin_request_txid": hex::encode(generate_random_bytes(32)),
+                    "pegin_request_height":10000,
+                    "user_xonly_pubkey":[241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
+                    "user_change_addr":"",
+                    "user_refund_addr":"",
+                    "pegin_prepare_txid": hex::encode(generate_random_bytes(32)),
+                    "pegin_confirm_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
+                    "pegin_cancel_txid": hex::encode(generate_random_bytes(32)),
+                    "unsign_pegin_confirm_tx": hex::encode(generate_random_bytes(50)),
+                    "committees_answers": {},
+                    "pegin_data_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
+                    "timeout":10000,
                     "fee": 2000,
                     "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                     "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
@@ -835,14 +851,14 @@ mod tests {
                     )
                     .await?;
                 storage_processor
-                    .create_or_update_goat_tx_record(&GoatTxRecord {
+                    .upsert_goat_tx_record(&GoatTxRecord {
                         instance_id: Uuid::new_v4(),
                         graph_id,
                         tx_type: GoatTxType::ProceedWithdraw.to_string(),
                         tx_hash: "".to_string(),
                         height: groth16_block_number,
                         is_local: false,
-                        prove_status: GoatTxProveStatus::Proved.to_string(),
+                        processing_status: GoatTxProcessingStatus::Processed.to_string(),
                         extra: None,
                         created_at: 0,
                     })

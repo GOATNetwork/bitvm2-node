@@ -155,6 +155,11 @@ pub fn get_node_goat_address() -> Option<EvmAddress> {
 }
 
 pub async fn check_node_info() {
+    if [Actor::Relayer.to_string(), Actor::Committee.to_string()].contains(&get_actor().to_string())
+        && std::env::var(ENV_GOAT_PRIVATE_KEY).is_err()
+    {
+        panic!("Relayer and Committee must set goat secret key");
+    }
     let node_info = get_local_node_info();
     if [Actor::Operator.to_string(), Actor::Challenger.to_string()].contains(&node_info.actor)
         && node_info.goat_addr.is_empty()
@@ -354,4 +359,9 @@ pub fn get_rpc_support_actors() -> Vec<Actor> {
 
 pub fn get_proof_server_url() -> Option<String> {
     std::env::var(ENV_PROOF_SEVER_URL).ok()
+}
+
+/// TODO update
+pub fn get_min_committee_number() -> u32 {
+    0
 }

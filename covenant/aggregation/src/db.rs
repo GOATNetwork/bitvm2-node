@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use store::localdb::LocalDB;
-use store::{GoatTxProveStatus, GoatTxType};
+use store::{GoatTxProcessingStatus, GoatTxType};
 use tokio::time::{sleep, Duration};
 use tracing::info;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
@@ -187,9 +187,9 @@ impl Db {
         let mut storage_process = self.db.acquire().await?;
 
         let block_numbers: Vec<i64> = storage_process
-            .get_need_proved_goat_tx_heights(
+            .get_goat_tx_records_by_height_range_and_filters(
                 &GoatTxType::ProceedWithdraw.to_string(),
-                &GoatTxProveStatus::Pending.to_string(),
+                &GoatTxProcessingStatus::Pending.to_string(),
                 (block_number - self.aggregate_block_count) as i64,
                 block_number as i64,
             )

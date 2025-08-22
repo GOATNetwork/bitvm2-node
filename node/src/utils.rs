@@ -5,12 +5,10 @@ use crate::client::goat_chain::WithdrawStatus;
 use crate::client::goat_chain::utils::{
     get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
 };
-use crate::client::graphs::graph_query::GatewayEventEntity;
+use crate::client::graphs::graph_query::BridgeInRequestEvent;
 use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient};
-use crate::env;
 use crate::env::*;
 use crate::middleware::AllBehaviours;
-use crate::relayer_action::monitor_events;
 use crate::rpc_service::proof::Groth16ProofValue;
 use crate::rpc_service::{current_time_secs, routes};
 use alloy::primitives::Address as EvmAddress;
@@ -47,20 +45,24 @@ use musig2::{PartialSignature, PubNonce};
 use rand::Rng;
 use secp256k1::Secp256k1;
 use statics::*;
+
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use store::ipfs::IPFS;
-use store::localdb::{LocalDB, UpdateGraphParams};
+use store::localdb::{InstanceUpdate, LocalDB, UpdateGraphParams};
 use store::{
-    BridgeInStatus, GoatTxProceedWithdrawExtra, GoatTxProveStatus, GoatTxRecord, GoatTxType, Graph,
-    GraphStatus, Message, MessageState, MessageType, Node,
+    ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
+    Graph, GraphStatus, Instance, InstanceStatus, Int64Array3, Message, MessageState, MessageType,
+    Node,
 };
 use stun_client::{Attribute, Class, Client};
-use tokio_util::sync::CancellationToken;
+
 use tracing::warn;
 use uuid::Uuid;
 
@@ -716,14 +718,14 @@ pub async fn get_groth16_proof(
         Ok((proof, pis, vk))
     } else {
         storage_processor
-            .create_or_update_goat_tx_record(&GoatTxRecord {
+            .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id: *instance_id,
                 graph_id: *graph_id,
                 tx_type: GoatTxType::ProceedWithdraw.to_string(),
                 tx_hash: "".to_string(),
                 height: 0,
                 is_local: false,
-                prove_status: GoatTxProveStatus::Pending.to_string(),
+                processing_status: GoatTxProcessingStatus::Pending.to_string(),
                 extra: Some(
                     serde_json::to_string(&GoatTxProceedWithdrawExtra { challenge_txid }).unwrap(),
                 ),
@@ -966,7 +968,7 @@ pub async fn create_goat_tx_record(
     {
         let mut storage_process = local_db.acquire().await?;
         storage_process
-            .create_or_update_goat_tx_record(&GoatTxRecord {
+            .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id,
                 graph_id,
                 tx_type: tx_type.to_string(),
@@ -974,7 +976,7 @@ pub async fn create_goat_tx_record(
                 height: receipt.block_number.unwrap() as i64,
                 is_local: true,
                 extra: None,
-                prove_status,
+                processing_status: prove_status,
                 created_at: current_time_secs(),
             })
             .await?;
@@ -995,7 +997,7 @@ pub async fn store_graph(
         .iter()
         .map(|v| serialize_hex(&v.tx().compute_txid()))
         .collect();
-    let network = transaction.get_instance_network(&instance_id).await?;
+    let network = transaction.get_network_by_instance(&instance_id).await?;
 
     let mut bridge_out_from_addr = "".to_string();
     let mut bridge_out_to_addr = "".to_string();
@@ -1013,7 +1015,7 @@ pub async fn store_graph(
     }
 
     transaction
-        .update_graph(Graph {
+        .upsert_graph(Graph {
             graph_id,
             instance_id,
             graph_ipfs_base_url: "".to_string(),
@@ -1051,16 +1053,15 @@ pub async fn store_graph(
             graph.pegin.input_amounts.iter().fold(Amount::ZERO, |acc, v| acc + *v);
         let sum_output_value = pegin_tx.output.iter().fold(Amount::ZERO, |acc, v| acc + v.value);
         transaction
-            .update_instance_fields(
-                &instance_id,
-                Some(BridgeInStatus::Presigned.to_string()),
-                Some((
-                    serialize_hex(&graph.pegin.tx().compute_txid()),
-                    (sum_input_value - sum_output_value).to_sat() as i64,
-                )),
-                None,
+            .update_instance(
+                &InstanceUpdate::new(instance_id)
+                    .with_pegin_confirm(
+                        serialize_hex(&graph.pegin.tx().compute_txid()),
+                        (sum_input_value - sum_output_value).to_sat() as i64,
+                    )
+                    .with_status(InstanceStatus::Presigned.to_string()),
             )
-            .await?
+            .await?;
     }
 
     transaction.commit().await?;
@@ -1258,7 +1259,6 @@ pub async fn wait_tx_appear(
             // println!("Timeout: Transaction not appear after {} seconds", max_wait_secs);
             return Ok(false);
         };
-        // FIXME: should not use esplora directly
         match btc_client.get_tx(txid).await {
             Ok(tx) => {
                 if tx.is_some() {
@@ -1337,7 +1337,7 @@ pub async fn save_node_info(
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let mut storage_process = local_db.acquire().await?;
     let _ = storage_process
-        .update_node(Node {
+        .upsert_node(Node {
             peer_id: node_info.peer_id.clone(),
             actor: node_info.actor.clone(),
             goat_addr: node_info.goat_addr.clone(),
@@ -1473,64 +1473,6 @@ pub async fn obsolete_sibling_graphs(
     Ok(())
 }
 
-pub async fn run_watch_event_task(
-    actor: Actor,
-    local_db: LocalDB,
-    interval: u64,
-    cancellation_token: CancellationToken,
-) -> anyhow::Result<String> {
-    let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
-
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(interval)) => {
-                // Execute the normal monitoring logic
-                if actor.clone() == Actor::Relayer {
-                    match monitor_events(
-                        actor.clone(),
-                        &goat_client,
-                        &local_db,
-                        vec![
-                            GatewayEventEntity::InitWithdraws,
-                            GatewayEventEntity::CancelWithdraws,
-                            GatewayEventEntity::ProceedWithdraws,
-                            GatewayEventEntity::WithdrawHappyPaths,
-                            GatewayEventEntity::WithdrawUnhappyPaths,
-                            GatewayEventEntity::WithdrawDisproveds,
-                        ],
-                    )
-                    .await
-                    {
-                        Ok(_) => {}
-                        Err(e) => {
-                            tracing::error!(e)
-                        }
-                    }
-                }
-                if actor.clone() == Actor::Operator {
-                    match monitor_events(
-                        actor.clone(),
-                        &goat_client,
-                        &local_db,
-                        vec![GatewayEventEntity::ProceedWithdraws],
-                    )
-                    .await
-                    {
-                        Ok(_) => {}
-                        Err(e) => {
-                            tracing::error!(e)
-                        }
-                    }
-                }
-            }
-            _ = cancellation_token.cancelled() => {
-                tracing::info!("Watch event task received shutdown signal");
-                return Ok("watch_shutdown".to_string());
-            }
-        }
-    }
-}
-
 /// Retrieve the server's public IP via NAT protocol and combine it with
 /// the configured RPC monitoring port`rpc_addr` to generate the external RPC service address.
 pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
@@ -1630,9 +1572,9 @@ pub async fn operator_scan_ready_proof(
     let client = reqwest::Client::new();
     let mut storage_proccessor = local_db.acquire().await?;
     let check_txs = storage_proccessor
-        .get_goat_tx_record_by_prove_status(
+        .get_goat_tx_record_by_processing_status(
             &GoatTxType::ProceedWithdraw.to_string(),
-            &GoatTxProveStatus::Pending.to_string(),
+            &GoatTxProcessingStatus::Pending.to_string(),
         )
         .await?;
 
@@ -1678,7 +1620,7 @@ pub async fn operator_scan_ready_proof(
                             &proof_value.public_values,
                             &proof_value.verifier_id,
                             &proof_value.zkm_version,
-                            &GoatTxProveStatus::Proved.to_string(),
+                            &GoatTxProcessingStatus::Processed.to_string(),
                         )
                         .await?;
                 } else {
@@ -1703,18 +1645,18 @@ pub async fn operator_scan_ready_proof(
                 challenge_txid,
             }));
             storage_proccessor
-                .update_goat_tx_record_prove_status(
+                .update_goat_tx_record_processing_status(
                     &tx.graph_id,
                     &tx.instance_id,
                     &tx.tx_type,
-                    &GoatTxProveStatus::Proved.to_string(),
+                    &GoatTxProcessingStatus::Processed.to_string(),
                 )
                 .await?;
             // storage_proccessor
             //     .update_goat_tx_proved_state_by_height(
             //         &tx.tx_type,
-            //         &GoatTxProveStatus::Pending.to_string(),
-            //         &GoatTxProveStatus::Failed.to_string(),
+            //         &GoatTxProcessingStatus::Pending.to_string(),
+            //         &GoatTxProcessingStatus::Failed.to_string(),
             //         tx.height,
             //     )
             //     .await?;
@@ -1738,4 +1680,41 @@ pub fn generate_local_key() -> libp2p::identity::Keypair {
 pub fn temp_file() -> String {
     let tmp_db = tempfile::NamedTempFile::new().unwrap();
     tmp_db.path().as_os_str().to_str().unwrap().to_string()
+}
+
+pub async fn generate_instance_from_event(
+    _btc_client: &BTCClient,
+    event: &BridgeInRequestEvent,
+) -> anyhow::Result<Instance> {
+    // TODO decode event to get from_addr unsign_pegin_confirm_tx pegin_prepare_txid pegin_cancel_txid, timeout
+
+    let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
+    let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("user_x_only_pubkey must be exactly 32 bytes"))?;
+
+    let instance = Instance {
+        instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
+        network: get_network().to_string(),
+        from_addr: "".to_string(),
+        to_addr: EvmAddress::from_str(&event.depositor_address)?.to_string(),
+        amount: event.pegin_amount_sats.parse()?,
+        fees: Int64Array3(event.txn_fees.clone().map(|v| v.parse::<i64>().unwrap_or_default())),
+        status: InstanceStatus::UserInited.to_string(),
+        pegin_request_txid: event.transaction_hash.clone(),
+        pegin_request_height: event.block_number.parse()?,
+        user_xonly_pubkey: ByteArray32(user_xonly_pubkey_array),
+        user_change_addr: event.user_change_address.clone(),
+        user_refund_addr: event.user_refund_address.clone(),
+        pegin_prepare_txid: None,
+        pegin_confirm_txid: None,
+        pegin_cancel_txid: None,
+        unsign_pegin_confirm_tx: None,
+        committees_answers: HashMap::new(),
+        pegin_data_txid: "".to_string(),
+        timeout: 0,
+        created_at: current_time_secs(),
+        updated_at: current_time_secs(),
+    };
+    Ok(instance)
 }

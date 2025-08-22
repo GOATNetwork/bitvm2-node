@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
-use store::localdb::FilterGraphParams;
-use store::{BridgeInStatus, GoatTxType, GraphFullData, GraphStatus, modify_graph_status};
+use store::localdb::{FilterGraphParams, InstanceQuery};
+use store::{GoatTxType, GraphFullData, GraphStatus, InstanceStatus, modify_graph_status};
 use uuid::Uuid;
 
 /// Get instance settings
@@ -93,7 +93,7 @@ pub async fn graph_presign_check(
 ) -> (StatusCode, Json<GraphPresignCheckResponse>) {
     let resp = GraphPresignCheckResponse {
         instance_id: params.instance_id.to_string(),
-        instance_status: BridgeInStatus::Submitted.to_string(),
+        instance_status: InstanceStatus::UserInited.to_string(),
         graph_status: HashMap::new(),
         tx: None,
     };
@@ -101,7 +101,7 @@ pub async fn graph_presign_check(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&params.instance_id)?;
         let mut storage_process = app_state.local_db.acquire().await?;
-        let instance_op = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.find_instance(&instance_id).await?;
         if instance_op.is_none() {
             tracing::info!("instance_id {} has no record in database", instance_id);
             return Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone);
@@ -362,6 +362,54 @@ pub async fn get_graph_txn(
 /// }
 /// ```
 ///
+/// Create new bridge instance
+///
+/// Create a new bridge instance for handling Bitcoin to Layer 2 asset transfers.
+/// This endpoint is used to initialize a new pegin (bridge-in) process.
+///
+/// # Request Body
+///
+/// Contains complete instance information wrapped in an InstanceUpdateRequest.
+/// The instance should include all required fields for a new bridge operation.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully created instance
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+///
+/// # Example
+///
+/// ```http
+/// POST /v1/instances
+/// Content-Type: application/json
+///
+/// {
+///   "instance": {
+///     "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "network": "testnet",
+///     "from_addr": "tb1q...",
+///     "to_addr": "0x...",
+///     "amount": 20000,
+///     "fee": 1000,
+///     "status": "UserInited",
+///     "pegin_request_txid": "0x...",
+///     "pegin_request_height": 123456,
+///     "user_xonly_pubkey": [241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
+///     "user_change_addr": "tb1q...",
+///     "user_refund_addr": "tb1q...",
+///     "pegin_prepare_txid": null,
+///     "pegin_confirm_txid": null,
+///     "pegin_cancel_txid": null,
+///     "unsign_pegin_confirm_tx": null,
+///     "committees_answers": {},
+///     "pegin_data_txid": "",
+///     "timeout": 3600,
+///     "created_at": 1640995200,
+///     "updated_at": 1640995200
+///   }
+/// }
+/// ```
+///
 /// Response example:
 /// ```json
 /// {}
@@ -373,7 +421,7 @@ pub async fn create_instance(
 ) -> (StatusCode, Json<InstanceUpdateResponse>) {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.create_instance(payload.instance).await?;
+        storage_process.upsert_instance(&payload.instance).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {
@@ -387,21 +435,23 @@ pub async fn create_instance(
 
 /// Update existing bridge instance
 ///
-/// Update information for a specified instance, including status, transaction IDs, and other fields.
+/// Update information for a specified bridge instance, including status, transaction IDs, and other fields.
+/// This endpoint is used to update the state of an existing pegin (bridge-in) process.
 ///
 /// # Parameters
 ///
-/// - `instance_id`: Instance ID (UUID format)
+/// - `instance_id`: Instance ID (UUID format) - must match the instance_id in the request body
 ///
 /// # Request Body
 ///
 /// Contains complete instance information wrapped in an InstanceUpdateRequest.
+/// All fields will be updated with the provided values.
 ///
 /// # Returns
 ///
 /// - `200 OK`: Successfully updated instance
 /// - `400 Bad Request`: Instance ID in path doesn't match the one in request body
-/// - `500 Internal Server Error`: Server internal error
+/// - `500 Internal Server Error`: Server internal error or database operation failed
 ///
 /// # Example
 ///
@@ -420,12 +470,14 @@ pub async fn create_instance(
 ///     "status": "Presigned",
 ///     "pegin_request_txid": "0x...",
 ///     "pegin_request_height": 123456,
+///     "user_xonly_pubkey": [241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
+///     "user_change_addr": "tb1q...",
+///     "user_refund_addr": "tb1q...",
 ///     "pegin_prepare_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
 ///     "pegin_confirm_txid": null,
 ///     "pegin_cancel_txid": null,
 ///     "unsign_pegin_confirm_tx": null,
-///     "committees_sigs": [],
-///     "committees": [],
+///     "committees_answers": {},
 ///     "pegin_data_txid": "",
 ///     "timeout": 3600,
 ///     "created_at": 1640995200,
@@ -451,7 +503,7 @@ pub async fn update_instance(
 
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.update_instance(payload.instance).await?;
+        storage_process.upsert_instance(&payload.instance).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {
@@ -527,9 +579,15 @@ pub async fn get_instances(
 ) -> (StatusCode, Json<InstanceListResponse>) {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        let (instances, total) = storage_process
-            .instance_list(params.from_addr, None, None, params.offset, params.limit)
-            .await?;
+        let mut query = InstanceQuery::default();
+        if let Some(from_addr) = params.from_addr {
+            query = query.with_from_addr(from_addr);
+        }
+        if let (Some(offset), Some(limit)) = (params.offset, params.limit) {
+            query = query.with_pagination(offset, limit);
+        }
+
+        let (instances, total) = storage_process.find_instances(query).await?;
 
         if instances.is_empty() {
             tracing::warn!("get_instances instance is empty: total {}", total);
@@ -612,7 +670,7 @@ pub async fn get_instance(
     let async_fn = || async move {
         let instance_id = Uuid::parse_str(&instance_id)?;
         let mut storage_process = app_state.local_db.acquire().await?;
-        let instance_op = storage_process.get_instance(&instance_id).await?;
+        let instance_op = storage_process.find_instance(&instance_id).await?;
         if instance_op.is_none() {
             tracing::info!("instance_id {} has no record in database", instance_id);
             return Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
@@ -684,8 +742,8 @@ pub async fn get_instances_overview(
         let mut storage_process = app_state.local_db.acquire().await?;
         let (pegin_sum, pegin_count) = storage_process
             .get_sum_bridge_in(&[
-                BridgeInStatus::L1Broadcasted.to_string(),
-                BridgeInStatus::L2Minted.to_string(),
+                InstanceStatus::RelayerL1Broadcasted.to_string(),
+                InstanceStatus::RelayerL2Minted.to_string(),
             ])
             .await?;
         let (pegout_sum, pegout_count) = storage_process
@@ -848,7 +906,7 @@ pub async fn update_graph(
 
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        let _ = storage_process.update_graph(payload.graph).await?;
+        let _ = storage_process.upsert_graph(payload.graph).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {

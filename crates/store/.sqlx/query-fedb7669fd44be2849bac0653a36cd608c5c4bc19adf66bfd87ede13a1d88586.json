@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT instance_id AS \"instance_id:Uuid\",\n                        graph_id  AS \"graph_id:Uuid\",\n                        tx_type, tx_hash,\n                        height,\n                        is_local,\n                        prove_status,\n                        extra,\n                        created_at\n            FROM goat_tx_record\n            WHERE tx_type = ?\n                AND prove_status = ?\n                ORDER BY height ASC",
+  "query": "SELECT instance_id AS \"instance_id:Uuid\",\n                        graph_id  AS \"graph_id:Uuid\",\n                        tx_type, tx_hash,\n                        height,\n                        is_local,\n                        processing_status,\n                        extra,\n                        created_at\n            FROM goat_tx_record\n            WHERE tx_type = ?\n                AND processing_status = ?\n                ORDER BY height ASC",
   "describe": {
     "columns": [
       {
@@ -34,7 +34,7 @@
         "type_info": "Bool"
       },
       {
-        "name": "prove_status",
+        "name": "processing_status",
         "ordinal": 6,
         "type_info": "Text"
       },
@@ -64,5 +64,5 @@
       false
     ]
   },
-  "hash": "8f7e121921c4df7f769a25d806ef4bedb55715808a45fc70ba965cf647eb0095"
+  "hash": "fedb7669fd44be2849bac0653a36cd608c5c4bc19adf66bfd87ede13a1d88586"
 }

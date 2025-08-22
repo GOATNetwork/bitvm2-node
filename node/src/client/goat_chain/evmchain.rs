@@ -55,9 +55,9 @@ impl EvmChain {
     pub async fn answer_pegin_request(
         &self,
         instance_id: &Uuid,
-        pub_key: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String> {
-        self.adaptor.answer_pegin_request(instance_id.as_bytes(), pub_key).await
+        self.adaptor.answer_pegin_request(instance_id.as_bytes(), committee_xonly_pubkey).await
     }
 
     pub async fn post_pegin_data(
