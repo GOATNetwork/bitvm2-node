@@ -19,6 +19,10 @@ path = "src/bin/fake_kickoff.rs"
 name = "fake-challenge"
 path = "src/bin/fake_challenge.rs"
 
+[[bin]]
+name = "sequencer-set-publish"
+path = "src/bin/sequencer-set-publish.rs"
+
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",
