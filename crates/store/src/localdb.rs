@@ -1,10 +1,13 @@
 use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
+use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, GoatTxRecord, Graph, GraphFullData, GraphTickActionMetaData, Instance,
-    Message, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofInfo, ProofType,
-    PubKeyCollect, PubKeyCollectMetaData, WatchContract,
+    COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphFullData,
+    GraphTickActionMetaData, Instance, Message, Node, NodesOverview, NonceCollect,
+    NonceCollectMetaData, ProofInfo, ProofType, PubKeyCollect, PubKeyCollectMetaData,
+    WatchContract,
 };
+
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -94,6 +97,59 @@ pub struct FilterGraphParams {
     pub is_init_withdraw_not_null: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct InstanceQuery {
+    pub from_addr: Option<String>,
+    pub statuses: Vec<String>,
+    pub earliest_updated: Option<i64>,
+    pub pegin_request_height_threshold: Option<i64>,
+    pub offset: Option<u32>,
+    pub limit: Option<u32>,
+}
+
+impl InstanceQuery {
+    pub fn with_from_addr(mut self, from_addr: String) -> Self {
+        self.from_addr = Some(from_addr);
+        self
+    }
+
+    pub fn with_status(mut self, status: String) -> Self {
+        self.statuses.push(status);
+        self
+    }
+
+    pub fn with_statuses(mut self, statuses: Vec<String>) -> Self {
+        self.statuses = statuses;
+        self
+    }
+
+    pub fn with_earliest_updated(mut self, earliest_updated: i64) -> Self {
+        self.earliest_updated = Some(earliest_updated);
+        self
+    }
+
+    pub fn with_pegin_request_height_threshold(mut self, threshold: i64) -> Self {
+        self.pegin_request_height_threshold = Some(threshold);
+        self
+    }
+
+    pub fn with_pagination(mut self, offset: u32, limit: u32) -> Self {
+        self.offset = Some(offset);
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_offset(mut self, offset: u32) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct UpdateGraphParams {
     pub graph_id: Uuid,
@@ -125,30 +181,44 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    pub async fn create_instance(&mut self, instance: Instance) -> anyhow::Result<bool> {
-        let committees_sigs_json = serde_json::to_string(&instance.committees_sigs)?;
-        let committees_json = serde_json::to_string(&instance.committees)?;
+    /// Insert or update an instance
+    ///
+    /// Performs an INSERT OR REPLACE operation on the instance table.
+    /// If an instance with the same instance_id exists, it will be updated.
+    /// If no instance exists, a new one will be created.
+    ///
+    /// Parameters:
+    /// - instance: The complete instance data to insert or update
+    ///
+    /// Returns:
+    /// - Ok(true) if the operation affected at least one row
+    /// - Ok(false) if no rows were affected
+    /// - Err if the operation failed
+    pub async fn upsert_instance(&mut self, instance: &Instance) -> anyhow::Result<bool> {
+        let committees_answers_json = serde_json::to_string(&instance.committees_answers)?;
         let res = sqlx::query!(
             "INSERT OR
-            REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fee,  status, pegin_request_txid, pegin_request_height,
-                       pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_sigs,
-                       committees, pegin_data_txid, timeout,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fees,  status, pegin_request_txid, pegin_request_height,
+                        user_xonly_pubkey, user_change_addr, user_refund_addr, pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_answers,
+                       pegin_data_txid, timeout,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)",
             instance.instance_id,
             instance.network,
             instance.from_addr,
             instance.to_addr,
             instance.amount,
-            instance.fee,
+            instance.fees,
             instance.status,
             instance.pegin_request_txid,
             instance.pegin_request_height,
+            instance.user_xonly_pubkey,
+            instance.user_change_addr,
+            instance.user_refund_addr,
             instance.pegin_prepare_txid,
             instance.pegin_confirm_txid,
             instance.pegin_cancel_txid,
             instance.unsign_pegin_confirm_tx,
-            committees_sigs_json,
-            committees_json,
+            committees_answers_json,
             instance.pegin_data_txid,
             instance.timeout,
             instance.created_at,
@@ -159,29 +229,42 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected() > 0)
     }
 
-    pub async fn get_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<Option<Instance>> {
+    /// Find a single instance by its ID
+    ///
+    /// Retrieves an instance from the database using its unique instance_id.
+    ///
+    /// Parameters:
+    /// - instance_id: The UUID of the instance to find
+    ///
+    /// Returns:
+    /// - Ok(Some(instance)) if the instance was found
+    /// - Ok(None) if no instance with the given ID exists
+    /// - Err if the query failed
+    pub async fn find_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<Option<Instance>> {
         let row = sqlx::query_as::<_, Instance>(
-            "SELECT instance_id AS \"instance_id:Uuid\",
-                    network,
-                    from_addr,
-                    to_addr,
-                    amount,
-                    fee,
-                    status,
-                    pegin_request_txid,
-                    pegin_request_height,
-                    pegin_prepare_txid,
-                    pegin_confirm_txid,
-                    pegin_cancel_txid,
-                    unsign_pegin_confirm_tx,
-                    committees_sigs,
-                    committees,
-                    pegin_data_txid,
-                    timeout,
-                    created_at,
-                    updated_at
-            FROM instance
-            WHERE instance_id = ?",
+            "SELECT instance_id,
+                         network,
+                         from_addr,
+                         to_addr,
+                         amount,
+                         fees,
+                         status,
+                         pegin_request_txid,
+                         pegin_request_height,
+                         user_xonly_pubkey,
+                         user_change_addr,
+                         user_refund_addr,
+                         pegin_prepare_txid,
+                         pegin_confirm_txid,
+                         pegin_cancel_txid,
+                         unsign_pegin_confirm_tx,
+                         committees_answers,
+                         pegin_data_txid,
+                         timeout,
+                         created_at,
+                         updated_at
+                 FROM instance
+                 WHERE instance_id = ?",
         )
         .bind(instance_id)
         .fetch_optional(self.conn())
@@ -189,7 +272,127 @@ impl<'a> StorageProcessor<'a> {
         Ok(row)
     }
 
-    pub async fn get_instance_network(&mut self, instance_id: &Uuid) -> anyhow::Result<String> {
+    /// Find multiple instances with filtering and pagination
+    ///
+    /// Retrieves instances from the database with optional filtering criteria
+    /// and pagination support. Uses QueryBuilder for dynamic query construction.
+    ///
+    /// Parameters:
+    /// - params: InstanceQuery containing all filter criteria and pagination options
+    ///
+    /// Returns:
+    /// - Ok((instances, total_count)) where instances is a vector of matching instances
+    ///   and total_count is the total number of instances matching the criteria
+    /// - Err if the query failed
+    pub async fn find_instances(
+        &mut self,
+        params: InstanceQuery,
+    ) -> anyhow::Result<(Vec<Instance>, i64)> {
+        let mut instances_query_builder = QueryBuilder::new(
+            "SELECT instance_id,
+                    network,
+                    from_addr,
+                    to_addr,
+                    amount,
+                    fees,
+                    status,
+                    pegin_request_txid,
+                    pegin_request_height,
+                    user_xonly_pubkey,
+                    user_change_addr,
+                    user_refund_addr
+                    pegin_prepare_txid,
+                    pegin_confirm_txid,
+                    pegin_cancel_txid,
+                    unsign_pegin_confirm_tx,
+                    committees_answers,
+                    pegin_data_txid,
+                    timeout,
+                    created_at,
+                    updated_at
+             FROM instance",
+        );
+
+        let mut count_query_builder =
+            QueryBuilder::new("SELECT count(*) as total_instances FROM instance");
+
+        // Apply filters
+        if let Some(from_addr) = &params.from_addr {
+            instances_query_builder
+                .and_where("from_addr = ?", Some(QueryParam::Text(from_addr.clone())));
+            count_query_builder
+                .and_where("from_addr = ?", Some(QueryParam::Text(from_addr.clone())));
+        }
+        if !params.statuses.is_empty() {
+            instances_query_builder.and_where_in("status", &params.statuses, false);
+            count_query_builder.and_where_in("status", &params.statuses, false);
+        }
+        if let Some(earliest_updated) = params.earliest_updated {
+            instances_query_builder
+                .and_where("updated_at >= ?", Some(QueryParam::Int(earliest_updated)));
+            count_query_builder
+                .and_where("updated_at >= ?", Some(QueryParam::Int(earliest_updated)));
+        }
+        if let Some(pegin_request_height_threshold) = params.pegin_request_height_threshold {
+            instances_query_builder.and_where(
+                "pegin_request_height < ?",
+                Some(QueryParam::Int(pegin_request_height_threshold)),
+            );
+            count_query_builder.and_where(
+                "pegin_request_height < ?",
+                Some(QueryParam::Int(pegin_request_height_threshold)),
+            );
+        }
+
+        // Apply ordering and pagination
+        instances_query_builder.apply_order("created_at DESC");
+        count_query_builder.apply_order("created_at DESC");
+        instances_query_builder.apply_pagination(params.limit, params.offset);
+
+        // Execute data query
+        let sql = instances_query_builder.get_sql();
+        let query_params = instances_query_builder.get_params();
+        let mut data_query = sqlx::query_as::<_, Instance>(&sql);
+
+        // Bind parameters for data query
+        for param in &query_params {
+            data_query = match param {
+                QueryParam::Text(s) => data_query.bind(s),
+                QueryParam::Int(i) => data_query.bind(i),
+            };
+        }
+
+        // Execute count query
+        let count_sql = count_query_builder.get_sql();
+        let count_query_params = count_query_builder.get_params();
+        let mut count_query = sqlx::query(&count_sql);
+
+        // Bind parameters for count query
+        for param in &count_query_params {
+            count_query = match param {
+                QueryParam::Text(s) => count_query.bind(s),
+                QueryParam::Int(i) => count_query.bind(i),
+            };
+        }
+
+        let instances = data_query.fetch_all(self.conn()).await?;
+        let total_instances =
+            count_query.fetch_one(self.conn()).await?.get::<i64, &str>("total_instances");
+
+        Ok((instances, total_instances))
+    }
+    /// Get network type by instance ID
+    ///
+    /// Retrieves the network type (e.g., "mainnet", "testnet") for a specific instance.
+    ///
+    /// Parameters:
+    /// - instance_id: The UUID of the instance
+    ///
+    /// Returns:
+    /// - Ok(network_string) if the instance was found
+    /// - Ok("") if no instance with the given ID exists
+    /// - Err if the query failed
+    pub async fn get_network_by_instance(&mut self, instance_id: &Uuid) -> anyhow::Result<String> {
         if let Some(raw) =
             sqlx::query!(r#"SELECT network FROM instance WHERE instance_id = ?"#, instance_id)
                 .fetch_optional(self.conn())
@@ -200,120 +403,20 @@ impl<'a> StorageProcessor<'a> {
             Ok("".to_string())
         }
     }
-    pub async fn instance_list(
-        &mut self,
-        from_addr: Option<String>,
-        status: Option<String>,
-        earliest_updated: Option<i64>,
-        offset: Option<u32>,
-        limit: Option<u32>,
-    ) -> anyhow::Result<(Vec<Instance>, i64)> {
-        let mut instance_query_str = "SELECT instance_id,
-                    network,
-                    from_addr,
-                    to_addr,
-                    amount,
-                    fee,
-                    status,
-                    pegin_request_txid,
-                    pegin_request_height,
-                    pegin_prepare_txid,
-                    pegin_confirm_txid,
-                    pegin_cancel_txid,
-                    unsign_pegin_confirm_tx,
-                    committees_sigs,
-                    committees,
-                    pegin_data_txid,
-                    timeout,
-                    created_at,
-                    updated_at
-             FROM instance"
-            .to_string();
-        let mut instance_count_str = "SELECT count(*) as total_instances FROM instance".to_string();
-        let mut conditions: Vec<String> = vec![];
-        if let Some(from_addr) = from_addr {
-            conditions.push(format!("from_addr = \'{from_addr}\'"));
-        }
-        if let Some(status) = status {
-            conditions.push(format!("status = \'{status}\'"));
-        }
-        if let Some(earliest_updated) = earliest_updated {
-            conditions.push(format!("updated_at >= {earliest_updated}"));
-        }
-        if !conditions.is_empty() {
-            let condition_str = conditions.join(" AND ");
-            instance_query_str = format!("{instance_query_str} WHERE {condition_str}");
-            instance_count_str = format!("{instance_count_str} WHERE {condition_str}");
-        }
 
-        instance_query_str = format!("{instance_query_str} ORDER BY created_at DESC ");
-        if let Some(limit) = limit {
-            instance_query_str = format!("{instance_query_str} LIMIT {limit}");
-        }
-        if let Some(offset) = offset {
-            instance_query_str = format!("{instance_query_str} OFFSET {offset}");
-        }
-        let instances = sqlx::query_as::<_, Instance>(instance_query_str.as_str())
-            .fetch_all(self.conn())
-            .await?;
-        let total_instances = sqlx::query(instance_count_str.as_str())
-            .fetch_one(self.conn())
-            .await?
-            .get::<i64, &str>("total_instances");
-
-        Ok((instances, total_instances))
-    }
-
-    /// Update Instance
-    pub async fn update_instance(&mut self, instance: Instance) -> anyhow::Result<u64> {
-        let committees_sigs_json = serde_json::to_string(&instance.committees_sigs)?;
-        let committees_json = serde_json::to_string(&instance.committees)?;
-        let row = sqlx::query!(
-            r#"UPDATE instance
-             SET    network = ?, 
-                    from_addr = ?,
-                    to_addr = ?,
-                    amount = ?,
-                    fee = ?,
-                    status = ?,
-                    pegin_request_txid = ?,
-                    pegin_request_height = ?,
-                    pegin_prepare_txid = ?,
-                    pegin_confirm_txid = ?,
-                    pegin_cancel_txid = ?,
-                    unsign_pegin_confirm_tx = ?,
-                    committees_sigs = ?,
-                    committees = ?,
-                    pegin_data_txid = ?,
-                    timeout = ?,
-                    updated_at = ?
-            WHERE instance_id = ?"#,
-            instance.network,
-            instance.from_addr,
-            instance.to_addr,
-            instance.amount,
-            instance.fee,
-            instance.status,
-            instance.pegin_request_txid,
-            instance.pegin_request_height,
-            instance.pegin_prepare_txid,
-            instance.pegin_confirm_txid,
-            instance.pegin_cancel_txid,
-            instance.unsign_pegin_confirm_tx,
-            committees_sigs_json,
-            committees_json,
-            instance.pegin_data_txid,
-            instance.timeout,
-            instance.updated_at,
-            instance.instance_id,
-        )
-        .execute(self.conn())
-        .await?;
-        Ok(row.rows_affected())
-    }
-
-    /// Insert or update graph
-    pub async fn update_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
+    /// Insert or update a graph
+    ///
+    /// Performs an INSERT OR REPLACE operation on the graph table.
+    /// If a graph with the same graph_id exists, it will be updated.
+    /// If no graph exists, a new one will be created.
+    ///
+    /// Parameters:
+    /// - graph: The complete graph data to insert or update
+    ///
+    /// Returns:
+    /// - Ok(affected_rows) number of rows affected by the operation
+    /// - Err if the operation failed
+    pub async fn upsert_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             r#"INSERT OR
              REPLACE INTO graph (graph_id, instance_id, graph_ipfs_base_url, pegin_txid,
@@ -352,6 +455,19 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    /// Update expired instances status
+    ///
+    /// Updates the status of instances that have expired based on a time threshold.
+    /// This is typically used for cleanup operations to mark old instances as expired.
+    ///
+    /// Parameters:
+    /// - current_status: The current status to match for instances to be updated
+    /// - expired_status: The new status to set for expired instances
+    /// - time_threshold: Timestamp threshold - instances updated before this time will be marked as expired
+    ///
+    /// Returns:
+    /// - Ok(affected_rows) number of instances that were updated
+    /// - Err if the update operation failed
     pub async fn update_expired_instance(
         &mut self,
         current_status: &str,
@@ -369,78 +485,126 @@ impl<'a> StorageProcessor<'a> {
         Ok(row.rows_affected())
     }
 
-    pub async fn update_instance_fields(
+    /// Update instance status
+    ///
+    /// A concise method specifically for updating instance status
+    pub async fn update_instance_status(
         &mut self,
         instance_id: &Uuid,
-        status: Option<String>,
-        pegin_tx_info: Option<(String, i64)>,
-        pegin_data_txid: Option<String>,
-    ) -> anyhow::Result<()> {
-        let instance_option = sqlx::query_as::<_, Instance>(
-            "SELECT instance_id AS \"instance_id:Uuid\",
-                    network,
-                    from_addr,
-                    to_addr,
-                    amount,
-                    fee,
-                    status,
-                    pegin_request_txid,
-                    pegin_request_height,
-                    pegin_prepare_txid,
-                    pegin_confirm_txid,
-                    pegin_cancel_txid,
-                    unsign_pegin_confirm_tx,
-                    committees_sigs,
-                    committees,
-                    pegin_data_txid,
-                    timeout,
-                    created_at,
-                    updated_at
-            FROM instance
-            WHERE instance_id = ?",
-        )
-        .bind(instance_id)
-        .fetch_optional(self.conn())
-        .await?;
-        if instance_option.is_none() {
-            warn!("instance :{instance_id:?} not exit");
-            return Ok(());
-        }
-        let instance = instance_option.unwrap();
-        let status = if let Some(status) = status { status } else { instance.status };
-
-        let (pegin_confirm_txid, fee) = if let Some((pegin_confirm_txid, fee)) = pegin_tx_info {
-            (Some(pegin_confirm_txid), fee)
-        } else {
-            (instance.pegin_confirm_txid, 0)
-        };
-        let pegin_data_txid = if let Some(pegin_data_txid) = pegin_data_txid {
-            pegin_data_txid
-        } else {
-            instance.pegin_data_txid
-        };
+        new_status: &str,
+    ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
-        let _ = sqlx::query!(
-            "UPDATE instance
-             SET status     = ?,
-                 fee = ? ,
-                 pegin_confirm_txid = ?,
-                 pegin_data_txid  = ?,
-                 updated_at = ?
-             WHERE instance_id = ?",
-            status,
-            fee,
+        let result = sqlx::query!(
+            "UPDATE instance SET status = ?, updated_at = ? WHERE instance_id = ?",
+            new_status,
+            current_time,
+            instance_id
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update instance pegin confirmation information
+    ///
+    /// Method specifically for updating pegin confirmation transaction ID and fee
+    pub async fn update_instance_pegin_confirm(
+        &mut self,
+        instance_id: &Uuid,
+        pegin_confirm_txid: &str,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let result = sqlx::query!(
+            "UPDATE instance SET pegin_confirm_txid = ?, updated_at = ? WHERE instance_id = ?",
             pegin_confirm_txid,
+            current_time,
+            instance_id
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update instance pegin data transaction ID
+    ///
+    /// Method specifically for updating pegin data transaction ID
+    pub async fn update_instance_pegin_data_txid(
+        &mut self,
+        instance_id: &Uuid,
+        pegin_data_txid: &str,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let result = sqlx::query!(
+            "UPDATE instance SET pegin_data_txid = ?, updated_at = ? WHERE instance_id = ?",
             pegin_data_txid,
             current_time,
             instance_id
         )
         .execute(self.conn())
         .await?;
-        Ok(())
+
+        Ok(result.rows_affected() > 0)
     }
 
-    pub async fn update_batch_instance_status(
+    /// Update instance fields using builder pattern
+    ///
+    /// This is the most elegant update method, using the InstanceUpdate builder pattern
+    /// Provides type safety and clear API
+    pub async fn update_instance(&mut self, params: &InstanceUpdate) -> anyhow::Result<bool> {
+        if !params.has_updates() {
+            return Ok(false);
+        }
+
+        // Build dynamic update query using QueryBuilder
+        let mut query_builder = QueryBuilder::update("instance");
+
+        // Add SET fields
+        if let Some(ref status) = params.status {
+            query_builder.set_field("status", QueryParam::Text(status.clone()));
+        }
+
+        if let Some(ref txid) = params.pegin_confirm_txid {
+            query_builder.set_field("pegin_confirm_txid", QueryParam::Text(txid.clone()));
+        }
+
+        if let Some(ref txid) = params.pegin_data_txid {
+            query_builder.set_field("pegin_data_txid", QueryParam::Text(txid.clone()));
+        }
+
+        if let Some(ref committees_answers) = params.committees_answers {
+            let committees_answers_json = serde_json::to_string(committees_answers)?;
+            query_builder
+                .set_field("committees_answers", QueryParam::Text(committees_answers_json));
+        }
+
+        // Add update time
+        let current_time = get_current_timestamp_secs();
+        query_builder.set_field("updated_at", QueryParam::Int(current_time));
+
+        // Add WHERE clause
+        query_builder
+            .and_where("instance_id = ?", Some(QueryParam::Text(params.instance_id.to_string())));
+
+        // Get SQL and parameters
+        let update_sql = query_builder.get_sql();
+        let query_params = query_builder.get_params();
+
+        // Execute query
+        let mut query = sqlx::query(&update_sql);
+        for param in &query_params {
+            match param {
+                QueryParam::Text(s) => query = query.bind(s),
+                QueryParam::Int(i) => query = query.bind(i),
+            }
+        }
+
+        let result = query.execute(self.conn()).await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn update_instances_status_batch(
         &mut self,
         status: &str,
         ids: &[Uuid],
@@ -462,43 +626,159 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn update_graph_fields(&mut self, params: UpdateGraphParams) -> anyhow::Result<()> {
-        let mut update_fields = vec![];
-        if let Some(status) = params.status {
-            update_fields.push(format!("status = \'{status}\'"));
-        }
-        if let Some(ipfs_base_url) = params.ipfs_base_url {
-            update_fields.push(format!("graph_ipfs_base_url = \'{ipfs_base_url}\'"));
+    /// Add or update a single committee answer for an instance
+    ///
+    /// This method allows adding or updating a single committee's answer
+    /// without needing to provide the entire committees_answers HashMap.
+    pub async fn update_instance_committee_answer(
+        &mut self,
+        instance_id: &Uuid,
+        committee_addr: &str,
+        xonly_pubkey: &[u8; 32],
+        l1_sig: Option<String>,
+        l2_sig: Option<String>,
+    ) -> anyhow::Result<bool> {
+        // First, get the current committees_answers
+        let current_instance = self.find_instance(instance_id).await?;
+        if current_instance.is_none() {
+            return Ok(false);
         }
 
+        let mut committees_answers = current_instance.unwrap().committees_answers;
+        committees_answers
+            .entry(committee_addr.to_string())
+            .and_modify(|existing| {
+                existing.xonly_pubkey = *xonly_pubkey;
+                if l1_sig.is_some() {
+                    existing.l1_sig = l1_sig.clone();
+                }
+                if l2_sig.is_some() {
+                    existing.l2_sig = l2_sig.clone();
+                }
+            })
+            .or_insert_with(|| CommitteeSignatures { xonly_pubkey: *xonly_pubkey, l1_sig, l2_sig });
+        self.update_instance_committees_answers_map(instance_id, &committees_answers).await
+    }
+
+    /// Remove a committee answer from an instance
+    ///
+    /// This method removes a specific committee's answer from the committees_answers HashMap.
+    pub async fn remove_instance_committee_answer(
+        &mut self,
+        instance_id: &Uuid,
+        committee: &str,
+    ) -> anyhow::Result<bool> {
+        // First, get the current committees_answers
+        let current_instance = self.find_instance(instance_id).await?;
+        if current_instance.is_none() {
+            return Ok(false);
+        }
+        let mut committees_answers = current_instance.unwrap().committees_answers;
+        // Remove the committee answer
+        committees_answers.remove(committee);
+        // Update the instance with the new committees_answers
+        self.update_instance_committees_answers_map(instance_id, &committees_answers).await
+    }
+
+    /// Get committees answers for an instance
+    ///
+    /// Returns the committees_answers HashMap for a specific instance.
+    pub async fn get_instance_committees_answers(
+        &mut self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Option<HashMap<String, CommitteeSignatures>>> {
+        let current_instance = self.find_instance(instance_id).await?;
+        if let Some(instance) = current_instance {
+            Ok(Some(instance.committees_answers))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Update instance committees answers with HashMap (convenience method)
+    ///
+    /// This is a convenience method that accepts a HashMap directly.
+    /// Internally converts it to arrays and calls the main update method.
+    pub async fn update_instance_committees_answers_map(
+        &mut self,
+        instance_id: &Uuid,
+        committees_answers: &HashMap<String, CommitteeSignatures>,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let committees_answers_json = serde_json::to_string(&committees_answers)?;
+
+        let result = sqlx::query!(
+            "UPDATE instance SET committees_answers = ?, updated_at = ? WHERE instance_id = ?",
+            committees_answers_json,
+            current_time,
+            instance_id
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn update_graph_fields(&mut self, params: UpdateGraphParams) -> anyhow::Result<()> {
+        // Build dynamic update query using QueryBuilder
+        let mut query_builder = QueryBuilder::update("graph");
+
+        // Add SET fields
+        if let Some(status) = params.status {
+            query_builder.set_field("status", QueryParam::Text(status));
+        }
+        if let Some(ipfs_base_url) = params.ipfs_base_url {
+            query_builder.set_field("graph_ipfs_base_url", QueryParam::Text(ipfs_base_url));
+        }
         if let Some(challenge_txid) = params.challenge_txid {
-            update_fields.push(format!("challenge_txid = \'{challenge_txid}\'"));
+            query_builder.set_field("challenge_txid", QueryParam::Text(challenge_txid));
         }
         if let Some(disprove_txid) = params.disprove_txid {
-            update_fields.push(format!("disprove_txid = \'{disprove_txid}\'"));
+            query_builder.set_field("disprove_txid", QueryParam::Text(disprove_txid));
         }
         if let Some(bridge_out_start_at) = params.bridge_out_start_at {
-            update_fields.push(format!("bridge_out_start_at = {bridge_out_start_at}"));
+            query_builder.set_field("bridge_out_start_at", QueryParam::Int(bridge_out_start_at));
         }
         if let Some(init_withdraw_txid) = params.init_withdraw_txid {
             if init_withdraw_txid.is_empty() {
-                update_fields.push("init_withdraw_txid = NULL".to_string());
+                // Set NULL value
+                query_builder.set_field_null("init_withdraw_txid");
             } else {
-                update_fields.push(format!("init_withdraw_txid = \'{init_withdraw_txid}\'"));
+                query_builder.set_field("init_withdraw_txid", QueryParam::Text(init_withdraw_txid));
             }
         }
-        if update_fields.is_empty() {
+
+        // Check if we have any updates
+        if query_builder.get_params().is_empty()
+            && !query_builder.get_sql().contains("init_withdraw_txid = NULL")
+        {
             return Ok(());
         }
-        let current_time = get_current_timestamp_secs();
-        update_fields.push(format!("updated_at = {current_time}"));
 
-        let update_str = format!(
-            "UPDATE graph SET {} WHERE hex(graph_id) = \'{}\' COLLATE NOCASE ",
-            update_fields.join(" , "),
-            hex::encode(params.graph_id)
+        // Add update time
+        let current_time = get_current_timestamp_secs();
+        query_builder.set_field("updated_at", QueryParam::Int(current_time));
+
+        // Add WHERE clause
+        query_builder.and_where(
+            "hex(graph_id) = ? COLLATE NOCASE",
+            Some(QueryParam::Text(hex::encode(params.graph_id))),
         );
-        let _ = sqlx::query(update_str.as_str()).execute(self.conn()).await?;
+
+        // Get SQL and parameters
+        let update_sql = query_builder.get_sql();
+        let query_params = query_builder.get_params();
+
+        // Execute query
+        let mut query = sqlx::query(&update_sql);
+        for param in &query_params {
+            match param {
+                QueryParam::Text(s) => query = query.bind(s),
+                QueryParam::Int(i) => query = query.bind(i),
+            }
+        }
+
+        let _ = query.execute(self.conn()).await?;
         Ok(())
     }
 
@@ -563,7 +843,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<(Vec<GraphFullData>, i64)> {
         let mut graph_query_str = "SELECT graph.graph_id,
                                                  graph.instance_id,
-                                                 instance.bridge_path AS bridge_path,
+                                                 0 AS bridge_path,
                                                  graph.status         AS status,
                                                  instance.network     AS network,
                                                  instance.from_addr   AS from_addr,
@@ -810,7 +1090,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     /// Insert or update node without reward field
-    pub async fn update_node(&mut self, node: Node) -> anyhow::Result<u64> {
+    pub async fn upsert_node(&mut self, node: Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             r#"
             INSERT INTO node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at)
@@ -2293,7 +2573,7 @@ impl<'a> StorageProcessor<'a> {
         .await?)
     }
 
-    pub async fn create_or_update_watch_contract(
+    pub async fn upsert_watch_contract(
         &mut self,
         watch_contract: &WatchContract,
     ) -> anyhow::Result<()> {
@@ -2329,7 +2609,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn create_or_update_goat_tx_record(
+    pub async fn upsert_goat_tx_record(
         &mut self,
         goat_tx_record: &GoatTxRecord,
     ) -> anyhow::Result<()> {
@@ -2358,7 +2638,7 @@ impl<'a> StorageProcessor<'a> {
                             tx_hash,
                             height,
                             is_local,
-                            prove_status,
+                            processing_status,
                             extra,
                             created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -2368,7 +2648,7 @@ impl<'a> StorageProcessor<'a> {
             update_goat_tx_record.tx_hash,
             update_goat_tx_record.height,
             update_goat_tx_record.is_local,
-            update_goat_tx_record.prove_status,
+            update_goat_tx_record.processing_status,
             update_goat_tx_record.extra,
             update_goat_tx_record.created_at
         )
@@ -2391,7 +2671,7 @@ impl<'a> StorageProcessor<'a> {
                         tx_hash,
                         height,
                         is_local,
-                        prove_status,
+                        processing_status,
                         extra,
                         created_at
             FROM goat_tx_record
@@ -2404,7 +2684,7 @@ impl<'a> StorageProcessor<'a> {
         .await?)
     }
 
-    pub async fn get_goat_tx_record_by_prove_status(
+    pub async fn get_goat_tx_record_by_processing_status(
         &mut self,
         tx_type: &str,
         prove_status: &str,
@@ -2416,12 +2696,12 @@ impl<'a> StorageProcessor<'a> {
                         tx_type, tx_hash,
                         height,
                         is_local,
-                        prove_status,
+                        processing_status,
                         extra,
                         created_at
             FROM goat_tx_record
             WHERE tx_type = ?
-                AND prove_status = ?
+                AND processing_status = ?
                 ORDER BY height ASC",
             tx_type,
             prove_status
@@ -2430,10 +2710,10 @@ impl<'a> StorageProcessor<'a> {
         .await?)
     }
 
-    pub async fn get_need_proved_goat_tx_heights(
+    pub async fn get_goat_tx_records_by_height_range_and_filters(
         &mut self,
         tx_type: &str,
-        prove_status: &str,
+        processing_status: &str,
         start_number: i64,
         end_number: i64,
     ) -> anyhow::Result<Vec<i64>> {
@@ -2441,41 +2721,18 @@ impl<'a> StorageProcessor<'a> {
             "SELECT DISTINCT height
             FROM goat_tx_record
             WHERE tx_type = ?
-                AND prove_status = ?
+                AND processing_status = ?
                 AND height > ?
                 AND height <= ?
                 ORDER BY height ASC",
             tx_type,
-            prove_status,
+            processing_status,
             start_number,
             end_number,
         )
         .fetch_all(self.conn())
         .await?;
         Ok(records.iter().map(|v| v.height).collect())
-    }
-
-    pub async fn update_goat_tx_proved_state_by_height(
-        &mut self,
-        tx_type: &str,
-        old_prove_statue: &str,
-        new_prove_status: &str,
-        max_block_height: i64,
-    ) -> anyhow::Result<()> {
-        sqlx::query!(
-            "UPDATE goat_tx_record
-                SET prove_status = ?
-            WHERE tx_type = ?
-                AND height < ?
-                AND prove_status = ?",
-            new_prove_status,
-            tx_type,
-            max_block_height,
-            old_prove_statue
-        )
-        .execute(self.conn())
-        .await?;
-        Ok(())
     }
 
     pub async fn get_tx_info_for_gen_proof(
@@ -2505,7 +2762,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(tx_info_rows.into_iter().map(|v| (v.graph_id, v.tx_hash, v.zkm_version)).collect())
     }
 
-    pub async fn update_goat_tx_record_prove_status(
+    pub async fn update_goat_tx_record_processing_status(
         &mut self,
         graph_id: &Uuid,
         instance_id: &Uuid,
@@ -2514,7 +2771,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         sqlx::query!(
             "UPDATE goat_tx_record
-             SET prove_status = ?
+             SET processing_status = ?
              where instance_id = ?
                AND graph_id = ?
                AND tx_type = ?",
@@ -2662,10 +2919,66 @@ impl<'a> StorageProcessor<'a> {
     }
 }
 
-fn create_place_holders<T>(inputs: &[T]) -> String {
-    inputs.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect::<Vec<_>>().join(",")
-}
-
 fn truncate_string(s: &str, max_len: usize) -> &str {
     if s.len() > max_len { &s[..max_len] } else { s }
+}
+
+/// Instance field update parameters
+///
+/// Provides a more elegant way to specify which instance fields to update
+#[derive(Debug, Clone)]
+pub struct InstanceUpdate {
+    pub instance_id: Uuid,
+    pub status: Option<String>,
+    pub pegin_confirm_txid: Option<String>,
+    pub pegin_data_txid: Option<String>,
+    pub committees_answers: Option<HashMap<String, CommitteeSignatures>>,
+}
+
+impl InstanceUpdate {
+    /// Create new update parameters
+    pub fn new(instance_id: Uuid) -> Self {
+        Self {
+            instance_id,
+            status: None,
+            pegin_confirm_txid: None,
+            pegin_data_txid: None,
+            committees_answers: None,
+        }
+    }
+
+    /// Set status
+    pub fn with_status(mut self, status: String) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    /// Set pegin confirmation information
+    pub fn with_pegin_confirm(mut self, txid: String, _fee: i64) -> Self {
+        self.pegin_confirm_txid = Some(txid);
+        self
+    }
+
+    /// Set pegin data transaction ID
+    pub fn with_pegin_data_txid(mut self, txid: String) -> Self {
+        self.pegin_data_txid = Some(txid);
+        self
+    }
+
+    /// Set committees answers
+    pub fn with_committees_answers(
+        mut self,
+        committees_answers: HashMap<String, CommitteeSignatures>,
+    ) -> Self {
+        self.committees_answers = Some(committees_answers);
+        self
+    }
+
+    /// Check if any fields need to be updated
+    pub fn has_updates(&self) -> bool {
+        self.status.is_some()
+            || self.pegin_confirm_txid.is_some()
+            || self.pegin_data_txid.is_some()
+            || self.committees_answers.is_some()
+    }
 }

@@ -1,11 +1,8 @@
-use crate::env::{CHEKSIG_P2WSH_INPUT_VBYTES, PEGIN_BASE_VBYTES};
+use crate::client::Utxo;
 use crate::utils::reflect_goat_address;
 use alloy::hex::ToHexExt;
-use bitcoin::address::NetworkUnchecked;
+use bitcoin::Txid;
 use bitcoin::consensus::encode::serialize_hex;
-use bitcoin::{Address, Amount, Network, OutPoint, Txid};
-use bitvm2_lib::types::CustomInputs;
-use goat::transactions::base::Input;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
@@ -14,29 +11,9 @@ use store::localdb::FilterGraphParams;
 use store::{Graph, GraphStatus, Instance, convert_to_step_state};
 use uuid::Uuid;
 
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Deserialize, Serialize, Default)]
-pub struct UTXO {
-    pub txid: String,
-    pub vout: u32,
-    pub value: u64,
-    //.. others
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InstanceSettingResponse {
     pub bridge_in_amount: Vec<f32>,
-}
-/// bridge-in: step1 & step2.1
-#[derive(Debug, Deserialize, Serialize)]
-pub struct BridgeInTransactionPreparerRequest {
-    pub instance_id: String, // UUID
-    pub network: String,     // testnet3 | mainnet
-    pub amount: i64,
-    pub fee_rate: i64,
-    pub utxo: Vec<UTXO>,
-    pub from: String, // BTC /charge
-    pub to: String,   // ETH
 }
 
 #[derive(Deserialize, Serialize)]
@@ -71,7 +48,7 @@ pub struct InstanceListRequest {
 #[derive(Deserialize, Serialize, Default)]
 pub struct InstanceWrap {
     pub instance: Option<Instance>,
-    pub utxo: Option<Vec<UTXO>>,
+    pub utxo: Option<Vec<Utxo>>,
     pub confirmations: u32,
     pub target_confirmations: u32,
 }
@@ -239,59 +216,10 @@ pub struct GraphRpcQueryDataWrap {
     pub target_confirmations: u32,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct P2pUserData {
-    pub instance_id: Uuid,
-    pub network: Network,
-    pub depositor_evm_address: [u8; 20],
-    pub pegin_amount: Amount,
-    pub user_inputs: CustomInputs,
-}
-
-impl From<&BridgeInTransactionPreparerRequest> for P2pUserData {
-    fn from(value: &BridgeInTransactionPreparerRequest) -> Self {
-        let network = Network::from_str(&value.network).expect("decode network success");
-        let change_address: Address<NetworkUnchecked> =
-            value.from.parse().expect("decode btc address");
-        let change_address = change_address.require_network(network).expect("set network");
-
-        let inputs: Vec<Input> = value
-            .utxo
-            .iter()
-            .map(|v| Input {
-                outpoint: OutPoint { txid: Txid::from_str(&v.txid).unwrap(), vout: v.vout },
-                amount: Amount::from_sat(v.value),
-            })
-            .collect();
-
-        let input_amount: u64 = value.amount as u64;
-        let input_size = inputs.len() as u64;
-        let user_inputs = CustomInputs {
-            inputs,
-            input_amount: Amount::from_sat(input_amount),
-            fee_amount: Amount::from_sat(
-                (PEGIN_BASE_VBYTES + CHEKSIG_P2WSH_INPUT_VBYTES * input_size)
-                    * value.fee_rate as u64,
-            ),
-            change_address,
-        };
-        let env_address =
-            alloy::primitives::Address::from_str(&value.to).expect("fail to decode address");
-        Self {
-            instance_id: Uuid::parse_str(&value.instance_id).unwrap(),
-            network,
-            depositor_evm_address: env_address.into_array(),
-            pegin_amount: Amount::from_sat(value.amount as u64),
-            user_inputs,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{generate_random_bytes, get_rand_btc_address_p2wpkh, get_rand_goat_address};
-    use alloy::primitives::Address;
+    use crate::utils::{generate_random_bytes, get_rand_goat_address};
     use store::localdb::FilterGraphParams;
     use uuid::Uuid;
 
@@ -339,27 +267,5 @@ mod tests {
         };
         let filter: FilterGraphParams = params.into();
         assert!(filter.graph_id.is_some() || filter.pegin_txid.is_some());
-    }
-
-    #[test]
-    fn test_from_bridge_in_transaction_preparer_request() {
-        let request = BridgeInTransactionPreparerRequest {
-            instance_id: Uuid::new_v4().to_string(),
-            network: "testnet".to_string(),
-            amount: 1000,
-            fee_rate: 10,
-            utxo: vec![UTXO { txid: hex::encode(generate_random_bytes(32)), vout: 0, value: 5000 }],
-            from: get_rand_btc_address_p2wpkh(Network::Testnet), // testnet address
-            to: get_rand_goat_address(),                         // ETH address
-        };
-
-        let p2p_user_data: P2pUserData = (&request).into();
-        assert_eq!(p2p_user_data.instance_id.to_string(), request.instance_id);
-        assert_eq!(p2p_user_data.network, Network::Testnet);
-        assert_eq!(p2p_user_data.pegin_amount, Amount::from_sat(request.amount as u64));
-        let expected_address = Address::from_str(&request.to).unwrap();
-        assert_eq!(p2p_user_data.depositor_evm_address, expected_address.into_array());
-        assert_eq!(p2p_user_data.user_inputs.inputs.len(), request.utxo.len());
-        assert_eq!(p2p_user_data.user_inputs.input_amount, Amount::from_sat(request.amount as u64));
     }
 }

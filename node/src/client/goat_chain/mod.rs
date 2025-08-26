@@ -26,6 +26,7 @@ mod chain_adaptor;
 mod evmchain;
 mod goat_adaptor;
 mod mock_goat_adaptor;
+pub use chain_adaptor::Utxo;
 
 impl GOATClient {
     pub fn new(goat_init_config: GoatInitConfig, goat_network: GoatNetwork) -> Self {
@@ -95,7 +96,7 @@ impl GOATClient {
     pub async fn answer_pegin_request(
         &self,
         instance_id: &Uuid,
-        pub_key: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String> {
         // TODO add only committee check
         let pegin_data = self.get_pegin_data(instance_id).await?;
@@ -122,19 +123,7 @@ impl GOATClient {
             );
         }
 
-        self.chain_service.answer_pegin_request(instance_id, pub_key).await
-    }
-
-    pub async fn post_graph_data(
-        &self,
-        instance_id: &Uuid,
-        graph_id: &Uuid,
-        operator_data: &GraphData,
-        committee_signs: &[u8],
-    ) -> anyhow::Result<String> {
-        self.chain_service
-            .post_graph_data(instance_id, graph_id, operator_data, committee_signs)
-            .await
+        self.chain_service.answer_pegin_request(instance_id, committee_xonly_pubkey).await
     }
 
     pub async fn parse_btc_block_header(
@@ -379,7 +368,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn post_operate_data(
+    pub async fn post_graph_data(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
@@ -387,26 +376,26 @@ impl GOATClient {
         committee_signs: &[u8],
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
-        let operator_data = cast_graph_to_graph_data(graph)?;
-        let operator_data_online = self.get_graph_data(graph_id).await?;
-        if operator_data_online.pegin_txid != [0_u8; 32] {
+        let graph_data = cast_graph_to_graph_data(graph)?;
+        let graph_data_online = self.get_graph_data(graph_id).await?;
+        if graph_data_online.pegin_txid != [0_u8; 32] {
             tracing::warn!(
-                "instance_id:{instance_id} graph_id {graph_id} operator data already posted",
+                "instance_id:{instance_id} graph_id {graph_id} graph data already posted",
             );
-            bail!("instance_id:{instance_id} graph_id {graph_id} operator data already posted");
+            bail!("instance_id:{instance_id} graph_id {graph_id} graph data already posted");
         }
 
         let pegin_data = self.get_pegin_data(instance_id).await?;
-        if pegin_data.pegin_txid != operator_data.pegin_txid {
+        if pegin_data.pegin_txid != graph_data.pegin_txid {
             tracing::warn!(
-                "instance_id:{instance_id} graph_id {graph_id} operator data pegin txid mismatch, exp:{},  act:{}",
+                "instance_id:{instance_id} graph_id {graph_id} graph data pegin txid mismatch, exp:{},  act:{}",
                 hex::encode(pegin_data.pegin_txid),
-                hex::encode(operator_data.pegin_txid),
+                hex::encode(graph_data.pegin_txid),
             );
             bail!(
-                "instance_id:{instance_id} graph_id {graph_id} operator data pegin txid mismatch, exp:{},  act:{}",
+                "instance_id:{instance_id} graph_id {graph_id} graph data pegin txid mismatch, exp:{},  act:{}",
                 hex::encode(pegin_data.pegin_txid),
-                hex::encode(operator_data.pegin_txid),
+                hex::encode(graph_data.pegin_txid),
             );
         }
 
@@ -415,19 +404,19 @@ impl GOATClient {
         let min_stake_for_pegin =
             min_stake_sats + pegin_data.pegin_amount_sats * stake_rate / GATEWAY_RATE_MULTIPLIER;
 
-        if operator_data.stake_amount_sats < min_stake_for_pegin {
+        if graph_data.stake_amount_sats < min_stake_for_pegin {
             tracing::warn!(
-                "instance_id:{instance_id} graph_id {graph_id} operator data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
-                operator_data.stake_amount_sats,
+                "instance_id:{instance_id} graph_id {graph_id} graph data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
+                graph_data.stake_amount_sats,
             );
             bail!(
-                "instance_id:{instance_id} graph_id {graph_id} operator data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
-                operator_data.stake_amount_sats,
+                "instance_id:{instance_id} graph_id {graph_id} graph data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
+                graph_data.stake_amount_sats,
             );
         }
 
         self.chain_service
-            .post_graph_data(instance_id, graph_id, &operator_data, committee_signs)
+            .post_graph_data(instance_id, graph_id, &graph_data, committee_signs)
             .await
     }
 

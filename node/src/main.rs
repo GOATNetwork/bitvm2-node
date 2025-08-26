@@ -13,11 +13,10 @@ use std::sync::{Arc, Mutex};
 use store::ipfs::IPFS;
 use tracing_subscriber::EnvFilter;
 
-use bitvm2_noded::rpc_service;
 use bitvm2_noded::utils::{
-    self, generate_local_key, run_watch_event_task, save_local_info,
-    set_node_external_socket_addr_env,
+    self, generate_local_key, save_local_info, set_node_external_socket_addr_env,
 };
+use bitvm2_noded::{rpc_service, run_watch_event_task};
 
 use anyhow::Result;
 use bitvm2_noded::middleware::swarm::{Bitvm2SwarmConfig, BitvmNetworkManager};
@@ -186,7 +185,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }));
-    if actor == Actor::Relayer || actor == Actor::Operator {
+    if actor == Actor::Relayer || actor == Actor::Operator || actor == Actor::Committee {
         let cancel_token_clone = cancellation_token.clone();
         task_handles.push(tokio::spawn(async move {
             match run_watch_event_task(actor_clone2, local_db_clone2, 5, cancel_token_clone).await {

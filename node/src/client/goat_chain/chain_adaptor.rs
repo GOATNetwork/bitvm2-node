@@ -22,7 +22,7 @@ pub trait ChainAdaptor: Send + Sync {
     async fn answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
-        pub_key: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String>;
     async fn post_pegin_data(
         &self,
@@ -152,15 +152,27 @@ impl From<u8> for WithdrawStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Utxo {
+    pub txid: [u8; 32],
+    pub vout: u32,
+    pub amount_stats: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeginData {
     pub status: PeginStatus,
+    pub instance_id: [u8; 16],
+    pub depositor_address: [u8; 20],
     pub pegin_amount_sats: u64,
-    pub fee_rate: u64,
-    pub user_inputs: Vec<u8>,
+    pub txn_fees: [u64; 3],
+    pub user_inputs: Vec<Utxo>,
+    pub user_xonly_pubkey: [u8; 32],
+    pub user_change_addr: String,
+    pub user_refund_addr: String,
     pub pegin_txid: [u8; 32],
     pub created_at: u64,
     pub committee_addresses: Vec<Address>,
-    pub committee_pubkeys: Vec<[u8; 32]>,
+    pub committee_xonly_pubkeys: Vec<[u8; 32]>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

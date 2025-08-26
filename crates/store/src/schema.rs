@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+// use base64::prelude::*;
+use std::collections::HashMap;
 use std::str::FromStr;
 use strum::{Display, EnumString};
 use uuid::Uuid;
@@ -7,6 +9,87 @@ use uuid::Uuid;
 pub const NODE_STATUS_ONLINE: &str = "Online";
 pub const NODE_STATUS_OFFLINE: &str = "Offline";
 pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;
+
+macro_rules! define_numeric_array {
+    ($name:ident, $size:expr) => {
+        define_numeric_array!($name, $size, u8);
+    };
+    ($name:ident, $size:expr, $type:ty) => {
+        #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+        pub struct $name(pub [$type; $size]);
+
+        impl TryFrom<String> for $name {
+            type Error = sqlx::Error;
+
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                let bytes = hex::decode(value).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
+                if bytes.len() != $size * std::mem::size_of::<$type>() {
+                    return Err(sqlx::Error::Decode(
+                        format!(
+                            "Expected {} bytes, got {}",
+                            $size * std::mem::size_of::<$type>(),
+                            bytes.len()
+                        )
+                        .into(),
+                    ));
+                }
+
+                let mut array = [0 as $type; $size];
+                for (i, chunk) in bytes.chunks(std::mem::size_of::<$type>()).enumerate() {
+                    if i < $size {
+                        let mut bytes_array = [0u8; std::mem::size_of::<$type>()];
+                        bytes_array.copy_from_slice(chunk);
+                        array[i] = <$type>::from_le_bytes(bytes_array);
+                    }
+                }
+                Ok($name(array))
+            }
+        }
+
+        impl From<$name> for String {
+            fn from(value: $name) -> String {
+                let mut bytes = Vec::new();
+                for &val in &value.0 {
+                    bytes.extend_from_slice(&val.to_le_bytes());
+                }
+                hex::encode(bytes)
+            }
+        }
+
+        impl sqlx::Type<sqlx::Sqlite> for $name {
+            fn type_info() -> sqlx::sqlite::SqliteTypeInfo {
+                <String as sqlx::Type<sqlx::Sqlite>>::type_info()
+            }
+        }
+
+        impl sqlx::Encode<'_, sqlx::Sqlite> for $name {
+            fn encode_by_ref(
+                &self,
+                args: &mut Vec<sqlx::sqlite::SqliteArgumentValue<'_>>,
+            ) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync>> {
+                let hex_string = hex::encode(
+                    self.0.iter().flat_map(|&val| val.to_le_bytes()).collect::<Vec<_>>(),
+                );
+                <String as sqlx::Encode<sqlx::Sqlite>>::encode_by_ref(&hex_string, args)
+            }
+        }
+
+        impl sqlx::Decode<'_, sqlx::Sqlite> for $name {
+            fn decode(
+                value: sqlx::sqlite::SqliteValueRef<'_>,
+            ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+                let string = <String as sqlx::Decode<sqlx::Sqlite>>::decode(value)?;
+                string
+                    .try_into()
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            }
+        }
+    };
+}
+
+define_numeric_array!(ByteArray32, 32);
+define_numeric_array!(Int64Array3, 3, i64);
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Node {
@@ -34,16 +117,27 @@ pub struct NodesOverview {
     pub offline_relayer: i64,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct CommitteeSignatures {
+    pub xonly_pubkey: [u8; 32],
+    pub l1_sig: Option<String>,
+    pub l2_sig: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
-pub enum BridgeInStatus {
+pub enum InstanceStatus {
     #[default]
-    Submitted,
-    Presigned,
-    PresignedFailed, // includes operator and Committee presigns
-    L1Broadcasted,
-    L2Minted, // success
-    L2MintedFailed,
-    Discarded, // Pegin tx utxo has been spent
+    UserInited, // from contract event request
+    // committee won't answer if userRequest is invalid(e.g. insufficient fee)
+    CommitteesAnswered,        // enough committee responsed & window expired
+    UserBroadcastPeginPrepare, // user pegin prepare
+    Presigned,                 // all committee signed PeginConfirm
+    PresignedFailed,           // includes operator and Committee presigns
+    RelayerL1Broadcasted,      // PeginConfirm broadcast by relayer
+    RelayerL2Minted,           // success
+    RelayerL2MintedFailed,
+    Timeout,      // time to cancle bridgein
+    UserCanceled, // user broadcast Pegin-cancel tx
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -53,18 +147,19 @@ pub struct Instance {
     pub from_addr: String,
     pub to_addr: String,
     pub amount: i64,
-    pub fee: i64,
+    pub fees: Int64Array3,
     pub status: String,
     pub pegin_request_txid: String,
     pub pegin_request_height: i64,
+    pub user_xonly_pubkey: ByteArray32,
+    pub user_change_addr: String,
+    pub user_refund_addr: String,
     pub pegin_prepare_txid: Option<String>,
     pub pegin_confirm_txid: Option<String>,
     pub pegin_cancel_txid: Option<String>,
     pub unsign_pegin_confirm_tx: Option<String>,
     #[sqlx(json)]
-    pub committees_sigs: Vec<String>,
-    #[sqlx(json)]
-    pub committees: Vec<String>,
+    pub committees_answers: HashMap<String, CommitteeSignatures>,
     pub pegin_data_txid: String,
     pub timeout: i64,
     pub created_at: i64,
@@ -528,6 +623,9 @@ pub struct WatchContract {
 pub enum GoatTxType {
     #[default]
     Normal,
+    BridgeInRequest,
+    CommitteeAnswer,
+    BridgeIn,
     PostPeginData,
     PostOperatorData,
     InitWithdraw,
@@ -539,11 +637,11 @@ pub enum GoatTxType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
-pub enum GoatTxProveStatus {
+pub enum GoatTxProcessingStatus {
     #[default]
-    NoNeed,
+    Skipped,
     Pending,
-    Proved,
+    Processed,
     Failed,
 }
 
@@ -555,7 +653,7 @@ pub struct GoatTxRecord {
     pub tx_hash: String,
     pub height: i64,
     pub is_local: bool,
-    pub prove_status: String,
+    pub processing_status: String,
     pub extra: Option<String>,
     pub created_at: i64,
 }
@@ -595,9 +693,11 @@ mod tests {
 
     #[test]
     fn test_bridge_in_status_from_str() {
-        assert_eq!(BridgeInStatus::from_str("Submitted").unwrap(), BridgeInStatus::Submitted);
-        assert_eq!(BridgeInStatus::from_str("L2Minted").unwrap(), BridgeInStatus::L2Minted);
-        assert!(BridgeInStatus::from_str("Invalid").is_err());
+        assert_eq!(
+            InstanceStatus::from_str("RelayerL2Minted").unwrap(),
+            InstanceStatus::RelayerL2Minted
+        );
+        assert!(InstanceStatus::from_str("Invalid").is_err());
     }
 
     #[test]
@@ -605,5 +705,25 @@ mod tests {
         assert_eq!(MessageType::from_str("BridgeInData").unwrap(), MessageType::BridgeInData);
         assert_eq!(MessageType::from_str("CreateInstance").unwrap(), MessageType::CreateInstance);
         assert!(MessageType::from_str("Invalid").is_err());
+    }
+
+    #[test]
+    fn test_byte_array_macro() {
+        let bytes = ByteArray32([1u8; 32]);
+        let hex_str: String = bytes.into();
+        let parsed: ByteArray32 = hex_str.try_into().unwrap();
+        assert_eq!(bytes.0, parsed.0);
+
+        define_numeric_array!(U32Array2, 2, u32);
+        let u32_array = U32Array2([123u32, 456u32]);
+        let hex_str: String = u32_array.into();
+        let parsed: U32Array2 = hex_str.try_into().unwrap();
+        assert_eq!(u32_array.0, parsed.0);
+
+        define_numeric_array!(I64Array1, 1, i64);
+        let i64_array = I64Array1([-123i64]);
+        let hex_str: String = i64_array.into();
+        let parsed: I64Array1 = hex_str.try_into().unwrap();
+        assert_eq!(i64_array.0, parsed.0);
     }
 }

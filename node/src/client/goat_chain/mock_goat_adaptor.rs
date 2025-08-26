@@ -145,7 +145,7 @@ impl ChainAdaptor for MockAdaptor {
     async fn answer_pegin_request(
         &self,
         _instance_id: &[u8; 16],
-        _pub_key: &[u8; 32],
+        _committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String> {
         Ok(TxHash::default().to_string())
     }
@@ -168,13 +168,18 @@ impl ChainAdaptor for MockAdaptor {
             hex::encode(instance_id),
             PeginData {
                 status: PeginStatus::None,
+                instance_id: [0_u8; 16],
+                depositor_address: [0_u8; 20],
                 pegin_amount_sats: 0,
-                fee_rate: 0,
                 user_inputs: vec![],
+                user_xonly_pubkey: [0_u8; 32],
+                user_change_addr: "".to_string(),
+                user_refund_addr: "".to_string(),
                 pegin_txid: tx.compute_txid().to_byte_array(),
                 created_at: 0,
                 committee_addresses: vec![],
-                committee_pubkeys: vec![],
+                committee_xonly_pubkeys: vec![],
+                txn_fees: [0_u64; 3],
             },
         );
 

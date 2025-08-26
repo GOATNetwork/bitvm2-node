@@ -1,5 +1,5 @@
 use crate::client::goat_chain::chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, WithdrawData,
+    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, Utxo, WithdrawData,
     WithdrawStatus,
 };
 use crate::client::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time;
+use uuid::Uuid;
 sol!(
     #[derive(Debug)]
     #[allow(missing_docs)]
@@ -50,20 +51,32 @@ sol!(
             Complete,
             Disproved
         }
+
+        struct Utxo {
+             bytes32 txid;
+             uint32 vout;
+             uint64 amountSats;
+        }
+
         struct PeginData {
-            PeginStatus status;
-            uint64 peginAmountSats;
-            uint64 feeRate;
-            bytes userInputs;
-            bytes32 peginTxid;
-            uint256 createdAt;
-            address[] committeeAddresses;
-            bytes32[] committeePubkeys;
+             PeginStatus status;
+             bytes16 instanceId;
+             address depositorAddress;
+             uint64 peginAmountSats;
+             uint64[3] txnFees;
+             Utxo[] userInputs;
+             bytes32 userXonlyPubkey;
+             string userChangeAddress;
+             string userRefundAddress;
+             bytes32 peginTxid;
+             uint256 createdAt;
+             address[] committeeAddresses;
+             bytes32[] committeeXonlyPubkeys;
         }
         struct WithdrawData {
+            WithdrawStatus status;
             bytes32 peginTxid;
             address operatorAddress;
-            WithdrawStatus status;
             bytes16 instanceId;
             uint256 lockAmount;
             uint256 btcBlockHeightAtWithdraw;
@@ -128,15 +141,13 @@ sol!(
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, BitcoinTx calldata rawDisproveTx, BitcoinTxProof calldata disproveProof, BitcoinTx calldata rawChallengeTx, BitcoinTxProof calldata ngeCProof) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof, bytes32 leaf,uint256 index) public pure returns (bool);
-        function answerPeginRequest(bytes16 instanceId, bytes32 pubkey) onlyCommittee() external;
+        function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) onlyCommittee() external;
         function getPeginData(bytes16 instanceId) external view returns (PeginData memory);
         function getGraphData(bytes16 graphId) external view returns (GraphData memory);
 
 
     }
 );
-
-use uuid::Uuid;
 
 pub struct GoatInitConfig {
     pub rpc_url: Url,
@@ -300,17 +311,33 @@ impl From<IGateway::WithdrawStatus> for WithdrawStatus {
     }
 }
 
+impl From<&IGateway::Utxo> for Utxo {
+    fn from(value: &IGateway::Utxo) -> Self {
+        Self { txid: value.txid.0, vout: value.vout, amount_stats: value.amountSats }
+    }
+}
+
 impl From<IGateway::PeginData> for PeginData {
     fn from(value: IGateway::PeginData) -> Self {
         Self {
             status: value.status.into(),
+            instance_id: value.instanceId.0,
+            depositor_address: value.depositorAddress.into_array(),
             pegin_amount_sats: value.peginAmountSats,
-            fee_rate: value.feeRate,
-            user_inputs: value.userInputs.to_vec(),
+
+            txn_fees: value.txnFees,
+            user_inputs: value.userInputs.iter().map(|v| v.into()).collect(),
+            user_xonly_pubkey: value.userXonlyPubkey.0,
+            user_change_addr: value.userChangeAddress,
+            user_refund_addr: value.userRefundAddress,
             pegin_txid: value.peginTxid.0,
             created_at: value.createdAt.try_into().expect("failed to convert created"),
             committee_addresses: value.committeeAddresses.to_vec(),
-            committee_pubkeys: value.committeePubkeys.into_iter().map(|pubkey| pubkey.0).collect(),
+            committee_xonly_pubkeys: value
+                .committeeXonlyPubkeys
+                .into_iter()
+                .map(|pubkey| pubkey.0)
+                .collect(),
         }
     }
 }
@@ -406,9 +433,9 @@ impl ChainAdaptor for GoatAdaptor {
         let res =
             self.gate_way.withdrawDataMap(FixedBytes::<16>::from_slice(graph_id)).call().await?;
         Ok(WithdrawData {
-            pegin_txid: res._0.0,
-            operator_address: res._1.0.0,
-            status: res._2.into(),
+            status: res._0.into(),
+            pegin_txid: res._1.0,
+            operator_address: res._2.0.0,
             instance_id: res._3.0,
             lock_amount: res._4,
             btc_block_height_withdraw: res._5,
@@ -426,13 +453,13 @@ impl ChainAdaptor for GoatAdaptor {
     async fn answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
-        pub_key: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String> {
         let tx_request = self
             .gate_way
             .answerPeginRequest(
                 FixedBytes::from_slice(instance_id),
-                FixedBytes::from_slice(pub_key),
+                FixedBytes::from_slice(committee_xonly_pubkey),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -504,7 +531,7 @@ impl ChainAdaptor for GoatAdaptor {
             ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
         let graph_ids: Vec<Uuid> =
             ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
+        Ok(instance_ids.into_iter().zip(graph_ids).collect())
     }
 
     async fn get_instanceids_by_pubkey(
@@ -520,7 +547,7 @@ impl ChainAdaptor for GoatAdaptor {
             ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
         let graph_ids: Vec<Uuid> =
             ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        Ok(instance_ids.into_iter().zip(graph_ids.into_iter()).collect())
+        Ok(instance_ids.into_iter().zip(graph_ids).collect())
     }
 
     async fn init_withdraw(
