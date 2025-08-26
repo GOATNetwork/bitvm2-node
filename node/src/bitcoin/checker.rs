@@ -3,7 +3,9 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Amount, Block, Network, Transaction, Txid};
 use esplora_client::AsyncClient;
 use header_chain::verify_merkle_proof;
-use header_chain::{BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, MMRGuest, MMRHost, SPV};
+use header_chain::{
+    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, MMRGuest, MMRHost, SPV,
+};
 
 /// Fetch block at specific height
 #[allow(dead_code)]

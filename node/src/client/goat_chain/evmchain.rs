@@ -1,7 +1,8 @@
 use crate::client::goat_chain::chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, WithdrawData,
+    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, SequencerSet, WithdrawData,
 };
 use crate::client::goat_chain::mock_goat_adaptor::MockAdaptor;
+use alloy::primitives::Address;
 use alloy::rpc::types::TransactionReceipt;
 use uuid::Uuid;
 
@@ -21,6 +22,9 @@ impl EvmChain {
     }
 
     // Proxy all ChainAdaptor methods
+    pub fn get_default_signer_address(&self) -> Address {
+        self.adaptor.get_default_signer_address()
+    }
     pub async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
         self.adaptor.get_finalized_block_number().await
     }
@@ -193,5 +197,33 @@ impl EvmChain {
 
     pub async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
         self.adaptor.get_pegin_fee_check_info().await
+    }
+
+    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        self.adaptor.seq_set_pub_get_last_block_height().await
+    }
+
+    pub async fn seq_set_pub_update_sequencer_set(
+        &self,
+        sequencer_set: &SequencerSet,
+        signature: &[u8],
+    ) -> anyhow::Result<String> {
+        self.adaptor.seq_set_pub_update_sequencer_set(sequencer_set, signature).await
+    }
+    pub async fn seq_set_pub_update_publisher_set(
+        &self,
+        new_owners: &[[u8; 20]],
+        signatures: &[Vec<u8>],
+        sequencer_set: &SequencerSet,
+        sequencer_set_cmt_sigs: &[u8],
+    ) -> anyhow::Result<String> {
+        self.adaptor
+            .seq_set_pub_update_publisher_set(
+                new_owners,
+                signatures,
+                sequencer_set,
+                sequencer_set_cmt_sigs,
+            )
+            .await
     }
 }

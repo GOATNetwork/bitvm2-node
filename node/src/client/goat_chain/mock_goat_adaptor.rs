@@ -1,6 +1,6 @@
 use crate::client::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
-use alloy::primitives::TxHash;
+use alloy::primitives::{Address, TxHash};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use async_trait::async_trait;
@@ -82,6 +82,10 @@ impl MockAdaptor {
 
 #[async_trait]
 impl ChainAdaptor for MockAdaptor {
+    fn get_default_signer_address(&self) -> Address {
+        Address::ZERO
+    }
+
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
         Ok(1)
     }
@@ -360,6 +364,28 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
         Ok((0, 0))
+    }
+
+    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn seq_set_pub_update_sequencer_set(
+        &self,
+        _sequencer_set: &SequencerSet,
+        _signature: &[u8],
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
+    }
+
+    async fn seq_set_pub_update_publisher_set(
+        &self,
+        _new_owners: &[[u8; 20]],
+        _signatures: &[Vec<u8>],
+        _sequencer_set: &SequencerSet,
+        _sequencer_set_cmt_sigs: &[u8],
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
     }
 }
 

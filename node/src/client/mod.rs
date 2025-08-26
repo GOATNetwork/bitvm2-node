@@ -3,11 +3,12 @@ pub mod goat_chain;
 pub mod graphs;
 mod local_db;
 
-pub use goat_chain::Utxo;
+pub use goat_chain::{SequencerSet, Utxo};
 pub use local_db::create_local_db;
 
 #[cfg(test)]
 mod tests {
+    use crate::client::SequencerSet;
     use crate::client::btc_chain::BTCClient;
     use crate::client::goat_chain::{GOATClient, GoatInitConfig, GoatNetwork};
     use bitcoin::hashes::Hash;
@@ -34,5 +35,43 @@ mod tests {
             .await
             .expect("get result");
         assert!(res);
+    }
+
+    #[tokio::test]
+    async fn test_call_sequencer_set_publisher() {
+        // just show how to call  `updatePublisherSet`, `updateSequencerSet`
+        // todo remove
+        let global_init_config = GoatInitConfig::from_env_for_test();
+        let goat_client = GOATClient::new(global_init_config, GoatNetwork::Test);
+        // call `updatePublisherSet`  will fail as SequencerSetPublisher not initialized
+        let res = goat_client
+            .seq_set_pub_update_publisher_set(
+                &vec![[0_u8; 20]],
+                &vec![],
+                &SequencerSet {
+                    sequencer_set_hash: [0_u8; 32],
+                    publishers_hash: [0_u8; 32],
+                    p2wsh_sig_hash: [0_u8; 32],
+                    next_sequencer_set_hash: [0_u8; 32],
+                    goat_block_number: 100,
+                },
+                &vec![],
+            )
+            .await;
+        assert!(res.is_err());
+        // call `updateSequencerSet` will fail as SequencerSetPublisher not initialized
+        let res = goat_client
+            .seq_set_pub_update_sequencer_set(
+                &SequencerSet {
+                    sequencer_set_hash: [0_u8; 32],
+                    publishers_hash: [0_u8; 32],
+                    p2wsh_sig_hash: [0_u8; 32],
+                    next_sequencer_set_hash: [0_u8; 32],
+                    goat_block_number: 100,
+                },
+                &vec![],
+            )
+            .await;
+        assert!(res.is_err());
     }
 }

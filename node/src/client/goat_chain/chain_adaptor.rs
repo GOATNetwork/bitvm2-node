@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 #[async_trait]
 pub trait ChainAdaptor: Send + Sync {
+    fn get_default_signer_address(&self) -> Address;
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64>;
     async fn get_latest_block_number(&self) -> anyhow::Result<i64>;
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
@@ -95,6 +96,19 @@ pub trait ChainAdaptor: Send + Sync {
 
     async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)>;
     async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)>;
+    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
+    async fn seq_set_pub_update_sequencer_set(
+        &self,
+        sequencer_set: &SequencerSet,
+        signature: &[u8],
+    ) -> anyhow::Result<String>;
+    async fn seq_set_pub_update_publisher_set(
+        &self,
+        new_owners: &[[u8; 20]],
+        signatures: &[Vec<u8>],
+        sequencer_set: &SequencerSet,
+        sequencer_set_cmt_sigs: &[u8],
+    ) -> anyhow::Result<String>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {
@@ -213,6 +227,15 @@ pub struct BitcoinTxProof {
     pub height: u64,
     pub proof: Vec<[u8; 32]>,
     pub index: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct SequencerSet {
+    pub sequencer_set_hash: [u8; 32],
+    pub publishers_hash: [u8; 32],
+    pub p2wsh_sig_hash: [u8; 32],
+    pub next_sequencer_set_hash: [u8; 32],
+    pub goat_block_number: u64,
 }
 
 pub fn get_chain_adaptor(

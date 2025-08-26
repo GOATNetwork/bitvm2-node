@@ -1,6 +1,8 @@
 use crate::client::goat_chain::evmchain::EvmChain;
 use crate::env::GATEWAY_RATE_MULTIPLIER;
 use crate::utils::get_stake_amount;
+use alloy::consensus::crypto::secp256k1::recover_signer;
+use alloy::primitives::{B256, Signature};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::consensus::encode::deserialize_hex;
@@ -11,7 +13,8 @@ use store::Graph;
 use uuid::Uuid;
 pub mod utils;
 use crate::client::btc_chain::BTCClient;
-use crate::client::goat_chain::chain_adaptor::PeginStatus;
+use chain_adaptor::PeginStatus;
+pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
     BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
@@ -515,6 +518,49 @@ impl GOATClient {
         }
 
         Ok((root, proof.to_vec(), leaf, height, index, raw_header.to_vec()))
+    }
+
+    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        self.chain_service.seq_set_pub_get_last_block_height().await
+    }
+
+    pub async fn seq_set_pub_update_sequencer_set(
+        &self,
+        sequencer_set: &SequencerSet,
+        sign: &[u8],
+    ) -> anyhow::Result<String> {
+        let latest_height = self.chain_service.seq_set_pub_get_last_block_height().await?;
+        if latest_height > sequencer_set.goat_block_number {
+            bail!(
+                "InvalidGOATHeight, input latest block number: {latest_height} is greater than sequencer_set: {}.",
+                sequencer_set.goat_block_number
+            );
+        }
+        let addr = recover_signer(
+            &Signature::from_raw(sign)?,
+            B256::from_slice(&sequencer_set.sequencer_set_hash),
+        )?;
+        let addr_exp = self.chain_service.get_default_signer_address();
+        if addr != addr_exp {
+            bail!("P2WSHSignatureMismatch, exp:{addr_exp}, act:{addr}");
+        }
+        self.chain_service.seq_set_pub_update_sequencer_set(sequencer_set, sign).await
+    }
+    pub async fn seq_set_pub_update_publisher_set(
+        &self,
+        new_owners: &[[u8; 20]],
+        signatures: &[Vec<u8>],
+        sequencer_set: &SequencerSet,
+        sequencer_set_cmt_sigs: &[u8],
+    ) -> anyhow::Result<String> {
+        self.chain_service
+            .seq_set_pub_update_publisher_set(
+                new_owners,
+                signatures,
+                sequencer_set,
+                sequencer_set_cmt_sigs,
+            )
+            .await
     }
 }
 
