@@ -13,26 +13,23 @@ pub trait ChainAdaptor: Send + Sync {
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64>;
     async fn get_latest_block_number(&self) -> anyhow::Result<i64>;
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
-    async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool>;
-    async fn get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData>;
-    async fn is_operator_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<bool>;
-    async fn get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData>;
-    async fn get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData>;
-
-    async fn get_response_window_blocks(&self) -> anyhow::Result<u64>;
-    async fn answer_pegin_request(
+    async fn gateway_get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData>;
+    async fn gateway_get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData>;
+    async fn gateway_get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData>;
+    async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64>;
+    async fn gateway_answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
         committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String>;
-    async fn post_pegin_data(
+    async fn gateway_post_pegin_data(
         &self,
         instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
-    async fn post_graph_data(
+    async fn gateway_post_graph_data(
         &self,
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
@@ -40,44 +37,44 @@ pub trait ChainAdaptor: Send + Sync {
         committee_signs: &[u8],
     ) -> anyhow::Result<String>;
 
-    async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
+    async fn gateway_get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
 
-    async fn parse_btc_block_header(
+    async fn gateway_parse_btc_block_header(
         &self,
         raw_header: &[u8],
     ) -> anyhow::Result<([u8; 32], [u8; 32])>;
 
-    async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
-    async fn get_instanceids_by_pubkey(
+    async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
+    async fn gateway_get_instanceids_by_pubkey(
         &self,
         operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
-    async fn init_withdraw(
+    async fn gateway_init_withdraw(
         &self,
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
     ) -> anyhow::Result<String>;
-    async fn cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String>;
-    async fn process_withdraw(
+    async fn gateway_cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String>;
+    async fn gateway_process_withdraw(
         &self,
         graph_id: &[u8; 16],
         raw_kickoff_tx: &BitcoinTx,
         kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
-    async fn finish_withdraw_happy_path(
+    async fn gateway_finish_withdraw_happy_path(
         &self,
         graph_id: &[u8; 16],
         raw_take1_tx: &BitcoinTx,
         take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
-    async fn finish_withdraw_unhappy_path(
+    async fn gateway_finish_withdraw_unhappy_path(
         &self,
         graph_id: &[u8; 16],
         raw_take2_tx: &BitcoinTx,
         take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
-    async fn finish_withdraw_disproved(
+    async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],
         raw_disproved_tx: &BitcoinTx,
@@ -86,7 +83,7 @@ pub trait ChainAdaptor: Send + Sync {
         challenge_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
-    async fn verify_merkle_proof(
+    async fn gateway_verify_merkle_proof(
         &self,
         root: &[u8; 32],
         proof: &[[u8; 32]],
@@ -94,8 +91,8 @@ pub trait ChainAdaptor: Send + Sync {
         index: u64,
     ) -> anyhow::Result<bool>;
 
-    async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)>;
-    async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)>;
+    async fn gateway_get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)>;
+    async fn gateway_get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)>;
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
     async fn seq_set_pub_update_sequencer_set(
         &self,

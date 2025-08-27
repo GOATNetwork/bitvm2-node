@@ -286,7 +286,7 @@ mod tests {
     }
     fn init(remote_proof_server: Option<String>) {
         unsafe {
-            std::env::set_var("RUST_LOG", "debug");
+            std::env::set_var("RUST_LOG", "info");
             std::env::set_var(ENV_GOAT_CHAIN_URL, "https://rpc.testnet3.goat.network");
             std::env::set_var(
                 ENV_GOAT_GATEWAY_CONTRACT_ADDRESS,
@@ -437,7 +437,7 @@ mod tests {
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
                     "amount": 20000,
-                    "fee": 1000,
+                    "fees": [1000, 1000, 1000],
                     "status": "UserInited",
                     "pegin_request_txid": "",
                     "pegin_request_height":10000,
@@ -468,6 +468,7 @@ mod tests {
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
                     "amount": 80000,
+                    "fees": [1000, 1000, 1000],
                     "status": "Presigned",
                      "pegin_request_txid": hex::encode(generate_random_bytes(32)),
                     "pegin_request_height":10000,
@@ -481,7 +482,6 @@ mod tests {
                     "committees_answers": {},
                     "pegin_data_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
                     "timeout":10000,
-                    "fee": 2000,
                     "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                     "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                 }
@@ -501,6 +501,7 @@ mod tests {
                     "network": "testnet",
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
+                    "fees": [1000, 1000, 1000],
                     "amount": 80000,
                     "status": "Presigned",
                     "pegin_request_txid": hex::encode(generate_random_bytes(32)),
@@ -515,7 +516,6 @@ mod tests {
                     "committees_answers": {},
                     "pegin_data_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
                     "timeout":10000,
-                    "fee": 2000,
                     "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                     "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                 }

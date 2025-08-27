@@ -1219,7 +1219,7 @@ pub async fn recv_and_dispatch(
                     .await?;
             let take1_txid = graph.take1.tx().compute_txid();
             if tx_on_chain(btc_client, &take1_txid).await? {
-                let tx_hash = finish_withdraw_happy_path(
+                let tx_hash = gateway_finish_withdraw_happy_path(
                     btc_client,
                     goat_client,
                     &receive_data.graph_id,
@@ -1256,7 +1256,7 @@ pub async fn recv_and_dispatch(
                 get_bitvm2_graph_from_db(local_db, receive_data.instance_id, receive_data.graph_id)
                     .await?;
             if tx_on_chain(btc_client, &graph.take2.tx().compute_txid()).await? {
-                let tx_hash = finish_withdraw_unhappy_path(
+                let tx_hash = gateway_finish_withdraw_unhappy_path(
                     btc_client,
                     goat_client,
                     &receive_data.graph_id,
@@ -1321,7 +1321,7 @@ pub async fn recv_and_dispatch(
                     None,
                 )
                 .await?;
-                let tx_hash = finish_withdraw_disproved(
+                let tx_hash = gateway_finish_withdraw_disproved(
                     btc_client,
                     goat_client,
                     &receive_data.graph_id,

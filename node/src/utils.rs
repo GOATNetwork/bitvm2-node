@@ -142,7 +142,7 @@ pub async fn is_valid_withdraw(
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let withdraw_status = client.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok([WithdrawStatus::Initialized, WithdrawStatus::Processing].contains(&withdraw_status))
     // TODO: Only WithdrawStatus::Processing should be considered valid,
     // here WithdrawStatus::Initialized is also treated as valid to facilitate test
@@ -156,7 +156,7 @@ pub async fn is_withdraw_initialized_on_l2(
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let withdraw_status = client.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok(withdraw_status == WithdrawStatus::Initialized)
 }
 
@@ -567,7 +567,7 @@ pub async fn should_challenge(
     }
 
     // check if withdraw is initialized on L2
-    let withdraw_status = goat_client.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
     if withdraw_status == WithdrawStatus::Initialized
         || withdraw_status == WithdrawStatus::Processing
     {
@@ -764,28 +764,29 @@ pub fn get_test_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
 }
 
 /// l2 support
-pub async fn finish_withdraw_happy_path(
+pub async fn gateway_finish_withdraw_happy_path(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = goat_client.finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
+    let tx_hash = goat_client.gateway_finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
-pub async fn finish_withdraw_unhappy_path(
+pub async fn gateway_finish_withdraw_unhappy_path(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = goat_client.finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
+    let tx_hash =
+        goat_client.gateway_finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
 
-pub async fn finish_withdraw_disproved(
+pub async fn gateway_finish_withdraw_disproved(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
@@ -793,7 +794,7 @@ pub async fn finish_withdraw_disproved(
     challenge_tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let tx_hash = goat_client
-        .finish_withdraw_disproved(btc_client, graph_id, disprove_tx, challenge_tx)
+        .gateway_finish_withdraw_disproved(btc_client, graph_id, disprove_tx, challenge_tx)
         .await?;
     tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
@@ -1166,7 +1167,7 @@ pub async fn get_my_graph_for_instance(
     operator_pubkey: PublicKey,
 ) -> Result<Option<Uuid>, Box<dyn std::error::Error>> {
     let ids_vec = goat_client
-        .get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
+        .gateway_get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
         .await?;
     Ok(ids_vec.iter().find(|(a, _)| *a == instance_id).map(|(_, b)| *b))
 }
