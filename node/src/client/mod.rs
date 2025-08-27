@@ -40,6 +40,7 @@ mod tests {
     #[tokio::test]
     async fn test_call_sequencer_set_publisher() {
         // just show how to call  `updatePublisherSet`, `updateSequencerSet`
+        // PS: need to set the environment variable (GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS) representing the contract address.
         // todo remove
         let global_init_config = GoatInitConfig::from_env_for_test();
         let goat_client = GOATClient::new(global_init_config, GoatNetwork::Test);
