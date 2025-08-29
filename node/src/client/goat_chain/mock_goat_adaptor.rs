@@ -132,6 +132,20 @@ impl ChainAdaptor for MockAdaptor {
         Ok(0)
     }
 
+    async fn gateway_post_pegin_request(
+        &self,
+        _instance_id: &[u8; 16],
+        _pegin_amount_sats: u64,
+        _tx_fees: &[u64; 3],
+        _receiver_addr: &[u8; 20],
+        _user_inputs: &[Utxo],
+        _user_xonly_pubkey: &[u8; 32],
+        _user_change_addr: &str,
+        _user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        Ok(TxHash::default().to_string())
+    }
+
     async fn gateway_answer_pegin_request(
         &self,
         _instance_id: &[u8; 16],

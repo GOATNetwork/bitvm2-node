@@ -60,7 +60,7 @@ impl AppState {
         peer_id: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let btc_client = BTCClient::new(get_network(), None, false);
+        let btc_client = BTCClient::new(get_network(), None);
         let metrics_state = MetricsState::new(registry);
         let client = Client::new();
         Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, client }))
@@ -437,6 +437,7 @@ mod tests {
                     "to_addr": get_rand_goat_address(),
                     "amount": 20000,
                     "fees": [1000, 1000, 1000],
+                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
                     "status": "UserInited",
                     "pegin_request_txid": "",
                     "pegin_request_height":10000,
@@ -468,6 +469,7 @@ mod tests {
                     "to_addr": get_rand_goat_address(),
                     "amount": 80000,
                     "fees": [1000, 1000, 1000],
+                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
                     "status": "Presigned",
                      "pegin_request_txid": hex::encode(generate_random_bytes(32)),
                     "pegin_request_height":10000,
@@ -502,6 +504,7 @@ mod tests {
                     "to_addr": get_rand_goat_address(),
                     "fees": [1000, 1000, 1000],
                     "amount": 80000,
+                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
                     "status": "Presigned",
                     "pegin_request_txid": hex::encode(generate_random_bytes(32)),
                     "pegin_request_height":10000,

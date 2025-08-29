@@ -133,8 +133,8 @@ mod tests {
         Ok((base64_key, local_key.public().to_peer_id().to_string()))
     }
 
-    fn generate_bootnodes(peer_id: &str, port: u16) -> Vec<String> {
-        vec![format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer_id}")]
+    fn generate_bootnode_url(peer_id: &str, port: u16) -> String {
+      format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer_id}")
     }
 
     async fn create_and_run_bitvm_network_manager(
@@ -280,7 +280,7 @@ mod tests {
         let cancellation_token = CancellationToken::new();
         let cancel_token_clone = cancellation_token.clone();
         let (local_key, peer_id) = gen_local_key()?;
-        let bootnodes = generate_bootnodes(&peer_id, 9100);
+        let bootnode_url = generate_bootnode_url(&peer_id, 9100);
         tokio::spawn(create_and_run_bitvm_network_manager(
             Some(local_key),
             9100,
@@ -294,7 +294,7 @@ mod tests {
         tokio::spawn(create_and_run_bitvm_network_manager(
             None,
             9101,
-            bootnodes,
+            vec![bootnode_url],
             Actor::Operator,
             None,
             cancel_token_clone,
@@ -323,36 +323,6 @@ mod tests {
         cancellation_token.cancel();
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         assert!(success);
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_p2p_heart_beat_d() -> anyhow::Result<()> {
-        init();
-        let local_db = crate::client::create_local_db(&temp_file()).await;
-        let local_db_clone = local_db.clone();
-        let cancellation_token = CancellationToken::new();
-        let cancel_token_clone = cancellation_token.clone();
-        let (local_key, peer_id) = gen_local_key()?;
-        let bootnodes = generate_bootnodes(&peer_id, 9100);
-        tokio::spawn(create_and_run_bitvm_network_manager(
-            Some(local_key),
-            9100,
-            vec![],
-            Actor::Relayer,
-            Some(local_db),
-            cancel_token_clone,
-        ));
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        let cancel_token_clone = cancellation_token.clone();
-        tokio::spawn(create_and_run_bitvm_network_manager(
-            None,
-            9101,
-            bootnodes,
-            Actor::Operator,
-            None,
-            cancel_token_clone,
-        ));
         Ok(())
     }
 }

@@ -45,6 +45,7 @@ use musig2::{PartialSignature, PubNonce};
 use rand::Rng;
 use secp256k1::Secp256k1;
 use statics::*;
+use crate::client::Utxo as ClientUtxo;
 
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -234,7 +235,7 @@ pub async fn select_operator_inputs(
         stake_amount,
         fee_rate,
     )
-    .await?
+        .await?
     {
         Some((inputs, fee_amount, _)) => Ok(Some(CustomInputs {
             inputs,
@@ -320,7 +321,7 @@ pub async fn sign_and_broadcast_prekickoff_tx(
                 "previous outpoint {}:{} not belong to this node",
                 prev_outpoint.txid, prev_outpoint.vout
             )
-            .into());
+                .into());
         };
         node_sign(&mut prekickoff_tx, i, prev_output.value, EcdsaSighashType::All, &node_keypair)?;
     }
@@ -415,7 +416,7 @@ pub async fn complete_and_broadcast_challenge_tx(
         challenge_amount,
         fee_rate,
     )
-    .await?
+        .await?
     {
         Some((inputs, _, change_amount)) => {
             for input in &inputs {
@@ -518,7 +519,7 @@ pub fn node_p2wsh_script(pubkey: &PublicKey) -> ScriptBuf {
         { *pubkey }
         OP_CHECKSIG
     }
-    .compile()
+        .compile()
 }
 pub fn node_p2wsh_address(network: Network, pubkey: &PublicKey) -> Address {
     Address::p2wsh(&node_p2wsh_script(pubkey), network)
@@ -710,7 +711,7 @@ pub async fn get_groth16_proof(
         .get_graph_goat_tx_record(graph_id, &GoatTxType::ProceedWithdraw.to_string())
         .await?
         && let Ok((proof, pis, vk, version)) =
-            groth16::get_groth16_proof(local_db, tx_record.height as u64).await
+        groth16::get_groth16_proof(local_db, tx_record.height as u64).await
     {
         tracing::info!(
             "instance_id:{instance_id}, graph_id:{graph_id} finish get groth16 proof at version: {version}"
@@ -744,7 +745,7 @@ pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey, Box<dyn std::error::Er
 }
 
 pub fn get_test_groth16_proof()
--> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
+    -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
     let proof = hex::decode(
         "b6ef2c5aa48a2f599a13bc4d8010e4d0190aeb05ff79e21266aff8dde6353d1756191f0959c787f6dedfc0c47751aed2648775101285b9da2d6c4e912e74891f884bd672f94f4d78528fb10b5410a94b53bcef07f99952ef72b68c72a5c4ff2a3de7c314ffbf17df018a753f070448c2f698706d4c2b99bdb06f928cffe1bea0",
     )?;
@@ -1098,7 +1099,7 @@ pub async fn get_graph(
             "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
             graph.instance_id,
         )
-        .into());
+            .into());
     }
     Ok(graph)
 }
@@ -1188,7 +1189,7 @@ pub async fn get_graph_status(
             "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
             graph.instance_id,
         )
-        .into());
+            .into());
     }
     Ok(Some(
         GraphStatus::from_str(&graph.status)
@@ -1423,7 +1424,7 @@ pub fn get_rand_btc_address_p2wpkh(network: Network) -> String {
             .expect("Could not compress public key"),
         Network::Testnet,
     )
-    .to_string()
+        .to_string()
 }
 
 pub fn get_rand_btc_address_p2pkh(network: Network) -> String {
@@ -1433,7 +1434,7 @@ pub fn get_rand_btc_address_p2pkh(network: Network) -> String {
             .expect("Could not compress public key"),
         Network::Testnet,
     )
-    .to_string()
+        .to_string()
 }
 
 pub fn get_rand_goat_address() -> String {
@@ -1457,7 +1458,7 @@ pub async fn obsolete_sibling_graphs(
     for graph_id in all_graphs {
         if graph_id != reimbursed_graph_id
             && ![None, Some(GraphStatus::Disprove), Some(GraphStatus::Obsoleted)]
-                .contains(&get_graph_status(local_db, instance_id, graph_id).await?)
+            .contains(&get_graph_status(local_db, instance_id, graph_id).await?)
         {
             update_graph_fields(
                 local_db,
@@ -1468,7 +1469,7 @@ pub async fn obsolete_sibling_graphs(
                 None,
                 None,
             )
-            .await?;
+                .await?;
         }
     }
     Ok(())
@@ -1531,10 +1532,10 @@ pub async fn pop_local_unhandle_msg(
     // 1. create  groth16 proof for operator
     if actor == Actor::Operator
         && let Some(content) = operator_scan_ready_proof(
-            local_db,
-            get_proof_server_url(),
-            routes::v1::PROOFS_GROTH16_BASE,
-        )
+        local_db,
+        get_proof_server_url(),
+        routes::v1::PROOFS_GROTH16_BASE,
+    )
         .await?
     {
         return Ok(Some(content));
@@ -1694,6 +1695,19 @@ pub async fn generate_instance_from_event(
         .try_into()
         .map_err(|_| anyhow::anyhow!("user_x_only_pubkey must be exactly 32 bytes"))?;
 
+    let input_utxos: Vec<ClientUtxo> = event.user_inputs.iter().map(|v| {
+        let txid_bytes = hex::decode(&strip_hex_prefix_owned(&v.txid))
+            .map_err(|_| anyhow::anyhow!("Invalid txid hex format"))?;
+        let txid_array: [u8; 32] = txid_bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("txid must be exactly 32 bytes"))?;
+        Ok(ClientUtxo {
+            txid: txid_array,
+            vout: v.vout,
+            amount_stats: v.amount_sats.parse::<u64>().unwrap_or_default(),
+        })
+    }).collect::<anyhow::Result<Vec<ClientUtxo>>>()?;
+
     let instance = Instance {
         instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
         network: get_network().to_string(),
@@ -1701,6 +1715,7 @@ pub async fn generate_instance_from_event(
         to_addr: EvmAddress::from_str(&event.depositor_address)?.to_string(),
         amount: event.pegin_amount_sats.parse()?,
         fees: Int64Array3(event.txn_fees.clone().map(|v| v.parse::<i64>().unwrap_or_default())),
+        input_utxos: serde_json::to_string(&input_utxos)?,
         status: InstanceStatus::UserInited.to_string(),
         pegin_request_txid: event.transaction_hash.clone(),
         pegin_request_height: event.block_number.parse()?,

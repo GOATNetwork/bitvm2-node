@@ -88,6 +88,36 @@ impl GOATClient {
         self.chain_service.gateway_get_response_window_blocks().await
     }
 
+    pub async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        pegin_amount_sats: u64,
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        let pegin_data = self.gateway_get_pegin_data(instance_id).await?;
+        if pegin_data.status != PeginStatus::None {
+            tracing::warn!("instance_id:{instance_id} instanceId already used",);
+            bail!("instance_id:{instance_id} instanceId already used",);
+        }
+        self.chain_service
+            .gateway_post_pegin_request(
+                instance_id,
+                pegin_amount_sats,
+                tx_fees,
+                receiver_addr,
+                user_inputs,
+                user_xonly_pubkey,
+                user_change_addr,
+                user_refund_addr,
+            )
+            .await
+    }
+
     pub async fn gateway_answer_pegin_request(
         &self,
         instance_id: &Uuid,

@@ -17,6 +17,20 @@ pub trait ChainAdaptor: Send + Sync {
     async fn gateway_get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData>;
     async fn gateway_get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData>;
     async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64>;
+
+    async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &[u8; 16],
+        pegin_amount_sats: u64,
+        tx_fees: &[u64;3],
+        receiver_addr: &[u8;20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String>;
+
+
     async fn gateway_answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
@@ -246,4 +260,14 @@ pub fn get_chain_adaptor(
         GoatNetwork::Test => Box::new(GoatAdaptor::new(goat_config)),
         GoatNetwork::Local => Box::new(MockAdaptor::new(mock_adaptor_config)),
     }
+}
+
+
+#[test]
+fn sdd(){
+    println!("{}", serde_json::to_string(&Utxo{
+        txid: [1_u8;32],
+        vout: 0,
+        amount_stats: 110,
+    }).unwrap());
 }

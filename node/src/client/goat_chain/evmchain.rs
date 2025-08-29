@@ -1,3 +1,4 @@
+use crate::client::Utxo;
 use crate::client::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, SequencerSet, WithdrawData,
 };
@@ -46,6 +47,31 @@ impl EvmChain {
 
     pub async fn gateway_get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
         self.adaptor.gateway_get_graph_data(graph_id.as_bytes()).await
+    }
+
+    pub async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        pegin_amount_sats: u64,
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        self.adaptor
+            .gateway_post_pegin_request(
+                instance_id.as_bytes(),
+                pegin_amount_sats,
+                tx_fees,
+                receiver_addr,
+                user_inputs,
+                user_xonly_pubkey,
+                user_change_addr,
+                user_refund_addr,
+            )
+            .await
     }
 
     pub async fn gateway_answer_pegin_request(

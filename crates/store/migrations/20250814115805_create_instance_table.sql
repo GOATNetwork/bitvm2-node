@@ -9,6 +9,7 @@ CREATE TABLE instance
     `amount`                  BIGINT UNSIGNED NOT NULL DEFAULT 0,
     `fees`                    TEXT            NOT NULL DEFAULT '[0, 0, 0]',
     `status`                  TEXT            NOT NULL DEFAULT '',
+    `input_utxos`             TEXT            NOT NULL DEFAULT '',
     `pegin_request_txid`      TEXT            NOT NULL DEFAULT '',
     `pegin_request_height`    BIGINT UNSIGNED NOT NULL DEFAULT 0,
     `user_xonly_pubkey`       TEXT            NOT NULL DEFAULT '[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]',

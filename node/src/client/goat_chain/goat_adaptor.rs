@@ -5,7 +5,7 @@ use crate::client::goat_chain::chain_adaptor::{
 use crate::client::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
 use crate::client::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
 use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::TxHash;
+use alloy::primitives::{Address, TxHash};
 use alloy::providers::Identity;
 use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
 use alloy::rpc::types::TransactionReceipt;
@@ -24,6 +24,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time;
 use uuid::Uuid;
+
 sol!(
     #[derive(Debug)]
     #[allow(missing_docs)]
@@ -140,6 +141,7 @@ sol!(
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, BitcoinTx calldata rawDisproveTx, BitcoinTxProof calldata disproveProof, BitcoinTx calldata rawChallengeTx, BitcoinTxProof calldata ngeCProof) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof, bytes32 leaf,uint256 index) public pure returns (bool);
+        function postPeginRequest(bytes16 instanceId, uint64 peginAmountSats, uint64[3] calldata txnFees, address receiverAddress, Utxo[] calldata userInputs, bytes32 userXonlyPubkey, string calldata userChangeAddress, string calldata userRefundAddress) external payable;
         function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) onlyCommittee() external;
         function getPeginData(bytes16 instanceId) external view returns (PeginData memory);
         function getGraphData(bytes16 graphId) external view returns (GraphData memory);
@@ -368,6 +370,16 @@ impl From<&IGateway::Utxo> for Utxo {
     }
 }
 
+impl From<&Utxo> for IGateway::Utxo {
+    fn from(value: &Utxo) -> Self {
+        Self {
+            txid: FixedBytes::from_slice(&value.txid),
+            vout: value.vout,
+            amountSats: value.amount_stats,
+        }
+    }
+}
+
 impl From<IGateway::PeginData> for PeginData {
     fn from(value: IGateway::PeginData) -> Self {
         Self {
@@ -505,6 +517,37 @@ impl ChainAdaptor for GoatAdaptor {
     async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
         let gateway = self.get_gateway()?;
         Ok(gateway.responseWindowBlocks().call().await?.try_into()?)
+    }
+
+    async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &[u8; 16],
+        pegin_amount_sats: u64,
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        let gateway = self.get_gateway()?;
+        let user_inputs: Vec<IGateway::Utxo> = user_inputs.iter().map(|u| u.into()).collect();
+        let tx_request = gateway
+            .postPeginRequest(
+                FixedBytes::from_slice(instance_id),
+                pegin_amount_sats,
+                tx_fees.clone(),
+                Address::from_slice(receiver_addr),
+                user_inputs,
+                FixedBytes::from_slice(user_xonly_pubkey),
+                user_change_addr.to_string(),
+                user_refund_addr.to_string(),
+            )
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let res = self.handle_transaction_request(tx_request).await?;
+        Ok(res.to_string())
     }
 
     async fn gateway_answer_pegin_request(

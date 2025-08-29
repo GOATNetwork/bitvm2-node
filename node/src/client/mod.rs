@@ -19,7 +19,7 @@ mod tests {
     async fn test_spv_check() {
         let global_init_config = GoatInitConfig::from_env_for_test();
         //  let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
-        let btc_client = BTCClient::new(Network::Testnet, None, false);
+        let btc_client = BTCClient::new(Network::Testnet, None);
         let goat_client = GOATClient::new(global_init_config, GoatNetwork::Test);
         let tx_id =
             Txid::from_str("cd557f6656051531ab53d08a43524330b39344bb98b710461450feda4ff4b231")

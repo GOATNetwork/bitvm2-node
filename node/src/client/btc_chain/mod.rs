@@ -14,9 +14,9 @@ pub struct BTCClient {
 }
 
 impl BTCClient {
-    pub fn new(network: Network, esplora_url: Option<&str>, is_mock: bool) -> Self {
+    pub fn new(network: Network, esplora_url: Option<&str>) -> Self {
         BTCClient {
-            chain_service: BitcoinChain::new(get_btc_chain_adapter(network, esplora_url, is_mock)),
+            chain_service: BitcoinChain::new(get_btc_chain_adapter(network, esplora_url, false)),
         }
     }
 
@@ -80,7 +80,7 @@ impl BTCClient {
         &self,
         tx_id: &Txid,
     ) -> anyhow::Result<(TxMerkleNode, MerkleProof, Vec<u8>)> {
-        self.chain_service.get_bitc_merkle_proof(tx_id).await
+        self.chain_service.get_btc_merkle_proof(tx_id).await
     }
 
     pub async fn fetch_btc_tx(

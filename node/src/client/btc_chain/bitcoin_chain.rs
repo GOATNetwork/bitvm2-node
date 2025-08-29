@@ -85,7 +85,7 @@ impl BitcoinChain {
         self.adaptor.get_address_utxo(address).await
     }
 
-    pub async fn get_bitc_merkle_proof(
+    pub async fn get_btc_merkle_proof(
         &self,
         tx_id: &Txid,
     ) -> anyhow::Result<(TxMerkleNode, MerkleProof, Vec<u8>)> {
@@ -110,7 +110,7 @@ impl BitcoinChain {
         &self,
         tx_id: &Txid,
     ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64, Vec<u8>)> {
-        let (root, proof_info, raw_header) = self.get_bitc_merkle_proof(tx_id).await?;
+        let (root, proof_info, raw_header) = self.get_btc_merkle_proof(tx_id).await?;
         let proof: Vec<[u8; 32]> = proof_info.merkle.iter().map(|v| v.to_byte_array()).collect();
         let leaf = tx_id.to_byte_array();
         Ok((

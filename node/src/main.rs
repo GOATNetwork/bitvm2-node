@@ -145,7 +145,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_db = bitvm2_noded::client::create_local_db(&opt.db_path).await;
     let handler = BitvmNodeProcessor {
         local_db: local_db.clone(),
-        btc_client: BTCClient::new(get_network(), None, false),
+        btc_client: BTCClient::new(get_network(), None),
         goat_client: GOATClient::new(env::goat_config_from_env().await, env::get_goat_network()),
         ipfs: IPFS::new(&get_ipfs_url()),
     };
@@ -191,7 +191,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         task_handles.push(tokio::spawn(async move {
             let goat_client =
                 Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
-            let btc_client = Arc::new(BTCClient::new(get_network(), None, false));
+            let btc_client = Arc::new(BTCClient::new(get_network(), None));
             match run_watch_event_task(
                 actor_clone2,
                 local_db_clone2,

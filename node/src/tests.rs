@@ -53,7 +53,7 @@ pub mod tests {
     }
     async fn create_bitvm2_client(network: Network) -> (LocalDB, BTCClient) {
         let local_db = crate::client::create_local_db(&temp_file()).await;
-        let btc_client = BTCClient::new(network, Some(BTCD_RPC_URL), false);
+        let btc_client = BTCClient::new(network, Some(BTCD_RPC_URL));
         (local_db, btc_client)
     }
 
