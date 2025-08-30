@@ -3,6 +3,41 @@ use crate::client::btc_chain::mock_bitcoin_adaptor::MockBitcoinAdaptor;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid, block::Header};
 use esplora_client::{MerkleProof, Utxo};
 
+#[derive(Eq, PartialEq, Clone, Copy)]
+pub enum BitcoinNetwork {
+    Bitcoin,
+    Testnet,
+    Testnet4,
+    Signet,
+    Regtest,
+    Local,
+}
+
+impl BitcoinNetwork {
+    pub fn to_network(&self) -> Network {
+        match self {
+            BitcoinNetwork::Bitcoin => Network::Bitcoin,
+            BitcoinNetwork::Testnet => Network::Testnet,
+            BitcoinNetwork::Testnet4 => Network::Testnet4,
+            BitcoinNetwork::Signet => Network::Signet,
+            BitcoinNetwork::Regtest => Network::Regtest,
+            BitcoinNetwork::Local => Network::Testnet, // Local map to Testnet
+        }
+    }
+}
+
+impl From<Network> for BitcoinNetwork {
+    fn from(network: Network) -> Self {
+        match network {
+            Network::Bitcoin => BitcoinNetwork::Bitcoin,
+            Network::Testnet => BitcoinNetwork::Testnet,
+            Network::Testnet4 => BitcoinNetwork::Testnet4,
+            Network::Signet => BitcoinNetwork::Signet,
+            Network::Regtest => BitcoinNetwork::Regtest,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 pub trait BitcoinAdaptor: Send + Sync {
     fn network(&self) -> Network;
@@ -27,13 +62,11 @@ pub trait BitcoinAdaptor: Send + Sync {
 }
 
 pub fn get_btc_chain_adapter(
-    network: Network,
+    network: BitcoinNetwork,
     esplora_url: Option<&str>,
-    is_mock: bool,
 ) -> Box<dyn BitcoinAdaptor> {
-    if is_mock {
-        Box::new(MockBitcoinAdaptor::new(Network::Testnet))
-    } else {
-        Box::new(EsploraBitcoinAdaptor::new(network, esplora_url))
+    match network {
+        BitcoinNetwork::Local => Box::new(MockBitcoinAdaptor::new(network.to_network())),
+        _ => Box::new(EsploraBitcoinAdaptor::new(network.to_network(), esplora_url)),
     }
 }

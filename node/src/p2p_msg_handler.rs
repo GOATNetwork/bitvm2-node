@@ -134,7 +134,7 @@ mod tests {
     }
 
     fn generate_bootnode_url(peer_id: &str, port: u16) -> String {
-      format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer_id}")
+        format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer_id}")
     }
 
     async fn create_and_run_bitvm_network_manager(

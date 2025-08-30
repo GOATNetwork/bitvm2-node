@@ -244,7 +244,6 @@ pub struct UserInput {
     pub amount_sats: String,
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BridgeInRequestEvent {
     pub id: String,

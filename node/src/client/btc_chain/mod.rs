@@ -1,4 +1,4 @@
-use crate::client::btc_chain::bitcoin_adaptor::get_btc_chain_adapter;
+use crate::client::btc_chain::bitcoin_adaptor::{BitcoinNetwork, get_btc_chain_adapter};
 use crate::client::btc_chain::bitcoin_chain::BitcoinChain;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
 use esplora_client::{MerkleProof, Utxo};
@@ -14,10 +14,8 @@ pub struct BTCClient {
 }
 
 impl BTCClient {
-    pub fn new(network: Network, esplora_url: Option<&str>) -> Self {
-        BTCClient {
-            chain_service: BitcoinChain::new(get_btc_chain_adapter(network, esplora_url, false)),
-        }
+    pub fn new(network: BitcoinNetwork, esplora_url: Option<&str>) -> Self {
+        BTCClient { chain_service: BitcoinChain::new(get_btc_chain_adapter(network, esplora_url)) }
     }
 
     pub fn network(&self) -> Network {

@@ -21,5 +21,5 @@ struct Args {
 async fn main() {
     let args = Args::parse();
     let network = Network::Testnet;
-    let btc_client = BTCClient::new(network, None);
+    let btc_client = BTCClient::new(network.into(), None);
 }

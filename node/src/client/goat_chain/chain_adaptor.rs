@@ -22,14 +22,13 @@ pub trait ChainAdaptor: Send + Sync {
         &self,
         instance_id: &[u8; 16],
         pegin_amount_sats: u64,
-        tx_fees: &[u64;3],
-        receiver_addr: &[u8;20],
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
         user_inputs: &[Utxo],
         user_xonly_pubkey: &[u8; 32],
         user_change_addr: &str,
         user_refund_addr: &str,
     ) -> anyhow::Result<String>;
-
 
     async fn gateway_answer_pegin_request(
         &self,
@@ -262,12 +261,10 @@ pub fn get_chain_adaptor(
     }
 }
 
-
 #[test]
-fn sdd(){
-    println!("{}", serde_json::to_string(&Utxo{
-        txid: [1_u8;32],
-        vout: 0,
-        amount_stats: 110,
-    }).unwrap());
+fn sdd() {
+    println!(
+        "{}",
+        serde_json::to_string(&Utxo { txid: [1_u8; 32], vout: 0, amount_stats: 110 }).unwrap()
+    );
 }

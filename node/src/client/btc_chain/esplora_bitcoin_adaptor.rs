@@ -3,7 +3,6 @@ use bitcoin::block::Header;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
 
-
 const TEST_URL: &str = "https://mempool.space/testnet/api";
 const MAIN_URL: &str = "https://mempool.space/api";
 
