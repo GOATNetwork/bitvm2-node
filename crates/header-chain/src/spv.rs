@@ -1,6 +1,8 @@
 //! Modified from https://github.com/BitVM/BitVM/tree/main/header-chain
+use crate::{
+    BlockInclusionProof, CircuitBlockHeader, CircuitTransaction, MMRGuest, MMRInclusionProof,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::{BlockInclusionProof, MMRInclusionProof, CircuitTransaction, CircuitBlockHeader, MMRGuest};
 
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct SPV {
@@ -34,8 +36,8 @@ impl SPV {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{BitcoinMerkleTree, MMRHost, verify_merkle_proof};
     use hex_literal::hex;
-    use crate::{MMRHost, verify_merkle_proof, BitcoinMerkleTree};
 
     // Mainnet block headers from 0 to 16
     const MAINNET_BLOCK_HEADERS: [[u8; 80]; 16] = [
