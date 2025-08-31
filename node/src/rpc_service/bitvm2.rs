@@ -17,6 +17,7 @@ pub struct InstanceSettingResponse {
 }
 
 #[derive(Deserialize, Serialize)]
+#[allow(dead_code)]
 pub struct BridgeInTransactionPrepareResponse {}
 
 #[derive(Debug, Deserialize)]

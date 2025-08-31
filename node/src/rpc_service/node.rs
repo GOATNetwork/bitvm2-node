@@ -15,6 +15,7 @@ pub struct UpdateOrInsertNodeRequest {
 
 /// node_overview
 #[derive(Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct NodeListRequest {
     pub actor: String,
     pub offset: u32,
