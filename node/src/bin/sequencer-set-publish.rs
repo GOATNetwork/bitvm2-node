@@ -5,6 +5,7 @@ use bitcoin::CompressedPublicKey;
 use bitcoin::Network;
 use bitcoin::absolute::LockTime;
 use bitcoin::blockdata::opcodes::all::*;
+use rand::thread_rng;
 use bitcoin::blockdata::script::Builder;
 use bitcoin::hashes::Hash;
 use bitcoin::transaction::Version;
@@ -21,13 +22,14 @@ use dotenv::dotenv;
 use hex::FromHex;
 
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
+use rand::seq::SliceRandom;
 use secp256k1::{Message, Secp256k1, SecretKey};
 use std::str::FromStr;
 
 /// Send kickoff without call initWithdraw on L2, this action should trigger disprove.
 #[derive(Parser, Debug)]
 #[command(name = "sequencer-set-publish")]
-#[command(about = "Publish sequencer set to Bitcoin", long_about = "")]
+#[command(about = "Publish sequencer set on Bitcoin")]
 struct Args {
     /// Local bitcoin testnet
     #[arg(long, default_value = "http://127.0.0.1:3002")]
@@ -69,7 +71,6 @@ struct Args {
 fn decode_eth_address(addr: &str) -> Result<[u8; 20], hex::FromHexError> {
     // Strip 0x if it exists
     let addr = addr.strip_prefix("0x").unwrap_or(addr);
-
     // Decode into Vec<u8>
     let bytes = Vec::from_hex(addr)?;
 
@@ -154,29 +155,44 @@ async fn push_sequencer_set_publish_tx(
     owner_p2wpkh: &Address,
     private_key: &PrivateKey,
     publisher_keys: &Vec<(secp256k1::SecretKey, secp256k1::PublicKey)>,
+    threshold: u32,
     input_0_value: Option<Amount>,
     input_1_value: Option<Amount>,
     btc_client: &BTCClient,
     sequencer_set_publish_tx: &mut Transaction,
-    is_genesis: bool,
+    is_first_comm: bool,
     redeem_script: &ScriptBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let secp = secp256k1::Secp256k1::new();
     let mut input_index = 0;
 
-    let sig_hash_type = if is_genesis {
-        EcdsaSighashType::AllPlusAnyoneCanPay
-    } else {
-        EcdsaSighashType::All
-    };
+    // NOTE: is it necessary to use AllPlusAnyoneCanPay for the first commit tx?
+    let sig_hash_type =
+        if !is_first_comm { EcdsaSighashType::AllPlusAnyoneCanPay } else { EcdsaSighashType::All };
 
-    if !is_genesis {
-        println!("Non genesis");
+    if !is_first_comm {
+        println!("Standard spending flow for sequencer set publish tx");
         // sign update connector by multiple signers
-        let sigs = publisher_keys
+        let mut rng = thread_rng();
+        let mut indices = (0..publisher_keys.len())
+            .collect::<Vec<usize>>()
+            .choose_multiple(&mut rng, threshold as usize)
+            .cloned()
+            .collect::<Vec<usize>>();
+        indices.sort(); // sort the indices to make the signature order deterministic
+
+        let pks = indices.iter().map(|&i| publisher_keys[i]).collect::<Vec<_>>(); 
+        let sigs = pks
             .iter()
             .map(|(sk, _)| {
-                sign_partial(sequencer_set_publish_tx, sk, &redeem_script, input_0_value.unwrap(), sig_hash_type).unwrap()
+                sign_partial(
+                    sequencer_set_publish_tx,
+                    sk,
+                    &redeem_script,
+                    input_0_value.unwrap(),
+                    sig_hash_type,
+                )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -195,16 +211,17 @@ async fn push_sequencer_set_publish_tx(
         ScriptBuf::new_p2pkh(&bitcoin::PubkeyHash::from_slice(signer_pkh.as_bytes()).unwrap());
 
     let mut cache = SighashCache::new(&mut *sequencer_set_publish_tx);
-    let sighash =
-        cache.p2wsh_signature_hash(input_index, &script_code, input_1_value.unwrap(), sig_hash_type).unwrap();
+    let sighash = cache
+        .p2wsh_signature_hash(input_index, &script_code, input_1_value.unwrap(), sig_hash_type)
+        .unwrap();
     let msg = Message::from_digest_slice(&sighash[..]).unwrap();
 
     let sig = secp.sign_ecdsa(&msg, &private_key.inner);
-    let mut sigall = sig.serialize_der().to_vec();
-    sigall.push(sig_hash_type as u8);
+    let mut sig_bytes = sig.serialize_der().to_vec();
+    sig_bytes.push(sig_hash_type as u8);
 
     sequencer_set_publish_tx.input[input_index].witness =
-        Witness::from(vec![sigall, private_key.public_key(&secp).to_bytes()]);
+        Witness::from(vec![sig_bytes, private_key.public_key(&secp).to_bytes()]);
 
     println!("Sequencer set publish tx: {:#?}", sequencer_set_publish_tx);
     println!("Sequencer set publish txid: {:#?}", sequencer_set_publish_tx.compute_txid());
@@ -243,14 +260,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    let redeem_script = create_sequencer_update_script(&public_keys, threshold);
+    let redeem_script = create_sequencer_update_script(&public_keys, threshold, total);
     let next_update_connector_address = Address::p2wsh(&redeem_script, network);
 
-    // FIXME: should not use `*2`
-    let replenish_fee = Amount::from_sat(args.fee_rate * 20)
-        * estimate_tx_vbytes(&[(threshold, total)], &[("p2wsh", 1)], 73) as u64;
+    let replenish_fee = Amount::from_sat(args.fee_rate)
+        * estimate_tx_vbytes(&[(threshold, total)], &[("p2wsh", 3)], 73) as u64 + relayer_fee;
 
-    let (first_input_utxo, first_input_value) = if args.input_txid.is_some() && args.input_vout.is_some() {
+    let (first_input_utxo, first_input_value) = if args.input_txid.is_some()
+        && args.input_vout.is_some()
+    {
         let tmp_tx = btc_client
             .get_tx(&Txid::from_str(&args.input_txid.clone().unwrap()).unwrap())
             .await?
@@ -282,7 +300,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     push_fee_tx(&mut fee_tx, first_input_value, &private_key, &btc_client).await?;
 
-    // Skip this construction for the genesis tx
+    // Skip construction of the genesis tx
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         args.commitment.clone(),
         &None,
@@ -295,6 +313,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &owner_p2wpkh,
         &private_key,
         &publisher_keys,
+        threshold,
         None,
         Some(replenish_fee),
         &btc_client,
@@ -342,21 +361,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // update the sequencer set publish tx with multisig signatures
     let (input_update_connector, input_0_value) = {
-        let tmp_tx = btc_client
-            .get_tx(&Txid::from_str(args.update_connector_txid.as_ref().unwrap()).unwrap())
-            .await?
-            .unwrap();
+        let tmp_txid = Txid::from_str(args.update_connector_txid.as_ref().unwrap()).unwrap();
+        let tmp_tx = btc_client.get_tx(&tmp_txid).await?.unwrap();
         (
-            Some(OutPoint::new(
-                Txid::from_str(args.update_connector_txid.as_ref().unwrap()).unwrap(),
-                args.update_connector_vout.unwrap().clone(),
-            )),
+            Some(OutPoint::new(tmp_txid, args.update_connector_vout.unwrap().clone())),
             tmp_tx.output[args.update_connector_vout.unwrap() as usize].value,
         )
     };
 
     println!("Second input_value for sequencer_set_publish_tx: {}", input_0_value);
-
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         args.commitment.clone(),
         &input_update_connector,
@@ -369,6 +382,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &owner_p2wpkh,
         &private_key,
         &publisher_keys,
+        threshold,
         Some(input_0_value),
         Some(fee_tx.output[0].value),
         &btc_client,
@@ -512,7 +526,16 @@ pub(crate) fn create_fee_tx(
 pub(crate) fn create_sequencer_update_script(
     public_keys: &[secp256k1::PublicKey],
     threshold: u32,
+    total: u32,
 ) -> ScriptBuf {
+    assert!(
+        total as usize == public_keys.len(),
+        "Total number of public keys must match the length of public_keys"
+    );
+    assert!(
+        threshold <= total,
+        "Threshold must be less than or equal to total number of public keys"
+    );
     let mut redeem_script = Builder::new().push_int(threshold as i64);
     for pk in public_keys {
         redeem_script = redeem_script.push_slice(&pk.serialize());
@@ -530,8 +553,8 @@ pub(crate) fn create_sequencer_update_partial_tx(
     let txin_replenish_fee = TxIn {
         previous_output: replenish_fee.clone(),
         script_sig: ScriptBuf::new(),
-        sequence: Sequence::from_consensus(0xffffffff),
-        witness: Witness::new(), // to be filled after signing
+        sequence: Sequence::MAX,
+        witness: Witness::default(), // to be filled after signing
     };
 
     let txout_next_connector =
@@ -546,8 +569,8 @@ pub(crate) fn create_sequencer_update_partial_tx(
         let txin_connector = TxIn {
             previous_output: uc.clone(),
             script_sig: ScriptBuf::new(), // empty for P2WSH
-            sequence: Sequence::from_consensus(0xffffffff),
-            witness: Witness::new(), // to be filled after signing
+            sequence: Sequence::MAX,
+            witness: Witness::default(), // to be filled after signing
         };
         vec![txin_connector, txin_replenish_fee]
     } else {
@@ -572,8 +595,7 @@ pub fn sign_partial(
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let secp = Secp256k1::new();
     let mut cache = SighashCache::new(tx);
-    let sighash =
-        cache.p2wsh_signature_hash(0, &redeem_script, amount, sig_hash_type).unwrap();
+    let sighash = cache.p2wsh_signature_hash(0, &redeem_script, amount, sig_hash_type).unwrap();
     let msg = Message::from_digest_slice(&sighash[..]).unwrap();
     let mut sig = secp.sign_ecdsa(&msg, seckey).serialize_der().to_vec();
     sig.push(sig_hash_type as u8);
