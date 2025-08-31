@@ -1,10 +1,11 @@
 use crate::client::goat_chain::chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, Utxo, WithdrawData,
-    WithdrawStatus,
+    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, SequencerSet, Utxo,
+    WithdrawData, WithdrawStatus,
 };
 use crate::client::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
+use crate::client::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
 use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::TxHash;
+use alloy::primitives::{Address, TxHash};
 use alloy::providers::Identity;
 use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
 use alloy::rpc::types::TransactionReceipt;
@@ -23,6 +24,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time;
 use uuid::Uuid;
+
 sol!(
     #[derive(Debug)]
     #[allow(missing_docs)]
@@ -117,9 +119,7 @@ sol!(
         address public  bitcoinSPV;
         address public  relayer;
         uint256 public responseWindowBlocks;
-        mapping(bytes32 => bool) public peginTxUsed;
         mapping(bytes16 instanceId => PeginData) public peginDataMap;
-        mapping(bytes16 graphId => bool) public operatorWithdrawn;
         mapping(bytes16 graphId => GraphData) public graphDataMap;
         mapping(bytes16 graphId => WithdrawData) public withdrawDataMap;
         bytes16[] public instanceIds;
@@ -141,17 +141,35 @@ sol!(
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, BitcoinTx calldata rawDisproveTx, BitcoinTxProof calldata disproveProof, BitcoinTx calldata rawChallengeTx, BitcoinTxProof calldata ngeCProof) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof, bytes32 leaf,uint256 index) public pure returns (bool);
+        function postPeginRequest(bytes16 instanceId, uint64 peginAmountSats, uint64[3] calldata txnFees, address receiverAddress, Utxo[] calldata userInputs, bytes32 userXonlyPubkey, string calldata userChangeAddress, string calldata userRefundAddress) external payable;
         function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) onlyCommittee() external;
         function getPeginData(bytes16 instanceId) external view returns (PeginData memory);
         function getGraphData(bytes16 graphId) external view returns (GraphData memory);
+    }
+);
 
-
+sol!(
+    #[derive(Debug)]
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    interface ISequencerSetPublisher {
+        struct SequencerSet {
+            bytes32 sequencer_set_hash; // validator_hash
+            bytes32 publishers_hash;
+            bytes32 p2wsh_sig_hash;
+            bytes32 next_sequencer_set_hash; // next_validator_hash
+            uint256 goat_block_number;
+        }
+        uint256 public latest_height;
+        function updateSequencerSet(SequencerSet calldata ss,  bytes calldata signature) external;
+        function updatePublisherSet(address[] calldata newOwners, bytes[] calldata changeOwnerSigs, SequencerSet calldata ss, bytes calldata sequencerSetCmtSigs) external;
     }
 );
 
 pub struct GoatInitConfig {
     pub rpc_url: Url,
-    pub gateway_address: EvmAddress,
+    pub gateway_address: Option<EvmAddress>,
+    pub sequencer_set_publisher_address: Option<EvmAddress>,
     pub private_key: Option<String>,
     pub chain_id: u32,
 }
@@ -160,9 +178,12 @@ impl GoatInitConfig {
     pub fn from_env_for_test() -> Self {
         GoatInitConfig {
             rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
-            gateway_address: "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
-                .parse()
-                .expect("parse contract address"),
+            gateway_address: Some(
+                "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
+                    .parse()
+                    .expect("parse contract address"),
+            ),
+            sequencer_set_publisher_address: None,
             private_key: None,
             chain_id: 48816_u32,
         }
@@ -171,16 +192,24 @@ impl GoatInitConfig {
 
 pub struct GoatAdaptor {
     chain_id: ChainId,
-    _gateway_address: EvmAddress,
-    // provider: FillProvider<JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>, RootProvider>,
     provider: FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
     >,
-    gate_way: IGatewayInstance<
-        FillProvider<
-            JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-            RootProvider,
+    gateway: Option<
+        IGatewayInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    >,
+    sequencer_set_publisher: Option<
+        ISequencerSetPublisherInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
         >,
     >,
     signer: EthereumWallet,
@@ -192,8 +221,32 @@ impl GoatAdaptor {
         price
     }
 
-    fn get_default_signer_address(&self) -> EvmAddress {
-        <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&self.signer)
+    fn get_gateway(
+        &self,
+    ) -> anyhow::Result<
+        &IGatewayInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    > {
+        self.gateway.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway not initialized"))
+    }
+
+    fn get_sequencer_set_publisher(
+        &self,
+    ) -> anyhow::Result<
+        &ISequencerSetPublisherInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    > {
+        self.sequencer_set_publisher
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("SequencerSetPublisher not initialized"))
     }
 
     async fn handle_transaction_request(
@@ -317,6 +370,16 @@ impl From<&IGateway::Utxo> for Utxo {
     }
 }
 
+impl From<&Utxo> for IGateway::Utxo {
+    fn from(value: &Utxo) -> Self {
+        Self {
+            txid: FixedBytes::from_slice(&value.txid),
+            vout: value.vout,
+            amountSats: value.amount_stats,
+        }
+    }
+}
+
 impl From<IGateway::PeginData> for PeginData {
     fn from(value: IGateway::PeginData) -> Self {
         Self {
@@ -390,8 +453,24 @@ impl From<IGateway::WithdrawData> for WithdrawData {
     }
 }
 
+impl From<&SequencerSet> for ISequencerSetPublisher::SequencerSet {
+    fn from(value: &SequencerSet) -> Self {
+        Self {
+            sequencer_set_hash: FixedBytes::from_slice(&value.sequencer_set_hash),
+            publishers_hash: FixedBytes::from_slice(&value.publishers_hash),
+            p2wsh_sig_hash: FixedBytes::from_slice(&value.p2wsh_sig_hash),
+            next_sequencer_set_hash: FixedBytes::from_slice(&value.next_sequencer_set_hash),
+            goat_block_number: U256::from(value.goat_block_number),
+        }
+    }
+}
+
 #[async_trait]
 impl ChainAdaptor for GoatAdaptor {
+    fn get_default_signer_address(&self) -> EvmAddress {
+        <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&self.signer)
+    }
+
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
         if let Some(block) = self.provider.get_block_by_number(BlockNumberOrTag::Finalized).await? {
             Ok(block.header.number as i64)
@@ -412,26 +491,14 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(self.provider.get_transaction_receipt(TxHash::from_str(tx_hash)?).await?)
     }
 
-    async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool> {
-        Ok(self.gate_way.peginTxUsed(FixedBytes::<32>::from_slice(tx_id)).call().await?)
+    async fn gateway_get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.getPeginData(FixedBytes::<16>::from_slice(instance_id)).call().await?.into())
     }
 
-    async fn get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
-        Ok(self
-            .gate_way
-            .getPeginData(FixedBytes::<16>::from_slice(instance_id))
-            .call()
-            .await?
-            .into())
-    }
-
-    async fn is_operator_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<bool> {
-        Ok(self.gate_way.operatorWithdrawn(FixedBytes::<16>::from_slice(graph_id)).call().await?)
-    }
-
-    async fn get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData> {
-        let res =
-            self.gate_way.withdrawDataMap(FixedBytes::<16>::from_slice(graph_id)).call().await?;
+    async fn gateway_get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData> {
+        let gateway = self.get_gateway()?;
+        let res = gateway.withdrawDataMap(FixedBytes::<16>::from_slice(graph_id)).call().await?;
         Ok(WithdrawData {
             status: res._0.into(),
             pegin_txid: res._1.0,
@@ -442,21 +509,54 @@ impl ChainAdaptor for GoatAdaptor {
         })
     }
 
-    async fn get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
-        Ok(self.gate_way.getGraphData(FixedBytes::<16>::from_slice(graph_id)).call().await?.into())
+    async fn gateway_get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.getGraphData(FixedBytes::<16>::from_slice(graph_id)).call().await?.into())
     }
 
-    async fn get_response_window_blocks(&self) -> anyhow::Result<u64> {
-        Ok(self.gate_way.responseWindowBlocks().call().await?.try_into()?)
+    async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.responseWindowBlocks().call().await?.try_into()?)
     }
 
-    async fn answer_pegin_request(
+    async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &[u8; 16],
+        pegin_amount_sats: u64,
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        let gateway = self.get_gateway()?;
+        let user_inputs: Vec<IGateway::Utxo> = user_inputs.iter().map(|u| u.into()).collect();
+        let tx_request = gateway
+            .postPeginRequest(
+                FixedBytes::from_slice(instance_id),
+                pegin_amount_sats,
+                tx_fees.clone(),
+                Address::from_slice(receiver_addr),
+                user_inputs,
+                FixedBytes::from_slice(user_xonly_pubkey),
+                user_change_addr.to_string(),
+                user_refund_addr.to_string(),
+            )
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let res = self.handle_transaction_request(tx_request).await?;
+        Ok(res.to_string())
+    }
+
+    async fn gateway_answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
         committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .answerPeginRequest(
                 FixedBytes::from_slice(instance_id),
                 FixedBytes::from_slice(committee_xonly_pubkey),
@@ -469,14 +569,14 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(res.to_string())
     }
 
-    async fn post_pegin_data(
+    async fn gateway_post_pegin_data(
         &self,
         instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         pegin_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let tx_request: TransactionRequest = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request: TransactionRequest = gateway
             .postPeginData(
                 FixedBytes::<16>::from_slice(instance_id),
                 raw_pgin_tx.into(),
@@ -489,15 +589,15 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(res.to_string())
     }
 
-    async fn post_graph_data(
+    async fn gateway_post_graph_data(
         &self,
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
         operator_data: &GraphData,
         committee_signs: &[u8],
     ) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .postGraphData(
                 FixedBytes::from_slice(instance_id),
                 FixedBytes::from_slice(graph_id),
@@ -512,21 +612,23 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(res.to_string())
     }
 
-    async fn get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        Ok(self.gate_way.getBlockHash(U256::from(height)).call().await?.0)
+    async fn gateway_get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.getBlockHash(U256::from(height)).call().await?.0)
     }
 
-    async fn parse_btc_block_header(
+    async fn gateway_parse_btc_block_header(
         &self,
         raw_header: &[u8],
     ) -> anyhow::Result<([u8; 32], [u8; 32])> {
-        let res =
-            self.gate_way.parseBtcBlockHeader(Bytes::copy_from_slice(raw_header)).call().await?;
+        let gateway = self.get_gateway()?;
+        let res = gateway.parseBtcBlockHeader(Bytes::copy_from_slice(raw_header)).call().await?;
         Ok((res.blockHash.0, res.merkleRoot.0))
     }
 
-    async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
-        let ids = self.gate_way.getInitializedInstanceIds().call().await?;
+    async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        let gateway = self.get_gateway()?;
+        let ids = gateway.getInitializedInstanceIds().call().await?;
         let instance_ids: Vec<Uuid> =
             ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
         let graph_ids: Vec<Uuid> =
@@ -534,12 +636,12 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(instance_ids.into_iter().zip(graph_ids).collect())
     }
 
-    async fn get_instanceids_by_pubkey(
+    async fn gateway_get_instanceids_by_pubkey(
         &self,
         operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
-        let ids = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let ids = gateway
             .getInstanceIdsByPubKey(FixedBytes::<32>::from_slice(operator_pubkey))
             .call()
             .await?;
@@ -550,13 +652,13 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(instance_ids.into_iter().zip(graph_ids).collect())
     }
 
-    async fn init_withdraw(
+    async fn gateway_init_withdraw(
         &self,
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
     ) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .initWithdraw(FixedBytes::from_slice(instance_id), FixedBytes::from_slice(graph_id))
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -565,9 +667,9 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+    async fn gateway_cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .cancelWithdraw(FixedBytes::from_slice(graph_id))
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -576,14 +678,14 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn process_withdraw(
+    async fn gateway_process_withdraw(
         &self,
         graph_id: &[u8; 16],
         raw_kickoff_tx: &BitcoinTx,
         kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .proceedWithdraw(
                 FixedBytes::from_slice(graph_id),
                 raw_kickoff_tx.into(),
@@ -596,14 +698,14 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn finish_withdraw_happy_path(
+    async fn gateway_finish_withdraw_happy_path(
         &self,
         graph_id: &[u8; 16],
         raw_take1_tx: &BitcoinTx,
         take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .finishWithdrawHappyPath(
                 FixedBytes::from_slice(graph_id),
                 raw_take1_tx.into(),
@@ -616,14 +718,14 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn finish_withdraw_unhappy_path(
+    async fn gateway_finish_withdraw_unhappy_path(
         &self,
         graph_id: &[u8; 16],
         raw_take2_tx: &BitcoinTx,
         take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .finishWithdrawUnhappyPath(
                 FixedBytes::from_slice(graph_id),
                 raw_take2_tx.into(),
@@ -636,7 +738,7 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn finish_withdraw_disproved(
+    async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],
         raw_disproved_tx: &BitcoinTx,
@@ -644,8 +746,8 @@ impl ChainAdaptor for GoatAdaptor {
         raw_challenge_tx: &BitcoinTx,
         challenge_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let tx_request = self
-            .gate_way
+        let gateway = self.get_gateway()?;
+        let tx_request = gateway
             .finishWithdrawDisproved(
                 FixedBytes::from_slice(graph_id),
                 raw_disproved_tx.into(),
@@ -660,17 +762,17 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn verify_merkle_proof(
+    async fn gateway_verify_merkle_proof(
         &self,
         root: &[u8; 32],
         proof: &[[u8; 32]],
         leaf: &[u8; 32],
         index: u64,
     ) -> anyhow::Result<bool> {
+        let gateway = self.get_gateway()?;
         let proof: Vec<FixedBytes<32>> =
             proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
-        Ok(self
-            .gate_way
+        Ok(gateway
             .verifyMerkleProof(
                 FixedBytes::from_slice(root),
                 proof,
@@ -681,18 +783,60 @@ impl ChainAdaptor for GoatAdaptor {
             .await?)
     }
 
-    async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        Ok((
-            self.gate_way.minStakeAmountSats().call().await?,
-            self.gate_way.stakeRate().call().await?,
-        ))
+    async fn gateway_get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        let gateway = self.get_gateway()?;
+        Ok((gateway.minStakeAmountSats().call().await?, gateway.stakeRate().call().await?))
     }
 
-    async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        Ok((
-            self.gate_way.minPeginFeeSats().call().await?,
-            self.gate_way.peginFeeRate().call().await?,
-        ))
+    async fn gateway_get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        let gateway = self.get_gateway()?;
+        Ok((gateway.minPeginFeeSats().call().await?, gateway.peginFeeRate().call().await?))
+    }
+
+    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
+        Ok(sequencer_set_publisher.latest_height().call().await?.try_into()?)
+    }
+
+    async fn seq_set_pub_update_sequencer_set(
+        &self,
+        sequencer_set: &SequencerSet,
+        signature: &[u8],
+    ) -> anyhow::Result<String> {
+        let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
+        let tx_request = sequencer_set_publisher
+            .updateSequencerSet(sequencer_set.into(), Bytes::copy_from_slice(signature))
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
+    }
+
+    async fn seq_set_pub_update_publisher_set(
+        &self,
+        new_owners: &[[u8; 20]],
+        signatures: &[Vec<u8>],
+        sequencer_set: &SequencerSet,
+        sequencer_set_cmt_sigs: &[u8],
+    ) -> anyhow::Result<String> {
+        let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
+        let new_owners: Vec<EvmAddress> =
+            new_owners.iter().map(|v| EvmAddress::from_slice(v)).collect();
+        let signatures: Vec<Bytes> = signatures.iter().map(|v| Bytes::copy_from_slice(v)).collect();
+
+        let tx_request = sequencer_set_publisher
+            .updatePublisherSet(
+                new_owners,
+                signatures,
+                sequencer_set.into(),
+                Bytes::copy_from_slice(sequencer_set_cmt_sigs),
+            )
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 }
 impl GoatAdaptor {
@@ -711,9 +855,11 @@ impl GoatAdaptor {
         };
         let provider = ProviderBuilder::new().connect_http(config.rpc_url);
         Self {
-            _gateway_address: config.gateway_address,
             provider: provider.clone(),
-            gate_way: IGateway::new(config.gateway_address, provider),
+            gateway: config.gateway_address.map(|addr| IGateway::new(addr, provider.clone())),
+            sequencer_set_publisher: config
+                .sequencer_set_publisher_address
+                .map(|addr| ISequencerSetPublisher::new(addr, provider)),
             signer: EthereumWallet::new(signer),
             chain_id,
         }

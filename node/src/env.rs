@@ -20,6 +20,8 @@ use zeroize::Zeroizing;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
+pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
+    "GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS";
 /// Relayer
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
@@ -292,12 +294,14 @@ pub fn get_goat_url_from_env() -> Url {
     rpc_url_str.parse::<Url>().unwrap_or_else(|_| panic!("Failed to parse {rpc_url_str} to URL"))
 }
 
+pub fn get_goat_address_from_env(var_name: &str) -> Option<EvmAddress> {
+    let gateway_address_str = std::env::var(var_name).ok()?;
+    gateway_address_str.parse::<EvmAddress>().ok()
+}
+
 pub fn get_goat_gateway_contract_from_env() -> EvmAddress {
-    let gateway_address_str = std::env::var(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
-        .unwrap_or_else(|_| panic!("Failed to read {ENV_GOAT_GATEWAY_CONTRACT_ADDRESS} variable"));
-    gateway_address_str
-        .parse::<EvmAddress>()
-        .unwrap_or_else(|_| panic!("Failed to parse {gateway_address_str} to address"))
+    get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
+        .unwrap_or_else(|| panic!("Failed to get goat address from env"))
 }
 
 pub fn get_goat_event_filter_from_from_env() -> i64 {
@@ -326,7 +330,9 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         return GoatInitConfig::from_env_for_test();
     }
     let rpc_url = get_goat_url_from_env();
-    let gateway_address = get_goat_gateway_contract_from_env();
+    let gateway_address = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS);
+    let sequencer_set_publisher_address =
+        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS);
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let chain_id = {
         let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
@@ -336,7 +342,13 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
             .await
             .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}")) as u32
     };
-    GoatInitConfig { rpc_url, gateway_address, private_key, chain_id }
+    GoatInitConfig {
+        rpc_url,
+        gateway_address,
+        sequencer_set_publisher_address,
+        private_key,
+        chain_id,
+    }
 }
 
 const DEFAULT_PROTO_NAME_BASE: &str = "bitvm2";

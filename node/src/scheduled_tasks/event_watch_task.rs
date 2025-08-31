@@ -7,14 +7,13 @@ use crate::client::graphs::graph_query::{
     WithdrawDisprovedEvent, WithdrawPathsEvent, get_gateway_events_query,
 };
 use crate::env;
-use crate::env::{
-    LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS, get_goat_network, get_network, goat_config_from_env,
-};
+use crate::env::LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS;
 use crate::rpc_service::current_time_secs;
 use crate::utils::{generate_instance_from_event, reflect_goat_address, strip_hex_prefix_owned};
 use bitvm2_lib::actors::Actor;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use store::localdb::{LocalDB, StorageProcessor, UpdateGraphParams};
 use store::{
@@ -339,14 +338,15 @@ async fn handle_bridge_in_events<'a>(
 
 pub async fn fetch_history_events(
     actor: Actor,
-    btc_client: &BTCClient,
+    btc_client: Arc<BTCClient>,
+    goat_client: Arc<GOATClient>,
     local_db: &LocalDB,
     query_client: &GraphQueryClient,
     watch_contract: WatchContract,
     event_entities: Vec<GatewayEventEntity>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Start into fetch_history_events from:{}", watch_contract.from_height);
-    let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
+    // let goat_client = GOATClient::new(env::goat_config_from_env().await, env::get_goat_network());
     let mut watch_contract = watch_contract.clone();
     let local_db_clone = local_db.clone();
     let addr = watch_contract.addr.clone();
@@ -372,7 +372,7 @@ pub async fn fetch_history_events(
 
             fetch_and_handle_block_range_events(
                 actor.clone(),
-                btc_client,
+                &btc_client,
                 query_client,
                 &mut tx,
                 &event_entities,
@@ -422,8 +422,8 @@ pub async fn fetch_history_events(
 
 pub async fn monitor_events(
     actor: Actor,
-    goat_client: &GOATClient,
-    btc_client: &BTCClient,
+    btc_client: Arc<BTCClient>,
+    goat_client: Arc<GOATClient>,
     local_db: &LocalDB,
     event_entities: Vec<GatewayEventEntity>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -453,11 +453,11 @@ pub async fn monitor_events(
         let local_db_clone = local_db.clone();
         let query_client_clone = query_client.clone();
         let event_entities_clone = event_entities.clone();
-        let btc_client_clone = btc_client.clone();
         tokio::spawn(async move {
             let _ = fetch_history_events(
                 actor.clone(),
-                &btc_client_clone,
+                btc_client,
+                goat_client,
                 &local_db_clone,
                 &query_client_clone,
                 watch_contract_clone,
@@ -476,7 +476,7 @@ pub async fn monitor_events(
     let mut tx = local_db.start_transaction().await?;
     fetch_and_handle_block_range_events(
         actor.clone(),
-        btc_client,
+        &btc_client,
         &query_client,
         &mut tx,
         &event_entities,
@@ -495,11 +495,11 @@ pub async fn monitor_events(
 pub async fn run_watch_event_task(
     actor: Actor,
     local_db: LocalDB,
+    btc_client: Arc<BTCClient>,
+    goat_client: Arc<GOATClient>,
     interval: u64,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
-    let goat_client = GOATClient::new(goat_config_from_env().await, get_goat_network());
-    let btc_client = BTCClient::new(None, get_network());
     let events_map: HashMap<Actor, Vec<GatewayEventEntity>> = HashMap::from([
         (
             Actor::Relayer,
@@ -525,8 +525,8 @@ pub async fn run_watch_event_task(
                 // Execute the normal monitoring logic
                 match monitor_events(
                         actor.clone(),
-                        &goat_client,
-                        &btc_client,
+                        btc_client.clone(),
+                        goat_client.clone(),
                         &local_db,
                         events_map.get(&actor).cloned().unwrap_or_default()
                     )

@@ -114,7 +114,8 @@ mod tests {
         Bitvm2SwarmConfig, BitvmNetworkManager, BitvmSwarmWrapper, P2pMessageHandler,
         TickMessageType,
     };
-    use crate::utils::save_node_info;
+    use crate::utils::{generate_local_key, save_node_info};
+    use base64::Engine;
     use bitvm2_lib::actors::Actor;
     use libp2p::PeerId;
     use libp2p::gossipsub::MessageId;
@@ -123,6 +124,63 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use tracing::Level;
     use tracing::warn;
+
+    // Return (peer_key, peer_id)
+    fn gen_local_key() -> anyhow::Result<(String, String)> {
+        let local_key = generate_local_key();
+        let base64_key =
+            base64::engine::general_purpose::STANDARD.encode(&local_key.to_protobuf_encoding()?);
+        Ok((base64_key, local_key.public().to_peer_id().to_string()))
+    }
+
+    fn generate_bootnode_url(peer_id: &str, port: u16) -> String {
+        format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer_id}")
+    }
+
+    async fn create_and_run_bitvm_network_manager(
+        local_key: Option<String>,
+        p2p_port: u16,
+        bootnodes: Vec<String>,
+        actor: Actor,
+        local_db: Option<LocalDB>,
+        cancel_token: CancellationToken,
+    ) {
+        let mut metric_registry = Registry::default();
+        let local_key = if let Some(local_key) = local_key {
+            local_key
+        } else {
+            let (local_key, _) = gen_local_key().expect("get rand_p2p_key");
+            local_key
+        };
+        let mut bitvm_network_manager = BitvmNetworkManager::new(
+            Bitvm2SwarmConfig {
+                local_key,
+                p2p_port,
+                bootnodes,
+                topic_names: vec![
+                    Actor::Committee.to_string(),
+                    Actor::Challenger.to_string(),
+                    Actor::Operator.to_string(),
+                    Actor::Relayer.to_string(),
+                    Actor::All.to_string(),
+                ],
+                heartbeat_interval: 2,
+                regular_task_interval: 3,
+            },
+            &mut metric_registry,
+        )
+        .expect("create bitvm2 swarm");
+
+        let local_db = if let Some(local_db) = local_db {
+            local_db
+        } else {
+            crate::client::create_local_db(&temp_file()).await
+        };
+        bitvm_network_manager
+            .run(actor, MockBitvmNodeProcessor { local_db }, cancel_token)
+            .await
+            .expect("Failed to run bitvm swarm");
+    }
 
     #[derive(Debug)]
     struct MockBitvmNodeProcessor {
@@ -213,60 +271,34 @@ mod tests {
         let tmp_db = tempfile::NamedTempFile::new().unwrap();
         tmp_db.path().as_os_str().to_str().unwrap().to_string()
     }
+
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_p2p_head_beat() {
+    async fn test_p2p_heart_beat() -> anyhow::Result<()> {
         init();
         let local_db = crate::client::create_local_db(&temp_file()).await;
         let local_db_clone = local_db.clone();
         let cancellation_token = CancellationToken::new();
         let cancel_token_clone = cancellation_token.clone();
-        let _handle = tokio::spawn(async {
-            let mut metric_registry = Registry::default();
-            let mut bitvm_network_manager =
-                BitvmNetworkManager::new(Bitvm2SwarmConfig{
-                    local_key: "CAESQA1AsvghB6dERoim0WwUHoAJ9u5UCv15O6gmMJpmjGU2aWWK4dC1lRrLt7oMrHezB7RWxuc5UdAfEhk+19lh7iA=".to_string(),
-                    p2p_port: 9100,
-                    bootnodes: vec![],
-                    topic_names:vec![
-                        Actor::Committee.to_string(),
-                        Actor::Challenger.to_string(),
-                        Actor::Operator.to_string(),
-                        Actor::Relayer.to_string(),
-                        Actor::All.to_string(),
-                    ],
-                    heartbeat_interval: 3,
-                    regular_task_interval: 2,
-                }, &mut metric_registry).expect("create bitvm2 swarm");
-            bitvm_network_manager
-                .run(Actor::Relayer, MockBitvmNodeProcessor { local_db }, cancel_token_clone)
-                .await
-                .expect("Failed to run bitvm swarm");
-        });
+        let (local_key, peer_id) = gen_local_key()?;
+        let bootnode_url = generate_bootnode_url(&peer_id, 9100);
+        tokio::spawn(create_and_run_bitvm_network_manager(
+            Some(local_key),
+            9100,
+            vec![],
+            Actor::Relayer,
+            Some(local_db),
+            cancel_token_clone,
+        ));
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         let cancel_token_clone = cancellation_token.clone();
-        let _handle1 = tokio::spawn(async {
-            let mut metric_registry = Registry::default();
-            let mut bitvm_network_manager =
-                BitvmNetworkManager::new(Bitvm2SwarmConfig{
-                    local_key: "CAESQDBb9rRpYlgy8Wy6TjTqic8hd8e5kf0uak/ILeCexgG20mVpLyL7n/v5bjpZNOZ620m/cTzonnSh1l5WP1E/ri0=".to_string(),
-                    p2p_port: 9101,
-                    bootnodes: vec!["/ip4/127.0.0.1/tcp/9100/p2p/12D3KooWGunnJB9XxBNBcRqE4cyq9aHGD5GjTvsvQijn81Fjnfbm".to_string()],
-                    topic_names:  vec![
-                        Actor::Committee.to_string(),
-                        Actor::Challenger.to_string(),
-                        Actor::Operator.to_string(),
-                        Actor::Relayer.to_string(),
-                        Actor::All.to_string(),
-                    ],
-                    heartbeat_interval: 2,
-                    regular_task_interval: 3,
-                }, &mut metric_registry).expect("create bitvm2 swarm");
-            let local_db = crate::client::create_local_db(&temp_file()).await;
-            bitvm_network_manager
-                .run(Actor::Operator, MockBitvmNodeProcessor { local_db }, cancel_token_clone)
-                .await
-                .expect("Failed to run bitvm swarm");
-        });
+        tokio::spawn(create_and_run_bitvm_network_manager(
+            None,
+            9101,
+            vec![bootnode_url],
+            Actor::Operator,
+            None,
+            cancel_token_clone,
+        ));
 
         let mut index = 1;
         let mut success = false;
@@ -291,5 +323,6 @@ mod tests {
         cancellation_token.cancel();
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         assert!(success);
+        Ok(())
     }
 }

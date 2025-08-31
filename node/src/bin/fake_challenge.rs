@@ -44,7 +44,7 @@ async fn get_tx_from_ipfs(
 async fn main() {
     let args = Args::parse();
     let ipfs = IPFS::new(&args.ipfs_url);
-    let btc_client = BTCClient::new(None, Network::Testnet);
+    let btc_client = BTCClient::new(Network::Testnet.into(), None);
     unsafe {
         std::env::set_var(ENV_ACTOR, "Challenger");
         std::env::set_var(ENV_BITVM_SECRET, &args.secret);

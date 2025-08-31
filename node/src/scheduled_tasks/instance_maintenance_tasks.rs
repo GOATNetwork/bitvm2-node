@@ -69,7 +69,7 @@ pub async fn instance_answers_monitor(
             master_key.keypair_for_instance(tx_record.instance_id).x_only_public_key();
 
         match goat_client
-            .answer_pegin_request(&tx_record.instance_id, &xonly_pubkey.serialize())
+            .gateway_answer_pegin_request(&tx_record.instance_id, &xonly_pubkey.serialize())
             .await
         {
             Ok(tx_hash) => {
@@ -95,7 +95,7 @@ pub async fn instance_window_expiration_monitor(
     local_db: &LocalDB,
     goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
-    let window_blocks = goat_client.get_response_window_blocks().await? as i64;
+    let window_blocks = goat_client.gateway_get_response_window_blocks().await? as i64;
     let current_height = goat_client.get_latest_block_number().await?;
     let mut storage_processor = local_db.acquire().await?;
     let (instances, _) = storage_processor
@@ -109,7 +109,7 @@ pub async fn instance_window_expiration_monitor(
         .await?;
 
     for mut instance in instances {
-        match goat_client.get_pegin_data(&instance.instance_id).await {
+        match goat_client.gateway_get_pegin_data(&instance.instance_id).await {
             Ok(pegin_data) => {
                 for (committee_addr, xonly_pubkey) in
                     pegin_data.committee_addresses.iter().zip(pegin_data.committee_xonly_pubkeys)
@@ -307,7 +307,7 @@ pub async fn scan_post_pegin_data(
                 .fetch_btc_tx(&deserialize_hex(&instance.pegin_confirm_txid.unwrap())?)
                 .await?;
             match goat_client
-                .post_pegin_data(btc_client, &instance.instance_id, &pegin_confirm_tx)
+                .gateway_post_pegin_data(btc_client, &instance.instance_id, &pegin_confirm_tx)
                 .await
             {
                 Err(err) => {
@@ -379,7 +379,7 @@ pub async fn scan_post_graph_data(
             }
             // TODO update
             match goat_client
-                .post_graph_data(&instance.instance_id, &graph.graph_id, &graph, &[])
+                .gateway_post_graph_data(&instance.instance_id, &graph.graph_id, &graph, &[])
                 .await
             {
                 Ok(tx_hash) => {

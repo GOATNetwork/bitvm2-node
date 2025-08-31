@@ -1,6 +1,6 @@
 use crate::client::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
-use alloy::primitives::TxHash;
+use alloy::primitives::{Address, TxHash};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use async_trait::async_trait;
@@ -82,6 +82,10 @@ impl MockAdaptor {
 
 #[async_trait]
 impl ChainAdaptor for MockAdaptor {
+    fn get_default_signer_address(&self) -> Address {
+        Address::ZERO
+    }
+
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
         Ok(1)
     }
@@ -94,11 +98,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok(None)
     }
 
-    async fn pegin_tx_used(&self, _tx_id: &[u8; 32]) -> anyhow::Result<bool> {
-        Ok(true)
-    }
-
-    async fn get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
+    async fn gateway_get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
         info!("call get_pegin_data");
         let pegin_data_map = self.load_hash_map::<PeginData>(PEGIN_DATA_MAP, None)?;
         if let Some(pegin_data) = pegin_data_map.get(&hex::encode(instance_id)) {
@@ -108,17 +108,7 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn is_operator_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<bool> {
-        info!("call get_withdraw_data");
-        let withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
-            Ok(withdraw_data.status == WithdrawStatus::Processing)
-        } else {
-            bail!("not find withdraw data")
-        }
-    }
-
-    async fn get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData> {
+    async fn gateway_get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData> {
         info!("call get_withdraw_data");
         let withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
@@ -128,7 +118,7 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
+    async fn gateway_get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
         info!("call get_operator_data");
         let operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;
         if let Some(operator_data) = operator_data_map.get(&hex::encode(graph_id)) {
@@ -138,11 +128,25 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn get_response_window_blocks(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
         Ok(0)
     }
 
-    async fn answer_pegin_request(
+    async fn gateway_post_pegin_request(
+        &self,
+        _instance_id: &[u8; 16],
+        _pegin_amount_sats: u64,
+        _tx_fees: &[u64; 3],
+        _receiver_addr: &[u8; 20],
+        _user_inputs: &[Utxo],
+        _user_xonly_pubkey: &[u8; 32],
+        _user_change_addr: &str,
+        _user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        Ok(TxHash::default().to_string())
+    }
+
+    async fn gateway_answer_pegin_request(
         &self,
         _instance_id: &[u8; 16],
         _committee_xonly_pubkey: &[u8; 32],
@@ -150,7 +154,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok(TxHash::default().to_string())
     }
 
-    async fn post_pegin_data(
+    async fn gateway_post_pegin_data(
         &self,
         instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
@@ -187,7 +191,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn post_graph_data(
+    async fn gateway_post_graph_data(
         &self,
         _instance_id: &[u8; 16],
         graph_id: &[u8; 16],
@@ -201,12 +205,12 @@ impl ChainAdaptor for MockAdaptor {
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn get_btc_block_hash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {
+    async fn gateway_get_btc_block_hash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {
         info!("call get_btc_block_hash");
         Ok([0; 32])
     }
 
-    async fn parse_btc_block_header(
+    async fn gateway_parse_btc_block_header(
         &self,
         _raw_header: &[u8],
     ) -> anyhow::Result<([u8; 32], [u8; 32])> {
@@ -214,12 +218,12 @@ impl ChainAdaptor for MockAdaptor {
         Ok(([0; 32], [0; 32]))
     }
 
-    async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+    async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
         info!("call get_initialized_ids");
         Ok(vec![])
     }
 
-    async fn get_instanceids_by_pubkey(
+    async fn gateway_get_instanceids_by_pubkey(
         &self,
         _operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
@@ -227,7 +231,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok(vec![])
     }
 
-    async fn init_withdraw(
+    async fn gateway_init_withdraw(
         &self,
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
@@ -251,7 +255,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
+    async fn gateway_cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
             info!("call cancel_withdraw");
@@ -265,7 +269,7 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn process_withdraw(
+    async fn gateway_process_withdraw(
         &self,
         graph_id: &[u8; 16],
         _raw_kickoff_tx: &BitcoinTx,
@@ -284,7 +288,7 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn finish_withdraw_happy_path(
+    async fn gateway_finish_withdraw_happy_path(
         &self,
         graph_id: &[u8; 16],
         _raw_take1_tx: &BitcoinTx,
@@ -303,7 +307,7 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn finish_withdraw_unhappy_path(
+    async fn gateway_finish_withdraw_unhappy_path(
         &self,
         graph_id: &[u8; 16],
         _raw_take2_tx: &BitcoinTx,
@@ -322,7 +326,7 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn finish_withdraw_disproved(
+    async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],
         _raw_disproved_tx: &BitcoinTx,
@@ -343,7 +347,7 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn verify_merkle_proof(
+    async fn gateway_verify_merkle_proof(
         &self,
         _root: &[u8; 32],
         _proof: &[[u8; 32]],
@@ -354,12 +358,34 @@ impl ChainAdaptor for MockAdaptor {
         Ok(true)
     }
 
-    async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
+    async fn gateway_get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
         Ok((0, 0))
     }
 
-    async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
+    async fn gateway_get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
         Ok((0, 0))
+    }
+
+    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn seq_set_pub_update_sequencer_set(
+        &self,
+        _sequencer_set: &SequencerSet,
+        _signature: &[u8],
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
+    }
+
+    async fn seq_set_pub_update_publisher_set(
+        &self,
+        _new_owners: &[[u8; 20]],
+        _signatures: &[Vec<u8>],
+        _sequencer_set: &SequencerSet,
+        _sequencer_set_cmt_sigs: &[u8],
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
     }
 }
 

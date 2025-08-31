@@ -1,6 +1,7 @@
 use crate::action::{
     ChallengeSent, CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer,
 };
+use crate::client::Utxo as ClientUtxo;
 use crate::client::goat_chain::WithdrawStatus;
 use crate::client::goat_chain::utils::{
     get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
@@ -142,7 +143,7 @@ pub async fn is_valid_withdraw(
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let withdraw_status = client.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok([WithdrawStatus::Initialized, WithdrawStatus::Processing].contains(&withdraw_status))
     // TODO: Only WithdrawStatus::Processing should be considered valid,
     // here WithdrawStatus::Initialized is also treated as valid to facilitate test
@@ -156,7 +157,7 @@ pub async fn is_withdraw_initialized_on_l2(
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let withdraw_status = client.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok(withdraw_status == WithdrawStatus::Initialized)
 }
 
@@ -567,7 +568,7 @@ pub async fn should_challenge(
     }
 
     // check if withdraw is initialized on L2
-    let withdraw_status = goat_client.get_withdraw_data(&graph_id).await?.status;
+    let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
     if withdraw_status == WithdrawStatus::Initialized
         || withdraw_status == WithdrawStatus::Processing
     {
@@ -764,28 +765,29 @@ pub fn get_test_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
 }
 
 /// l2 support
-pub async fn finish_withdraw_happy_path(
+pub async fn gateway_finish_withdraw_happy_path(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = goat_client.finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
+    let tx_hash = goat_client.gateway_finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
-pub async fn finish_withdraw_unhappy_path(
+pub async fn gateway_finish_withdraw_unhappy_path(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let tx_hash = goat_client.finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
+    let tx_hash =
+        goat_client.gateway_finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
 
-pub async fn finish_withdraw_disproved(
+pub async fn gateway_finish_withdraw_disproved(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
@@ -793,7 +795,7 @@ pub async fn finish_withdraw_disproved(
     challenge_tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let tx_hash = goat_client
-        .finish_withdraw_disproved(btc_client, graph_id, disprove_tx, challenge_tx)
+        .gateway_finish_withdraw_disproved(btc_client, graph_id, disprove_tx, challenge_tx)
         .await?;
     tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
@@ -1166,7 +1168,7 @@ pub async fn get_my_graph_for_instance(
     operator_pubkey: PublicKey,
 ) -> Result<Option<Uuid>, Box<dyn std::error::Error>> {
     let ids_vec = goat_client
-        .get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
+        .gateway_get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
         .await?;
     Ok(ids_vec.iter().find(|(a, _)| *a == instance_id).map(|(_, b)| *b))
 }
@@ -1693,6 +1695,23 @@ pub async fn generate_instance_from_event(
         .try_into()
         .map_err(|_| anyhow::anyhow!("user_x_only_pubkey must be exactly 32 bytes"))?;
 
+    let input_utxos: Vec<ClientUtxo> = event
+        .user_inputs
+        .iter()
+        .map(|v| {
+            let txid_bytes = hex::decode(&strip_hex_prefix_owned(&v.txid))
+                .map_err(|_| anyhow::anyhow!("Invalid txid hex format"))?;
+            let txid_array: [u8; 32] = txid_bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("txid must be exactly 32 bytes"))?;
+            Ok(ClientUtxo {
+                txid: txid_array,
+                vout: v.vout,
+                amount_stats: v.amount_sats.parse::<u64>().unwrap_or_default(),
+            })
+        })
+        .collect::<anyhow::Result<Vec<ClientUtxo>>>()?;
+
     let instance = Instance {
         instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
         network: get_network().to_string(),
@@ -1700,6 +1719,7 @@ pub async fn generate_instance_from_event(
         to_addr: EvmAddress::from_str(&event.depositor_address)?.to_string(),
         amount: event.pegin_amount_sats.parse()?,
         fees: Int64Array3(event.txn_fees.clone().map(|v| v.parse::<i64>().unwrap_or_default())),
+        input_utxos: serde_json::to_string(&input_utxos)?,
         status: InstanceStatus::UserInited.to_string(),
         pegin_request_txid: event.transaction_hash.clone(),
         pegin_request_height: event.block_number.parse()?,

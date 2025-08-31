@@ -1,4 +1,4 @@
-mod event_watche_task;
+mod event_watch_task;
 pub mod graph_maintenance_tasks;
 pub mod instance_maintenance_tasks;
 
@@ -12,7 +12,7 @@ use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
     instance_window_expiration_monitor, scan_post_graph_data, scan_post_pegin_data,
 };
-pub use event_watche_task::{is_processing_history_events, run_watch_event_task};
+pub use event_watch_task::{is_processing_history_events, run_watch_event_task};
 use libp2p::Swarm;
 use store::localdb::LocalDB;
 use tracing::warn;

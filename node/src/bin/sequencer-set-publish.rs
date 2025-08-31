@@ -25,6 +25,7 @@ use std::str::FromStr;
 #[derive(Parser, Debug)]
 #[command(name = "sequencer-set-publish")]
 #[command(about = "Publish sequencer set to Bitcoin", long_about = "")]
+#[command(about = "Publish sequencer set to Bitcoin", long_about = "")]
 struct Args {
     #[arg(long)]
     input_txid: String,

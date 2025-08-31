@@ -7,7 +7,7 @@ use crate::client::goat_chain::{GOATClient, WithdrawStatus};
 use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_RESEND_INTERVAL_SECOND, get_network};
 use crate::middleware::AllBehaviours;
 use crate::utils::{
-    create_goat_tx_record, finish_withdraw_disproved, get_graph, obsolete_sibling_graphs,
+    create_goat_tx_record, gateway_finish_withdraw_disproved, get_graph, obsolete_sibling_graphs,
     outpoint_spent_txid, tx_on_chain, update_graph_fields,
 };
 use bitcoin::Txid;
@@ -136,7 +136,7 @@ pub async fn get_initialized_graphs(
 ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
     // call L2 contract : getInitializedInstanceIds
     // returns Vec<(instance_id, graph_id)>
-    Ok(goat_client.get_initialized_ids().await?)
+    Ok(goat_client.gateway_get_initialized_ids().await?)
 }
 
 // tick_task1
@@ -230,14 +230,14 @@ pub async fn scan_kickoff(
                 );
                 continue;
             }
-            let withdraw_data = goat_client.get_withdraw_data(&graph_id).await?;
+            let withdraw_data = goat_client.gateway_get_withdraw_data(&graph_id).await?;
             if withdraw_data.status != WithdrawStatus::Initialized {
                 info!("scan_kickoff {graph_id}, kickoff:{kickoff_txid} in evil way");
                 send_message = true;
             } else {
                 let kickoff_tx = btc_client.fetch_btc_tx(&kickoff_txid).await?;
                 match goat_client
-                    .process_withdraw(btc_client, &graph_data.graph_id, &kickoff_tx)
+                    .gateway_process_withdraw(btc_client, &graph_data.graph_id, &kickoff_tx)
                     .await
                 {
                     Ok(tx_hash) => {
@@ -476,7 +476,9 @@ pub async fn scan_take1(
                 // take1 sent, try to call finish_withdraw_happy_path
                 info!("graph_id:{},  take-1 sent, txid: {spent_txid}", graph_data.graph_id);
                 let take1_tx = btc_client.fetch_btc_tx(&take1_txid).await?;
-                match goat_client.finish_withdraw_happy_path(btc_client, &graph_id, &take1_tx).await
+                match goat_client
+                    .gateway_finish_withdraw_happy_path(btc_client, &graph_id, &take1_tx)
+                    .await
                 {
                     Err(err) => {
                         // call finish_withdraw_happy_path later
@@ -628,7 +630,7 @@ pub async fn scan_take2(
                 info!("graph_id:{},  take-2 sent, txid: {spent_txid}", graph_data.graph_id);
                 let take2_tx = btc_client.fetch_btc_tx(&take2_txid).await?;
                 match goat_client
-                    .finish_withdraw_unhappy_path(btc_client, &graph_id, &take2_tx)
+                    .gateway_finish_withdraw_unhappy_path(btc_client, &graph_id, &take2_tx)
                     .await
                 {
                     Err(err) => {
@@ -698,7 +700,7 @@ pub async fn scan_take2(
                     graph_data.challenge_txid.unwrap()
                 };
 
-                let tx_hash = finish_withdraw_disproved(
+                let tx_hash = gateway_finish_withdraw_disproved(
                     btc_client,
                     goat_client,
                     &graph_id,

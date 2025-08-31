@@ -1,3 +1,4 @@
+use crate::client::Utxo;
 use crate::client::btc_chain::BTCClient;
 use crate::env::IpfsTxName;
 use crate::rpc_service::AppState;
@@ -606,9 +607,10 @@ pub async fn get_instances(
                 6,
             )
             .await?;
-            // let utxo: Vec<UTXO> = serde_json::from_str(&instance.input_uxtos).unwrap();
+            let utxo: Vec<Utxo> =
+                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
             items.push(InstanceWrap {
-                utxo: None,
+                utxo: Some(utxo),
                 instance: Some(instance),
                 confirmations,
                 target_confirmations,
@@ -689,9 +691,11 @@ pub async fn get_instance(
         )
         .await?;
 
+        let utxo: Vec<Utxo> =
+            serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
         Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
             instance_wrap: InstanceWrap {
-                utxo: None,
+                utxo: Some(utxo),
                 instance: Some(instance),
                 confirmations,
                 target_confirmations,

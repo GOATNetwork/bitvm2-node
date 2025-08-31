@@ -148,6 +148,7 @@ pub struct Instance {
     pub to_addr: String,
     pub amount: i64,
     pub fees: Int64Array3,
+    pub input_utxos: String,
     pub status: String,
     pub pegin_request_txid: String,
     pub pegin_request_height: i64,

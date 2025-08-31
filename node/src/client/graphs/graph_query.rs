@@ -70,12 +70,16 @@ impl GatewayEventEntity {
                     .add_field(&tag, "id")
                     .add_field(&tag, "instanceId")
                     .add_field(&tag, "graphId")
-                    .add_field(&tag, "transactionHash")
-                    .add_field(&tag, "blockNumber")
+                    .add_field(&tag, "disproveTxType")
+                    .add_field(&tag, "txnIndex")
+                    .add_field(&tag, "challengeStartTxid")
+                    .add_field(&tag, "challengeFinishTxid")
                     .add_field(&tag, "challengerAddress")
                     .add_field(&tag, "disproverAddress")
                     .add_field(&tag, "challengerRewardAmountSats")
                     .add_field(&tag, "disproverRewardAmountSats")
+                    .add_field(&tag, "transactionHash")
+                    .add_field(&tag, "blockNumber")
                     .set_order_by(&tag, "blockNumber", "asc");
             }
 
@@ -86,8 +90,7 @@ impl GatewayEventEntity {
                     .add_field(&tag, "depositorAddress")
                     .add_field(&tag, "peginAmountSats")
                     .add_field(&tag, "txnFees")
-                    .add_field(&tag, "userInputs")
-                    .add_field(&tag, "userInputs")
+                    .add_field(&tag, "userInputs {txid  vout  amountSats} ")
                     .add_field(&tag, "userXonlyPubkey")
                     .add_field(&tag, "userChangeAddress")
                     .add_field(&tag, "userRefundAddress")
@@ -215,6 +218,14 @@ pub struct WithdrawDisprovedEvent {
     pub instance_id: String,
     #[serde(rename = "graphId")]
     pub graph_id: String,
+    #[serde(rename = "disproveTxType")]
+    pub disprove_tx_type: String,
+    #[serde(rename = "txnIndex")]
+    pub tx_index: String,
+    #[serde(rename = "challengeStartTxid")]
+    pub challenge_start_txid: String,
+    #[serde(rename = "challengeFinishTxid")]
+    pub challenge_finish_txid: String,
     #[serde(rename = "challengerAddress")]
     pub challenger_addr: String,
     #[serde(rename = "challengerRewardAmountSats")]
@@ -223,6 +234,14 @@ pub struct WithdrawDisprovedEvent {
     pub disprover_addr: String,
     #[serde(rename = "disproverRewardAmountSats")]
     pub disprover_amount_sats: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserInput {
+    pub txid: String,
+    pub vout: u32,
+    #[serde(rename = "amountSats")]
+    pub amount_sats: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -241,7 +260,7 @@ pub struct BridgeInRequestEvent {
     #[serde(rename = "txnFees")]
     pub txn_fees: [String; 3],
     #[serde(rename = "userInputs")]
-    pub user_inputs: String,
+    pub user_inputs: Vec<UserInput>,
     #[serde(rename = "userXonlyPubkey")]
     pub user_xonly_pubkey: String,
     #[serde(rename = "userChangeAddress")]

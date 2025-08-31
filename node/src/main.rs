@@ -3,7 +3,8 @@ use base64::Engine;
 use bitvm2_lib::actors::Actor;
 use bitvm2_noded::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use bitvm2_noded::env::{
-    self, ENV_PEER_KEY, check_node_info, get_ipfs_url, get_network, get_node_pubkey,
+    self, ENV_PEER_KEY, check_node_info, get_goat_network, get_ipfs_url, get_network,
+    get_node_pubkey, goat_config_from_env,
 };
 use clap::{Parser, Subcommand, command};
 use libp2p::PeerId;
@@ -144,7 +145,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_db = bitvm2_noded::client::create_local_db(&opt.db_path).await;
     let handler = BitvmNodeProcessor {
         local_db: local_db.clone(),
-        btc_client: BTCClient::new(None, env::get_network()),
+        btc_client: BTCClient::new(get_network().into(), None),
         goat_client: GOATClient::new(env::goat_config_from_env().await, env::get_goat_network()),
         ipfs: IPFS::new(&get_ipfs_url()),
     };
@@ -188,7 +189,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if actor == Actor::Relayer || actor == Actor::Operator || actor == Actor::Committee {
         let cancel_token_clone = cancellation_token.clone();
         task_handles.push(tokio::spawn(async move {
-            match run_watch_event_task(actor_clone2, local_db_clone2, 5, cancel_token_clone).await {
+            let goat_client =
+                Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
+            let btc_client = Arc::new(BTCClient::new(get_network().into(), None));
+            match run_watch_event_task(
+                actor_clone2,
+                local_db_clone2,
+                btc_client,
+                goat_client,
+                5,
+                cancel_token_clone,
+            )
+            .await
+            {
                 Ok(tag) => Ok(tag),
                 Err(e) => {
                     tracing::error!("Watch event task error: {}", e);

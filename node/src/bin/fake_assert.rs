@@ -113,7 +113,7 @@ async fn main() {
     let args = Args::parse();
     let ipfs = IPFS::new(&args.ipfs_url);
     let network = Network::Testnet;
-    let btc_client = BTCClient::new(None, network);
+    let btc_client = BTCClient::new(network.into(), None);
     unsafe {
         std::env::set_var(ENV_ACTOR, "Operator");
         std::env::set_var(ENV_BITVM_SECRET, &args.secret);

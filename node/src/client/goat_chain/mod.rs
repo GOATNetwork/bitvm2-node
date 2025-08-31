@@ -1,6 +1,8 @@
 use crate::client::goat_chain::evmchain::EvmChain;
 use crate::env::GATEWAY_RATE_MULTIPLIER;
 use crate::utils::get_stake_amount;
+use alloy::consensus::crypto::secp256k1::recover_signer;
+use alloy::primitives::{B256, Signature};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::consensus::encode::deserialize_hex;
@@ -11,7 +13,8 @@ use store::Graph;
 use uuid::Uuid;
 pub mod utils;
 use crate::client::btc_chain::BTCClient;
-use crate::client::goat_chain::chain_adaptor::PeginStatus;
+use chain_adaptor::PeginStatus;
+pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
     BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
@@ -35,42 +38,34 @@ impl GOATClient {
         }
     }
 
-    pub async fn verify_merkle_proof(
+    pub async fn gateway_verify_merkle_proof(
         &self,
         root: &[u8; 32],
         proof: &[[u8; 32]],
         leaf: &[u8; 32],
         index: u64,
     ) -> anyhow::Result<bool> {
-        self.chain_service.verify_merkle_proof(root, proof, leaf, index).await
+        self.chain_service.gateway_verify_merkle_proof(root, proof, leaf, index).await
     }
 
-    pub async fn pegin_tx_used(&self, tx_id: &[u8; 32]) -> anyhow::Result<bool> {
-        self.chain_service.pegin_tx_used(tx_id).await
+    pub async fn gateway_get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
+        self.chain_service.gateway_get_pegin_data(instance_id).await
     }
 
-    pub async fn get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
-        self.chain_service.get_pegin_data(instance_id).await
+    pub async fn gateway_get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
+        self.chain_service.gateway_get_graph_data(graph_id).await
     }
 
-    pub async fn is_operator_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<bool> {
-        self.chain_service.is_operator_withdraw(graph_id).await
+    pub async fn gateway_get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
+        self.chain_service.gateway_get_withdraw_data(graph_id).await
     }
 
-    pub async fn get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
-        self.chain_service.get_graph_data(graph_id).await
+    pub async fn gateway_get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        self.chain_service.gateway_get_btc_block_hash(height).await
     }
 
-    pub async fn get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
-        self.chain_service.get_withdraw_data(graph_id).await
-    }
-
-    pub async fn get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        self.chain_service.get_btc_block_hash(height).await
-    }
-
-    pub async fn get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
-        self.chain_service.get_initialized_ids().await
+    pub async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        self.chain_service.gateway_get_initialized_ids().await
     }
 
     pub async fn get_tx_receipt(
@@ -89,17 +84,47 @@ impl GOATClient {
         self.chain_service.get_latest_block_number().await
     }
 
-    pub async fn get_response_window_blocks(&self) -> anyhow::Result<u64> {
-        self.chain_service.get_response_window_blocks().await
+    pub async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_response_window_blocks().await
     }
 
-    pub async fn answer_pegin_request(
+    pub async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        pegin_amount_sats: u64,
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        let pegin_data = self.gateway_get_pegin_data(instance_id).await?;
+        if pegin_data.status != PeginStatus::None {
+            tracing::warn!("instance_id:{instance_id} instanceId already used",);
+            bail!("instance_id:{instance_id} instanceId already used",);
+        }
+        self.chain_service
+            .gateway_post_pegin_request(
+                instance_id,
+                pegin_amount_sats,
+                tx_fees,
+                receiver_addr,
+                user_inputs,
+                user_xonly_pubkey,
+                user_change_addr,
+                user_refund_addr,
+            )
+            .await
+    }
+
+    pub async fn gateway_answer_pegin_request(
         &self,
         instance_id: &Uuid,
         committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String> {
         // TODO add only committee check
-        let pegin_data = self.get_pegin_data(instance_id).await?;
+        let pegin_data = self.gateway_get_pegin_data(instance_id).await?;
         if pegin_data.status != PeginStatus::Pending {
             tracing::warn!(
                 "instance_id:{instance_id} pegin_data.status is {}, not PeginStatus::Pending",
@@ -111,7 +136,7 @@ impl GOATClient {
             );
         }
         let next_block = self.get_latest_block_number().await? + 1;
-        let window_blocks = self.get_response_window_blocks().await?;
+        let window_blocks = self.gateway_get_response_window_blocks().await?;
         if pegin_data.created_at + window_blocks < next_block as u64 {
             tracing::warn!(
                 "instance_id:{instance_id} response window expired. created_at:{}, window_blocks: {window_blocks}, next_block: {next_block}",
@@ -123,50 +148,50 @@ impl GOATClient {
             );
         }
 
-        self.chain_service.answer_pegin_request(instance_id, committee_xonly_pubkey).await
+        self.chain_service.gateway_answer_pegin_request(instance_id, committee_xonly_pubkey).await
     }
 
-    pub async fn parse_btc_block_header(
+    pub async fn gateway_parse_btc_block_header(
         &self,
         raw_header: &[u8],
     ) -> anyhow::Result<([u8; 32], [u8; 32])> {
-        self.chain_service.parse_btc_block_header(raw_header).await
+        self.chain_service.gateway_parse_btc_block_header(raw_header).await
     }
 
-    pub async fn get_instanceids_by_pubkey(
+    pub async fn gateway_get_instanceids_by_pubkey(
         &self,
         operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
-        self.chain_service.get_instanceids_by_pubkey(operator_pubkey).await
+        self.chain_service.gateway_get_instanceids_by_pubkey(operator_pubkey).await
     }
 
-    pub async fn init_withdraw(
+    pub async fn gateway_init_withdraw(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
     ) -> anyhow::Result<String> {
-        self.chain_service.init_withdraw(instance_id, graph_id).await
+        self.chain_service.gateway_init_withdraw(instance_id, graph_id).await
     }
 
-    pub async fn cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
-        self.chain_service.cancel_withdraw(graph_id).await
+    pub async fn gateway_cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
+        self.chain_service.gateway_cancel_withdraw(graph_id).await
     }
 
-    pub async fn get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        self.chain_service.get_stake_amount_check_info().await
+    pub async fn gateway_get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        self.chain_service.gateway_get_stake_amount_check_info().await
     }
 
-    pub async fn get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        self.chain_service.get_pegin_fee_check_info().await
+    pub async fn gateway_get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
+        self.chain_service.gateway_get_pegin_fee_check_info().await
     }
 
-    pub async fn process_withdraw(
+    pub async fn gateway_process_withdraw(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
-        let operator_data = self.get_graph_data(graph_id).await?;
+        let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
@@ -180,20 +205,20 @@ impl GOATClient {
             .await?;
         let raw_kickoff_tx = tx_reconstruct(tx);
         self.chain_service
-            .process_withdraw(
+            .gateway_process_withdraw(
                 graph_id,
                 &raw_kickoff_tx,
                 &BitcoinTxProof { raw_header, height, proof, index },
             )
             .await
     }
-    pub async fn finish_withdraw_happy_path(
+    pub async fn gateway_finish_withdraw_happy_path(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
-        let operator_data = self.get_graph_data(graph_id).await?;
+        let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
@@ -207,7 +232,7 @@ impl GOATClient {
             .await?;
         let raw_take1_tx = tx_reconstruct(tx);
         self.chain_service
-            .finish_withdraw_happy_path(
+            .gateway_finish_withdraw_happy_path(
                 graph_id,
                 &raw_take1_tx,
                 &BitcoinTxProof { raw_header, height, proof, index },
@@ -215,13 +240,13 @@ impl GOATClient {
             .await
     }
 
-    pub async fn finish_withdraw_unhappy_path(
+    pub async fn gateway_finish_withdraw_unhappy_path(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
-        let operator_data = self.get_graph_data(graph_id).await?;
+        let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
@@ -235,7 +260,7 @@ impl GOATClient {
             .await?;
         let raw_take2_tx = tx_reconstruct(tx);
         self.chain_service
-            .finish_withdraw_unhappy_path(
+            .gateway_finish_withdraw_unhappy_path(
                 graph_id,
                 &raw_take2_tx,
                 &BitcoinTxProof { raw_header, height, proof, index },
@@ -243,7 +268,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn finish_withdraw_disproved(
+    pub async fn gateway_finish_withdraw_disproved(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
@@ -275,7 +300,7 @@ impl GOATClient {
         let raw_challenge_tx = tx_reconstruct(challenge_tx);
         let challenge_proof = BitcoinTxProof { raw_header, height, proof, index };
         self.chain_service
-            .finish_withdraw_disproved(
+            .gateway_finish_withdraw_disproved(
                 graph_id,
                 &raw_disprove_tx,
                 &disprove_proof,
@@ -285,7 +310,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn post_pegin_data(
+    pub async fn gateway_post_pegin_data(
         &self,
         btc_client: &BTCClient,
         instance_id: &Uuid,
@@ -293,28 +318,22 @@ impl GOATClient {
     ) -> anyhow::Result<String> {
         let tx_id = tx.compute_txid();
         tracing::info!("post_pegin_data instance_id:{instance_id}, pegin_tx:{}", tx_id.to_string());
-        let mut pegin_txid_posted = self.get_pegin_data(instance_id).await?.pegin_txid;
-        if pegin_txid_posted != [0_u8; 32] {
-            pegin_txid_posted.reverse();
-            tracing::warn!(
-                "instance_id:{instance_id} pegin tx already posted, posted:{}",
-                hex::encode(pegin_txid_posted)
-            );
-            bail!(
-                "instance_id:{instance_id} pegin tx already posted:{}",
-                hex::encode(pegin_txid_posted)
-            );
+        let pegin_data = self.gateway_get_pegin_data(instance_id).await?;
+        if pegin_data.status != PeginStatus::Pending {
+            tracing::warn!("instance_id:{instance_id} not a pending pegin request",);
+            bail!("instance_id:{instance_id} not a pending pegin request",);
         }
 
-        if self.pegin_tx_used(&tx_id.to_byte_array()).await? {
-            tracing::warn!("instance_id:{instance_id} this pegin tx has already been posted");
-            bail!("instance_id:{instance_id} this pegin tx has already been posted");
+        if tx.output[0].value.to_sat() != pegin_data.pegin_amount_sats {
+            tracing::warn!("instance_id:{instance_id} pegin amount mismatch",);
+            bail!("instance_id:{instance_id} pegin amount mismatch",);
         }
+
         let (root, proof, _leaf, height, index, raw_header) =
             btc_client.get_btc_tx_proof_info(&tx_id).await?;
 
-        let (block_hash, merkle_root) = self.parse_btc_block_header(&raw_header).await?;
-        let block_hash_online = self.get_block_hash(height).await?;
+        let (block_hash, merkle_root) = self.gateway_parse_btc_block_header(&raw_header).await?;
+        let block_hash_online = self.gateway_get_block_hash(height).await?;
         if block_hash_online != block_hash {
             tracing::warn!(
                 "instance_id:{instance_id}  root mismatch, from chain:{},  in contract:{}",
@@ -341,12 +360,15 @@ impl GOATClient {
             );
         }
         // check proof
-        if !self.verify_merkle_proof(&merkle_root, &proof, &tx_id.to_byte_array(), index).await? {
+        if !self
+            .gateway_verify_merkle_proof(&merkle_root, &proof, &tx_id.to_byte_array(), index)
+            .await?
+        {
             tracing::warn!("instance_id:{instance_id} check proof failed");
             bail!("instance_id:{instance_id} check proof failed");
         }
         let pegin_amount_sats = tx.output[0].value.to_sat();
-        let (min_pegin_fee_sats, pegin_fee_rate) = self.get_pegin_fee_check_info().await?;
+        let (min_pegin_fee_sats, pegin_fee_rate) = self.gateway_get_pegin_fee_check_info().await?;
         let pegin_fee_sats =
             min_pegin_fee_sats + pegin_amount_sats * pegin_fee_rate / GATEWAY_RATE_MULTIPLIER;
         if pegin_fee_sats >= pegin_amount_sats {
@@ -360,7 +382,7 @@ impl GOATClient {
 
         let raw_pegin_tx = tx_reconstruct(tx);
         self.chain_service
-            .post_pegin_data(
+            .gateway_post_pegin_data(
                 instance_id,
                 &raw_pegin_tx,
                 &BitcoinTxProof { raw_header, height, proof, index },
@@ -368,7 +390,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn post_graph_data(
+    pub async fn gateway_post_graph_data(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
@@ -377,7 +399,7 @@ impl GOATClient {
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
         let graph_data = cast_graph_to_graph_data(graph)?;
-        let graph_data_online = self.get_graph_data(graph_id).await?;
+        let graph_data_online = self.gateway_get_graph_data(graph_id).await?;
         if graph_data_online.pegin_txid != [0_u8; 32] {
             tracing::warn!(
                 "instance_id:{instance_id} graph_id {graph_id} graph data already posted",
@@ -385,7 +407,7 @@ impl GOATClient {
             bail!("instance_id:{instance_id} graph_id {graph_id} graph data already posted");
         }
 
-        let pegin_data = self.get_pegin_data(instance_id).await?;
+        let pegin_data = self.gateway_get_pegin_data(instance_id).await?;
         if pegin_data.pegin_txid != graph_data.pegin_txid {
             tracing::warn!(
                 "instance_id:{instance_id} graph_id {graph_id} graph data pegin txid mismatch, exp:{},  act:{}",
@@ -399,7 +421,7 @@ impl GOATClient {
             );
         }
 
-        let (min_stake_sats, stake_rate) = self.get_stake_amount_check_info().await?;
+        let (min_stake_sats, stake_rate) = self.gateway_get_stake_amount_check_info().await?;
 
         let min_stake_for_pegin =
             min_stake_sats + pegin_data.pegin_amount_sats * stake_rate / GATEWAY_RATE_MULTIPLIER;
@@ -416,7 +438,7 @@ impl GOATClient {
         }
 
         self.chain_service
-            .post_graph_data(instance_id, graph_id, &graph_data, committee_signs)
+            .gateway_post_graph_data(instance_id, graph_id, &graph_data, committee_signs)
             .await
     }
 
@@ -449,7 +471,7 @@ impl GOATClient {
 
         // check withdraw status
         if let Some(status) = required_status {
-            let withdraw_data = self.get_withdraw_data(graph_id).await?;
+            let withdraw_data = self.gateway_get_withdraw_data(graph_id).await?;
             if withdraw_data.status == WithdrawStatus::Disproved {
                 tracing::warn!("graph:{} at {} stage already disproved", tag, graph_id);
                 bail!("graph:{} at {} stagealready disproved", tag, graph_id);
@@ -472,8 +494,8 @@ impl GOATClient {
         let (root, proof, leaf, height, index, raw_header) =
             btc_client.get_btc_tx_proof_info(tx_act).await?;
 
-        let (block_hash, merkle_root) = self.parse_btc_block_header(&raw_header).await?;
-        let block_hash_online = self.get_block_hash(height).await?;
+        let (block_hash, merkle_root) = self.gateway_parse_btc_block_header(&raw_header).await?;
+        let block_hash_online = self.gateway_get_block_hash(height).await?;
         if block_hash_online != block_hash {
             tracing::warn!(
                 "graph_id:{} at: {} root mismatch, from chain:{},  in contract:{}",
@@ -509,12 +531,58 @@ impl GOATClient {
         }
 
         // check proof
-        if !self.verify_merkle_proof(&merkle_root, &proof, &tx_act.to_byte_array(), index).await? {
+        if !self
+            .gateway_verify_merkle_proof(&merkle_root, &proof, &tx_act.to_byte_array(), index)
+            .await?
+        {
             tracing::warn!("graph:{} at {} verify_merkle_proof failed ", tag, graph_id,);
             bail!("graph:{} at {} verify_merkle_proof failed ", tag, graph_id,);
         }
 
         Ok((root, proof.to_vec(), leaf, height, index, raw_header.to_vec()))
+    }
+
+    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        self.chain_service.seq_set_pub_get_last_block_height().await
+    }
+
+    pub async fn seq_set_pub_update_sequencer_set(
+        &self,
+        sequencer_set: &SequencerSet,
+        sign: &[u8],
+    ) -> anyhow::Result<String> {
+        let latest_height = self.chain_service.seq_set_pub_get_last_block_height().await?;
+        if latest_height > sequencer_set.goat_block_number {
+            bail!(
+                "InvalidGOATHeight, input latest block number: {latest_height} is greater than sequencer_set: {}.",
+                sequencer_set.goat_block_number
+            );
+        }
+        let addr = recover_signer(
+            &Signature::from_raw(sign)?,
+            B256::from_slice(&sequencer_set.sequencer_set_hash),
+        )?;
+        let addr_exp = self.chain_service.get_default_signer_address();
+        if addr != addr_exp {
+            bail!("P2WSHSignatureMismatch, exp:{addr_exp}, act:{addr}");
+        }
+        self.chain_service.seq_set_pub_update_sequencer_set(sequencer_set, sign).await
+    }
+    pub async fn seq_set_pub_update_publisher_set(
+        &self,
+        new_owners: &[[u8; 20]],
+        signatures: &[Vec<u8>],
+        sequencer_set: &SequencerSet,
+        sequencer_set_cmt_sigs: &[u8],
+    ) -> anyhow::Result<String> {
+        self.chain_service
+            .seq_set_pub_update_publisher_set(
+                new_owners,
+                signatures,
+                sequencer_set,
+                sequencer_set_cmt_sigs,
+            )
+            .await
     }
 }
 

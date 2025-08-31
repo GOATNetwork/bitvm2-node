@@ -60,8 +60,7 @@ impl AppState {
         peer_id: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        // let local_db = create_local_db(db_path).await;
-        let btc_client = BTCClient::new(None, get_network());
+        let btc_client = BTCClient::new(get_network().into(), None);
         let metrics_state = MetricsState::new(registry);
         let client = Client::new();
         Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, client }))
@@ -286,7 +285,7 @@ mod tests {
     }
     fn init(remote_proof_server: Option<String>) {
         unsafe {
-            std::env::set_var("RUST_LOG", "debug");
+            std::env::set_var("RUST_LOG", "info");
             std::env::set_var(ENV_GOAT_CHAIN_URL, "https://rpc.testnet3.goat.network");
             std::env::set_var(
                 ENV_GOAT_GATEWAY_CONTRACT_ADDRESS,
@@ -437,7 +436,8 @@ mod tests {
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
                     "amount": 20000,
-                    "fee": 1000,
+                    "fees": [1000, 1000, 1000],
+                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
                     "status": "UserInited",
                     "pegin_request_txid": "",
                     "pegin_request_height":10000,
@@ -468,6 +468,8 @@ mod tests {
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
                     "amount": 80000,
+                    "fees": [1000, 1000, 1000],
+                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
                     "status": "Presigned",
                      "pegin_request_txid": hex::encode(generate_random_bytes(32)),
                     "pegin_request_height":10000,
@@ -481,7 +483,6 @@ mod tests {
                     "committees_answers": {},
                     "pegin_data_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
                     "timeout":10000,
-                    "fee": 2000,
                     "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                     "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                 }
@@ -501,7 +502,9 @@ mod tests {
                     "network": "testnet",
                     "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
                     "to_addr": get_rand_goat_address(),
+                    "fees": [1000, 1000, 1000],
                     "amount": 80000,
+                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
                     "status": "Presigned",
                     "pegin_request_txid": hex::encode(generate_random_bytes(32)),
                     "pegin_request_height":10000,
@@ -515,7 +518,6 @@ mod tests {
                     "committees_answers": {},
                     "pegin_data_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
                     "timeout":10000,
-                    "fee": 2000,
                     "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                     "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
                 }
