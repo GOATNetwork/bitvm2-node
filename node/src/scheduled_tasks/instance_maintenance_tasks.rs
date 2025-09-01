@@ -12,24 +12,25 @@ use bitvm2_lib::keys::CommitteeMasterKey;
 use libp2p::Swarm;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::localdb::{InstanceQuery, LocalDB, StorageProcessor, UpdateGraphParams};
+use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor, UpdateGraphParams};
 use store::{CommitteeSignatures, GoatTxProcessingStatus, GoatTxType, GraphStatus, InstanceStatus};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 const MAX_INSTANCE: u32 = 50;
 
-async fn update_instance_status<'a>(
+async fn update_instance<'a>(
     storage_processor: &mut StorageProcessor<'a>,
-    instance_id: &Uuid,
-    status: InstanceStatus,
+    params: &InstanceUpdate,
 ) -> anyhow::Result<()> {
-    if let Err(err) =
-        storage_processor.update_instance_status(instance_id, &status.to_string()).await
-    {
-        warn!("update_instance_status:{instance_id} failed {}, will try later", err.to_string());
+    if let Err(err) = storage_processor.update_instance(params).await {
+        warn!(
+            "update_instance_status with input: {:?} failed {}, will try later",
+            params,
+            err.to_string()
+        );
     } else {
-        info!("update instance;{instance_id} to state:{status}");
+        info!("update instance with input: {:?}", params);
     }
     Ok(())
 }
@@ -152,9 +153,13 @@ pub async fn instance_window_expiration_monitor(
     Ok(())
 }
 
-pub async fn instance_expiration_monitor(local_db: &LocalDB) -> anyhow::Result<()> {
+pub async fn instance_expiration_monitor(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+) -> anyhow::Result<()> {
     let mut storage_processor = local_db.acquire().await?;
     let current_time = current_time_secs();
+    let current_height = btc_client.get_height().await? as i64;
     let expired_num = storage_processor
         .update_expired_instance(
             &InstanceStatus::CommitteesAnswered.to_string(),
@@ -172,12 +177,14 @@ pub async fn instance_expiration_monitor(local_db: &LocalDB) -> anyhow::Result<(
         )
         .await?;
 
+    // todo get from env
+    let lock_height = 6 * 24 as i64;
     for instance in instances {
-        if current_time > instance.timeout {
-            update_instance_status(
+        if current_height > instance.pegin_prepare_height + lock_height {
+            update_instance(
                 &mut storage_processor,
-                &instance.instance_id,
-                InstanceStatus::Timeout,
+                &InstanceUpdate::new(instance.instance_id)
+                    .with_status(InstanceStatus::Timeout.to_string()),
             )
             .await?;
         } else {
@@ -244,12 +251,15 @@ pub async fn instance_btc_tx_monitor(
         if let Ok(status) = btc_client.get_tx_status(&tx_id).await
             && status.confirmed
         {
+            let mut instance_update =
+                InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
             if next_status == InstanceStatus::UserBroadcastPeginPrepare {
                 // todo notify user broadcast pegin prepare
+                instance_update = instance_update
+                    .with_pegin_prepare_height(status.block_height.unwrap_or_default() as i64);
             }
 
-            update_instance_status(&mut storage_processor, &instance.instance_id, next_status)
-                .await?;
+            update_instance(&mut storage_processor, &instance_update).await?;
         } else {
             warn!(
                 "instance:{}, status{}, check tx_id:{} is not chain ",

@@ -47,6 +47,7 @@ use rand::Rng;
 use secp256k1::Secp256k1;
 use statics::*;
 
+use bitcoin::hashes::Hash;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
@@ -54,7 +55,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-
 use store::ipfs::IPFS;
 use store::localdb::{InstanceUpdate, LocalDB, UpdateGraphParams};
 use store::{
@@ -64,6 +64,7 @@ use store::{
 };
 use stun_client::{Attribute, Class, Client};
 
+use crate::env;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -1685,7 +1686,7 @@ pub fn temp_file() -> String {
 }
 
 pub async fn generate_instance_from_event(
-    _btc_client: &BTCClient,
+    btc_client: &BTCClient,
     event: &BridgeInRequestEvent,
 ) -> anyhow::Result<Instance> {
     // TODO decode event to get from_addr unsign_pegin_confirm_tx pegin_prepare_txid pegin_cancel_txid, timeout
@@ -1712,10 +1713,25 @@ pub async fn generate_instance_from_event(
         })
         .collect::<anyhow::Result<Vec<ClientUtxo>>>()?;
 
+    let from_addr = if !input_utxos.is_empty()
+        && let Some(tx) = btc_client.get_tx(&Txid::from_slice(&input_utxos[0].txid)?).await?
+    {
+        let tx_scripts = tx.output[input_utxos[0].vout as usize].script_pubkey.clone();
+        Address::from_script(&tx_scripts, env::get_network())
+            .map(|addr| addr.to_string())
+            .unwrap_or_default()
+    } else {
+        warn!(
+            "failed to decode instance  from from pegin_request event, txid:{}, as input_utxos is empty or decode address failed",
+            event.instance_id
+        );
+        "".to_string()
+    };
+
     let instance = Instance {
         instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
         network: get_network().to_string(),
-        from_addr: "".to_string(),
+        from_addr,
         to_addr: EvmAddress::from_str(&event.depositor_address)?.to_string(),
         amount: event.pegin_amount_sats.parse()?,
         fees: Int64Array3(event.txn_fees.clone().map(|v| v.parse::<i64>().unwrap_or_default())),
@@ -1732,7 +1748,7 @@ pub async fn generate_instance_from_event(
         unsign_pegin_confirm_tx: None,
         committees_answers: HashMap::new(),
         pegin_data_txid: "".to_string(),
-        timeout: 0,
+        pegin_prepare_height: 0,
         created_at: current_time_secs(),
         updated_at: current_time_secs(),
     };

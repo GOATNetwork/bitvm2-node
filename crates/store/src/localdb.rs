@@ -200,7 +200,7 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fees, input_utxos, status, pegin_request_txid, pegin_request_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_answers,
-                       pegin_data_txid, timeout,  created_at, updated_at)
+                       pegin_data_txid, pegin_prepare_height,  created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.network,
@@ -221,7 +221,7 @@ impl<'a> StorageProcessor<'a> {
             instance.unsign_pegin_confirm_tx,
             committees_answers_json,
             instance.pegin_data_txid,
-            instance.timeout,
+            instance.pegin_prepare_height,
             instance.created_at,
             instance.updated_at
         )
@@ -262,7 +262,7 @@ impl<'a> StorageProcessor<'a> {
                          unsign_pegin_confirm_tx,
                          committees_answers,
                          pegin_data_txid,
-                         timeout,
+                         pegin_prepare_height,
                          created_at,
                          updated_at
                  FROM instance
@@ -310,7 +310,7 @@ impl<'a> StorageProcessor<'a> {
                     unsign_pegin_confirm_tx,
                     committees_answers,
                     pegin_data_txid,
-                    timeout,
+                    pegin_prepare_height,
                     created_at,
                     updated_at
              FROM instance",
@@ -580,6 +580,10 @@ impl<'a> StorageProcessor<'a> {
             let committees_answers_json = serde_json::to_string(committees_answers)?;
             query_builder
                 .set_field("committees_answers", QueryParam::Text(committees_answers_json));
+        }
+
+        if let Some(pegin_prepare_height) = params.pegin_prepare_height {
+            query_builder.set_field("pegin_prepare_height", QueryParam::Int(pegin_prepare_height));
         }
 
         // Add update time
@@ -2935,6 +2939,7 @@ pub struct InstanceUpdate {
     pub status: Option<String>,
     pub pegin_confirm_txid: Option<String>,
     pub pegin_data_txid: Option<String>,
+    pub pegin_prepare_height: Option<i64>,
     pub committees_answers: Option<HashMap<String, CommitteeSignatures>>,
 }
 
@@ -2946,6 +2951,7 @@ impl InstanceUpdate {
             status: None,
             pegin_confirm_txid: None,
             pegin_data_txid: None,
+            pegin_prepare_height: None,
             committees_answers: None,
         }
     }
@@ -2977,11 +2983,16 @@ impl InstanceUpdate {
         self
     }
 
+    pub fn with_pegin_prepare_height(mut self, timeout: i64) -> Self {
+        self.pegin_prepare_height = Some(timeout);
+        self
+    }
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
         self.status.is_some()
             || self.pegin_confirm_txid.is_some()
             || self.pegin_data_txid.is_some()
             || self.committees_answers.is_some()
+            || self.pegin_prepare_height.is_some()
     }
 }

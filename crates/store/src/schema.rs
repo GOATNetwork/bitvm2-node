@@ -162,7 +162,7 @@ pub struct Instance {
     #[sqlx(json)]
     pub committees_answers: HashMap<String, CommitteeSignatures>,
     pub pegin_data_txid: String,
-    pub timeout: i64,
+    pub pegin_prepare_height: i64, // btc lock_time
     pub created_at: i64,
     pub updated_at: i64,
 }

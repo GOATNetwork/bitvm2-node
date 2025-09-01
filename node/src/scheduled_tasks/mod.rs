@@ -32,7 +32,7 @@ pub async fn relayer_scheduled_tasks(
         warn!("instance_window_expiration_monitor, err {:?}", err)
     }
 
-    if let Err(err) = instance_expiration_monitor(local_db).await {
+    if let Err(err) = instance_expiration_monitor(local_db, btc_client).await {
         warn!("instance_expiration_monitor, err {:?}", err)
     }
 

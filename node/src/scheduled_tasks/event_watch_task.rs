@@ -261,12 +261,8 @@ async fn handle_bridge_in_request_events<'a>(
         GoatTxProcessingStatus::Skipped.to_string()
     };
     for event in bridge_in_request_events {
-        let instance_res = generate_instance_from_event(btc_client, &event).await;
-        if instance_res.is_err() {
-            warn!("generate instance failed from event:{event:?}");
-            continue;
-        }
-        storage_processor.upsert_instance(&instance_res.unwrap()).await?;
+        let instance = generate_instance_from_event(btc_client, &event).await?;
+        storage_processor.upsert_instance(&instance).await?;
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,

@@ -21,7 +21,7 @@ CREATE TABLE instance
     `unsign_pegin_confirm_tx` TEXT,
     `committees_answers`      TEXT            NOT NULL DEFAULT '{}',
     `pegin_data_txid`         TEXT            NOT NULL DEFAULT '',
-    `timeout`                 BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `pegin_prepare_height`    BIGINT UNSIGNED NOT NULL DEFAULT 0,
     `created_at`              BIGINT          NOT NULL DEFAULT 0,
     `updated_at`              BIGINT          NOT NULL DEFAULT 0,
     PRIMARY KEY (`instance_id`)
