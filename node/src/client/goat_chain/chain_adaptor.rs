@@ -119,6 +119,33 @@ pub trait ChainAdaptor: Send + Sync {
         sequencer_set: &SequencerSet,
         sequencer_set_cmt_sigs: &[u8],
     ) -> anyhow::Result<String>;
+    async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]>;
+    async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]>;
+    async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64>;
+    async fn stake_mana_slash_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String>;
+    async fn stake_mana_lock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String>;
+    async fn stake_mana_unlock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String>;
+    async fn committee_mana_is_committee_member(&self, member: &[u8; 20]) -> anyhow::Result<bool>;
+
+    async fn committee_mana_committee_size(&self) -> anyhow::Result<u64>;
+    async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64>;
+    async fn committee_mana_verify_signatures(
+        &self,
+        msg_hash: &[u8; 32],
+        signs: &[Vec<u8>],
+    ) -> anyhow::Result<bool>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {

@@ -22,6 +22,10 @@ pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
 pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
     "GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS";
+pub const ENV_GOAT_COMMITTEE_MANAGEMENT_CONTRACT_ADDRESS: &str =
+    "GOAT_COMMITTEE_MANAGEMENT_CONTRACT_ADDRESS";
+pub const ENV_GOAT_STAKE_MANAGEMENT_CONTRACT_ADDRESS: &str =
+    "GOAT_STAKE_MANAGEMENT_CONTRACT_ADDRESS";
 /// Relayer
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
@@ -330,13 +334,9 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         return GoatInitConfig::from_env_for_test();
     }
     let rpc_url = get_goat_url_from_env();
-    let gateway_address = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS);
-    let sequencer_set_publisher_address =
-        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS);
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let chain_id = {
         let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-        // Call `eth_chainId`
         provider
             .get_chain_id()
             .await
@@ -344,10 +344,18 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     };
     GoatInitConfig {
         rpc_url,
-        gateway_address,
-        sequencer_set_publisher_address,
-        private_key,
         chain_id,
+        private_key,
+        gateway_address: get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS),
+        sequencer_set_publisher_address: get_goat_address_from_env(
+            ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS,
+        ),
+        committee_management_address: get_goat_address_from_env(
+            ENV_GOAT_COMMITTEE_MANAGEMENT_CONTRACT_ADDRESS,
+        ),
+        stake_management_address: get_goat_address_from_env(
+            ENV_GOAT_STAKE_MANAGEMENT_CONTRACT_ADDRESS,
+        ),
     }
 }
 

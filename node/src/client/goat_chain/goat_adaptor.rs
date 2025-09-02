@@ -2,8 +2,10 @@ use crate::client::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, SequencerSet, Utxo,
     WithdrawData, WithdrawStatus,
 };
+use crate::client::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
 use crate::client::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
 use crate::client::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
+use crate::client::goat_chain::goat_adaptor::IStakeManagement::IStakeManagementInstance;
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, TxHash};
 use alloy::providers::Identity;
@@ -166,32 +168,64 @@ sol!(
     }
 );
 
+sol!(
+    #[derive(Debug)]
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    interface IStakeManagement {
+        function stakeTokenAddress() external view returns (address);
+        function pubkeyToAddress(bytes32 pubkey) external view returns (address); // XOnlyPubkey
+        function stakeOf(address operator) external view returns (uint256);
+        function lockedStakeOf(address operator) external view returns (uint256);
+        function slashStake(address operator, uint256 amount) external;
+        function lockStake(address operator, uint256 amount) external;
+        function unlockStake(address operator, uint256 amount) external;
+    }
+);
+
+sol!(
+    #[derive(Debug)]
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    interface ICommitteeManagement {
+        function isCommitteeMember(address member) external view returns (bool);
+        function committeeSize() external view returns (uint256);
+        function quorumSize() external view returns (uint256);
+        function verifySignatures(bytes32 msgHash, bytes[] memory signatures) external view returns (bool);
+    }
+);
+
 pub struct GoatInitConfig {
     pub rpc_url: Url,
-    pub gateway_address: Option<EvmAddress>,
-    pub sequencer_set_publisher_address: Option<EvmAddress>,
     pub private_key: Option<String>,
     pub chain_id: u32,
+    pub gateway_address: Option<EvmAddress>,
+    pub sequencer_set_publisher_address: Option<EvmAddress>,
+    pub committee_management_address: Option<EvmAddress>,
+    pub stake_management_address: Option<EvmAddress>,
 }
 
 impl GoatInitConfig {
     pub fn from_env_for_test() -> Self {
         GoatInitConfig {
             rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
+            chain_id: 48816_u32,
+            private_key: None,
             gateway_address: Some(
                 "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
                     .parse()
                     .expect("parse contract address"),
             ),
             sequencer_set_publisher_address: None,
-            private_key: None,
-            chain_id: 48816_u32,
+            committee_management_address: None,
+            stake_management_address: None,
         }
     }
 }
 
 pub struct GoatAdaptor {
     chain_id: ChainId,
+    signer: EthereumWallet,
     provider: FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
@@ -212,7 +246,22 @@ pub struct GoatAdaptor {
             >,
         >,
     >,
-    signer: EthereumWallet,
+    committee_management: Option<
+        ICommitteeManagementInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    >,
+    stake_management: Option<
+        IStakeManagementInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    >,
 }
 
 impl GoatAdaptor {
@@ -247,6 +296,36 @@ impl GoatAdaptor {
         self.sequencer_set_publisher
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("SequencerSetPublisher not initialized"))
+    }
+
+    fn get_committee_management(
+        &self,
+    ) -> anyhow::Result<
+        &ICommitteeManagementInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    > {
+        self.committee_management
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("CommitteeMnagement not initialized"))
+    }
+
+    fn get_stake_management(
+        &self,
+    ) -> anyhow::Result<
+        &IStakeManagementInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    > {
+        self.stake_management
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("StakeManagement not initialized"))
     }
 
     async fn handle_transaction_request(
@@ -838,6 +917,115 @@ impl ChainAdaptor for GoatAdaptor {
         let tx_hash = self.handle_transaction_request(tx_request).await?;
         Ok(tx_hash.to_string())
     }
+
+    async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
+        let stake_management = self.get_stake_management()?;
+        Ok(stake_management.stakeTokenAddress().call().await?.into_array())
+    }
+
+    async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
+        let stake_management = self.get_stake_management()?;
+        Ok(stake_management
+            .pubkeyToAddress(FixedBytes::from_slice(pubkey))
+            .call()
+            .await?
+            .into_array())
+    }
+
+    async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        let stake_management = self.get_stake_management()?;
+        Ok(stake_management
+            .stakeOf(Address::from_slice(operator))
+            .call()
+            .await?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
+    }
+
+    async fn stake_mana_slash_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        let stake_management = self.get_stake_management()?;
+        let tx_request = stake_management
+            .slashStake(Address::from_slice(operator), U256::from(amount))
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
+    }
+
+    async fn stake_mana_lock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        let stake_management = self.get_stake_management()?;
+        let tx_request = stake_management
+            .lockStake(Address::from_slice(operator), U256::from(amount))
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
+    }
+
+    async fn stake_mana_unlock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        let stake_management = self.get_stake_management()?;
+        let tx_request = stake_management
+            .unlockStake(Address::from_slice(operator), U256::from(amount))
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
+    }
+
+    async fn committee_mana_is_committee_member(&self, member: &[u8; 20]) -> anyhow::Result<bool> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management.isCommitteeMember(Address::from_slice(member)).call().await?)
+    }
+
+    async fn committee_mana_committee_size(&self) -> anyhow::Result<u64> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management
+            .committeeSize()
+            .call()
+            .await?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
+    }
+
+    async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management
+            .quorumSize()
+            .call()
+            .await?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
+    }
+
+    async fn committee_mana_verify_signatures(
+        &self,
+        msg_hash: &[u8; 32],
+        signs: &[Vec<u8>],
+    ) -> anyhow::Result<bool> {
+        let committee_management = self.get_committee_management()?;
+        let signatures: Vec<Bytes> = signs.iter().map(|v| Bytes::copy_from_slice(v)).collect();
+        Ok(committee_management
+            .verifySignatures(FixedBytes::from_slice(msg_hash), signatures)
+            .call()
+            .await?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
+    }
 }
 impl GoatAdaptor {
     pub fn new(config: GoatInitConfig) -> Self {
@@ -855,13 +1043,19 @@ impl GoatAdaptor {
         };
         let provider = ProviderBuilder::new().connect_http(config.rpc_url);
         Self {
+            chain_id,
+            signer: EthereumWallet::new(signer),
             provider: provider.clone(),
             gateway: config.gateway_address.map(|addr| IGateway::new(addr, provider.clone())),
             sequencer_set_publisher: config
                 .sequencer_set_publisher_address
-                .map(|addr| ISequencerSetPublisher::new(addr, provider)),
-            signer: EthereumWallet::new(signer),
-            chain_id,
+                .map(|addr| ISequencerSetPublisher::new(addr, provider.clone())),
+            committee_management: config
+                .committee_management_address
+                .map(|addr| ICommitteeManagement::new(addr, provider.clone())),
+            stake_management: config
+                .stake_management_address
+                .map(|addr| IStakeManagement::new(addr, provider.clone())),
         }
     }
 }

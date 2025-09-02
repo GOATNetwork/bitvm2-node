@@ -1,4 +1,3 @@
-use crate::client::goat_chain::evmchain::EvmChain;
 use crate::env::GATEWAY_RATE_MULTIPLIER;
 use crate::utils::get_stake_amount;
 use alloy::consensus::crypto::secp256k1::recover_signer;
@@ -29,6 +28,7 @@ mod chain_adaptor;
 mod evmchain;
 mod goat_adaptor;
 mod mock_goat_adaptor;
+use crate::client::goat_chain::evmchain::EvmChain;
 pub use chain_adaptor::Utxo;
 
 impl GOATClient {
@@ -583,6 +583,61 @@ impl GOATClient {
                 sequencer_set_cmt_sigs,
             )
             .await
+    }
+
+    pub async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.stake_mana_stake_token_address().await
+    }
+    pub async fn stake_mana_pubkey_to_address(
+        &self,
+        pubkey: &[u8; 32],
+    ) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.stake_mana_pubkey_to_address(pubkey).await
+    }
+    pub async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        self.chain_service.stake_mana_stake_of(operator).await
+    }
+    pub async fn stake_mana_slash_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.chain_service.stake_mana_slash_stake(operator, amount).await
+    }
+
+    pub async fn stake_mana_lock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.chain_service.stake_mana_lock_stake(operator, amount).await
+    }
+    pub async fn stake_mana_unlock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.chain_service.stake_mana_unlock_stake(operator, amount).await
+    }
+    pub async fn committee_mana_is_committee_member(
+        &self,
+        member: &[u8; 20],
+    ) -> anyhow::Result<bool> {
+        self.chain_service.committee_mana_is_committee_member(member).await
+    }
+
+    pub async fn committee_mana_committee_size(&self) -> anyhow::Result<u64> {
+        self.chain_service.committee_mana_committee_size().await
+    }
+    pub async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64> {
+        self.chain_service.committee_mana_quorum_size().await
+    }
+    pub async fn committee_mana_verify_signatures(
+        &self,
+        msg_hash: &[u8; 32],
+        signs: &[Vec<u8>],
+    ) -> anyhow::Result<bool> {
+        self.chain_service.committee_mana_verify_signatures(msg_hash, signs).await
     }
 }
 

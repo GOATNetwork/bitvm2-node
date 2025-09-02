@@ -248,4 +248,58 @@ impl EvmChain {
             )
             .await
     }
+    pub async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
+        self.adaptor.stake_mana_stake_token_address().await
+    }
+    pub async fn stake_mana_pubkey_to_address(
+        &self,
+        pubkey: &[u8; 32],
+    ) -> anyhow::Result<[u8; 20]> {
+        self.adaptor.stake_mana_pubkey_to_address(pubkey).await
+    }
+    pub async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        self.adaptor.stake_mana_stake_of(operator).await
+    }
+    pub async fn stake_mana_slash_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.adaptor.stake_mana_slash_stake(operator, amount).await
+    }
+
+    pub async fn stake_mana_lock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.adaptor.stake_mana_lock_stake(operator, amount).await
+    }
+    pub async fn stake_mana_unlock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.adaptor.stake_mana_unlock_stake(operator, amount).await
+    }
+    pub async fn committee_mana_is_committee_member(
+        &self,
+        member: &[u8; 20],
+    ) -> anyhow::Result<bool> {
+        self.adaptor.committee_mana_is_committee_member(member).await
+    }
+
+    pub async fn committee_mana_committee_size(&self) -> anyhow::Result<u64> {
+        self.adaptor.committee_mana_committee_size().await
+    }
+    pub async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64> {
+        self.adaptor.committee_mana_quorum_size().await
+    }
+    pub async fn committee_mana_verify_signatures(
+        &self,
+        msg_hash: &[u8; 32],
+        signs: &[Vec<u8>],
+    ) -> anyhow::Result<bool> {
+        self.adaptor.committee_mana_verify_signatures(msg_hash, signs).await
+    }
 }

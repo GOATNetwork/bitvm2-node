@@ -387,6 +387,62 @@ impl ChainAdaptor for MockAdaptor {
     ) -> anyhow::Result<String> {
         Ok("".to_string())
     }
+
+    async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
+        Ok([0_u8; 20])
+    }
+
+    async fn stake_mana_pubkey_to_address(&self, _pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
+        Ok([0_u8; 20])
+    }
+
+    async fn stake_mana_stake_of(&self, _operator: &[u8; 20]) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn stake_mana_slash_stake(
+        &self,
+        _operator: &[u8; 20],
+        _amount: u64,
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
+    }
+
+    async fn stake_mana_lock_stake(
+        &self,
+        _operator: &[u8; 20],
+        _amount: u64,
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
+    }
+
+    async fn stake_mana_unlock_stake(
+        &self,
+        _operator: &[u8; 20],
+        _amount: u64,
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
+    }
+
+    async fn committee_mana_is_committee_member(&self, _member: &[u8; 20]) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    async fn committee_mana_committee_size(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
+    async fn committee_mana_verify_signatures(
+        &self,
+        _msg_hash: &[u8; 32],
+        _signs: &[Vec<u8>],
+    ) -> anyhow::Result<bool> {
+        Ok(false)
+    }
 }
 
 impl MockAdaptor {
