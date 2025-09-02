@@ -478,7 +478,7 @@ pub enum MessageType {
 
 // template query data struct
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct GraphTickActionMetaData {
+pub struct GraphWithBroadcastInfo {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub status: String,

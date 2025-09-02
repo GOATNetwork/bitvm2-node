@@ -20,14 +20,12 @@ use goat::utils::num_blocks_per_network;
 use libp2p::Swarm;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::LocalDB;
-use store::{
-    GoatTxProcessingStatus, GoatTxType, GraphStatus, GraphTickActionMetaData, MessageType,
-};
+use store::{GoatTxProcessingStatus, GoatTxType, GraphStatus, GraphWithBroadcastInfo, MessageType};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
-pub struct GraphTickActionData {
+pub struct GraphWithBroadcastConvert {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub graph_status: String,
@@ -44,8 +42,8 @@ pub struct GraphTickActionData {
     pub last_msg_send_at: i64,
 }
 
-impl From<GraphTickActionMetaData> for GraphTickActionData {
-    fn from(value: GraphTickActionMetaData) -> Self {
+impl From<GraphWithBroadcastInfo> for GraphWithBroadcastConvert {
+    fn from(value: GraphWithBroadcastInfo) -> Self {
         let tx_convert = |v: Option<String>| -> Option<Txid> {
             match v {
                 None => None,
@@ -95,16 +93,17 @@ fn is_need_to_send_msg(pre_send_times: i64, last_send_at: i64) -> bool {
     (pre_send_times % MESSAGE_BROADCAST_MAX_TIMES != 0)
         || (current_time - last_send_at) > MESSAGE_RESEND_INTERVAL_SECOND
 }
-async fn get_relayer_caring_graph_data(
+async fn fetch_graph_with_broadcast_info(
     local_db: &LocalDB,
     status: GraphStatus,
     msg_type: String,
-) -> Result<Vec<GraphTickActionData>, Box<dyn std::error::Error>> {
+) -> Result<Vec<GraphWithBroadcastConvert>, Box<dyn std::error::Error>> {
     // If instance corresponding to the graph has already been consumed, the graph is excluded.
     // When a graph enters the take1/take2 status, mark its corresponding instance as consumed.
     let mut storage_process = local_db.acquire().await?;
-    let meta_data =
-        storage_process.get_graph_tick_action_datas(status.to_string().as_str(), &msg_type).await?;
+    let meta_data = storage_process
+        .fetch_graph_with_broadcast_info(status.to_string().as_str(), &msg_type)
+        .await?;
     Ok(meta_data.into_iter().map(|v| v.into()).collect())
 }
 
@@ -199,13 +198,13 @@ pub async fn scan_kickoff(
     goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_kickoff");
-    let mut graph_datas = get_relayer_caring_graph_data(
+    let mut graph_datas = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::OperatorDataPushed,
         MessageType::KickoffSent.to_string(),
     )
     .await?;
-    let mut graph_datas_kickoff = get_relayer_caring_graph_data(
+    let mut graph_datas_kickoff = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::KickOff,
         MessageType::KickoffSent.to_string(),
@@ -315,19 +314,19 @@ pub async fn scan_assert(
     btc_client: &BTCClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_assert");
-    let mut graphs = get_relayer_caring_graph_data(
+    let mut graphs = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::Challenge,
         MessageType::AssertSent.to_string(),
     )
     .await?;
-    let mut graphs_kickoff = get_relayer_caring_graph_data(
+    let mut graphs_kickoff = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::KickOff,
         MessageType::AssertSent.to_string(),
     )
     .await?; // in case challenger never broadcast ChallengeSent
-    let mut graphs_assert_sent = get_relayer_caring_graph_data(
+    let mut graphs_assert_sent = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::Assert,
         MessageType::AssertSent.to_string(),
@@ -412,14 +411,14 @@ pub async fn scan_take1(
     goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_take1");
-    let mut graph_datas = get_relayer_caring_graph_data(
+    let mut graph_datas = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::KickOff,
         MessageType::Take1Ready.to_string(),
     )
     .await?;
 
-    let mut graph_datas_challenge = get_relayer_caring_graph_data(
+    let mut graph_datas_challenge = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::Challenge,
         MessageType::ChallengeSent.to_string(),
@@ -600,7 +599,7 @@ pub async fn scan_take2(
     goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_take2");
-    let graph_datas = get_relayer_caring_graph_data(
+    let graph_datas = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::Assert,
         MessageType::Take2Ready.to_string(),

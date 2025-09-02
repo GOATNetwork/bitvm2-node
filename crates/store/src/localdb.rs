@@ -3,7 +3,7 @@ use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphFullData,
-    GraphTickActionMetaData, Instance, Message, Node, NodesOverview, NonceCollect,
+    GraphWithBroadcastInfo, Instance, Message, Node, NodesOverview, NonceCollect,
     NonceCollectMetaData, ProofInfo, ProofType, PubKeyCollect, PubKeyCollectMetaData,
     WatchContract,
 };
@@ -848,41 +848,7 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         mut params: FilterGraphParams,
     ) -> anyhow::Result<(Vec<GraphFullData>, i64)> {
-        let mut graph_query_str = "SELECT graph.graph_id,
-                                                 graph.instance_id,
-                                                 0 AS bridge_path,
-                                                 graph.status         AS status,
-                                                 instance.network     AS network,
-                                                 instance.from_addr   AS from_addr,
-                                                 instance.to_addr     AS to_addr,
-                                                 graph.amount,
-                                                 graph.pegin_txid,
-                                                 graph.kickoff_txid,
-                                                 graph.challenge_txid,
-                                                 graph.take1_txid,
-                                                 graph.assert_init_txid,
-                                                 graph.assert_commit_txids,
-                                                 graph.assert_final_txid,
-                                                 graph.take2_txid,
-                                                 graph.disprove_txid,
-                                                 graph.operator,
-                                                 graph.bridge_out_start_at,
-                                                 graph.bridge_out_from_addr,
-                                                 graph.bridge_out_to_addr,
-                                                 graph.init_withdraw_txid,
-                                                 CASE
-                                                     WHEN graph.bridge_out_start_at > 0
-                                                     THEN graph.bridge_out_start_at
-                                                     ELSE graph.created_at
-                                                 END AS created_at,
-                                                 graph.updated_at
-                                          FROM graph
-                                                INNER JOIN instance ON graph.instance_id = instance.instance_id".to_string();
-        let mut graph_count_str = "SELECT count(graph.graph_id) as total_graphs
-                                          FROM graph
-                                                   INNER JOIN instance ON graph.instance_id = instance.instance_id"
-            .to_string();
-
+        // Handle from_addr parameter to get corresponding btc_pub_key
         if let Some(from_addr) = params.from_addr {
             let node_op = sqlx::query_as!(
                 Node,
@@ -918,61 +884,127 @@ impl<'a> StorageProcessor<'a> {
             }
         }
 
-        let mut conditions: Vec<String> = vec![];
+        // Build base query
+        let mut query = QueryBuilder::new(
+            "SELECT graph.graph_id,
+                    graph.instance_id,
+                    0 AS bridge_path,
+                    graph.status AS status,
+                    instance.network AS network,
+                    instance.from_addr AS from_addr,
+                    instance.to_addr AS to_addr,
+                    graph.amount,
+                    graph.pegin_txid,
+                    graph.kickoff_txid,
+                    graph.challenge_txid,
+                    graph.take1_txid,
+                    graph.assert_init_txid,
+                    graph.assert_commit_txids,
+                    graph.assert_final_txid,
+                    graph.take2_txid,
+                    graph.disprove_txid,
+                    graph.operator,
+                    graph.bridge_out_start_at,
+                    graph.bridge_out_from_addr,
+                    graph.bridge_out_to_addr,
+                    graph.init_withdraw_txid,
+                    CASE
+                        WHEN graph.bridge_out_start_at > 0
+                        THEN graph.bridge_out_start_at
+                        ELSE graph.created_at
+                    END AS created_at,
+                    graph.updated_at
+             FROM graph
+             INNER JOIN instance ON graph.instance_id = instance.instance_id",
+        );
 
-        if let Some(status) = params.status.clone() {
-            conditions.push(format!("graph.status = \'{status}\'"));
-        }
-        if let Some(operator) = params.operator {
-            conditions.push(format!("graph.operator = \'{operator}\'"));
-        }
-        if let Some(pegin_txid) = params.pegin_txid {
-            conditions.push(format!("graph.pegin_txid = \'{pegin_txid}\'"));
+        // Build count query
+        let mut count_query = QueryBuilder::new(
+            "SELECT count(graph.graph_id) as total_graphs
+             FROM graph
+             INNER JOIN instance ON graph.instance_id = instance.instance_id",
+        );
+
+        // Add WHERE conditions
+        if let Some(status) = &params.status {
+            query.and_where("graph.status = ?", Some(QueryParam::Text(status.clone())));
+            count_query.and_where("graph.status = ?", Some(QueryParam::Text(status.clone())));
         }
 
-        if let Some(graph_id) = params.graph_id {
-            conditions.push(format!(" hex(graph.graph_id) = \'{graph_id}\' COLLATE NOCASE"));
+        if let Some(operator) = &params.operator {
+            query.and_where("graph.operator = ?", Some(QueryParam::Text(operator.clone())));
+            count_query.and_where("graph.operator = ?", Some(QueryParam::Text(operator.clone())));
+        }
+
+        if let Some(pegin_txid) = &params.pegin_txid {
+            query.and_where("graph.pegin_txid = ?", Some(QueryParam::Text(pegin_txid.clone())));
+            count_query
+                .and_where("graph.pegin_txid = ?", Some(QueryParam::Text(pegin_txid.clone())));
+        }
+
+        if let Some(graph_id) = &params.graph_id {
+            query.and_where(
+                "hex(graph.graph_id) = ? COLLATE NOCASE",
+                Some(QueryParam::Text(graph_id.clone())),
+            );
+            count_query.and_where(
+                "hex(graph.graph_id) = ? COLLATE NOCASE ",
+                Some(QueryParam::Text(graph_id.clone())),
+            );
         }
 
         if params.is_bridge_out && params.status.is_none() {
-            conditions.push(
-                "( graph.status NOT IN (\'OperatorPresigned\',\'CommitteePresigned\', \'OperatorDataPushed\') OR \
-                 (graph.status == \'OperatorDataPushed\'  AND graph.init_withdraw_txid NOT NULL ) )".to_string(),
+            query.add_raw_condition(
+                "( graph.status NOT IN ('OperatorPresigned','CommitteePresigned', 'OperatorDataPushed') OR \
+                 (graph.status = 'OperatorDataPushed'  AND graph.init_withdraw_txid IS NOT NULL ) )"
+            );
+            count_query.add_raw_condition(
+                "( graph.status NOT IN ('OperatorPresigned','CommitteePresigned', 'OperatorDataPushed') OR \
+                 (graph.status = 'OperatorDataPushed'  AND graph.init_withdraw_txid IS NOT NULL ) )"
             );
         }
+
         if params.is_init_withdraw_not_null {
-            conditions.push("graph.init_withdraw_txid NOT NULL".to_string());
-        }
-        if !conditions.is_empty() {
-            let condition_str = conditions.join(" AND ");
-            graph_query_str = format!("{graph_query_str} WHERE {condition_str}");
-            graph_count_str = format!("{graph_count_str} WHERE {condition_str}");
+            query.add_raw_condition("graph.init_withdraw_txid IS NOT NULL");
+            count_query.add_raw_condition("graph.init_withdraw_txid IS NOT NULL");
         }
 
-        graph_query_str = format!(
-            "{graph_query_str}
-                                                ORDER BY
-                                                CASE
-                                                   WHEN graph.bridge_out_start_at > 0
-                                                   THEN graph.bridge_out_start_at
-                                                   ELSE graph.created_at
-                                                END DESC "
+        // Add ORDER BY clause
+        query.apply_order(
+            "CASE
+                WHEN graph.bridge_out_start_at > 0
+                THEN graph.bridge_out_start_at
+                ELSE graph.created_at
+             END DESC",
         );
-        if let Some(limit) = params.limit {
-            graph_query_str = format!("{graph_query_str} LIMIT {limit}");
-        }
 
-        if let Some(offset) = params.offset {
-            graph_query_str = format!("{graph_query_str} OFFSET {offset}");
+        // Add pagination
+        query.apply_pagination(params.limit, params.offset);
+
+        // Execute query
+        let sql = query.get_sql();
+        let params = query.get_params();
+        let mut graphs_query = sqlx::query_as::<_, GraphFullData>(&sql);
+        for param in &params {
+            match param {
+                QueryParam::Text(s) => graphs_query = graphs_query.bind(s),
+                QueryParam::Int(i) => graphs_query = graphs_query.bind(i),
+            }
         }
-        tracing::info!("{graph_query_str}");
-        let graphs = sqlx::query_as::<_, GraphFullData>(graph_query_str.as_str())
-            .fetch_all(self.conn())
-            .await?;
-        let total_graphs = sqlx::query(graph_count_str.as_str())
-            .fetch_one(self.conn())
-            .await?
-            .get::<i64, &str>("total_graphs");
+        let graphs = graphs_query.fetch_all(self.conn()).await?;
+
+        // Execute count query
+        let count_sql = count_query.get_sql();
+        let count_params = count_query.get_params();
+        let mut count_query_exec = sqlx::query(&count_sql);
+        for param in &count_params {
+            match param {
+                QueryParam::Text(s) => count_query_exec = count_query_exec.bind(s),
+                QueryParam::Int(i) => count_query_exec = count_query_exec.bind(i),
+            }
+        }
+        let total_graphs =
+            count_query_exec.fetch_one(self.conn()).await?.get::<i64, &str>("total_graphs");
 
         Ok((graphs, total_graphs))
     }
@@ -1068,30 +1100,14 @@ impl<'a> StorageProcessor<'a> {
         peer_id: &str,
         timestamp: i64,
     ) -> anyhow::Result<()> {
-        let node_op = sqlx::query_as!(
-            Node,
-            "SELECT peer_id,
-                    actor,
-                    goat_addr,
-                    btc_pub_key,
-                    socket_addr,
-                    reward,
-                    created_at,
-                    updated_at
-             FROM node
-             WHERE peer_id = ?",
-            peer_id
-        )
-        .fetch_optional(self.conn())
-        .await?;
-        if node_op.is_none() {
-            warn!("Node {peer_id} not found in DB");
-            return Ok(());
-        }
-        let _ =
+        let result =
             sqlx::query!(r#"UPDATE node SET updated_at = ? WHERE peer_id = ?"#, timestamp, peer_id)
                 .execute(self.conn())
-                .await;
+                .await?;
+
+        if result.rows_affected() == 0 {
+            warn!("Node {peer_id} not found in DB, no rows updated");
+        }
 
         Ok(())
     }
@@ -1171,7 +1187,9 @@ impl<'a> StorageProcessor<'a> {
         time_threshold: i64,
         status_expect: Option<String>,
     ) -> anyhow::Result<(Vec<Node>, i64)> {
-        let mut nodes_query_str = "SELECT peer_id,
+        // Build base query
+        let mut query = QueryBuilder::new(
+            "SELECT peer_id,
                     actor,
                     goat_addr,
                     btc_pub_key,
@@ -1179,41 +1197,65 @@ impl<'a> StorageProcessor<'a> {
                     reward,
                     created_at,
                     updated_at
-             FROM node"
-            .to_string();
-        let mut nodes_count_str = "SELECT count(*) as total_nodes FROM node".to_string();
-        let mut conditions: Vec<String> = vec![];
-        if let Some(actor) = actor {
-            conditions.push(format!("actor = \'{actor}\'"));
+             FROM node",
+        );
+
+        // Build count query
+        let mut count_query = QueryBuilder::new("SELECT count(*) as total_nodes FROM node");
+
+        // Add WHERE conditions
+        if let Some(actor) = &actor {
+            query.and_where("actor = ?", Some(QueryParam::Text(actor.clone())));
+            count_query.and_where("actor = ?", Some(QueryParam::Text(actor.clone())));
         }
-        if let Some(goat_addr) = goat_addr {
-            conditions.push(format!("goat_addr = \'{goat_addr}\'"));
+
+        if let Some(goat_addr) = &goat_addr {
+            query.and_where("goat_addr = ?", Some(QueryParam::Text(goat_addr.clone())));
+            count_query.and_where("goat_addr = ?", Some(QueryParam::Text(goat_addr.clone())));
         }
-        if let Some(status_expect) = status_expect {
+
+        if let Some(status_expect) = &status_expect {
             match status_expect.as_str() {
-                NODE_STATUS_ONLINE => conditions.push(format!("updated_at > {time_threshold}")),
-                NODE_STATUS_OFFLINE => conditions.push(format!("updated_at <= {time_threshold}")),
+                NODE_STATUS_ONLINE => {
+                    query.and_where("updated_at > ?", Some(QueryParam::Int(time_threshold)));
+                    count_query.and_where("updated_at > ?", Some(QueryParam::Int(time_threshold)));
+                }
+                NODE_STATUS_OFFLINE => {
+                    query.and_where("updated_at <= ?", Some(QueryParam::Int(time_threshold)));
+                    count_query.and_where("updated_at <= ?", Some(QueryParam::Int(time_threshold)));
+                }
                 _ => {}
             }
         }
-        if !conditions.is_empty() {
-            let condition_str = conditions.join(" AND ");
-            nodes_query_str = format!("{nodes_query_str} WHERE {condition_str}");
-            nodes_count_str = format!("{nodes_count_str} WHERE {condition_str}");
-        }
 
-        if let Some(limit) = limit {
-            nodes_query_str = format!("{nodes_query_str} LIMIT {limit}");
+        // Add pagination
+        query.apply_pagination(limit, offset);
+
+        // Execute query
+        let sql = query.get_sql();
+        let params = query.get_params();
+        let mut nodes_query = sqlx::query_as::<_, Node>(&sql);
+        for param in &params {
+            match param {
+                QueryParam::Text(s) => nodes_query = nodes_query.bind(s),
+                QueryParam::Int(i) => nodes_query = nodes_query.bind(i),
+            }
         }
-        if let Some(offset) = offset {
-            nodes_query_str = format!("{nodes_query_str} OFFSET {offset}");
+        let nodes = nodes_query.fetch_all(self.conn()).await?;
+
+        // Execute count query
+        let count_sql = count_query.get_sql();
+        let count_params = count_query.get_params();
+        let mut count_query_exec = sqlx::query(&count_sql);
+        for param in &count_params {
+            match param {
+                QueryParam::Text(s) => count_query_exec = count_query_exec.bind(s),
+                QueryParam::Int(i) => count_query_exec = count_query_exec.bind(i),
+            }
         }
-        let nodes =
-            sqlx::query_as::<_, Node>(nodes_query_str.as_str()).fetch_all(self.conn()).await?;
-        let total_nodes = sqlx::query(nodes_count_str.as_str())
-            .fetch_one(self.conn())
-            .await?
-            .get::<i64, &str>("total_nodes");
+        let total_nodes =
+            count_query_exec.fetch_one(self.conn()).await?.get::<i64, &str>("total_nodes");
+
         Ok((nodes, total_nodes))
     }
 
@@ -1651,14 +1693,14 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    pub async fn get_graph_tick_action_datas(
+    pub async fn fetch_graph_with_broadcast_info(
         &mut self,
         graph_status: &str,
         msg_type: &str,
-    ) -> anyhow::Result<Vec<GraphTickActionMetaData>> {
+    ) -> anyhow::Result<Vec<GraphWithBroadcastInfo>> {
         Ok(
             sqlx::query_as!(
-                GraphTickActionMetaData,
+                GraphWithBroadcastInfo,
                 "SELECT graph.graph_id AS \"graph_id:Uuid\",
                         graph.instance_id AS \"instance_id:Uuid\",
                         graph.status,
