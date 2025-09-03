@@ -285,7 +285,7 @@ pub struct SequencerSet {
     pub goat_block_number: u64,
 }
 
-pub  fn get_chain_adaptor(
+pub fn get_chain_adaptor(
     network: GoatNetwork,
     goat_config: GoatInitConfig,
     mock_adaptor_config: Option<MockAdaptorConfig>,

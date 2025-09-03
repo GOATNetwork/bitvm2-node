@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
-use store::localdb::FilterGraphParams;
+use store::localdb::GraphQuery;
 use store::{Graph, GraphStatus, Instance, convert_to_step_state};
 use uuid::Uuid;
 
@@ -90,7 +90,7 @@ pub struct InstanceOverview {
 
 #[derive(Deserialize, Serialize)]
 pub struct GraphGetResponse {
-    pub graph: Option<Graph>,
+    pub graph: Option<GraphExtended>,
 }
 #[derive(Deserialize, Serialize)]
 pub struct GraphTxnGetResponse {
@@ -136,7 +136,7 @@ pub struct GraphQueryParams {
     pub limit: Option<u32>,
 }
 
-impl From<GraphQueryParams> for FilterGraphParams {
+impl From<GraphQueryParams> for GraphQuery {
     fn from(value: GraphQueryParams) -> Self {
         let mut pegin_txid_op: Option<String> = None;
         let mut graph_ip_op: Option<String> = None;
@@ -158,8 +158,7 @@ impl From<GraphQueryParams> for FilterGraphParams {
         };
 
         let status = value.status.map(|status| convert_to_step_state(&status));
-
-        FilterGraphParams {
+        GraphQuery {
             status,
             is_bridge_out,
             operator: value.operator,
@@ -179,49 +178,24 @@ impl From<GraphQueryParams> for FilterGraphParams {
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphListResponse {
-    pub graphs: Vec<GraphRpcQueryDataWrap>,
+    pub graphs: Vec<GraphExtended>,
     pub total: i64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct GraphRpcQueryData {
-    pub graph_id: Uuid,
-    pub instance_id: Uuid,
-    pub bridge_path: u8,
-    pub network: String,
-    pub from_addr: String,
-    pub to_addr: String,
-    pub amount: i64,
-    pub pegin_txid: String,
-    pub status: String,
-    pub kickoff_txid: Option<String>,
-    pub challenge_txid: Option<String>,
-    pub take1_txid: Option<String>,
-    pub assert_init_txid: Option<String>,
-    pub assert_commit_txids: Option<String>,
-    pub assert_final_txid: Option<String>,
-    pub take2_txid: Option<String>,
-    pub disprove_txid: Option<String>,
-    pub init_withdraw_txid: Option<String>,
-    pub operator: String,
-    pub proof_height: Option<i64>,
-    pub proof_query_url: Option<String>,
-    pub updated_at: i64,
-    pub created_at: i64,
-}
-
 #[derive(Clone, Default, Deserialize, Serialize)]
-pub struct GraphRpcQueryDataWrap {
-    pub graph: GraphRpcQueryData,
+pub struct GraphExtended {
+    pub graph: Graph,
     pub confirmations: u32,
     pub target_confirmations: u32,
+    pub proof_height: Option<i64>,
+    pub proof_query_url: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::{generate_random_bytes, get_rand_goat_address};
-    use store::localdb::FilterGraphParams;
+    use store::localdb::GraphQuery;
     use uuid::Uuid;
 
     #[test]
@@ -234,7 +208,7 @@ mod tests {
             offset: Some(10),
             limit: Some(20),
         };
-        let filter: FilterGraphParams = params.into();
+        let filter: GraphQuery = params.into();
         assert!(filter.status.is_some());
         assert_eq!(filter.operator, Some("op1".to_string()));
         assert_eq!(filter.offset, Some(10));
@@ -252,7 +226,7 @@ mod tests {
             offset: None,
             limit: None,
         };
-        let filter: FilterGraphParams = params.into();
+        let filter: GraphQuery = params.into();
         assert!(filter.pegin_txid.is_some() || filter.graph_id.is_some());
     }
 
@@ -266,7 +240,24 @@ mod tests {
             offset: None,
             limit: None,
         };
-        let filter: FilterGraphParams = params.into();
+        let filter: GraphQuery = params.into();
         assert!(filter.graph_id.is_some() || filter.pegin_txid.is_some());
+    }
+
+    #[test]
+    fn test_filter_graph_params_builder_pattern() {
+        let params = GraphQuery::default()
+            .with_status("pending".to_string())
+            .with_operator("op1".to_string())
+            .with_from_addr("0x1234567890abcdef".to_string())
+            .with_pagination(10, 20)
+            .with_bridge_out(true);
+
+        assert_eq!(params.status, Some("pending".to_string()));
+        assert_eq!(params.operator, Some("op1".to_string()));
+        assert_eq!(params.from_addr, Some("0x1234567890abcdef".to_string()));
+        assert_eq!(params.offset, Some(10));
+        assert_eq!(params.limit, Some(20));
+        assert_eq!(params.is_bridge_out, true);
     }
 }

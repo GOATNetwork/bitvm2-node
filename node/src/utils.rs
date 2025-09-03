@@ -56,7 +56,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::{InstanceUpdate, LocalDB, UpdateGraphParams};
+use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
     Graph, GraphStatus, Instance, InstanceStatus, Int64Array3, Message, MessageState, MessageType,
@@ -921,7 +921,7 @@ pub async fn update_graph_fields(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = local_db.acquire().await?;
     Ok(storage_process
-        .update_graph_fields(UpdateGraphParams {
+        .update_graph_fields(GraphUpdate {
             graph_id,
             status,
             ipfs_base_url,
@@ -1002,8 +1002,8 @@ pub async fn store_graph(
         .collect();
     let network = transaction.get_network_by_instance(&instance_id).await?;
 
-    let mut bridge_out_from_addr = "".to_string();
-    let mut bridge_out_to_addr = "".to_string();
+    let mut from_addr = "".to_string();
+    let mut to_addr = "".to_string();
     if let Ok(node_info) =
         transaction.get_node_by_btc_pub_key(&graph.parameters.operator_pubkey.to_string()).await
     {
@@ -1011,9 +1011,8 @@ pub async fn store_graph(
         if let Ok(network) = network
             && let Some(node_info) = node_info
         {
-            bridge_out_from_addr = node_info.goat_addr;
-            bridge_out_to_addr =
-                node_p2wsh_address(network, &graph.parameters.operator_pubkey).to_string();
+            from_addr = node_info.goat_addr;
+            to_addr = node_p2wsh_address(network, &graph.parameters.operator_pubkey).to_string();
         }
     }
 
@@ -1039,8 +1038,8 @@ pub async fn store_graph(
             operator: graph.parameters.operator_pubkey.to_string(),
             raw_data: Some(serde_json::to_string(&graph).expect("to json string")),
             bridge_out_start_at: 0,
-            bridge_out_from_addr,
-            bridge_out_to_addr,
+            from_addr,
+            to_addr,
             init_withdraw_txid: None,
             zkm_version: groth16::get_zkm_version(),
             created_at: current_time_secs(),

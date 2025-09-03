@@ -1014,7 +1014,6 @@ impl ChainAdaptor for GoatAdaptor {
             .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
     }
 
-
     async fn stake_mana_slash_stake(
         &self,
         operator: &[u8; 20],

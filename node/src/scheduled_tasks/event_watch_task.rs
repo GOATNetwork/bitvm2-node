@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use store::localdb::{LocalDB, StorageProcessor, UpdateGraphParams};
+use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, InstanceStatus, WatchContract,
     WatchContractStatus,
@@ -137,7 +137,7 @@ async fn handle_user_withdraw_events<'a>(
             UserGraphWithdrawEvent::InitWithdraw(init_event) => {
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(UpdateGraphParams {
+                    .update_graph_fields(GraphUpdate {
                         graph_id,
                         status: None,
                         ipfs_base_url: None,
@@ -151,7 +151,7 @@ async fn handle_user_withdraw_events<'a>(
             UserGraphWithdrawEvent::CancelWithdraw(cancel_event) => {
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(UpdateGraphParams {
+                    .update_graph_fields(GraphUpdate {
                         graph_id,
                         status: None,
                         ipfs_base_url: None,

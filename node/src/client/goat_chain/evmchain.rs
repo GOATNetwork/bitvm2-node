@@ -255,7 +255,7 @@ impl EvmChain {
     ) -> anyhow::Result<Option<TransactionReceipt>> {
         self.adaptor.get_tx_receipt(tx_hash).await
     }
-    
+
     pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
         self.adaptor.seq_set_pub_get_last_block_height().await
     }

@@ -4,11 +4,10 @@ use crate::env::IpfsTxName;
 use crate::rpc_service::AppState;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
-use crate::utils::node_p2wsh_address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use bitcoin::Txid;
 use bitcoin::consensus::encode::serialize_hex;
-use bitcoin::{Network, PublicKey, Txid};
 use bitvm2_lib::types::Bitvm2Graph;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
@@ -16,8 +15,8 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
-use store::localdb::{FilterGraphParams, InstanceQuery};
-use store::{GoatTxType, GraphFullData, GraphStatus, InstanceStatus, modify_graph_status};
+use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
+use store::{GoatTxType, Graph, GraphStatus, InstanceStatus, modify_graph_status};
 use uuid::Uuid;
 
 /// Get instance settings
@@ -816,18 +815,23 @@ pub async fn get_graph(
     let async_fn = || async move {
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.local_db.acquire().await?;
-        let graph_op = storage_process.get_graph(&graph_id).await?;
-        if graph_op.is_none() {
+        if let Some(mut graph) = storage_process.get_graph(&graph_id).await? {
+            graph.raw_data = None;
+            let graphs =
+                add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, vec![graph])
+                    .await?;
+            if graphs.is_empty() {
+                tracing::warn!("graph:{} is convert failed", graph_id);
+                Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: None })
+            } else {
+                Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse {
+                    graph: Some(graphs[0].clone()),
+                })
+            }
+        } else {
             tracing::warn!("graph:{} is not record in db", graph_id);
-            return Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse {
-                graph: None,
-            });
-        };
-        let mut graph = graph_op.unwrap();
-        graph.raw_data = None;
-        graph.status = modify_graph_status(&graph.status, graph.init_withdraw_txid.is_some());
-        graph.reverse_btc_txid();
-        Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: Some(graph) })
+            Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: None })
+        }
     };
     match async_fn().await {
         Ok(res) => (StatusCode::OK, Json(res)),
@@ -971,68 +975,14 @@ pub async fn get_graphs(
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        let filter_params: FilterGraphParams = params.into();
-        let from_addr = filter_params.from_addr.clone();
+        let filter_params: GraphQuery = params.into();
         let (graphs, total) = storage_process.filter_graphs(filter_params).await?;
         resp_clone.total = total;
         if graphs.is_empty() {
             return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone);
         }
-        let current_height = app_state.btc_client.get_height().await?;
-        let mut graph_vec = vec![];
-        let mut graph_ids = vec![];
-        let bridge_in_status = vec![
-            GraphStatus::Created.to_string(),
-            GraphStatus::Presigned.to_string(),
-            GraphStatus::L2Recorded.to_string(),
-        ];
-        for mut graph in graphs {
-            graph.reverse_btc_txid();
-            let (confirmations, target_confirmations) = match graph.get_check_tx_param() {
-                Ok((tx_id, confirm_num)) => {
-                    get_tx_confirmation_info(
-                        &app_state.btc_client,
-                        tx_id,
-                        current_height,
-                        confirm_num,
-                    )
-                    .await?
-                }
-                Err(_) => (0, 0),
-            };
-            graph.status = modify_graph_status(&graph.status, graph.init_withdraw_txid.is_some());
-            if let Some(graph) =
-                convert_to_rpc_query_data(&graph, from_addr.clone(), &bridge_in_status)?
-            {
-                graph_ids.push(graph.graph_id);
-                graph_vec.push(GraphRpcQueryDataWrap {
-                    graph,
-                    confirmations,
-                    target_confirmations,
-                });
-            }
-        }
-        let socket_info_map: HashMap<Uuid, (String, i64)> = storage_process
-            .get_socket_addr_for_graph_query_proof(
-                &graph_ids,
-                &GoatTxType::ProceedWithdraw.to_string(),
-            )
-            .await?;
-        let graph_vec = graph_vec
-            .into_iter()
-            .map(|mut v| {
-                if let Some((socket_addr, height)) = socket_info_map.get(&v.graph.graph_id)
-                    && *height > 0
-                {
-                    v.graph.proof_height = Some(*height);
-                    v.graph.proof_query_url =
-                        Some(format!("http://{socket_addr}/v1/proofs/{}", *height));
-                }
-                v
-            })
-            .collect();
-
-        resp_clone.graphs = graph_vec;
+        resp_clone.graphs =
+            add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, graphs).await?;
         Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone)
     };
     match async_fn().await {
@@ -1044,61 +994,49 @@ pub async fn get_graphs(
     }
 }
 
-pub fn convert_to_rpc_query_data(
-    graph: &GraphFullData,
-    from_addr: Option<String>,
-    bridge_in_status: &[String],
-) -> Result<Option<GraphRpcQueryData>, Box<dyn std::error::Error>> {
-    let mut graph_res = GraphRpcQueryData {
-        graph_id: graph.graph_id,
-        instance_id: graph.instance_id,
-        bridge_path: graph.bridge_path,
-        network: graph.network.clone(),
-        from_addr: graph.from_addr.clone(),
-        to_addr: graph.to_addr.clone(),
-        amount: graph.amount,
-        pegin_txid: graph.pegin_txid.clone(),
-        status: graph.status.clone(),
-        kickoff_txid: graph.kickoff_txid.clone(),
-        challenge_txid: graph.challenge_txid.clone(),
-        take1_txid: graph.take1_txid.clone(),
-        assert_init_txid: graph.assert_init_txid.clone(),
-        assert_commit_txids: graph.assert_commit_txids.clone(),
-        assert_final_txid: graph.assert_final_txid.clone(),
-        take2_txid: graph.take2_txid.clone(),
-        disprove_txid: graph.disprove_txid.clone(),
-        init_withdraw_txid: graph.init_withdraw_txid.clone(),
-        operator: graph.operator.clone(),
-        proof_height: None,
-        proof_query_url: None,
-        updated_at: graph.updated_at,
-        created_at: graph.created_at,
-    };
+pub async fn add_extend_data_to_graphs<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    btc_client: &BTCClient,
+    graphs: Vec<Graph>,
+) -> Result<Vec<GraphExtended>, Box<dyn std::error::Error>> {
+    let current_height = btc_client.get_height().await?;
+    let mut graph_vec = vec![];
+    let mut graph_ids = vec![];
 
-    if graph.bridge_out_start_at > 0 || !bridge_in_status.contains(&graph.status) {
-        if graph.bridge_out_start_at > 0 {
-            graph_res.created_at = graph.bridge_out_start_at;
-        }
-        graph_res.bridge_path = 1_u8;
-        graph_res.from_addr = "".to_string();
-        if let Some(from_addr) = from_addr {
-            graph_res.from_addr = from_addr;
-        }
-
-        if !graph.bridge_out_from_addr.is_empty() {
-            graph_res.from_addr = graph.bridge_out_from_addr.clone();
-        }
-        if graph.bridge_out_to_addr.is_empty() {
-            graph_res.to_addr = node_p2wsh_address(
-                Network::from_str(&graph.network)?,
-                &PublicKey::from_str(&graph.operator)?,
-            )
-            .to_string();
-        } else {
-            graph_res.to_addr = graph.bridge_out_to_addr.clone();
-        }
+    for mut graph in graphs {
+        graph.reverse_btc_txid();
+        let (confirmations, target_confirmations) = match graph.get_check_tx_param() {
+            Ok((tx_id, confirm_num)) => {
+                get_tx_confirmation_info(btc_client, tx_id, current_height, confirm_num).await?
+            }
+            Err(_) => (0, 0),
+        };
+        graph.status = modify_graph_status(&graph.status, graph.init_withdraw_txid.is_some());
+        graph_ids.push(graph.graph_id);
+        graph_vec.push(GraphExtended {
+            graph,
+            confirmations,
+            target_confirmations,
+            proof_height: None,
+            proof_query_url: None,
+        });
     }
-    Ok(Some(graph_res))
+
+    let socket_info_map: HashMap<Uuid, (String, i64)> = storage_processor
+        .get_socket_addr_for_graph_query_proof(&graph_ids, &GoatTxType::ProceedWithdraw.to_string())
+        .await?;
+    Ok(graph_vec
+        .into_iter()
+        .map(|mut v| {
+            if let Some((socket_addr, height)) = socket_info_map.get(&v.graph.graph_id)
+                && *height > 0
+            {
+                v.proof_height = Some(*height);
+                v.proof_query_url = Some(format!("http://{socket_addr}/v1/proofs/{}", *height));
+            }
+            v
+        })
+        .collect())
 }
 
 // fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {

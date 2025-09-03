@@ -12,7 +12,7 @@ use bitvm2_lib::keys::CommitteeMasterKey;
 use libp2p::Swarm;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor, UpdateGraphParams};
+use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{CommitteeSignatures, GoatTxProcessingStatus, GoatTxType, GraphStatus, InstanceStatus};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -410,7 +410,7 @@ pub async fn scan_post_graph_data(
                     .await?;
 
                     storage_process
-                        .update_graph_fields(UpdateGraphParams {
+                        .update_graph_fields(GraphUpdate {
                             graph_id: graph.graph_id,
                             status: Some(GraphStatus::OperatorDataPushed.to_string()),
                             ipfs_base_url: None,
