@@ -1,5 +1,4 @@
 use crate::env::GATEWAY_RATE_MULTIPLIER;
-use crate::utils::get_stake_amount;
 use alloy::consensus::crypto::secp256k1::recover_signer;
 use alloy::primitives::{B256, Signature};
 use alloy::rpc::types::TransactionReceipt;
@@ -48,6 +47,13 @@ impl GOATClient {
         self.chain_service.gateway_verify_merkle_proof(root, proof, leaf, index).await
     }
 
+    pub async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.gateway_get_committee_management().await
+    }
+
+    pub async fn gateway_get_stake_management(&self) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.gateway_get_stake_management().await
+    }
     pub async fn gateway_get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
         self.chain_service.gateway_get_pegin_data(instance_id).await
     }
@@ -86,6 +92,42 @@ impl GOATClient {
 
     pub async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_response_window_blocks().await
+    }
+
+    pub async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_challenge_amount_sats().await
+    }
+
+    pub async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_pegin_fee_sats().await
+    }
+
+    pub async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_pegin_fee_rate().await
+    }
+
+    pub async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_operator_reward_sats().await
+    }
+
+    pub async fn gateway_get_operator_reward_rate(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_operator_reward_rate().await
+    }
+
+    pub async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_stake_amount().await
+    }
+
+    pub async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_challenger_reward().await
+    }
+
+    pub async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_disprover_reward().await
+    }
+
+    pub async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_slash_amount().await
     }
 
     pub async fn gateway_post_pegin_request(
@@ -175,14 +217,6 @@ impl GOATClient {
 
     pub async fn gateway_cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
         self.chain_service.gateway_cancel_withdraw(graph_id).await
-    }
-
-    pub async fn gateway_get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        self.chain_service.gateway_get_stake_amount_check_info().await
-    }
-
-    pub async fn gateway_get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        self.chain_service.gateway_get_pegin_fee_check_info().await
     }
 
     pub async fn gateway_process_withdraw(
@@ -368,7 +402,8 @@ impl GOATClient {
             bail!("instance_id:{instance_id} check proof failed");
         }
         let pegin_amount_sats = tx.output[0].value.to_sat();
-        let (min_pegin_fee_sats, pegin_fee_rate) = self.gateway_get_pegin_fee_check_info().await?;
+        let min_pegin_fee_sats = self.gateway_get_min_pegin_fee_sats().await?;
+        let pegin_fee_rate = self.gateway_get_pegin_fee_rate().await?;
         let pegin_fee_sats =
             min_pegin_fee_sats + pegin_amount_sats * pegin_fee_rate / GATEWAY_RATE_MULTIPLIER;
         if pegin_fee_sats >= pegin_amount_sats {
@@ -399,6 +434,28 @@ impl GOATClient {
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
         let graph_data = cast_graph_to_graph_data(graph)?;
+        // check operator register
+        let operator_stake_addr =
+            self.stake_mana_pubkey_to_address(&graph_data.operator_pubkey).await?;
+        if operator_stake_addr == [0_u8; 20] {
+            tracing::warn!("instance_id:{instance_id} graph_id {graph_id} operator not registered",);
+            bail!("instance_id:{instance_id} graph_id {graph_id} operator not registered");
+        }
+        let min_stake_amount = self.gateway_get_min_stake_amount().await?;
+        let locked_stake = self.stake_mana_lock_stake_of(&operator_stake_addr).await?;
+        if locked_stake < min_stake_amount {
+            tracing::warn!(
+                "instance_id:{instance_id} graph_id {graph_id} insufficient operator stake,\
+                 as locked_stake: {locked_stake}, min_stake_amount:{min_stake_amount}",
+            );
+            bail!(
+                "instance_id:{instance_id} graph_id {graph_id} insufficient operator stake, \
+                as locked_stake: {locked_stake}, min_stake_amount:{min_stake_amount}"
+            );
+        }
+
+        // TODO committeeSigs
+
         let graph_data_online = self.gateway_get_graph_data(graph_id).await?;
         if graph_data_online.pegin_txid != [0_u8; 32] {
             tracing::warn!(
@@ -418,22 +475,6 @@ impl GOATClient {
                 "instance_id:{instance_id} graph_id {graph_id} graph data pegin txid mismatch, exp:{},  act:{}",
                 hex::encode(pegin_data.pegin_txid),
                 hex::encode(graph_data.pegin_txid),
-            );
-        }
-
-        let (min_stake_sats, stake_rate) = self.gateway_get_stake_amount_check_info().await?;
-
-        let min_stake_for_pegin =
-            min_stake_sats + pegin_data.pegin_amount_sats * stake_rate / GATEWAY_RATE_MULTIPLIER;
-
-        if graph_data.stake_amount_sats < min_stake_for_pegin {
-            tracing::warn!(
-                "instance_id:{instance_id} graph_id {graph_id} graph data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
-                graph_data.stake_amount_sats,
-            );
-            bail!(
-                "instance_id:{instance_id} graph_id {graph_id} graph data insufficient stake amount, staking:{}, min:{min_stake_for_pegin}",
-                graph_data.stake_amount_sats,
             );
         }
 
@@ -597,6 +638,9 @@ impl GOATClient {
     pub async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
         self.chain_service.stake_mana_stake_of(operator).await
     }
+    pub async fn stake_mana_lock_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        self.chain_service.stake_mana_lock_stake_of(operator).await
+    }
     pub async fn stake_mana_slash_stake(
         &self,
         operator: &[u8; 20],
@@ -665,15 +709,14 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
     let pubkey_vec = PublicKey::from_str(&graph.operator)?.to_bytes();
 
     Ok(GraphData {
-        stake_amount_sats: get_stake_amount(graph.amount as u64).to_sat(),
         operator_pubkey_prefix: pubkey_vec[0],
         operator_pubkey: pubkey_vec[1..33].try_into()?,
         pegin_txid: deserialize_hex(&graph.pegin_txid)?,
         kickoff_txid: deserialize_hex(&graph.kickoff_txid.clone().unwrap())?,
         take1_txid: deserialize_hex(&graph.take1_txid.clone().unwrap())?,
         take2_txid: deserialize_hex(&graph.take2_txid.clone().unwrap())?,
-        assert_timeout_txid: [0_u8; 32],
         commit_timout_txid: [0_u8; 32],
+        assert_timeout_txids: vec![],
         nack_txids: vec![],
     })
 }

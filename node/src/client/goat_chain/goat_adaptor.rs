@@ -87,15 +87,14 @@ sol!(
         }
 
         struct GraphData {
-            uint64 stakeAmountSats;
             bytes1 operatorPubkeyPrefix;
             bytes32 operatorPubkey;
             bytes32 peginTxid;
             bytes32 kickoffTxid;
             bytes32 take1Txid;
             bytes32 take2Txid;
-            bytes32 assertTimoutTxid;
             bytes32 commitTimoutTxid;
+            bytes32[] assertTimoutTxids;
             bytes32[] NackTxids;
         }
 
@@ -113,12 +112,23 @@ sol!(
             uint256 index;
         }
 
+        // uint64 constant rateMultiplier = 10000;
+
+        uint64 public minChallengeAmountSats;
         uint64 public minPeginFeeSats;
         uint64 public peginFeeRate;
-        uint64 public minStakeAmountSats;
-        uint64 public stakeRate;
+        uint64 public minOperatorRewardSats;
+        uint64 public operatorRewardRate;
+        uint64 public minStakeAmount;
+        uint64 public minChallengerReward;
+        uint64 public minDisproverReward;
+        uint64 public minSlashAmount;
+
         address public  pegBTC;
         address public  bitcoinSPV;
+        address public  committeeManagement;
+        address public  stakeManagement;
+
         address public  relayer;
         uint256 public responseWindowBlocks;
         mapping(bytes16 instanceId => PeginData) public peginDataMap;
@@ -486,15 +496,18 @@ impl From<IGateway::PeginData> for PeginData {
 impl From<GraphData> for IGateway::GraphData {
     fn from(value: GraphData) -> Self {
         Self {
-            stakeAmountSats: value.stake_amount_sats,
             operatorPubkeyPrefix: FixedBytes::from(value.operator_pubkey_prefix),
             operatorPubkey: FixedBytes::from_slice(&value.operator_pubkey),
             peginTxid: FixedBytes::from_slice(&value.pegin_txid),
             kickoffTxid: FixedBytes::from_slice(&value.kickoff_txid),
             take1Txid: FixedBytes::from_slice(&value.take1_txid),
             take2Txid: FixedBytes::from_slice(&value.take2_txid),
-            assertTimoutTxid: FixedBytes::from_slice(&value.assert_timeout_txid),
             commitTimoutTxid: FixedBytes::from_slice(&value.commit_timout_txid),
+            assertTimoutTxids: value
+                .assert_timeout_txids
+                .into_iter()
+                .map(|txid| FixedBytes::from_slice(&txid))
+                .collect::<Vec<_>>(),
             NackTxids: value
                 .nack_txids
                 .into_iter()
@@ -506,15 +519,19 @@ impl From<GraphData> for IGateway::GraphData {
 impl From<IGateway::GraphData> for GraphData {
     fn from(value: IGateway::GraphData) -> Self {
         GraphData {
-            stake_amount_sats: value.stakeAmountSats,
+            // stake_amount_sats: value.stakeAmountSats,
             operator_pubkey_prefix: value.operatorPubkeyPrefix.0[0],
             operator_pubkey: value.operatorPubkey.0,
             pegin_txid: value.peginTxid.0,
             kickoff_txid: value.kickoffTxid.0,
             take1_txid: value.take1Txid.0,
             take2_txid: value.take2Txid.0,
-            assert_timeout_txid: value.assertTimoutTxid.0,
             commit_timout_txid: value.commitTimoutTxid.0,
+            assert_timeout_txids: value
+                .assertTimoutTxids
+                .into_iter()
+                .map(|txid| txid.into())
+                .collect(),
             nack_txids: value.NackTxids.into_iter().map(|txid| txid.into()).collect(),
         }
     }
@@ -568,6 +585,61 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
         Ok(self.provider.get_transaction_receipt(TxHash::from_str(tx_hash)?).await?)
+    }
+
+    async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.minChallengeAmountSats().call().await?)
+    }
+
+    async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.minPeginFeeSats().call().await?)
+    }
+
+    async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.peginFeeRate().call().await?)
+    }
+
+    async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.minOperatorRewardSats().call().await?)
+    }
+
+    async fn gateway_get_operator_reward_rate(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.operatorRewardRate().call().await?)
+    }
+
+    async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.minStakeAmount().call().await?)
+    }
+
+    async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.minChallengerReward().call().await?)
+    }
+
+    async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.minDisproverReward().call().await?)
+    }
+
+    async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.minSlashAmount().call().await?)
+    }
+
+    async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.committeeManagement().call().await?.into_array())
+    }
+
+    async fn gateway_get_stake_management(&self) -> anyhow::Result<[u8; 20]> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway.stakeManagement().call().await?.into_array())
     }
 
     async fn gateway_get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
@@ -862,16 +934,6 @@ impl ChainAdaptor for GoatAdaptor {
             .await?)
     }
 
-    async fn gateway_get_stake_amount_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        let gateway = self.get_gateway()?;
-        Ok((gateway.minStakeAmountSats().call().await?, gateway.stakeRate().call().await?))
-    }
-
-    async fn gateway_get_pegin_fee_check_info(&self) -> anyhow::Result<(u64, u64)> {
-        let gateway = self.get_gateway()?;
-        Ok((gateway.minPeginFeeSats().call().await?, gateway.peginFeeRate().call().await?))
-    }
-
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
         let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
         Ok(sequencer_set_publisher.latest_height().call().await?.try_into()?)
@@ -941,6 +1003,17 @@ impl ChainAdaptor for GoatAdaptor {
             .try_into()
             .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
     }
+
+    async fn stake_mana_lock_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        let stake_management = self.get_stake_management()?;
+        Ok(stake_management
+            .lockedStakeOf(Address::from_slice(operator))
+            .call()
+            .await?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
+    }
+
 
     async fn stake_mana_slash_stake(
         &self,

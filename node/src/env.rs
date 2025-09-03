@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 use crate::action::NodeInfo;
-use crate::client::goat_chain::utils::{validate_committee, validate_operator};
+use crate::client::goat_chain::utils::{
+    get_committee_and_stake_addresses, validate_committee, validate_operator,
+};
 use crate::client::goat_chain::{GoatInitConfig, GoatNetwork};
 use alloy::primitives::Address as EvmAddress;
 use alloy::primitives::Address;
@@ -22,10 +24,6 @@ pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
 pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
     "GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS";
-pub const ENV_GOAT_COMMITTEE_MANAGEMENT_CONTRACT_ADDRESS: &str =
-    "GOAT_COMMITTEE_MANAGEMENT_CONTRACT_ADDRESS";
-pub const ENV_GOAT_STAKE_MANAGEMENT_CONTRACT_ADDRESS: &str =
-    "GOAT_STAKE_MANAGEMENT_CONTRACT_ADDRESS";
 /// Relayer
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
@@ -335,27 +333,39 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     }
     let rpc_url = get_goat_url_from_env();
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
-    let chain_id = {
-        let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-        provider
-            .get_chain_id()
-            .await
-            .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}")) as u32
-    };
+    let gateway_address = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS);
+    let (chain_id, committee_management_address, stake_management_address) =
+        {
+            let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+            let chain_id = provider
+                .get_chain_id()
+                .await
+                .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}"))
+                as u32;
+
+            let (committee_management_address, stake_management_address) =
+                if let Some(gateway_address) = gateway_address.clone() {
+                    let (committee_management_address, stake_management_address) =
+                get_committee_and_stake_addresses(&provider, gateway_address.clone())
+                    .await
+                    .expect("fail to get committee and stake management contract online addresses");
+                    (Some(committee_management_address), Some(stake_management_address))
+                } else {
+                    (None, None)
+                };
+            (chain_id, committee_management_address, stake_management_address)
+        };
+
     GoatInitConfig {
         rpc_url,
         chain_id,
         private_key,
-        gateway_address: get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS),
+        gateway_address,
         sequencer_set_publisher_address: get_goat_address_from_env(
             ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS,
         ),
-        committee_management_address: get_goat_address_from_env(
-            ENV_GOAT_COMMITTEE_MANAGEMENT_CONTRACT_ADDRESS,
-        ),
-        stake_management_address: get_goat_address_from_env(
-            ENV_GOAT_STAKE_MANAGEMENT_CONTRACT_ADDRESS,
-        ),
+        committee_management_address,
+        stake_management_address,
     }
 }
 
