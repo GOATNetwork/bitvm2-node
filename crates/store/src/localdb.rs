@@ -317,9 +317,9 @@ impl<'a> StorageProcessor<'a> {
         let committees_answers_json = serde_json::to_string(&instance.committees_answers)?;
         let res = sqlx::query!(
             "INSERT OR
-            REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fees, input_utxos, status, pegin_request_txid, pegin_request_height,
+            REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fees, input_utxos, status, pegin_request_tx_hash, pegin_request_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_answers,
-                       pegin_data_txid, pegin_prepare_height,  created_at, updated_at)
+                       pegin_data_tx_hash, pegin_prepare_height,  created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.network,
@@ -329,7 +329,7 @@ impl<'a> StorageProcessor<'a> {
             instance.fees,
             instance.input_utxos,
             instance.status,
-            instance.pegin_request_txid,
+            instance.pegin_request_tx_hash,
             instance.pegin_request_height,
             instance.user_xonly_pubkey,
             instance.user_change_addr,
@@ -339,7 +339,7 @@ impl<'a> StorageProcessor<'a> {
             instance.pegin_cancel_txid,
             instance.unsign_pegin_confirm_tx,
             committees_answers_json,
-            instance.pegin_data_txid,
+            instance.pegin_data_tx_hash,
             instance.pegin_prepare_height,
             instance.created_at,
             instance.updated_at
@@ -370,7 +370,7 @@ impl<'a> StorageProcessor<'a> {
                          fees,
                          input_utxos,
                          status,
-                         pegin_request_txid,
+                         pegin_request_tx_hash,
                          pegin_request_height,
                          user_xonly_pubkey,
                          user_change_addr,
@@ -380,7 +380,7 @@ impl<'a> StorageProcessor<'a> {
                          pegin_cancel_txid,
                          unsign_pegin_confirm_tx,
                          committees_answers,
-                         pegin_data_txid,
+                         pegin_data_tx_hash,
                          pegin_prepare_height,
                          created_at,
                          updated_at
@@ -418,7 +418,7 @@ impl<'a> StorageProcessor<'a> {
                     fees,
                     input_utxos,
                     status,
-                    pegin_request_txid,
+                    pegin_request_tx_hash,
                     pegin_request_height,
                     user_xonly_pubkey,
                     user_change_addr,
@@ -428,7 +428,7 @@ impl<'a> StorageProcessor<'a> {
                     pegin_cancel_txid,
                     unsign_pegin_confirm_tx,
                     committees_answers,
-                    pegin_data_txid,
+                    pegin_data_tx_hash,
                     pegin_prepare_height,
                     created_at,
                     updated_at
@@ -604,12 +604,12 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_instance_pegin_data_txid(
         &mut self,
         instance_id: &Uuid,
-        pegin_data_txid: &str,
+        pegin_data_tx_hash: &str,
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let result = sqlx::query!(
-            "UPDATE instance SET pegin_data_txid = ?, updated_at = ? WHERE instance_id = ?",
-            pegin_data_txid,
+            "UPDATE instance SET pegin_data_tx_hash = ?, updated_at = ? WHERE instance_id = ?",
+            pegin_data_tx_hash,
             current_time,
             instance_id
         )

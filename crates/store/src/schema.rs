@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-// use base64::prelude::*;
+
+use bitcoin::Txid;
+use bitcoin::hashes::Hash;
 use std::collections::HashMap;
 use std::str::FromStr;
 use strum::{Display, EnumString};
@@ -9,6 +11,71 @@ use uuid::Uuid;
 pub const NODE_STATUS_ONLINE: &str = "Online";
 pub const NODE_STATUS_OFFLINE: &str = "Offline";
 pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SerializableTxid(pub Txid);
+
+impl From<Txid> for SerializableTxid {
+    fn from(txid: Txid) -> Self {
+        SerializableTxid(txid)
+    }
+}
+
+impl From<SerializableTxid> for Txid {
+    fn from(serializable_txid: SerializableTxid) -> Self {
+        serializable_txid.0
+    }
+}
+
+impl Default for SerializableTxid {
+    fn default() -> Self {
+        SerializableTxid(Txid::from_byte_array([0u8; 32]))
+    }
+}
+impl Serialize for SerializableTxid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for SerializableTxid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let tx_str = String::deserialize(deserializer)?;
+        Ok(SerializableTxid(Txid::from_str(&tx_str).map_err(serde::de::Error::custom)?))
+    }
+}
+impl sqlx::Type<sqlx::Sqlite> for SerializableTxid {
+    fn type_info() -> sqlx::sqlite::SqliteTypeInfo {
+        <String as sqlx::Type<sqlx::Sqlite>>::type_info()
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Sqlite> for SerializableTxid {
+    fn encode_by_ref(
+        &self,
+        args: &mut Vec<sqlx::sqlite::SqliteArgumentValue<'_>>,
+    ) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync>> {
+        let hex_string = self.0.to_string();
+        <String as sqlx::Encode<sqlx::Sqlite>>::encode_by_ref(&hex_string, args)
+    }
+}
+
+impl sqlx::Decode<'_, sqlx::Sqlite> for SerializableTxid {
+    fn decode(
+        value: sqlx::sqlite::SqliteValueRef<'_>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let hex_string = <String as sqlx::Decode<sqlx::Sqlite>>::decode(value)?;
+        let txid = Txid::from_str(&hex_string)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        Ok(SerializableTxid(txid))
+    }
+}
 
 macro_rules! define_numeric_array {
     ($name:ident, $size:expr) => {
@@ -150,35 +217,21 @@ pub struct Instance {
     pub fees: Int64Array3,
     pub input_utxos: String,
     pub status: String,
-    pub pegin_request_txid: String,
+    pub pegin_request_tx_hash: String, // goat tx hash
     pub pegin_request_height: i64,
     pub user_xonly_pubkey: ByteArray32,
     pub user_change_addr: String,
     pub user_refund_addr: String,
-    pub pegin_prepare_txid: Option<String>,
-    pub pegin_confirm_txid: Option<String>,
-    pub pegin_cancel_txid: Option<String>,
+    pub pegin_prepare_txid: Option<SerializableTxid>, // btc txid
+    pub pegin_confirm_txid: Option<SerializableTxid>, // btc txid
+    pub pegin_cancel_txid: Option<SerializableTxid>,  // btc txid
     pub unsign_pegin_confirm_tx: Option<String>,
     #[sqlx(json)]
     pub committees_answers: HashMap<String, CommitteeSignatures>,
-    pub pegin_data_txid: String,
+    pub pegin_data_tx_hash: String,
     pub pegin_prepare_height: i64, // btc lock_time
     pub created_at: i64,
     pub updated_at: i64,
-}
-
-impl Instance {
-    pub fn reverse_btc_txid(&mut self) {
-        if let Some(pegin_prepare_txid) = self.pegin_prepare_txid.clone() {
-            self.pegin_prepare_txid = Some(reversed_btc_txid(&pegin_prepare_txid));
-        }
-        if let Some(pegin_confirm_txid) = self.pegin_confirm_txid.clone() {
-            self.pegin_confirm_txid = Some(reversed_btc_txid(&pegin_confirm_txid));
-        }
-        if let Some(pegin_cancel_txid) = self.pegin_cancel_txid.clone() {
-            self.pegin_cancel_txid = Some(reversed_btc_txid(&pegin_cancel_txid));
-        }
-    }
 }
 
 /// graph status

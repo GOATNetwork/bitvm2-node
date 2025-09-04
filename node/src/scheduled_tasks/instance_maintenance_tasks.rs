@@ -7,7 +7,6 @@ use crate::rpc_service::current_time_secs;
 use crate::utils::create_goat_tx_record;
 use alloy::primitives::TxHash;
 use anyhow::anyhow;
-use bitcoin::consensus::encode::deserialize_hex;
 use bitvm2_lib::keys::CommitteeMasterKey;
 use libp2p::Swarm;
 use std::str::FromStr;
@@ -246,8 +245,7 @@ pub async fn instance_btc_tx_monitor(
             );
             continue;
         }
-
-        let tx_id = deserialize_hex(tx_id_op.unwrap().as_str())?;
+        let tx_id = tx_id_op.unwrap().0;
         if let Ok(status) = btc_client.get_tx_status(&tx_id).await
             && status.confirmed
         {
@@ -296,13 +294,13 @@ pub async fn scan_post_pegin_data(
             );
             continue;
         }
-        if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_txid) {
-            let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_txid).await?;
+        if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_tx_hash) {
+            let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_tx_hash).await?;
             if receipt_op.is_none() {
                 info!(
                     "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
                 but get receipt status is false, will try later",
-                    instance.instance_id, instance.pegin_data_txid
+                    instance.instance_id, instance.pegin_data_tx_hash
                 );
                 continue;
             }
@@ -313,9 +311,8 @@ pub async fn scan_post_pegin_data(
                 )
                 .await?;
         } else {
-            let pegin_confirm_tx = btc_client
-                .fetch_btc_tx(&deserialize_hex(&instance.pegin_confirm_txid.unwrap())?)
-                .await?;
+            let pegin_confirm_tx =
+                btc_client.fetch_btc_tx(&instance.pegin_confirm_txid.unwrap().0).await?;
             match goat_client
                 .gateway_post_pegin_data(btc_client, &instance.instance_id, &pegin_confirm_tx)
                 .await

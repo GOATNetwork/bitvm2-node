@@ -1692,7 +1692,6 @@ pub async fn generate_instance_from_event(
     event: &BridgeInRequestEvent,
 ) -> anyhow::Result<Instance> {
     // TODO decode event to get from_addr unsign_pegin_confirm_tx pegin_prepare_txid pegin_cancel_txid, timeout
-
     let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
     let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
         .try_into()
@@ -1739,7 +1738,7 @@ pub async fn generate_instance_from_event(
         fees: Int64Array3(event.txn_fees.clone().map(|v| v.parse::<i64>().unwrap_or_default())),
         input_utxos: serde_json::to_string(&input_utxos)?,
         status: InstanceStatus::UserInited.to_string(),
-        pegin_request_txid: event.transaction_hash.clone(),
+        pegin_request_tx_hash: event.transaction_hash.clone(),
         pegin_request_height: event.block_number.parse()?,
         user_xonly_pubkey: ByteArray32(user_xonly_pubkey_array),
         user_change_addr: event.user_change_address.clone(),
@@ -1749,7 +1748,7 @@ pub async fn generate_instance_from_event(
         pegin_cancel_txid: None,
         unsign_pegin_confirm_tx: None,
         committees_answers: HashMap::new(),
-        pegin_data_txid: "".to_string(),
+        pegin_data_tx_hash: "".to_string(),
         pegin_prepare_height: 0,
         created_at: current_time_secs(),
         updated_at: current_time_secs(),
