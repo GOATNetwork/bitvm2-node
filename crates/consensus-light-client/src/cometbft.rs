@@ -4,7 +4,7 @@ use core::time::Duration;
 use cosmos_sdk_proto::cosmos::tx::v1beta1::{TxBody, TxRaw};
 use prost::Message;
 use sha2::{Digest, Sha256};
-use tendermint_light_client_verifier::{
+pub use tendermint_light_client_verifier::{
     ProdVerifier, Verdict, Verifier, options::Options, types::LightBlock,
 };
 

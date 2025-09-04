@@ -154,7 +154,9 @@ impl From<CircuitBlockHeader> for Header {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(
+    Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize, Hash,
+)]
 pub struct ChainState {
     pub block_height: u32,
     pub total_work: [u8; 32],
@@ -351,7 +353,9 @@ fn calculate_work(target: &[u8; 32]) -> U256 {
 }
 
 /// The output of the header chain circuit.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(
+    Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize, Hash,
+)]
 pub struct BlockHeaderCircuitOutput {
     pub method_id: [u32; 8],
     pub chain_state: ChainState,

@@ -142,7 +142,9 @@ impl MMRInclusionProof {
 }
 
 /// Represents the MMR for inside zkVM (guest)
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(
+    Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize, Hash,
+)]
 
 pub struct MMRGuest {
     pub subroots: Vec<[u8; 32]>,
