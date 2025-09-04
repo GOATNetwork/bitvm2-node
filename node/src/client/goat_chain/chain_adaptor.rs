@@ -297,11 +297,3 @@ pub fn get_chain_adaptor(
         GoatNetwork::Local => Box::new(MockAdaptor::new(mock_adaptor_config)),
     }
 }
-
-#[test]
-fn sdd() {
-    println!(
-        "{}",
-        serde_json::to_string(&Utxo { txid: [1_u8; 32], vout: 0, amount_stats: 110 }).unwrap()
-    );
-}

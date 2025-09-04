@@ -243,6 +243,11 @@ pub struct Graph {
     pub raw_data: Option<String>,
     pub bridge_out_start_at: i64,
     pub init_withdraw_txid: Option<String>,
+    pub commit_timeout_txid: Option<String>,
+    #[sqlx(json)]
+    pub assert_timeout_txids: Vec<String>,
+    #[sqlx(json)]
+    pub nack_txids: Vec<String>,
     pub zkm_version: String,
     pub created_at: i64,
     pub updated_at: i64,

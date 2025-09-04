@@ -807,14 +807,16 @@ impl<'a> StorageProcessor<'a> {
     /// - Ok(affected_rows) number of rows affected by the operation
     /// - Err if the operation failed
     pub async fn upsert_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
+        let assert_commit_txids_json = serde_json::to_string(&graph.assert_commit_txids)?;
+        let nack_txids_json = serde_json::to_string(&graph.nack_txids)?;
         let res = sqlx::query!(
             r#"INSERT OR
              REPLACE INTO graph (graph_id, instance_id, from_addr, to_addr,  graph_ipfs_base_url, pegin_txid,
                     amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid,
-                    assert_commit_txids,
-                    assert_final_txid, take2_txid, disprove_txid, operator, raw_data, bridge_out_start_at,
-                    init_withdraw_txid, zkm_version, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                    assert_commit_txids, assert_final_txid, take2_txid, disprove_txid, operator, raw_data,
+                    bridge_out_start_at, init_withdraw_txid, zkm_version, commit_timeout_txid,
+                    assert_timeout_txids, nack_txids,created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             graph.graph_id,
             graph.instance_id,
             graph.from_addr,
@@ -837,6 +839,9 @@ impl<'a> StorageProcessor<'a> {
             graph.bridge_out_start_at,
             graph.init_withdraw_txid,
             graph.zkm_version,
+            graph.commit_timeout_txid,
+            assert_commit_txids_json,
+            nack_txids_json,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -908,10 +913,9 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn get_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {
-        let res = sqlx::query_as!(
-            Graph,
-            "SELECT graph_id  AS \"graph_id:Uuid \",
-                    instance_id  AS \"instance_id:Uuid \",
+        let row = sqlx::query_as::<_, Graph>(
+            "SELECT graph_id,
+                    instance_id,
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
@@ -932,15 +936,18 @@ impl<'a> StorageProcessor<'a> {
                     bridge_out_start_at,
                     init_withdraw_txid,
                     zkm_version,
+                    commit_timeout_txid,
+                    assert_timeout_txids,
+                    nack_txids,
                     created_at,
                     updated_at
              FROM graph
              WHERE graph_id = ?",
-            graph_id
         )
+        .bind(graph_id)
         .fetch_optional(self.conn())
         .await?;
-        Ok(res)
+        Ok(row)
     }
 
     pub async fn get_graph_operator(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<String>> {
@@ -987,6 +994,9 @@ impl<'a> StorageProcessor<'a> {
                     bridge_out_start_at,
                     init_withdraw_txid,
                     zkm_version,
+                    commit_timeout_txid,
+                    assert_timeout_txids,
+                    nack_txids,
                     CASE
                         WHEN bridge_out_start_at > 0
                         THEN bridge_out_start_at
@@ -1092,10 +1102,9 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Graph>> {
-        let res = sqlx::query_as!(
-            Graph,
-            "SELECT graph_id AS \"graph_id:Uuid \",
-                    instance_id AS \"instance_id:Uuid \",
+        let res = sqlx::query_as::<_, Graph>(
+            "SELECT graph_id,
+                    instance_id ,
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
@@ -1120,8 +1129,8 @@ impl<'a> StorageProcessor<'a> {
                     updated_at
              FROM graph
              WHERE instance_id = ?",
-            instance_id
         )
+        .bind(instance_id)
         .fetch_all(self.conn())
         .await?;
         Ok(res)
