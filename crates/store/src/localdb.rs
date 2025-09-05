@@ -2,9 +2,10 @@ use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphWithBroadcastInfo,
-    Instance, Message, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofInfo,
-    ProofType, PubKeyCollect, PubKeyCollectMetaData, SerializableTxid, WatchContract,
+    COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphRawData,
+    GraphWithBroadcastInfo, Instance, Message, Node, NodesOverview, NonceCollect,
+    NonceCollectMetaData, ProofInfo, ProofType, PubKeyCollect, PubKeyCollectMetaData,
+    SerializableTxid, WatchContract,
 };
 
 use sqlx::migrate::Migrator;
@@ -1840,6 +1841,79 @@ impl<'a> StorageProcessor<'a> {
                                                          message_broadcast.msg_type = ?
                  WHERE graph.status = ?").bind(msg_type).bind(graph_status).fetch_all(self.conn()).await?
         )
+    }
+
+    pub async fn upsert_graph_raw_data(
+        &mut self,
+        graph_raw_data: GraphRawData,
+    ) -> anyhow::Result<u64> {
+        let timestamp = get_current_timestamp_millis();
+
+        let result = sqlx::query!(
+            r#"
+            INSERT OR REPLACE INTO graph_raw_data (graph_id, raw_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            "#,
+            graph_raw_data.graph_id,
+            graph_raw_data.raw_data,
+            graph_raw_data.created_at,
+            timestamp,
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn get_graph_raw_data(
+        &mut self,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<Option<GraphRawData>> {
+        let row = sqlx::query_as!(
+            GraphRawData,
+            "SELECT
+                graph_id AS \"graph_id:Uuid\",
+                raw_data,
+                created_at,
+                updated_at
+            FROM graph_raw_data WHERE graph_id = ?",
+            graph_id
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn update_graph_raw_data(
+        &mut self,
+        graph_id: &Uuid,
+        raw_data: &str,
+    ) -> anyhow::Result<u64> {
+        let timestamp = get_current_timestamp_millis();
+
+        let result = sqlx::query!(
+            r#"
+            UPDATE graph_raw_data
+            SET raw_data = ?, updated_at = ?
+            WHERE graph_id = ?
+            "#,
+            raw_data,
+            timestamp,
+            graph_id
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn delete_graph_raw_data(&mut self, graph_id: &str) -> anyhow::Result<u64> {
+        let result = sqlx::query!(r#"DELETE FROM graph_raw_data WHERE graph_id = ?"#, graph_id)
+            .execute(self.conn())
+            .await?;
+
+        Ok(result.rows_affected())
     }
 
     pub async fn get_message_broadcast_times(

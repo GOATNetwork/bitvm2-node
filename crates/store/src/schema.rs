@@ -608,6 +608,14 @@ pub struct GoatTxRecord {
     pub created_at: i64,
 }
 
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct GraphRawData {
+    pub graph_id: Uuid,
+    pub raw_data: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct GoatTxProceedWithdrawExtra {
     pub challenge_txid: String,

@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  operator  FROM graph WHERE  graph_id = ?",
+  "query": "SELECT  operator_pubkey  FROM graph WHERE  graph_id = ?",
   "describe": {
     "columns": [
       {
-        "name": "operator",
+        "name": "operator_pubkey",
         "ordinal": 0,
         "type_info": "Text"
       }
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "29f4f1e7358eddc55b22c2e00946c876e717011f2ed5c67e6872f07dd86938e7"
+  "hash": "92b2237700e5203200e44978cb37eee05465d9dd4b5196243d745e3f1471047c"
 }

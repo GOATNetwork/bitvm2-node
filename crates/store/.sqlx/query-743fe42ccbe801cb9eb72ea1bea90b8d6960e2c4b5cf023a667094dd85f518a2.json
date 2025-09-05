@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                graph_id AS \"graph_id:Uuid\",\n                raw_data,\n                created_at,\n                updated_at\n            FROM graph_raw_data WHERE graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "raw_data",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "743fe42ccbe801cb9eb72ea1bea90b8d6960e2c4b5cf023a667094dd85f518a2"
+}

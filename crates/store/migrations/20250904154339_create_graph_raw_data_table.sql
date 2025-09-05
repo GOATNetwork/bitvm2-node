@@ -1,5 +1,5 @@
-DROP TABLE IF EXISTS `graph_rawdata`;
-CREATE TABLE graph_rawdata
+DROP TABLE IF EXISTS `graph_raw_data`;
+CREATE TABLE graph_raw_data
 (
     `graph_id`   TEXT   NOT NULL,
     `raw_data`   TEXT   NOT NULL DEFAULT '',
