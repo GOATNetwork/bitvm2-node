@@ -2,13 +2,12 @@ use crate::client::Utxo;
 use crate::utils::reflect_goat_address;
 use alloy::hex::ToHexExt;
 use bitcoin::Txid;
-use bitcoin::consensus::encode::serialize_hex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use store::localdb::GraphQuery;
-use store::{Graph, GraphStatus, Instance, convert_to_step_state};
+use store::{Graph, GraphStatus, Instance, SerializableTxid, convert_to_step_state};
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -138,11 +137,11 @@ pub struct GraphQueryParams {
 
 impl From<GraphQueryParams> for GraphQuery {
     fn from(value: GraphQueryParams) -> Self {
-        let mut pegin_txid_op: Option<String> = None;
+        let mut pegin_txid_op: Option<SerializableTxid> = None;
         let mut graph_ip_op: Option<String> = None;
         if let Some(filed) = value.graph_field {
             if let Ok(pegin_txid) = Txid::from_str(&filed) {
-                pegin_txid_op = Some(serialize_hex(&pegin_txid));
+                pegin_txid_op = Some(pegin_txid.into());
             }
             if let Ok(uuid) = Uuid::from_str(&filed) {
                 graph_ip_op = Some(uuid.encode_hex());

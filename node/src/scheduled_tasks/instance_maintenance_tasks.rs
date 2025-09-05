@@ -412,7 +412,6 @@ pub async fn scan_post_graph_data(
                             status: Some(GraphStatus::OperatorDataPushed.to_string()),
                             ipfs_base_url: None,
                             challenge_txid: None,
-                            disprove_txid: None,
                             bridge_out_start_at: None,
                             init_withdraw_txid: None,
                         })

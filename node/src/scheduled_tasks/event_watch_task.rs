@@ -142,7 +142,6 @@ async fn handle_user_withdraw_events<'a>(
                         status: None,
                         ipfs_base_url: None,
                         challenge_txid: None,
-                        disprove_txid: None,
                         bridge_out_start_at: Some(current_time_secs()),
                         init_withdraw_txid: Some(init_event.transaction_hash),
                     })
@@ -156,7 +155,6 @@ async fn handle_user_withdraw_events<'a>(
                         status: None,
                         ipfs_base_url: None,
                         challenge_txid: None,
-                        disprove_txid: None,
                         bridge_out_start_at: Some(0),
                         init_withdraw_txid: Some("".to_string()),
                     })

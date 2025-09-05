@@ -278,29 +278,37 @@ pub struct Graph {
     pub graph_id: Uuid,
     pub instance_id: Uuid,
     pub from_addr: String,
-    pub to_addr: String,
+    pub to_addr: String, //operator_receive_address
     pub graph_ipfs_base_url: String,
-    pub pegin_txid: String,
     pub amount: i64,
+    pub challenge_amount: i64,
     pub status: String, // GraphStatus
-    pub pre_kickoff_txid: Option<String>,
-    pub kickoff_txid: Option<String>,
-    pub challenge_txid: Option<String>,
-    pub take1_txid: Option<String>,
-    pub assert_init_txid: Option<String>,
-    pub assert_commit_txids: Option<String>,
-    pub assert_final_txid: Option<String>,
-    pub take2_txid: Option<String>,
-    pub disprove_txid: Option<String>,
-    pub operator: String,
-    pub raw_data: Option<String>,
+    pub operator_pubkey: String,
+    pub pre_kickoff_txid: Option<SerializableTxid>,
+    pub cur_prekickoff_txid: Option<SerializableTxid>,
+    pub force_skip_kickoff_txid: Option<SerializableTxid>,
+    pub quick_challenge_txid: Option<SerializableTxid>,
+    pub challenge_incomplete_kickoff_txid: Option<SerializableTxid>,
+    pub pegin_txid: Option<SerializableTxid>,
+    pub kickoff_txid: Option<SerializableTxid>,
+    pub take1_txid: Option<SerializableTxid>,
+    pub challenge_txid: Option<SerializableTxid>,
+    pub take2_txid: Option<SerializableTxid>,
+    pub watchtower_challenge_init_txid: Option<SerializableTxid>,
+    #[sqlx(json)]
+    pub watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
+    #[sqlx(json)]
+    pub nack_txids: Vec<SerializableTxid>,
+    #[sqlx(json)]
+    pub blockhash_commmit_timeout_txid: Option<SerializableTxid>,
+    pub assert_init_txid: Option<SerializableTxid>,
+    #[sqlx(json)]
+    pub assert_timeout_txids: Vec<SerializableTxid>,
+    pub commit_timeout_txid: Option<SerializableTxid>,
+    pub nack_index: i64,
+    pub assert_timeout_index: i64,
+    pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
-    pub init_withdraw_txid: Option<String>,
-    pub commit_timeout_txid: Option<String>,
-    #[sqlx(json)]
-    pub assert_timeout_txids: Vec<String>,
-    #[sqlx(json)]
-    pub nack_txids: Vec<String>,
     pub zkm_version: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -308,59 +316,17 @@ pub struct Graph {
 
 impl Graph {
     pub fn get_check_tx_param(&self) -> Result<(Option<String>, u32), String> {
+        // todo update
         let status = GraphStatus::from_str(&self.status);
         if status.is_err() {
             return Err("Graph status is wrong".to_string());
         }
         match status.unwrap() {
-            GraphStatus::KickOff => Ok((self.kickoff_txid.clone(), 6)),
-            GraphStatus::Challenge => Ok((self.challenge_txid.clone(), 6)),
-            GraphStatus::Assert => Ok((self.assert_init_txid.clone(), 18)),
-            GraphStatus::Take1 => Ok((self.take1_txid.clone(), 6)),
-            GraphStatus::Take2 => Ok((self.take2_txid.clone(), 6)),
-            GraphStatus::Disprove => Ok((self.disprove_txid.clone(), 6)),
             _ => Err("not check status".to_string()),
         }
     }
 
-    pub fn reverse_btc_txid(&mut self) {
-        self.pegin_txid = reversed_btc_txid(&self.pegin_txid);
-        if let Some(pre_kickoff_txid) = self.pre_kickoff_txid.clone() {
-            self.pre_kickoff_txid = Some(reversed_btc_txid(&pre_kickoff_txid));
-        }
-
-        if let Some(kickoff_txid) = self.kickoff_txid.clone() {
-            self.kickoff_txid = Some(reversed_btc_txid(&kickoff_txid));
-        }
-
-        if let Some(challenge_txid) = self.challenge_txid.clone() {
-            self.challenge_txid = Some(reversed_btc_txid(&challenge_txid));
-        }
-        if let Some(take1_txid) = self.take1_txid.clone() {
-            self.take1_txid = Some(reversed_btc_txid(&take1_txid));
-        }
-        if let Some(assert_init_txid) = self.assert_init_txid.clone() {
-            self.assert_init_txid = Some(reversed_btc_txid(&assert_init_txid));
-        }
-        if let Some(assert_commit_txids) = self.assert_commit_txids.clone()
-            && let Ok(assert_commit_txids) =
-                serde_json::from_str::<Vec<String>>(&assert_commit_txids)
-        {
-            let assert_commit_txids_re: Vec<String> =
-                assert_commit_txids.iter().map(|v| reversed_btc_txid(v)).collect();
-            self.assert_commit_txids = serde_json::to_string(&assert_commit_txids_re).ok()
-        }
-
-        if let Some(assert_final_txid) = self.assert_final_txid.clone() {
-            self.assert_final_txid = Some(reversed_btc_txid(&assert_final_txid));
-        }
-        if let Some(take2_txid) = self.take2_txid.clone() {
-            self.take2_txid = Some(reversed_btc_txid(&take2_txid));
-        }
-        if let Some(disprove_txid) = self.disprove_txid.clone() {
-            self.disprove_txid = Some(reversed_btc_txid(&disprove_txid));
-        }
-    }
+    pub fn reverse_btc_txid(&mut self) {}
 }
 
 pub fn modify_graph_status(ori_status: &str, is_kickoffing: bool) -> String {
@@ -478,13 +444,11 @@ pub struct GraphWithBroadcastInfo {
     pub status: String,
     pub msg_times: i64,
     pub msg_type: String,
-    pub kickoff_txid: Option<String>,
-    pub take1_txid: Option<String>,
-    pub take2_txid: Option<String>,
-    pub assert_init_txid: Option<String>,
-    pub assert_commit_txids: Option<String>,
-    pub assert_final_txid: Option<String>,
-    pub challenge_txid: Option<String>,
+    pub kickoff_txid: Option<SerializableTxid>,
+    pub take1_txid: Option<SerializableTxid>,
+    pub take2_txid: Option<SerializableTxid>,
+    pub assert_init_txid: Option<SerializableTxid>,
+    pub challenge_txid: Option<SerializableTxid>,
     pub last_msg_send_at: i64,
 }
 
@@ -496,15 +460,6 @@ pub struct MessageBroadcast {
     pub msg_times: i64,
     pub updated_at: i64,
     pub created_at: i64,
-}
-
-fn reversed_btc_txid(tx_id: &str) -> String {
-    if let Ok(mut tx_id_vec) = hex::decode(tx_id) {
-        tx_id_vec.reverse();
-        hex::encode(tx_id_vec)
-    } else {
-        tx_id.to_string()
-    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]

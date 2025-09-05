@@ -56,7 +56,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB};
+use store::localdb::{GraphUpdate, LocalDB};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
     Graph, GraphStatus, Instance, InstanceStatus, Int64Array3, Message, MessageState, MessageType,
@@ -916,7 +916,7 @@ pub async fn update_graph_fields(
     status: Option<String>,
     ipfs_base_url: Option<String>,
     challenge_txid: Option<String>,
-    disprove_txid: Option<String>,
+    _disprove_txid: Option<String>,
     bridge_out_start_at: Option<i64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut storage_process = local_db.acquire().await?;
@@ -926,7 +926,6 @@ pub async fn update_graph_fields(
             status,
             ipfs_base_url,
             challenge_txid,
-            disprove_txid,
             bridge_out_start_at,
             init_withdraw_txid: None,
         })
@@ -987,89 +986,12 @@ pub async fn create_goat_tx_record(
     Ok(())
 }
 pub async fn store_graph(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    graph: &Bitvm2Graph,
-    status: Option<String>,
+    _local_db: &LocalDB,
+    _instance_id: Uuid,
+    _graph_id: Uuid,
+    _graph: &Bitvm2Graph,
+    _status: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut transaction = local_db.start_transaction().await?;
-    let assert_commit_txids: Vec<String> = graph
-        .assert_commit
-        .commit_txns
-        .iter()
-        .map(|v| serialize_hex(&v.tx().compute_txid()))
-        .collect();
-    let network = transaction.get_network_by_instance(&instance_id).await?;
-
-    let mut from_addr = "".to_string();
-    let mut to_addr = "".to_string();
-    if let Ok(node_info) =
-        transaction.get_node_by_btc_pub_key(&graph.parameters.operator_pubkey.to_string()).await
-    {
-        let network = Network::from_str(&network);
-        if let Ok(network) = network
-            && let Some(node_info) = node_info
-        {
-            from_addr = node_info.goat_addr;
-            to_addr = node_p2wsh_address(network, &graph.parameters.operator_pubkey).to_string();
-        }
-    }
-
-    transaction
-        .upsert_graph(Graph {
-            graph_id,
-            instance_id,
-            graph_ipfs_base_url: "".to_string(),
-            pegin_txid: serialize_hex(&graph.pegin.tx().compute_txid()),
-            amount: graph.parameters.pegin_amount.to_sat() as i64,
-            status: status.clone().unwrap_or_else(|| GraphStatus::OperatorPresigned.to_string()),
-            pre_kickoff_txid: Some(serialize_hex(&graph.pre_kickoff.tx().compute_txid())),
-            kickoff_txid: Some(serialize_hex(&graph.kickoff.tx().compute_txid())),
-            challenge_txid: None,
-            take1_txid: Some(serialize_hex(&graph.take1.tx().compute_txid())),
-            assert_init_txid: Some(serialize_hex(&graph.assert_init.tx().compute_txid())),
-            assert_commit_txids: Some(
-                serde_json::to_string(&assert_commit_txids).expect("fail to encode to json"),
-            ),
-            assert_final_txid: Some(serialize_hex(&graph.assert_final.tx().compute_txid())),
-            take2_txid: Some(serialize_hex(&graph.take2.tx().compute_txid())),
-            disprove_txid: None,
-            operator: graph.parameters.operator_pubkey.to_string(),
-            raw_data: Some(serde_json::to_string(&graph).expect("to json string")),
-            bridge_out_start_at: 0,
-            from_addr,
-            to_addr,
-            init_withdraw_txid: None,
-            commit_timeout_txid: None,
-            assert_timeout_txids: vec![],
-            nack_txids: vec![],
-            zkm_version: groth16::get_zkm_version(),
-            created_at: current_time_secs(),
-            updated_at: current_time_secs(),
-        })
-        .await?;
-
-    if let Some(status) = status
-        && status == GraphStatus::CommitteePresigned.to_string()
-    {
-        let pegin_tx = graph.pegin.tx();
-        let sum_input_value =
-            graph.pegin.input_amounts.iter().fold(Amount::ZERO, |acc, v| acc + *v);
-        let sum_output_value = pegin_tx.output.iter().fold(Amount::ZERO, |acc, v| acc + v.value);
-        transaction
-            .update_instance(
-                &InstanceUpdate::new(instance_id)
-                    .with_pegin_confirm(
-                        serialize_hex(&graph.pegin.tx().compute_txid()),
-                        (sum_input_value - sum_output_value).to_sat() as i64,
-                    )
-                    .with_status(InstanceStatus::Presigned.to_string()),
-            )
-            .await?;
-    }
-
-    transaction.commit().await?;
     Ok(())
 }
 
@@ -1108,17 +1030,11 @@ pub async fn get_graph(
 }
 
 pub async fn get_bitvm2_graph_from_db(
-    local_db: &LocalDB,
-    instance_id: Uuid,
+    _local_db: &LocalDB,
+    _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
-    let instance_id = if instance_id == Uuid::nil() { None } else { Some(instance_id) };
-    let graph = get_graph(local_db, instance_id, graph_id).await?;
-    if graph.raw_data.is_none() {
-        return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
-    }
-    let res: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
-    Ok(res)
+    Err(format!("graph:{graph_id} not found").into())
 }
 
 pub async fn publish_graph_to_ipfs(

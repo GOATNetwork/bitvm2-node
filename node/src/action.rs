@@ -6,7 +6,7 @@ use crate::scheduled_tasks::{committee_scheduled_tasks, relayer_scheduled_tasks}
 use crate::utils::{statics::*, *};
 use crate::{defer, dismiss_defer};
 use bitcoin::PublicKey;
-use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
+use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::{Amount, Network, Txid};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::*;
@@ -1292,7 +1292,7 @@ pub async fn recv_and_dispatch(
             let graph =
                 get_graph(local_db, Some(receive_data.instance_id), receive_data.graph_id).await?;
 
-            if graph.challenge_txid.is_none() || graph.assert_final_txid.is_none() {
+            if graph.challenge_txid.is_none() {
                 tracing::warn!(
                     "graph_id:{} challenge tx is none or assert final txid is none",
                     receive_data.graph_id
@@ -1304,9 +1304,10 @@ pub async fn recv_and_dispatch(
                 .into());
             }
 
+            // todo fix
             if validate_disprove(
                 btc_client,
-                &deserialize_hex(&graph.assert_final_txid.expect("finial assert txid is none"))?,
+                &graph.assert_timeout_txids[graph.assert_timeout_index as usize].0,
                 &receive_data.disprove_txid,
             )
             .await?
@@ -1326,11 +1327,7 @@ pub async fn recv_and_dispatch(
                     goat_client,
                     &receive_data.graph_id,
                     &btc_client.fetch_btc_tx(&receive_data.disprove_txid).await?,
-                    &btc_client
-                        .fetch_btc_tx(&deserialize_hex(
-                            &graph.challenge_txid.expect("challenge txid is none"),
-                        )?)
-                        .await?,
+                    &btc_client.fetch_btc_tx(&graph.challenge_txid.unwrap().0).await?,
                 )
                 .await?;
                 create_goat_tx_record(

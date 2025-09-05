@@ -62,8 +62,8 @@ impl BTCClient {
     }
 
     /// Get transaction hex string by serialize txid
-    pub async fn get_tx_hex_by_serialize_tx_id(&self, tx_id_hex: &str) -> anyhow::Result<String> {
-        self.chain_service.get_tx_hex_by_serialize_tx_id(tx_id_hex).await
+    pub async fn get_tx_hex_by_tx_id(&self, tx_id: &Txid) -> anyhow::Result<String> {
+        self.chain_service.get_tx_hex_by_tx_id(tx_id).await
     }
 
     pub async fn fetch_btc_block(&self, block_height: u32) -> anyhow::Result<Block> {

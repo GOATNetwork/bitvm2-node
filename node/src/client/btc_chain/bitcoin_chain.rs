@@ -64,8 +64,7 @@ impl BitcoinChain {
     }
 
     /// Get transaction hex string by serialize txid
-    pub async fn get_tx_hex_by_serialize_tx_id(&self, tx_id_hex: &str) -> anyhow::Result<String> {
-        let tx_id: Txid = bitcoin::consensus::encode::deserialize_hex(tx_id_hex)?;
+    pub async fn get_tx_hex_by_tx_id(&self, tx_id: &Txid) -> anyhow::Result<String> {
         if let Some(tx) = self.adaptor.get_tx(&tx_id).await? {
             return Ok(bitcoin::consensus::encode::serialize_hex(&tx));
         }

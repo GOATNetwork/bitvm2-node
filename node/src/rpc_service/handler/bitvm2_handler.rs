@@ -124,7 +124,7 @@ pub async fn graph_presign_check(
                 .map(|v| {
                     (
                         v.graph_id.to_string(),
-                        modify_graph_status(&v.status, v.init_withdraw_txid.is_some()),
+                        modify_graph_status(&v.status, v.init_withdraw_tx_hash.is_some()),
                     )
                 })
                 .collect();
@@ -196,10 +196,12 @@ pub async fn get_graph_tx(
             return Err(format!("graph:{graph_id} is not record in db").into());
         };
         let graph = graph_op.unwrap();
-        if graph.raw_data.is_none() {
+        // update later
+        let raw_data: Option<String> = None;
+        if raw_data.is_none() {
             return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
         }
-        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
+        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(raw_data.unwrap().as_str())?;
         let tx_name_op = IpfsTxName::from_str(&params.tx_name);
         if tx_name_op.is_err() {
             return Err(format!(
@@ -227,7 +229,7 @@ pub async fn get_graph_tx(
                 let mut ori_tx_hex = serialize_hex(bitvm2_graph.challenge.tx());
                 if let Some(challenge_txid) = graph.challenge_txid
                     && let Ok(tx_hex) =
-                        app_state.btc_client.get_tx_hex_by_serialize_tx_id(&challenge_txid).await
+                        app_state.btc_client.get_tx_hex_by_tx_id(&challenge_txid.0).await
                 {
                     ori_tx_hex = tx_hex
                 }
@@ -308,10 +310,12 @@ pub async fn get_graph_txn(
             return Err(format!("graph:{graph_id} is not record in db").into());
         };
         let graph = graph_op.unwrap();
-        if graph.raw_data.is_none() {
+        // TODO update
+        let raw_data: Option<String> = None;
+        if raw_data.is_none() {
             return Err(format!("grap with graph_id:{graph_id} raw data is none").into());
         }
-        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph.raw_data.unwrap().as_str())?;
+        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(raw_data.unwrap().as_str())?;
         let mut resp = GraphTxnGetResponse {
             assert_commit0: serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
             assert_commit1: serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
@@ -327,8 +331,7 @@ pub async fn get_graph_txn(
             take2: serialize_hex(bitvm2_graph.take2.tx()),
         };
         if let Some(challenge_txid) = graph.challenge_txid
-            && let Ok(tx_hex) =
-                app_state.btc_client.get_tx_hex_by_serialize_tx_id(&challenge_txid).await
+            && let Ok(tx_hex) = app_state.btc_client.get_tx_hex_by_tx_id(&challenge_txid.0).await
         {
             resp.challenge = tx_hex;
         }
@@ -889,8 +892,7 @@ pub async fn get_graph(
     let async_fn = || async move {
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(mut graph) = storage_process.get_graph(&graph_id).await? {
-            graph.raw_data = None;
+        if let Some(graph) = storage_process.get_graph(&graph_id).await? {
             let graphs =
                 add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, vec![graph])
                     .await?;
@@ -1138,7 +1140,7 @@ pub async fn add_extend_data_to_graphs<'a>(
             }
             Err(_) => (0, 0),
         };
-        graph.status = modify_graph_status(&graph.status, graph.init_withdraw_txid.is_some());
+        graph.status = modify_graph_status(&graph.status, graph.init_withdraw_tx_hash.is_some());
         graph_ids.push(graph.graph_id);
         graph_vec.push(GraphExtended {
             graph,

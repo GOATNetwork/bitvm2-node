@@ -4,7 +4,7 @@ use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphWithBroadcastInfo,
     Instance, Message, Node, NodesOverview, NonceCollect, NonceCollectMetaData, ProofInfo,
-    ProofType, PubKeyCollect, PubKeyCollectMetaData, WatchContract,
+    ProofType, PubKeyCollect, PubKeyCollectMetaData, SerializableTxid, WatchContract,
 };
 
 use sqlx::migrate::Migrator;
@@ -210,7 +210,7 @@ pub struct GraphQuery {
     pub operator: Option<String>,
     pub from_addr: Option<String>,
     pub graph_id: Option<String>,
-    pub pegin_txid: Option<String>,
+    pub pegin_txid: Option<SerializableTxid>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
     pub is_init_withdraw_not_null: bool,
@@ -237,7 +237,7 @@ impl GraphQuery {
         self
     }
 
-    pub fn with_pegin_txid(mut self, pegin_txid: String) -> Self {
+    pub fn with_pegin_txid(mut self, pegin_txid: SerializableTxid) -> Self {
         self.pegin_txid = Some(pegin_txid);
         self
     }
@@ -275,7 +275,6 @@ pub struct GraphUpdate {
     pub status: Option<String>,
     pub ipfs_base_url: Option<String>,
     pub challenge_txid: Option<String>,
-    pub disprove_txid: Option<String>,
     pub bridge_out_start_at: Option<i64>,
     pub init_withdraw_txid: Option<String>,
 }
@@ -481,6 +480,7 @@ impl<'a> StorageProcessor<'a> {
             data_query = match param {
                 QueryParam::Text(s) => data_query.bind(s),
                 QueryParam::Int(i) => data_query.bind(i),
+                QueryParam::BTCTxid(btc_txid) => data_query.bind(btc_txid),
             };
         }
 
@@ -494,6 +494,7 @@ impl<'a> StorageProcessor<'a> {
             count_query = match param {
                 QueryParam::Text(s) => count_query.bind(s),
                 QueryParam::Int(i) => count_query.bind(i),
+                QueryParam::BTCTxid(btc_txid) => count_query.bind(btc_txid),
             };
         }
 
@@ -669,9 +670,10 @@ impl<'a> StorageProcessor<'a> {
         // Execute query
         let mut query = sqlx::query(&update_sql);
         for param in &query_params {
-            match param {
-                QueryParam::Text(s) => query = query.bind(s),
-                QueryParam::Int(i) => query = query.bind(i),
+            query = match param {
+                QueryParam::Text(s) => query.bind(s),
+                QueryParam::Int(i) => query.bind(i),
+                QueryParam::BTCTxid(btc_txid) => query.bind(btc_txid),
             }
         }
 
@@ -807,41 +809,51 @@ impl<'a> StorageProcessor<'a> {
     /// - Ok(affected_rows) number of rows affected by the operation
     /// - Err if the operation failed
     pub async fn upsert_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
-        let assert_commit_txids_json = serde_json::to_string(&graph.assert_commit_txids)?;
         let nack_txids_json = serde_json::to_string(&graph.nack_txids)?;
+        let watchtower_challenge_timeout_txids_json =
+            serde_json::to_string(&graph.watchtower_challenge_timeout_txids)?;
+        let assert_timeout_txids_json = serde_json::to_string(&graph.assert_timeout_txids)?;
         let res = sqlx::query!(
             r#"INSERT OR
-             REPLACE INTO graph (graph_id, instance_id, from_addr, to_addr,  graph_ipfs_base_url, pegin_txid,
-                    amount, status, pre_kickoff_txid, kickoff_txid, challenge_txid, take1_txid, assert_init_txid,
-                    assert_commit_txids, assert_final_txid, take2_txid, disprove_txid, operator, raw_data,
-                    bridge_out_start_at, init_withdraw_txid, zkm_version, commit_timeout_txid,
-                    assert_timeout_txids, nack_txids,created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+             REPLACE INTO graph (graph_id, instance_id, from_addr, to_addr, graph_ipfs_base_url, amount, challenge_amount,
+                    status, operator_pubkey, pre_kickoff_txid, cur_prekickoff_txid, force_skip_kickoff_txid,
+                    quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
+                    challenge_txid, take2_txid, watchtower_challenge_init_txid, watchtower_challenge_timeout_txids,
+                    nack_txids, blockhash_commmit_timeout_txid, assert_init_txid, assert_timeout_txids, commit_timeout_txid,
+                    nack_index, assert_timeout_index, init_withdraw_tx_hash, bridge_out_start_at, zkm_version,
+                    created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             graph.graph_id,
             graph.instance_id,
             graph.from_addr,
             graph.to_addr,
             graph.graph_ipfs_base_url,
-            graph.pegin_txid,
             graph.amount,
+            graph.challenge_amount,
             graph.status,
+            graph.operator_pubkey,
             graph.pre_kickoff_txid,
+            graph.cur_prekickoff_txid,
+            graph.force_skip_kickoff_txid,
+            graph.quick_challenge_txid,
+            graph.challenge_incomplete_kickoff_txid,
+            graph.pegin_txid,
             graph.kickoff_txid,
-            graph.challenge_txid,
             graph.take1_txid,
-            graph.assert_init_txid,
-            graph.assert_commit_txids,
-            graph.assert_final_txid,
+            graph.challenge_txid,
             graph.take2_txid,
-            graph.disprove_txid,
-            graph.operator,
-            graph.raw_data,
-            graph.bridge_out_start_at,
-            graph.init_withdraw_txid,
-            graph.zkm_version,
-            graph.commit_timeout_txid,
-            assert_commit_txids_json,
+            graph.watchtower_challenge_init_txid,
+            watchtower_challenge_timeout_txids_json,
             nack_txids_json,
+            graph.blockhash_commmit_timeout_txid,
+            graph.assert_init_txid,
+            assert_timeout_txids_json,
+            graph.commit_timeout_txid,
+            graph.nack_index,
+            graph.assert_timeout_index,
+            graph.init_withdraw_tx_hash,
+            graph.bridge_out_start_at,
+            graph.zkm_version,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -862,9 +874,6 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(challenge_txid) = params.challenge_txid {
             query_builder.set_field("challenge_txid", QueryParam::Text(challenge_txid));
-        }
-        if let Some(disprove_txid) = params.disprove_txid {
-            query_builder.set_field("disprove_txid", QueryParam::Text(disprove_txid));
         }
         if let Some(bridge_out_start_at) = params.bridge_out_start_at {
             query_builder.set_field("bridge_out_start_at", QueryParam::Int(bridge_out_start_at));
@@ -902,9 +911,10 @@ impl<'a> StorageProcessor<'a> {
         // Execute query
         let mut query = sqlx::query(&update_sql);
         for param in &query_params {
-            match param {
-                QueryParam::Text(s) => query = query.bind(s),
-                QueryParam::Int(i) => query = query.bind(i),
+            query = match param {
+                QueryParam::Text(s) => query.bind(s),
+                QueryParam::Int(i) => query.bind(i),
+                QueryParam::BTCTxid(btc_txid) => query.bind(btc_txid),
             }
         }
 
@@ -919,26 +929,32 @@ impl<'a> StorageProcessor<'a> {
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
-                    pre_kickoff_txid,
-                    pegin_txid,
                     amount,
+                    challenge_amount,
                     status,
+                    operator_pubkey,
+                    pre_kickoff_txid,
+                    cur_prekickoff_txid,
+                    force_skip_kickoff_txid,
+                    quick_challenge_txid,
+                    challenge_incomplete_kickoff_txid,
+                    pegin_txid,
                     kickoff_txid,
-                    challenge_txid,
                     take1_txid,
-                    assert_init_txid,
-                    assert_commit_txids,
-                    assert_final_txid,
+                    challenge_txid,
                     take2_txid,
-                    disprove_txid,
-                    operator,
-                    raw_data,
-                    bridge_out_start_at,
-                    init_withdraw_txid,
-                    zkm_version,
-                    commit_timeout_txid,
-                    assert_timeout_txids,
+                    watchtower_challenge_init_txid,
+                    watchtower_challenge_timeout_txids,
                     nack_txids,
+                    blockhash_commmit_timeout_txid,
+                    assert_init_txid,
+                    assert_timeout_txids,
+                    commit_timeout_txid,
+                    nack_index,
+                    assert_timeout_index,
+                    init_withdraw_tx_hash,
+                    bridge_out_start_at,
+                    zkm_version,
                     created_at,
                     updated_at
              FROM graph
@@ -953,17 +969,17 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_graph_operator(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<String>> {
         #[derive(sqlx::FromRow)]
         struct OperatorRow {
-            operator: String,
+            operator_pubkey: String,
         }
         if let Some(operator_raw) = sqlx::query_as!(
             OperatorRow,
-            "SELECT  operator  FROM graph WHERE  graph_id = ?",
+            "SELECT  operator_pubkey  FROM graph WHERE  graph_id = ?",
             graph_id
         )
         .fetch_optional(self.conn())
         .await?
         {
-            Ok(Some(operator_raw.operator))
+            Ok(Some(operator_raw.operator_pubkey))
         } else {
             Ok(None)
         }
@@ -977,26 +993,32 @@ impl<'a> StorageProcessor<'a> {
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
-                    pegin_txid,
                     amount,
+                    challenge_amount,
                     status,
+                    operator_pubkey,
                     pre_kickoff_txid,
+                    cur_prekickoff_txid,
+                    force_skip_kickoff_txid,
+                    quick_challenge_txid,
+                    challenge_incomplete_kickoff_txid,
+                    pegin_txid,
                     kickoff_txid,
-                    challenge_txid,
                     take1_txid,
-                    assert_init_txid,
-                    assert_commit_txids,
-                    assert_final_txid,
+                    challenge_txid,
                     take2_txid,
-                    disprove_txid,
-                    operator,
-                    '' AS raw_data,
-                    bridge_out_start_at,
-                    init_withdraw_txid,
-                    zkm_version,
-                    commit_timeout_txid,
-                    assert_timeout_txids,
+                    watchtower_challenge_init_txid,
+                    watchtower_challenge_timeout_txids,
                     nack_txids,
+                    blockhash_commmit_timeout_txid,
+                    assert_init_txid,
+                    assert_timeout_txids,
+                    commit_timeout_txid,
+                    nack_index,
+                    assert_timeout_index,
+                    init_withdraw_tx_hash,
+                    bridge_out_start_at,
+                    zkm_version,
                     CASE
                         WHEN bridge_out_start_at > 0
                         THEN bridge_out_start_at
@@ -1027,8 +1049,8 @@ impl<'a> StorageProcessor<'a> {
         }
 
         if let Some(pegin_txid) = &params.pegin_txid {
-            query.and_where("pegin_txid = ?", Some(QueryParam::Text(pegin_txid.clone())));
-            count_query.and_where("pegin_txid = ?", Some(QueryParam::Text(pegin_txid.clone())));
+            query.and_where("pegin_txid = ?", Some(QueryParam::BTCTxid(pegin_txid.clone())));
+            count_query.and_where("pegin_txid = ?", Some(QueryParam::BTCTxid(pegin_txid.clone())));
         }
 
         if let Some(graph_id) = &params.graph_id {
@@ -1075,9 +1097,10 @@ impl<'a> StorageProcessor<'a> {
         let params = query.get_params();
         let mut graphs_query = sqlx::query_as::<_, Graph>(&sql);
         for param in &params {
-            match param {
-                QueryParam::Text(s) => graphs_query = graphs_query.bind(s),
-                QueryParam::Int(i) => graphs_query = graphs_query.bind(i),
+            graphs_query = match param {
+                QueryParam::Text(s) => graphs_query.bind(s),
+                QueryParam::Int(i) => graphs_query.bind(i),
+                QueryParam::BTCTxid(btc_txid) => graphs_query.bind(btc_txid),
             }
         }
         let graphs = graphs_query.fetch_all(self.conn()).await?;
@@ -1087,9 +1110,10 @@ impl<'a> StorageProcessor<'a> {
         let count_params = count_query.get_params();
         let mut count_query_exec = sqlx::query(&count_sql);
         for param in &count_params {
-            match param {
-                QueryParam::Text(s) => count_query_exec = count_query_exec.bind(s),
-                QueryParam::Int(i) => count_query_exec = count_query_exec.bind(i),
+            count_query_exec = match param {
+                QueryParam::Text(s) => count_query_exec.bind(s),
+                QueryParam::Int(i) => count_query_exec.bind(i),
+                QueryParam::BTCTxid(btc_txid) => count_query_exec.bind(btc_txid),
             }
         }
         let total_graphs =
@@ -1104,26 +1128,35 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as::<_, Graph>(
             "SELECT graph_id,
-                    instance_id ,
+                    instance_id,
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
-                    pre_kickoff_txid,
-                    pegin_txid,
                     amount,
+                    challenge_amount,
                     status,
+                    operator_pubkey,
+                    pre_kickoff_txid,
+                    cur_prekickoff_txid,
+                    force_skip_kickoff_txid,
+                    quick_challenge_txid,
+                    challenge_incomplete_kickoff_txid,
+                    pegin_txid,
                     kickoff_txid,
-                    challenge_txid,
                     take1_txid,
-                    assert_init_txid,
-                    assert_commit_txids,
-                    assert_final_txid,
+                    challenge_txid,
                     take2_txid,
-                    disprove_txid,
-                    operator,
-                    raw_data,
+                    watchtower_challenge_init_txid,
+                    watchtower_challenge_timeout_txids,
+                    nack_txids,
+                    blockhash_commmit_timeout_txid,
+                    assert_init_txid,
+                    assert_timeout_txids,
+                    commit_timeout_txid,
+                    nack_index,
+                    assert_timeout_index,
+                    init_withdraw_tx_hash,
                     bridge_out_start_at,
-                    init_withdraw_txid,
                     zkm_version,
                     created_at,
                     updated_at
@@ -1324,9 +1357,10 @@ impl<'a> StorageProcessor<'a> {
         let params = query.get_params();
         let mut nodes_query = sqlx::query_as::<_, Node>(&sql);
         for param in &params {
-            match param {
-                QueryParam::Text(s) => nodes_query = nodes_query.bind(s),
-                QueryParam::Int(i) => nodes_query = nodes_query.bind(i),
+            nodes_query = match param {
+                QueryParam::Text(s) => nodes_query.bind(s),
+                QueryParam::Int(i) => nodes_query.bind(i),
+                QueryParam::BTCTxid(btc_txid) => nodes_query.bind(btc_txid),
             }
         }
         let nodes = nodes_query.fetch_all(self.conn()).await?;
@@ -1336,9 +1370,10 @@ impl<'a> StorageProcessor<'a> {
         let count_params = count_query.get_params();
         let mut count_query_exec = sqlx::query(&count_sql);
         for param in &count_params {
-            match param {
-                QueryParam::Text(s) => count_query_exec = count_query_exec.bind(s),
-                QueryParam::Int(i) => count_query_exec = count_query_exec.bind(i),
+            count_query_exec = match param {
+                QueryParam::Text(s) => count_query_exec.bind(s),
+                QueryParam::Int(i) => count_query_exec.bind(i),
+                QueryParam::BTCTxid(btc_txid) => count_query_exec.bind(btc_txid),
             }
         }
         let total_nodes =
@@ -1787,17 +1822,14 @@ impl<'a> StorageProcessor<'a> {
         msg_type: &str,
     ) -> anyhow::Result<Vec<GraphWithBroadcastInfo>> {
         Ok(
-            sqlx::query_as!(
-                GraphWithBroadcastInfo,
-                "SELECT graph.graph_id AS \"graph_id:Uuid\",
-                        graph.instance_id AS \"instance_id:Uuid\",
+            sqlx::query_as::<_, GraphWithBroadcastInfo>(
+                "SELECT graph.graph_id,
+                        graph.instance_id,
                         graph.status,
                         graph.kickoff_txid,
                         graph.take1_txid,
                         graph.take2_txid,
                         graph.assert_init_txid,
-                        graph.assert_commit_txids,
-                        graph.assert_final_txid,
                         graph.challenge_txid,
                         IFNULL(message_broadcast.msg_times, 0) AS msg_times,
                         IFNULL(message_broadcast.msg_type, '') AS msg_type,
@@ -1806,7 +1838,7 @@ impl<'a> StorageProcessor<'a> {
                           LEFT JOIN message_broadcast ON graph.graph_id = message_broadcast.graph_id AND
                                                          graph.instance_id = message_broadcast.instance_id AND
                                                          message_broadcast.msg_type = ?
-                 WHERE graph.status = ?", msg_type, graph_status).fetch_all(self.conn()).await?
+                 WHERE graph.status = ?").bind(msg_type).bind(graph_status).fetch_all(self.conn()).await?
         )
     }
 

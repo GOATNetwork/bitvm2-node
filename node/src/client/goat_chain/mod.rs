@@ -3,7 +3,6 @@ use alloy::consensus::crypto::secp256k1::recover_signer;
 use alloy::primitives::{B256, Signature};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
-use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitcoin::{PublicKey, Transaction, Txid};
 use std::str::FromStr;
@@ -695,28 +694,33 @@ pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {
 }
 
 pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
-    if graph.take1_txid.is_none()
-        || graph.assert_init_txid.is_none()
-        || graph.assert_commit_txids.is_none()
-        || graph.assert_final_txid.is_none()
+    if graph.pegin_txid.is_none()
+        || graph.kickoff_txid.is_none()
+        || graph.take1_txid.is_none()
         || graph.take2_txid.is_none()
+        || graph.commit_timeout_txid.is_none()
+        || graph.assert_timeout_txids.is_empty()
+        || graph.nack_txids.is_empty()
     {
         tracing::warn!("grap {}, has none field", graph.graph_id);
         bail!("grap {}, has none field", graph.graph_id);
     }
 
     // TODO Update
-    let pubkey_vec = PublicKey::from_str(&graph.operator)?.to_bytes();
-
+    let pubkey_vec = PublicKey::from_str(&graph.operator_pubkey)?.to_bytes();
     Ok(GraphData {
         operator_pubkey_prefix: pubkey_vec[0],
         operator_pubkey: pubkey_vec[1..33].try_into()?,
-        pegin_txid: deserialize_hex(&graph.pegin_txid)?,
-        kickoff_txid: deserialize_hex(&graph.kickoff_txid.clone().unwrap())?,
-        take1_txid: deserialize_hex(&graph.take1_txid.clone().unwrap())?,
-        take2_txid: deserialize_hex(&graph.take2_txid.clone().unwrap())?,
-        commit_timout_txid: [0_u8; 32],
-        assert_timeout_txids: vec![],
-        nack_txids: vec![],
+        pegin_txid: graph.pegin_txid.clone().unwrap().0.to_byte_array(),
+        kickoff_txid: graph.kickoff_txid.clone().unwrap().0.to_byte_array(),
+        take1_txid: graph.take1_txid.clone().unwrap().0.to_byte_array(),
+        take2_txid: graph.take2_txid.clone().unwrap().0.to_byte_array(),
+        commit_timout_txid: graph.commit_timeout_txid.clone().unwrap().0.to_byte_array(),
+        assert_timeout_txids: graph
+            .assert_timeout_txids
+            .iter()
+            .map(|x| x.0.to_byte_array())
+            .collect(),
+        nack_txids: graph.nack_txids.iter().map(|x| x.0.to_byte_array()).collect(),
     })
 }

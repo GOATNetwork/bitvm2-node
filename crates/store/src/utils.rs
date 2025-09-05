@@ -1,3 +1,5 @@
+use crate::SerializableTxid;
+
 #[derive(Clone)]
 pub struct QueryBuilder {
     sql: String,
@@ -8,6 +10,7 @@ pub struct QueryBuilder {
 pub enum QueryParam {
     Text(String),
     Int(i64),
+    BTCTxid(SerializableTxid),
 }
 
 impl QueryBuilder {
