@@ -1,5 +1,5 @@
 use zkm_build::build_program;
 
 fn main() {
-    build_program("../guest-v2");
+    build_program("../guest");
 }

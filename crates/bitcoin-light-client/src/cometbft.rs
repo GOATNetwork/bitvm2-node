@@ -128,7 +128,7 @@ pub fn verify_validator_set_hash(commitment: [u8; 32], block: LightBlock) {
     assert_eq!(commitment.to_vec(), expected_hash.to_vec());
 }
 
-pub fn verify_goat_block(
+pub fn verify_goat_block_from_consensus(
     goat_block_number: u64,
     goat_block_hash: &str,
     txs: &[String],
@@ -164,8 +164,8 @@ pub fn verify_goat_block(
 mod tests {
     use super::*;
 
-    pub const LB_1_JSON: &str = include_str!("samples/light_block_5756784.json");
-    pub const LB_2_JSON: &str = include_str!("samples/light_block_5756785.json");
+    pub const LB_1_JSON: &str = include_str!("../samples/light_block_5756784.json");
+    pub const LB_2_JSON: &str = include_str!("../samples/light_block_5756785.json");
 
     #[test]
     pub fn test_verify_validator_set() {
@@ -190,7 +190,7 @@ mod tests {
         // loght block 5756784
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
 
-        verify_goat_block(
+        verify_goat_block_from_consensus(
             5756298,
             "f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a",
             &txs,

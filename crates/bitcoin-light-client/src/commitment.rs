@@ -1,5 +1,9 @@
 use bitcoin::{
-    key::Keypair, secp256k1::{Message, PublicKey, Secp256k1, XOnlyPublicKey}, sighash::{Prevouts, SighashCache, TapSighashType}, taproot::{LeafVersion, Signature as TaprootSignature, TapLeafHash}, Script, ScriptBuf, Transaction, TxOut
+    Script, ScriptBuf, Transaction, TxOut,
+    key::Keypair,
+    secp256k1::{Message, PublicKey, Secp256k1, XOnlyPublicKey},
+    sighash::{Prevouts, SighashCache, TapSighashType},
+    taproot::{LeafVersion, Signature as TaprootSignature, TapLeafHash},
 };
 
 /// Generate Taproot script-path's Schnorr signature
@@ -45,20 +49,18 @@ pub fn verify_taproot_leaf_schnorr_signature(
     let secp = Secp256k1::verification_only();
     let leaf_hash = TapLeafHash::from_script(script, LeafVersion::TapScript);
     let internal_xonly: XOnlyPublicKey = (*pubkey).into();
-    let sighash = match SighashCache::new(spending_tx)
-        .taproot_script_spend_signature_hash(
-            0,
-            &Prevouts::All(&[prev_out.clone()]),
-            leaf_hash,
-            TapSighashType::AllPlusAnyoneCanPay,
-        ) {
-            Ok(sighash) => {sighash},
-            _ => return Err("Invalid sig hash".into()),
-        };
+    let sighash = match SighashCache::new(spending_tx).taproot_script_spend_signature_hash(
+        0,
+        &Prevouts::All(&[prev_out.clone()]),
+        leaf_hash,
+        TapSighashType::AllPlusAnyoneCanPay,
+    ) {
+        Ok(sighash) => sighash,
+        _ => return Err("Invalid sig hash".into()),
+    };
     let msg = Message::from(sighash);
 
-    Ok(secp 
-        .verify_schnorr(&sig.signature, &msg, &internal_xonly)?)
+    Ok(secp.verify_schnorr(&sig.signature, &msg, &internal_xonly)?)
 }
 
 #[cfg(test)]
@@ -137,7 +139,8 @@ mod tests {
             &prev_out,
             &keypair.public_key(),
             &sig,
-        );
+        )
+        .unwrap();
         println!("Schnorr signature verified successfully!");
 
         // 8. Construct control block + witness
