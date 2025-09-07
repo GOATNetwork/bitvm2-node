@@ -7,7 +7,9 @@ use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
 use hex::FromHex;
 
-use bitcoin::secp256k1::{Message, PublicKey, Secp256k1, SecretKey, ecdsa::Signature as EcdsaSignature};
+use bitcoin::secp256k1::{
+    Message, PublicKey, Secp256k1, SecretKey, ecdsa::Signature as EcdsaSignature,
+};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 
 pub fn decode_eth_address(addr: &str) -> Result<[u8; 20], hex::FromHexError> {
@@ -311,11 +313,10 @@ pub fn verify_p2wsh_multisig_witness(
     Ok(matched >= threshold)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, Network};
     use super::*;
+    use bitcoin::{Network, hashes::Hash};
 
     #[test]
     fn test_verify_p2wsh_multisig_witness() {
@@ -331,16 +332,11 @@ mod tests {
         // === Step 3: create prevout (P2WSH output) ===
         let script_pubkey = ScriptBuf::new_p2wsh(&redeem_script.wscript_hash());
         let prev_value = Amount::from_sat(100_000);
-        let prevout = TxOut {
-            value: prev_value,
-            script_pubkey,
-        };
+        let prevout = TxOut { value: prev_value, script_pubkey };
 
-        // Fake OutPoint 
-        let prev_outpoint = OutPoint {
-            txid: bitcoin::Txid::from_byte_array([0u8; 32].into()),
-            vout: 0,
-        };
+        // Fake OutPoint
+        let prev_outpoint =
+            OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32].into()), vout: 0 };
 
         // === Step 4: construct spending tx ===
         let mut tx = Transaction {
@@ -362,34 +358,21 @@ mod tests {
         };
 
         // === Step 5: sign by 2 private keys ===
-        let sig1 = sign_partial(
-            &mut tx,
-            &keys[0].0,
-            &redeem_script,
-            prev_value,
-            EcdsaSighashType::All,
-        ).unwrap();
+        let sig1 =
+            sign_partial(&mut tx, &keys[0].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
 
-        let sig2 = sign_partial(
-            &mut tx,
-            &keys[1].0,
-            &redeem_script,
-            prev_value,
-            EcdsaSighashType::All,
-        ).unwrap();
+        let sig2 =
+            sign_partial(&mut tx, &keys[1].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
 
         // === Step 6: finalize witness ===
         finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
 
         // === Step 7: verify ===
-        let ok = verify_p2wsh_multisig_witness(
-            &tx,
-            0,
-            &prevout,
-            &redeem_script,
-            &pubkeys,
-            threshold,
-        ).unwrap();
+        let ok =
+            verify_p2wsh_multisig_witness(&tx, 0, &prevout, &redeem_script, &pubkeys, threshold)
+                .unwrap();
 
         assert!(ok, "2-of-3 multisig witness should verify");
     }

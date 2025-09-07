@@ -2,10 +2,7 @@ use alloy_primitives::Address;
 use alloy_primitives::hex;
 use alloy_primitives::utils::keccak256;
 use alloy_primitives::{B256, U128, U256};
-use bitcoin::{
-    ScriptBuf, Transaction, TxOut,
-    secp256k1::{PublicKey},
-};
+use bitcoin::{ScriptBuf, Transaction, TxOut, secp256k1::PublicKey};
 use guest_executor::executor::EthClientExecutor;
 use guest_executor::io::EthClientExecutorInput;
 use header_chain::{
