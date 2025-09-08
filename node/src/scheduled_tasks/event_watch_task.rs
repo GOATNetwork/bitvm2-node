@@ -138,14 +138,11 @@ async fn handle_user_withdraw_events<'a>(
                 let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(GraphUpdate {
-                        graph_id,
-                        status: None,
-                        ipfs_base_url: None,
-                        challenge_txid: None,
-                        bridge_out_start_at: Some(current_time_secs()),
-                        init_withdraw_txid: Some(init_event.transaction_hash.clone()),
-                    })
+                    .update_graph_fields(
+                        GraphUpdate::new(graph_id)
+                            .with_bridge_out_start_at(current_time_secs())
+                            .with_init_withdraw_txid(init_event.transaction_hash.clone()),
+                    )
                     .await?;
                 storage_processor
                     .upsert_goat_tx_record(&GoatTxRecord {
@@ -166,14 +163,11 @@ async fn handle_user_withdraw_events<'a>(
                     Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(GraphUpdate {
-                        graph_id,
-                        status: None,
-                        ipfs_base_url: None,
-                        challenge_txid: None,
-                        bridge_out_start_at: Some(0),
-                        init_withdraw_txid: Some("".to_string()),
-                    })
+                    .update_graph_fields(
+                        GraphUpdate::new(graph_id)
+                            .with_bridge_out_start_at(0)
+                            .with_init_withdraw_txid("".to_string()),
+                    )
                     .await?;
                 storage_processor
                     .upsert_goat_tx_record(&GoatTxRecord {

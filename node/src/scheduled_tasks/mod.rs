@@ -2,9 +2,10 @@ mod event_watch_task;
 pub mod graph_maintenance_tasks;
 pub mod instance_maintenance_tasks;
 
+use crate::action::GOATMessageContent;
 use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
-    scan_assert, scan_kickoff, scan_take1, scan_take2, scan_withdraw,
+    scan_assert, scan_kickoff, scan_take1_or_challenge, scan_take2, scan_withdraw,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
@@ -14,6 +15,7 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 pub use event_watch_task::{is_processing_history_events, run_watch_event_task};
 use libp2p::Swarm;
+use store::MessageType;
 use store::localdb::LocalDB;
 use tracing::warn;
 
@@ -60,7 +62,7 @@ pub async fn relayer_scheduled_tasks(
         warn!("scan_assert, err {:?}", err)
     }
 
-    if let Err(err) = scan_take1(swarm, local_db, btc_client, goat_client).await {
+    if let Err(err) = scan_take1_or_challenge(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_take1, err {:?}", err)
     }
 
@@ -96,4 +98,29 @@ pub async fn committee_scheduled_tasks(
     //     warn!("instance_btc_tx_monitor, err {:?}", err)
     // }
     Ok(())
+}
+
+fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
+    match content {
+        GOATMessageContent::CreateInstance(_) => MessageType::CreateInstance,
+        GOATMessageContent::CreateGraphPrepare(_) => MessageType::CreateGraphPrepare,
+        GOATMessageContent::CreateGraph(_) => MessageType::CreateGraph,
+        GOATMessageContent::NonceGeneration(_) => MessageType::NonceGeneration,
+        GOATMessageContent::CommitteePresign(_) => MessageType::CommitteePresign,
+        GOATMessageContent::GraphFinalize(_) => MessageType::GraphFinalize,
+        GOATMessageContent::KickoffReady(_) => MessageType::KickoffReady,
+        GOATMessageContent::KickoffSent(_) => MessageType::KickoffSent,
+        GOATMessageContent::Take1Ready(_) => MessageType::Take1Ready,
+        GOATMessageContent::Take1Sent(_) => MessageType::Take1Sent,
+        GOATMessageContent::ChallengeSent(_) => MessageType::ChallengeSent,
+        GOATMessageContent::AssertSent(_) => MessageType::AssertSent,
+        GOATMessageContent::Take2Ready(_) => MessageType::Take2Ready,
+        GOATMessageContent::Take2Sent(_) => MessageType::Take2Sent,
+        GOATMessageContent::DisproveSent(_) => MessageType::DisproveSent,
+        GOATMessageContent::RequestNodeInfo(_) => MessageType::RequestNodeInfo,
+        GOATMessageContent::ResponseNodeInfo(_) => MessageType::ResponseNodeInfo,
+        GOATMessageContent::SyncGraphRequest(_) => MessageType::SyncGraphRequest,
+        GOATMessageContent::SyncGraph(_) => MessageType::SyncGraph,
+        GOATMessageContent::InstanceDiscarded(_) => MessageType::InstanceDiscarded,
+    }
 }

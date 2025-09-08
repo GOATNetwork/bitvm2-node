@@ -276,9 +276,62 @@ pub struct GraphUpdate {
     pub graph_id: Uuid,
     pub status: Option<String>,
     pub ipfs_base_url: Option<String>,
-    pub challenge_txid: Option<String>,
+    pub challenge_txid: Option<SerializableTxid>,
     pub bridge_out_start_at: Option<i64>,
     pub init_withdraw_txid: Option<String>,
+}
+
+impl GraphUpdate {
+    /// Create new update parameters
+    pub fn new(graph_id: Uuid) -> Self {
+        Self {
+            graph_id,
+            status: None,
+            ipfs_base_url: None,
+            challenge_txid: None,
+            bridge_out_start_at: None,
+            init_withdraw_txid: None,
+        }
+    }
+
+    /// Set status
+    pub fn with_status(mut self, status: String) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    /// Set IPFS base URL
+    pub fn with_ipfs_base_url(mut self, ipfs_base_url: String) -> Self {
+        self.ipfs_base_url = Some(ipfs_base_url);
+        self
+    }
+
+    /// Set challenge transaction ID
+    pub fn with_challenge_txid(mut self, challenge_txid: SerializableTxid) -> Self {
+        self.challenge_txid = Some(challenge_txid);
+        self
+    }
+
+    /// Set bridge out start time
+    pub fn with_bridge_out_start_at(mut self, bridge_out_start_at: i64) -> Self {
+        self.bridge_out_start_at = Some(bridge_out_start_at);
+        self
+    }
+
+    /// Set init withdraw transaction ID
+    pub fn with_init_withdraw_txid(mut self, init_withdraw_txid: String) -> Self {
+        self.init_withdraw_txid = Some(init_withdraw_txid);
+        self
+    }
+
+    /// Check if any fields need to be updated
+    pub fn has_updates(&self) -> bool {
+        self.status.is_some()
+            || self.ipfs_base_url.is_some()
+            || self.challenge_txid.is_some()
+            || self.bridge_out_start_at.is_some()
+            || self.init_withdraw_txid.is_some()
+    }
 }
 
 impl<'a> StorageProcessor<'a> {
@@ -875,7 +928,7 @@ impl<'a> StorageProcessor<'a> {
             query_builder.set_field("graph_ipfs_base_url", QueryParam::Text(ipfs_base_url));
         }
         if let Some(challenge_txid) = params.challenge_txid {
-            query_builder.set_field("challenge_txid", QueryParam::Text(challenge_txid));
+            query_builder.set_field("challenge_txid", QueryParam::BTCTxid(challenge_txid));
         }
         if let Some(bridge_out_start_at) = params.bridge_out_start_at {
             query_builder.set_field("bridge_out_start_at", QueryParam::Int(bridge_out_start_at));

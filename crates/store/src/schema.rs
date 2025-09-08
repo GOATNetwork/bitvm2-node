@@ -5,6 +5,7 @@ use bitcoin::Txid;
 use bitcoin::hashes::Hash;
 use indexmap::IndexMap;
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 use strum::{Display, EnumString};
 use uuid::Uuid;
 
@@ -434,6 +435,10 @@ pub enum MessageType {
     Take2Sent,
     DisproveSent,
     InstanceDiscarded,
+    RequestNodeInfo,
+    ResponseNodeInfo,
+    SyncGraphRequest,
+    SyncGraph,
 }
 
 // template query data struct
@@ -606,6 +611,55 @@ pub struct GoatTxRecord {
     pub processing_status: String,
     pub extra: Option<String>,
     pub created_at: i64,
+}
+impl GoatTxRecord {
+    pub fn new(graph_id: Uuid, tx_type: String) -> Self {
+        Self {
+            graph_id,
+            instance_id: Uuid::nil(),
+            tx_type,
+            tx_hash: String::new(),
+            height: 0,
+            is_local: false,
+            processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+            extra: None,
+            created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+        }
+    }
+
+    pub fn with_instance_id(mut self, instance_id: Uuid) -> Self {
+        self.instance_id = instance_id;
+        self
+    }
+
+    pub fn with_tx_hash(mut self, tx_hash: String) -> Self {
+        self.tx_hash = tx_hash;
+        self
+    }
+
+    pub fn with_height(mut self, height: i64) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub fn is_local(&self) -> bool {
+        self.is_local
+    }
+
+    pub fn without_extra(mut self, extra: Option<String>) -> Self {
+        self.extra = extra;
+        self
+    }
+
+    pub fn with_is_local(mut self, is_local: bool) -> Self {
+        self.is_local = is_local;
+        self
+    }
+
+    pub fn with_processing_status(mut self, processing_status: String) -> Self {
+        self.processing_status = processing_status;
+        self
+    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]

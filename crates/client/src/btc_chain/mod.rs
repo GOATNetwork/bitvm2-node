@@ -1,7 +1,7 @@
 use crate::btc_chain::bitcoin_adaptor::{BitcoinNetwork, get_btc_chain_adapter};
 use crate::btc_chain::bitcoin_chain::BitcoinChain;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
-use esplora_client::{MerkleProof, Utxo};
+use esplora_client::{MerkleProof, Tx, Utxo};
 use std::str::FromStr;
 
 pub mod bitcoin_adaptor;
@@ -96,6 +96,10 @@ impl BTCClient {
         tx_id: &Txid,
     ) -> Result<Transaction, Box<dyn std::error::Error>> {
         self.chain_service.fetch_btc_tx(tx_id).await
+    }
+
+    pub async fn fetch_btc_tx_info(&self, tx_id: &Txid) -> Result<Tx, Box<dyn std::error::Error>> {
+        self.chain_service.fetch_btc_tx_info(tx_id).await
     }
 
     pub async fn get_btc_tx_proof_info(

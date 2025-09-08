@@ -80,7 +80,6 @@ impl GOATClient {
     ) -> anyhow::Result<Option<TransactionReceipt>> {
         self.chain_service.get_tx_receipt(tx_hash).await
     }
-
     pub async fn is_committee_member(&self) -> anyhow::Result<bool> {
         let addr = self.get_default_signer_address();
         self.committee_mana_is_committee_member(&addr).await

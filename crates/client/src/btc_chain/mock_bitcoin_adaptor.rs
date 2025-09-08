@@ -1,7 +1,7 @@
 use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
 use bitcoin::block::Header;
 use bitcoin::{Address as BtcAddress, Block, BlockHash, Network, Transaction, Txid};
-use esplora_client::{MerkleProof, OutputStatus, TxStatus, Utxo};
+use esplora_client::{MerkleProof, OutputStatus, Tx, TxStatus, Utxo};
 use std::collections::HashMap;
 
 pub struct MockBitcoinAdaptor {
@@ -25,6 +25,10 @@ impl BitcoinAdaptor for MockBitcoinAdaptor {
 
     async fn get_tx(&self, _txid: &Txid) -> anyhow::Result<Option<Transaction>> {
         anyhow::bail!("get_tx() not implemented for mock_bitcoin_adaptor")
+    }
+
+    async fn get_tx_info(&self, _txid: &Txid) -> anyhow::Result<Option<Tx>> {
+        anyhow::bail!("get_tx_info() not implemented for mock_bitcoin_adaptor")
     }
 
     async fn get_address_utxo(&self, _address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {

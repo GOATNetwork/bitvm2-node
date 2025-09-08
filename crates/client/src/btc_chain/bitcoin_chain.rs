@@ -3,7 +3,7 @@ use anyhow::bail;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
-use esplora_client::{MerkleProof, Utxo};
+use esplora_client::{MerkleProof, Tx, Utxo};
 
 pub struct BitcoinChain {
     adaptor: Box<dyn BitcoinAdaptor + Send + Sync>,
@@ -103,6 +103,9 @@ impl BitcoinChain {
         tx_id: &Txid,
     ) -> Result<Transaction, Box<dyn std::error::Error>> {
         self.adaptor.get_tx(tx_id).await?.ok_or(format!("{tx_id} is not on chain").into())
+    }
+    pub async fn fetch_btc_tx_info(&self, tx_id: &Txid) -> Result<Tx, Box<dyn std::error::Error>> {
+        self.adaptor.get_tx_info(tx_id).await?.ok_or(format!("{tx_id} is not on chain").into())
     }
 
     pub async fn get_btc_tx_proof_info(
