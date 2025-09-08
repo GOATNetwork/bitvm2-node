@@ -3,6 +3,7 @@ members = [
     "continuous",
     "aggregation",
     "groth16",
+    "header-chain-proof/host",
 ]
 exclude = []
 resolver = "2"
@@ -131,6 +132,8 @@ op-alloy-consensus = { git = "https://github.com/ziren-patches/op-alloy", branch
 op-alloy-network = { git = "https://github.com/ziren-patches/op-alloy", branch = "patch-0.13.0" }
 op-alloy-rpc-types = { git = "https://github.com/ziren-patches/op-alloy", branch = "patch-0.13.0" }
 
+header-chain = { path = "../crates/header-chain" }
+bitcoin-light-client = { path = "../crates/bitcoin-light-client" }
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"

@@ -23,6 +23,10 @@ path = "src/bin/fake_challenge.rs"
 name = "sequencer-set-publish"
 path = "src/bin/sequencer-set-publish.rs"
 
+[[bin]]
+name = "fetch-header-chain"
+path = "src/bin/fetch-header-chain.rs"
+
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",
@@ -94,6 +98,7 @@ zkm-verifier = { workspace = true }
 
 stun-client = "0.1.4"
 strum = { version = "0.26", features = ["derive"] }
+borsh = {version = "1.5.3", features = ["derive"] }
 
 # bin
 tempfile = "3.19.1"

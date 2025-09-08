@@ -45,5 +45,9 @@ tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tender
 [dev-dependencies]
 rand = "0.8.5"
 serde_json = "1.0"
+borsh = {version = "1.5.3", features = ["derive"] }
+blake3 = "1.6.1"
+zkm-sdk = { git = "https://github.com/ProjectZKM/Ziren" }
+
 [build-dependencies]
 prost-build = "0.13"
