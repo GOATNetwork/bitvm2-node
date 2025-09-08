@@ -2,15 +2,22 @@ use crate::client::btc_chain::esplora_bitcoin_adaptor::EsploraBitcoinAdaptor;
 use crate::client::btc_chain::mock_bitcoin_adaptor::MockBitcoinAdaptor;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid, block::Header};
 use esplora_client::{MerkleProof, Utxo};
+use strum::{Display, EnumString};
 
-#[derive(Eq, PartialEq, Clone, Copy)]
+#[derive(Eq, PartialEq, Clone, Copy, Default, Display, EnumString)]
 pub enum BitcoinNetwork {
+    #[strum(serialize = "bitcoin")]
     Bitcoin,
+    #[strum(serialize = "testnet")]
+    #[default]
     Testnet,
+    #[strum(serialize = "testnet4")]
     Testnet4,
     Signet,
+    #[strum(serialize = "regtest")]
     Regtest,
-    Local,
+    #[strum(serialize = "local")]
+    Local, // mock
 }
 
 impl BitcoinNetwork {
