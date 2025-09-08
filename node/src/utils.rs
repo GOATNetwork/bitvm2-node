@@ -56,7 +56,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::{GraphUpdate, LocalDB};
+use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
     Graph, GraphStatus, Instance, InstanceStatus, Int64Array3, Message, MessageState, MessageType,
@@ -971,6 +971,35 @@ pub async fn create_goat_tx_record_old(
     {
         let mut storage_process = local_db.acquire().await?;
         storage_process
+            .upsert_goat_tx_record(&GoatTxRecord {
+                instance_id,
+                graph_id,
+                tx_type: tx_type.to_string(),
+                tx_hash: tx_hash.to_string(),
+                height: receipt.block_number.unwrap() as i64,
+                is_local: true,
+                extra: None,
+                processing_status: prove_status,
+                created_at: current_time_secs(),
+            })
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn create_goat_tx_record<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    goat_client: &GOATClient,
+    graph_id: Uuid,
+    instance_id: Uuid,
+    tx_hash: &str,
+    tx_type: GoatTxType,
+    prove_status: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(receipt) = goat_client.get_tx_receipt(tx_hash).await?
+        && receipt.block_number.is_some()
+    {
+        storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id,
                 graph_id,
