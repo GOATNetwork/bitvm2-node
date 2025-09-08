@@ -3,7 +3,7 @@ use sqlx::FromRow;
 
 use bitcoin::Txid;
 use bitcoin::hashes::Hash;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::str::FromStr;
 use strum::{Display, EnumString};
 use uuid::Uuid;
@@ -187,8 +187,8 @@ pub struct NodesOverview {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CommitteeSignatures {
     pub xonly_pubkey: [u8; 32],
-    pub l1_sig: Option<String>,
-    pub l2_sig: Option<String>,
+    pub l1_sig: Vec<u8>,
+    pub l2_sig: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
@@ -227,7 +227,7 @@ pub struct Instance {
     pub pegin_cancel_txid: Option<SerializableTxid>,  // btc txid
     pub unsign_pegin_confirm_tx: Option<String>,
     #[sqlx(json)]
-    pub committees_answers: HashMap<String, CommitteeSignatures>,
+    pub committees_answers: IndexMap<String, CommitteeSignatures>,
     pub pegin_data_tx_hash: String,
     pub pegin_prepare_height: i64, // btc lock_time
     pub created_at: i64,

@@ -48,7 +48,7 @@ use secp256k1::Secp256k1;
 use statics::*;
 
 use bitcoin::hashes::Hash;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Write};
 use std::net::SocketAddr;
@@ -956,7 +956,8 @@ pub async fn save_unhandle_message(
     Ok(())
 }
 
-pub async fn create_goat_tx_record(
+// Discord
+pub async fn create_goat_tx_record_old(
     local_db: &LocalDB,
     goat_client: &GOATClient,
     graph_id: Uuid,
@@ -1663,7 +1664,7 @@ pub async fn generate_instance_from_event(
         pegin_confirm_txid: None,
         pegin_cancel_txid: None,
         unsign_pegin_confirm_tx: None,
-        committees_answers: HashMap::new(),
+        committees_answers: IndexMap::new(),
         pegin_data_tx_hash: "".to_string(),
         pegin_prepare_height: 0,
         created_at: current_time_secs(),

@@ -203,6 +203,7 @@ impl ChainAdaptor for MockAdaptor {
         instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         _pegin_proof: &BitcoinTxProof,
+        _committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         info!("call post_pegin_data");
         let tx = Transaction {
@@ -240,7 +241,7 @@ impl ChainAdaptor for MockAdaptor {
         _instance_id: &[u8; 16],
         graph_id: &[u8; 16],
         operator_data: &GraphData,
-        _committee_signs: &[u8],
+        _committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         info!("call post_operator_data");
         let mut operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;

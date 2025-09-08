@@ -1226,7 +1226,7 @@ pub async fn recv_and_dispatch(
                     graph.take1.tx(),
                 )
                 .await?;
-                create_goat_tx_record(
+                create_goat_tx_record_old(
                     local_db,
                     goat_client,
                     receive_data.graph_id,
@@ -1263,7 +1263,7 @@ pub async fn recv_and_dispatch(
                     graph.take2.tx(),
                 )
                 .await?;
-                create_goat_tx_record(
+                create_goat_tx_record_old(
                     local_db,
                     goat_client,
                     receive_data.graph_id,
@@ -1330,7 +1330,7 @@ pub async fn recv_and_dispatch(
                     &btc_client.fetch_btc_tx(&graph.challenge_txid.unwrap().0).await?,
                 )
                 .await?;
-                create_goat_tx_record(
+                create_goat_tx_record_old(
                     local_db,
                     goat_client,
                     receive_data.graph_id,

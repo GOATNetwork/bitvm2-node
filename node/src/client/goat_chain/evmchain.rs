@@ -132,8 +132,16 @@ impl EvmChain {
         instance_id: &Uuid,
         raw_pgin_tx: &BitcoinTx,
         pegin_proof: &BitcoinTxProof,
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
-        self.adaptor.gateway_post_pegin_data(instance_id.as_bytes(), raw_pgin_tx, pegin_proof).await
+        self.adaptor
+            .gateway_post_pegin_data(
+                instance_id.as_bytes(),
+                raw_pgin_tx,
+                pegin_proof,
+                committee_signs,
+            )
+            .await
     }
 
     pub async fn gateway_post_graph_data(
@@ -141,7 +149,7 @@ impl EvmChain {
         instance_id: &Uuid,
         graph_id: &Uuid,
         operator_data: &GraphData,
-        committee_signs: &[u8],
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         self.adaptor
             .gateway_post_graph_data(

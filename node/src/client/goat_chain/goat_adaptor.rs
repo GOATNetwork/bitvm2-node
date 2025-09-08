@@ -144,8 +144,8 @@ sol!(
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
         function getWithdrawableInstances(bytes32 operatorPubkey) external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
 
-        function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof) external ;
-        function postGraphData(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData, bytes calldata committeeSigs) public;
+        function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof, bytes[] calldata committeeSigs) external;
+        function postGraphData(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData, bytes[] calldata committeeSigs) public;
         function initWithdraw(bytes16 instanceId, bytes16 graphId) external;
         function cancelWithdraw(bytes16 graphId) external;
         function proceedWithdraw(bytes16 graphId, BitcoinTx calldata rawKickoffTx, BitcoinTxProof calldata kickoffProof) external;
@@ -725,13 +725,16 @@ impl ChainAdaptor for GoatAdaptor {
         instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         pegin_proof: &BitcoinTxProof,
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         let gateway = self.get_gateway()?;
+        let signs: Vec<Bytes> = committee_signs.iter().map(|v| Bytes::copy_from_slice(v)).collect();
         let tx_request: TransactionRequest = gateway
             .postPeginData(
                 FixedBytes::<16>::from_slice(instance_id),
                 raw_pgin_tx.into(),
                 pegin_proof.into(),
+                signs,
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -745,15 +748,16 @@ impl ChainAdaptor for GoatAdaptor {
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
         operator_data: &GraphData,
-        committee_signs: &[u8],
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         let gateway = self.get_gateway()?;
+        let signs: Vec<Bytes> = committee_signs.iter().map(|v| Bytes::copy_from_slice(v)).collect();
         let tx_request = gateway
             .postGraphData(
                 FixedBytes::from_slice(instance_id),
                 FixedBytes::from_slice(graph_id),
                 (*operator_data).clone().into(),
-                Bytes::copy_from_slice(committee_signs),
+                signs,
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)

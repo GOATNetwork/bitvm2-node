@@ -4,7 +4,7 @@ use crate::client::goat_chain::{GOATClient, WithdrawStatus};
 use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_RESEND_INTERVAL_SECOND};
 use crate::middleware::AllBehaviours;
 use crate::utils::{
-    create_goat_tx_record, get_graph, outpoint_spent_txid, tx_on_chain, update_graph_fields,
+    create_goat_tx_record_old, get_graph, outpoint_spent_txid, tx_on_chain, update_graph_fields,
 };
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
@@ -34,29 +34,6 @@ async fn fetch_graph_with_broadcast_info(
         .await?)
 }
 
-async fn get_message_broadcast_times(
-    local_db: &LocalDB,
-    instance_id: &Uuid,
-    graph_id: &Uuid,
-    msg_type: &str,
-) -> Result<(i64, i64), Box<dyn std::error::Error>> {
-    let mut storage_process = local_db.acquire().await?;
-    Ok(storage_process.get_message_broadcast_times(instance_id, graph_id, msg_type).await?)
-}
-
-async fn add_message_broadcast_times(
-    local_db: &LocalDB,
-    instance_id: &Uuid,
-    graph_id: &Uuid,
-    msg_type: &str,
-    add_times: i64,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = local_db.acquire().await?;
-    Ok(storage_process
-        .add_message_broadcast_times(instance_id, graph_id, msg_type, add_times)
-        .await?)
-}
-
 pub async fn get_initialized_graphs(
     goat_client: &GOATClient,
 ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
@@ -74,6 +51,7 @@ pub async fn scan_withdraw(
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_withdraw");
     let graphs = get_initialized_graphs(goat_client).await?;
+    let mut storage_processor = local_db.acquire().await?;
     for (instance_id, graph_id) in graphs {
         if let Ok(graph) = get_graph(local_db, Some(instance_id), graph_id).await {
             if graph.kickoff_txid.is_none() {
@@ -91,25 +69,25 @@ pub async fn scan_withdraw(
                 );
                 continue;
             }
-            let (msg_times, last_send_at) = get_message_broadcast_times(
-                local_db,
-                &instance_id,
-                &graph_id,
-                &MessageType::KickoffReady.to_string(),
-            )
-            .await?;
+            let (msg_times, last_send_at) = storage_processor
+                .get_message_broadcast_times(
+                    &instance_id,
+                    &graph_id,
+                    &MessageType::KickoffReady.to_string(),
+                )
+                .await?;
             if is_need_to_send_msg(msg_times, last_send_at) {
                 let message_content =
                     GOATMessageContent::KickoffReady(KickoffReady { instance_id, graph_id });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Operator, &message_content)?)?;
-                add_message_broadcast_times(
-                    local_db,
-                    &instance_id,
-                    &graph_id,
-                    &MessageType::KickoffReady.to_string(),
-                    1,
-                )
-                .await?;
+                storage_processor
+                    .add_message_broadcast_times(
+                        &instance_id,
+                        &graph_id,
+                        &MessageType::KickoffReady.to_string(),
+                        1,
+                    )
+                    .await?;
             }
         }
     }
@@ -124,6 +102,7 @@ pub async fn scan_kickoff(
     goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_kickoff");
+    let mut storage_processor = local_db.acquire().await?;
     let mut graph_datas = fetch_graph_with_broadcast_info(
         local_db,
         GraphStatus::OperatorDataPushed,
@@ -171,7 +150,7 @@ pub async fn scan_kickoff(
                             instance_id, graph_id, tx_hash
                         );
 
-                        create_goat_tx_record(
+                        create_goat_tx_record_old(
                             local_db,
                             goat_client,
                             graph_id,
@@ -220,14 +199,14 @@ pub async fn scan_kickoff(
                 kickoff_txid,
             });
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-            add_message_broadcast_times(
-                local_db,
-                &graph_data.instance_id,
-                &graph_data.graph_id,
-                &MessageType::KickoffSent.to_string(),
-                1,
-            )
-            .await?;
+            storage_processor
+                .add_message_broadcast_times(
+                    &graph_data.instance_id,
+                    &graph_data.graph_id,
+                    &MessageType::KickoffSent.to_string(),
+                    1,
+                )
+                .await?;
         }
     }
     Ok(())

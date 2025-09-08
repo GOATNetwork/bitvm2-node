@@ -52,6 +52,7 @@ pub trait ChainAdaptor: Send + Sync {
         instance_id: &[u8; 16],
         raw_pgin_tx: &BitcoinTx,
         pegin_proof: &BitcoinTxProof,
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String>;
 
     async fn gateway_post_graph_data(
@@ -59,7 +60,7 @@ pub trait ChainAdaptor: Send + Sync {
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
         operator_data: &GraphData,
-        committee_signs: &[u8],
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String>;
 
     async fn gateway_get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;

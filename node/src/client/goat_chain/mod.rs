@@ -348,6 +348,7 @@ impl GOATClient {
         btc_client: &BTCClient,
         instance_id: &Uuid,
         tx: &bitcoin::Transaction,
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         let tx_id = tx.compute_txid();
         tracing::info!("post_pegin_data instance_id:{instance_id}, pegin_tx:{}", tx_id.to_string());
@@ -420,6 +421,7 @@ impl GOATClient {
                 instance_id,
                 &raw_pegin_tx,
                 &BitcoinTxProof { raw_header, height, proof, index },
+                committee_signs,
             )
             .await
     }
@@ -429,7 +431,7 @@ impl GOATClient {
         instance_id: &Uuid,
         graph_id: &Uuid,
         graph: &Graph,
-        committee_signs: &[u8],
+        committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
         let graph_data = cast_graph_to_graph_data(graph)?;

@@ -9,8 +9,8 @@ serde = { version = "1.0.219", features = ["derive"] }
 anyhow = { workspace = true }
 uuid = { workspace = true }
 bitcoin = { workspace = true }
-alloy = { workspace = true }
 hex = { workspace = true }
+indexmap = { workspace = true }
 tracing = "0.1.41"
 
 

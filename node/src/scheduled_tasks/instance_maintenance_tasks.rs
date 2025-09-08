@@ -4,7 +4,7 @@ use crate::env;
 use crate::env::{GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
-use crate::utils::create_goat_tx_record;
+use crate::utils::create_goat_tx_record_old;
 use alloy::primitives::TxHash;
 use anyhow::anyhow;
 use bitvm2_lib::keys::CommitteeMasterKey;
@@ -122,8 +122,8 @@ pub async fn instance_window_expiration_monitor(
                         })
                         .or_insert_with(|| CommitteeSignatures {
                             xonly_pubkey,
-                            l1_sig: None,
-                            l2_sig: None,
+                            l1_sig: vec![],
+                            l2_sig: vec![],
                         });
                 }
 
@@ -294,6 +294,15 @@ pub async fn scan_post_pegin_data(
             );
             continue;
         }
+
+        if instance.committees_answers.values().any(|v| v.l2_sig.is_empty()) {
+            warn!(
+                "scan post_pegin_data instance {} not collect all committee signs, call post pegin data will failed",
+                instance.instance_id
+            );
+            continue;
+        }
+
         if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_tx_hash) {
             let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_tx_hash).await?;
             if receipt_op.is_none() {
@@ -313,8 +322,16 @@ pub async fn scan_post_pegin_data(
         } else {
             let pegin_confirm_tx =
                 btc_client.fetch_btc_tx(&instance.pegin_confirm_txid.unwrap().0).await?;
+
+            let committee_signs: Vec<Vec<u8>> =
+                instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
             match goat_client
-                .gateway_post_pegin_data(btc_client, &instance.instance_id, &pegin_confirm_tx)
+                .gateway_post_pegin_data(
+                    btc_client,
+                    &instance.instance_id,
+                    &pegin_confirm_tx,
+                    &committee_signs,
+                )
                 .await
             {
                 Err(err) => {
@@ -332,7 +349,7 @@ pub async fn scan_post_pegin_data(
                         instance.instance_id, tx_hash
                     );
 
-                    create_goat_tx_record(
+                    create_goat_tx_record_old(
                         local_db,
                         goat_client,
                         Uuid::default(),
@@ -372,10 +389,21 @@ pub async fn scan_post_graph_data(
 
     info!("scan post_operator_data check instance size: {}", instances.len());
     for instance in instances {
+        if instance.committees_answers.values().any(|v| v.l2_sig.is_empty()) {
+            warn!(
+                "scan post_operator_data instance {} not collect all committee signs, call post pegin data will failed",
+                instance.instance_id
+            );
+            continue;
+        }
+
+        let committee_signs: Vec<Vec<u8>> =
+            instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
+
         let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
         if graphs.is_empty() {
             warn!(
-                " scan post_operator_data instance {}, status is L2Minted, but graph is none",
+                "scan post_operator_data instance {}, status is L2Minted, but graph is none",
                 instance.instance_id
             );
             continue;
@@ -384,9 +412,13 @@ pub async fn scan_post_graph_data(
             if graph.status != GraphStatus::CommitteePresigned.to_string() {
                 continue;
             }
-            // TODO update
             match goat_client
-                .gateway_post_graph_data(&instance.instance_id, &graph.graph_id, &graph, &[])
+                .gateway_post_graph_data(
+                    &instance.instance_id,
+                    &graph.graph_id,
+                    &graph,
+                    &committee_signs,
+                )
                 .await
             {
                 Ok(tx_hash) => {
@@ -395,7 +427,7 @@ pub async fn scan_post_graph_data(
                         instance.instance_id, graph.graph_id, tx_hash
                     );
 
-                    create_goat_tx_record(
+                    create_goat_tx_record_old(
                         local_db,
                         goat_client,
                         graph.graph_id,

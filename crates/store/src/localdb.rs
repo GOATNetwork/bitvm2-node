@@ -8,6 +8,7 @@ use crate::{
     SerializableTxid, WatchContract,
 };
 
+use indexmap::IndexMap;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
 use sqlx::types::Uuid;
@@ -713,8 +714,8 @@ impl<'a> StorageProcessor<'a> {
         instance_id: &Uuid,
         committee_addr: &str,
         xonly_pubkey: &[u8; 32],
-        l1_sig: Option<String>,
-        l2_sig: Option<String>,
+        l1_sig: Vec<u8>,
+        l2_sig: Vec<u8>,
     ) -> anyhow::Result<bool> {
         // First, get the current committees_answers
         let current_instance = self.find_instance(instance_id).await?;
@@ -727,10 +728,10 @@ impl<'a> StorageProcessor<'a> {
             .entry(committee_addr.to_string())
             .and_modify(|existing| {
                 existing.xonly_pubkey = *xonly_pubkey;
-                if l1_sig.is_some() {
+                if !l1_sig.is_empty() {
                     existing.l1_sig = l1_sig.clone();
                 }
-                if l2_sig.is_some() {
+                if !l2_sig.is_empty() {
                     existing.l2_sig = l2_sig.clone();
                 }
             })
@@ -753,7 +754,7 @@ impl<'a> StorageProcessor<'a> {
         }
         let mut committees_answers = current_instance.unwrap().committees_answers;
         // Remove the committee answer
-        committees_answers.remove(committee);
+        committees_answers.shift_remove(committee);
         // Update the instance with the new committees_answers
         self.update_instance_committees_answers_map(instance_id, &committees_answers).await
     }
@@ -764,7 +765,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_instance_committees_answers(
         &mut self,
         instance_id: &Uuid,
-    ) -> anyhow::Result<Option<HashMap<String, CommitteeSignatures>>> {
+    ) -> anyhow::Result<Option<IndexMap<String, CommitteeSignatures>>> {
         let current_instance = self.find_instance(instance_id).await?;
         if let Some(instance) = current_instance {
             Ok(Some(instance.committees_answers))
@@ -780,7 +781,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_instance_committees_answers_map(
         &mut self,
         instance_id: &Uuid,
-        committees_answers: &HashMap<String, CommitteeSignatures>,
+        committees_answers: &IndexMap<String, CommitteeSignatures>,
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let committees_answers_json = serde_json::to_string(&committees_answers)?;
