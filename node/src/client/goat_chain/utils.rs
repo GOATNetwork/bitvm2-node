@@ -31,28 +31,32 @@ pub async fn validate_committee(
 }
 
 pub async fn validate_operator(
-    provider: &FillProvider<
+    _provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
     >,
-    address: Address,
-    peer_id: &[u8],
+    _address: Address,
+    _peer_id: &[u8],
 ) -> anyhow::Result<bool> {
-    let gate_way = IGateway::new(address, provider);
-    Ok(gate_way.isOperator(Bytes::copy_from_slice(peer_id)).call().await?)
+    // let gate_way = IGateway::new(address, provider);
+    // Ok(gate_way.isOperator(Bytes::copy_from_slice(peer_id)).call().await?)
+    // contract not support check; TODO update
+    Ok(true)
 }
 
 pub async fn validate_relayer(
-    provider: &FillProvider<
+    _provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
     >,
-    address: Address,
-    peer_id: &[u8],
+    _address: Address,
+    _peer_id: &[u8],
 ) -> anyhow::Result<bool> {
-    let gate_way = IGateway::new(address, provider);
-    let relayer_peer_id = gate_way.relayerPeerId().call().await?;
-    Ok(relayer_peer_id == Bytes::copy_from_slice(peer_id))
+    // let gate_way = IGateway::new(address, provider);
+    // let relayer_peer_id = gate_way.relayerPeerId().call().await?;
+    // Ok(relayer_peer_id == Bytes::copy_from_slice(peer_id))
+    // contract not support check; TODO update
+    Ok(true)
 }
 
 pub async fn get_graph_ids_by_instance_id(

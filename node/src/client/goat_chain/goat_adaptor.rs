@@ -129,23 +129,22 @@ sol!(
         address public  committeeManagement;
         address public  stakeManagement;
 
-        address public  relayer;
         uint256 public responseWindowBlocks;
-        mapping(bytes16 instanceId => PeginData) public peginDataMap;
+        bytes16[] public instanceIds;
         mapping(bytes16 graphId => GraphData) public graphDataMap;
         mapping(bytes16 graphId => WithdrawData) public withdrawDataMap;
-        bytes16[] public instanceIds;
         mapping(bytes16 instanceId => bytes16[] graphIds)
         public instanceIdToGraphIds;
 
         function getBlockHash(uint256 height) external view returns (bytes32);
         function parseBtcBlockHeader(bytes calldata rawHeader) public pure returns (bytes32 blockHash, bytes32 merkleRoot);
-        function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
-        function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
-        function getWithdrawableInstances(bytes32 operatorPubkey) external view returns ( bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds, uint64[] memory retPeginAmounts);
 
+        function postPeginRequest(bytes16 instanceId, uint64 peginAmountSats, uint64[3] calldata txnFees, address receiverAddress, Utxo[] calldata userInputs, bytes32 userXonlyPubkey, string calldata userChangeAddress, string calldata userRefundAddress) external payable;
+        function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) onlyCommittee() external;
         function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof, bytes[] calldata committeeSigs) external;
+        function getPeginData(bytes16 instanceId) external view returns (PeginData memory);
         function postGraphData(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData, bytes[] calldata committeeSigs) public;
+        function getGraphData(bytes16 graphId) external view returns (GraphData memory);
         function initWithdraw(bytes16 instanceId, bytes16 graphId) external;
         function cancelWithdraw(bytes16 graphId) external;
         function proceedWithdraw(bytes16 graphId, BitcoinTx calldata rawKickoffTx, BitcoinTxProof calldata kickoffProof) external;
@@ -153,10 +152,10 @@ sol!(
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, BitcoinTx calldata rawDisproveTx, BitcoinTxProof calldata disproveProof, BitcoinTx calldata rawChallengeTx, BitcoinTxProof calldata ngeCProof) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof, bytes32 leaf,uint256 index) public pure returns (bool);
-        function postPeginRequest(bytes16 instanceId, uint64 peginAmountSats, uint64[3] calldata txnFees, address receiverAddress, Utxo[] calldata userInputs, bytes32 userXonlyPubkey, string calldata userChangeAddress, string calldata userRefundAddress) external payable;
-        function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) onlyCommittee() external;
-        function getPeginData(bytes16 instanceId) external view returns (PeginData memory);
-        function getGraphData(bytes16 graphId) external view returns (GraphData memory);
+
+        // Contract is not implements this functions, do something later
+        function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
+        function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
     }
 );
 

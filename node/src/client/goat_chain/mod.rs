@@ -1,6 +1,6 @@
 use crate::env::GATEWAY_RATE_MULTIPLIER;
 use alloy::consensus::crypto::secp256k1::recover_signer;
-use alloy::primitives::{B256, Signature};
+use alloy::primitives::{Address, B256, Signature};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::hashes::Hash;
@@ -35,7 +35,9 @@ impl GOATClient {
             chain_service: EvmChain::new(get_chain_adaptor(goat_network, goat_init_config, None)),
         }
     }
-
+    pub fn get_default_signer_address(&self) -> Address {
+        self.chain_service.get_default_signer_address()
+    }
     pub async fn gateway_verify_merkle_proof(
         &self,
         root: &[u8; 32],
@@ -78,6 +80,11 @@ impl GOATClient {
         tx_hash: &str,
     ) -> anyhow::Result<Option<TransactionReceipt>> {
         self.chain_service.get_tx_receipt(tx_hash).await
+    }
+
+    pub async fn is_committee_member(&self) -> anyhow::Result<bool> {
+        let addr = self.get_default_signer_address();
+        self.committee_mana_is_committee_member(&addr).await
     }
 
     // Add all EvmChain methods to GOATClient
@@ -164,7 +171,9 @@ impl GOATClient {
         instance_id: &Uuid,
         committee_xonly_pubkey: &[u8; 32],
     ) -> anyhow::Result<String> {
-        // TODO add only committee check
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
         let pegin_data = self.gateway_get_pegin_data(instance_id).await?;
         if pegin_data.status != PeginStatus::Pending {
             tracing::warn!(
@@ -224,6 +233,9 @@ impl GOATClient {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
         let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
@@ -251,6 +263,9 @@ impl GOATClient {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
         let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
@@ -279,6 +294,9 @@ impl GOATClient {
         graph_id: &Uuid,
         tx: &bitcoin::Transaction,
     ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
         let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
         let (_root, proof, _leaf, height, index, raw_header) = self
@@ -308,6 +326,9 @@ impl GOATClient {
         disprove_tx: &Transaction,
         challenge_tx: &Transaction,
     ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
@@ -352,6 +373,9 @@ impl GOATClient {
     ) -> anyhow::Result<String> {
         let tx_id = tx.compute_txid();
         tracing::info!("post_pegin_data instance_id:{instance_id}, pegin_tx:{}", tx_id.to_string());
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
         let pegin_data = self.gateway_get_pegin_data(instance_id).await?;
         if pegin_data.status != PeginStatus::Pending {
             tracing::warn!("instance_id:{instance_id} not a pending pegin request",);
@@ -434,6 +458,9 @@ impl GOATClient {
         committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         tracing::info!("post_operate_data instance_id:{}, graph_id:{}", instance_id, graph_id);
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
         let graph_data = cast_graph_to_graph_data(graph)?;
         // check operator register
         let operator_stake_addr =
