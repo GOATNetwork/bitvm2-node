@@ -109,7 +109,7 @@ async fn push_sequencer_set_publish_tx(
     feepayer_p2wpkh: &Address,
     private_key: &PrivateKey,
     publisher_keys: &Vec<(secp256k1::SecretKey, secp256k1::PublicKey)>,
-    threshold: usize,
+    threshold: u16,
     update_connector_value: Option<Amount>,
     replenish_fee_connector_value: Option<Amount>,
     btc_client: &BTCClient,
@@ -365,7 +365,7 @@ async fn fund_dummy_publishers(
 
     println!("Funding publishers from {} with total UTXO value: {}", from_address, total_value);
 
-    let fee = Amount::from_sat(1000);
+    let fee = Amount::from_sat(4000);
     let to_value = 20000; // each publisher get 2000 sat 
 
     let mut txins = Vec::new();

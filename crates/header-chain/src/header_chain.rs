@@ -357,12 +357,12 @@ fn calculate_work(target: &[u8; 32]) -> U256 {
     Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize, Hash,
 )]
 pub struct BlockHeaderCircuitOutput {
-    pub method_id: [u32; 8],
+    pub vk_hash: [u32; 8],
     pub chain_state: ChainState,
 }
 
 /// The input proof of the header chain circuit.
-/// The proof can be either None (implying the beginning) or a Succinct Risc0 proof.
+/// The proof can be either None (implying the beginning) or a Succinct proof.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
     GenesisBlock,
@@ -372,7 +372,7 @@ pub enum HeaderChainPrevProofType {
 /// The input of the header chain circuit.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct HeaderChainCircuitInput {
-    pub method_id: [u32; 8],
+    pub vk_hash: [u32; 8],
     pub prev_proof: HeaderChainPrevProofType,
     pub block_headers: Vec<CircuitBlockHeader>,
 }

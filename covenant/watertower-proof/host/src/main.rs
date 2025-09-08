@@ -12,7 +12,7 @@ use zkm_sdk::{
 
 /// A program that aggregates the proofs of the simple program.
 const HEADER_CHAIN: &[u8] = include_elf!("guest");
-pub const HEADERS: &[u8] = include_bytes!("../../../../node/tests_data/first_100_blocks.bin");
+pub const HEADERS: &[u8] = include_bytes!("../../../node/tests_data/first_100_blocks.bin");
 
 use clap::Parser;
 use std::fs;

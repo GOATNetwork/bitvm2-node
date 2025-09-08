@@ -27,6 +27,10 @@ path = "src/bin/sequencer-set-publish.rs"
 name = "fetch-header-chain"
 path = "src/bin/fetch-header-chain.rs"
 
+[[bin]]
+name = "fetch-commit-chain"
+path = "src/bin/fetch-commit-chain.rs"
+
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",

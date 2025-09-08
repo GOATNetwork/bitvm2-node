@@ -1,29 +1,17 @@
 //! Fetch block info for circuit
 //! Example:
 //! ```
-//!     cargo run -r --bin fetch-header-chain -- --start 0 --batch-size 11 --output /tmp/first_11_blocks.bin
+//!     cargo run -r --bin fetch-header-chain -- --start 0 --batch-size 100 --output ./tests_data/first_100_blocks.bin
 //! ```
-use anyhow::Chain;
-use axum::routing::head;
-use base64::write;
-use bitcoin::block;
-use bitcoin::{
-    Network, PublicKey, TapSighashType, Transaction, TxOut, XOnlyPublicKey,
-    consensus::encode::deserialize_hex,
-};
+use bitcoin::Network;
 use bitvm2_noded::client::btc_chain::BTCClient;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use clap::Parser;
-use header_chain::{ChainState, CircuitBlockHeader};
-use std::io::Write;
 
 /// Send kickoff without call initWithdraw on L2, this action should trigger disprove.
 #[derive(Parser, Debug)]
-#[command(name = "fake-kickoff")]
-#[command(
-    about = "Test disprove",
-    long_about = "Send kickoff without call initWithdraw on L2, this action should trigger disprove."
-)]
+#[command(name = "fetch-header-chain")]
+#[command(about = "Command fetch-header-chain")]
 struct Args {
     /// graph id
     #[arg(long)]

@@ -83,6 +83,8 @@ pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> 
         let pk = PublicKey::from_secret_key(&secp, &sk);
         keys.push((sk, pk));
     }
+    println!("Publisher public key:");
+    keys.iter().for_each(|(_, pk)| println!("{}\n", pk.to_string()));
     keys
 }
 
@@ -123,10 +125,10 @@ pub fn create_fee_tx(
     })
 }
 
-pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
+pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: u16) -> ScriptBuf {
     let total = public_keys.len();
     assert!(
-        threshold <= total,
+        threshold as usize <= total,
         "Threshold must be less than or equal to total number of public keys"
     );
     let mut redeem_script = Builder::new().push_int(threshold as i64);

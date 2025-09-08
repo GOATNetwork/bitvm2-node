@@ -35,3 +35,6 @@ docker.sh
 
 node/cache
 scripts/bitcoin-data
+
+node/commits.bin
+covenant/header-chain-proof/host/compressed.bin

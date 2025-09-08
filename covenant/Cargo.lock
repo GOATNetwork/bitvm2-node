@@ -2138,6 +2138,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "commit-chain-proof"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "bincode",
+ "bitcoin-light-client",
+ "borsh",
+ "chrono",
+ "clap",
+ "dotenv",
+ "futures-util",
+ "hex",
+ "lazy_static",
+ "logroller",
+ "serde",
+ "serde_json",
+ "sha2 0.10.8",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber 0.3.19",
+ "zkm-build",
+ "zkm-prover",
+ "zkm-sdk",
+ "zkm-verifier",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4032,6 +4063,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "bincode",
  "bitcoin-light-client",
+ "borsh",
  "chrono",
  "clap",
  "dotenv",
