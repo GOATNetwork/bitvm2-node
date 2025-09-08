@@ -10,7 +10,7 @@ use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
 use libp2p::Swarm;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::localdb::LocalDB;
+use store::localdb::{LocalDB, StorageProcessor};
 use store::{GoatTxProcessingStatus, GoatTxType, GraphStatus, GraphWithBroadcastInfo, MessageType};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -42,6 +42,18 @@ pub async fn get_initialized_graphs(
     Ok(goat_client.gateway_get_initialized_ids().await?)
 }
 
+pub async fn get_user_init_withdraw_graphs<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+    let goat_tx_records = storage_processor
+        .get_goat_tx_record_by_processing_status(
+            &GoatTxType::InitWithdraw.to_string(),
+            &GoatTxProcessingStatus::Pending.to_string(),
+        )
+        .await?;
+    Ok(goat_tx_records.iter().map(|v| (v.instance_id, v.graph_id)).collect())
+}
+
 // tick_task1
 pub async fn scan_withdraw(
     swarm: &mut Swarm<AllBehaviours>,
@@ -50,7 +62,10 @@ pub async fn scan_withdraw(
     btc_client: &BTCClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_withdraw");
-    let graphs = get_initialized_graphs(goat_client).await?;
+    // contract not has method get_initialized_graphs, use monitor event instead
+    // let graphs = get_initialized_graphs(goat_client).await?;
+    let mut storage_process = local_db.acquire().await?;
+    let graphs = get_user_init_withdraw_graphs(&mut storage_process).await?;
     let mut storage_processor = local_db.acquire().await?;
     for (instance_id, graph_id) in graphs {
         if let Ok(graph) = get_graph(local_db, Some(instance_id), graph_id).await {
@@ -67,6 +82,15 @@ pub async fn scan_withdraw(
                 tracing::trace!(
                     "{graph_id} kickoff has been sent, so no need to send kickoffReady message"
                 );
+
+                storage_processor
+                    .update_goat_tx_record_processing_status(
+                        &graph_id,
+                        &instance_id,
+                        &GoatTxType::InitWithdraw.to_string(),
+                        &GoatTxProcessingStatus::Processed.to_string(),
+                    )
+                    .await?;
                 continue;
             }
             let (msg_times, last_send_at) = storage_processor

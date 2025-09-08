@@ -135,6 +135,7 @@ async fn handle_user_withdraw_events<'a>(
     for event in user_withdraw_events {
         match event {
             UserGraphWithdrawEvent::InitWithdraw(init_event) => {
+                let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.graph_id))?;
                 storage_processor
                     .update_graph_fields(GraphUpdate {
@@ -143,11 +144,26 @@ async fn handle_user_withdraw_events<'a>(
                         ipfs_base_url: None,
                         challenge_txid: None,
                         bridge_out_start_at: Some(current_time_secs()),
-                        init_withdraw_txid: Some(init_event.transaction_hash),
+                        init_withdraw_txid: Some(init_event.transaction_hash.clone()),
                     })
                     .await?;
+                storage_processor
+                    .upsert_goat_tx_record(&GoatTxRecord {
+                        instance_id,
+                        graph_id,
+                        tx_type: GoatTxType::InitWithdraw.to_string(),
+                        tx_hash: init_event.transaction_hash,
+                        height: init_event.block_number.parse::<i64>()?,
+                        is_local: false,
+                        processing_status: GoatTxProcessingStatus::Pending.to_string(),
+                        extra: None,
+                        created_at: current_time_secs(),
+                    })
+                    .await?
             }
             UserGraphWithdrawEvent::CancelWithdraw(cancel_event) => {
+                let instance_id =
+                    Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.graph_id))?;
                 storage_processor
                     .update_graph_fields(GraphUpdate {
@@ -159,6 +175,19 @@ async fn handle_user_withdraw_events<'a>(
                         init_withdraw_txid: Some("".to_string()),
                     })
                     .await?;
+                storage_processor
+                    .upsert_goat_tx_record(&GoatTxRecord {
+                        instance_id,
+                        graph_id,
+                        tx_type: GoatTxType::CancelWithdraw.to_string(),
+                        tx_hash: cancel_event.transaction_hash,
+                        height: cancel_event.block_number.parse::<i64>()?,
+                        is_local: false,
+                        processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+                        extra: None,
+                        created_at: current_time_secs(),
+                    })
+                    .await?
             }
         }
     }

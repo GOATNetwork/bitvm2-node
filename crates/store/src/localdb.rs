@@ -2931,7 +2931,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_goat_tx_record_by_processing_status(
         &mut self,
         tx_type: &str,
-        prove_status: &str,
+        processing_status: &str,
     ) -> anyhow::Result<Vec<GoatTxRecord>> {
         Ok(sqlx::query_as!(
             GoatTxRecord,
@@ -2948,7 +2948,7 @@ impl<'a> StorageProcessor<'a> {
                 AND processing_status = ?
                 ORDER BY height ASC",
             tx_type,
-            prove_status
+            processing_status
         )
         .fetch_all(self.conn())
         .await?)

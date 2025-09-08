@@ -76,8 +76,8 @@ impl GatewayEventEntity {
                     .add_field(&tag, "challengeFinishTxid")
                     .add_field(&tag, "challengerAddress")
                     .add_field(&tag, "disproverAddress")
-                    .add_field(&tag, "challengerRewardAmountSats")
-                    .add_field(&tag, "disproverRewardAmountSats")
+                    .add_field(&tag, "challengerRewardAmount")
+                    .add_field(&tag, "disproverRewardAmount")
                     .add_field(&tag, "transactionHash")
                     .add_field(&tag, "blockNumber")
                     .set_order_by(&tag, "blockNumber", "asc");
@@ -228,11 +228,11 @@ pub struct WithdrawDisprovedEvent {
     pub challenge_finish_txid: String,
     #[serde(rename = "challengerAddress")]
     pub challenger_addr: String,
-    #[serde(rename = "challengerRewardAmountSats")]
+    #[serde(rename = "challengerRewardAmount")]
     pub challenger_amount_sats: String,
     #[serde(rename = "disproverAddress")]
     pub disprover_addr: String,
-    #[serde(rename = "disproverRewardAmountSats")]
+    #[serde(rename = "disproverRewardAmount")]
     pub disprover_amount_sats: String,
 }
 
