@@ -69,5 +69,3 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"]
 
 bitvm2-lib = { path = "crates/bitvm2" }
 store = { path = "crates/store" }
-header-chain = { path = "crates/header-chain" }
-bitcoin-light-client = { path = "crates/bitcoin-light-client" }

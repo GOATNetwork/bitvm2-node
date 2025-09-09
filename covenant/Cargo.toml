@@ -5,6 +5,7 @@ members = [
     "groth16",
     "header-chain-proof/host",
     "commit-chain-proof/host",
+    "watchtower-proof/host",
 ]
 exclude = []
 resolver = "2"
@@ -136,6 +137,7 @@ op-alloy-rpc-types = { git = "https://github.com/ziren-patches/op-alloy", branch
 header-chain = { path = "../crates/header-chain" }
 bitcoin-light-client = { path = "../crates/bitcoin-light-client" }
 borsh = {version = "1.5.3", features = ["derive"] }
+bitcoin = { version = "0.32.6" }
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"

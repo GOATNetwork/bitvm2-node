@@ -1,31 +1,80 @@
 //! Generate commit chain proof
 //! Example:
-//!     Genesis:       RUST_LOG=debug cargo run -r
-//!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "compressed.bin"
+//!     Genesis:       RUST_LOG=debug cargo run -r -- --init-input --output-proof "compressed.bin"
+//!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "compressed.bin" --output-proof "compressed2.bin"
+//! Update the commit_info.json for regular proof.
 use bitcoin_light_client::*;
 use zkm_sdk::{
     include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
 };
+use std::str::FromStr;
+use bitvm2_noded::client::btc_chain::BTCClient;
+use bitcoin::{Network, Txid, secp256k1::{PublicKey}};
 
 /// A program that aggregates the proofs of the simple program.
 const COMMIT_CHAIN: &[u8] = include_elf!("guest");
 
 use clap::Parser;
 use std::fs;
-pub const COMMITS: &[u8] = include_bytes!("../../../../node/tests_data/commits.bin");
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
-    #[clap(long, env, default_value = "none")]
+    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    esplora_url: String,
+
+    #[arg(long, default_value = "../../../node/tests_data/commit_info.json")]
+    commit_info: String,
+
+    #[arg(long, default_value = "commits.bin")]
+    commits: String,
+
+    #[clap(long, env, default_value_t = false)]
+    init_input: bool,
+
+    #[clap(long, env, default_value = "input.bin")]
     input_proof: String,
 
-    #[clap(long, env, default_value = "compressed.bin")]
-    output: String,
+    #[clap(long, env, default_value = "output.bin")]
+    output_proof: String,
 }
 
-fn main() {
+async fn fetch_commit_chain(args: &Args) {
+    let network = Network::Regtest;
+    let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
+
+    let mut commits: Vec<CircuitCommit> = vec![];
+
+    let rdr = std::fs::File::open(&args.commit_info).unwrap();
+    let commit_info: Vec<CommitInfo> = serde_json::from_reader(rdr).unwrap();
+    for ci in &commit_info {
+        let tx = btc_client.get_tx(&Txid::from_str(&ci.txid).unwrap()).await.unwrap().unwrap();
+
+        let op_return_data = bitcoin_light_client::extract_op_return_data(&tx);
+        let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
+        sequencer_set_hash.copy_from_slice(&op_return_data[0]);
+
+        let publisher_public_keys = ci
+            .publisher_public_keys
+            .iter()
+            .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
+            .collect();
+        let commit = CircuitCommit {
+            commit_txn: tx,
+            sequencer_set_hash,
+            publisher_public_keys,
+            threshold: ci.threshold,
+        };
+        commits.push(commit.clone());
+    }
+    std::fs::write(&args.commits, serde_json::to_vec(&commits).unwrap()).unwrap();
+}
+
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
+    println!("args: {:?}", args);
+    fetch_commit_chain(&args).await;
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
 
@@ -37,10 +86,10 @@ fn main() {
 
     let vk_hash = commit_chain_proof_vk.hash_u32();
 
-    let commits: Vec<CircuitCommit> = serde_json::from_slice(COMMITS).unwrap();
-
+    let cb = std::fs::read(&args.commits).unwrap();
+    let commits: Vec<CircuitCommit> = serde_json::from_slice(&cb).unwrap();
     // Set the previous proof type based on input_proof argument
-    let prev_receipt = if args.input_proof.to_lowercase() == "none" {
+    let prev_receipt = if args.init_input {
         None
     } else {
         let proof_bytes = fs::read(args.input_proof).expect("Failed to read input proof file");
@@ -71,6 +120,6 @@ fn main() {
         client.prove(&commit_chain_proof_pk, stdin).compressed().run().expect("proving failed")
     });
 
-    fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
+    fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
     println!("Generate proof successfully, proof: {:?}", proof);
 }

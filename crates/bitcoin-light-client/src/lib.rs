@@ -88,25 +88,20 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
 }
 
 pub fn generate_watchtower_proof(
-    total_work: [u8; 32],
-    latest_sequencer_commit_txid: &[u8; 32],
+    latest_sequencer_commit_txid: [u8; 32],
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
     latest_sequencer_commit_txid_inclusion_proof: BlockInclusionProof,
 ) {
     // verify header_chain is valid
     let btc_header_chain_output = header_chain_circuit(header_chain.clone());
-
-    // verify header_chain.total_work == total_work
-    assert_eq!(btc_header_chain_output.chain_state.total_work, total_work);
-
     // verify latest_sequencer_commit is valid:
     //   * Check both latest_sequencer_commit_txid and genesis_sequencer_commit_txid are in all_sequencer_commit_txids (which is a private input)
     //   * Check latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
     let commit_header_chain_output = commit_chain_circuit(commit_chain.clone());
     assert_eq!(
         commit_header_chain_output.chain_state.commit_txn.compute_txid(),
-        Txid::from_slice(latest_sequencer_commit_txid).unwrap()
+        Txid::from_slice(&latest_sequencer_commit_txid).unwrap()
     );
 
     // verify latest_sequencer_commit is in header_chain
@@ -117,7 +112,7 @@ pub fn generate_watchtower_proof(
     );
 
     // commit public inputs
-    zkm_zkvm::io::commit(&total_work);
+    zkm_zkvm::io::commit(&btc_header_chain_output.chain_state.total_work);
     zkm_zkvm::io::commit(&latest_sequencer_commit_txid);
 }
 

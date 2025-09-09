@@ -23,14 +23,6 @@ path = "src/bin/fake_challenge.rs"
 name = "sequencer-set-publish"
 path = "src/bin/sequencer-set-publish.rs"
 
-[[bin]]
-name = "fetch-header-chain"
-path = "src/bin/fetch-header-chain.rs"
-
-[[bin]]
-name = "fetch-commit-chain"
-path = "src/bin/fetch-commit-chain.rs"
-
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",
@@ -56,7 +48,6 @@ futures = { workspace = true }
 
 bitvm2-lib = { workspace = true }
 store = { workspace = true }
-bitcoin-light-client = { workspace = true }
 
 clap = { workspace = true }
 zeroize = { workspace = true }
@@ -80,7 +71,6 @@ esplora-client = { workspace = true }
 bitvm = { workspace = true }
 bitcoin = { workspace = true }
 
-header-chain = { workspace = true }
 goat = { workspace = true }
 uuid = { workspace = true }
 hex = { workspace = true }

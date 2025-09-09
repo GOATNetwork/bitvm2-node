@@ -1,18 +1,20 @@
 //! Generate header chain proof
 //! Example:
-//!     Genesis:       RUST_LOG=debug cargo run -r
-//!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "compressed.bin"
-use borsh::BorshDeserialize;
+//!     Genesis:        RUST_LOG=debug cargo run -r -- --start 0 --batch-size 10 --init-input --output-proof "0-10.bin"
+//!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 10 --batch-size 10 --input-proof "0-10.bin" --output-proof "10-20.bin"
+use borsh::{BorshSerialize, BorshDeserialize};
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use zkm_sdk::{
     include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
 };
+use bitcoin::{Network};
+use bitvm2_noded::client::btc_chain::BTCClient;
+
 
 /// A program that aggregates the proofs of the simple program.
 const HEADER_CHAIN: &[u8] = include_elf!("guest");
-pub const HEADERS: &[u8] = include_bytes!("../../../../node/tests_data/first_100_blocks.bin");
 
 use clap::Parser;
 use std::fs;
@@ -23,17 +25,45 @@ pub struct Args {
     #[clap(long, env, default_value_t = 4)]
     batch_size: usize,
 
-    #[clap(long, env, default_value = "none")]
+    #[clap(long, env, default_value_t = 0)]
+    start: usize,
+
+    #[clap(long, env, default_value_t = false)]
+    init_input: bool,
+
+    #[clap(long, env, default_value = "block_headers.bin")]
+    block_headers: String,
+
+    #[clap(long, env, default_value = "input_proof.bin")]
     input_proof: String,
 
-    #[clap(long, env, default_value = "compressed.bin")]
-    output: String,
+    #[clap(long, env, default_value = "output_proof.bin")]
+    output_proof: String,
 }
 
-fn main() {
+async fn fetch_header_chain(args: &Args) {
+    let network = Network::Testnet;
+    let btc_client = BTCClient::new(network.into(), None);
+
+    let mut block_headers = vec![];
+    let mut writer = std::fs::File::create(&args.block_headers).unwrap();
+    for i in args.start..(args.start + args.batch_size) {
+        let block = btc_client.fetch_btc_block(i as u32).await.unwrap();
+        println!("block_id: {}", block.block_hash().to_string());
+        let header: header_chain::CircuitBlockHeader = block.header.into();
+        block_headers.push(header.clone());
+        header.serialize(&mut writer).unwrap();
+    }
+}
+
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
+    println!("args: {:?}", args);
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+
+    fetch_header_chain(&args).await;
 
     // Initialize the proving client.
     let client = ProverClient::new();
@@ -42,16 +72,17 @@ fn main() {
     let (header_chain_proof_pk, header_chain_proof_vk) = client.setup(HEADER_CHAIN);
 
     let vk_hash = header_chain_proof_vk.hash_u32();
-    let block_headers = HEADERS
+    let headers = std::fs::read(&args.block_headers).unwrap();
+    let block_headers = headers 
         .chunks(80)
         .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
         .collect::<Vec<CircuitBlockHeader>>();
     let mut start = 0;
     // Set the previous proof type based on input_proof argument
-    let prev_receipt = if args.input_proof.to_lowercase() == "none" {
+    let prev_receipt = if args.init_input {
         None
     } else {
-        let proof_bytes = fs::read(args.input_proof).expect("Failed to read input proof file");
+        let proof_bytes = fs::read(&args.input_proof).expect("Failed to read input proof file");
         let proof: ZKMProofWithPublicValues =
             bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
         Some(proof)
@@ -73,7 +104,7 @@ fn main() {
     let input: HeaderChainCircuitInput = HeaderChainCircuitInput {
         vk_hash,
         prev_proof,
-        block_headers: block_headers[start..start + args.batch_size].to_vec(),
+        block_headers,
     };
 
     // Generate the proofs.
@@ -81,15 +112,15 @@ fn main() {
         let mut stdin = ZKMStdin::new();
         stdin.write(&input);
         if let Some(proof) = prev_receipt {
-            println!("Write proof for regular header chain");
+            println!("Generate proof from block {}", start);
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { todo!() };
             stdin.write_proof(*compressed_proof, header_chain_proof_vk.vk);
         } else {
-            println!("Skip writing proof for genesis block");
+            println!("Generate proof from genesis block");
         }
         client.prove(&header_chain_proof_pk, stdin).compressed().run().expect("proving failed")
     });
 
-    fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
+    fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
     println!("Generate proof successfully, proof: {:?}", proof);
 }
