@@ -1,4 +1,3 @@
-/*
 //! Create and sign a sequencer set publish transaction.
 //!
 //! Launch the local bitcoin regtest node with:
@@ -24,11 +23,11 @@ use bitcoin::{
     Address, Amount, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction, TxIn,
     TxOut, Txid, Witness, key::Keypair,
 };
-use bitvm2_noded::client::btc_chain::BTCClient;
 use bitvm2_noded::utils::broadcast_tx;
 use bitvm2_noded::utils::wait_tx_confirmation;
 use bitvm2_noded::utils::{node_p2wsh_address, node_sign};
 use clap::Parser;
+use client::btc_chain::BTCClient;
 use dotenv::dotenv;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -422,5 +421,3 @@ async fn fund_dummy_publishers(
     );
     Ok(())
 }
-
-*/

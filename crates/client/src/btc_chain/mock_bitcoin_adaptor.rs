@@ -1,4 +1,4 @@
-use crate::client::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
+use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
 use bitcoin::block::Header;
 use bitcoin::{Address as BtcAddress, Block, BlockHash, Network, Transaction, Txid};
 use esplora_client::{MerkleProof, OutputStatus, TxStatus, Utxo};

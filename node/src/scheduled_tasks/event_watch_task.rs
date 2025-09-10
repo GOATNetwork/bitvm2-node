@@ -1,16 +1,16 @@
-use crate::client::btc_chain::BTCClient;
-use crate::client::goat_chain::GOATClient;
-use crate::client::graphs::GraphQueryClient;
-use crate::client::graphs::graph_query::{
-    BlockRange, BridgeInEvent, BridgeInRequestEvent, CancelWithdrawEvent, CommitteeResponseEvent,
-    GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent, UserGraphWithdrawEvent,
-    WithdrawDisprovedEvent, WithdrawPathsEvent, get_gateway_events_query,
-};
 use crate::env;
 use crate::env::LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS;
 use crate::rpc_service::current_time_secs;
 use crate::utils::{generate_instance_from_event, reflect_goat_address, strip_hex_prefix_owned};
 use bitvm2_lib::actors::Actor;
+use client::btc_chain::BTCClient;
+use client::goat_chain::GOATClient;
+use client::graphs::GraphQueryClient;
+use client::graphs::graph_query::{
+    BlockRange, BridgeInEvent, BridgeInRequestEvent, CancelWithdrawEvent, CommitteeResponseEvent,
+    GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent, UserGraphWithdrawEvent,
+    WithdrawDisprovedEvent, WithdrawPathsEvent, get_gateway_events_query,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;

@@ -1,5 +1,5 @@
-use crate::client::btc_chain::bitcoin_adaptor::{BitcoinNetwork, get_btc_chain_adapter};
-use crate::client::btc_chain::bitcoin_chain::BitcoinChain;
+use crate::btc_chain::bitcoin_adaptor::{BitcoinNetwork, get_btc_chain_adapter};
+use crate::btc_chain::bitcoin_chain::BitcoinChain;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
 use esplora_client::{MerkleProof, Utxo};
 use std::str::FromStr;

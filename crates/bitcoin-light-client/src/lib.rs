@@ -325,7 +325,7 @@ pub fn words_to_bytes_be(words: &[u32; 8]) -> [u8; 32] {
 pub fn words_from_bytes_be(bytes: &[u8; 32]) -> [u32; 8] {
     let mut words = [0u32; 8];
     for i in 0..8 {
-        let chunk: [u8; 4] = bytes[i * 4 .. (i + 1) * 4].try_into().unwrap();
+        let chunk: [u8; 4] = bytes[i * 4..(i + 1) * 4].try_into().unwrap();
         words[i] = u32::from_be_bytes(chunk);
     }
     words
@@ -334,18 +334,12 @@ pub fn words_from_bytes_be(bytes: &[u8; 32]) -> [u32; 8] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitcoin::{Transaction, Amount};
+    use bitcoin::{Amount, Transaction};
 
     #[test]
     fn test_words_bytes_conversion() {
         let words: [u32; 8] = [
-            0x11223344,
-            0x55667788,
-            0x99aabbcc,
-            0xddeeff00,
-            0x01020304,
-            0xa1b2c3d4,
-            0xdeadbeef,
+            0x11223344, 0x55667788, 0x99aabbcc, 0xddeeff00, 0x01020304, 0xa1b2c3d4, 0xdeadbeef,
             0xabcdef01,
         ];
         let bytes = words_to_bytes_be(&words);

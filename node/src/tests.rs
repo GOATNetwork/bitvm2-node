@@ -4,7 +4,6 @@
 
 #[cfg(test)]
 pub mod tests {
-    use crate::client::btc_chain::BTCClient;
     use crate::env::{
         DUST_AMOUNT, PEGIN_BASE_VBYTES, PRE_KICKOFF_BASE_VBYTES, get_committee_member_num,
     };
@@ -17,6 +16,7 @@ pub mod tests {
     use bitcoin::{CompressedPublicKey, EcdsaSighashType, ScriptBuf};
     use bitvm2_lib::committee::{COMMITTEE_PRE_SIGN_NUM, committee_pre_sign, nonces_aggregation};
     use bitvm2_lib::operator::corrupt_proof;
+    use client::btc_chain::BTCClient;
     use esplora_client::BlockingClient;
     use goat::connectors::base::generate_default_tx_in;
     use goat::transactions::signing::populate_p2wsh_witness;
@@ -52,7 +52,7 @@ pub mod tests {
         tmp_db.path().as_os_str().to_str().unwrap().to_string()
     }
     async fn create_bitvm2_client(network: Network) -> (LocalDB, BTCClient) {
-        let local_db = crate::client::create_local_db(&temp_file()).await;
+        let local_db = client::create_local_db(&temp_file()).await;
         let btc_client = BTCClient::new(network.into(), Some(BTCD_RPC_URL));
         (local_db, btc_client)
     }

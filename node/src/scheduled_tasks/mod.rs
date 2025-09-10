@@ -2,8 +2,6 @@ mod event_watch_task;
 pub mod graph_maintenance_tasks;
 pub mod instance_maintenance_tasks;
 
-use crate::client::btc_chain::BTCClient;
-use crate::client::goat_chain::GOATClient;
 use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     scan_assert, scan_kickoff, scan_take1, scan_take2, scan_withdraw,
@@ -12,6 +10,8 @@ use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
     instance_window_expiration_monitor, scan_post_graph_data, scan_post_pegin_data,
 };
+use client::btc_chain::BTCClient;
+use client::goat_chain::GOATClient;
 pub use event_watch_task::{is_processing_history_events, run_watch_event_task};
 use libp2p::Swarm;
 use store::localdb::LocalDB;

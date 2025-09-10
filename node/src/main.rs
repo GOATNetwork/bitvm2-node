@@ -1,12 +1,12 @@
 #![feature(trivial_bounds)]
 use base64::Engine;
 use bitvm2_lib::actors::Actor;
-use bitvm2_noded::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use bitvm2_noded::env::{
     self, ENV_PEER_KEY, check_node_info, get_goat_network, get_ipfs_url, get_network,
     get_node_pubkey, goat_config_from_env,
 };
 use clap::{Parser, Subcommand, command};
+use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use libp2p::PeerId;
 use libp2p_metrics::Registry;
 use std::error::Error;
@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &mut metric_registry,
     )?;
     let peer_id_string = bitvm_network_manager.get_peer_id_string();
-    let local_db = bitvm2_noded::client::create_local_db(&opt.db_path).await;
+    let local_db = client::create_local_db(&opt.db_path).await;
     let handler = BitvmNodeProcessor {
         local_db: local_db.clone(),
         btc_client: BTCClient::new(get_network().into(), None),

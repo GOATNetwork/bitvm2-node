@@ -1,4 +1,4 @@
-use crate::client::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
+use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
 use anyhow::bail;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;

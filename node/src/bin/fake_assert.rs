@@ -8,12 +8,12 @@ use bitvm::execute_raw_script_with_inputs;
 use bitvm2_lib::keys::OperatorMasterKey;
 use bitvm2_lib::operator::{corrupt_proof, sign_proof};
 use bitvm2_lib::types::{Groth16Proof, VerifyingKey};
-use bitvm2_noded::client::btc_chain::BTCClient;
 use bitvm2_noded::{
     env::{ENV_ACTOR, ENV_BITVM_SECRET, IpfsTxName},
     utils::{broadcast_tx, tx_on_chain},
 };
 use clap::Parser;
+use client::btc_chain::BTCClient;
 use goat::connectors::connector_b::ConnectorB;
 use goat::proof::{deserialize_proof, deserialize_pubin, deserialize_vk};
 use goat::scripts::generate_pay_to_pubkey_script;

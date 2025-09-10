@@ -1,5 +1,5 @@
-use crate::client::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
-use crate::client::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
+use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
+use crate::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
 use alloy::primitives::{Address, U256};
 use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;

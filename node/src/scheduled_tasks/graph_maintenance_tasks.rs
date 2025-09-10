@@ -1,6 +1,4 @@
 use crate::action::{GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, send_to_peer};
-use crate::client::btc_chain::BTCClient;
-use crate::client::goat_chain::{GOATClient, WithdrawStatus};
 use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_RESEND_INTERVAL_SECOND};
 use crate::middleware::AllBehaviours;
 use crate::utils::{
@@ -8,6 +6,8 @@ use crate::utils::{
 };
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
+use client::btc_chain::BTCClient;
+use client::goat_chain::{GOATClient, WithdrawStatus};
 use libp2p::Swarm;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{LocalDB, StorageProcessor};
@@ -34,6 +34,7 @@ async fn fetch_graph_with_broadcast_info(
         .await?)
 }
 
+#[allow(dead_code)]
 pub async fn get_initialized_graphs(
     goat_client: &GOATClient,
 ) -> Result<Vec<(Uuid, Uuid)>, Box<dyn std::error::Error>> {
@@ -58,7 +59,7 @@ pub async fn get_user_init_withdraw_graphs<'a>(
 pub async fn scan_withdraw(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
-    goat_client: &GOATClient,
+    _goat_client: &GOATClient,
     btc_client: &BTCClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("start tick action: scan_withdraw");

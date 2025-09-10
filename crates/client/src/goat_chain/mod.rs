@@ -1,4 +1,5 @@
-use crate::env::GATEWAY_RATE_MULTIPLIER;
+// Gateway rate multiplier constant
+const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 use alloy::consensus::crypto::secp256k1::recover_signer;
 use alloy::primitives::{Address, B256, Signature};
 use alloy::rpc::types::TransactionReceipt;
@@ -9,7 +10,7 @@ use std::str::FromStr;
 use store::Graph;
 use uuid::Uuid;
 pub mod utils;
-use crate::client::btc_chain::BTCClient;
+use crate::btc_chain::BTCClient;
 use chain_adaptor::PeginStatus;
 pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
@@ -26,7 +27,7 @@ mod chain_adaptor;
 mod evmchain;
 mod goat_adaptor;
 mod mock_goat_adaptor;
-use crate::client::goat_chain::evmchain::EvmChain;
+use crate::goat_chain::evmchain::EvmChain;
 pub use chain_adaptor::Utxo;
 
 impl GOATClient {

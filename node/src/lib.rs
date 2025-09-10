@@ -1,5 +1,4 @@
 pub mod action;
-pub mod client;
 pub mod env;
 pub mod metrics_service;
 pub mod middleware;

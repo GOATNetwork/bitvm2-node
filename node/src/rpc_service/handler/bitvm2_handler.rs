@@ -1,5 +1,3 @@
-use crate::client::Utxo;
-use crate::client::btc_chain::BTCClient;
 use crate::env::IpfsTxName;
 use crate::rpc_service::AppState;
 use crate::rpc_service::bitvm2::*;
@@ -9,6 +7,8 @@ use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
 use bitcoin::consensus::encode::serialize_hex;
 use bitvm2_lib::types::Bitvm2Graph;
+use client::Utxo;
+use client::btc_chain::BTCClient;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::collections::HashMap;

@@ -1,4 +1,3 @@
-use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use crate::env::{self, get_local_node_info, get_node_goat_address, get_node_pubkey};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
@@ -13,6 +12,7 @@ use bitvm2_lib::keys::*;
 use bitvm2_lib::types::{Bitvm2Graph, Bitvm2Parameters, CustomInputs, SimplifiedBitvm2Graph};
 use bitvm2_lib::verifier::export_challenge_tx;
 use bitvm2_lib::{committee::*, operator::*, verifier::*};
+use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use goat::transactions::{assert::utils::COMMIT_TX_NUM, pre_signed::PreSignedTransaction};
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm, gossipsub};

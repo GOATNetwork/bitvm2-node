@@ -1,5 +1,5 @@
-use crate::client::btc_chain::esplora_bitcoin_adaptor::EsploraBitcoinAdaptor;
-use crate::client::btc_chain::mock_bitcoin_adaptor::MockBitcoinAdaptor;
+use crate::btc_chain::esplora_bitcoin_adaptor::EsploraBitcoinAdaptor;
+use crate::btc_chain::mock_bitcoin_adaptor::MockBitcoinAdaptor;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid, block::Header};
 use esplora_client::{MerkleProof, Utxo};
 use strum::{Display, EnumString};

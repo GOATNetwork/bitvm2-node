@@ -1,7 +1,7 @@
-use crate::client::Utxo;
 use crate::utils::reflect_goat_address;
 use alloy::hex::ToHexExt;
 use bitcoin::Txid;
+use client::Utxo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;

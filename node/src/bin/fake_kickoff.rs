@@ -4,12 +4,12 @@ use bitcoin::{
 };
 use bitvm::signatures::signing_winternitz::{WinternitzSigningInputs, generate_winternitz_witness};
 use bitvm2_lib::keys::OperatorMasterKey;
-use bitvm2_noded::client::btc_chain::BTCClient;
 use bitvm2_noded::{
     env::{ENV_ACTOR, ENV_BITVM_SECRET, IpfsTxName},
     utils::{broadcast_tx, tx_on_chain},
 };
 use clap::Parser;
+use client::btc_chain::BTCClient;
 use goat::{
     commitments::CommitmentMessageId,
     connectors::{base::TaprootConnector, connector_6::Connector6},

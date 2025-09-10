@@ -1,13 +1,6 @@
 use crate::action::{
     ChallengeSent, CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer,
 };
-use crate::client::Utxo as ClientUtxo;
-use crate::client::goat_chain::WithdrawStatus;
-use crate::client::goat_chain::utils::{
-    get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
-};
-use crate::client::graphs::graph_query::BridgeInRequestEvent;
-use crate::client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use crate::env::*;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::proof::Groth16ProofValue;
@@ -30,6 +23,13 @@ use bitvm2_lib::types::{
     Bitvm2Graph, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey, WotsPublicKeys,
 };
 use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_proof};
+use client::Utxo as ClientUtxo;
+use client::goat_chain::WithdrawStatus;
+use client::goat_chain::utils::{
+    get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
+};
+use client::graphs::graph_query::BridgeInRequestEvent;
+use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
 use goat::commitments::CommitmentMessageId;
 use goat::connectors::base::TaprootConnector;

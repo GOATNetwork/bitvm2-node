@@ -1,5 +1,3 @@
-use crate::client::btc_chain::BTCClient;
-use crate::client::goat_chain::GOATClient;
 use crate::env;
 use crate::env::{GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED};
 use crate::middleware::AllBehaviours;
@@ -8,6 +6,8 @@ use crate::utils::create_goat_tx_record;
 use alloy::primitives::TxHash;
 use anyhow::anyhow;
 use bitvm2_lib::keys::CommitteeMasterKey;
+use client::btc_chain::BTCClient;
+use client::goat_chain::GOATClient;
 use libp2p::Swarm;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};

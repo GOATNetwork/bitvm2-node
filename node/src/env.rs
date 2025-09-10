@@ -1,9 +1,5 @@
 #![allow(dead_code)]
 use crate::action::NodeInfo;
-use crate::client::goat_chain::utils::{
-    get_committee_and_stake_addresses, validate_committee, validate_operator,
-};
-use crate::client::goat_chain::{GoatInitConfig, GoatNetwork};
 use alloy::primitives::Address as EvmAddress;
 use alloy::primitives::Address;
 use alloy::providers::{Provider, ProviderBuilder};
@@ -12,6 +8,10 @@ use base64::Engine;
 use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
+use client::goat_chain::utils::{
+    get_committee_and_stake_addresses, validate_committee, validate_operator,
+};
+use client::goat_chain::{GoatInitConfig, GoatNetwork};
 use libp2p::PeerId;
 use reqwest::Url;
 use sha2::{Digest, Sha256};

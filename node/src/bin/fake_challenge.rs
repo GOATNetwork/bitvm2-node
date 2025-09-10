@@ -1,11 +1,11 @@
 use bitcoin::{Network, Transaction, consensus::encode::deserialize_hex};
 use bitvm2_lib::keys::ChallengerMasterKey;
-use bitvm2_noded::client::btc_chain::BTCClient;
 use bitvm2_noded::{
     env::{ENV_ACTOR, ENV_BITVM_SECRET, IpfsTxName},
     utils::{complete_and_broadcast_challenge_tx, outpoint_available, tx_on_chain},
 };
 use clap::Parser;
+use client::btc_chain::BTCClient;
 use goat::contexts::base::generate_keys_from_secret;
 use store::ipfs::IPFS;
 

@@ -1,4 +1,4 @@
-use crate::client::goat_chain::chain_adaptor::*;
+use crate::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
 use alloy::primitives::{Address, TxHash};
 use alloy::rpc::types::TransactionReceipt;

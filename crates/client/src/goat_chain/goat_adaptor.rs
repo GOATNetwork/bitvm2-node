@@ -1,11 +1,11 @@
-use crate::client::goat_chain::chain_adaptor::{
+use crate::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, SequencerSet, Utxo,
     WithdrawData, WithdrawStatus,
 };
-use crate::client::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
-use crate::client::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
-use crate::client::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
-use crate::client::goat_chain::goat_adaptor::IStakeManagement::IStakeManagementInstance;
+use crate::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
+use crate::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
+use crate::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
+use crate::goat_chain::goat_adaptor::IStakeManagement::IStakeManagementInstance;
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, TxHash};
 use alloy::providers::Identity;

@@ -372,9 +372,15 @@ mod tests {
         finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
 
         // === Step 7: verify ===
-        let ok =
-            verify_p2wsh_multisig_witness(&tx, 0, &prevout, &redeem_script, &pubkeys, threshold as usize)
-                .unwrap();
+        let ok = verify_p2wsh_multisig_witness(
+            &tx,
+            0,
+            &prevout,
+            &redeem_script,
+            &pubkeys,
+            threshold as usize,
+        )
+        .unwrap();
 
         assert!(ok, "2-of-3 multisig witness should verify");
     }
