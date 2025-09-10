@@ -1,7 +1,7 @@
 //! Generate header chain proof
 //! Example:
 //! ```
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid a202e9c6cfd2274c56c35fea3d950fdbba84946d7c29fd809d6d0d6e456cd8e7 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin" --block-hashes ../../header-chain-proof/host/block_hashes.bin
+//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid a202e9c6cfd2274c56c35fea3d950fdbba84946d7c29fd809d6d0d6e456cd8e7 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin" 
 //! ```
 use client::btc_chain::BTCClient;
 use header_chain::{
@@ -53,9 +53,6 @@ pub struct Args {
 
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
-
-    #[clap(long, env, short)]
-    block_hashes: String,
 
     #[clap(long, env, default_value = "compressed.bin")]
     output: String,
@@ -130,11 +127,9 @@ async fn main() {
     let bitcoin_inclusion_proof = bitcoin_merkle_tree.generate_proof(0);
 
     let mut mmr_native = MMRHost::new();
-    let block_hashes_bytes = std::fs::read(&args.block_hashes).unwrap();
-    let block_hashes: Vec<[u8; 32]> = bincode::deserialize(&block_hashes_bytes).unwrap();
 
-    for block_hash in block_hashes.iter() {
-        mmr_native.append(*block_hash);
+    for j in 0..header_chain_input.block_headers.len() {
+        mmr_native.append(header_chain_input.block_headers[j].compute_block_hash());
     }
 
     let (_, mmr_inclusion_proof) = mmr_native.generate_proof(0);

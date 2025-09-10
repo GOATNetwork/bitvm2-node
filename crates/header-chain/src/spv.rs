@@ -28,6 +28,7 @@ impl SPV {
         println!("txid: {txid:?}");
         let block_merkle_root = self.block_inclusion_proof.get_root(txid);
         println!("block_merkle_root: {block_merkle_root:?}");
+        println!("block_header.merkle_root: {:?}", self.block_header.merkle_root);
         assert_eq!(block_merkle_root, self.block_header.merkle_root);
         let block_hash = self.block_header.compute_block_hash();
         mmr_guest.verify_proof(block_hash, &self.mmr_inclusion_proof)

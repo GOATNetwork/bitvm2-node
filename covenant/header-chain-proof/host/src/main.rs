@@ -1,5 +1,6 @@
 //! Generate header chain proof
 //! Example:
+//!     export BITCOIN_NETWORK=regtest
 //!     Genesis:        RUST_LOG=debug cargo run -r -- --start 0 --batch-size 10 --init-input --output-proof "0-10.bin"
 //!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 10 --batch-size 10 --input-proof "0-10.bin" --output-proof "10-20.bin"
 use bitcoin::{hashes::Hash, Network};
@@ -36,9 +37,6 @@ pub struct Args {
     #[clap(long, env, default_value = "block_headers.bin")]
     block_headers: String,
 
-    #[clap(long, env, default_value = "block_hashes.bin")]
-    block_hashes: String,
-
     #[clap(long, env, default_value = "input_proof.bin")]
     input_proof: String,
 
@@ -50,20 +48,15 @@ async fn fetch_header_chain(args: &Args) {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
 
-    let mut block_hashes: Vec<[u8; 32]> = vec![];
     let mut block_headers = vec![];
     let mut writer = std::fs::File::create(&args.block_headers).unwrap();
     for i in args.start..(args.start + args.batch_size) {
         let block = btc_client.fetch_btc_block(i as u32).await.unwrap();
-        println!("block_id: {}", block.block_hash().to_string());
+        println!("block_id {i}: {}", block.block_hash().to_string());
         let header: header_chain::CircuitBlockHeader = block.header.into();
         block_headers.push(header.clone());
-        block_hashes.push(block.block_hash().to_byte_array());
         header.serialize(&mut writer).unwrap();
     }
-
-    let block_hashes_bytes = bincode::serialize(&block_hashes).unwrap();
-    std::fs::write(&args.block_hashes, &block_hashes_bytes).unwrap();
 }
 
 #[tokio::main]

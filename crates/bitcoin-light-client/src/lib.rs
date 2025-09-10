@@ -101,7 +101,7 @@ pub fn generate_watchtower_proof(
     let commit_header_chain_output = commit_chain_circuit(commit_chain);
     assert_eq!(
         commit_header_chain_output.chain_state.commit_txn.compute_txid(),
-        Txid::from_slice(&latest_sequencer_commit_txid).unwrap()
+        Txid::from_byte_array(latest_sequencer_commit_txid)
     );
 
     println!("header chain");

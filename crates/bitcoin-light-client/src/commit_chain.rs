@@ -98,15 +98,16 @@ impl CommitChainState {
         let mut prev_threshold: u16 = u16::MAX;
         for commit in &commits {
             let latest_commit_txn_with_wtns = &commit.commit_txn;
+            println!("commit tx: {:?}", latest_commit_txn_with_wtns.compute_txid());
             let latest_sequencer_set_hash = &commit.sequencer_set_hash;
             let publisher_public_keys = &commit.publisher_public_keys;
             let threshold = commit.threshold;
 
             let prev_commit_txid = prev_commit_txn.compute_txid();
-            println!("{}, {:?}", prev_commit_txid.to_string(), prev_commit_txn);
+            println!("prev commit txid: {}, {:?}", prev_commit_txid.to_string(), prev_commit_txn);
             // calculate the commitment of prev sequencer set and check the equivalent
             let expected_prev_commit = extract_op_return_data(&prev_commit_txn);
-            println!("{:?}\n{:?}", expected_prev_commit, prev_sequencer_set_hash);
+            println!("expected prev commit: {:?}\n{:?}", expected_prev_commit, prev_sequencer_set_hash);
             assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit);
 
             // calculate the commitment of latest sequencer set and check the equivalent
