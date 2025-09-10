@@ -221,7 +221,6 @@ mod tests {
     };
     use bitcoin::Network;
     use bitvm2_lib::types::Bitvm2Graph;
-    use client::create_local_db;
     use http::Method;
     use prometheus_client::registry::Registry;
     use reqwest::Client;
@@ -231,6 +230,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use store::create_local_db;
     use store::{GoatTxProcessingStatus, GoatTxRecord, GoatTxType};
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;

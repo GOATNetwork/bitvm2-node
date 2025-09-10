@@ -3166,3 +3166,9 @@ impl<'a> StorageProcessor<'a> {
 fn truncate_string(s: &str, max_len: usize) -> &str {
     if s.len() > max_len { &s[..max_len] } else { s }
 }
+
+pub async fn create_local_db(db_path: &str) -> LocalDB {
+    let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+    local_db.migrate().await;
+    local_db
+}

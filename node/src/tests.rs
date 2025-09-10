@@ -52,7 +52,7 @@ pub mod tests {
         tmp_db.path().as_os_str().to_str().unwrap().to_string()
     }
     async fn create_bitvm2_client(network: Network) -> (LocalDB, BTCClient) {
-        let local_db = client::create_local_db(&temp_file()).await;
+        let local_db = store::create_local_db(&temp_file()).await;
         let btc_client = BTCClient::new(network.into(), Some(BTCD_RPC_URL));
         (local_db, btc_client)
     }

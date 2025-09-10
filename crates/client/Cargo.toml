@@ -4,7 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-store = { workspace = true }
 bitcoin = { workspace = true }
 esplora-client = { workspace = true }
 alloy = { workspace = true }
@@ -13,10 +12,10 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 async-trait = { workspace = true }
-strum = { version = "0.26", features = ["derive"] }
+strum = { workspace = true, features = ["derive"] }
 hex = { workspace = true }
 uuid = { workspace = true }
-rand = "0.8.5"
+rand = { workspace = true }
 tracing = { workspace = true }
-tempfile = "3.19.1"
-reqwest = { version = "0.12.15", features = ["json"] }
+tempfile = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }

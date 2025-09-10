@@ -148,14 +148,14 @@ impl EvmChain {
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
-        operator_data: &GraphData,
+        graph_data: &GraphData,
         committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         self.adaptor
             .gateway_post_graph_data(
                 instance_id.as_bytes(),
                 graph_id.as_bytes(),
-                operator_data,
+                graph_data,
                 committee_signs,
             )
             .await

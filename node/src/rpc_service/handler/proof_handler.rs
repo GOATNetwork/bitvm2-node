@@ -456,8 +456,8 @@ mod tests {
     };
     use crate::utils::temp_file;
     use bitvm2_lib::actors::Actor;
-    use client::create_local_db;
     use store::Node;
+    use store::create_local_db;
 
     #[tokio::test]
     async fn test_get_online_operator_url_with_env() {

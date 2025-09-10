@@ -4,15 +4,19 @@ use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::create_goat_tx_record;
 use alloy::primitives::TxHash;
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
+use bitcoin::PublicKey;
+use bitcoin::hashes::Hash;
 use bitvm2_lib::keys::CommitteeMasterKey;
 use client::btc_chain::BTCClient;
-use client::goat_chain::GOATClient;
+use client::goat_chain::{GOATClient, GraphData};
 use libp2p::Swarm;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
-use store::{CommitteeSignatures, GoatTxProcessingStatus, GoatTxType, GraphStatus, InstanceStatus};
+use store::{
+    CommitteeSignatures, GoatTxProcessingStatus, GoatTxType, Graph, GraphStatus, InstanceStatus,
+};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -411,11 +415,13 @@ pub async fn scan_post_graph_data(
             if graph.status != GraphStatus::CommitteePresigned.to_string() {
                 continue;
             }
+
+            let graph_data = cast_graph_to_graph_data(&graph)?;
             match goat_client
                 .gateway_post_graph_data(
                     &instance.instance_id,
                     &graph.graph_id,
-                    &graph,
+                    &graph_data,
                     &committee_signs,
                 )
                 .await
@@ -459,4 +465,36 @@ pub async fn scan_post_graph_data(
         }
     }
     Ok(())
+}
+
+pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
+    if graph.pegin_txid.is_none()
+        || graph.kickoff_txid.is_none()
+        || graph.take1_txid.is_none()
+        || graph.take2_txid.is_none()
+        || graph.commit_timeout_txid.is_none()
+        || graph.assert_timeout_txids.is_empty()
+        || graph.nack_txids.is_empty()
+    {
+        tracing::warn!("grap {}, has none field", graph.graph_id);
+        bail!("grap {}, has none field", graph.graph_id);
+    }
+
+    // TODO Update
+    let pubkey_vec = PublicKey::from_str(&graph.operator_pubkey)?.to_bytes();
+    Ok(GraphData {
+        operator_pubkey_prefix: pubkey_vec[0],
+        operator_pubkey: pubkey_vec[1..33].try_into()?,
+        pegin_txid: graph.pegin_txid.clone().unwrap().0.to_byte_array(),
+        kickoff_txid: graph.kickoff_txid.clone().unwrap().0.to_byte_array(),
+        take1_txid: graph.take1_txid.clone().unwrap().0.to_byte_array(),
+        take2_txid: graph.take2_txid.clone().unwrap().0.to_byte_array(),
+        commit_timout_txid: graph.commit_timeout_txid.clone().unwrap().0.to_byte_array(),
+        assert_timeout_txids: graph
+            .assert_timeout_txids
+            .iter()
+            .map(|x| x.0.to_byte_array())
+            .collect(),
+        nack_txids: graph.nack_txids.iter().map(|x| x.0.to_byte_array()).collect(),
+    })
 }

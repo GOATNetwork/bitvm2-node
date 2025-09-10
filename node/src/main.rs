@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &mut metric_registry,
     )?;
     let peer_id_string = bitvm_network_manager.get_peer_id_string();
-    let local_db = client::create_local_db(&opt.db_path).await;
+    let local_db = store::create_local_db(&opt.db_path).await;
     let handler = BitvmNodeProcessor {
         local_db: local_db.clone(),
         btc_client: BTCClient::new(get_network().into(), None),

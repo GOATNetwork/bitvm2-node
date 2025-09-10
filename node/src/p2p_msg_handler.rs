@@ -174,7 +174,7 @@ mod tests {
         let local_db = if let Some(local_db) = local_db {
             local_db
         } else {
-            client::create_local_db(&temp_file()).await
+            store::create_local_db(&temp_file()).await
         };
         bitvm_network_manager
             .run(actor, MockBitvmNodeProcessor { local_db }, cancel_token)
@@ -275,7 +275,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_p2p_heart_beat() -> anyhow::Result<()> {
         init();
-        let local_db = client::create_local_db(&temp_file()).await;
+        let local_db = store::create_local_db(&temp_file()).await;
         let local_db_clone = local_db.clone();
         let cancellation_token = CancellationToken::new();
         let cancel_token_clone = cancellation_token.clone();
