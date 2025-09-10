@@ -52,7 +52,7 @@ async fn fetch_commit_chain(args: &Args) {
 
         let op_return_data = bitcoin_light_client::extract_op_return_data(&tx);
         let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
-        sequencer_set_hash.copy_from_slice(&op_return_data[0]);
+        sequencer_set_hash.copy_from_slice(&op_return_data);
 
         let publisher_public_keys = ci
             .publisher_public_keys

@@ -3,8 +3,9 @@ use crate::{
     BlockInclusionProof, CircuitBlockHeader, CircuitTransaction, MMRGuest, MMRInclusionProof,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Serialize, Deserialize};
 
-#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(Eq, Serialize, Deserialize, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct SPV {
     pub transaction: CircuitTransaction,
     pub block_inclusion_proof: BlockInclusionProof,

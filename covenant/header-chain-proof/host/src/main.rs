@@ -9,7 +9,7 @@ use header_chain::{
 use zkm_sdk::{
     include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
 };
-use bitcoin::{Network};
+use bitcoin::{Network, hashes::Hash};
 use bitvm2_noded::client::btc_chain::BTCClient;
 
 
@@ -22,6 +22,9 @@ use std::fs;
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
+    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    esplora_url: String,
+
     #[clap(long, env, default_value_t = 4)]
     batch_size: usize,
 
@@ -34,6 +37,9 @@ pub struct Args {
     #[clap(long, env, default_value = "block_headers.bin")]
     block_headers: String,
 
+    #[clap(long, env, default_value = "block_hashes.bin")]
+    block_hashes: String,
+
     #[clap(long, env, default_value = "input_proof.bin")]
     input_proof: String,
 
@@ -42,9 +48,10 @@ pub struct Args {
 }
 
 async fn fetch_header_chain(args: &Args) {
-    let network = Network::Testnet;
-    let btc_client = BTCClient::new(network.into(), None);
+    let network = Network::Regtest;
+    let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
 
+    let mut block_hashes: Vec<[u8; 32]> = vec![];
     let mut block_headers = vec![];
     let mut writer = std::fs::File::create(&args.block_headers).unwrap();
     for i in args.start..(args.start + args.batch_size) {
@@ -52,8 +59,12 @@ async fn fetch_header_chain(args: &Args) {
         println!("block_id: {}", block.block_hash().to_string());
         let header: header_chain::CircuitBlockHeader = block.header.into();
         block_headers.push(header.clone());
+        block_hashes.push(block.block_hash().to_byte_array());
         header.serialize(&mut writer).unwrap();
     }
+
+    let block_hashes_bytes = bincode::serialize(&block_hashes).unwrap();
+    std::fs::write(&args.block_hashes, &block_hashes_bytes).unwrap();
 }
 
 #[tokio::main]

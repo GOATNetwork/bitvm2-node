@@ -9,8 +9,8 @@ use alloy_primitives::hex;
 use alloy_primitives::utils::keccak256;
 use alloy_primitives::{B256, U128, U256};
 use header_chain::{
-    BlockHeaderCircuitOutput, BlockInclusionProof, ChainState, CircuitTransaction,
-    HeaderChainCircuitInput, HeaderChainPrevProofType, verify_merkle_proof,
+    BlockHeaderCircuitOutput, ChainState, CircuitTransaction,
+    HeaderChainCircuitInput, HeaderChainPrevProofType, SPV,
 };
 use revm::DatabaseRef;
 use sha2::Digest;
@@ -18,7 +18,7 @@ use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
 
-use guest_executor::io::EthClientExecutorInput;
+pub use guest_executor::io::EthClientExecutorInput;
 
 //pub fn verify_goat_block(input: EthClientExecutorInput) -> (B256, B256, B256) {
 //    // Execute the block.
@@ -92,13 +92,13 @@ pub fn generate_watchtower_proof(
     latest_sequencer_commit_txid: [u8; 32],
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
-    latest_sequencer_commit_txid_inclusion_proof: BlockInclusionProof,
+    spv: SPV,
 ) -> ([u8; 32], [u8; 32]) {
     println!("commit header, size: {}", commit_chain.commits.len());
     // verify latest_sequencer_commit is valid:
     //   * Check both latest_sequencer_commit_txid and genesis_sequencer_commit_txid are in all_sequencer_commit_txids (which is a private input)
     //   * Check latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
-    let commit_header_chain_output = commit_chain_circuit(commit_chain.clone());
+    let commit_header_chain_output = commit_chain_circuit(commit_chain);
     assert_eq!(
         commit_header_chain_output.chain_state.commit_txn.compute_txid(),
         Txid::from_slice(&latest_sequencer_commit_txid).unwrap()
@@ -106,17 +106,14 @@ pub fn generate_watchtower_proof(
 
     println!("header chain");
     // verify header_chain is valid
-    let btc_header_chain_output = header_chain_circuit(header_chain.clone());
-    // verify latest_sequencer_commit is in header_chain
-    println!("verify merkle proof");
-    assert!(verify_merkle_proof(
-        latest_sequencer_commit_txid.clone(),
-        &latest_sequencer_commit_txid_inclusion_proof,
-        header_chain.block_headers[header_chain.block_headers.len() - 1].merkle_root.clone(),
-    ));
+    let btc_header_chain_output = header_chain_circuit(header_chain);
+    
+    // verify that the latest_sequecner_commit_tx is in the header chain
+    println!("SPV");
+    assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // commit public inputs
-    return (btc_header_chain_output.chain_state.total_work, latest_sequencer_commit_txid);
+    (btc_header_chain_output.chain_state.total_work, latest_sequencer_commit_txid)
 }
 
 fn u256_to_bits(u: U256) -> [bool; 256] {
@@ -144,18 +141,17 @@ pub fn generate_operator_proof(
 
     operator_header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
+    spv: SPV,
 
     l2_contract_address: Address,
     base_slot: U256,
-
-    latest_sequencer_commit_txid_inclusion_proof: BlockInclusionProof,
-) {
+) -> [u8; 32] {
     // hardcode
 
     //latest_sequencer_commit_tx: &CircuitTransaction,
     // extract consensus block height
     let operator_commitment =
-        extract_data_from_commitment_outputs(&operator_latest_sequencer_commit_txn.0.output);
+        &extract_op_return_data(&operator_latest_sequencer_commit_txn.0)[..];
     let mut bh_bytes = [0u8; 32];
     bh_bytes.copy_from_slice(&operator_commitment[0..32]);
     let operator_consensus_block_height = U256::from_be_bytes(bh_bytes);
@@ -175,13 +171,8 @@ pub fn generate_operator_proof(
         operator_latest_sequencer_commit_txn.compute_txid()
     );
 
-    verify_merkle_proof(
-        operator_latest_sequencer_commit_txn.0.compute_txid().to_byte_array(),
-        &latest_sequencer_commit_txid_inclusion_proof,
-        operator_header_chain.block_headers[operator_header_chain.block_headers.len() - 1]
-            .merkle_root
-            .clone(),
-    );
+    // verify that the latest_sequecner_commit_tx is in the header chain
+    assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // parse included_watchtowers into bits array
     let included_watchertowers_bits = u256_to_bits(included_watchtowers);
@@ -212,7 +203,7 @@ pub fn generate_operator_proof(
                 println!("Watchtower[{i}] invalid txoutput format");
                 continue;
             }
-            let commitment = extract_data_from_commitment_outputs(&tx.output);
+            let commitment = &extract_op_return_data(&tx)[..];
             // check first 16 bytes is graph_id
             if !commitment.starts_with(&graph_id) {
                 println!("Watchtower[{i}] invalid commitment: graph id");
@@ -281,18 +272,7 @@ pub fn generate_operator_proof(
         ),
         1
     ); // 1 == Processing 
-}
-
-pub fn extract_data_from_commitment_outputs(txouts: &[TxOut]) -> Vec<u8> {
-    let mut data = vec![];
-    for txout in txouts {
-        let script = &txout.script_pubkey;
-        let instructions = script.instructions_minimal().collect::<Result<Vec<_>, _>>().unwrap();
-        if let bitcoin::blockdata::script::Instruction::PushBytes(bytes) = &instructions[1] {
-            data.extend_from_slice(bytes.as_bytes());
-        }
-    }
-    data
+    operator_total_work
 }
 
 pub fn is_valid_commitment_outputs(txouts: &[TxOut]) -> bool {
@@ -360,6 +340,6 @@ mod tests {
         };
 
         let op_return_data = crate::extract_op_return_data(&tx);
-        assert_eq!(vec![expected_op_data.to_vec()], op_return_data);
+        assert_eq!(expected_op_data.to_vec(), op_return_data);
     }
 }

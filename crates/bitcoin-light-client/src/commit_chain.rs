@@ -107,11 +107,11 @@ impl CommitChainState {
             // calculate the commitment of prev sequencer set and check the equivalent
             let expected_prev_commit = extract_op_return_data(&prev_commit_txn);
             println!("{:?}\n{:?}", expected_prev_commit, prev_sequencer_set_hash);
-            assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit[0]);
+            assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit);
 
             // calculate the commitment of latest sequencer set and check the equivalent
             let expected_latest_commit = extract_op_return_data(&latest_commit_txn_with_wtns);
-            assert_eq!(latest_sequencer_set_hash[..], expected_latest_commit[0]);
+            assert_eq!(latest_sequencer_set_hash[..], expected_latest_commit);
 
             // check the latest txn's prev out is equals to the output of prev_txn
             let update_connector = &latest_commit_txn_with_wtns.input[0];
@@ -211,7 +211,7 @@ pub fn verify_taproot_leaf_schnorr_signature(
     Ok(secp.verify_schnorr(&sig.signature, &msg, &internal_xonly)?)
 }
 
-pub fn extract_op_return_data(tx: &Transaction) -> Vec<Vec<u8>> {
+pub fn extract_op_return_data(tx: &Transaction) -> Vec<u8> {
     let mut results = Vec::new();
     for output in &tx.output {
         let script = &output.script_pubkey;
@@ -223,13 +223,13 @@ pub fn extract_op_return_data(tx: &Transaction) -> Vec<Vec<u8>> {
                 // Next should be pushed data
                 if let Some(Ok(bitcoin::script::Instruction::PushBytes(data))) = instructions.next()
                 {
-                    results.push(data.as_bytes().to_vec());
+                    results = data.as_bytes().to_vec();
                 }
             }
         }
     }
     if results.len() == 0 {
-        results.push([0u8; 32].to_vec())
+        results = [0u8; 32].to_vec();
     }
     results
 }

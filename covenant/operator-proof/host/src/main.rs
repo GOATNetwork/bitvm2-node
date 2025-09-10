@@ -15,6 +15,7 @@ use bitvm2_noded::client::btc_chain::BTCClient;
 use bitcoin_light_client::{CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType};
 use bitcoin::{Txid, Network};
 use std::str::FromStr;
+use alloy_primitives::U256;
 
 /// A program that aggregates the proofs of the simple program.
 const WTACHTOWER: &[u8] = include_elf!("guest");
@@ -22,10 +23,12 @@ const WTACHTOWER: &[u8] = include_elf!("guest");
 use clap::Parser;
 use std::fs;
 
-fn parse_hex_32(s: &str) -> Result<[u8; 32], String> {
-    let mut reversed: [u8; 32] = hex::decode(s).map_err(|e| e.to_string())?.try_into().map_err(|_| "invalid length".to_string())?;
-    reversed.reverse();
-    Ok(reversed)
+fn str_to_16_bytes_exact(s: &str) -> Result<[u8; 16], String> {
+    let bytes = s.as_bytes();
+    assert_eq!(bytes.len(), 16, "string must be exactly 16 bytes");
+    let mut arr = [0u8; 16];
+    arr.copy_from_slice(bytes);
+    Ok(arr)
 }
 
 /// The arguments for the cli.
@@ -33,6 +36,12 @@ fn parse_hex_32(s: &str) -> Result<[u8; 32], String> {
 pub struct Args {
     #[arg(long, default_value = "http://127.0.0.1:3002")]
     esplora_url: String,
+
+    #[clap(long, env)]
+    included_watchertowers: String,
+
+    #[clap(long, env, value_parser = str_to_16_bytes_exact)]
+    graph_id: [u8; 16],
 
     #[clap(long, env)]
     latest_sequencer_commit_txid: String,
@@ -60,7 +69,7 @@ async fn main() {
     let client = ProverClient::new();
 
     // Setup the proving and verifying keys.
-    let (watchtower_proof_pk, watchtower_proof_vk) = client.setup(WTACHTOWER);
+    let (proof_pk, proof_vk) = client.setup(WTACHTOWER);
 
     // --- header chain --- //
     let proof_bytes = fs::read(&args.header_chain_input_proof).expect("Failed to read input proof file");
@@ -103,7 +112,6 @@ async fn main() {
     let bytes = std::fs::read(&format!("{}.in", args.commit_chain_input_proof)).unwrap();
     let commit_chain_input: CommitChainCircuitInput = bincode::deserialize(&bytes).unwrap();
 
-
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
@@ -133,22 +141,36 @@ async fn main() {
     
     let output = bitcoin_light_client::header_chain_circuit(header_chain_input.clone());
     assert!(spv.verify(&output.chain_state.block_hashes_mmr));
-    todo!();
 
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
-        stdin.write(&parse_hex_32(&args.latest_sequencer_commit_txid));
+
+        let included_watchertowers: U256 = U256::from_str(&args.included_watchertowers).unwrap();
+        stdin.write(&included_watchertowers);
+
+        stdin.write(&args.graph_id);
+
+        // let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
+        // let consensus_blocks: [LightBlock; 2] = zkm_zkvm::io::read(); // commit the sequencer set
+        // let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
+
+        // let watchtower_challenge_txns: Vec<CircuitTransaction> = zkm_zkvm::io::read();
+        // let watchtower_challenge_txn_script: Vec<ScriptBuf> = zkm_zkvm::io::read();
+        // let watchtower_challenge_txn_prev_out: Vec<TxOut> = zkm_zkvm::io::read();
+        // let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
+        // let watchtower_challenge_txn_sig: Vec<bitcoin::taproot::Signature> = zkm_zkvm::io::read();
+
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
         stdin.write(&spv);
 
         stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
         stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
-        client.prove(&watchtower_proof_pk, stdin).groth16().run().expect("proving failed")
+        client.prove(&proof_pk, stdin).groth16().run().expect("proving failed")
     });
 
     fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
-    fs::write(&format!("{}.vk", args.output), bincode::serialize(&watchtower_proof_vk).unwrap()).unwrap();
+    fs::write(&format!("{}.vk", args.output), bincode::serialize(&proof_vk).unwrap()).unwrap();
     println!("Generate proof successfully, proof: {:?}", proof);
 }

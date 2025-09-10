@@ -31,6 +31,6 @@ docker.sh
 node/cache
 scripts/bitcoin-data
 
-covenant/*-proof/host/*.bin
-covenant/*-proof/host/*.bin.vk
-covenant/*-proof/host/*.bin.in
+covenant/*/*/*.bin
+covenant/*/*/*.bin.vk
+covenant/*/*/*.bin.in

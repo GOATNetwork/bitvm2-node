@@ -6,6 +6,7 @@ members = [
     "header-chain-proof/host",
     "commit-chain-proof/host",
     "watchtower-proof/host",
+    "operator-proof/host",
 ]
 exclude = []
 resolver = "2"
