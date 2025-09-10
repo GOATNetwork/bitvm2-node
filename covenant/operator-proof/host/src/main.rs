@@ -79,7 +79,7 @@ async fn main() {
     let mut proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
     let prev_output: BlockHeaderCircuitOutput = proof.public_values.read();
-    let ZKMProof::Compressed(header_compressed_proof) = proof.proof else { todo!() };
+    let ZKMProof::Compressed(header_compressed_proof) = proof.proof else { panic!() };
     let header_chain_prev_proof = HeaderChainPrevProofType::PrevProof(prev_output.clone());
 
     let bytes = std::fs::read(&format!("{}.vk", args.header_chain_input_proof)).unwrap();
@@ -102,7 +102,7 @@ async fn main() {
     let mut proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
     let prev_output: CommitChainCircuitOutput = proof.public_values.read();
-    let ZKMProof::Compressed(commit_compressed_proof) = proof.proof else { todo!() };
+    let ZKMProof::Compressed(commit_compressed_proof) = proof.proof else { panic!() };
     let commit_chain_prev_proof = CommitChainPrevProofType::PrevProof(prev_output.clone());
 
     let bytes = std::fs::read(&format!("{}.vk", args.commit_chain_input_proof)).unwrap();

@@ -120,7 +120,7 @@ async fn main() {
         stdin.write(&input);
         if let Some(proof) = prev_receipt {
             println!("Generate proof from block {}", start);
-            let ZKMProof::Compressed(compressed_proof) = proof.proof else { todo!() };
+            let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
             stdin.write_proof(*compressed_proof, header_chain_proof_vk.vk.clone());
         } else {
             println!("Generate proof from genesis block");

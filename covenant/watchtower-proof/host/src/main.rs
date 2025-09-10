@@ -73,7 +73,7 @@ async fn main() {
     let mut proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
     let prev_output: BlockHeaderCircuitOutput = proof.public_values.read();
-    let ZKMProof::Compressed(header_compressed_proof) = proof.proof else { todo!() };
+    let ZKMProof::Compressed(header_compressed_proof) = proof.proof else { panic!() };
     let header_chain_prev_proof = HeaderChainPrevProofType::PrevProof(prev_output.clone());
 
     let bytes = std::fs::read(&format!("{}.vk", args.header_chain_input_proof)).unwrap();
@@ -96,7 +96,7 @@ async fn main() {
     let mut proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
     let prev_output: CommitChainCircuitOutput = proof.public_values.read();
-    let ZKMProof::Compressed(commit_compressed_proof) = proof.proof else { todo!() };
+    let ZKMProof::Compressed(commit_compressed_proof) = proof.proof else { panic!() };
     let commit_chain_prev_proof = CommitChainPrevProofType::PrevProof(prev_output.clone());
 
     let bytes = std::fs::read(&format!("{}.vk", args.commit_chain_input_proof)).unwrap();
@@ -136,7 +136,6 @@ async fn main() {
 
     let output = bitcoin_light_client::header_chain_circuit(header_chain_input.clone());
     assert!(spv.verify(&output.chain_state.block_hashes_mmr));
-    todo!();
 
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {

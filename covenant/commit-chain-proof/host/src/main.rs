@@ -112,7 +112,7 @@ async fn main() {
         let mut stdin = ZKMStdin::new();
         stdin.write(&input);
         if let Some(proof) = prev_receipt {
-            let ZKMProof::Compressed(compressed_proof) = proof.proof else { todo!() };
+            let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
             stdin.write_proof(*compressed_proof, commit_chain_proof_vk.vk.clone());
         } else {
             println!("Skip writing proof for genesis commit");
