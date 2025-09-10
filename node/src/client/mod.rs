@@ -26,7 +26,7 @@ mod tests {
                 .expect("decode txid");
 
         let (root, proof_info, _) =
-            btc_client.get_bitc_merkle_proof(&tx_id).await.expect("call merkle proof");
+            btc_client.get_btc_merkle_proof(&tx_id).await.expect("call merkle proof");
         let root = root.to_byte_array().map(|v| v);
         let proof: Vec<[u8; 32]> =
             proof_info.merkle.iter().map(|v| v.to_byte_array().map(|v| v)).collect();

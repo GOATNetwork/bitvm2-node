@@ -84,7 +84,7 @@ impl BTCClient {
         self.chain_service.fetch_btc_address_utxos(address).await
     }
 
-    pub async fn get_bitc_merkle_proof(
+    pub async fn get_btc_merkle_proof(
         &self,
         tx_id: &Txid,
     ) -> anyhow::Result<(TxMerkleNode, MerkleProof, Vec<u8>)> {
