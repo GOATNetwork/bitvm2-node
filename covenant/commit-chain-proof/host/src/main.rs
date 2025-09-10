@@ -3,13 +3,13 @@
 //!     Genesis:       RUST_LOG=debug cargo run -r -- --init-input --output-proof "compressed.bin"
 //!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "compressed.bin" --output-proof "compressed2.bin"
 //! Update the commit_info.json for regular proof.
+use bitcoin::{secp256k1::PublicKey, Network, Txid};
 use bitcoin_light_client::*;
+use client::btc_chain::BTCClient;
+use std::str::FromStr;
 use zkm_sdk::{
     include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
 };
-use std::str::FromStr;
-use bitvm2_noded::client::btc_chain::BTCClient;
-use bitcoin::{Network, Txid, secp256k1::{PublicKey}};
 
 /// A program that aggregates the proofs of the simple program.
 const COMMIT_CHAIN: &[u8] = include_elf!("guest");
@@ -121,7 +121,11 @@ async fn main() {
     });
 
     fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
-    fs::write(&format!("{}.vk", args.output_proof), bincode::serialize(&commit_chain_proof_vk).unwrap()).unwrap();
+    fs::write(
+        &format!("{}.vk", args.output_proof),
+        bincode::serialize(&commit_chain_proof_vk).unwrap(),
+    )
+    .unwrap();
     fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
     println!("Generate proof successfully, proof: {:?}", proof);
 }

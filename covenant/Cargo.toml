@@ -139,6 +139,7 @@ header-chain = { path = "../crates/header-chain" }
 bitcoin-light-client = { path = "../crates/bitcoin-light-client" }
 borsh = {version = "1.5.3", features = ["derive"] }
 bitcoin = { version = "0.32.6" }
+client = { path = "../crates/client" }
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"

@@ -27,7 +27,7 @@ borsh = { workspace = true }
 header-chain = { workspace = true }
 bitcoin-light-client = { workspace = true }
 bitcoin = { workspace = true }
-bitvm2-noded = { path = "../../../node" }
+client = { workspace = true }
 
 # Ziren
 zkm-sdk.workspace = true

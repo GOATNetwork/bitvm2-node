@@ -3,17 +3,19 @@
 //! ```
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid a202e9c6cfd2274c56c35fea3d950fdbba84946d7c29fd809d6d0d6e456cd8e7 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin" --block-hashes ../../header-chain-proof/host/block_hashes.bin
 //! ```
+use client::btc_chain::BTCClient;
 use header_chain::{
-    BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
-    BitcoinMerkleTree, SPV, CircuitTransaction, CircuitBlockHeader, MMRHost,
+    BitcoinMerkleTree, BlockHeaderCircuitOutput, CircuitBlockHeader, CircuitTransaction,
+    HeaderChainCircuitInput, HeaderChainPrevProofType, MMRHost, SPV,
 };
 use zkm_sdk::{
     include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
 };
-use bitvm2_noded::client::btc_chain::BTCClient;
 
-use bitcoin_light_client::{CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType};
-use bitcoin::{Txid, Network};
+use bitcoin::{Network, Txid};
+use bitcoin_light_client::{
+    CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType,
+};
 use std::str::FromStr;
 
 /// A program that aggregates the proofs of the simple program.
@@ -23,7 +25,10 @@ use clap::Parser;
 use std::fs;
 
 fn parse_hex_32(s: &str) -> Result<[u8; 32], String> {
-    let mut reversed: [u8; 32] = hex::decode(s).map_err(|e| e.to_string())?.try_into().map_err(|_| "invalid length".to_string())?;
+    let mut reversed: [u8; 32] = hex::decode(s)
+        .map_err(|e| e.to_string())?
+        .try_into()
+        .map_err(|_| "invalid length".to_string())?;
     reversed.reverse();
     Ok(reversed)
 }
@@ -63,7 +68,8 @@ async fn main() {
     let (watchtower_proof_pk, watchtower_proof_vk) = client.setup(WTACHTOWER);
 
     // --- header chain --- //
-    let proof_bytes = fs::read(&args.header_chain_input_proof).expect("Failed to read input proof file");
+    let proof_bytes =
+        fs::read(&args.header_chain_input_proof).expect("Failed to read input proof file");
     let mut proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
     let prev_output: BlockHeaderCircuitOutput = proof.public_values.read();
@@ -71,7 +77,7 @@ async fn main() {
     let header_chain_prev_proof = HeaderChainPrevProofType::PrevProof(prev_output.clone());
 
     let bytes = std::fs::read(&format!("{}.vk", args.header_chain_input_proof)).unwrap();
-    let header_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap(); 
+    let header_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
     assert_eq!(prev_output.vk_hash, header_chain_vk.hash_u32());
 
     let bytes = std::fs::read(&format!("{}.in", args.header_chain_input_proof)).unwrap();
@@ -85,7 +91,8 @@ async fn main() {
 
     // --- commit chain --- //
     // Set the previous proof type based on input_proof argument
-    let proof_bytes = fs::read(&args.commit_chain_input_proof).expect("Failed to read input proof file");
+    let proof_bytes =
+        fs::read(&args.commit_chain_input_proof).expect("Failed to read input proof file");
     let mut proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
     let prev_output: CommitChainCircuitOutput = proof.public_values.read();
@@ -93,7 +100,7 @@ async fn main() {
     let commit_chain_prev_proof = CommitChainPrevProofType::PrevProof(prev_output.clone());
 
     let bytes = std::fs::read(&format!("{}.vk", args.commit_chain_input_proof)).unwrap();
-    let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap(); 
+    let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
     assert_eq!(prev_output.vk_hash, commit_chain_vk.hash_u32());
     //let commit_chain_input: CommitChainCircuitInput = CommitChainCircuitInput {
     //    vk_hash: commit_chain_vk.hash_u32(),
@@ -103,15 +110,16 @@ async fn main() {
     let bytes = std::fs::read(&format!("{}.in", args.commit_chain_input_proof)).unwrap();
     let commit_chain_input: CommitChainCircuitInput = bincode::deserialize(&bytes).unwrap();
 
-
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
-    let tx = btc_client.fetch_btc_tx(&Txid::from_str(&args.latest_sequencer_commit_txid).unwrap()).await.unwrap();
+    let tx = btc_client
+        .fetch_btc_tx(&Txid::from_str(&args.latest_sequencer_commit_txid).unwrap())
+        .await
+        .unwrap();
     let tx: CircuitTransaction = CircuitTransaction(tx);
-    let block_header: CircuitBlockHeader = header_chain_input.block_headers[
-        header_chain_input.block_headers.len() - 1
-    ].clone(); 
+    let block_header: CircuitBlockHeader =
+        header_chain_input.block_headers[header_chain_input.block_headers.len() - 1].clone();
     let bitcoin_merkle_tree: BitcoinMerkleTree = BitcoinMerkleTree::new(vec![tx.txid()]);
     let bitcoin_inclusion_proof = bitcoin_merkle_tree.generate_proof(0);
 
@@ -124,13 +132,8 @@ async fn main() {
     }
 
     let (_, mmr_inclusion_proof) = mmr_native.generate_proof(0);
-    let spv: SPV = SPV::new(
-        tx,
-        bitcoin_inclusion_proof,
-        block_header,
-        mmr_inclusion_proof,
-    );
-    
+    let spv: SPV = SPV::new(tx, bitcoin_inclusion_proof, block_header, mmr_inclusion_proof);
+
     let output = bitcoin_light_client::header_chain_circuit(header_chain_input.clone());
     assert!(spv.verify(&output.chain_state.block_hashes_mmr));
     todo!();
@@ -149,6 +152,7 @@ async fn main() {
     });
 
     fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
-    fs::write(&format!("{}.vk", args.output), bincode::serialize(&watchtower_proof_vk).unwrap()).unwrap();
+    fs::write(&format!("{}.vk", args.output), bincode::serialize(&watchtower_proof_vk).unwrap())
+        .unwrap();
     println!("Generate proof successfully, proof: {:?}", proof);
 }

@@ -26,8 +26,8 @@ serde_json.workspace = true
 
 borsh = { workspace = true }
 bitcoin-light-client = { workspace = true }
-bitvm2-noded = { path = "../../../node" }
 bitcoin = { workspace = true }
+client = { workspace = true }
 
 # Ziren
 zkm-sdk.workspace = true

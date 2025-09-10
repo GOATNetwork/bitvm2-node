@@ -9,8 +9,8 @@ use alloy_primitives::hex;
 use alloy_primitives::utils::keccak256;
 use alloy_primitives::{B256, U128, U256};
 use header_chain::{
-    BlockHeaderCircuitOutput, ChainState, CircuitTransaction,
-    HeaderChainCircuitInput, HeaderChainPrevProofType, SPV,
+    BlockHeaderCircuitOutput, ChainState, CircuitTransaction, HeaderChainCircuitInput,
+    HeaderChainPrevProofType, SPV,
 };
 use revm::DatabaseRef;
 use sha2::Digest;
@@ -107,7 +107,7 @@ pub fn generate_watchtower_proof(
     println!("header chain");
     // verify header_chain is valid
     let btc_header_chain_output = header_chain_circuit(header_chain);
-    
+
     // verify that the latest_sequecner_commit_tx is in the header chain
     println!("SPV");
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
@@ -150,8 +150,7 @@ pub fn generate_operator_proof(
 
     //latest_sequencer_commit_tx: &CircuitTransaction,
     // extract consensus block height
-    let operator_commitment =
-        &extract_op_return_data(&operator_latest_sequencer_commit_txn.0)[..];
+    let operator_commitment = &extract_op_return_data(&operator_latest_sequencer_commit_txn.0)[..];
     let mut bh_bytes = [0u8; 32];
     bh_bytes.copy_from_slice(&operator_commitment[0..32]);
     let operator_consensus_block_height = U256::from_be_bytes(bh_bytes);
