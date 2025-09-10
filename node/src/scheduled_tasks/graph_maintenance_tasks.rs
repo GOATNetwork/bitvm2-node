@@ -20,7 +20,7 @@ use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, GraphWithBroadcastInfo,
     MessageType,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 fn is_need_to_send_msg(pre_send_times: i64, last_send_at: i64) -> bool {
@@ -282,6 +282,212 @@ pub async fn scan_assert(
     Ok(())
 }
 
+/// Handle Take1 transaction completion
+async fn handle_take1_completion(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    local_db: &LocalDB,
+    graph_data: &GraphWithBroadcastInfo,
+    take1_txid: Txid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!(
+        "Processing Take1 completion for graph_id: {}, take1_txid: {}",
+        graph_data.graph_id, take1_txid
+    );
+
+    let take1_tx = btc_client
+        .fetch_btc_tx(&take1_txid)
+        .await
+        .map_err(|e| format!("Failed to fetch Take1 transaction {}: {}", take1_txid, e))?;
+
+    match goat_client
+        .gateway_finish_withdraw_happy_path(btc_client, &graph_data.graph_id, &take1_tx)
+        .await
+    {
+        Err(err) => {
+            warn!(
+                "Failed to finish withdraw happy path for graph_id: {}, error: {:?}. Will retry later.",
+                graph_data.graph_id, err
+            );
+        }
+        Ok(tx_hash) => {
+            info!(
+                "Successfully finished withdraw happy path for instance_id: {}, graph_id: {}, tx_hash: {}",
+                graph_data.instance_id, graph_data.graph_id, tx_hash
+            );
+
+            let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
+                Some(receipt) => receipt.block_number.unwrap_or(0),
+                None => {
+                    warn!("No receipt found for tx_hash: {}", tx_hash);
+                    0
+                }
+            };
+
+            let mut tx = local_db
+                .start_transaction()
+                .await
+                .map_err(|e| format!("Failed to start transaction: {}", e))?;
+
+            tx.upsert_goat_tx_record(&GoatTxRecord {
+                instance_id: graph_data.instance_id,
+                graph_id: graph_data.graph_id,
+                tx_type: GoatTxType::WithdrawHappyPath.to_string(),
+                tx_hash,
+                height: block_height as i64,
+                is_local: true,
+                processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+                extra: None,
+                created_at: current_time_secs(),
+            })
+            .await
+            .map_err(|e| format!("Failed to upsert goat tx record: {}", e))?;
+
+            tx.update_graph_fields(
+                GraphUpdate::new(graph_data.graph_id).with_status(GraphStatus::Take1.to_string()),
+            )
+            .await
+            .map_err(|e| format!("Failed to update graph fields: {}", e))?;
+
+            tx.commit().await.map_err(|e| format!("Failed to commit transaction: {}", e))?;
+
+            info!(
+                "Successfully updated database for graph_id: {} to Take1 status",
+                graph_data.graph_id
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Handle Challenge transaction detection
+async fn handle_challenge_detected(
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_data: &GraphWithBroadcastInfo,
+    challenge_txid: Txid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!(
+        "Challenge detected for graph_id: {}, challenge_txid: {}",
+        graph_data.graph_id, challenge_txid
+    );
+
+    storage_processor
+        .update_graph_fields(
+            GraphUpdate::new(graph_data.graph_id)
+                .with_status(GraphStatus::Challenge.to_string())
+                .with_challenge_txid(challenge_txid.into()),
+        )
+        .await
+        .map_err(|e| format!("Failed to update graph fields for challenge: {}", e))?;
+
+    info!("Successfully updated graph_id: {} to Challenge status", graph_data.graph_id);
+    Ok(())
+}
+
+/// Check if Take1Ready message needs to be sent
+async fn check_take1_ready_condition(
+    btc_client: &BTCClient,
+    graph_data: &GraphWithBroadcastInfo,
+    kickoff_txid: Txid,
+    lock_blocks: u32,
+    current_height: u32,
+) -> Result<Option<GOATMessageContent>, Box<dyn std::error::Error>> {
+    if !is_need_to_send_msg(graph_data.msg_times, graph_data.last_msg_send_at) {
+        return Ok(None);
+    }
+
+    let kickoff_height = match btc_client.get_tx_status(&kickoff_txid).await?.block_height {
+        Some(height) => height,
+        None => {
+            info!(
+                "graph_id:{}, kickoff_txid {} not on chain",
+                graph_data.graph_id,
+                kickoff_txid.to_string()
+            );
+            return Ok(None);
+        }
+    };
+
+    info!(
+        "graph_id:{}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}",
+        graph_data.graph_id
+    );
+
+    if kickoff_height + lock_blocks <= current_height {
+        Ok(Some(GOATMessageContent::Take1Ready(Take1Ready {
+            instance_id: graph_data.instance_id,
+            graph_id: graph_data.graph_id,
+        })))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Process graph data in KickOff status
+async fn process_kickoff_graph(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    local_db: &LocalDB,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_data: &GraphWithBroadcastInfo,
+    lock_blocks: u32,
+    current_height: u32,
+) -> Result<Option<(Actor, GOATMessageContent)>, Box<dyn std::error::Error>> {
+    let (kickoff_txid, take1_txid) =
+        match (graph_data.kickoff_txid.clone(), graph_data.take1_txid.clone()) {
+            (Some(kickoff), Some(take1)) => (kickoff.into(), take1.into()),
+            _ => {
+                warn!("graph_id:{}, kickoff or take1 is none", graph_data.graph_id);
+                return Ok(None);
+            }
+        };
+
+    let spent_txid = match outpoint_spent_txid(btc_client, &kickoff_txid, 1).await? {
+        Some(txid) => txid,
+        None => {
+            // kickoff output not spent, check if we need to send Take1Ready
+            if let Some(content) = check_take1_ready_condition(
+                btc_client,
+                graph_data,
+                kickoff_txid,
+                lock_blocks,
+                current_height,
+            )
+            .await?
+            {
+                return Ok(Some((Actor::Operator, content)));
+            }
+            return Ok(None);
+        }
+    };
+
+    if spent_txid == take1_txid {
+        // Take1 was sent
+        handle_take1_completion(btc_client, goat_client, local_db, graph_data, take1_txid).await?;
+    } else {
+        // Challenge was sent
+        handle_challenge_detected(storage_processor, graph_data, spent_txid).await?;
+    }
+
+    Ok(None)
+}
+
+/// Process graph data in Challenge status
+fn process_challenge_graph(
+    graph_data: &GraphWithBroadcastInfo,
+) -> Option<(Actor, GOATMessageContent)> {
+    graph_data.challenge_txid.clone().map(|challenge_txid| {
+        (
+            Actor::Operator,
+            GOATMessageContent::ChallengeSent(ChallengeSent {
+                instance_id: graph_data.instance_id,
+                graph_id: graph_data.graph_id,
+                challenge_txid: challenge_txid.into(),
+            }),
+        )
+    })
+}
+
 //Tick-Task-4
 pub async fn scan_take1_or_challenge(
     swarm: &mut Swarm<AllBehaviours>,
@@ -289,8 +495,13 @@ pub async fn scan_take1_or_challenge(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("start tick action: scan_take1_or_challenge");
-    let mut storage_processor = local_db.acquire().await?;
+    info!("Starting scan_take1_or_challenge task");
+
+    let mut storage_processor = local_db
+        .acquire()
+        .await
+        .map_err(|e| format!("Failed to acquire database connection: {}", e))?;
+
     let graph_datas = fetch_graphs_with_status_and_msg_type(
         &mut storage_processor,
         vec![
@@ -298,152 +509,98 @@ pub async fn scan_take1_or_challenge(
             (GraphStatus::Challenge, MessageType::ChallengeSent),
         ],
     )
-    .await?;
-    info!("scan_kickoff get graph datas size: {}", graph_datas.len());
-    let current_height = btc_client.get_height().await?;
-    // TODO update
-    let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
-    for graph_data in graph_datas {
-        let mut message: Option<(Actor, GOATMessageContent)> = None;
-        match graph_data.status.as_str() {
-            status if status == GraphStatus::KickOff.to_string() => {
-                if let Some(kickoff_txid) = graph_data.kickoff_txid.clone()
-                    && let Some(take1_txid) = graph_data.take1_txid.clone()
-                {
-                    let kickoff_txid: Txid = kickoff_txid.clone().into();
-                    let take1_txid: Txid = take1_txid.clone().into();
-                    if let Some(spent_txid) =
-                        outpoint_spent_txid(btc_client, &kickoff_txid, 1).await?
-                    {
-                        if spent_txid == take1_txid {
-                            // take1 sent, try to call finish_withdraw_happy_path
-                            info!(
-                                "graph_id:{},  take-1 sent, txid: {spent_txid}",
-                                graph_data.graph_id
-                            );
-                            let take1_tx = btc_client.fetch_btc_tx(&take1_txid).await?;
-                            match goat_client
-                                .gateway_finish_withdraw_happy_path(
-                                    btc_client,
-                                    &graph_data.graph_id,
-                                    &take1_tx,
-                                )
-                                .await
-                            {
-                                Err(err) => {
-                                    // call finish_withdraw_happy_path later
-                                    warn!(
-                                        "scan_take1 at graph:{}, finish_withdraw_happy_path err:{:?}",
-                                        graph_data.graph_id, err
-                                    );
-                                }
-                                Ok(tx_hash) => {
-                                    info!(
-                                        "instance_id: {}, graph_id:{} take1 finish send, tx hash :{}",
-                                        graph_data.instance_id, graph_data.graph_id, tx_hash
-                                    );
+    .await
+    .map_err(|e| format!("Failed to fetch graph data: {}", e))?;
 
-                                    let block_height =
-                                        match goat_client.get_tx_receipt(&tx_hash).await? {
-                                            Some(receipt) => receipt.block_number.unwrap_or(0),
-                                            None => 0,
-                                        };
-                                    let mut tx = local_db.start_transaction().await?;
-                                    tx.upsert_goat_tx_record(&GoatTxRecord {
-                                        instance_id: graph_data.instance_id,
-                                        graph_id: graph_data.graph_id,
-                                        tx_type: GoatTxType::WithdrawHappyPath.to_string(),
-                                        tx_hash,
-                                        height: block_height as i64,
-                                        is_local: true,
-                                        processing_status: GoatTxProcessingStatus::Skipped
-                                            .to_string(),
-                                        extra: None,
-                                        created_at: current_time_secs(),
-                                    })
-                                    .await?;
-                                    tx.update_graph_fields(
-                                        GraphUpdate::new(graph_data.graph_id)
-                                            .with_status(GraphStatus::Take1.to_string()),
-                                    )
-                                    .await?;
-                                    tx.commit().await?;
-                                }
-                            }
-                        } else {
-                            info!(
-                                "graph_id:{},  challenge sent, txid: {spent_txid}",
-                                graph_data.graph_id
-                            );
-                            let mut storage_processor = local_db.acquire().await?;
-                            storage_processor
-                                .update_graph_fields(
-                                    GraphUpdate::new(graph_data.graph_id)
-                                        .with_status(GraphStatus::Challenge.to_string())
-                                        .with_challenge_txid(spent_txid.into()),
-                                )
-                                .await?;
-                        }
-                    } else {
-                        if is_need_to_send_msg(graph_data.msg_times, graph_data.last_msg_send_at) {
-                            // check if kickoff's timelock for take1 is expired
-                            if let Some(kickoff_height) =
-                                btc_client.get_tx_status(&kickoff_txid).await?.block_height
-                            {
-                                info!(
-                                    "graph_id:{}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}",
-                                    graph_data.graph_id
-                                );
-                                if kickoff_height + lock_blocks <= current_height {
-                                    message = Some((
-                                        Actor::Operator,
-                                        GOATMessageContent::Take1Ready(Take1Ready {
-                                            instance_id: graph_data.instance_id,
-                                            graph_id: graph_data.graph_id,
-                                        }),
-                                    ));
-                                }
-                            } else {
-                                info!(
-                                    "graph_id:{},  kickoff_txid{}  not no chain",
-                                    graph_data.graph_id,
-                                    kickoff_txid.to_string()
-                                )
-                            }
-                        }
-                    }
+    info!("Found {} graphs to process", graph_datas.len());
+
+    let current_height = btc_client
+        .get_height()
+        .await
+        .map_err(|e| format!("Failed to get current BTC height: {}", e))?;
+    let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
+
+    let mut processed_count = 0;
+    let mut error_count = 0;
+
+    for graph_data in graph_datas {
+        match process_kickoff_challenge_graph(
+            btc_client,
+            goat_client,
+            local_db,
+            &mut storage_processor,
+            &graph_data,
+            lock_blocks,
+            current_height,
+        )
+        .await
+        {
+            Ok(Some((actor, content))) => {
+                if let Err(e) = broadcast_message_and_record(
+                    swarm,
+                    &mut storage_processor,
+                    actor,
+                    content,
+                    &graph_data,
+                )
+                .await
+                {
+                    error!(
+                        "Failed to broadcast message for graph_id {}: {}",
+                        graph_data.graph_id, e
+                    );
+                    error_count += 1;
                 } else {
-                    warn!("graph_id:{}, kickoff  or take1 is none", graph_data.graph_id);
-                    continue;
+                    processed_count += 1;
                 }
             }
-            status if status == GraphStatus::Challenge.to_string() => {
-                if let Some(challenge_txid) = graph_data.challenge_txid.clone() {
-                    message = Some((
-                        Actor::Operator,
-                        GOATMessageContent::ChallengeSent(ChallengeSent {
-                            instance_id: graph_data.instance_id,
-                            graph_id: graph_data.graph_id,
-                            challenge_txid: challenge_txid.into(),
-                        }),
-                    ));
-                }
+            Ok(None) => {
+                // No message to send, but processing was successful
+                processed_count += 1;
             }
-            _ => {}
-        }
-        if let Some((actor, content)) = message {
-            broadcast_message_and_record(
-                swarm,
-                &mut storage_processor,
-                actor,
-                content,
-                &graph_data.clone(),
-            )
-            .await?;
+            Err(e) => {
+                error!("Failed to process graph_id {}: {}", graph_data.graph_id, e);
+                error_count += 1;
+            }
         }
     }
 
+    info!(
+        "Completed scan_take1_or_challenge: {} processed, {} errors",
+        processed_count, error_count
+    );
+
     Ok(())
+}
+
+/// Process kickoff or challenge graph data
+async fn process_kickoff_challenge_graph(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    local_db: &LocalDB,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_data: &GraphWithBroadcastInfo,
+    lock_blocks: u32,
+    current_height: u32,
+) -> Result<Option<(Actor, GOATMessageContent)>, Box<dyn std::error::Error>> {
+    match graph_data.status.as_str() {
+        status if status == GraphStatus::KickOff.to_string() => {
+            process_kickoff_graph(
+                btc_client,
+                goat_client,
+                local_db,
+                storage_processor,
+                graph_data,
+                lock_blocks,
+                current_height,
+            )
+            .await
+        }
+        status if status == GraphStatus::Challenge.to_string() => {
+            Ok(process_challenge_graph(graph_data))
+        }
+        _ => Ok(None),
+    }
 }
 
 //Tick-Task-5:
