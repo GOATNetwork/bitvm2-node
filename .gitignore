@@ -32,3 +32,5 @@ node/cache
 scripts/bitcoin-data
 
 covenant/*-proof/host/*.bin
+covenant/*-proof/host/*.bin.vk
+covenant/*-proof/host/*.bin.in

@@ -75,6 +75,7 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
     let mut chain_state = match input.prev_proof {
         CommitChainPrevProofType::GenesisBlock => CommitChainState::new(),
         CommitChainPrevProofType::PrevProof(prev_proof) => {
+            println!("Commit chain of prev proof");
             assert_eq!(prev_proof.vk_hash, input.vk_hash);
             let encoded = bincode::serialize(&prev_proof).unwrap();
             let pv = sha2::Sha256::digest(&encoded);
@@ -92,9 +93,8 @@ pub fn generate_watchtower_proof(
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
     latest_sequencer_commit_txid_inclusion_proof: BlockInclusionProof,
-) {
-    // verify header_chain is valid
-    let btc_header_chain_output = header_chain_circuit(header_chain.clone());
+) -> ([u8; 32], [u8; 32]) {
+    println!("commit header, size: {}", commit_chain.commits.len());
     // verify latest_sequencer_commit is valid:
     //   * Check both latest_sequencer_commit_txid and genesis_sequencer_commit_txid are in all_sequencer_commit_txids (which is a private input)
     //   * Check latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -104,16 +104,19 @@ pub fn generate_watchtower_proof(
         Txid::from_slice(&latest_sequencer_commit_txid).unwrap()
     );
 
+    println!("header chain");
+    // verify header_chain is valid
+    let btc_header_chain_output = header_chain_circuit(header_chain.clone());
     // verify latest_sequencer_commit is in header_chain
-    verify_merkle_proof(
+    println!("verify merkle proof");
+    assert!(verify_merkle_proof(
         latest_sequencer_commit_txid.clone(),
         &latest_sequencer_commit_txid_inclusion_proof,
         header_chain.block_headers[header_chain.block_headers.len() - 1].merkle_root.clone(),
-    );
+    ));
 
     // commit public inputs
-    zkm_zkvm::io::commit(&btc_header_chain_output.chain_state.total_work);
-    zkm_zkvm::io::commit(&latest_sequencer_commit_txid);
+    return (btc_header_chain_output.chain_state.total_work, latest_sequencer_commit_txid);
 }
 
 fn u256_to_bits(u: U256) -> [bool; 256] {
@@ -308,11 +311,47 @@ pub fn is_valid_commitment_outputs(txouts: &[TxOut]) -> bool {
     true
 }
 
+/// Utility method for converting u32 words to bytes in big endian.
+pub fn words_to_bytes_be(words: &[u32; 8]) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    for i in 0..8 {
+        let word_bytes = words[i].to_be_bytes();
+        bytes[i * 4..(i + 1) * 4].copy_from_slice(&word_bytes);
+    }
+    bytes
+}
+
+/// Utility method for converting u32 words from bytes in big endian.
+pub fn words_from_bytes_be(bytes: &[u8; 32]) -> [u32; 8] {
+    let mut words = [0u32; 8];
+    for i in 0..8 {
+        let chunk: [u8; 4] = bytes[i * 4 .. (i + 1) * 4].try_into().unwrap();
+        words[i] = u32::from_be_bytes(chunk);
+    }
+    words
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitcoin::Amount;
-    use borsh::de::BorshDeserialize;
+    use bitcoin::{Transaction, Amount};
+
+    #[test]
+    fn test_words_bytes_conversion() {
+        let words: [u32; 8] = [
+            0x11223344,
+            0x55667788,
+            0x99aabbcc,
+            0xddeeff00,
+            0x01020304,
+            0xa1b2c3d4,
+            0xdeadbeef,
+            0xabcdef01,
+        ];
+        let bytes = words_to_bytes_be(&words);
+        let recovered = words_from_bytes_be(&bytes);
+        assert_eq!(words, recovered);
+    }
 
     #[test]
     fn test_extract_op_return() {
@@ -329,23 +368,4 @@ mod tests {
         let op_return_data = crate::extract_op_return_data(&tx);
         assert_eq!(vec![expected_op_data.to_vec()], op_return_data);
     }
-
-    use bitcoin::hex::FromHex;
-    use header_chain::{CircuitBlockHeader, mmr::MMRHost};
-    use header_chain::{merkle_tree::BitcoinMerkleTree, spv::SPV, transaction::CircuitTransaction};
-
-    // the first 11 mainnet block: https://www.blockexplorer.com/?search=000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
-    const MAINNET_BLOCK_HASHES: [[u8; 32]; 11] = [
-        hex!("6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000"),
-        hex!("4860eb18bf1b1620e37e9490fc8a427514416fd75159ab86688e9a8300000000"),
-        hex!("bddd99ccfda39da1b108ce1a5d70038d0a967bacb68b6b63065f626a00000000"),
-        hex!("4944469562ae1c2c74d9a535e00b6f3e40ffbad4f2fda3895501b58200000000"),
-        hex!("85144a84488ea88d221c8bd6c059da090e88f8a2c99690ee55dbba4e00000000"),
-        hex!("fc33f596f822a0a1951ffdbf2a897b095636ad871707bf5d3162729b00000000"),
-        hex!("8d778fdc15a2d3fb76b7122a3b5582bea4f21f5a0c693537e7a0313000000000"),
-        hex!("4494c8cf4154bdcc0720cd4a59d9c9b285e4b146d45f061d2b6c967100000000"),
-        hex!("c60ddef1b7618ca2348a46e868afc26e3efc68226c78aa47f8488c4000000000"),
-        hex!("0508085c47cc849eb80ea905cc7800a3be674ffc57263cf210c59d8d00000000"),
-        hex!("e915d9a478e3adf3186c07c61a22228b10fd87df343c92782ecc052c00000000"),
-    ];
 }

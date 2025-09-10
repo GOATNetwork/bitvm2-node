@@ -1,3 +1,4 @@
+/*
 //! Create and sign a sequencer set publish transaction.
 //!
 //! Launch the local bitcoin regtest node with:
@@ -421,3 +422,5 @@ async fn fund_dummy_publishers(
     );
     Ok(())
 }
+
+*/

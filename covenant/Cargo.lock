@@ -12974,6 +12974,7 @@ dependencies = [
  "ark-groth16",
  "ark-serialize 0.5.0",
  "bincode",
+ "bitcoin",
  "bitcoin-light-client",
  "borsh",
  "chrono",

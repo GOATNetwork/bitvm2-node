@@ -113,7 +113,7 @@ async fn main() {
         stdin.write(&input);
         if let Some(proof) = prev_receipt {
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { todo!() };
-            stdin.write_proof(*compressed_proof, commit_chain_proof_vk.vk);
+            stdin.write_proof(*compressed_proof, commit_chain_proof_vk.vk.clone());
         } else {
             println!("Skip writing proof for genesis commit");
         }
@@ -121,5 +121,7 @@ async fn main() {
     });
 
     fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
+    fs::write(&format!("{}.vk", args.output_proof), bincode::serialize(&commit_chain_proof_vk).unwrap()).unwrap();
+    fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
     println!("Generate proof successfully, proof: {:?}", proof);
 }

@@ -114,7 +114,7 @@ async fn main() {
         if let Some(proof) = prev_receipt {
             println!("Generate proof from block {}", start);
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { todo!() };
-            stdin.write_proof(*compressed_proof, header_chain_proof_vk.vk);
+            stdin.write_proof(*compressed_proof, header_chain_proof_vk.vk.clone());
         } else {
             println!("Generate proof from genesis block");
         }
@@ -122,5 +122,7 @@ async fn main() {
     });
 
     fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
+    fs::write(&format!("{}.vk", args.output_proof), bincode::serialize(&header_chain_proof_vk).unwrap()).unwrap();
+    fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
     println!("Generate proof successfully, proof: {:?}", proof);
 }
