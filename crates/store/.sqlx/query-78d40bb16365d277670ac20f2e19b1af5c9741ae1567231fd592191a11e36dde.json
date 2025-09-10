@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE graph SET status = ? WHERE instance_id = ?  ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "78d40bb16365d277670ac20f2e19b1af5c9741ae1567231fd592191a11e36dde"
+}

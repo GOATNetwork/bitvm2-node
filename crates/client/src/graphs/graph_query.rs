@@ -189,9 +189,8 @@ pub struct ProceedWithdrawEvent {
     pub kickoff_txid: String,
 }
 
-/// WithdrawHappyPath or WithdrawUnhappyPath
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WithdrawPathsEvent {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawHappyEvent {
     pub id: String,
     #[serde(rename = "transactionHash")]
     pub transaction_hash: String,
@@ -207,6 +206,63 @@ pub struct WithdrawPathsEvent {
     pub reward_amount_sats: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawUnhappyEvent {
+    pub id: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "instanceId")]
+    pub instance_id: String,
+    #[serde(rename = "graphId")]
+    pub graph_id: String,
+    #[serde(rename = "operatorAddress")]
+    pub operator_addr: String,
+    #[serde(rename = "rewardAmountSats")]
+    pub reward_amount_sats: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WithdrawPathsEvent {
+    WithdrawHappyEvent(WithdrawHappyEvent),
+    WithdrawUnhappyEvent(WithdrawUnhappyEvent),
+}
+
+impl WithdrawPathsEvent {
+    pub fn get_block_number(&self) -> i64 {
+        match self {
+            WithdrawPathsEvent::WithdrawHappyEvent(v) => {
+                v.block_number.parse::<i64>().expect("fail to decode block number")
+            }
+            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => {
+                v.block_number.parse::<i64>().expect("fail to decode block number")
+            }
+        }
+    }
+    pub fn reward_amount_sats(&self) -> i64 {
+        match self {
+            WithdrawPathsEvent::WithdrawHappyEvent(v) => {
+                v.reward_amount_sats.parse::<i64>().expect("fail to decode block number")
+            }
+            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => {
+                v.reward_amount_sats.parse::<i64>().expect("fail to decode block number")
+            }
+        }
+    }
+    pub fn operator_addr(&self) -> String {
+        match self {
+            WithdrawPathsEvent::WithdrawHappyEvent(v) => v.operator_addr.clone(),
+            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => v.operator_addr.clone(),
+        }
+    }
+    pub fn tx_hash(&self) -> String {
+        match self {
+            WithdrawPathsEvent::WithdrawHappyEvent(v) => v.transaction_hash.clone(),
+            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => v.transaction_hash.clone(),
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WithdrawDisprovedEvent {
     pub id: String,

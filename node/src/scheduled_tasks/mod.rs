@@ -5,7 +5,8 @@ pub mod instance_maintenance_tasks;
 use crate::action::GOATMessageContent;
 use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
-    scan_assert, scan_kickoff, scan_take1_or_challenge, scan_take2, scan_withdraw,
+    scan_assert, scan_kickoff, scan_obsolete_sibling_graphs, scan_take1_or_challenge, scan_take2,
+    scan_withdraw,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
@@ -68,6 +69,9 @@ pub async fn relayer_scheduled_tasks(
 
     if let Err(err) = scan_take2(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_take2, err {:?}", err)
+    }
+    if let Err(err) = scan_obsolete_sibling_graphs(local_db).await {
+        warn!("scan_obsolete_sibling_graphs, err {:?}", err)
     }
     Ok(())
 }

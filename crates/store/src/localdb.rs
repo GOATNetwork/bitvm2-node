@@ -1288,6 +1288,33 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    pub async fn update_graphs_status_with_instance_id(
+        &mut self,
+        instance_id: Uuid,
+        ignore_graph_id: Option<Uuid>,
+        status: &str,
+    ) -> anyhow::Result<()> {
+        if let Some(ignore_graph_id) = ignore_graph_id {
+            sqlx::query!(
+                "UPDATE graph SET status = ? WHERE instance_id = ? AND graph_id != ? ",
+                status,
+                instance_id,
+                ignore_graph_id
+            )
+            .execute(self.conn())
+            .await?;
+        } else {
+            sqlx::query!(
+                "UPDATE graph SET status = ? WHERE instance_id = ?  ",
+                status,
+                instance_id,
+            )
+            .execute(self.conn())
+            .await?;
+        }
+        Ok(())
+    }
+
     /// Insert or update node without reward field
     pub async fn upsert_node(&mut self, node: Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(

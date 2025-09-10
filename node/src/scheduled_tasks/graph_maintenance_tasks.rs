@@ -368,9 +368,6 @@ pub async fn scan_take1_or_challenge(
                                     )
                                     .await?;
                                     tx.commit().await?;
-                                    // TODO use event
-                                    // obsolete_sibling_graphs(local_db, instance_id, graph_id)
-                                    //     .await?;
                                 }
                             }
                         } else {
@@ -456,5 +453,43 @@ pub async fn scan_take2(
     _btc_client: &BTCClient,
     _goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
+pub async fn scan_obsolete_sibling_graphs(
+    local_db: &LocalDB,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut tx = local_db.start_transaction().await?;
+    let mut tx_records = tx
+        .get_goat_tx_record_by_processing_status(
+            &GoatTxType::WithdrawHappyPath.to_string(),
+            &GoatTxProcessingStatus::Pending.to_string(),
+        )
+        .await?;
+
+    let mut unhappy_path_records = tx
+        .get_goat_tx_record_by_processing_status(
+            &GoatTxType::WithdrawUnhappyPath.to_string(),
+            &GoatTxProcessingStatus::Pending.to_string(),
+        )
+        .await?;
+    tx_records.append(&mut unhappy_path_records);
+
+    for tx_record in tx_records {
+        tx.update_graphs_status_with_instance_id(
+            tx_record.instance_id,
+            Some(tx_record.graph_id),
+            &GraphStatus::Obsoleted.to_string(),
+        )
+        .await?;
+        tx.update_goat_tx_record_processing_status(
+            &tx_record.graph_id,
+            &tx_record.instance_id,
+            &tx_record.tx_type,
+            &GoatTxProcessingStatus::Processed.to_string(),
+        )
+        .await?
+    }
+    tx.commit().await?;
     Ok(())
 }
