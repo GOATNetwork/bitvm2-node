@@ -99,7 +99,7 @@ borsh = {version = "1.5.3", features = ["derive"] }
 
 # bin
 tempfile = "3.19.1"
-groth16 = { path = "../covenant/groth16" }
+groth16 = { path = "../circuits/groth16" }
 tokio-util = "0.7.15"
 
 [dev-dependencies]

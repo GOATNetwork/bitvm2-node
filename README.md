@@ -1,6 +1,6 @@
 # GOAT Bitvm2 Node
 
-A universal node for Operator, Challenger and Covenant Signer.
+A universal node for Operator, Challenger and Committee.
 
 ## Tutorial
 

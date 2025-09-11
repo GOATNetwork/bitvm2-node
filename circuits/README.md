@@ -1,4 +1,4 @@
-# BitVM2 Covenant
+# BitVM2 Circuits 
 
 See [Reth Processor](https://github.com/ziren/reth-processor/blob/main/README.md)
 

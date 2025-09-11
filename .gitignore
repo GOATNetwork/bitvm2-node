@@ -14,8 +14,8 @@ target
 .env
 logs
 
-covenant/*/target/
-covenant/target/
+circuits/*/target/
+circuits/target/
 report.csv
 
 ca.srl
@@ -23,14 +23,13 @@ openssl.cnf
 ssl.csr
 ssl.key
 ssl.pem
-.env1
-covenant/ca.pem
-covenant/ca.key
+circuits/ca.pem
+circuits/ca.key
 docker.sh
 
 node/cache
 scripts/bitcoin-data
 
-covenant/*/*/*.bin
-covenant/*/*/*.bin.vk
-covenant/*/*/*.bin.in
+circuits/*/*/*.bin
+circuits/*/*/*.bin.vk
+circuits/*/*/*.bin.in

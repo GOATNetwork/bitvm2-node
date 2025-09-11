@@ -9,7 +9,7 @@ env:
   IMAGE_REPO: ${{ github.repository }}
 
 jobs:
-  build-and-push-covenant:
+  build-and-push-circuits:
     runs-on: ubuntu-latest
 
     permissions:
@@ -34,15 +34,15 @@ jobs:
         run: sudo apt-get update && sudo apt install protobuf-compiler -y
 
       - name: Build binarys
-        run: source ~/.zkm-toolchain/env && cd covenant && cargo build --release
+        run: source ~/.zkm-toolchain/env && cd circuits && cargo build --release
 
       - name: Generate certs
-        run: cd covenant/continuous/tool && ./certgen.sh
+        run: cd circuits/continuous/tool && ./certgen.sh
 
       - name: Extract version from Cargo.toml
         id: version
         run: |
-          VERSION=$(grep '^version =' ./covenant/Cargo.toml | head -n1 | sed -E 's/version = "(.*)"/\1/')
+          VERSION=$(grep '^version =' ./circuits/Cargo.toml | head -n1 | sed -E 's/version = "(.*)"/\1/')
           echo "CARGO_VERSION=$VERSION" >> $GITHUB_ENV
           echo "Using version: $VERSION"
 
@@ -63,8 +63,8 @@ jobs:
       - name: Build and push Docker image (aggregation)
         uses: docker/build-push-action@v5
         with:
-          context: ./covenant
-          file: ./covenant/Dockerfile.aggregation
+          context: ./circuits
+          file: ./circuits/Dockerfile.aggregation
           push: true
           tags: |
             ghcr.io/${{ env.REPO_LOWER }}:aggregation-latest
@@ -73,8 +73,8 @@ jobs:
       - name: Build and push Docker image (continuous)
         uses: docker/build-push-action@v5
         with:
-          context: ./covenant
-          file: ./covenant/Dockerfile.continuous
+          context: ./circuits
+          file: ./circuits/Dockerfile.continuous
           push: true
           tags: |
             ghcr.io/${{ env.REPO_LOWER }}:continuous-latest
