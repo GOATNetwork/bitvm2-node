@@ -7,7 +7,7 @@
 use client::btc_chain::BTCClient;
 use header_chain::{
     BitcoinMerkleTree, BlockHeaderCircuitOutput, CircuitBlockHeader, CircuitTransaction,
-    HeaderChainCircuitInput, MMRHost, SPV, verify_merkle_proof
+    HeaderChainCircuitInput, MMRHost, SPV, verify_merkle_proof, HeaderChainPrevProofType,
 };
 use zkm_sdk::{
     include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
@@ -16,6 +16,7 @@ use zkm_sdk::{
 use bitcoin::{Network, Txid, hashes::Hash};
 use bitcoin_light_client::{
     CommitChainCircuitInput, CommitChainCircuitOutput,
+    CommitChainPrevProofType,
 };
 use std::str::FromStr;
 
@@ -143,17 +144,30 @@ async fn main() {
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // Generate the proofs.
-    let proof = tracing::info_span!("generate proof").in_scope(|| {
+    let mut proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
         stdin.write(&latest_sequencer_commit_txid.to_byte_array());
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
         stdin.write(&spv);
 
-        stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
-        stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
+        if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
+            stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
+        } else {
+            println!("Skip writing header chain proof");
+        } 
+
+        if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
+            stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
+        } else {
+            println!("Skip writing commit chain proof");
+        } 
+        
         client.prove(&watchtower_proof_pk, stdin).groth16().run().expect("proving failed")
     });
+
+    let total_work: [u8; 32] = proof.public_values.read();
+    println!("total work: {total_work:?}");
 
     fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
     fs::write(&format!("{}.vk", args.output), bincode::serialize(&watchtower_proof_vk).unwrap())

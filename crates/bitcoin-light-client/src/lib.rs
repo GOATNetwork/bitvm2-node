@@ -1,4 +1,6 @@
 mod publisher;
+use bitcoin::Network;
+use bitcoin::Transaction;
 pub use publisher::*;
 
 mod commit_chain;
@@ -59,6 +61,7 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
     let mut chain_state = match input.prev_proof {
         HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
         HeaderChainPrevProofType::PrevProof(prev_proof) => {
+            println!("Header chain of prev proof");
             assert_eq!(prev_proof.vk_hash, input.vk_hash);
             let encoded = bincode::serialize(&prev_proof).unwrap();
             let pv = sha2::Sha256::digest(&encoded);
@@ -112,6 +115,7 @@ pub fn generate_watchtower_proof(
     println!("SPV");
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
+    println!("commit public inputs");
     // commit public inputs
     (btc_header_chain_output.chain_state.total_work, latest_sequencer_commit_txid)
 }
@@ -309,6 +313,56 @@ pub fn words_from_bytes_be(bytes: &[u8; 32]) -> [u32; 8] {
     }
     words
 }
+
+/*
+pub fn build_spv(network: Network, latest_sequencer_commit_txn: Transaction, ) {
+    let tx: CircuitTransaction = CircuitTransaction(latest_sequencer_commit_txn);
+    assert_eq!(latest_sequencer_commit_txid, tx.0.compute_txid());
+
+    println!("add mmr");
+    let mut mmr_native = MMRHost::new();
+    for j in 0..header_chain_input.block_headers.len() {
+        mmr_native.append(header_chain_input.block_headers[j].compute_block_hash());
+    }
+
+    let tx_merkle_proof  = btc_client
+        .get_btc_merkle_proof(&latest_sequencer_commit_txid)
+        .await
+        .unwrap();
+    let block_pos = tx_merkle_proof.1.block_height;
+
+    let target_block_header: CircuitBlockHeader =
+        header_chain_input.block_headers[block_pos as usize].clone();
+    
+    // find the target block
+    let target_block  = btc_client.fetch_btc_block(block_pos).await.unwrap();
+    let tx_pos = target_block.txdata.iter().position(|x| x.compute_txid() == latest_sequencer_commit_txid);
+    let txid_list =
+        target_block.txdata.iter().map(|x| x.compute_txid().to_byte_array()).collect();
+
+    let bitcoin_merkle_tree: BitcoinMerkleTree = BitcoinMerkleTree::new(txid_list);
+    let bitcoin_inclusion_proof = bitcoin_merkle_tree.generate_proof(tx_pos.unwrap() as u32);
+
+    println!("verify merkle proof");
+    if !(verify_merkle_proof(
+            latest_sequencer_commit_txid.to_byte_array(),
+            &bitcoin_inclusion_proof,
+            bitcoin_merkle_tree.root(),
+    )) {
+        panic!("Can not verify merkle proof")
+    }
+
+    println!("generate proof from mmr native");
+
+    let (_, mmr_inclusion_proof) = mmr_native.generate_proof(block_pos as u32);
+
+    println!("constuct spv");
+    let spv: SPV = SPV::new(tx, bitcoin_inclusion_proof, target_block_header, mmr_inclusion_proof);
+    assert!(spv.verify(&header_chain_prev_output.chain_state.block_hashes_mmr));
+    let btc_header_chain_output = bitcoin_light_client::header_chain_circuit(header_chain_input.clone());
+    assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
+}
+    */
 
 #[cfg(test)]
 mod tests {

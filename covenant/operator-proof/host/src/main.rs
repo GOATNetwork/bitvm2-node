@@ -86,12 +86,6 @@ async fn main() {
     let bytes = std::fs::read(&format!("{}.in", args.header_chain_input_proof)).unwrap();
     let header_chain_input: HeaderChainCircuitInput = bincode::deserialize(&bytes).unwrap();
 
-    //let header_chain_input: HeaderChainCircuitInput = HeaderChainCircuitInput {
-    //    vk_hash: header_chain_vk.hash_u32(),
-    //    prev_proof: header_chain_prev_proof,
-    //    block_headers,
-    //};
-
     // --- commit chain --- //
     // Set the previous proof type based on input_proof argument
     let proof_bytes =
@@ -105,11 +99,7 @@ async fn main() {
     let bytes = std::fs::read(&format!("{}.vk", args.commit_chain_input_proof)).unwrap();
     let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
     assert_eq!(prev_output.vk_hash, commit_chain_vk.hash_u32());
-    //let commit_chain_input: CommitChainCircuitInput = CommitChainCircuitInput {
-    //    vk_hash: commit_chain_vk.hash_u32(),
-    //    prev_proof: commit_chain_prev_proof,
-    //    commits: vec![],
-    //};
+
     let bytes = std::fs::read(&format!("{}.in", args.commit_chain_input_proof)).unwrap();
     let commit_chain_input: CommitChainCircuitInput = bincode::deserialize(&bytes).unwrap();
 
@@ -161,8 +151,18 @@ async fn main() {
         stdin.write(&commit_chain_input);
         stdin.write(&spv);
 
-        stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
-        stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
+        if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
+            stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
+        } else {
+            println!("Skip writing header chain proof");
+        } 
+
+        if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
+            stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
+        } else {
+            println!("Skip writing commit chain proof");
+        } 
+
         client.prove(&proof_pk, stdin).groth16().run().expect("proving failed")
     });
 
