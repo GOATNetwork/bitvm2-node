@@ -1,12 +1,12 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use alloy_provider::{network::Ethereum, Provider};
+use alloy_provider::{Provider, network::Ethereum};
 use clap::Parser;
 use cli::Args;
 use host_executor::{
-    alerting::AlertingClient, create_eth_block_execution_strategy_factory, BlockExecutor,
-    EthExecutorComponents, ExecutorComponents, FullExecutor,
+    BlockExecutor, EthExecutorComponents, ExecutorComponents, FullExecutor,
+    alerting::AlertingClient, create_eth_block_execution_strategy_factory,
 };
 use logroller::{LogRollerBuilder, Rotation, RotationAge};
 use provider::create_provider;
@@ -14,7 +14,7 @@ use store::localdb::LocalDB;
 use tokio::{sync::Semaphore, task};
 use tracing::{error, info, instrument, warn};
 use tracing_subscriber::util::SubscriberInitExt;
-use zkm_sdk::{include_elf, ProverClient};
+use zkm_sdk::{ProverClient, include_elf};
 
 mod cli;
 mod db;

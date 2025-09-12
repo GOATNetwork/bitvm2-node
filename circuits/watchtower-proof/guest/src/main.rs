@@ -1,3 +1,4 @@
+#![no_std]
 #![no_main]
 zkm_zkvm::entrypoint!(main);
 

@@ -16,7 +16,7 @@ pub fn main() {
     let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
     let latest_sequencer_commit_txid = operator_latest_sequencer_commit_txn.0.compute_txid(); // public input
     // extract consensus block height
-    let consensus_blocks: [LightBlock; 2] = zkm_zkvm::io::read(); // commit the sequencer set
+    let consensus_blocks: LightBlock = zkm_zkvm::io::read(); // commit the sequencer set
     let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     let watchtower_challenge_txns: Vec<CircuitTransaction> = zkm_zkvm::io::read();
@@ -34,8 +34,6 @@ pub fn main() {
     let l2_contract_address: Address = zkm_zkvm::io::read();
     // hardcode
     let base_slot: U256 = zkm_zkvm::io::read();
-
-    //let sequencer_set_commit_vk: [u32; 8] = zkm_zkvm::io::read();
 
     let operator_total_work = bitcoin_light_client::generate_operator_proof(
         included_watchertowers,

@@ -1,7 +1,7 @@
 //! Generate header chain proof
 //! Example:
 //! ```
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid a202e9c6cfd2274c56c35fea3d950fdbba84946d7c29fd809d6d0d6e456cd8e7 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin" 
+//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin"
 //! ```
 use client::btc_chain::BTCClient;
 use header_chain::{
@@ -9,18 +9,18 @@ use header_chain::{
     HeaderChainCircuitInput, HeaderChainPrevProofType, MMRHost, SPV,
 };
 use zkm_sdk::{
-    include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
+    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
 
 use alloy_primitives::U256;
 use bitcoin::{Network, Txid};
 use bitcoin_light_client::{
-    CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType,
+    CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType, build_spv,
 };
 use std::str::FromStr;
 
 /// A program that aggregates the proofs of the simple program.
-const WTACHTOWER: &[u8] = include_elf!("guest");
+const OPERATOR: &[u8] = include_elf!("guest");
 
 use clap::Parser;
 use std::fs;
@@ -68,65 +68,57 @@ async fn main() {
     let client = ProverClient::new();
 
     // Setup the proving and verifying keys.
-    let (proof_pk, proof_vk) = client.setup(WTACHTOWER);
+    let (proof_pk, proof_vk) = client.setup(OPERATOR);
 
     // --- header chain --- //
+    let bytes = std::fs::read(&format!("{}.in", args.header_chain_input_proof)).unwrap();
+    let mut header_chain_input: HeaderChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+
     let proof_bytes =
         fs::read(&args.header_chain_input_proof).expect("Failed to read input proof file");
-    let mut proof: ZKMProofWithPublicValues =
+    let proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
-    let prev_output: BlockHeaderCircuitOutput = proof.public_values.read();
-    let ZKMProof::Compressed(header_compressed_proof) = proof.proof else { panic!() };
-    let header_chain_prev_proof = HeaderChainPrevProofType::PrevProof(prev_output.clone());
+    header_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();
 
+    let ZKMProof::Compressed(header_compressed_proof) = proof.proof else { panic!() };
     let bytes = std::fs::read(&format!("{}.vk", args.header_chain_input_proof)).unwrap();
     let header_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
-    assert_eq!(prev_output.vk_hash, header_chain_vk.hash_u32());
-
-    let bytes = std::fs::read(&format!("{}.in", args.header_chain_input_proof)).unwrap();
-    let header_chain_input: HeaderChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+    //assert_eq!(header_chain_output.vk_hash, header_chain_vk.hash_u32());
 
     // --- commit chain --- //
+    let bytes = std::fs::read(&format!("{}.in", args.commit_chain_input_proof)).unwrap();
+    let mut commit_chain_input: CommitChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+
     // Set the previous proof type based on input_proof argument
     let proof_bytes =
         fs::read(&args.commit_chain_input_proof).expect("Failed to read input proof file");
-    let mut proof: ZKMProofWithPublicValues =
+    let proof: ZKMProofWithPublicValues =
         bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
-    let prev_output: CommitChainCircuitOutput = proof.public_values.read();
+
+    //let commit_chain_output: CommitChainCircuitOutput = proof.public_values.read();
+    commit_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();
+
     let ZKMProof::Compressed(commit_compressed_proof) = proof.proof else { panic!() };
-    let commit_chain_prev_proof = CommitChainPrevProofType::PrevProof(prev_output.clone());
 
     let bytes = std::fs::read(&format!("{}.vk", args.commit_chain_input_proof)).unwrap();
     let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
-    assert_eq!(prev_output.vk_hash, commit_chain_vk.hash_u32());
-
-    let bytes = std::fs::read(&format!("{}.in", args.commit_chain_input_proof)).unwrap();
-    let commit_chain_input: CommitChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+    //assert_eq!(commit_chain_output.vk_hash, commit_chain_vk.hash_u32());
 
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
-    let tx = btc_client
-        .fetch_btc_tx(&Txid::from_str(&args.latest_sequencer_commit_txid).unwrap())
-        .await
-        .unwrap();
-    let tx: CircuitTransaction = CircuitTransaction(tx);
-    let block_header: CircuitBlockHeader =
-        header_chain_input.block_headers[header_chain_input.block_headers.len() - 1].clone();
-    let bitcoin_merkle_tree: BitcoinMerkleTree = BitcoinMerkleTree::new(vec![tx.txid()]);
-    let bitcoin_inclusion_proof = bitcoin_merkle_tree.generate_proof(0);
+    let latest_sequencer_commit_txid = Txid::from_str(&args.latest_sequencer_commit_txid).unwrap();
 
-    let mut mmr_native = MMRHost::new();
+    let tx = btc_client.fetch_btc_tx(&latest_sequencer_commit_txid).await.unwrap();
+    // TODO: replace it by `get_raw_transaction_info`
+    let tx_merkle_proof =
+        btc_client.get_btc_merkle_proof(&latest_sequencer_commit_txid).await.unwrap();
+    let block_pos = tx_merkle_proof.1.block_height;
+    println!("block height: {block_pos}");
+    let target_block = btc_client.fetch_btc_block(block_pos).await.unwrap();
 
-    for j in 0..header_chain_input.block_headers.len() {
-        mmr_native.append(header_chain_input.block_headers[j].compute_block_hash());
-    }
-
-    let (_, mmr_inclusion_proof) = mmr_native.generate_proof(0);
-    let spv: SPV = SPV::new(tx, bitcoin_inclusion_proof, block_header, mmr_inclusion_proof);
-
-    let output = bitcoin_light_client::header_chain_circuit(header_chain_input.clone());
-    assert!(spv.verify(&output.chain_state.block_hashes_mmr));
+    println!("construct spv");
+    let spv = build_spv(&tx, block_pos, target_block, &header_chain_input);
 
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
@@ -155,13 +147,13 @@ async fn main() {
             stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
         } else {
             println!("Skip writing header chain proof");
-        } 
+        }
 
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
         } else {
             println!("Skip writing commit chain proof");
-        } 
+        }
 
         client.prove(&proof_pk, stdin).groth16().run().expect("proving failed")
     });

@@ -62,7 +62,7 @@ pub struct CircuitCommit {
 pub struct CommitChainState {
     pub block_height: u64,
     pub commit_txn: Transaction,
-    pub seqeuncer_set_hash: [u8; 32],
+    pub sequencer_set_hash: [u8; 32],
     pub publisher_public_keys: Vec<PublicKey>,
     pub threshold: u16,
 }
@@ -76,6 +76,7 @@ pub struct CommitChainCircuitOutput {
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CommitChainCircuitInput {
     pub vk_hash: [u32; 8],
+    pub pv_hash: [u8; 32],
     pub prev_proof: CommitChainPrevProofType,
     pub commits: Vec<CircuitCommit>,
 }
@@ -85,14 +86,14 @@ impl CommitChainState {
         CommitChainState {
             block_height: u64::MAX,
             commit_txn: build_dummy_tx(),
-            seqeuncer_set_hash: [0u8; 32],
+            sequencer_set_hash: [0u8; 32],
             publisher_public_keys: vec![],
             threshold: u16::MAX,
         }
     }
 
     pub fn apply_commit(&mut self, commits: Vec<CircuitCommit>) {
-        let mut prev_sequencer_set_hash = self.seqeuncer_set_hash.clone();
+        let mut prev_sequencer_set_hash = self.sequencer_set_hash.clone();
         let mut prev_commit_txn = self.commit_txn.clone();
         let mut prev_publisher_public_keys: Vec<PublicKey> = vec![];
         let mut prev_threshold: u16 = u16::MAX;
@@ -107,7 +108,10 @@ impl CommitChainState {
             println!("prev commit txid: {}, {:?}", prev_commit_txid.to_string(), prev_commit_txn);
             // calculate the commitment of prev sequencer set and check the equivalent
             let expected_prev_commit = extract_op_return_data(&prev_commit_txn);
-            println!("expected prev commit: {:?}\n{:?}", expected_prev_commit, prev_sequencer_set_hash);
+            println!(
+                "expected prev commit: {:?}\n{:?}",
+                expected_prev_commit, prev_sequencer_set_hash
+            );
             assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit);
 
             // calculate the commitment of latest sequencer set and check the equivalent
@@ -148,7 +152,7 @@ impl CommitChainState {
             prev_publisher_public_keys = publisher_public_keys.clone();
             prev_threshold = threshold;
         }
-        self.seqeuncer_set_hash = prev_sequencer_set_hash;
+        self.sequencer_set_hash = prev_sequencer_set_hash;
         self.commit_txn = prev_commit_txn;
         self.publisher_public_keys = prev_publisher_public_keys;
         self.threshold = prev_threshold;
@@ -235,18 +239,14 @@ pub fn extract_op_return_data(tx: &Transaction) -> Vec<u8> {
     results
 }
 
-fn tmhash(data: &[u8]) -> [u8; 32] {
-    Sha256::digest(data).into()
-}
-
-fn leaf_hash(leaf: &[u8]) -> [u8; 32] {
+fn merkle_leaf_hash(leaf: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update([0x00]);
     h.update(leaf);
     h.finalize().into()
 }
 
-fn inner_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+fn merkle_inner_node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update([0x01]);
     h.update(left);
@@ -254,7 +254,7 @@ fn inner_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     h.finalize().into()
 }
 
-fn split_point(n: usize) -> usize {
+fn largest_power_of_two_less_than(n: usize) -> usize {
     let mut k = 1usize;
     while (k << 1) < n {
         k <<= 1;
@@ -262,29 +262,29 @@ fn split_point(n: usize) -> usize {
     k
 }
 
-fn merkle_root(items: &[[u8; 32]]) -> [u8; 32] {
+fn compute_merkle_root(items: &[[u8; 32]]) -> [u8; 32] {
     match items.len() {
-        0 => tmhash(&[]),
-        1 => leaf_hash(&items[0]),
+        0 => Sha256::digest(&[]).into(),
+        1 => merkle_leaf_hash(&items[0]),
         n => {
-            let k = split_point(n);
-            let left = merkle_root(&items[..k]);
-            let right = merkle_root(&items[k..]);
-            inner_hash(&left, &right)
+            let k = largest_power_of_two_less_than(n);
+            let left = compute_merkle_root(&items[..k]);
+            let right = compute_merkle_root(&items[k..]);
+            merkle_inner_node_hash(&left, &right)
         }
     }
 }
 
-fn data_hash_from_txs_b64(txs_b64: &[String]) -> [u8; 32] {
-    let tx_hashes: Vec<[u8; 32]> = txs_b64
+fn merkle_root_from_base64_txns(txns_b64: &[String]) -> [u8; 32] {
+    let tx_hashes: Vec<[u8; 32]> = txns_b64
         .iter()
         .map(|s| {
             let raw = b64.decode(s).expect("bad base64 tx");
-            tmhash(&raw)
+            Sha256::digest(&raw).into()
         })
         .collect();
 
-    merkle_root(&tx_hashes)
+    compute_merkle_root(&tx_hashes)
 }
 
 /// Verify consensus blocks
@@ -351,14 +351,14 @@ pub fn verify_validator_set_hash(commitment: [u8; 32], block: LightBlock) {
     assert_eq!(commitment.to_vec(), expected_hash.to_vec());
 }
 
-pub fn verify_goat_block_from_consensus(
+pub fn verify_el_block_from_consensus(
     goat_block_number: u64,
     goat_block_hash: &str,
     txs: &[String],
     light_block: LightBlock,
 ) {
-    let txs_b64 = b64.decode(&txs[0]).unwrap();
-    let tx = TxRaw::decode(&*txs_b64).unwrap();
+    let txns_b64 = b64.decode(&txs[0]).unwrap();
+    let tx = TxRaw::decode(&*txns_b64).unwrap();
     let tx_body = TxBody::decode(&tx.body_bytes[..]).unwrap();
 
     // check consistance of GOAT block hash
@@ -377,7 +377,7 @@ pub fn verify_goat_block_from_consensus(
     let excepted_data_hash = light_block.signed_header.header.data_hash.unwrap();
     println!("excepted data hash: {:?}", excepted_data_hash);
 
-    let computed_data_hash = data_hash_from_txs_b64(&txs);
+    let computed_data_hash = merkle_root_from_base64_txns(&txs);
     println!("data hash: {:?}", hex::encode(computed_data_hash));
 
     assert_eq!(excepted_data_hash.as_bytes(), computed_data_hash,);
@@ -425,7 +425,7 @@ mod tests {
         // loght block 5756784
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
 
-        verify_goat_block_from_consensus(
+        verify_el_block_from_consensus(
             5756298,
             "f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a",
             &txs,

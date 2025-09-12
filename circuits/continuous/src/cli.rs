@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use alloy_chains::Chain;
-use alloy_provider::{network::AnyNetwork, Provider, RootProvider};
+use alloy_provider::{Provider, RootProvider, network::AnyNetwork};
 use clap::Parser;
 use host_executor::Config;
 use primitives::genesis::Genesis;

@@ -1,10 +1,10 @@
 mod publisher;
 use bitcoin::Block;
 use bitcoin::Transaction;
-use header_chain::verify_merkle_proof;
 use header_chain::BitcoinMerkleTree;
 use header_chain::CircuitBlockHeader;
 use header_chain::MMRHost;
+use header_chain::verify_merkle_proof;
 pub use publisher::*;
 
 mod commit_chain;
@@ -26,19 +26,8 @@ use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
 
 pub use guest_executor::io::EthClientExecutorInput;
 
-//pub fn verify_goat_block(input: EthClientExecutorInput) -> (B256, B256, B256) {
-//    // Execute the block.
-//    let executor = EthClientExecutor::eth(
-//        Arc::new((&input.genesis).try_into().unwrap()),
-//        input.custom_beneficiary,
-//    );
-//    let (header, prev_state_root) = executor.execute(input).expect("failed to execute client");
-//    let block_hash = header.hash_slow();
-//    (block_hash, header.state_root, prev_state_root)
-//}
-
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
-fn verify_withdraw_tx(
+fn verify_el_withdraw_tx(
     l2_contract_address: Address,
     base_slot: U256,
     key: U128,
@@ -84,9 +73,10 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
         CommitChainPrevProofType::PrevProof(prev_proof) => {
             println!("verify commit chain of prev proof");
             assert_eq!(prev_proof.vk_hash, input.vk_hash);
-            let encoded = bincode::serialize(&prev_proof).unwrap();
-            let pv = sha2::Sha256::digest(&encoded);
-            zkm_zkvm::lib::verify::verify_zkm_proof(&input.vk_hash, &pv.into());
+            //let encoded = bincode::serialize(&prev_proof).unwrap();
+            //let pv = sha2::Sha256::digest(&encoded);
+            //println!("circuit pv: {:?}", hex::encode(pv));
+            zkm_zkvm::lib::verify::verify_zkm_proof(&input.vk_hash, &input.pv_hash);
             prev_proof.chain_state
         }
     };
@@ -138,7 +128,7 @@ pub fn generate_operator_proof(
     graph_id: [u8; 16],
     operator_latest_sequencer_commit_txn: CircuitTransaction,
 
-    consensus_blocks: [LightBlock; 2],
+    consensus_blocks: LightBlock,
     eth_client_execution_input: EthClientExecutorInput,
 
     watchtower_challenge_txns: Vec<CircuitTransaction>,
@@ -251,27 +241,30 @@ pub fn generate_operator_proof(
         }
     }
 
-    // latest_goat_block.validators == latest_sequencer_commit_txn.validators, and the sequencers signature is valid
-    // FIXME
-    // verify_validator_set(consensus_blocks[0].clone(), consensus_blocks[1].clone());
-    // assert!(U256::from(consensus_blocks[1].signed_header.header.height.value()) == operator_consensus_block_height);
+    // check the consensus block is valid by verifying the block's seqeuncer set hash are equal
+    let actual_sequencer_set_hash: [u8; 32] =
+        consensus_blocks.signed_header.header.validators_hash.as_bytes().try_into().unwrap();
+    assert_eq!(
+        actual_sequencer_set_hash,
+        commit_header_chain_output.chain_state.sequencer_set_hash
+    );
 
     // verify the goat block has been included by consensus
     let latest_el_block = &eth_client_execution_input.current_block;
     let goat_txns: Vec<String> =
         latest_el_block.body.transactions().map(|tx| hex::encode(tx.hash())).collect();
 
-    verify_goat_block_from_consensus(
+    verify_el_block_from_consensus(
         latest_el_block.header.number,
         &hex::encode(latest_el_block.header.hash_slow()),
         &goat_txns,
-        consensus_blocks[1].clone(),
+        consensus_blocks.clone(),
     );
 
     // latest_goat_block.get_graph_status(graph_status_storage_proof, graph_id) == GraphStatus.Proceeded
     // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L101
     assert_eq!(
-        verify_withdraw_tx(
+        verify_el_withdraw_tx(
             l2_contract_address,
             base_slot,
             U128::from_be_bytes(graph_id),
@@ -319,10 +312,10 @@ pub fn words_from_bytes_be(bytes: &[u8; 32]) -> [u32; 8] {
 }
 
 pub fn build_spv(
-    latest_sequencer_commit_txn: &Transaction, 
+    latest_sequencer_commit_txn: &Transaction,
     target_block_pos: u32,
     target_block: Block,
-    header_chain_input:& HeaderChainCircuitInput,
+    header_chain_input: &HeaderChainCircuitInput,
 ) -> SPV {
     let tx: CircuitTransaction = CircuitTransaction(latest_sequencer_commit_txn.clone());
     let latest_sequencer_commit_txid = tx.0.compute_txid();
@@ -334,21 +327,21 @@ pub fn build_spv(
 
     let target_block_header: CircuitBlockHeader =
         header_chain_input.block_headers[target_block_pos as usize].clone();
-    
+
     // find the target block
-    let tx_pos = target_block.txdata.iter().position(|x| x.compute_txid() == latest_sequencer_commit_txid);
+    let tx_pos =
+        target_block.txdata.iter().position(|x| x.compute_txid() == latest_sequencer_commit_txid);
     assert!(tx_pos.is_some());
-    let txid_list =
-        target_block.txdata.iter().map(|x| x.compute_txid().to_byte_array()).collect();
+    let txid_list = target_block.txdata.iter().map(|x| x.compute_txid().to_byte_array()).collect();
 
     let bitcoin_merkle_tree: BitcoinMerkleTree = BitcoinMerkleTree::new(txid_list);
     let bitcoin_inclusion_proof = bitcoin_merkle_tree.generate_proof(tx_pos.unwrap() as u32);
 
     println!("verify merkle proof");
     if !(verify_merkle_proof(
-            latest_sequencer_commit_txid.to_byte_array(),
-            &bitcoin_inclusion_proof,
-            bitcoin_merkle_tree.root(),
+        latest_sequencer_commit_txid.to_byte_array(),
+        &bitcoin_inclusion_proof,
+        bitcoin_merkle_tree.root(),
     )) {
         panic!("Can not verify merkle proof")
     }

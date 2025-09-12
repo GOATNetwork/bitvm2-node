@@ -2,12 +2,13 @@
 //! Example:
 //!     Genesis:       RUST_LOG=debug cargo run -r -- --init-input --output-proof "compressed.bin"
 //!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "compressed.bin" --output-proof "compressed2.bin" --commit-info ../../../node/tests_data/commit_info2.json
-use bitcoin::{secp256k1::PublicKey, Network, Txid};
+use bitcoin::{Network, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::*;
 use client::btc_chain::BTCClient;
+use sha2::Digest;
 use std::str::FromStr;
 use zkm_sdk::{
-    include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
+    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
 
 /// A program that aggregates the proofs of the simple program.
@@ -96,16 +97,16 @@ async fn main() {
             bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
         Some(proof)
     };
-    let prev_proof = match prev_receipt.clone() {
+    let (prev_proof, pv_hash) = match prev_receipt.clone() {
         Some(mut receipt) => {
-            let prev_output: CommitChainCircuitOutput = receipt.public_values.read();
-            CommitChainPrevProofType::PrevProof(prev_output)
+            let mut pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
+            (CommitChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
-        None => CommitChainPrevProofType::GenesisBlock,
+        None => (CommitChainPrevProofType::GenesisBlock, [0u8; 32]),
     };
 
-    let input: CommitChainCircuitInput = CommitChainCircuitInput { vk_hash, prev_proof, commits };
-
+    let input: CommitChainCircuitInput =
+        CommitChainCircuitInput { vk_hash, pv_hash, prev_proof, commits };
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();

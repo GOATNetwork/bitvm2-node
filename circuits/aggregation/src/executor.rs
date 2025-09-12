@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 use std::sync::{
-    mpsc::{Receiver, SyncSender},
     Arc,
+    mpsc::{Receiver, SyncSender},
 };
 
 use anyhow::Result;
@@ -13,7 +13,7 @@ use zkm_sdk::{
     HashableKey, Prover, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMProvingKey,
     ZKMPublicValues, ZKMStdin, ZKMVerifyingKey,
 };
-use zkm_verifier::{Groth16Verifier, GROTH16_VK_BYTES};
+use zkm_verifier::{GROTH16_VK_BYTES, Groth16Verifier};
 
 use crate::db::*;
 

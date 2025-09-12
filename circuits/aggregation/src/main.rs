@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc::sync_channel, Arc};
+use std::sync::{Arc, mpsc::sync_channel};
 
 use clap::Parser;
 use cli::Args;
 use logroller::{LogRollerBuilder, Rotation, RotationAge};
 use store::localdb::LocalDB;
 use tracing_subscriber::util::SubscriberInitExt;
-use zkm_sdk::{include_elf, ProverClient};
+use zkm_sdk::{ProverClient, include_elf};
 
 mod cli;
 mod db;

@@ -1,11 +1,11 @@
 use std::fmt::Display;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use store::localdb::LocalDB;
 use store::{GoatTxProcessingStatus, GoatTxType};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tracing::info;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
 use zkm_sdk::{HashableKey, ZKMProof, ZKMProofWithPublicValues, ZKMPublicValues, ZKMVerifyingKey};

@@ -373,6 +373,7 @@ pub enum HeaderChainPrevProofType {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct HeaderChainCircuitInput {
     pub vk_hash: [u32; 8],
+    pub pv_hash: [u8; 32],
     pub prev_proof: HeaderChainPrevProofType,
     pub block_headers: Vec<CircuitBlockHeader>,
 }

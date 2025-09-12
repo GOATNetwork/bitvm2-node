@@ -3,14 +3,14 @@
 //!     export BITCOIN_NETWORK=regtest
 //!     Genesis:        RUST_LOG=debug cargo run -r -- --start 0 --batch-size 10 --init-input --output-proof "0-10.bin"
 //!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 10 --batch-size 10 --input-proof "0-10.bin" --output-proof "10-20.bin"
-use bitcoin::{hashes::Hash, Network};
+use bitcoin::Network;
 use borsh::{BorshDeserialize, BorshSerialize};
 use client::btc_chain::BTCClient;
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use zkm_sdk::{
-    include_elf, HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin,
+    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
 
 /// A program that aggregates the proofs of the simple program.
@@ -90,13 +90,14 @@ async fn main() {
             bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
         Some(proof)
     };
-    let prev_proof = match prev_receipt.clone() {
+    let (prev_proof, pv_hash) = match prev_receipt.clone() {
         Some(mut receipt) => {
             let prev_output: BlockHeaderCircuitOutput = receipt.public_values.read();
             start = prev_output.chain_state.block_height as usize + 1;
-            HeaderChainPrevProofType::PrevProof(prev_output)
+            let mut pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
+            (HeaderChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
-        None => HeaderChainPrevProofType::GenesisBlock,
+        None => (HeaderChainPrevProofType::GenesisBlock, [0u8; 32]),
     };
     println!(
         "header-chain length: {}, start: {}, batch_size: {}",
@@ -105,7 +106,7 @@ async fn main() {
         args.batch_size
     );
     let input: HeaderChainCircuitInput =
-        HeaderChainCircuitInput { vk_hash, prev_proof, block_headers };
+        HeaderChainCircuitInput { vk_hash, prev_proof, pv_hash, block_headers };
 
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
