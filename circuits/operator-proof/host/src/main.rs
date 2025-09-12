@@ -15,7 +15,7 @@ use zkm_sdk::{
 use alloy_primitives::U256;
 use bitcoin::{Network, Txid};
 use bitcoin_light_client::{
-    CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType, build_spv,
+    build_spv, CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType, LightBlock
 };
 use std::str::FromStr;
 
@@ -53,6 +53,12 @@ pub struct Args {
 
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
+
+    #[clap(long, env, short, default_value = "../../../crates/bitcoin-light-client/samples/light_block_5756785.json")]
+    consensus_block: String,
+
+    #[clap(long, env, short)]
+    watchtower_txids: Vec<String>,
 
     #[clap(long, env, default_value = "compressed.bin")]
     output: String,
@@ -130,7 +136,12 @@ async fn main() {
         stdin.write(&args.graph_id);
 
         // let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
-        // let consensus_blocks: [LightBlock; 2] = zkm_zkvm::io::read(); // commit the sequencer set
+
+        // let consensus_blocks: LightBlock = zkm_zkvm::io::read(); // commit the sequencer set
+        let bytes = std::fs::read(&args.consensus_block).unwrap();
+        let consensus_block: LightBlock = bincode::deserialize(&bytes).unwrap();
+        stdin.write(&consensus_block);
+
         // let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
 
         // let watchtower_challenge_txns: Vec<CircuitTransaction> = zkm_zkvm::io::read();
