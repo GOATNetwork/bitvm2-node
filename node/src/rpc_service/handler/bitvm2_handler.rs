@@ -816,8 +816,8 @@ pub async fn get_instances_overview(
             .await?;
         let (pegout_sum, pegout_count) = storage_process
             .get_sum_bridge_out(&[
-                GraphStatus::Take1.to_string(),
-                GraphStatus::Take2.to_string(),
+                GraphStatus::OperatorTake1.to_string(),
+                GraphStatus::OperatorTake2.to_string(),
                 GraphStatus::Disprove.to_string(),
             ])
             .await?;

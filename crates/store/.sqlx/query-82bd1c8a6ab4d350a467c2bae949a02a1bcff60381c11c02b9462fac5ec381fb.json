@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT \n                graph_id AS \"graph_id: Uuid\",\n                txid AS \"txid: SerializableTxid\",\n                height,\n                vout_len,\n                monitor_data,\n                created_at,\n                updated_at\n            FROM graph_btc_tx_vout_monitor \n            WHERE graph_id = ? AND txid = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "txid: SerializableTxid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "height",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "vout_len",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "monitor_data",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "82bd1c8a6ab4d350a467c2bae949a02a1bcff60381c11c02b9462fac5ec381fb"
+}

@@ -2,8 +2,8 @@ use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphRawData,
-    GraphWithBroadcastInfo, Instance, Message, Node, NodesOverview, NonceCollect,
+    COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
+    GraphRawData, GraphWithBroadcastInfo, Instance, Message, Node, NodesOverview, NonceCollect,
     NonceCollectMetaData, ProofInfo, ProofType, PubKeyCollect, PubKeyCollectMetaData,
     SerializableTxid, WatchContract,
 };
@@ -867,19 +867,20 @@ impl<'a> StorageProcessor<'a> {
         let nack_txids_json = serde_json::to_string(&graph.nack_txids)?;
         let watchtower_challenge_timeout_txids_json =
             serde_json::to_string(&graph.watchtower_challenge_timeout_txids)?;
-        let assert_timeout_txids_json = serde_json::to_string(&graph.assert_timeout_txids)?;
+        let assert_commit_timeout_txids_json =
+            serde_json::to_string(&graph.assert_commit_timeout_txids)?;
         let res = sqlx::query!(
             r#"INSERT OR
-             REPLACE INTO graph (graph_id, instance_id, from_addr, to_addr, graph_ipfs_base_url, amount, challenge_amount,
+             REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, graph_ipfs_base_url, amount, challenge_amount,
                     status, operator_pubkey, pre_kickoff_txid, cur_prekickoff_txid, force_skip_kickoff_txid,
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
-                    challenge_txid, take2_txid, watchtower_challenge_init_txid, watchtower_challenge_timeout_txids,
-                    nack_txids, blockhash_commmit_timeout_txid, assert_init_txid, assert_timeout_txids, commit_timeout_txid,
-                    nack_index, assert_timeout_index, init_withdraw_tx_hash, bridge_out_start_at, zkm_version,
-                    created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                    challenge_txid, take2_txid, watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
+                    blockhash_commit_timeout_txid,assert_init_txid,assert_commit_timeout_txids, commit_timeout_txid, init_withdraw_tx_hash,
+                    bridge_out_start_at, zkm_version,created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)"#,
             graph.graph_id,
             graph.instance_id,
+            graph.kickoff_index,
             graph.from_addr,
             graph.to_addr,
             graph.graph_ipfs_base_url,
@@ -900,12 +901,10 @@ impl<'a> StorageProcessor<'a> {
             graph.watchtower_challenge_init_txid,
             watchtower_challenge_timeout_txids_json,
             nack_txids_json,
-            graph.blockhash_commmit_timeout_txid,
+            graph.blockhash_commit_timeout_txid,
             graph.assert_init_txid,
-            assert_timeout_txids_json,
+            assert_commit_timeout_txids_json,
             graph.commit_timeout_txid,
-            graph.nack_index,
-            graph.assert_timeout_index,
             graph.init_withdraw_tx_hash,
             graph.bridge_out_start_at,
             graph.zkm_version,
@@ -981,6 +980,7 @@ impl<'a> StorageProcessor<'a> {
         let row = sqlx::query_as::<_, Graph>(
             "SELECT graph_id,
                     instance_id,
+                    kickoff_index,
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
@@ -1001,12 +1001,10 @@ impl<'a> StorageProcessor<'a> {
                     watchtower_challenge_init_txid,
                     watchtower_challenge_timeout_txids,
                     nack_txids,
-                    blockhash_commmit_timeout_txid,
+                    blockhash_commit_timeout_txid,
                     assert_init_txid,
-                    assert_timeout_txids,
+                    assert_commit_timeout_txids,
                     commit_timeout_txid,
-                    nack_index,
-                    assert_timeout_index,
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
@@ -1045,6 +1043,7 @@ impl<'a> StorageProcessor<'a> {
         let mut query = QueryBuilder::new(
             "SELECT graph_id,
                     instance_id,
+                    kickoff_index,
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
@@ -1065,12 +1064,10 @@ impl<'a> StorageProcessor<'a> {
                     watchtower_challenge_init_txid,
                     watchtower_challenge_timeout_txids,
                     nack_txids,
-                    blockhash_commmit_timeout_txid,
+                    blockhash_commit_timeout_txid,
                     assert_init_txid,
-                    assert_timeout_txids,
+                    assert_commit_timeout_txids,
                     commit_timeout_txid,
-                    nack_index,
-                    assert_timeout_index,
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
@@ -1184,6 +1181,7 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query_as::<_, Graph>(
             "SELECT graph_id,
                     instance_id,
+                    kickoff_index,
                     from_addr,
                     to_addr,
                     graph_ipfs_base_url,
@@ -1204,12 +1202,10 @@ impl<'a> StorageProcessor<'a> {
                     watchtower_challenge_init_txid,
                     watchtower_challenge_timeout_txids,
                     nack_txids,
-                    blockhash_commmit_timeout_txid,
+                    blockhash_commit_timeout_txid,
                     assert_init_txid,
-                    assert_timeout_txids,
+                    assert_commit_timeout_txids,
                     commit_timeout_txid,
-                    nack_index,
-                    assert_timeout_index,
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
@@ -1909,18 +1905,22 @@ impl<'a> StorageProcessor<'a> {
                         graph.instance_id,
                         graph.status,
                         graph.kickoff_txid,
+                        graph.watchtower_challenge_init_txid,
+                        graph.watchtower_challenge_timeout_txids,
+                        graph.nack_txids,
+                        graph.assert_commit_timeout_txids,
                         graph.take1_txid,
                         graph.take2_txid,
                         graph.assert_init_txid,
                         graph.challenge_txid,
                         IFNULL(message_broadcast.msg_times, 0) AS msg_times,
-                        IFNULL(message_broadcast.msg_type, '') AS msg_type,
+                        IFNULL(message_broadcast.msg_type, ?) AS msg_type,
                         IFNULL(message_broadcast.updated_at, 0) AS last_msg_send_at
                  FROM graph
                           LEFT JOIN message_broadcast ON graph.graph_id = message_broadcast.graph_id AND
                                                          graph.instance_id = message_broadcast.instance_id AND
                                                          message_broadcast.msg_type = ?
-                 WHERE graph.status = ?").bind(msg_type).bind(graph_status).fetch_all(self.conn()).await?
+                 WHERE graph.status = ?").bind(msg_type).bind(msg_type).bind(graph_status).fetch_all(self.conn()).await?
         )
     }
 
@@ -3240,6 +3240,80 @@ impl<'a> StorageProcessor<'a> {
         let res: HashMap<Uuid, (String, i64)> =
             rows.into_iter().map(|v| (v.graph_id, (v.socket_addr, v.height))).collect();
         Ok(res)
+    }
+
+    pub async fn upsert_graph_btc_tx_vout_monitor(
+        &mut self,
+        monitor: &GraphBtcTxVoutMonitor,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+
+        let res = sqlx::query!(
+            r#"
+            INSERT OR REPLACE INTO graph_btc_tx_vout_monitor
+            (graph_id, txid, height, vout_len, monitor_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+            monitor.graph_id,
+            monitor.txid,
+            monitor.height,
+            monitor.vout_len,
+            monitor.monitor_data,
+            monitor.created_at,
+            current_time
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(res.rows_affected())
+    }
+
+    pub async fn get_graph_btc_tx_vout_monitor(
+        &mut self,
+        graph_id: &Uuid,
+        txid: &SerializableTxid,
+    ) -> anyhow::Result<Option<GraphBtcTxVoutMonitor>> {
+        let row = sqlx::query_as!(
+            GraphBtcTxVoutMonitor,
+            r#"
+            SELECT
+                graph_id AS "graph_id: Uuid",
+                txid AS "txid: SerializableTxid",
+                height,
+                vout_len,
+                monitor_data,
+                created_at,
+                updated_at
+            FROM graph_btc_tx_vout_monitor
+            WHERE graph_id = ? AND txid = ?
+            "#,
+            graph_id,
+            txid
+        )
+        .fetch_optional(self.conn())
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn update_graph_btc_tx_vout_monitor_data(
+        &mut self,
+        graph_id: &Uuid,
+        monitor_data: String,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE graph_btc_tx_vout_monitor
+             SET monitor_data = ?,
+                 updated_at   = ?
+             WHERE graph_id = ?",
+            monitor_data,
+            current_time,
+            graph_id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
     }
 }
 

@@ -624,7 +624,7 @@ pub async fn outpoint_spent_txid(
     client: &BTCClient,
     txid: &Txid,
     vout: u64,
-) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<Txid>> {
     match client.get_output_status(txid, vout).await? {
         Some(status) => Ok(status.txid),
         _ => Ok(None),

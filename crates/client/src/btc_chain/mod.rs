@@ -42,6 +42,10 @@ impl BTCClient {
         self.chain_service.get_tx(txid).await
     }
 
+    pub async fn get_tx_info(&self, tx_id: &Txid) -> anyhow::Result<Option<Tx>> {
+        self.chain_service.get_tx_info(tx_id).await
+    }
+
     /// Get address UTXOs
     pub async fn get_address_utxo(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
         self.chain_service.get_address_utxo(address).await
@@ -76,12 +80,12 @@ impl BTCClient {
         self.chain_service.get_tx_hex_by_tx_id(tx_id).await
     }
 
-    pub async fn fetch_btc_block(&self, block_height: u32) -> anyhow::Result<Block> {
-        self.chain_service.fetch_btc_block(block_height).await
+    pub async fn get_btc_block(&self, block_height: u32) -> anyhow::Result<Block> {
+        self.chain_service.get_btc_block(block_height).await
     }
 
-    pub async fn fetch_btc_address_utxos(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
-        self.chain_service.fetch_btc_address_utxos(address).await
+    pub async fn get_btc_address_utxos(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
+        self.chain_service.get_btc_address_utxos(address).await
     }
 
     pub async fn get_btc_merkle_proof(
@@ -89,17 +93,6 @@ impl BTCClient {
         tx_id: &Txid,
     ) -> anyhow::Result<(TxMerkleNode, MerkleProof, Vec<u8>)> {
         self.chain_service.get_btc_merkle_proof(tx_id).await
-    }
-
-    pub async fn fetch_btc_tx(
-        &self,
-        tx_id: &Txid,
-    ) -> Result<Transaction, Box<dyn std::error::Error>> {
-        self.chain_service.fetch_btc_tx(tx_id).await
-    }
-
-    pub async fn fetch_btc_tx_info(&self, tx_id: &Txid) -> Result<Tx, Box<dyn std::error::Error>> {
-        self.chain_service.fetch_btc_tx_info(tx_id).await
     }
 
     pub async fn get_btc_tx_proof_info(

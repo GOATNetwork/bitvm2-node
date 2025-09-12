@@ -762,7 +762,7 @@ pub async fn recv_and_dispatch(
                 && ![
                     GraphStatus::CommitteePresigned,
                     GraphStatus::OperatorDataPushed,
-                    GraphStatus::KickOff,
+                    GraphStatus::OperatorKickOff,
                 ]
                 .contains(&graph_status)
             {
@@ -817,7 +817,7 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     local_db,
                     receive_data.graph_id,
-                    Some(GraphStatus::KickOff.to_string()),
+                    Some(GraphStatus::OperatorKickOff.to_string()),
                     None,
                     None,
                     None,
@@ -857,7 +857,7 @@ pub async fn recv_and_dispatch(
                 && ![
                     GraphStatus::CommitteePresigned,
                     GraphStatus::OperatorDataPushed,
-                    GraphStatus::KickOff,
+                    GraphStatus::OperatorKickOff,
                 ]
                 .contains(&graph_status)
             {
@@ -902,7 +902,7 @@ pub async fn recv_and_dispatch(
                     update_graph_fields(
                         local_db,
                         receive_data.graph_id,
-                        Some(GraphStatus::Take1.to_string()),
+                        Some(GraphStatus::OperatorTake1.to_string()),
                         None,
                         None,
                         None,
@@ -950,7 +950,7 @@ pub async fn recv_and_dispatch(
                 && ![
                     GraphStatus::CommitteePresigned,
                     GraphStatus::OperatorDataPushed,
-                    GraphStatus::KickOff,
+                    GraphStatus::OperatorKickOff,
                     GraphStatus::Challenge,
                 ]
                 .contains(&graph_status)
@@ -1026,7 +1026,7 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     local_db,
                     receive_data.graph_id,
-                    Some(GraphStatus::Assert.to_string()),
+                    Some(GraphStatus::OperatorAssert.to_string()),
                     None,
                     Some(serialize_hex(&receive_data.challenge_txid)),
                     None,
@@ -1100,7 +1100,7 @@ pub async fn recv_and_dispatch(
                     update_graph_fields(
                         local_db,
                         receive_data.graph_id,
-                        Some(GraphStatus::Take2.to_string()),
+                        Some(GraphStatus::OperatorTake2.to_string()),
                         None,
                         None,
                         None,
@@ -1144,7 +1144,7 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             if let Some(graph_status) = status_op
-                && [GraphStatus::Take2, GraphStatus::Disprove].contains(&graph_status)
+                && [GraphStatus::OperatorTake2, GraphStatus::Disprove].contains(&graph_status)
             {
                 tracing::warn!(
                     "receive AssertSent for graph {} but currently in {graph_status} Status, ignored",
@@ -1239,7 +1239,7 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     local_db,
                     receive_data.graph_id,
-                    Some(GraphStatus::Take1.to_string()),
+                    Some(GraphStatus::OperatorTake1.to_string()),
                     None,
                     None,
                     None,
@@ -1276,7 +1276,7 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     local_db,
                     receive_data.graph_id,
-                    Some(GraphStatus::Take2.to_string()),
+                    Some(GraphStatus::OperatorTake2.to_string()),
                     None,
                     None,
                     None,
@@ -1307,7 +1307,7 @@ pub async fn recv_and_dispatch(
             // todo fix
             if validate_disprove(
                 btc_client,
-                &graph.assert_timeout_txids[graph.assert_timeout_index as usize].0,
+                &graph.assert_commit_timeout_txids[0].0,
                 &receive_data.disprove_txid,
             )
             .await?
@@ -1322,20 +1322,21 @@ pub async fn recv_and_dispatch(
                     None,
                 )
                 .await?;
-                let tx_hash = gateway_finish_withdraw_disproved(
-                    btc_client,
-                    goat_client,
-                    &receive_data.graph_id,
-                    &btc_client.fetch_btc_tx(&receive_data.disprove_txid).await?,
-                    &btc_client.fetch_btc_tx(&graph.challenge_txid.unwrap().0).await?,
-                )
-                .await?;
+                // let tx_hash = gateway_finish_withdraw_disproved(
+                //     btc_client,
+                //     goat_client,
+                //     &receive_data.graph_id,
+                //     &btc_client.fetch_btc_tx(&receive_data.disprove_txid).await?,
+                //     &btc_client.fetch_btc_tx(&graph.challenge_txid.unwrap().0).await?,
+                // )
+                // .await?;
+                // todo this file will been update
                 create_goat_tx_record_old(
                     local_db,
                     goat_client,
                     receive_data.graph_id,
                     receive_data.instance_id,
-                    &tx_hash,
+                    &"".to_string(),
                     GoatTxType::WithdrawDisproved,
                     GoatTxProcessingStatus::Skipped.to_string(),
                 )
@@ -1387,12 +1388,12 @@ pub async fn recv_and_dispatch(
                     .await?;
             if tx_on_chain(btc_client, &graph.take1.tx().compute_txid()).await? {
                 if let Some(graph_status) = status_op
-                    && graph_status != GraphStatus::Take1
+                    && graph_status != GraphStatus::OperatorTake1
                 {
                     update_graph_fields(
                         local_db,
                         receive_data.graph_id,
-                        Some(GraphStatus::Take1.to_string()),
+                        Some(GraphStatus::OperatorTake1.to_string()),
                         None,
                         None,
                         None,
@@ -1484,12 +1485,12 @@ pub async fn recv_and_dispatch(
                     .await?;
             if tx_on_chain(btc_client, &graph.take2.tx().compute_txid()).await? {
                 if let Some(graph_status) = status_op
-                    && graph_status != GraphStatus::Take2
+                    && graph_status != GraphStatus::OperatorTake2
                 {
                     update_graph_fields(
                         local_db,
                         receive_data.graph_id,
-                        Some(GraphStatus::Take2.to_string()),
+                        Some(GraphStatus::OperatorTake2.to_string()),
                         None,
                         None,
                         None,
@@ -1667,7 +1668,7 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     local_db,
                     receive_data.graph_id,
-                    Some(GraphStatus::KickOff.to_string()),
+                    Some(GraphStatus::OperatorKickOff.to_string()),
                     None,
                     None,
                     None,
@@ -1696,7 +1697,7 @@ pub async fn recv_and_dispatch(
                 && ![
                     GraphStatus::CommitteePresigned,
                     GraphStatus::OperatorDataPushed,
-                    GraphStatus::KickOff,
+                    GraphStatus::OperatorKickOff,
                 ]
                 .contains(&graph_status)
             {
@@ -1751,7 +1752,7 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     local_db,
                     receive_data.graph_id,
-                    Some(GraphStatus::Take1.to_string()),
+                    Some(GraphStatus::OperatorTake1.to_string()),
                     None,
                     None,
                     None,
@@ -1785,7 +1786,7 @@ pub async fn recv_and_dispatch(
                 update_graph_fields(
                     local_db,
                     receive_data.graph_id,
-                    Some(GraphStatus::Take2.to_string()),
+                    Some(GraphStatus::OperatorTake2.to_string()),
                     None,
                     None,
                     None,
@@ -1912,7 +1913,7 @@ async fn sync_graph_without_waiting(
 pub fn send_to_peer(
     swarm: &mut Swarm<AllBehaviours>,
     message: GOATMessage,
-) -> Result<MessageId, Box<dyn std::error::Error>> {
+) -> anyhow::Result<MessageId> {
     let actor = message.actor.to_string();
     let topic = crate::middleware::get_topic_name(&actor);
     let gossipsub_topic = gossipsub::IdentTopic::new(topic);

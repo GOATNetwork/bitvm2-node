@@ -291,13 +291,16 @@ pub async fn scan_post_pegin_data(
 
     info!("Starting into scan post_pegin_data, need to send instance_size:{} ", instances.len());
     for instance in instances {
-        if instance.pegin_confirm_txid.is_none() {
-            warn!(
-                "scan post_pegin_data instance:{}, pegin confirm txid is none",
-                instance.instance_id
-            );
-            continue;
-        }
+        let pegin_confirm_txid = match instance.pegin_confirm_txid {
+            Some(txid) => txid.into(),
+            None => {
+                warn!(
+                    "scan post_pegin_data instance:{}, pegin confirm txid is none",
+                    instance.instance_id
+                );
+                continue;
+            }
+        };
 
         if instance.committees_answers.values().any(|v| v.l2_sig.is_empty()) {
             warn!(
@@ -324,8 +327,10 @@ pub async fn scan_post_pegin_data(
                 )
                 .await?;
         } else {
-            let pegin_confirm_tx =
-                btc_client.fetch_btc_tx(&instance.pegin_confirm_txid.unwrap().0).await?;
+            let pegin_confirm_tx = btc_client.get_tx(&pegin_confirm_txid).await?.ok_or(format!(
+                "pegin_confirm_txid {} not found",
+                pegin_confirm_txid.to_string()
+            ))?;
 
             let committee_signs: Vec<Vec<u8>> =
                 instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
@@ -479,7 +484,7 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
         || graph.take1_txid.is_none()
         || graph.take2_txid.is_none()
         || graph.commit_timeout_txid.is_none()
-        || graph.assert_timeout_txids.is_empty()
+        || graph.assert_commit_timeout_txids.is_empty()
         || graph.nack_txids.is_empty()
     {
         tracing::warn!("grap {}, has none field", graph.graph_id);
@@ -497,7 +502,7 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
         take2_txid: graph.take2_txid.clone().unwrap().0.to_byte_array(),
         commit_timout_txid: graph.commit_timeout_txid.clone().unwrap().0.to_byte_array(),
         assert_timeout_txids: graph
-            .assert_timeout_txids
+            .assert_commit_timeout_txids
             .iter()
             .map(|x| x.0.to_byte_array())
             .collect(),

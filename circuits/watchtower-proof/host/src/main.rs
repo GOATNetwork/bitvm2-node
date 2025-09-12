@@ -95,7 +95,7 @@ async fn main() {
         btc_client.get_btc_merkle_proof(&latest_sequencer_commit_txid).await.unwrap();
     let block_pos = tx_merkle_proof.1.block_height;
     println!("block height: {block_pos}");
-    let target_block = btc_client.fetch_btc_block(block_pos).await.unwrap();
+    let target_block = btc_client.get_btc_block(block_pos).await.unwrap();
 
     println!("construct spv");
     let spv = build_spv(&tx, block_pos, target_block, &header_chain_input);

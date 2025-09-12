@@ -242,11 +242,17 @@ pub enum GraphStatus {
     OperatorPresigned,
     CommitteePresigned,
     OperatorDataPushed,
-    KickOff,
+    OperatorKickOff,
     Challenge,
-    Assert,
-    Take1,
-    Take2,
+    OperatorWatchtowerAndAssertInit,
+    WatchtowerChallenge,
+    OperatorWatchtowerChallengeTimeout,
+    OperatorChallengeACK,
+    OperatorChallengeNACK,
+    OperatorAssert,
+    AssertTimeout,
+    OperatorTake1,
+    OperatorTake2,
     Disprove,
 
     Created,
@@ -278,6 +284,7 @@ pub enum GraphStatus {
 pub struct Graph {
     pub graph_id: Uuid,
     pub instance_id: Uuid,
+    pub kickoff_index: i64,
     pub from_addr: String,
     pub to_addr: String, //operator_receive_address
     pub graph_ipfs_base_url: String,
@@ -301,13 +308,11 @@ pub struct Graph {
     #[sqlx(json)]
     pub nack_txids: Vec<SerializableTxid>,
     #[sqlx(json)]
-    pub blockhash_commmit_timeout_txid: Option<SerializableTxid>,
+    pub blockhash_commit_timeout_txid: Option<SerializableTxid>,
     pub assert_init_txid: Option<SerializableTxid>,
     #[sqlx(json)]
-    pub assert_timeout_txids: Vec<SerializableTxid>,
+    pub assert_commit_timeout_txids: Vec<SerializableTxid>,
     pub commit_timeout_txid: Option<SerializableTxid>,
-    pub nack_index: i64,
-    pub assert_timeout_index: i64,
     pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
     pub zkm_version: String,
@@ -331,34 +336,47 @@ impl Graph {
 }
 
 pub fn modify_graph_status(ori_status: &str, is_kickoffing: bool) -> String {
+    // TODO update
     match ori_status {
         "OperatorPresigned" => "Created".to_string(),
         "CommitteePresigned" => "Presigned".to_string(),
         "OperatorDataPushed" => {
             if is_kickoffing {
-                "KickOffing".to_string()
+                "OperatorKickOffing".to_string()
             } else {
                 "L2Recorded".to_string()
             }
         }
-        "KickOff" => "Challenging".to_string(),
-        "Challenge" => "Asserting".to_string(),
-        "Assert" => "Disproving".to_string(),
+        "OperatorKickOff" => "Challenging".to_string(),
+        "Challenge" => "OperatorAsserting".to_string(),
+        "OperatorAssert" => "Disproving".to_string(),
         _ => ori_status.to_string(),
     }
 }
 
 pub fn convert_to_step_state(ori_status: &str) -> String {
+    // TODO update
     match ori_status {
         "Created" => "OperatorPresigned".to_string(),
         "Presigned" => "CommitteePresigned".to_string(),
         "L2Recorded" => "OperatorDataPushed".to_string(),
         "KickOffing" => "OperatorDataPushed".to_string(),
-        "Challenging" => "KickOff".to_string(),
-        "Asserting" => "Challenge".to_string(),
-        "Disproving" => "Assert".to_string(),
+        "Challenging" => "OperatorKickOff".to_string(),
+        "OperatorAsserting" => "Challenge".to_string(),
+        "Disproving" => "OperatorAssert".to_string(),
         _ => ori_status.to_string(),
     }
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct GraphBtcTxVoutMonitor {
+    pub graph_id: Uuid,
+    pub txid: SerializableTxid,
+    pub height: i64,
+    pub vout_len: i64,
+    pub monitor_data: String, // GraphStatus
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Clone, Debug, Display, EnumString)]
@@ -418,6 +436,7 @@ pub struct NonceCollectMetaData {
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString)]
 pub enum MessageType {
+    None,
     BridgeInData,
     CreateInstance,
     CreateGraphPrepare,
@@ -450,6 +469,13 @@ pub struct GraphWithBroadcastInfo {
     pub msg_times: i64,
     pub msg_type: String,
     pub kickoff_txid: Option<SerializableTxid>,
+    pub watchtower_challenge_init_txid: Option<SerializableTxid>,
+    #[sqlx(json)]
+    pub watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
+    #[sqlx(json)]
+    pub nack_txids: Vec<SerializableTxid>,
+    #[sqlx(json)]
+    pub assert_commit_timeout_txids: Vec<SerializableTxid>,
     pub take1_txid: Option<SerializableTxid>,
     pub take2_txid: Option<SerializableTxid>,
     pub assert_init_txid: Option<SerializableTxid>,
