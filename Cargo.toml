@@ -111,6 +111,7 @@ guest-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
 host-executor  = { git = "https://github.com/ProjectZKM/reth-processor", features = ["alerting"] }
 primitives     = { git = "https://github.com/ProjectZKM/reth-processor" }
 provider       = { git = "https://github.com/ProjectZKM/reth-processor" }
+rpc-db = { git = "https://github.com/ProjectZKM/reth-processor" }
 
 # guest-executor = { path = "../../reth-processor/crates/executor/guest" }
 # host-executor = { path = "../../reth-processor/crates/executor/host", features = ["alerting"] }

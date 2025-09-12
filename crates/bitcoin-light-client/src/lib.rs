@@ -1,14 +1,14 @@
 mod publisher;
+pub use publisher::*;
+mod commit_chain;
+pub use commit_chain::*;
+
 use bitcoin::Block;
 use bitcoin::Transaction;
 use header_chain::BitcoinMerkleTree;
 use header_chain::CircuitBlockHeader;
 use header_chain::MMRHost;
 use header_chain::verify_merkle_proof;
-pub use publisher::*;
-
-mod commit_chain;
-pub use commit_chain::*;
 
 use alloy_primitives::Address;
 use alloy_primitives::hex;
@@ -19,7 +19,6 @@ use header_chain::{
     HeaderChainPrevProofType, SPV,
 };
 use revm::DatabaseRef;
-use sha2::Digest;
 use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
@@ -56,9 +55,7 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
         HeaderChainPrevProofType::PrevProof(prev_proof) => {
             println!("verify header chain of prev proof");
             assert_eq!(prev_proof.vk_hash, input.vk_hash);
-            let encoded = bincode::serialize(&prev_proof).unwrap();
-            let pv = sha2::Sha256::digest(&encoded);
-            zkm_zkvm::lib::verify::verify_zkm_proof(&input.vk_hash, &pv.into());
+            zkm_zkvm::lib::verify::verify_zkm_proof(&input.vk_hash, &input.pv_hash);
             prev_proof.chain_state
         }
     };
@@ -73,9 +70,6 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
         CommitChainPrevProofType::PrevProof(prev_proof) => {
             println!("verify commit chain of prev proof");
             assert_eq!(prev_proof.vk_hash, input.vk_hash);
-            //let encoded = bincode::serialize(&prev_proof).unwrap();
-            //let pv = sha2::Sha256::digest(&encoded);
-            //println!("circuit pv: {:?}", hex::encode(pv));
             zkm_zkvm::lib::verify::verify_zkm_proof(&input.vk_hash, &input.pv_hash);
             prev_proof.chain_state
         }
@@ -85,6 +79,7 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
     CommitChainCircuitOutput { vk_hash: input.vk_hash, chain_state }
 }
 
+// FIXME: check genesis commit txn
 pub fn generate_watchtower_proof(
     latest_sequencer_commit_txid: [u8; 32],
     header_chain: HeaderChainCircuitInput,
@@ -132,15 +127,13 @@ pub fn generate_operator_proof(
     eth_client_execution_input: EthClientExecutorInput,
 
     watchtower_challenge_txns: Vec<CircuitTransaction>,
-    watchtower_challenge_txn_script: Vec<ScriptBuf>,
-    watchtower_challenge_txn_prev_out: Vec<TxOut>,
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
-    watchtower_challenge_txn_sig: Vec<bitcoin::taproot::Signature>,
+    watchtower_challenge_txn_script: ScriptBuf,
+    watchtower_challenge_txn_prev_outs: Vec<TxOut>,
 
     operator_header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
     spv: SPV,
-
     l2_contract_address: Address,
     base_slot: U256,
 ) -> [u8; 32] {
@@ -180,13 +173,18 @@ pub fn generate_operator_proof(
     for i in 0..watchtower_challenge_txns.len() {
         if included_watchertowers_bits[i] {
             let tx = &watchtower_challenge_txns[i];
-            let script = &watchtower_challenge_txn_script[i];
-            let prev_out = &watchtower_challenge_txn_prev_out[i];
+            let prev_out = &watchtower_challenge_txn_prev_outs[i];
             let pubkey = &watchtower_challenge_txn_pubkey[i];
-            let sig = &watchtower_challenge_txn_sig[i];
+
+            // The index is 0
+            let sig = bitcoin::taproot::Signature::from_slice(&tx.input[0].witness[0]).unwrap();
             // check tx signature is valid
             match crate::commit_chain::verify_taproot_leaf_schnorr_signature(
-                script, &tx.0, prev_out, pubkey, sig,
+                &watchtower_challenge_txn_script,
+                &tx.0,
+                prev_out,
+                pubkey,
+                &sig,
             ) {
                 Ok(_) => {}
                 Err(msg) => {

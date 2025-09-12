@@ -25,6 +25,13 @@ lazy_static = "1.5.0"
 serde_json.workspace = true
 
 alloy-primitives.workspace = true
+url.workspace = true
+rpc-db.workspace = true
+reth-chainspec = { git = "https://github.com/ziren-patches/reth", branch = "patch-1.3.10", default-features = false }
+host-executor.workspace = true
+guest-executor.workspace = true
+primitives.workspace = true
+alloy-provider.workspace = true
 
 borsh = { workspace = true }
 bitcoin-light-client = { workspace = true }

@@ -17,7 +17,6 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-ver
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint" }
 
 # Statically turns off logging
-log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
 tracing = { version = "0.1", features = ["max_level_off", "release_max_level_off"] }
 
 bitcoin = { version = "0.32.6", features = ["serde", "rand", "secp-recovery"] }

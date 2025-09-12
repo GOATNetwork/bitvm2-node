@@ -5,13 +5,17 @@
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin"
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed2.bin --output "output.bin"
 //! ```
+use ark_serialize::{CanonicalSerialize, CanonicalSerializeHashExt};
 use client::btc_chain::BTCClient;
 use header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
-use zkm_sdk::{ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf};
+use zkm_sdk::{
+    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+};
 
 use bitcoin::{Network, Txid, hashes::Hash};
 use bitcoin_light_client::{CommitChainCircuitInput, CommitChainPrevProofType, build_spv};
 use std::str::FromStr;
+use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, load_ark_groth16_verifying_key_from_bytes};
 
 /// A program that aggregates the proofs of the simple program.
 const WTACHTOWER: &[u8] = include_elf!("guest");
@@ -126,9 +130,18 @@ async fn main() {
     let total_work: [u8; 32] = proof.public_values.read();
     println!("total work: {total_work:?}");
 
-    fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
-    fs::write(&format!("{}.vk", args.output), bincode::serialize(&watchtower_proof_vk).unwrap())
-        .unwrap();
-    let ZKMProof::Groth16(groth16_proof) = proof.proof else { panic!() };
-    println!("Generate proof successfully, proof: {:?}", groth16_proof);
+    let groth16_vk = &GROTH16_VK_BYTES;
+    let ark_proof =
+        convert_ark(&proof, watchtower_proof_vk.bytes32().as_ref(), groth16_vk).unwrap();
+
+    let mut writer = std::fs::File::create(format!("{}.proof.bin", args.output)).unwrap();
+    ark_proof.proof.serialize_compressed(&mut writer).unwrap();
+
+    let mut writer = std::fs::File::create(format!("{}.vk.bin", args.output)).unwrap();
+    ark_proof.groth16_vk.serialize_compressed(&mut writer).unwrap();
+
+    let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", args.output)).unwrap();
+    ark_proof.public_inputs.serialize_compressed(&mut writer).unwrap();
+
+    println!("Generate proof successfully, Ark proof: {:?}", ark_proof);
 }

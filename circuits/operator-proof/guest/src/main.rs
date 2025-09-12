@@ -20,11 +20,9 @@ pub fn main() {
     let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     let watchtower_challenge_txns: Vec<CircuitTransaction> = zkm_zkvm::io::read();
-
-    let watchtower_challenge_txn_script: Vec<ScriptBuf> = zkm_zkvm::io::read();
-    let watchtower_challenge_txn_prev_out: Vec<TxOut> = zkm_zkvm::io::read();
     let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
-    let watchtower_challenge_txn_sig: Vec<bitcoin::taproot::Signature> = zkm_zkvm::io::read();
+    let watchtower_challenge_txn_script: ScriptBuf = zkm_zkvm::io::read();
+    let watchtower_challenge_txn_prev_outs: Vec<TxOut> = zkm_zkvm::io::read();
 
     let operator_header_chain: HeaderChainCircuitInput = zkm_zkvm::io::read();
     let operator_commit_chain: CommitChainCircuitInput = zkm_zkvm::io::read();
@@ -42,10 +40,9 @@ pub fn main() {
         consensus_blocks,
         eth_client_execution_input,
         watchtower_challenge_txns,
-        watchtower_challenge_txn_script,
-        watchtower_challenge_txn_prev_out,
         watchtower_challenge_txn_pubkey,
-        watchtower_challenge_txn_sig,
+        watchtower_challenge_txn_script,
+        watchtower_challenge_txn_prev_outs,
         operator_header_chain,
         operator_commit_chain,
         spv,

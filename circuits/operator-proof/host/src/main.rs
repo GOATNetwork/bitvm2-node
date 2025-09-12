@@ -4,20 +4,25 @@
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin"
 //! ```
 use client::btc_chain::BTCClient;
-use header_chain::{
-    BitcoinMerkleTree, BlockHeaderCircuitOutput, CircuitBlockHeader, CircuitTransaction,
-    HeaderChainCircuitInput, HeaderChainPrevProofType, MMRHost, SPV,
-};
-use zkm_sdk::{
-    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
-};
+use header_chain::{CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType};
+use std::sync::Arc;
+use zkm_sdk::{ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf};
 
 use alloy_primitives::U256;
-use bitcoin::{Network, Txid};
+use bitcoin::{Network, ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::{
-    build_spv, CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType, LightBlock
+    CommitChainCircuitInput, CommitChainPrevProofType, EthClientExecutorInput, LightBlock,
+    build_spv,
 };
 use std::str::FromStr;
+
+use alloy_provider::{RootProvider, network::Ethereum};
+
+use host_executor::EthHostExecutor;
+use primitives::genesis::Genesis;
+use reth_chainspec::ChainSpec;
+use rpc_db::RpcDb;
+use url::Url;
 
 /// A program that aggregates the proofs of the simple program.
 const OPERATOR: &[u8] = include_elf!("guest");
@@ -33,6 +38,34 @@ fn str_to_16_bytes_exact(s: &str) -> Result<[u8; 16], String> {
     Ok(arr)
 }
 
+async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
+    // Setup the provider.
+    let rpc_url = Url::parse(&args.execution_layer_rpc).expect("invalid rpc url");
+    let provider = RootProvider::<Ethereum>::new_http(rpc_url);
+
+    let rpc_db =
+        RpcDb::new(provider.clone(), provider.clone(), args.execution_layer_block_number - 1);
+
+    let genesis = &Genesis::GOAT;
+    let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
+    let custom_beneficiary = None;
+
+    let host_executor = EthHostExecutor::eth(chain_spec.clone(), custom_beneficiary);
+    // Execute the host.
+    let client_input = host_executor
+        .execute(
+            args.execution_layer_block_number,
+            &rpc_db,
+            &provider,
+            genesis.clone(),
+            custom_beneficiary,
+            false,
+        )
+        .await
+        .expect("failed to execute host");
+    client_input
+}
+
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -40,9 +73,9 @@ pub struct Args {
     esplora_url: String,
 
     #[clap(long, env)]
-    included_watchertowers: String,
+    included_watchtowers: String,
 
-    #[clap(long, env, value_parser = str_to_16_bytes_exact)]
+    #[clap(long, env, value_parser = str_to_16_bytes_exact, default_value = "123456789ABCDEAA")]
     graph_id: [u8; 16],
 
     #[clap(long, env)]
@@ -54,11 +87,23 @@ pub struct Args {
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
 
-    #[clap(long, env, short, default_value = "../../../crates/bitcoin-light-client/samples/light_block_5756785.json")]
-    consensus_block: String,
+    #[clap(
+        long,
+        env,
+        short,
+        default_value = "../../../crates/bitcoin-light-client/samples/light_block_5756785.json"
+    )]
+    consensus_layer_block: String,
+
+    #[clap(long, env, short, default_value = "https://rpc.testnet3.goat.network")]
+    execution_layer_rpc: String,
 
     #[clap(long, env, short)]
-    watchtower_txids: Vec<String>,
+    execution_layer_block_number: u64,
+
+    /// All the watchtower challenges txids
+    #[clap(long, env, short)]
+    watchtower_challenge_info: String,
 
     #[clap(long, env, default_value = "compressed.bin")]
     output: String,
@@ -115,7 +160,10 @@ async fn main() {
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(&args.latest_sequencer_commit_txid).unwrap();
 
-    let tx = btc_client.fetch_btc_tx(&latest_sequencer_commit_txid).await.unwrap();
+    let operator_latest_sequencer_commit_txn =
+        btc_client.fetch_btc_tx(&latest_sequencer_commit_txid).await.unwrap();
+    println!("operator_latest_seqeuncer_commit_txn: {:?}", operator_latest_sequencer_commit_txn);
+
     // TODO: replace it by `get_raw_transaction_info`
     let tx_merkle_proof =
         btc_client.get_btc_merkle_proof(&latest_sequencer_commit_txid).await.unwrap();
@@ -124,31 +172,66 @@ async fn main() {
     let target_block = btc_client.fetch_btc_block(block_pos).await.unwrap();
 
     println!("construct spv");
-    let spv = build_spv(&tx, block_pos, target_block, &header_chain_input);
+    let spv = build_spv(
+        &operator_latest_sequencer_commit_txn,
+        block_pos,
+        target_block,
+        &header_chain_input,
+    );
+
+    let eth_client_execution_input: EthClientExecutorInput =
+        fetch_exection_layer_block(&args).await;
+    println!("Block: {:?}", eth_client_execution_input);
+
+    // --- watchtower_challenge_txns --- //
+    let bytes = std::fs::read(&args.watchtower_challenge_info).unwrap();
+    // watchtower challenge's (txid, public key)
+    let watchtower_challenge_txids: Vec<(String, String)> = serde_json::from_slice(&bytes).unwrap();
+    let mut watchtower_challenge_txns = Vec::new();
+    let mut watchtower_challenge_txn_prev_outs: Vec<TxOut> = Vec::new();
+    let mut watchtower_challenge_txn_pubkey = Vec::new();
+    for (id, pk) in &watchtower_challenge_txids {
+        let txid = id.parse().unwrap();
+        let txn = btc_client.fetch_btc_tx(&txid).await.unwrap();
+        // get prev outs
+        // FIXME: update the index
+        let prev_txn = btc_client.fetch_btc_tx(&txn.input[0].previous_output.txid).await.unwrap();
+        watchtower_challenge_txn_prev_outs
+            .push(prev_txn.output[txn.input[0].previous_output.vout as usize].clone());
+        watchtower_challenge_txn_pubkey.push(PublicKey::from_str(pk).unwrap());
+        watchtower_challenge_txns.push(CircuitTransaction(txn));
+    }
+
+    // https://github.com/GOATNetwork/BitVM/blob/GA/goat/src/transactions/watchtower_challenge.rs#L45
+    // generate_pay_to_pubkey_taproot_script
+    let watchtower_challenge_txn_script: ScriptBuf = ScriptBuf::new();
 
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
 
-        let included_watchertowers: U256 = U256::from_str(&args.included_watchertowers).unwrap();
-        stdin.write(&included_watchertowers);
+        let included_watchtowers: U256 = U256::from_str(&args.included_watchtowers).unwrap();
+        stdin.write(&included_watchtowers);
 
         stdin.write(&args.graph_id);
 
         // let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
+        stdin.write(&operator_latest_sequencer_commit_txn);
 
         // let consensus_blocks: LightBlock = zkm_zkvm::io::read(); // commit the sequencer set
-        let bytes = std::fs::read(&args.consensus_block).unwrap();
-        let consensus_block: LightBlock = bincode::deserialize(&bytes).unwrap();
-        stdin.write(&consensus_block);
+        let bytes = std::fs::read(&args.consensus_layer_block).unwrap();
+        let consensus_layer_block: LightBlock = bincode::deserialize(&bytes).unwrap();
+        stdin.write(&consensus_layer_block);
 
-        // let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
+        stdin.write(&eth_client_execution_input);
 
         // let watchtower_challenge_txns: Vec<CircuitTransaction> = zkm_zkvm::io::read();
-        // let watchtower_challenge_txn_script: Vec<ScriptBuf> = zkm_zkvm::io::read();
-        // let watchtower_challenge_txn_prev_out: Vec<TxOut> = zkm_zkvm::io::read();
+        stdin.write(&watchtower_challenge_txns);
         // let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
-        // let watchtower_challenge_txn_sig: Vec<bitcoin::taproot::Signature> = zkm_zkvm::io::read();
+        stdin.write(&watchtower_challenge_txn_pubkey);
+        // let watchtower_challenge_txn_script: ScriptBuf = zkm_zkvm::io::read();
+        stdin.write(&watchtower_challenge_txn_script);
+        stdin.write(&watchtower_challenge_txn_prev_outs);
 
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
