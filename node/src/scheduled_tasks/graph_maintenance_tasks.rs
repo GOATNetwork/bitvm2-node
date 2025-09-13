@@ -27,7 +27,10 @@ use strum::{Display, EnumString};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-/// WatcherTower init tx vout item status
+const BLOCKHASH_COMMIT_VIN_MARGIN: i64 = 3;
+const ASSERT_COMMIT_VIN_MARGIN: i64 = 2;
+
+/// Watchtower init tx vout item status
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
 pub enum WTInitTxVoutItemStatus {
     #[default]
@@ -37,11 +40,12 @@ pub enum WTInitTxVoutItemStatus {
     Ack,
     AckTimeout,
 }
-/// WatcherTower init tx vout data
+/// Watchtower init tx vout data
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct WTInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, WTInitTxVoutItemStatus>,
     pub disproved_indexes: Vec<i32>,
+    pub is_commit_blockhash_timeout: bool,
 }
 
 impl WTInitTxVoutMonitorData {
@@ -90,7 +94,7 @@ impl WTInitTxVoutMonitorData {
     }
 
     pub fn is_challenged(&self) -> bool {
-        !self.disproved_indexes.is_empty()
+        !self.disproved_indexes.is_empty() || self.is_commit_blockhash_timeout
     }
 }
 
@@ -866,7 +870,7 @@ async fn check_watchtower_challenge_finished(
     storage_processor: &mut StorageProcessor<'_>,
     graph_data: &GraphWithBroadcastInfo,
     watchtower_challenge_init_txid: Txid,
-) -> anyhow::Result<(bool, Option<(WTInitTxVoutMonitorData, i64)>)> {
+) -> anyhow::Result<(bool, Option<(WTInitTxVoutMonitorData, i64, i64)>)> {
     let watchtower_init_out_monitor = storage_processor
         .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &watchtower_challenge_init_txid.into())
         .await?;
@@ -876,7 +880,10 @@ async fn check_watchtower_challenge_finished(
             parse_monitor_data::<WTInitTxVoutMonitorData>(&out_monitor.monitor_data)
         {
             let is_finished = vout_monitor_data.is_challenged();
-            return Ok((is_finished, Some((vout_monitor_data, out_monitor.height))));
+            return Ok((
+                is_finished,
+                Some((vout_monitor_data, out_monitor.height, out_monitor.vout_len)),
+            ));
         }
     }
     Ok((false, None))
@@ -887,7 +894,7 @@ async fn check_assert_commit_finished(
     storage_processor: &mut StorageProcessor<'_>,
     graph_data: &GraphWithBroadcastInfo,
     assert_init_txid: Txid,
-) -> anyhow::Result<(bool, Option<(AssertInitTxVoutMonitorData, i64)>)> {
+) -> anyhow::Result<(bool, Option<(AssertInitTxVoutMonitorData, i64, i64)>)> {
     let assert_init_out_monitor = storage_processor
         .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &assert_init_txid.into())
         .await?;
@@ -897,7 +904,10 @@ async fn check_assert_commit_finished(
             parse_monitor_data::<AssertInitTxVoutMonitorData>(&out_monitor.monitor_data)
         {
             let is_finished = vout_monitor_data.is_challenged();
-            return Ok((is_finished, Some((vout_monitor_data, out_monitor.height))));
+            return Ok((
+                is_finished,
+                Some((vout_monitor_data, out_monitor.height, out_monitor.vout_len)),
+            ));
         }
     }
     Ok((false, None))
@@ -912,11 +922,11 @@ async fn process_watchtower_challenge_monitoring(
     watchtower_challenge_init_txid: Txid,
     watchtower_challenge_timelock: i64,
     ack_timelock: i64,
+    blockhash_commit_timeout_lock: i64,
     current_height: i64,
-    _assert_init_txid: Txid,
-    monitor_data: Option<(WTInitTxVoutMonitorData, i64)>,
+    monitor_data: Option<(WTInitTxVoutMonitorData, i64, i64)>,
 ) -> anyhow::Result<()> {
-    if let Some((mut vout_monitor_data, height)) = monitor_data {
+    if let Some((mut vout_monitor_data, height, vout_len)) = monitor_data {
         if vout_monitor_data.is_challenged() {
             // TODO send p2p message: watchtower_challenge_finish
             return Ok(());
@@ -924,6 +934,7 @@ async fn process_watchtower_challenge_monitoring(
 
         let is_challenge_timeout = height + watchtower_challenge_timelock > current_height;
         let is_ack_timeout = height + ack_timelock > current_height;
+        let is_blockhash_commit_timeout = height + blockhash_commit_timeout_lock > current_height;
 
         if !is_ack_timeout {
             if is_challenge_timeout {
@@ -942,6 +953,24 @@ async fn process_watchtower_challenge_monitoring(
                     &graph_data.nack_txids,
                 )
                 .await?;
+
+            if is_blockhash_commit_timeout {
+                let spend_txid = outpoint_spent_txid(
+                    btc_client,
+                    &watchtower_challenge_init_txid,
+                    (vout_len - BLOCKHASH_COMMIT_VIN_MARGIN) as u64,
+                )
+                .await?;
+                if spend_txid.is_none() {
+                    vout_monitor_data.is_commit_blockhash_timeout = true;
+                } else {
+                    if let Some(txid) = graph_data.blockhash_commit_timeout_txid.clone()
+                        && txid.0 == spend_txid.unwrap()
+                    {
+                        vout_monitor_data.is_commit_blockhash_timeout = true;
+                    }
+                }
+            }
 
             for (_index, status) in vout_monitor_data.data_map.iter() {
                 if *status == WTInitTxVoutItemStatus::Challenge {
@@ -1008,10 +1037,9 @@ async fn process_assert_commit_monitoring(
     assert_init_txid: Txid,
     assert_commit_timeout_lock: i64,
     current_height: i64,
-    _watchtower_challenge_init_txid: Txid,
-    monitor_data: Option<(AssertInitTxVoutMonitorData, i64)>,
+    monitor_data: Option<(AssertInitTxVoutMonitorData, i64, i64)>,
 ) -> anyhow::Result<()> {
-    if let Some((mut vout_monitor_data, height)) = monitor_data {
+    if let Some((mut vout_monitor_data, height, _vout_len)) = monitor_data {
         if vout_monitor_data.is_challenged() {
             // TODO send p2p message: assert_commit_finish
             return Ok(());
@@ -1108,6 +1136,7 @@ async fn process_watchtower_assert_init_graph(
     assert_init_txid: Txid,
     watchtower_challenge_timelock: i64,
     ack_timelock: i64,
+    blockhash_commit_timeout_lock: i64,
     assert_commit_timeout_lock: i64,
     current_height: i64,
 ) -> anyhow::Result<()> {
@@ -1148,8 +1177,8 @@ async fn process_watchtower_assert_init_graph(
         watchtower_challenge_init_txid,
         watchtower_challenge_timelock,
         ack_timelock,
+        blockhash_commit_timeout_lock,
         current_height,
-        assert_init_txid,
         watchtower_monitor_data,
     )
     .await?;
@@ -1163,7 +1192,6 @@ async fn process_watchtower_assert_init_graph(
         assert_init_txid,
         assert_commit_timeout_lock,
         current_height,
-        watchtower_challenge_init_txid,
         assert_monitor_data,
     )
     .await?;
@@ -1172,14 +1200,20 @@ async fn process_watchtower_assert_init_graph(
 }
 
 /// Get timelock configurations
-fn get_timelock_configs() -> (i64, i64, i64) {
+fn get_timelock_configs() -> (i64, i64, i64, i64) {
     let network = get_network();
-    let base_timelock = num_blocks_per_network(network, CONNECTOR_3_TIMELOCK) as i64;
     // TODO: Update lock_blocks - these may need different values based on protocol requirements
+    let base_timelock = num_blocks_per_network(network, CONNECTOR_3_TIMELOCK) as i64;
     let watchtower_challenge_timelock = base_timelock;
     let ack_timelock = base_timelock;
     let assert_commit_timeout_lock = base_timelock;
-    (watchtower_challenge_timelock, ack_timelock, assert_commit_timeout_lock)
+    let blockhash_commit_timeout_lock = base_timelock;
+    (
+        watchtower_challenge_timelock,
+        ack_timelock,
+        blockhash_commit_timeout_lock,
+        assert_commit_timeout_lock,
+    )
 }
 
 pub async fn monitor_watchtower_assert(
@@ -1199,8 +1233,12 @@ pub async fn monitor_watchtower_assert(
     info!("Found {} graphs to process in monitor_watchtower_assert", graph_datas.len());
     let current_height = btc_client.get_height().await? as i64;
 
-    let (watchtower_challenge_timelock, ack_timelock, assert_commit_timeout_lock) =
-        get_timelock_configs();
+    let (
+        watchtower_challenge_timelock,
+        ack_timelock,
+        blockhash_commit_timeout_lock,
+        assert_commit_timeout_lock,
+    ) = get_timelock_configs();
 
     for graph_data in graph_datas {
         let (kickoff_txid, watchtower_challenge_init_txid, assert_init_txid) = match (
@@ -1230,6 +1268,7 @@ pub async fn monitor_watchtower_assert(
             assert_init_txid,
             watchtower_challenge_timelock,
             ack_timelock,
+            blockhash_commit_timeout_lock,
             assert_commit_timeout_lock,
             current_height,
         )

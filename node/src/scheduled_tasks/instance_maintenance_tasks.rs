@@ -483,7 +483,7 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
         || graph.kickoff_txid.is_none()
         || graph.take1_txid.is_none()
         || graph.take2_txid.is_none()
-        || graph.commit_timeout_txid.is_none()
+        || graph.blockhash_commit_timeout_txid.is_none()
         || graph.assert_commit_timeout_txids.is_empty()
         || graph.nack_txids.is_empty()
     {
@@ -500,7 +500,7 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
         kickoff_txid: graph.kickoff_txid.clone().unwrap().0.to_byte_array(),
         take1_txid: graph.take1_txid.clone().unwrap().0.to_byte_array(),
         take2_txid: graph.take2_txid.clone().unwrap().0.to_byte_array(),
-        commit_timout_txid: graph.commit_timeout_txid.clone().unwrap().0.to_byte_array(),
+        commit_timout_txid: graph.blockhash_commit_timeout_txid.clone().unwrap().0.to_byte_array(),
         assert_timeout_txids: graph
             .assert_commit_timeout_txids
             .iter()

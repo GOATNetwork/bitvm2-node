@@ -244,8 +244,11 @@ pub enum GraphStatus {
     OperatorDataPushed,
     OperatorKickOff,
     Challenge,
+    Disprove,
+
+    //TODO Need to discuss.
     OperatorWatchtowerAndAssertInit,
-    WatchtowerChallenge,
+    WatchtowerChallenge, //
     OperatorWatchtowerChallengeTimeout,
     OperatorChallengeACK,
     OperatorChallengeNACK,
@@ -253,7 +256,6 @@ pub enum GraphStatus {
     AssertTimeout,
     OperatorTake1,
     OperatorTake2,
-    Disprove,
 
     Created,
     Presigned,
@@ -312,7 +314,6 @@ pub struct Graph {
     pub assert_init_txid: Option<SerializableTxid>,
     #[sqlx(json)]
     pub assert_commit_timeout_txids: Vec<SerializableTxid>,
-    pub commit_timeout_txid: Option<SerializableTxid>,
     pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
     pub zkm_version: String,
@@ -476,6 +477,7 @@ pub struct GraphWithBroadcastInfo {
     pub nack_txids: Vec<SerializableTxid>,
     #[sqlx(json)]
     pub assert_commit_timeout_txids: Vec<SerializableTxid>,
+    pub blockhash_commit_timeout_txid: Option<SerializableTxid>,
     pub take1_txid: Option<SerializableTxid>,
     pub take2_txid: Option<SerializableTxid>,
     pub assert_init_txid: Option<SerializableTxid>,
