@@ -256,6 +256,8 @@ pub enum GraphStatus {
     AssertTimeout,
     OperatorTake1,
     OperatorTake2,
+    OperatorWatchtowerAndAssertNormalFinish,
+    OperatorWatchtowerAndAssertDisproved,
 
     Created,
     Presigned,

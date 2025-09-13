@@ -40,12 +40,20 @@ pub enum WTInitTxVoutItemStatus {
     Ack,
     AckTimeout,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+pub enum CommitBlockHashStatus {
+    #[default]
+    Init,
+    Commit,
+    CommitTimeout,
+}
 /// Watchtower init tx vout data
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct WTInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, WTInitTxVoutItemStatus>,
-    pub disproved_indexes: Vec<i32>,
-    pub is_commit_blockhash_timeout: bool,
+    pub require_disproved_indexes: Vec<i32>,
+    pub commit_blockhash_status: CommitBlockHashStatus,
+    pub is_complete_in_time: bool,
 }
 
 impl WTInitTxVoutMonitorData {
@@ -55,7 +63,8 @@ impl WTInitTxVoutMonitorData {
         txid: &Txid,
         challenge_timeout_txids: &[SerializableTxid],
         nack_txids: &[SerializableTxid],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<i32> {
+        let mut vout_spent_detect = 0;
         for (k, status) in self.data_map.iter_mut() {
             let index = *k;
             if *status == WTInitTxVoutItemStatus::Init
@@ -67,6 +76,7 @@ impl WTInitTxVoutMonitorData {
                 } else {
                     *status = WTInitTxVoutItemStatus::Challenge;
                 }
+                vout_spent_detect += 1;
             }
 
             if *status == WTInitTxVoutItemStatus::Challenge
@@ -78,9 +88,14 @@ impl WTInitTxVoutMonitorData {
                 } else {
                     *status = WTInitTxVoutItemStatus::Ack;
                 }
+                vout_spent_detect += 1;
             }
         }
-        Ok(())
+        if vout_spent_detect > 0 {
+            self.is_complete_in_time =
+                self.data_map.values().all(|status| *status == WTInitTxVoutItemStatus::Ack);
+        }
+        Ok(vout_spent_detect)
     }
 
     fn update_disprove_indexes(&mut self) {
@@ -88,13 +103,23 @@ impl WTInitTxVoutMonitorData {
             if *status == WTInitTxVoutItemStatus::Init
                 || *status == WTInitTxVoutItemStatus::Challenge
             {
-                self.disproved_indexes.push(*index);
+                self.require_disproved_indexes.push(*index);
             }
         }
     }
 
     pub fn is_challenged(&self) -> bool {
-        !self.disproved_indexes.is_empty() || self.is_commit_blockhash_timeout
+        !self.require_disproved_indexes.is_empty()
+            || self.commit_blockhash_status == CommitBlockHashStatus::CommitTimeout
+    }
+
+    pub fn is_complete_in_time(&self) -> bool {
+        self.is_complete_in_time
+    }
+
+    #[allow(dead_code)]
+    pub fn is_finished(&self) -> bool {
+        self.is_complete_in_time || self.is_challenged()
     }
 }
 
@@ -110,7 +135,8 @@ pub enum AssertInitTxVoutItemStatus {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct AssertInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, AssertInitTxVoutItemStatus>,
-    pub disproved_indexes: Vec<i32>, // default -1
+    pub require_disprove_indexes: Vec<i32>,
+    pub is_complete_in_time: bool,
 }
 
 impl AssertInitTxVoutMonitorData {
@@ -119,33 +145,47 @@ impl AssertInitTxVoutMonitorData {
         btc_client: &BTCClient,
         txid: &Txid,
         committ_timeout_txids: &[SerializableTxid],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<i32> {
+        let mut vout_spent_detect = 0;
         for (k, status) in self.data_map.iter_mut() {
-            let index = *k;
             if *status == AssertInitTxVoutItemStatus::Init
-                && let Some(spend_txid) =
-                    outpoint_spent_txid(btc_client, &txid, (index * 2) as u64).await?
+                && let Some(spend_txid) = outpoint_spent_txid(btc_client, &txid, *k as u64).await?
             {
                 if committ_timeout_txids.iter().any(|v| v.0 == spend_txid) {
                     *status = AssertInitTxVoutItemStatus::CommitTimeout;
                 } else {
                     *status = AssertInitTxVoutItemStatus::Commit;
                 }
+                vout_spent_detect += 1
             }
         }
-        Ok(())
+        if vout_spent_detect > 0 {
+            self.is_complete_in_time =
+                self.data_map.values().all(|status| *status == AssertInitTxVoutItemStatus::Commit);
+        }
+
+        Ok(vout_spent_detect)
     }
 
     fn update_disprove_indexes(&mut self) {
         for (index, status) in self.data_map.iter() {
             if *status == AssertInitTxVoutItemStatus::Init {
-                self.disproved_indexes.push(*index);
+                self.require_disprove_indexes.push(*index);
             }
         }
     }
 
     pub fn is_challenged(&self) -> bool {
-        !self.disproved_indexes.is_empty()
+        !self.require_disprove_indexes.is_empty()
+    }
+
+    pub fn is_complete_in_time(&self) -> bool {
+        self.is_complete_in_time
+    }
+
+    #[allow(dead_code)]
+    pub fn is_finished(&self) -> bool {
+        self.is_complete_in_time || self.is_challenged()
     }
 }
 
@@ -870,7 +910,7 @@ async fn check_watchtower_challenge_finished(
     storage_processor: &mut StorageProcessor<'_>,
     graph_data: &GraphWithBroadcastInfo,
     watchtower_challenge_init_txid: Txid,
-) -> anyhow::Result<(bool, Option<(WTInitTxVoutMonitorData, i64, i64)>)> {
+) -> anyhow::Result<(bool, bool, Option<(WTInitTxVoutMonitorData, i64, i64)>)> {
     let watchtower_init_out_monitor = storage_processor
         .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &watchtower_challenge_init_txid.into())
         .await?;
@@ -879,14 +919,14 @@ async fn check_watchtower_challenge_finished(
         if let Ok(vout_monitor_data) =
             parse_monitor_data::<WTInitTxVoutMonitorData>(&out_monitor.monitor_data)
         {
-            let is_finished = vout_monitor_data.is_challenged();
             return Ok((
-                is_finished,
+                vout_monitor_data.is_complete_in_time(),
+                vout_monitor_data.is_challenged(),
                 Some((vout_monitor_data, out_monitor.height, out_monitor.vout_len)),
             ));
         }
     }
-    Ok((false, None))
+    Ok((false, false, None))
 }
 
 /// Check if assert commit is already finished and return monitor data if exists
@@ -894,7 +934,7 @@ async fn check_assert_commit_finished(
     storage_processor: &mut StorageProcessor<'_>,
     graph_data: &GraphWithBroadcastInfo,
     assert_init_txid: Txid,
-) -> anyhow::Result<(bool, Option<(AssertInitTxVoutMonitorData, i64, i64)>)> {
+) -> anyhow::Result<(bool, bool, Option<(AssertInitTxVoutMonitorData, i64, i64)>)> {
     let assert_init_out_monitor = storage_processor
         .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &assert_init_txid.into())
         .await?;
@@ -903,14 +943,14 @@ async fn check_assert_commit_finished(
         if let Ok(vout_monitor_data) =
             parse_monitor_data::<AssertInitTxVoutMonitorData>(&out_monitor.monitor_data)
         {
-            let is_finished = vout_monitor_data.is_challenged();
             return Ok((
-                is_finished,
+                vout_monitor_data.is_complete_in_time(),
+                vout_monitor_data.is_challenged(),
                 Some((vout_monitor_data, out_monitor.height, out_monitor.vout_len)),
             ));
         }
     }
-    Ok((false, None))
+    Ok((false, false, None))
 }
 
 /// Process watchtower challenge monitoring
@@ -920,6 +960,7 @@ async fn process_watchtower_challenge_monitoring(
     graph_data: &GraphWithBroadcastInfo,
     kickoff_txid: Txid,
     watchtower_challenge_init_txid: Txid,
+    blockhash_commit_timeout_txid: Txid,
     watchtower_challenge_timelock: i64,
     ack_timelock: i64,
     blockhash_commit_timeout_lock: i64,
@@ -935,7 +976,7 @@ async fn process_watchtower_challenge_monitoring(
         let is_challenge_timeout = height + watchtower_challenge_timelock > current_height;
         let is_ack_timeout = height + ack_timelock > current_height;
         let is_blockhash_commit_timeout = height + blockhash_commit_timeout_lock > current_height;
-
+        let mut data_change = false;
         if !is_ack_timeout {
             if is_challenge_timeout {
                 info!("watchtower challenge timeout");
@@ -945,7 +986,7 @@ async fn process_watchtower_challenge_monitoring(
                 // TODO send p2p message watchtower challenge init sent
             }
 
-            vout_monitor_data
+            let vout_spent_len = vout_monitor_data
                 .monitor_vout(
                     btc_client,
                     &watchtower_challenge_init_txid,
@@ -953,42 +994,51 @@ async fn process_watchtower_challenge_monitoring(
                     &graph_data.nack_txids,
                 )
                 .await?;
-
-            if is_blockhash_commit_timeout {
-                let spend_txid = outpoint_spent_txid(
-                    btc_client,
-                    &watchtower_challenge_init_txid,
-                    (vout_len - BLOCKHASH_COMMIT_VIN_MARGIN) as u64,
-                )
-                .await?;
-                if spend_txid.is_none() {
-                    vout_monitor_data.is_commit_blockhash_timeout = true;
-                } else {
-                    if let Some(txid) = graph_data.blockhash_commit_timeout_txid.clone()
-                        && txid.0 == spend_txid.unwrap()
+            data_change = data_change || vout_spent_len > 0;
+            if vout_monitor_data.commit_blockhash_status == CommitBlockHashStatus::Init {
+                if !is_blockhash_commit_timeout {
+                    if let Some(spend_txid) = outpoint_spent_txid(
+                        btc_client,
+                        &watchtower_challenge_init_txid,
+                        (vout_len - BLOCKHASH_COMMIT_VIN_MARGIN) as u64,
+                    )
+                    .await?
+                        && blockhash_commit_timeout_txid != spend_txid
                     {
-                        vout_monitor_data.is_commit_blockhash_timeout = true;
+                        vout_monitor_data.commit_blockhash_status = CommitBlockHashStatus::Commit;
+                        data_change = true;
                     }
+                } else {
+                    vout_monitor_data.commit_blockhash_status =
+                        CommitBlockHashStatus::CommitTimeout;
+                    data_change = true;
                 }
             }
 
+            if is_blockhash_commit_timeout {
+                info!("commit blockhash timeout");
+                // TODO send p2p message: commit blockhash timeout
+            }
             for (_index, status) in vout_monitor_data.data_map.iter() {
                 if *status == WTInitTxVoutItemStatus::Challenge {
                     info!("watchtower challenge tx has been sent");
                     // TODO send p2p message: watchtower challenge tx sent
                 }
             }
-
+        } else {
+            if vout_monitor_data.require_disproved_indexes.is_empty() {
+                vout_monitor_data.update_disprove_indexes();
+                data_change = true;
+            }
+        }
+        if data_change {
             storage_processor
                 .update_graph_btc_tx_vout_monitor_data(
                     &graph_data.graph_id,
                     serde_json::to_string(&vout_monitor_data)?,
                 )
                 .await?;
-        } else {
-            vout_monitor_data.update_disprove_indexes();
         }
-        // TODO commit block hash check
     } else {
         // Create monitor if watchtower challenge init transaction is detected
         if let Some(spent_txid) = outpoint_spent_txid(btc_client, &kickoff_txid, 1).await?
@@ -1044,28 +1094,35 @@ async fn process_assert_commit_monitoring(
             // TODO send p2p message: assert_commit_finish
             return Ok(());
         }
-
         let is_assert_commit_timeout = height + assert_commit_timeout_lock > current_height;
-
+        let mut data_change = false;
         if !is_assert_commit_timeout {
             info!("assert commit monitoring active");
             // TODO send p2p message assert commit monitoring
-
-            vout_monitor_data
+            let vout_spent_len = vout_monitor_data
                 .monitor_vout(
                     btc_client,
                     &assert_init_txid,
                     &graph_data.assert_commit_timeout_txids,
                 )
                 .await?;
+
+            data_change = data_change || vout_spent_len > 0;
+        } else {
+            if vout_monitor_data.require_disprove_indexes.is_empty() {
+                vout_monitor_data.update_disprove_indexes();
+                data_change = true;
+            } else {
+                // TODO send p2p message: assert_commit_timeout
+            }
+        }
+        if data_change {
             storage_processor
                 .update_graph_btc_tx_vout_monitor_data(
                     &graph_data.graph_id,
                     serde_json::to_string(&vout_monitor_data)?,
                 )
                 .await?;
-        } else {
-            vout_monitor_data.update_disprove_indexes();
         }
     } else {
         // Create monitor if assert init transaction is detected
@@ -1133,6 +1190,7 @@ async fn process_watchtower_assert_init_graph(
     graph_data: &GraphWithBroadcastInfo,
     kickoff_txid: Txid,
     watchtower_challenge_init_txid: Txid,
+    blockhash_commit_timeout_txid: Txid,
     assert_init_txid: Txid,
     watchtower_challenge_timelock: i64,
     ack_timelock: i64,
@@ -1141,30 +1199,45 @@ async fn process_watchtower_assert_init_graph(
     current_height: i64,
 ) -> anyhow::Result<()> {
     // Check if either process is already finished before calling the monitoring functions
-    let (watchtower_finished, watchtower_monitor_data) = check_watchtower_challenge_finished(
-        storage_processor,
-        graph_data,
-        watchtower_challenge_init_txid,
-    )
-    .await?;
+    let (watchtower_is_complete_in_time, watchtower_is_challenged, watchtower_monitor_data) =
+        check_watchtower_challenge_finished(
+            storage_processor,
+            graph_data,
+            watchtower_challenge_init_txid,
+        )
+        .await?;
 
-    let (assert_finished, assert_monitor_data) =
+    let (assert_is_complete_in_time, assert_is_challenged, assert_monitor_data) =
         check_assert_commit_finished(storage_processor, graph_data, assert_init_txid).await?;
 
     // If either process is finished, skip both monitoring functions
-    if watchtower_finished || assert_finished {
-        if watchtower_finished {
-            info!(
-                "Watchtower challenge already finished, skipping both monitoring for graph {}",
-                graph_data.graph_id
-            );
-        }
-        if assert_finished {
-            info!(
-                "Assert commit already finished, skipping both monitoring for graph {}",
-                graph_data.graph_id
-            );
-        }
+
+    if watchtower_is_challenged || assert_is_challenged {
+        info!(
+            "Watchtower challenge success or assert commit timeout, skip monitoring for graph {},\
+                 detail: watchtower success :{watchtower_is_challenged}, assert timout {assert_is_challenged}",
+            graph_data.graph_id
+        );
+        storage_processor
+            .update_graph_fields(
+                GraphUpdate::new(graph_data.graph_id)
+                    .with_status(GraphStatus::OperatorWatchtowerAndAssertDisproved.to_string()),
+            )
+            .await?;
+        return Ok(());
+    }
+
+    if watchtower_is_complete_in_time && assert_is_complete_in_time {
+        info!(
+            "Watchtower challenge finished and assert commit finished, for graph {}",
+            graph_data.graph_id
+        );
+        storage_processor
+            .update_graph_fields(
+                GraphUpdate::new(graph_data.graph_id)
+                    .with_status(GraphStatus::OperatorWatchtowerAndAssertNormalFinish.to_string()),
+            )
+            .await?;
         return Ok(());
     }
 
@@ -1175,6 +1248,7 @@ async fn process_watchtower_assert_init_graph(
         graph_data,
         kickoff_txid,
         watchtower_challenge_init_txid,
+        blockhash_commit_timeout_txid,
         watchtower_challenge_timelock,
         ack_timelock,
         blockhash_commit_timeout_lock,
@@ -1223,7 +1297,6 @@ pub async fn monitor_watchtower_assert(
     _goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
     info!("Starting monitor_watchtower_assert task");
-
     let mut storage_processor = local_db.acquire().await?;
     let graph_datas = fetch_graphs_with_status_and_msg_type(
         &mut storage_processor,
@@ -1241,14 +1314,26 @@ pub async fn monitor_watchtower_assert(
     ) = get_timelock_configs();
 
     for graph_data in graph_datas {
-        let (kickoff_txid, watchtower_challenge_init_txid, assert_init_txid) = match (
+        let (
+            kickoff_txid,
+            watchtower_challenge_init_txid,
+            blockhash_commit_timeout_txid,
+            assert_init_txid,
+        ) = match (
             graph_data.kickoff_txid.clone(),
             graph_data.watchtower_challenge_init_txid.clone(),
+            graph_data.blockhash_commit_timeout_txid.clone(),
             graph_data.assert_init_txid.clone(),
         ) {
-            (Some(kickoff_txid), Some(watchtower_challenge_init_txid), Some(assert_init_txid)) => (
+            (
+                Some(kickoff_txid),
+                Some(watchtower_challenge_init_txid),
+                Some(blockhash_commit_timeout_txid),
+                Some(assert_init_txid),
+            ) => (
                 kickoff_txid.into(),
                 watchtower_challenge_init_txid.into(),
+                blockhash_commit_timeout_txid.into(),
                 assert_init_txid.into(),
             ),
             _ => {
@@ -1265,6 +1350,7 @@ pub async fn monitor_watchtower_assert(
             &graph_data,
             kickoff_txid,
             watchtower_challenge_init_txid,
+            blockhash_commit_timeout_txid,
             assert_init_txid,
             watchtower_challenge_timelock,
             ack_timelock,
