@@ -51,7 +51,7 @@ async fn fetch_header_chain(args: &Args) {
     let mut block_headers = vec![];
     let mut writer = std::fs::File::create(&args.block_headers).unwrap();
     for i in args.start..(args.start + args.batch_size) {
-        let block = btc_client.fetch_btc_block(i as u32).await.unwrap();
+        let block = btc_client.get_btc_block(i as u32).await.unwrap();
         println!("block_id {i}: {}", block.block_hash().to_string());
         let header: header_chain::CircuitBlockHeader = block.header.into();
         block_headers.push(header.clone());

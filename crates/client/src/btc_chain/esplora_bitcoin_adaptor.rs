@@ -1,7 +1,7 @@
 use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
 use bitcoin::block::Header;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid};
-use esplora_client::{AsyncClient, Builder, MerkleProof, Utxo};
+use esplora_client::{AsyncClient, Builder, MerkleProof, Tx, Utxo};
 
 const TEST_URL: &str = "https://mempool.space/testnet/api";
 const MAIN_URL: &str = "https://mempool.space/api";
@@ -41,6 +41,10 @@ impl BitcoinAdaptor for EsploraBitcoinAdaptor {
 
     async fn get_tx(&self, txid: &Txid) -> anyhow::Result<Option<Transaction>> {
         Ok(self.esplora.get_tx(txid).await?)
+    }
+
+    async fn get_tx_info(&self, txid: &Txid) -> anyhow::Result<Option<Tx>> {
+        Ok(self.esplora.get_tx_info(txid).await?)
     }
 
     async fn get_address_utxo(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {

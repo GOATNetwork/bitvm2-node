@@ -2,9 +2,12 @@ mod event_watch_task;
 pub mod graph_maintenance_tasks;
 pub mod instance_maintenance_tasks;
 
+use crate::action::GOATMessageContent;
 use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
-    scan_assert, scan_kickoff, scan_take1, scan_take2, scan_withdraw,
+    detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge,
+    detect_watchtower_assert_init, detected_take2, monitor_watchtower_assert,
+    scan_obsolete_sibling_graphs,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
@@ -14,6 +17,7 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 pub use event_watch_task::{is_processing_history_events, run_watch_event_task};
 use libp2p::Swarm;
+use store::MessageType;
 use store::localdb::LocalDB;
 use tracing::warn;
 
@@ -40,6 +44,10 @@ pub async fn relayer_scheduled_tasks(
         warn!("instance_btc_tx_monitor, err {:?}", err)
     }
 
+    if let Err(err) = scan_obsolete_sibling_graphs(local_db).await {
+        warn!("scan_obsolete_sibling_graphs, err {:?}", err)
+    }
+
     if let Err(err) = scan_post_pegin_data(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_post_operator_data, err {:?}", err)
     }
@@ -48,25 +56,30 @@ pub async fn relayer_scheduled_tasks(
         warn!("scan_post_operator_data, err {:?}", err)
     }
 
-    if let Err(err) = scan_withdraw(swarm, local_db, goat_client, btc_client).await {
-        warn!("scan_withdraw, err {:?}", err)
+    if let Err(err) = detect_init_withdraw_call(swarm, local_db, goat_client, btc_client).await {
+        warn!("detect_init_withdraw_call, err {:?}", err)
     }
 
-    if let Err(err) = scan_kickoff(swarm, local_db, btc_client, goat_client).await {
-        warn!("scan_kickoff, err {:?}", err)
+    if let Err(err) = detect_kickoff(swarm, local_db, btc_client, goat_client).await {
+        warn!("detect_kickoff, err {:?}", err)
+    }
+    if let Err(err) = detect_take1_or_challenge(swarm, local_db, btc_client, goat_client).await {
+        warn!("detect_take1_or_challenge, err {:?}", err)
     }
 
-    if let Err(err) = scan_assert(swarm, local_db, btc_client).await {
-        warn!("scan_assert, err {:?}", err)
+    if let Err(err) = detect_watchtower_assert_init(swarm, local_db, btc_client, goat_client).await
+    {
+        warn!("detect_watchtower_assert_init, err {:?}", err)
     }
 
-    if let Err(err) = scan_take1(swarm, local_db, btc_client, goat_client).await {
-        warn!("scan_take1, err {:?}", err)
+    if let Err(err) = monitor_watchtower_assert(swarm, local_db, btc_client, goat_client).await {
+        warn!("monitor_watchtower_assert, err {:?}", err)
     }
 
-    if let Err(err) = scan_take2(swarm, local_db, btc_client, goat_client).await {
+    if let Err(err) = detected_take2(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_take2, err {:?}", err)
     }
+
     Ok(())
 }
 
@@ -96,4 +109,29 @@ pub async fn committee_scheduled_tasks(
     //     warn!("instance_btc_tx_monitor, err {:?}", err)
     // }
     Ok(())
+}
+
+fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
+    match content {
+        GOATMessageContent::CreateInstance(_) => MessageType::CreateInstance,
+        GOATMessageContent::CreateGraphPrepare(_) => MessageType::CreateGraphPrepare,
+        GOATMessageContent::CreateGraph(_) => MessageType::CreateGraph,
+        GOATMessageContent::NonceGeneration(_) => MessageType::NonceGeneration,
+        GOATMessageContent::CommitteePresign(_) => MessageType::CommitteePresign,
+        GOATMessageContent::GraphFinalize(_) => MessageType::GraphFinalize,
+        GOATMessageContent::KickoffReady(_) => MessageType::KickoffReady,
+        GOATMessageContent::KickoffSent(_) => MessageType::KickoffSent,
+        GOATMessageContent::Take1Ready(_) => MessageType::Take1Ready,
+        GOATMessageContent::Take1Sent(_) => MessageType::Take1Sent,
+        GOATMessageContent::ChallengeSent(_) => MessageType::ChallengeSent,
+        GOATMessageContent::AssertSent(_) => MessageType::AssertSent,
+        GOATMessageContent::Take2Ready(_) => MessageType::Take2Ready,
+        GOATMessageContent::Take2Sent(_) => MessageType::Take2Sent,
+        GOATMessageContent::DisproveSent(_) => MessageType::DisproveSent,
+        GOATMessageContent::RequestNodeInfo(_) => MessageType::RequestNodeInfo,
+        GOATMessageContent::ResponseNodeInfo(_) => MessageType::ResponseNodeInfo,
+        GOATMessageContent::SyncGraphRequest(_) => MessageType::SyncGraphRequest,
+        GOATMessageContent::SyncGraph(_) => MessageType::SyncGraph,
+        GOATMessageContent::InstanceDiscarded(_) => MessageType::InstanceDiscarded,
+    }
 }

@@ -5,6 +5,7 @@ use bitcoin::Txid;
 use bitcoin::hashes::Hash;
 use indexmap::IndexMap;
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 use strum::{Display, EnumString};
 use uuid::Uuid;
 
@@ -241,12 +242,20 @@ pub enum GraphStatus {
     OperatorPresigned,
     CommitteePresigned,
     OperatorDataPushed,
-    KickOff,
+    OperatorKickOff,
     Challenge,
-    Assert,
-    Take1,
-    Take2,
     Disprove,
+
+    //TODO Need to discuss.
+    OperatorWatchtowerAndAssertInit,
+    WatchtowerChallenge, //
+    OperatorWatchtowerChallengeTimeout,
+    OperatorChallengeACK,
+    OperatorChallengeNACK,
+    OperatorAssert,
+    AssertTimeout,
+    OperatorTake1,
+    OperatorTake2,
 
     Created,
     Presigned,
@@ -277,6 +286,7 @@ pub enum GraphStatus {
 pub struct Graph {
     pub graph_id: Uuid,
     pub instance_id: Uuid,
+    pub kickoff_index: i64,
     pub from_addr: String,
     pub to_addr: String, //operator_receive_address
     pub graph_ipfs_base_url: String,
@@ -300,13 +310,10 @@ pub struct Graph {
     #[sqlx(json)]
     pub nack_txids: Vec<SerializableTxid>,
     #[sqlx(json)]
-    pub blockhash_commmit_timeout_txid: Option<SerializableTxid>,
+    pub blockhash_commit_timeout_txid: Option<SerializableTxid>,
     pub assert_init_txid: Option<SerializableTxid>,
     #[sqlx(json)]
-    pub assert_timeout_txids: Vec<SerializableTxid>,
-    pub commit_timeout_txid: Option<SerializableTxid>,
-    pub nack_index: i64,
-    pub assert_timeout_index: i64,
+    pub assert_commit_timeout_txids: Vec<SerializableTxid>,
     pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
     pub zkm_version: String,
@@ -330,34 +337,47 @@ impl Graph {
 }
 
 pub fn modify_graph_status(ori_status: &str, is_kickoffing: bool) -> String {
+    // TODO update
     match ori_status {
         "OperatorPresigned" => "Created".to_string(),
         "CommitteePresigned" => "Presigned".to_string(),
         "OperatorDataPushed" => {
             if is_kickoffing {
-                "KickOffing".to_string()
+                "OperatorKickOffing".to_string()
             } else {
                 "L2Recorded".to_string()
             }
         }
-        "KickOff" => "Challenging".to_string(),
-        "Challenge" => "Asserting".to_string(),
-        "Assert" => "Disproving".to_string(),
+        "OperatorKickOff" => "Challenging".to_string(),
+        "Challenge" => "OperatorAsserting".to_string(),
+        "OperatorAssert" => "Disproving".to_string(),
         _ => ori_status.to_string(),
     }
 }
 
 pub fn convert_to_step_state(ori_status: &str) -> String {
+    // TODO update
     match ori_status {
         "Created" => "OperatorPresigned".to_string(),
         "Presigned" => "CommitteePresigned".to_string(),
         "L2Recorded" => "OperatorDataPushed".to_string(),
         "KickOffing" => "OperatorDataPushed".to_string(),
-        "Challenging" => "KickOff".to_string(),
-        "Asserting" => "Challenge".to_string(),
-        "Disproving" => "Assert".to_string(),
+        "Challenging" => "OperatorKickOff".to_string(),
+        "OperatorAsserting" => "Challenge".to_string(),
+        "Disproving" => "OperatorAssert".to_string(),
         _ => ori_status.to_string(),
     }
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct GraphBtcTxVoutMonitor {
+    pub graph_id: Uuid,
+    pub txid: SerializableTxid,
+    pub height: i64,
+    pub vout_len: i64,
+    pub monitor_data: String, // GraphStatus
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Clone, Debug, Display, EnumString)]
@@ -417,6 +437,7 @@ pub struct NonceCollectMetaData {
 
 #[derive(Debug, Clone, PartialEq, Display, EnumString)]
 pub enum MessageType {
+    None,
     BridgeInData,
     CreateInstance,
     CreateGraphPrepare,
@@ -434,6 +455,10 @@ pub enum MessageType {
     Take2Sent,
     DisproveSent,
     InstanceDiscarded,
+    RequestNodeInfo,
+    ResponseNodeInfo,
+    SyncGraphRequest,
+    SyncGraph,
 }
 
 // template query data struct
@@ -445,6 +470,14 @@ pub struct GraphWithBroadcastInfo {
     pub msg_times: i64,
     pub msg_type: String,
     pub kickoff_txid: Option<SerializableTxid>,
+    pub watchtower_challenge_init_txid: Option<SerializableTxid>,
+    #[sqlx(json)]
+    pub watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
+    #[sqlx(json)]
+    pub nack_txids: Vec<SerializableTxid>,
+    #[sqlx(json)]
+    pub assert_commit_timeout_txids: Vec<SerializableTxid>,
+    pub blockhash_commit_timeout_txid: Option<SerializableTxid>,
     pub take1_txid: Option<SerializableTxid>,
     pub take2_txid: Option<SerializableTxid>,
     pub assert_init_txid: Option<SerializableTxid>,
@@ -606,6 +639,55 @@ pub struct GoatTxRecord {
     pub processing_status: String,
     pub extra: Option<String>,
     pub created_at: i64,
+}
+impl GoatTxRecord {
+    pub fn new(graph_id: Uuid, tx_type: String) -> Self {
+        Self {
+            graph_id,
+            instance_id: Uuid::nil(),
+            tx_type,
+            tx_hash: String::new(),
+            height: 0,
+            is_local: false,
+            processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+            extra: None,
+            created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+        }
+    }
+
+    pub fn with_instance_id(mut self, instance_id: Uuid) -> Self {
+        self.instance_id = instance_id;
+        self
+    }
+
+    pub fn with_tx_hash(mut self, tx_hash: String) -> Self {
+        self.tx_hash = tx_hash;
+        self
+    }
+
+    pub fn with_height(mut self, height: i64) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub fn is_local(&self) -> bool {
+        self.is_local
+    }
+
+    pub fn without_extra(mut self, extra: Option<String>) -> Self {
+        self.extra = extra;
+        self
+    }
+
+    pub fn with_is_local(mut self, is_local: bool) -> Self {
+        self.is_local = is_local;
+        self
+    }
+
+    pub fn with_processing_status(mut self, processing_status: String) -> Self {
+        self.processing_status = processing_status;
+        self
+    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]

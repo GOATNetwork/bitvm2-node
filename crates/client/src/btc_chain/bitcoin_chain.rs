@@ -3,7 +3,7 @@ use anyhow::bail;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
-use esplora_client::{MerkleProof, Utxo};
+use esplora_client::{MerkleProof, Tx, Utxo};
 
 pub struct BitcoinChain {
     adaptor: Box<dyn BitcoinAdaptor + Send + Sync>,
@@ -32,6 +32,10 @@ impl BitcoinChain {
     /// Get transaction
     pub async fn get_tx(&self, txid: &Txid) -> anyhow::Result<Option<Transaction>> {
         self.adaptor.get_tx(txid).await
+    }
+
+    pub async fn get_tx_info(&self, tx_id: &Txid) -> anyhow::Result<Option<Tx>> {
+        self.adaptor.get_tx_info(tx_id).await
     }
 
     /// Get address UTXOs
@@ -71,7 +75,7 @@ impl BitcoinChain {
         bail!("not found tx:{} on chain", tx_id.to_string());
     }
 
-    pub async fn fetch_btc_block(&self, block_height: u32) -> anyhow::Result<Block> {
+    pub async fn get_btc_block(&self, block_height: u32) -> anyhow::Result<Block> {
         let block_hash = self.adaptor.get_block_hash(block_height).await?;
         self.adaptor.get_block_by_hash(&block_hash).await?.ok_or(anyhow::format_err!(
             "failed to fetch block at :{} hash:{}",
@@ -80,7 +84,7 @@ impl BitcoinChain {
         ))
     }
 
-    pub async fn fetch_btc_address_utxos(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
+    pub async fn get_btc_address_utxos(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
         self.adaptor.get_address_utxo(address).await
     }
 
@@ -96,13 +100,6 @@ impl BitcoinChain {
             return Ok((header.merkle_root, proof, raw_header));
         }
         bail!("get {} merkle proof is none", tx_id)
-    }
-
-    pub async fn fetch_btc_tx(
-        &self,
-        tx_id: &Txid,
-    ) -> Result<Transaction, Box<dyn std::error::Error>> {
-        self.adaptor.get_tx(tx_id).await?.ok_or(format!("{tx_id} is not on chain").into())
     }
 
     pub async fn get_btc_tx_proof_info(

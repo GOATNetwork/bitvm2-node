@@ -9,7 +9,8 @@ use client::graphs::GraphQueryClient;
 use client::graphs::graph_query::{
     BlockRange, BridgeInEvent, BridgeInRequestEvent, CancelWithdrawEvent, CommitteeResponseEvent,
     GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent, UserGraphWithdrawEvent,
-    WithdrawDisprovedEvent, WithdrawPathsEvent, get_gateway_events_query,
+    WithdrawDisprovedEvent, WithdrawHappyEvent, WithdrawPathsEvent, WithdrawUnhappyEvent,
+    get_gateway_events_query,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -65,10 +66,18 @@ pub async fn fetch_and_handle_block_range_events<'a>(
                     proceed_withdraw_events =
                         serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
                 }
-                GatewayEventEntity::WithdrawHappyPaths
-                | GatewayEventEntity::WithdrawUnhappyPaths => {
-                    let mut events: Vec<WithdrawPathsEvent> =
+                GatewayEventEntity::WithdrawHappyPaths => {
+                    let events: Vec<WithdrawHappyEvent> =
                         serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    let mut events: Vec<WithdrawPathsEvent> =
+                        events.into_iter().map(WithdrawPathsEvent::WithdrawHappyEvent).collect();
+                    withdraw_paths_events.append(&mut events);
+                }
+                GatewayEventEntity::WithdrawUnhappyPaths => {
+                    let events: Vec<WithdrawUnhappyEvent> =
+                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    let mut events: Vec<WithdrawPathsEvent> =
+                        events.into_iter().map(WithdrawPathsEvent::WithdrawUnhappyEvent).collect();
                     withdraw_paths_events.append(&mut events);
                 }
                 GatewayEventEntity::WithdrawDisproveds => {
@@ -138,14 +147,11 @@ async fn handle_user_withdraw_events<'a>(
                 let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(GraphUpdate {
-                        graph_id,
-                        status: None,
-                        ipfs_base_url: None,
-                        challenge_txid: None,
-                        bridge_out_start_at: Some(current_time_secs()),
-                        init_withdraw_txid: Some(init_event.transaction_hash.clone()),
-                    })
+                    .update_graph_fields(
+                        GraphUpdate::new(graph_id)
+                            .with_bridge_out_start_at(current_time_secs())
+                            .with_init_withdraw_txid(init_event.transaction_hash.clone()),
+                    )
                     .await?;
                 storage_processor
                     .upsert_goat_tx_record(&GoatTxRecord {
@@ -166,14 +172,11 @@ async fn handle_user_withdraw_events<'a>(
                     Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(GraphUpdate {
-                        graph_id,
-                        status: None,
-                        ipfs_base_url: None,
-                        challenge_txid: None,
-                        bridge_out_start_at: Some(0),
-                        init_withdraw_txid: Some("".to_string()),
-                    })
+                    .update_graph_fields(
+                        GraphUpdate::new(graph_id)
+                            .with_bridge_out_start_at(0)
+                            .with_init_withdraw_txid("".to_string()),
+                    )
                     .await?;
                 storage_processor
                     .upsert_goat_tx_record(&GoatTxRecord {
@@ -227,17 +230,42 @@ async fn handle_withdraw_paths_events<'a>(
     withdraw_paths_events: Vec<WithdrawPathsEvent>,
 ) -> anyhow::Result<()> {
     for event in withdraw_paths_events {
-        let reward_add: i64 = event.reward_amount_sats.parse::<i64>()?;
-        let (flag, goat_addr) = reflect_goat_address(Some(event.operator_addr.clone()));
+        let reward_add: i64 = event.reward_amount_sats();
+        let (flag, goat_addr) = reflect_goat_address(Some(event.operator_addr()));
         if !flag {
             warn!(
                 "handle_withdraw_paths_events failed as cast operator address failed, detail: {}, {}",
-                event.transaction_hash, event.operator_addr
+                event.tx_hash(),
+                event.operator_addr()
             );
             continue;
         }
-
         storage_processor.add_node_reward_by_addr(&goat_addr.unwrap(), reward_add).await?;
+        let (graph_id, instance_id, tx_type) = match event.clone() {
+            WithdrawPathsEvent::WithdrawHappyEvent(v) => (
+                v.graph_id.clone(),
+                v.instance_id.clone(),
+                GoatTxType::WithdrawHappyPath.to_string(),
+            ),
+            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => (
+                v.graph_id.clone(),
+                v.instance_id.clone(),
+                GoatTxType::WithdrawUnhappyPath.to_string(),
+            ),
+        };
+        storage_processor
+            .upsert_goat_tx_record(&GoatTxRecord {
+                instance_id: Uuid::from_str(&strip_hex_prefix_owned(&instance_id))?,
+                graph_id: Uuid::from_str(&strip_hex_prefix_owned(&graph_id))?,
+                tx_type,
+                tx_hash: event.tx_hash(),
+                height: event.get_block_number(),
+                is_local: false,
+                processing_status: GoatTxProcessingStatus::Pending.to_string(),
+                extra: None,
+                created_at: current_time_secs(),
+            })
+            .await?;
     }
     Ok(())
 }

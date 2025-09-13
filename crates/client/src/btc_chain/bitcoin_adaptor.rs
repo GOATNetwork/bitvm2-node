@@ -1,7 +1,7 @@
 use crate::btc_chain::esplora_bitcoin_adaptor::EsploraBitcoinAdaptor;
 use crate::btc_chain::mock_bitcoin_adaptor::MockBitcoinAdaptor;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid, block::Header};
-use esplora_client::{MerkleProof, Utxo};
+use esplora_client::{MerkleProof, Tx, Utxo};
 use strum::{Display, EnumString};
 
 #[derive(Eq, PartialEq, Clone, Copy, Default, Display, EnumString)]
@@ -51,6 +51,7 @@ pub trait BitcoinAdaptor: Send + Sync {
     async fn get_tx_status(&self, txid: &Txid) -> anyhow::Result<esplora_client::TxStatus>;
     // TODO: return tx status. @Jack
     async fn get_tx(&self, txid: &Txid) -> anyhow::Result<Option<Transaction>>;
+    async fn get_tx_info(&self, txid: &Txid) -> anyhow::Result<Option<Tx>>;
     async fn get_address_utxo(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>>;
     async fn get_height(&self) -> anyhow::Result<u32>;
     async fn get_fee_estimates(&self) -> anyhow::Result<std::collections::HashMap<u16, f64>>;

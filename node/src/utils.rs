@@ -56,7 +56,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
+use store::localdb::LocalDB;
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
     Graph, GraphStatus, Instance, InstanceStatus, Int64Array3, Message, MessageState, MessageType,
@@ -624,7 +624,7 @@ pub async fn outpoint_spent_txid(
     client: &BTCClient,
     txid: &Txid,
     vout: u64,
-) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<Txid>> {
     match client.get_output_status(txid, vout).await? {
         Some(status) => Ok(status.txid),
         _ => Ok(None),
@@ -910,26 +910,17 @@ pub async fn get_committee_partial_sigs(
     }
 }
 
+// will remove later
 pub async fn update_graph_fields(
-    local_db: &LocalDB,
-    graph_id: Uuid,
-    status: Option<String>,
-    ipfs_base_url: Option<String>,
-    challenge_txid: Option<String>,
+    _local_db: &LocalDB,
+    _graph_id: Uuid,
+    _status: Option<String>,
+    _ipfs_base_url: Option<String>,
+    _challenge_txid: Option<String>,
     _disprove_txid: Option<String>,
-    bridge_out_start_at: Option<i64>,
+    _bridge_out_start_at: Option<i64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut storage_process = local_db.acquire().await?;
-    Ok(storage_process
-        .update_graph_fields(GraphUpdate {
-            graph_id,
-            status,
-            ipfs_base_url,
-            challenge_txid,
-            bridge_out_start_at,
-            init_withdraw_txid: None,
-        })
-        .await?)
+    Ok(())
 }
 
 pub async fn save_unhandle_message(
@@ -987,34 +978,6 @@ pub async fn create_goat_tx_record_old(
     Ok(())
 }
 
-pub async fn create_goat_tx_record<'a>(
-    storage_processor: &mut StorageProcessor<'a>,
-    goat_client: &GOATClient,
-    graph_id: Uuid,
-    instance_id: Uuid,
-    tx_hash: &str,
-    tx_type: GoatTxType,
-    prove_status: String,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(receipt) = goat_client.get_tx_receipt(tx_hash).await?
-        && receipt.block_number.is_some()
-    {
-        storage_processor
-            .upsert_goat_tx_record(&GoatTxRecord {
-                instance_id,
-                graph_id,
-                tx_type: tx_type.to_string(),
-                tx_hash: tx_hash.to_string(),
-                height: receipt.block_number.unwrap() as i64,
-                is_local: true,
-                extra: None,
-                processing_status: prove_status,
-                created_at: current_time_secs(),
-            })
-            .await?;
-    }
-    Ok(())
-}
 pub async fn store_graph(
     _local_db: &LocalDB,
     _instance_id: Uuid,

@@ -2,7 +2,6 @@ use crate::env;
 use crate::env::{GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
-use crate::utils::create_goat_tx_record;
 use alloy::primitives::TxHash;
 use anyhow::{anyhow, bail};
 use bitcoin::PublicKey;
@@ -15,7 +14,8 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
-    CommitteeSignatures, GoatTxProcessingStatus, GoatTxType, Graph, GraphStatus, InstanceStatus,
+    CommitteeSignatures, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus,
+    InstanceStatus,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -291,13 +291,16 @@ pub async fn scan_post_pegin_data(
 
     info!("Starting into scan post_pegin_data, need to send instance_size:{} ", instances.len());
     for instance in instances {
-        if instance.pegin_confirm_txid.is_none() {
-            warn!(
-                "scan post_pegin_data instance:{}, pegin confirm txid is none",
-                instance.instance_id
-            );
-            continue;
-        }
+        let pegin_confirm_txid = match instance.pegin_confirm_txid {
+            Some(txid) => txid.into(),
+            None => {
+                warn!(
+                    "scan post_pegin_data instance:{}, pegin confirm txid is none",
+                    instance.instance_id
+                );
+                continue;
+            }
+        };
 
         if instance.committees_answers.values().any(|v| v.l2_sig.is_empty()) {
             warn!(
@@ -324,8 +327,10 @@ pub async fn scan_post_pegin_data(
                 )
                 .await?;
         } else {
-            let pegin_confirm_tx =
-                btc_client.fetch_btc_tx(&instance.pegin_confirm_txid.unwrap().0).await?;
+            let pegin_confirm_tx = btc_client.get_tx(&pegin_confirm_txid).await?.ok_or(format!(
+                "pegin_confirm_txid {} not found",
+                pegin_confirm_txid.to_string()
+            ))?;
 
             let committee_signs: Vec<Vec<u8>> =
                 instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
@@ -352,18 +357,23 @@ pub async fn scan_post_pegin_data(
                         "scan post_pegin_data finish post post_pegin_dataa for instance_id {} , tx hash:{}",
                         instance.instance_id, tx_hash
                     );
+                    let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
+                        Some(receipt) => receipt.block_number.unwrap_or(0),
+                        None => 0,
+                    };
                     let mut tx = local_db.start_transaction().await?;
-                    create_goat_tx_record(
-                        &mut tx,
-                        goat_client,
-                        Uuid::default(),
-                        instance.instance_id,
-                        &tx_hash,
-                        GoatTxType::PostPeginData,
-                        GoatTxProcessingStatus::Skipped.to_string(),
-                    )
+                    tx.upsert_goat_tx_record(&GoatTxRecord {
+                        instance_id: instance.instance_id,
+                        graph_id: Uuid::default(),
+                        tx_type: GoatTxType::PostPeginData.to_string(),
+                        tx_hash: tx_hash.clone(),
+                        height: block_height as i64,
+                        is_local: true,
+                        processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+                        extra: None,
+                        created_at: current_time_secs(),
+                    })
                     .await?;
-
                     tx.update_instance_pegin_data_txid(&instance.instance_id, &tx_hash).await?;
                     tx.commit().await?;
                 }
@@ -432,26 +442,27 @@ pub async fn scan_post_graph_data(
                         instance.instance_id, graph.graph_id, tx_hash
                     );
 
+                    let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
+                        Some(receipt) => receipt.block_number.unwrap_or(0),
+                        None => 0,
+                    };
                     let mut tx = local_db.start_transaction().await?;
-                    create_goat_tx_record(
-                        &mut tx,
-                        goat_client,
-                        graph.graph_id,
-                        instance.instance_id,
-                        &tx_hash,
-                        GoatTxType::PostOperatorData,
-                        GoatTxProcessingStatus::Skipped.to_string(),
-                    )
-                    .await?;
-
-                    tx.update_graph_fields(GraphUpdate {
+                    tx.upsert_goat_tx_record(&GoatTxRecord {
+                        instance_id: instance.instance_id,
                         graph_id: graph.graph_id,
-                        status: Some(GraphStatus::OperatorDataPushed.to_string()),
-                        ipfs_base_url: None,
-                        challenge_txid: None,
-                        bridge_out_start_at: None,
-                        init_withdraw_txid: None,
+                        tx_type: GoatTxType::PostOperatorData.to_string(),
+                        tx_hash,
+                        height: block_height as i64,
+                        is_local: true,
+                        processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+                        extra: None,
+                        created_at: current_time_secs(),
                     })
+                    .await?;
+                    tx.update_graph_fields(
+                        GraphUpdate::new(graph.graph_id)
+                            .with_status(GraphStatus::OperatorDataPushed.to_string()),
+                    )
                     .await?;
                     tx.commit().await?;
                 }
@@ -472,8 +483,8 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
         || graph.kickoff_txid.is_none()
         || graph.take1_txid.is_none()
         || graph.take2_txid.is_none()
-        || graph.commit_timeout_txid.is_none()
-        || graph.assert_timeout_txids.is_empty()
+        || graph.blockhash_commit_timeout_txid.is_none()
+        || graph.assert_commit_timeout_txids.is_empty()
         || graph.nack_txids.is_empty()
     {
         tracing::warn!("grap {}, has none field", graph.graph_id);
@@ -489,9 +500,9 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
         kickoff_txid: graph.kickoff_txid.clone().unwrap().0.to_byte_array(),
         take1_txid: graph.take1_txid.clone().unwrap().0.to_byte_array(),
         take2_txid: graph.take2_txid.clone().unwrap().0.to_byte_array(),
-        commit_timout_txid: graph.commit_timeout_txid.clone().unwrap().0.to_byte_array(),
+        commit_timout_txid: graph.blockhash_commit_timeout_txid.clone().unwrap().0.to_byte_array(),
         assert_timeout_txids: graph
-            .assert_timeout_txids
+            .assert_commit_timeout_txids
             .iter()
             .map(|x| x.0.to_byte_array())
             .collect(),

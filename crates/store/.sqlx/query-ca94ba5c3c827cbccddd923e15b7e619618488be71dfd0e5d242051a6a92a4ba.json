@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE graph_btc_tx_vout_monitor\n             SET monitor_data = ?,\n                 updated_at   = ?\n             WHERE graph_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "ca94ba5c3c827cbccddd923e15b7e619618488be71dfd0e5d242051a6a92a4ba"
+}
