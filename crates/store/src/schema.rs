@@ -316,6 +316,7 @@ pub struct Graph {
     pub assert_init_txid: Option<SerializableTxid>,
     #[sqlx(json)]
     pub assert_commit_timeout_txids: Vec<SerializableTxid>,
+    pub disprove_type: String,
     pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
     pub zkm_version: String,
@@ -484,6 +485,7 @@ pub struct GraphWithBroadcastInfo {
     pub take2_txid: Option<SerializableTxid>,
     pub assert_init_txid: Option<SerializableTxid>,
     pub challenge_txid: Option<SerializableTxid>,
+    pub disprove_type: String,
     pub last_msg_send_at: i64,
 }
 

@@ -10,13 +10,14 @@ use crate::utils::{get_graph, outpoint_spent_txid};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
-use client::goat_chain::{GOATClient, WithdrawStatus};
+use client::goat_chain::{DisproveTxType, GOATClient, WithdrawStatus};
 use goat::constants::CONNECTOR_3_TIMELOCK;
 use goat::utils::num_blocks_per_network;
 use indexmap::IndexMap;
 use libp2p::Swarm;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
@@ -113,6 +114,16 @@ impl WTInitTxVoutMonitorData {
             || self.commit_blockhash_status == CommitBlockHashStatus::CommitTimeout
     }
 
+    pub fn get_disprove_type(&self) -> Option<DisproveTxType> {
+        if self.commit_blockhash_status == CommitBlockHashStatus::CommitTimeout {
+            return Some(DisproveTxType::OperatorCommitTimeout);
+        }
+        if !self.require_disproved_indexes.is_empty() {
+            return Some(DisproveTxType::OperatorNack);
+        }
+        None
+    }
+
     pub fn is_complete_in_time(&self) -> bool {
         self.is_complete_in_time
     }
@@ -135,7 +146,7 @@ pub enum AssertInitTxVoutItemStatus {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct AssertInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, AssertInitTxVoutItemStatus>,
-    pub require_disprove_indexes: Vec<i32>,
+    pub require_disproved_indexes: Vec<i32>,
     pub is_complete_in_time: bool,
 }
 
@@ -170,13 +181,21 @@ impl AssertInitTxVoutMonitorData {
     fn update_disprove_indexes(&mut self) {
         for (index, status) in self.data_map.iter() {
             if *status == AssertInitTxVoutItemStatus::Init {
-                self.require_disprove_indexes.push(*index);
+                self.require_disproved_indexes.push(*index);
             }
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_challenged(&self) -> bool {
-        !self.require_disprove_indexes.is_empty()
+        !self.require_disproved_indexes.is_empty()
+    }
+
+    pub fn get_disprove_type(&self) -> Option<DisproveTxType> {
+        if !self.require_disproved_indexes.is_empty() {
+            return Some(DisproveTxType::OperatorNack);
+        }
+        None
     }
 
     pub fn is_complete_in_time(&self) -> bool {
@@ -910,7 +929,7 @@ async fn check_watchtower_challenge_finished(
     storage_processor: &mut StorageProcessor<'_>,
     graph_data: &GraphWithBroadcastInfo,
     watchtower_challenge_init_txid: Txid,
-) -> anyhow::Result<(bool, bool, Option<(WTInitTxVoutMonitorData, i64, i64)>)> {
+) -> anyhow::Result<(bool, Option<DisproveTxType>, Option<(WTInitTxVoutMonitorData, i64, i64)>)> {
     let watchtower_init_out_monitor = storage_processor
         .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &watchtower_challenge_init_txid.into())
         .await?;
@@ -921,12 +940,12 @@ async fn check_watchtower_challenge_finished(
         {
             return Ok((
                 vout_monitor_data.is_complete_in_time(),
-                vout_monitor_data.is_challenged(),
+                vout_monitor_data.get_disprove_type(),
                 Some((vout_monitor_data, out_monitor.height, out_monitor.vout_len)),
             ));
         }
     }
-    Ok((false, false, None))
+    Ok((false, None, None))
 }
 
 /// Check if assert commit is already finished and return monitor data if exists
@@ -934,7 +953,8 @@ async fn check_assert_commit_finished(
     storage_processor: &mut StorageProcessor<'_>,
     graph_data: &GraphWithBroadcastInfo,
     assert_init_txid: Txid,
-) -> anyhow::Result<(bool, bool, Option<(AssertInitTxVoutMonitorData, i64, i64)>)> {
+) -> anyhow::Result<(bool, Option<DisproveTxType>, Option<(AssertInitTxVoutMonitorData, i64, i64)>)>
+{
     let assert_init_out_monitor = storage_processor
         .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &assert_init_txid.into())
         .await?;
@@ -945,12 +965,12 @@ async fn check_assert_commit_finished(
         {
             return Ok((
                 vout_monitor_data.is_complete_in_time(),
-                vout_monitor_data.is_challenged(),
+                vout_monitor_data.get_disprove_type(),
                 Some((vout_monitor_data, out_monitor.height, out_monitor.vout_len)),
             ));
         }
     }
-    Ok((false, false, None))
+    Ok((false, None, None))
 }
 
 /// Process watchtower challenge monitoring
@@ -1109,7 +1129,7 @@ async fn process_assert_commit_monitoring(
 
             data_change = data_change || vout_spent_len > 0;
         } else {
-            if vout_monitor_data.require_disprove_indexes.is_empty() {
+            if vout_monitor_data.require_disproved_indexes.is_empty() {
                 vout_monitor_data.update_disprove_indexes();
                 data_change = true;
             } else {
@@ -1199,7 +1219,7 @@ async fn process_watchtower_assert_init_graph(
     current_height: i64,
 ) -> anyhow::Result<()> {
     // Check if either process is already finished before calling the monitoring functions
-    let (watchtower_is_complete_in_time, watchtower_is_challenged, watchtower_monitor_data) =
+    let (watchtower_is_complete_in_time, watchtower_disprove_type, watchtower_monitor_data) =
         check_watchtower_challenge_finished(
             storage_processor,
             graph_data,
@@ -1207,21 +1227,28 @@ async fn process_watchtower_assert_init_graph(
         )
         .await?;
 
-    let (assert_is_complete_in_time, assert_is_challenged, assert_monitor_data) =
+    let (assert_is_complete_in_time, assert_disprove_type, assert_monitor_data) =
         check_assert_commit_finished(storage_processor, graph_data, assert_init_txid).await?;
 
     // If either process is finished, skip both monitoring functions
-
-    if watchtower_is_challenged || assert_is_challenged {
+    if watchtower_disprove_type.is_some() || assert_disprove_type.is_some() {
         info!(
             "Watchtower challenge success or assert commit timeout, skip monitoring for graph {},\
-                 detail: watchtower success :{watchtower_is_challenged}, assert timout {assert_is_challenged}",
-            graph_data.graph_id
+                 detail: watchtower success :{}, assert timout {}",
+            graph_data.graph_id,
+            assert_disprove_type.is_some(),
+            assert_disprove_type.is_some()
         );
+        let disprove_type = if watchtower_disprove_type.is_some() {
+            watchtower_disprove_type.unwrap()
+        } else {
+            assert_disprove_type.unwrap()
+        };
         storage_processor
             .update_graph_fields(
                 GraphUpdate::new(graph_data.graph_id)
-                    .with_status(GraphStatus::OperatorWatchtowerAndAssertDisproved.to_string()),
+                    .with_status(GraphStatus::OperatorWatchtowerAndAssertDisproved.to_string())
+                    .with_disprove_type(disprove_type.to_string()),
             )
             .await?;
         return Ok(());
@@ -1288,6 +1315,158 @@ fn get_timelock_configs() -> (i64, i64, i64, i64) {
         blockhash_commit_timeout_lock,
         assert_commit_timeout_lock,
     )
+}
+
+/// Find the spend transaction for a disproved index
+async fn find_spend_tx_for_disproved_index(
+    btc_client: &BTCClient,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_id: &Uuid,
+    txid: &SerializableTxid,
+    index_calculator: impl Fn(i32) -> u64,
+) -> anyhow::Result<Option<(Txid, i32)>> {
+    let out_monitor = storage_processor
+        .get_graph_btc_tx_vout_monitor(graph_id, txid)
+        .await?;
+
+    let Some(out_monitor) = out_monitor else {
+        return Ok(None);
+    };
+
+    let vout_monitor_data = parse_monitor_data::<WTInitTxVoutMonitorData>(&out_monitor.monitor_data)
+        .map_err(|e| anyhow::anyhow!("Failed to parse monitor data: {}", e))?;
+
+    for &index in &vout_monitor_data.require_disproved_indexes {
+        let calculated_index = index_calculator(index);
+        if let Some(spend_txid) = outpoint_spent_txid(btc_client, &txid.clone().into(), calculated_index).await? {
+            return Ok(Some((spend_txid, index)));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Find the spend transaction for assert timeout
+async fn find_assert_timeout_spend_tx(
+    btc_client: &BTCClient,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_id: &Uuid,
+    assert_init_txid: &SerializableTxid,
+) -> anyhow::Result<Option<(Txid, i32)>> {
+    let out_monitor = storage_processor
+        .get_graph_btc_tx_vout_monitor(graph_id, assert_init_txid)
+        .await?;
+
+    let Some(out_monitor) = out_monitor else {
+        return Ok(None);
+    };
+
+    let vout_monitor_data = parse_monitor_data::<AssertInitTxVoutMonitorData>(&out_monitor.monitor_data)
+        .map_err(|e| anyhow::anyhow!("Failed to parse assert monitor data: {}", e))?;
+
+    for &index in &vout_monitor_data.require_disproved_indexes {
+        if let Some(spend_txid) = outpoint_spent_txid(btc_client, &assert_init_txid.clone().into(), index as u64).await? {
+            return Ok(Some((spend_txid, index)));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn process_graph_watchtower_assert_dissproved(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_data: &GraphWithBroadcastInfo,
+) -> anyhow::Result<()> {
+    // Parse the disprove type
+    let disprove_type = DisproveTxType::from_str(&graph_data.disprove_type)
+        .map_err(|e| anyhow::anyhow!("Failed to decode disprove tx type for graph {}: {}", graph_data.graph_id, e))?;
+
+    // Early return: if it's Disprove type, return directly
+    if disprove_type == DisproveTxType::Disprove {
+        return Ok(());
+    }
+
+    // Validate required transaction IDs
+    let (challenge_txid, watchtower_challenge_init_txid, assert_init_txid) = (
+        graph_data.challenge_txid.as_ref(),
+        graph_data.watchtower_challenge_init_txid.as_ref(),
+        graph_data.assert_init_txid.as_ref(),
+    );
+
+    let (challenge_txid, watchtower_challenge_init_txid, assert_init_txid) = match (challenge_txid, watchtower_challenge_init_txid, assert_init_txid) {
+        (Some(c), Some(w), Some(a)) => (c, w, a),
+        _ => {
+            warn!("Missing required txids for graph {}", graph_data.graph_id);
+            return Ok(());
+        }
+    };
+
+    // Get the challenge start transaction
+    let challenge_start_tx = btc_client
+        .get_tx(&challenge_txid.clone().into())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Challenge tx not found for graph {}", graph_data.graph_id))?;
+
+    // Get challenge finish transaction and index based on disprove type
+    let (challenge_finish_tx, tx_index) = match disprove_type {
+        DisproveTxType::OperatorCommitTimeout => {
+            // todo send p2p msg
+            match &graph_data.blockhash_commit_timeout_txid {
+                Some(txid) => (Some(txid.0), 0),
+                None => (None, 0),
+            }
+        }
+        DisproveTxType::OperatorNack => {
+            // todo send p2p msg
+            match find_spend_tx_for_disproved_index(
+                btc_client,
+                storage_processor,
+                &graph_data.graph_id,
+                watchtower_challenge_init_txid,
+                |index| (index * 2 + 1) as u64,
+            ).await? {
+                Some((txid, index)) => (Some(txid), index * 2 + 1),
+                None => (None, 0),
+            }
+        }
+        DisproveTxType::AssertTimeout => {
+            // todo send p2p msg
+            match find_assert_timeout_spend_tx(
+                btc_client,
+                storage_processor,
+                &graph_data.graph_id,
+                assert_init_txid,
+            ).await? {
+                Some((txid, index)) => (Some(txid), index),
+                None => (None, 0),
+            }
+        }
+        DisproveTxType::Disprove => unreachable!(), // Already handled above
+    };
+
+    // If there's a challenge finish transaction, execute the disproved withdraw
+    if let Some(challenge_finish_tx) = challenge_finish_tx {
+        let challenge_finish_tx = btc_client
+            .get_tx(&challenge_finish_tx.into())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Challenge finish tx not found for graph {}", graph_data.graph_id))?;
+
+        goat_client
+            .gateway_finish_withdraw_disproved(
+                btc_client,
+                &graph_data.graph_id,
+                disprove_type,
+                tx_index as u64,
+                &challenge_start_tx,
+                &challenge_finish_tx,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to finish withdraw disproved for graph {}: {}", graph_data.graph_id, e))?;
+    }
+
+    Ok(())
 }
 
 pub async fn monitor_watchtower_assert(
@@ -1360,5 +1539,39 @@ pub async fn monitor_watchtower_assert(
         )
         .await?;
     }
+    Ok(())
+}
+
+pub async fn detect_watchtower_assert_disproved(
+    _swarm: &mut Swarm<AllBehaviours>,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+) -> anyhow::Result<()> {
+    info!("Starting monitor_watchtower_assert task");
+    let mut storage_processor = local_db.acquire().await?;
+    let graph_datas = fetch_graphs_with_status_and_msg_type(
+        &mut storage_processor,
+        vec![(GraphStatus::OperatorWatchtowerAndAssertDisproved, MessageType::None)],
+    )
+    .await?;
+    info!("Found {} graphs to process in monitor_watchtower_assert", graph_datas.len());
+    // let current_height = btc_client.get_height().await? as i64;
+    for graph_data in graph_datas {
+        match process_graph_watchtower_assert_dissproved(
+            btc_client,
+            goat_client,
+            &mut storage_processor,
+            &graph_data,
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(err) => {
+                warn!("{err:?}");
+            }
+        }
+    }
+
     Ok(())
 }

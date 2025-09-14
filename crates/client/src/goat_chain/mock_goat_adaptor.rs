@@ -374,10 +374,12 @@ impl ChainAdaptor for MockAdaptor {
     async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],
-        _raw_disproved_tx: &BitcoinTx,
-        _disproved_proof: &BitcoinTxProof,
-        _raw_challenge_tx: &BitcoinTx,
-        _challenge_proof: &BitcoinTxProof,
+        _disprove_type: DisproveTxType,
+        _tx_index: u64,
+        _raw_challenge_start_tx: &BitcoinTx,
+        _challenge_start_proof: &BitcoinTxProof,
+        _raw_challenge_finshish_tx: &BitcoinTx,
+        _challenge_finish_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
         if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {

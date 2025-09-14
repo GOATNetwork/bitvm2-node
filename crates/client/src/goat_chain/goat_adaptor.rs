@@ -1,6 +1,6 @@
 use crate::goat_chain::chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, PeginStatus, SequencerSet, Utxo,
-    WithdrawData, WithdrawStatus,
+    BitcoinTx, BitcoinTxProof, ChainAdaptor, DisproveTxType, GraphData, PeginData, PeginStatus,
+    SequencerSet, Utxo, WithdrawData, WithdrawStatus,
 };
 use crate::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
 use crate::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
@@ -150,7 +150,7 @@ sol!(
         function proceedWithdraw(bytes16 graphId, BitcoinTx calldata rawKickoffTx, BitcoinTxProof calldata kickoffProof) external;
         function finishWithdrawHappyPath(bytes16 graphId, BitcoinTx calldata rawTake1Tx, BitcoinTxProof calldata take1Proof) external;
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
-        function finishWithdrawDisproved(bytes16 graphId, BitcoinTx calldata rawDisproveTx, BitcoinTxProof calldata disproveProof, BitcoinTx calldata rawChallengeTx, BitcoinTxProof calldata ngeCProof) external;
+        function finishWithdrawDisproved(bytes16 graphId, DisproveTxType disproveTxType, uint256 txnIndex, BitcoinTx calldata rawChallengeStartTx, BitcoinTxProof calldata challengeStartTxProof, BitcoinTx calldata rawChallengeFinishTx, BitcoinTxProof calldata challengeFinishTxProof ) external;
         function verifyMerkleProof(bytes32 root,bytes32[] memory proof, bytes32 leaf,uint256 index) public pure returns (bool);
 
         // Contract is not implements this functions, do something later
@@ -448,6 +448,19 @@ impl From<IGateway::WithdrawStatus> for WithdrawStatus {
             IGateway::WithdrawStatus::Complete => WithdrawStatus::Complete,
             IGateway::WithdrawStatus::Disproved => WithdrawStatus::Disproved,
             _ => WithdrawStatus::None,
+        }
+    }
+}
+
+impl From<DisproveTxType> for IGateway::DisproveTxType {
+    fn from(value: DisproveTxType) -> Self {
+        match value {
+            DisproveTxType::OperatorNack => IGateway::DisproveTxType::OperatorNack,
+            DisproveTxType::OperatorCommitTimeout => {
+                IGateway::DisproveTxType::OperatorCommitTimeout
+            }
+            DisproveTxType::AssertTimeout => IGateway::DisproveTxType::AssertTimeout,
+            DisproveTxType::Disprove => IGateway::DisproveTxType::Disprove,
         }
     }
 }
@@ -895,19 +908,23 @@ impl ChainAdaptor for GoatAdaptor {
     async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],
-        raw_disproved_tx: &BitcoinTx,
-        disproved_proof: &BitcoinTxProof,
-        raw_challenge_tx: &BitcoinTx,
-        challenge_proof: &BitcoinTxProof,
+        disprove_tx_type: DisproveTxType,
+        tx_index: u64,
+        raw_challenge_start_tx: &BitcoinTx,
+        challenge_start_proof: &BitcoinTxProof,
+        raw_challenge_finshish_tx: &BitcoinTx,
+        challenge_finish_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         let gateway = self.get_gateway()?;
         let tx_request = gateway
             .finishWithdrawDisproved(
                 FixedBytes::from_slice(graph_id),
-                raw_disproved_tx.into(),
-                disproved_proof.into(),
-                raw_challenge_tx.into(),
-                challenge_proof.into(),
+                disprove_tx_type.into(),
+                U256::from(tx_index),
+                raw_challenge_start_tx.into(),
+                challenge_start_proof.into(),
+                raw_challenge_finshish_tx.into(),
+                challenge_finish_proof.into(),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)

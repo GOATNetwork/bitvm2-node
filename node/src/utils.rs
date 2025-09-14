@@ -24,7 +24,7 @@ use bitvm2_lib::types::{
 };
 use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_proof};
 use client::Utxo as ClientUtxo;
-use client::goat_chain::WithdrawStatus;
+use client::goat_chain::{DisproveTxType, WithdrawStatus};
 use client::goat_chain::utils::{
     get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
 };
@@ -792,11 +792,20 @@ pub async fn gateway_finish_withdraw_disproved(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph_id: &Uuid,
+    disprove_type: DisproveTxType,
+    tx_index: u64,
     disprove_tx: &Transaction,
     challenge_tx: &Transaction,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let tx_hash = goat_client
-        .gateway_finish_withdraw_disproved(btc_client, graph_id, disprove_tx, challenge_tx)
+        .gateway_finish_withdraw_disproved(
+            btc_client,
+            graph_id,
+            disprove_type,
+            tx_index,
+            disprove_tx,
+            challenge_tx,
+        )
         .await?;
     tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)

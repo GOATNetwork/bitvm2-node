@@ -4,7 +4,7 @@ use alloy::primitives::{Address, U256};
 use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use strum::Display;
+use strum::{Display, EnumString};
 use uuid::Uuid;
 
 #[async_trait]
@@ -103,10 +103,12 @@ pub trait ChainAdaptor: Send + Sync {
     async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],
-        raw_disproved_tx: &BitcoinTx,
-        disproved_proof: &BitcoinTxProof,
-        raw_challenge_tx: &BitcoinTx,
-        challenge_proof: &BitcoinTxProof,
+        disprove_type: DisproveTxType,
+        tx_index: u64,
+        raw_challenge_start_tx: &BitcoinTx,
+        challenge_start_proof: &BitcoinTxProof,
+        raw_challenge_finshish_tx: &BitcoinTx,
+        challenge_finish_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
     async fn gateway_verify_merkle_proof(
@@ -167,6 +169,14 @@ pub enum GoatNetwork {
     Local,
 }
 
+#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display, EnumString)]
+pub enum DisproveTxType {
+    AssertTimeout,
+    OperatorCommitTimeout,
+    OperatorNack,
+    Disprove,
+}
+
 #[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display)]
 pub enum PeginStatus {
     None,
@@ -177,7 +187,6 @@ pub enum PeginStatus {
     Claimed,
     Discarded,
 }
-
 impl From<u8> for PeginStatus {
     fn from(value: u8) -> Self {
         match value {

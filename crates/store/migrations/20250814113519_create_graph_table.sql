@@ -28,6 +28,7 @@ CREATE TABLE graph
     `blockhash_commit_timeout_txid`      TEXT,
     `assert_init_txid`                   TEXT,
     `assert_commit_timeout_txids`        TEXT            NOT NULL DEFAULT '[]',
+    `disprove_type`                      TEXT            NOT NULL DEFAULT '',
     `init_withdraw_tx_hash`              TEXT,
     `bridge_out_start_at`                BIGINT          NOT NULL DEFAULT 0,
     `zkm_version`                        TEXT            NOT NULL DEFAULT '',

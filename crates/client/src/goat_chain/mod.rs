@@ -26,7 +26,8 @@ mod evmchain;
 mod goat_adaptor;
 mod mock_goat_adaptor;
 use crate::goat_chain::evmchain::EvmChain;
-pub use chain_adaptor::Utxo;
+pub use chain_adaptor::{Utxo, DisproveTxType};
+
 
 impl GOATClient {
     pub fn new(goat_init_config: GoatInitConfig, goat_network: GoatNetwork) -> Self {
@@ -321,8 +322,10 @@ impl GOATClient {
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
-        disprove_tx: &Transaction,
-        challenge_tx: &Transaction,
+        disprove_type: DisproveTxType,
+        tx_index: u64,
+        challenge_start_tx: &Transaction,
+        challenge_finish_tx: &Transaction,
     ) -> anyhow::Result<String> {
         if !self.is_committee_member().await? {
             bail!("only committee member can call");
@@ -330,34 +333,36 @@ impl GOATClient {
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
-                "disprove",
+                "challenge_start",
                 graph_id,
-                &disprove_tx.compute_txid(),
-                &disprove_tx.compute_txid(),
+                &challenge_start_tx.compute_txid(),
+                &challenge_start_tx.compute_txid(),
                 Some(WithdrawStatus::Disproved),
             )
             .await?;
-        let raw_disprove_tx = tx_reconstruct(disprove_tx);
-        let disprove_proof = BitcoinTxProof { raw_header, height, proof, index };
+        let raw_challenge_start_tx = tx_reconstruct(challenge_start_tx);
+        let challenge_start_proof = BitcoinTxProof { raw_header, height, proof, index };
         let (_root, proof, _leaf, height, index, raw_header) = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
-                "challenge",
+                "challenge_finish",
                 graph_id,
-                &challenge_tx.compute_txid(),
-                &challenge_tx.compute_txid(),
+                &challenge_finish_tx.compute_txid(),
+                &challenge_finish_tx.compute_txid(),
                 None,
             )
             .await?;
-        let raw_challenge_tx = tx_reconstruct(challenge_tx);
-        let challenge_proof = BitcoinTxProof { raw_header, height, proof, index };
+        let raw_challenge_finish_tx = tx_reconstruct(challenge_finish_tx);
+        let challenge_finish_proof = BitcoinTxProof { raw_header, height, proof, index };
         self.chain_service
             .gateway_finish_withdraw_disproved(
                 graph_id,
-                &raw_disprove_tx,
-                &disprove_proof,
-                &raw_challenge_tx,
-                &challenge_proof,
+                disprove_type,
+                tx_index,
+                &raw_challenge_start_tx,
+                &challenge_start_proof,
+                &raw_challenge_finish_tx,
+                &challenge_finish_proof,
             )
             .await
     }

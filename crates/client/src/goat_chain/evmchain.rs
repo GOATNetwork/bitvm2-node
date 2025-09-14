@@ -6,6 +6,7 @@ use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 use alloy::primitives::Address;
 use alloy::rpc::types::TransactionReceipt;
 use uuid::Uuid;
+use crate::goat_chain::DisproveTxType;
 
 pub struct EvmChain {
     adaptor: Box<dyn ChainAdaptor + Send + Sync>,
@@ -231,18 +232,22 @@ impl EvmChain {
     pub async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &Uuid,
-        raw_disproved_tx: &BitcoinTx,
-        disproved_proof: &BitcoinTxProof,
-        raw_challenge_tx: &BitcoinTx,
-        challenge_proof: &BitcoinTxProof,
+        disprove_type: DisproveTxType,
+        tx_index: u64,
+        raw_challenge_start_tx: &BitcoinTx,
+        challenge_start_proof: &BitcoinTxProof,
+        raw_challenge_finshish_tx: &BitcoinTx,
+        challenge_finish_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
         self.adaptor
             .gateway_finish_withdraw_disproved(
                 graph_id.as_bytes(),
-                raw_disproved_tx,
-                disproved_proof,
-                raw_challenge_tx,
-                challenge_proof,
+                disprove_type,
+                tx_index,
+                raw_challenge_start_tx,
+                challenge_start_proof,
+                raw_challenge_finshish_tx,
+                challenge_finish_proof,
             )
             .await
     }
