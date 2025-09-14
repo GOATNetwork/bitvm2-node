@@ -7,6 +7,7 @@ resolver = "3"
 members = [
     "node",
     "crates/bitvm2",
+    "crates/bitvm2-ga",
     "crates/store",
     "crates/client",
     "crates/header-chain",
