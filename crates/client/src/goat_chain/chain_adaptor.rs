@@ -1,6 +1,6 @@
 use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Bytes, U256};
 use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -118,6 +118,10 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<bool>;
 
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
+    async fn seq_set_pub_get_publisher_public_keys(
+        &self,
+        publisher: Address,
+    ) -> anyhow::Result<Bytes>;
     async fn seq_set_pub_update_sequencer_set(
         &self,
         sequencer_set: &SequencerSet,
@@ -125,10 +129,10 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<String>;
     async fn seq_set_pub_update_publisher_set(
         &self,
-        new_owners: &[[u8; 20]],
+        new_publishers: &[[u8; 20]],
+        new_publisher_pubkeys: &[Vec<u8>],
         signatures: &[Vec<u8>],
-        sequencer_set: &SequencerSet,
-        sequencer_set_cmt_sigs: &[u8],
+        p2wsh_sig_hash: &[u8; 32],
     ) -> anyhow::Result<String>;
     async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]>;
     async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]>;

@@ -1,1 +1,0 @@
-impl Future<Output = Result<bool, Box<(dyn std::error::Error + 'static)>>>

@@ -3,7 +3,7 @@ use crate::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, SequencerSet, WithdrawData,
 };
 use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
-use alloy::primitives::Address;
+use alloy::primitives::{Address, Bytes};
 use alloy::rpc::types::TransactionReceipt;
 use uuid::Uuid;
 
@@ -268,6 +268,13 @@ impl EvmChain {
         self.adaptor.seq_set_pub_get_last_block_height().await
     }
 
+    pub async fn seq_set_pub_get_publisher_public_keys(
+        &self,
+        publisher: Address,
+    ) -> anyhow::Result<Bytes> {
+        self.adaptor.seq_set_pub_get_publisher_public_keys(publisher).await
+    }
+
     pub async fn seq_set_pub_update_sequencer_set(
         &self,
         sequencer_set: &SequencerSet,
@@ -277,19 +284,12 @@ impl EvmChain {
     }
     pub async fn seq_set_pub_update_publisher_set(
         &self,
-        new_owners: &[[u8; 20]],
+        new_publishers: &[[u8; 20]],
+        new_publisher_pubkeys: &[Vec<u8>],
         signatures: &[Vec<u8>],
-        sequencer_set: &SequencerSet,
-        sequencer_set_cmt_sigs: &[u8],
+        p2wsh_sig_hash: &[u8; 32],
     ) -> anyhow::Result<String> {
-        self.adaptor
-            .seq_set_pub_update_publisher_set(
-                new_owners,
-                signatures,
-                sequencer_set,
-                sequencer_set_cmt_sigs,
-            )
-            .await
+        self.adaptor.seq_set_pub_update_publisher_set(new_publishers, new_publisher_pubkeys, signatures, p2wsh_sig_hash).await
     }
     pub async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
         self.adaptor.stake_mana_stake_token_address().await

@@ -180,11 +180,7 @@ pub fn generate_operator_proof(
             let sig = bitcoin::taproot::Signature::from_slice(&tx.input[0].witness[0]).unwrap();
             // check tx signature is valid
             match crate::commit_chain::verify_taproot_leaf_schnorr_signature(
-                &watchtower_challenge_txn_script,
-                &tx.0,
-                prev_out,
-                pubkey,
-                &sig,
+                &watchtower_challenge_txn_script, &tx.0, prev_out, pubkey, &sig,
             ) {
                 Ok(_) => {}
                 Err(msg) => {

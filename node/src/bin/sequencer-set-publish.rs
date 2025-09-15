@@ -8,12 +8,13 @@
 //! Run the sequencer set publish transaction with
 //! ```sh
 //!     GOAT_EVM_ADDRESS=0x8943545177806ED17B9F23F0a21ee5948eCaa776
-//!     GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS=0x8943545177807000000000000000000000000000
+//!     GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS=0x00c042C4D5D913277CE16611a2ce6e9003554aD5
 //!     FEE_PAYER_BTC_KEY_WIF=cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5
 //!     cargo run --bin sequencer-set-publish
 //! ```
 //! The key wif is used only for test.
 //!
+use alloy::primitives::Address as EvmAddress;
 use bitcoin::CompressedPublicKey;
 use bitcoin::Network;
 use bitcoin::absolute::LockTime;
@@ -28,6 +29,8 @@ use bitvm2_noded::utils::wait_tx_confirmation;
 use bitvm2_noded::utils::{node_p2wsh_address, node_sign};
 use clap::Parser;
 use client::btc_chain::BTCClient;
+use client::goat_chain::GOATClient;
+use client::goat_chain::GoatInitConfig;
 use dotenv::dotenv;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -41,6 +44,12 @@ use bitcoin_light_client::{
 };
 use std::str::FromStr;
 
+pub fn decode_eth_address_object(addr: &str) -> Result<EvmAddress, String> {
+    let addr = addr.trim();
+    EvmAddress::from_str(addr)
+        .map_err(|_| format!("Invalid Ethereum address: {addr}"))
+}
+
 /// Send kickoff without call initWithdraw on L2, this action should trigger disprove.
 #[derive(Parser, Debug)]
 #[command(name = "sequencer-set-publish")]
@@ -49,6 +58,9 @@ struct Args {
     /// Local bitcoin testnet
     #[arg(long, default_value = "http://127.0.0.1:3002")]
     esplora_url: String,
+
+    #[arg(long, default_value = "https://rpc.testnet3.goat.network")]
+    goat_rpc_url: String,
 
     #[arg(long)]
     input_txid: Option<String>,
@@ -72,7 +84,13 @@ struct Args {
     #[arg(long, env = "GOAT_EVM_ADDRESS", value_parser = decode_eth_address)]
     goat_evm_address: [u8; 20],
 
-    #[arg(long, env = "GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS")]
+    #[arg(long, env = "GOAT_PUBLISHERS", value_delimiter = ',', value_parser = decode_eth_address_object)]
+    publishers: Vec<EvmAddress>,
+
+    #[arg(
+        long,
+        env = "GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS"
+    )]
     goat_sequencer_set_publisher_contract_address: String,
 
     /// Hex-encoded signatures from other publishers, if not provided, only create partial tx and print the signature
@@ -181,6 +199,21 @@ async fn push_sequencer_set_publish_tx(
     Ok(())
 }
 
+// https://explorer.testnet3.goat.network/address/0x8F0342A7060e76dfc7F6e9dEbfAD9b9eC919952c?tab=read_write_contract
+async fn fetch_publishers(
+    goat_client: &GOATClient,
+    addresses: &[EvmAddress],
+) -> Result<Vec<secp256k1::PublicKey>, anyhow::Error> {
+    let mut pubkeys = Vec::new();
+    for address in addresses {
+        let pubkey = goat_client.seq_set_pub_get_publisher_public_keys(*address).await?;
+        println!("{pubkey:?}");
+        let btc_pubkey = secp256k1::PublicKey::from_slice(pubkey.as_ref())?;
+        pubkeys.push(btc_pubkey);
+    }
+    Ok(pubkeys)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -188,6 +221,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let network = Network::Regtest;
     let secp = secp256k1::Secp256k1::new();
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
+    let goat_client =
+        GOATClient::new(GoatInitConfig::from_env_for_test(), client::goat_chain::GoatNetwork::Test);
+
+    let height = goat_client.seq_set_pub_get_last_block_height().await.unwrap();
+    println!("height: {height}");
+
+    println!("pub 0: {}", args.publishers[0]);
+    let btc_public_keys = fetch_publishers(&goat_client, &args.publishers).await?;
+    println!("btc pubkeys: {btc_public_keys:?}");
+
     let feepayer_private_key = PrivateKey::from_wif(args.feepayer_btc_key_wif.as_ref().unwrap())?;
     let owner_address =
         node_p2wsh_address(network, &PublicKey::from_private_key(&secp, &feepayer_private_key));
@@ -200,9 +243,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let threshold = 3;
     let total = 5;
 
-    // TODO: read public key and threshold from smart contract
+    // read public key and threshold from smart contract, which is consistency with btc_public_keys
     let publisher_keys: Vec<_> = create_dummy_publisher_keys(total);
-    let public_keys: Vec<secp256k1::PublicKey> = publisher_keys.iter().map(|(_, pk)| *pk).collect();
+
+    //let public_keys: Vec<secp256k1::PublicKey> = publisher_keys.iter().map(|(_, pk)| *pk).collect();
+    //public_keys.iter().for_each(|x| {
+    //    println!("x: {}", x.to_string());
+    //});
 
     fund_dummy_publishers(
         &feepayer_private_key,

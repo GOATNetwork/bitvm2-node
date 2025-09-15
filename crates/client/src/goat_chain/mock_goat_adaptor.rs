@@ -1,6 +1,6 @@
 use crate::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
-use alloy::primitives::{Address, TxHash};
+use alloy::primitives::{Address, Bytes, TxHash};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use async_trait::async_trait;
@@ -407,6 +407,13 @@ impl ChainAdaptor for MockAdaptor {
         Ok(0)
     }
 
+    async fn seq_set_pub_get_publisher_public_keys(
+        &self,
+        _publisher: Address,
+    ) -> anyhow::Result<Bytes> {
+        Ok(Bytes::new())
+    }
+
     async fn seq_set_pub_update_sequencer_set(
         &self,
         _sequencer_set: &SequencerSet,
@@ -417,10 +424,10 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn seq_set_pub_update_publisher_set(
         &self,
-        _new_owners: &[[u8; 20]],
+        _new_publishers: &[[u8; 20]],
+        _new_publisher_pubkeys: &[Vec<u8>],
         _signatures: &[Vec<u8>],
-        _sequencer_set: &SequencerSet,
-        _sequencer_set_cmt_sigs: &[u8],
+        _p2wsh_sig_hash: &[u8; 32],
     ) -> anyhow::Result<String> {
         Ok("".to_string())
     }

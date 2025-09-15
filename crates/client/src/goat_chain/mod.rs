@@ -1,7 +1,7 @@
 // Gateway rate multiplier constant
 const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 use alloy::consensus::crypto::secp256k1::recover_signer;
-use alloy::primitives::{Address, B256, Signature};
+use alloy::primitives::{Address, B256, Bytes, Signature};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::hashes::Hash;
@@ -612,6 +612,13 @@ impl GOATClient {
         self.chain_service.seq_set_pub_get_last_block_height().await
     }
 
+    pub async fn seq_set_pub_get_publisher_public_keys(
+        &self,
+        publisher: Address,
+    ) -> anyhow::Result<Bytes> {
+        self.chain_service.seq_set_pub_get_publisher_public_keys(publisher).await
+    }
+
     pub async fn seq_set_pub_update_sequencer_set(
         &self,
         sequencer_set: &SequencerSet,
@@ -636,18 +643,13 @@ impl GOATClient {
     }
     pub async fn seq_set_pub_update_publisher_set(
         &self,
-        new_owners: &[[u8; 20]],
+        new_publishers: &[[u8; 20]],
+        new_publisher_pubkeys: &[Vec<u8>],
         signatures: &[Vec<u8>],
-        sequencer_set: &SequencerSet,
-        sequencer_set_cmt_sigs: &[u8],
+        p2wsh_sig_hash: &[u8; 32],
     ) -> anyhow::Result<String> {
         self.chain_service
-            .seq_set_pub_update_publisher_set(
-                new_owners,
-                signatures,
-                sequencer_set,
-                sequencer_set_cmt_sigs,
-            )
+            .seq_set_pub_update_publisher_set(new_publishers, new_publisher_pubkeys, signatures, p2wsh_sig_hash)
             .await
     }
 
