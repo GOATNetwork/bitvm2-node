@@ -4,7 +4,11 @@ pub mod instance_maintenance_tasks;
 
 use crate::action::GOATMessageContent;
 use crate::middleware::AllBehaviours;
-use crate::scheduled_tasks::graph_maintenance_tasks::{detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, detect_watchtower_assert_disproved, detect_watchtower_assert_init, detected_take2, monitor_watchtower_assert, scan_obsolete_sibling_graphs};
+use crate::scheduled_tasks::graph_maintenance_tasks::{
+    detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge,
+    detect_watchtower_assert_disproved, detect_watchtower_assert_init, detected_take2,
+    monitor_watchtower_assert, scan_obsolete_sibling_graphs,
+};
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
     instance_window_expiration_monitor, scan_post_graph_data, scan_post_pegin_data,
@@ -75,7 +79,9 @@ pub async fn relayer_scheduled_tasks(
     if let Err(err) = detected_take2(swarm, local_db, btc_client, goat_client).await {
         warn!("scan_take2, err {:?}", err)
     }
-    if let Err(err) = detect_watchtower_assert_disproved(swarm, local_db, btc_client, goat_client).await {
+    if let Err(err) =
+        detect_watchtower_assert_disproved(swarm, local_db, btc_client, goat_client).await
+    {
         warn!("detect_watchtower_assert_disproved, err {:?}", err)
     }
 

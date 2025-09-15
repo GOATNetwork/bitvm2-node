@@ -1,4 +1,5 @@
 use crate::Utxo;
+use crate::goat_chain::DisproveTxType;
 use crate::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, SequencerSet, WithdrawData,
 };
@@ -6,7 +7,6 @@ use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 use alloy::primitives::Address;
 use alloy::rpc::types::TransactionReceipt;
 use uuid::Uuid;
-use crate::goat_chain::DisproveTxType;
 
 pub struct EvmChain {
     adaptor: Box<dyn ChainAdaptor + Send + Sync>,

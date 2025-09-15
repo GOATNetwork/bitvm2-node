@@ -26,8 +26,7 @@ mod evmchain;
 mod goat_adaptor;
 mod mock_goat_adaptor;
 use crate::goat_chain::evmchain::EvmChain;
-pub use chain_adaptor::{Utxo, DisproveTxType};
-
+pub use chain_adaptor::{DisproveTxType, Utxo};
 
 impl GOATClient {
     pub fn new(goat_init_config: GoatInitConfig, goat_network: GoatNetwork) -> Self {

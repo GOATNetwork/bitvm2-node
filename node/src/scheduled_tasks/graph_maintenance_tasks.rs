@@ -31,6 +31,12 @@ use uuid::Uuid;
 const BLOCKHASH_COMMIT_VIN_MARGIN: i64 = 3;
 const ASSERT_COMMIT_VIN_MARGIN: i64 = 2;
 
+#[derive(Clone, Debug, Eq, PartialEq, Display, EnumString)]
+enum OperatorWithdrawType {
+    Take1,
+    Take2,
+}
+
 /// Watchtower init tx vout item status
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
 pub enum WTInitTxVoutItemStatus {
@@ -482,45 +488,34 @@ pub async fn detect_take1_or_challenge(
                 &graph_data.clone(),
             )
             .await?;
-            match process_kickoff_graph(
-                btc_client,
-                goat_client,
-                local_db,
-                &mut storage_processor,
-                &graph_data,
-                lock_blocks,
-                current_height,
-            )
-            .await?
-            {
-                Some((actor, content)) => {
-                    // first detected take1 ready
+        }
+        match process_kickoff_graph(
+            btc_client,
+            goat_client,
+            local_db,
+            &graph_data,
+            lock_blocks,
+            current_height,
+        )
+        .await?
+        {
+            Some((actor, content)) => {
+                // first detected take1 ready
+                if graph_data.msg_type == MessageType::KickoffSent.to_string() {
                     graph_data.msg_times = 0;
                     graph_data.last_msg_send_at = 0;
-                    broadcast_message_and_record(
-                        swarm,
-                        &mut storage_processor,
-                        actor,
-                        content,
-                        &graph_data,
-                    )
-                    .await?;
                 }
-                None => {}
+
+                broadcast_message_and_record(
+                    swarm,
+                    &mut storage_processor,
+                    actor,
+                    content,
+                    &graph_data,
+                )
+                .await?;
             }
-        } else {
-            // Send P2P msg take1Ready
-            broadcast_message_and_record(
-                swarm,
-                &mut storage_processor,
-                Actor::Operator,
-                GOATMessageContent::Take1Ready(Take1Ready {
-                    instance_id: graph_data.instance_id,
-                    graph_id: graph_data.graph_id,
-                }),
-                &graph_data.clone(),
-            )
-            .await?;
+            None => {}
         }
     }
     Ok(())
@@ -597,37 +592,48 @@ pub async fn detect_watchtower_assert_init(
     Ok(())
 }
 /// Handle Take1 transaction completion
-async fn handle_take1_completion(
+async fn handle_operator_withdraw_completion(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
-    local_db: &LocalDB,
-    graph_data: &GraphWithBroadcastInfo,
-    take1_txid: Txid,
-) -> anyhow::Result<()> {
+    storage_processor: &mut StorageProcessor<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    withdraw_type: OperatorWithdrawType,
+    txid: Txid,
+) -> anyhow::Result<bool> {
     info!(
-        "Processing Take1 completion for graph_id: {}, take1_txid: {}",
-        graph_data.graph_id, take1_txid
+        "Processing Take1 completion for graph_id: {graph_id}, {withdraw_type} txid: {}",
+        txid.to_string()
     );
 
-    let take1_tx = btc_client
-        .get_tx(&take1_txid)
+    let btc_tx = btc_client
+        .get_tx(&txid)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("take1 {} not found", take1_txid.to_string()))?;
+        .ok_or_else(|| anyhow::anyhow!("take1 {} not found", txid.to_string()))?;
 
-    match goat_client
-        .gateway_finish_withdraw_happy_path(btc_client, &graph_data.graph_id, &take1_tx)
-        .await
-    {
+    let (call_contract_res, status, tx_type) = match withdraw_type {
+        OperatorWithdrawType::Take1 => (
+            goat_client.gateway_finish_withdraw_happy_path(btc_client, &graph_id, &btc_tx).await,
+            GraphStatus::OperatorTake1.to_string(),
+            GoatTxType::WithdrawHappyPath.to_string(),
+        ),
+        OperatorWithdrawType::Take2 => (
+            goat_client.gateway_finish_withdraw_unhappy_path(btc_client, &graph_id, &btc_tx).await,
+            GraphStatus::OperatorTake2.to_string(),
+            GoatTxType::WithdrawUnhappyPath.to_string(),
+        ),
+    };
+
+    let data_change = match call_contract_res {
         Err(err) => {
             warn!(
-                "Failed to finish withdraw happy path for graph_id: {}, error: {:?}. Will retry later.",
-                graph_data.graph_id, err
+                "Failed to finish withdraw happy path for graph_id: {graph_id}, error: {err:?}. Will retry later."
             );
+            false
         }
         Ok(tx_hash) => {
             info!(
-                "Successfully finished withdraw happy path for instance_id: {}, graph_id: {}, tx_hash: {}",
-                graph_data.instance_id, graph_data.graph_id, tx_hash
+                "Successfully finished withdraw happy path for graph_id: {graph_id}, tx_hash: {tx_hash}"
             );
 
             let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
@@ -638,98 +644,102 @@ async fn handle_take1_completion(
                 }
             };
 
-            let mut tx = local_db.start_transaction().await?;
+            storage_processor
+                .upsert_goat_tx_record(&GoatTxRecord {
+                    instance_id,
+                    graph_id,
+                    tx_type,
+                    tx_hash,
+                    height: block_height as i64,
+                    is_local: true,
+                    processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+                    extra: None,
+                    created_at: current_time_secs(),
+                })
+                .await?;
 
-            tx.upsert_goat_tx_record(&GoatTxRecord {
-                instance_id: graph_data.instance_id,
-                graph_id: graph_data.graph_id,
-                tx_type: GoatTxType::WithdrawHappyPath.to_string(),
-                tx_hash,
-                height: block_height as i64,
-                is_local: true,
-                processing_status: GoatTxProcessingStatus::Skipped.to_string(),
-                extra: None,
-                created_at: current_time_secs(),
-            })
-            .await?;
-
-            tx.update_graph_fields(
-                GraphUpdate::new(graph_data.graph_id)
-                    .with_status(GraphStatus::OperatorTake1.to_string()),
-            )
-            .await?;
-
-            tx.commit().await?;
-
-            info!(
-                "Successfully updated database for graph_id: {} to Take1 status",
-                graph_data.graph_id
-            );
+            storage_processor
+                .update_graph_fields(GraphUpdate::new(graph_id).with_status(status))
+                .await?;
+            info!("Successfully updated database for graph_id: {graph_id} to Take1 status",);
+            true
         }
-    }
-    Ok(())
+    };
+    Ok(data_change)
 }
 
 /// Handle Challenge transaction detection
 async fn handle_challenge_detected(
     storage_processor: &mut StorageProcessor<'_>,
-    graph_data: &GraphWithBroadcastInfo,
+    graph_id: Uuid,
     challenge_txid: Txid,
 ) -> anyhow::Result<()> {
     info!(
-        "Challenge detected for graph_id: {}, challenge_txid: {}",
-        graph_data.graph_id, challenge_txid
+        "Challenge detected for graph_id: {graph_id}, challenge_txid: {}",
+        challenge_txid.to_string()
     );
 
     storage_processor
         .update_graph_fields(
-            GraphUpdate::new(graph_data.graph_id)
+            GraphUpdate::new(graph_id)
                 .with_status(GraphStatus::Challenge.to_string())
                 .with_challenge_txid(challenge_txid.into()),
         )
         .await?;
 
-    info!("Successfully updated graph_id: {} to Challenge status", graph_data.graph_id);
+    info!("Successfully updated graph_id: {graph_id} to Challenge status");
     Ok(())
 }
 
 /// Check if Take1Ready message needs to be sent
-async fn check_take1_ready_condition(
+async fn check_operator_withdraw_ready_condition(
     btc_client: &BTCClient,
-    graph_data: &GraphWithBroadcastInfo,
-    kickoff_txid: Txid,
-    lock_blocks: u32,
-    current_height: u32,
-) -> anyhow::Result<Option<GOATMessageContent>> {
-    if !is_need_to_send_msg(graph_data.msg_times, graph_data.last_msg_send_at) {
-        return Ok(None);
-    }
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_id: Uuid,
+    check_tx_items: Vec<(Txid, OperatorWithdrawType, i64, i64)>, // (txid, tag,  height, lock_blocks)
+    current_height: i64,
+) -> anyhow::Result<(bool, bool)> {
+    let mut ready = true;
+    let mut data_change = false;
+    for (txid, operator_withdraw_type, height, lock_blocks) in check_tx_items {
+        let height = if height <= 0 {
+            let current_times = current_time_secs();
+            let (height, vout_len) = match btc_client.get_tx_info(&txid).await? {
+                Some(tx_info) => (
+                    tx_info.status.block_height.unwrap_or_default() as i64,
+                    tx_info.vout.len() as i64,
+                ),
+                None => {
+                    info!(
+                        "graph_id:{graph_id}, {operator_withdraw_type} txid {} not on chain",
+                        txid.to_string()
+                    );
+                    return Ok((false, data_change));
+                }
+            };
+            storage_processor
+                .upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
+                    graph_id,
+                    txid: txid.into(),
+                    height,
+                    vout_len,
+                    monitor_data: "".to_string(),
+                    created_at: current_times,
+                    updated_at: current_times,
+                })
+                .await?;
+            data_change = true;
+            height
+        } else {
+            height
+        };
 
-    let kickoff_height = match btc_client.get_tx_status(&kickoff_txid).await?.block_height {
-        Some(height) => height,
-        None => {
-            info!(
-                "graph_id:{}, kickoff_txid {} not on chain",
-                graph_data.graph_id,
-                kickoff_txid.to_string()
-            );
-            return Ok(None);
+        if height == 0 || height > 0 && height + lock_blocks > current_height {
+            ready = false;
+            break;
         }
-    };
-
-    info!(
-        "graph_id:{}, kickoff_height:{kickoff_height}, lock_blocks:{lock_blocks}, current_height:{current_height}",
-        graph_data.graph_id
-    );
-
-    if kickoff_height + lock_blocks <= current_height {
-        Ok(Some(GOATMessageContent::Take1Ready(Take1Ready {
-            instance_id: graph_data.instance_id,
-            graph_id: graph_data.graph_id,
-        })))
-    } else {
-        Ok(None)
     }
+    Ok((ready, data_change))
 }
 
 /// Process graph data in KickOff status
@@ -737,7 +747,6 @@ async fn process_kickoff_graph(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     local_db: &LocalDB,
-    storage_processor: &mut StorageProcessor<'_>,
     graph_data: &GraphWithBroadcastInfo,
     lock_blocks: u32,
     current_height: u32,
@@ -751,31 +760,60 @@ async fn process_kickoff_graph(
             }
         };
 
+    let mut tx = local_db.start_transaction().await?;
     let spent_txid = match outpoint_spent_txid(btc_client, &kickoff_txid, 0).await? {
         Some(txid) => txid,
         None => {
             // kickoff output not spent, check if we need to send Take1Ready
-            if let Some(content) = check_take1_ready_condition(
+            let height = tx
+                .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &kickoff_txid.into())
+                .await?
+                .unwrap_or_default()
+                .height;
+            let (ready, data_change) = check_operator_withdraw_ready_condition(
                 btc_client,
-                graph_data,
-                kickoff_txid,
-                lock_blocks,
-                current_height,
+                &mut tx,
+                graph_data.graph_id,
+                vec![(kickoff_txid, OperatorWithdrawType::Take1, height, lock_blocks as i64)],
+                current_height as i64,
             )
-            .await?
-            {
-                return Ok(Some((Actor::Operator, content)));
+            .await?;
+            if data_change {
+                tx.commit().await?;
+            }
+
+            if ready {
+                return Ok(Some((
+                    Actor::Operator,
+                    GOATMessageContent::Take1Ready(Take1Ready {
+                        instance_id: graph_data.instance_id,
+                        graph_id: graph_data.graph_id,
+                    }),
+                )));
             }
             return Ok(None);
         }
     };
-
-    if spent_txid == take1_txid {
+    let mut tx = local_db.start_transaction().await?;
+    let data_change = if spent_txid == take1_txid {
         // Take1 was sent
-        handle_take1_completion(btc_client, goat_client, local_db, graph_data, take1_txid).await?;
+        handle_operator_withdraw_completion(
+            btc_client,
+            goat_client,
+            &mut tx,
+            graph_data.instance_id,
+            graph_data.graph_id,
+            OperatorWithdrawType::Take1,
+            take1_txid,
+        )
+        .await?
     } else {
         // Challenge was sent
-        handle_challenge_detected(storage_processor, graph_data, spent_txid).await?;
+        handle_challenge_detected(&mut tx, graph_data.graph_id, spent_txid).await?;
+        true
+    };
+    if data_change {
+        tx.commit().await?;
     }
 
     Ok(None)
@@ -1325,20 +1363,21 @@ async fn find_spend_tx_for_disproved_index(
     txid: &SerializableTxid,
     index_calculator: impl Fn(i32) -> u64,
 ) -> anyhow::Result<Option<(Txid, i32)>> {
-    let out_monitor = storage_processor
-        .get_graph_btc_tx_vout_monitor(graph_id, txid)
-        .await?;
+    let out_monitor = storage_processor.get_graph_btc_tx_vout_monitor(graph_id, txid).await?;
 
     let Some(out_monitor) = out_monitor else {
         return Ok(None);
     };
 
-    let vout_monitor_data = parse_monitor_data::<WTInitTxVoutMonitorData>(&out_monitor.monitor_data)
-        .map_err(|e| anyhow::anyhow!("Failed to parse monitor data: {}", e))?;
+    let vout_monitor_data =
+        parse_monitor_data::<WTInitTxVoutMonitorData>(&out_monitor.monitor_data)
+            .map_err(|e| anyhow::anyhow!("Failed to parse monitor data: {}", e))?;
 
     for &index in &vout_monitor_data.require_disproved_indexes {
         let calculated_index = index_calculator(index);
-        if let Some(spend_txid) = outpoint_spent_txid(btc_client, &txid.clone().into(), calculated_index).await? {
+        if let Some(spend_txid) =
+            outpoint_spent_txid(btc_client, &txid.clone().into(), calculated_index).await?
+        {
             return Ok(Some((spend_txid, index)));
         }
     }
@@ -1353,19 +1392,21 @@ async fn find_assert_timeout_spend_tx(
     graph_id: &Uuid,
     assert_init_txid: &SerializableTxid,
 ) -> anyhow::Result<Option<(Txid, i32)>> {
-    let out_monitor = storage_processor
-        .get_graph_btc_tx_vout_monitor(graph_id, assert_init_txid)
-        .await?;
+    let out_monitor =
+        storage_processor.get_graph_btc_tx_vout_monitor(graph_id, assert_init_txid).await?;
 
     let Some(out_monitor) = out_monitor else {
         return Ok(None);
     };
 
-    let vout_monitor_data = parse_monitor_data::<AssertInitTxVoutMonitorData>(&out_monitor.monitor_data)
-        .map_err(|e| anyhow::anyhow!("Failed to parse assert monitor data: {}", e))?;
+    let vout_monitor_data =
+        parse_monitor_data::<AssertInitTxVoutMonitorData>(&out_monitor.monitor_data)
+            .map_err(|e| anyhow::anyhow!("Failed to parse assert monitor data: {}", e))?;
 
     for &index in &vout_monitor_data.require_disproved_indexes {
-        if let Some(spend_txid) = outpoint_spent_txid(btc_client, &assert_init_txid.clone().into(), index as u64).await? {
+        if let Some(spend_txid) =
+            outpoint_spent_txid(btc_client, &assert_init_txid.clone().into(), index as u64).await?
+        {
             return Ok(Some((spend_txid, index)));
         }
     }
@@ -1380,8 +1421,13 @@ async fn process_graph_watchtower_assert_dissproved(
     graph_data: &GraphWithBroadcastInfo,
 ) -> anyhow::Result<()> {
     // Parse the disprove type
-    let disprove_type = DisproveTxType::from_str(&graph_data.disprove_type)
-        .map_err(|e| anyhow::anyhow!("Failed to decode disprove tx type for graph {}: {}", graph_data.graph_id, e))?;
+    let disprove_type = DisproveTxType::from_str(&graph_data.disprove_type).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to decode disprove tx type for graph {}: {}",
+            graph_data.graph_id,
+            e
+        )
+    })?;
 
     // Early return: if it's Disprove type, return directly
     if disprove_type == DisproveTxType::Disprove {
@@ -1395,19 +1441,20 @@ async fn process_graph_watchtower_assert_dissproved(
         graph_data.assert_init_txid.as_ref(),
     );
 
-    let (challenge_txid, watchtower_challenge_init_txid, assert_init_txid) = match (challenge_txid, watchtower_challenge_init_txid, assert_init_txid) {
-        (Some(c), Some(w), Some(a)) => (c, w, a),
-        _ => {
-            warn!("Missing required txids for graph {}", graph_data.graph_id);
-            return Ok(());
-        }
-    };
+    let (challenge_txid, watchtower_challenge_init_txid, assert_init_txid) =
+        match (challenge_txid, watchtower_challenge_init_txid, assert_init_txid) {
+            (Some(c), Some(w), Some(a)) => (c, w, a),
+            _ => {
+                warn!("Missing required txids for graph {}", graph_data.graph_id);
+                return Ok(());
+            }
+        };
 
     // Get the challenge start transaction
-    let challenge_start_tx = btc_client
-        .get_tx(&challenge_txid.clone().into())
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Challenge tx not found for graph {}", graph_data.graph_id))?;
+    let challenge_start_tx =
+        btc_client.get_tx(&challenge_txid.clone().into()).await?.ok_or_else(|| {
+            anyhow::anyhow!("Challenge tx not found for graph {}", graph_data.graph_id)
+        })?;
 
     // Get challenge finish transaction and index based on disprove type
     let (challenge_finish_tx, tx_index) = match disprove_type {
@@ -1426,7 +1473,9 @@ async fn process_graph_watchtower_assert_dissproved(
                 &graph_data.graph_id,
                 watchtower_challenge_init_txid,
                 |index| (index * 2 + 1) as u64,
-            ).await? {
+            )
+            .await?
+            {
                 Some((txid, index)) => (Some(txid), index * 2 + 1),
                 None => (None, 0),
             }
@@ -1438,7 +1487,9 @@ async fn process_graph_watchtower_assert_dissproved(
                 storage_processor,
                 &graph_data.graph_id,
                 assert_init_txid,
-            ).await? {
+            )
+            .await?
+            {
                 Some((txid, index)) => (Some(txid), index),
                 None => (None, 0),
             }
@@ -1448,10 +1499,10 @@ async fn process_graph_watchtower_assert_dissproved(
 
     // If there's a challenge finish transaction, execute the disproved withdraw
     if let Some(challenge_finish_tx) = challenge_finish_tx {
-        let challenge_finish_tx = btc_client
-            .get_tx(&challenge_finish_tx.into())
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Challenge finish tx not found for graph {}", graph_data.graph_id))?;
+        let challenge_finish_tx =
+            btc_client.get_tx(&challenge_finish_tx.into()).await?.ok_or_else(|| {
+                anyhow::anyhow!("Challenge finish tx not found for graph {}", graph_data.graph_id)
+            })?;
 
         goat_client
             .gateway_finish_withdraw_disproved(
@@ -1463,7 +1514,13 @@ async fn process_graph_watchtower_assert_dissproved(
                 &challenge_finish_tx,
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to finish withdraw disproved for graph {}: {}", graph_data.graph_id, e))?;
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to finish withdraw disproved for graph {}: {}",
+                    graph_data.graph_id,
+                    e
+                )
+            })?;
     }
 
     Ok(())
