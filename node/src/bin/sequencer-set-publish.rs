@@ -10,7 +10,7 @@
 //!     GOAT_EVM_ADDRESS=0x8943545177806ED17B9F23F0a21ee5948eCaa776
 //!     GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS=0x00c042C4D5D913277CE16611a2ce6e9003554aD5
 //!     FEE_PAYER_BTC_KEY_WIF=cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5
-//!     cargo run --bin sequencer-set-publish
+//!     cargo run --bin sequencer-set-publish -- --publishers 0xcC1Bd124EA962Dd3e6f10F814FB6C4493CEA6d27,0x0b71c9fc399e7FE424f3c22d872735F32550eC09,0x55C55d24bBef5d79918270Af9366b97fC0C7AC7b,0xeBBa6C3BE7Dc14FAeB1c2547cF43D4ad6aD46Ef4,0xa0F88c27B535615A8D8808c6023986a540161021
 //! ```
 //! The key wif is used only for test.
 //!
@@ -259,7 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    let redeem_script = create_sequencer_update_script(&public_keys, threshold);
+    let redeem_script = create_sequencer_update_script(&btc_public_keys, threshold);
     let next_update_connector_address = Address::p2wsh(&redeem_script, network);
 
     let replenish_fee = Amount::from_sat(args.fee_rate)
