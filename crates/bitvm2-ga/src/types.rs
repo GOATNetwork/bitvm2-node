@@ -156,20 +156,26 @@ pub struct Bitvm2GraphParameters {
 }
 
 impl Bitvm2InstanceParameters {
-    pub fn get_verifier_context(&self, committee_member_keypair: Keypair) -> VerifierContext {
+    pub fn get_verifier_context(
+        &self,
+        committee_member_keypair: Keypair,
+    ) -> Result<VerifierContext> {
         let network = self.network;
         let committee_public_key = self.committee_agg_pubkey;
         let committee_taproot_public_key = XOnlyPublicKey::from(committee_public_key);
         let private_key = PrivateKey::new(committee_member_keypair.secret_key(), network);
         let committee_member_public_key = PublicKey::from_private_key(SECP256K1, &private_key);
-        VerifierContext {
+        if !self.committee_pubkeys.contains(&committee_member_public_key) {
+            bail!("The provided committee member keypair does not match any committee public key");
+        }
+        Ok(VerifierContext {
             network,
             verifier_keypair: committee_member_keypair,
             verifier_public_key: committee_member_public_key,
             n_of_n_public_keys: self.committee_pubkeys.clone(),
             n_of_n_public_key: committee_public_key,
             n_of_n_taproot_public_key: committee_taproot_public_key,
-        }
+        })
     }
 
     pub fn get_base_context(&self) -> BaseBitvmContext {
@@ -187,13 +193,21 @@ impl Bitvm2InstanceParameters {
 }
 
 impl Bitvm2GraphParameters {
-    pub fn get_operator_context(&self, operator_keypair: Keypair) -> OperatorContext {
+    pub fn get_operator_context(&self, operator_keypair: Keypair) -> Result<OperatorContext> {
         let network = self.instance_parameters.network;
         let operator_public_key = self.operator_pubkey;
         let operator_taproot_public_key = XOnlyPublicKey::from(operator_public_key);
         let committee_public_key = self.instance_parameters.committee_agg_pubkey;
         let committee_taproot_public_key = XOnlyPublicKey::from(committee_public_key);
-        OperatorContext {
+        if operator_public_key
+            != PublicKey::from_private_key(
+                SECP256K1,
+                &PrivateKey::new(operator_keypair.secret_key(), network),
+            )
+        {
+            bail!("The provided operator keypair does not match the operator public key");
+        }
+        Ok(OperatorContext {
             network,
             operator_keypair,
             operator_public_key,
@@ -202,7 +216,7 @@ impl Bitvm2GraphParameters {
             n_of_n_public_keys: self.instance_parameters.committee_pubkeys.clone(),
             n_of_n_public_key: committee_public_key,
             n_of_n_taproot_public_key: committee_taproot_public_key,
-        }
+        })
     }
 
     pub fn get_base_context(&self) -> BaseBitvmContext {

@@ -118,7 +118,7 @@ pub fn committee_pre_sign(
     committee_agg_nonce.validate_length(watchtower_num, assert_commit_num)?;
 
     let verifier_context =
-        graph.parameters.instance_parameters.get_verifier_context(committee_member_keypair);
+        graph.parameters.instance_parameters.get_verifier_context(committee_member_keypair)?;
     let mut res = CommitteePartialSignatures::new_empty();
 
     {

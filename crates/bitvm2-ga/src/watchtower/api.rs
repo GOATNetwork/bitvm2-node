@@ -8,7 +8,7 @@ use goat::{
 use crate::types::Bitvm2Graph;
 
 pub fn build_watchtower_challenge_tx(
-    graph: &mut Bitvm2Graph,
+    graph: &Bitvm2Graph,
     watchtower_keypair: &Keypair,
     watchtower_index: usize,
     commitment_data: &[u8],

@@ -457,6 +457,64 @@ pub async fn complete_and_broadcast_challenge_tx(
     }
 }
 
+pub async fn build_sign_and_broadcast_tx(
+    client: &BTCClient,
+    node_keypair: Keypair,
+    txins: Vec<TxIn>,
+    total_input_amount: Amount,
+    txouts: Vec<TxOut>,
+) -> Result<Txid, Box<dyn std::error::Error>> {
+    let mut tx = Transaction {
+        version: bitcoin::transaction::Version(2),
+        lock_time: bitcoin::absolute::LockTime::ZERO,
+        input: txins,
+        output: txouts,
+    };
+    let fixed_inputs_num = tx.input.len();
+    let total_output_amount: Amount = tx.output.iter().map(|o| o.value).sum();
+    let fee_rate = get_fee_rate(client).await?;
+    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
+    let shortfall = Amount::from_sat(
+        total_output_amount.to_sat().saturating_sub(total_input_amount.to_sat())
+    );
+    match get_proper_utxo_set(
+        client,
+        tx.weight().to_vbytes_ceil(),
+        node_address.clone(),
+        shortfall,
+        fee_rate,
+    ).await? {
+        Some((inputs, _, change_amount)) => {
+            for input in &inputs {
+                tx.input.push(TxIn {
+                    previous_output: input.outpoint,
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: Witness::default(),
+                });
+            }
+            if change_amount > Amount::from_sat(DUST_AMOUNT) {
+                tx.output.push(TxOut {
+                    script_pubkey: node_address.script_pubkey(),
+                    value: change_amount,
+                });
+            }
+            for (i, input) in inputs.iter().enumerate() {
+                node_sign(
+                    &mut tx,
+                    i + fixed_inputs_num,
+                    input.amount,
+                    EcdsaSighashType::All,
+                    &node_keypair,
+                )?;
+            }
+            broadcast_tx(client, &tx).await?;
+            Ok(tx.compute_txid())
+        }
+        None => Err(format!("insufficient btc, please fund {node_address} first").into()),
+    }
+}
+
 /// Returns:
 /// - `Ok(None)` if given address does not have enough btc,
 /// - `Ok(Some((utxos, fee_amount, change_amount)))`
