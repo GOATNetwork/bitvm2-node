@@ -1,6 +1,6 @@
 use crate::action::{
     ChallengeSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
-    send_to_peer,
+    Take2Ready, send_to_peer,
 };
 use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_RESEND_INTERVAL_SECOND, get_network};
 use crate::middleware::AllBehaviours;
@@ -606,10 +606,9 @@ async fn handle_operator_withdraw_completion(
         txid.to_string()
     );
 
-    let btc_tx = btc_client
-        .get_tx(&txid)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("take1 {} not found", txid.to_string()))?;
+    let btc_tx = btc_client.get_tx(&txid).await?.ok_or_else(|| {
+        anyhow::anyhow!("graph_id: {graph_id}, {withdraw_type} {} not found", txid.to_string())
+    })?;
 
     let (call_contract_res, status, tx_type) = match withdraw_type {
         OperatorWithdrawType::Take1 => (
@@ -817,16 +816,6 @@ async fn process_kickoff_graph(
     }
 
     Ok(None)
-}
-
-//Tick-Task-5:
-pub async fn detected_take2(
-    _swarm: &mut Swarm<AllBehaviours>,
-    _local_db: &LocalDB,
-    _btc_client: &BTCClient,
-    _goat_client: &GOATClient,
-) -> anyhow::Result<()> {
-    Ok(())
 }
 
 pub async fn scan_obsolete_sibling_graphs(local_db: &LocalDB) -> anyhow::Result<()> {
@@ -1630,5 +1619,251 @@ pub async fn detect_watchtower_assert_disproved(
         }
     }
 
+    Ok(())
+}
+
+/// Process graph data in Watchtower Assert Normal status
+async fn process_watchtower_assert_normal_graph(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    local_db: &LocalDB,
+    graph_data: &GraphWithBroadcastInfo,
+    watchtower_lock_blocks: u32,
+    assert_lock_blocks: u32,
+    current_height: u32,
+) -> anyhow::Result<Option<(Actor, GOATMessageContent)>> {
+    let (
+        kickoff_txid,
+        challenge_txid,
+        watchtower_challenge_init_txid,
+        assert_init_txid,
+        take2_txid,
+    ): (Txid, Txid, Txid, Txid, Txid) = match (
+        graph_data.kickoff_txid.clone(),
+        graph_data.challenge_txid.clone(),
+        graph_data.watchtower_challenge_init_txid.clone(),
+        graph_data.assert_init_txid.clone(),
+        graph_data.take2_txid.clone(),
+    ) {
+        (
+            Some(kickoff_txid),
+            Some(challenge_txid),
+            Some(watchtower_challenge_init_txid),
+            Some(assert_init_txid),
+            Some(take2_txid),
+        ) => (
+            kickoff_txid.into(),
+            challenge_txid.into(),
+            watchtower_challenge_init_txid.into(),
+            assert_init_txid.into(),
+            take2_txid.into(),
+        ),
+        _ => {
+            warn!("graph_id:{}, kickoff or take1 is none", graph_data.graph_id);
+            return Ok(None);
+        }
+    };
+
+    let mut tx = local_db.start_transaction().await?;
+    let spent_txid = match outpoint_spent_txid(btc_client, &kickoff_txid, 3).await? {
+        Some(txid) => txid,
+        None => {
+            let watchtower_init_height = tx
+                .get_graph_btc_tx_vout_monitor(
+                    &graph_data.graph_id,
+                    &watchtower_challenge_init_txid.into(),
+                )
+                .await?
+                .unwrap_or_default()
+                .height;
+
+            let assert_init_height = tx
+                .get_graph_btc_tx_vout_monitor(&graph_data.graph_id, &assert_init_txid.into())
+                .await?
+                .unwrap_or_default()
+                .height;
+            let (ready, data_change) = check_operator_withdraw_ready_condition(
+                btc_client,
+                &mut tx,
+                graph_data.graph_id,
+                vec![
+                    (
+                        watchtower_challenge_init_txid,
+                        OperatorWithdrawType::Take2,
+                        watchtower_init_height,
+                        watchtower_lock_blocks as i64,
+                    ),
+                    (
+                        assert_init_txid,
+                        OperatorWithdrawType::Take2,
+                        assert_init_height,
+                        assert_lock_blocks as i64,
+                    ),
+                ],
+                current_height as i64,
+            )
+            .await?;
+            if data_change {
+                tx.commit().await?;
+            }
+
+            if ready {
+                return Ok(Some((
+                    Actor::Operator,
+                    GOATMessageContent::Take2Ready(Take2Ready {
+                        instance_id: graph_data.instance_id,
+                        graph_id: graph_data.graph_id,
+                    }),
+                )));
+            }
+            return Ok(None);
+        }
+    };
+    let mut tx = local_db.start_transaction().await?;
+    let data_change = if spent_txid == take2_txid {
+        // Take1 was sent
+        handle_operator_withdraw_completion(
+            btc_client,
+            goat_client,
+            &mut tx,
+            graph_data.instance_id,
+            graph_data.graph_id,
+            OperatorWithdrawType::Take2,
+            take2_txid,
+        )
+        .await?
+    } else {
+        // Challenge was sent
+        handle_btc_disprove_detected(
+            btc_client,
+            goat_client,
+            &mut tx,
+            graph_data.graph_id,
+            challenge_txid,
+            spent_txid,
+        )
+        .await?;
+        true
+    };
+    if data_change {
+        tx.commit().await?;
+    }
+
+    Ok(None)
+}
+
+async fn handle_btc_disprove_detected(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_id: Uuid,
+    change_txid: Txid,
+    disprove_txid: Txid,
+) -> anyhow::Result<()> {
+    info!(
+        "Challenge detected for graph_id: {graph_id}, challenge_txid: {}",
+        disprove_txid.to_string()
+    );
+    let challenge_start_tx = btc_client.get_tx(&change_txid).await?.ok_or_else(|| {
+        anyhow::anyhow!("graph_id: {graph_id}, {} not found", change_txid.to_string())
+    })?;
+    let challenge_finish_tx = btc_client.get_tx(&disprove_txid).await?.ok_or_else(|| {
+        anyhow::anyhow!("graph_id: {graph_id}, {} not found", disprove_txid.to_string())
+    })?;
+
+    goat_client
+        .gateway_finish_withdraw_disproved(
+            btc_client,
+            &graph_id,
+            DisproveTxType::Disprove,
+            0_u64,
+            &challenge_start_tx,
+            &challenge_finish_tx,
+        )
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!("Failed to finish withdraw disproved for graph {graph_id}: {e:?}",)
+        })?;
+    storage_processor
+        .update_graph_fields(
+            GraphUpdate::new(graph_id)
+                .with_status(GraphStatus::Disprove.to_string())
+                .with_challenge_txid(disprove_txid.into()),
+        )
+        .await?;
+
+    info!("Successfully updated graph_id: {graph_id} to Challenge status");
+    Ok(())
+}
+
+pub async fn detect_take2_or_disprove(
+    swarm: &mut Swarm<AllBehaviours>,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+) -> anyhow::Result<()> {
+    info!("start tick action: detect_take1_or_challenge");
+    let mut storage_processor = local_db.acquire().await?;
+    let graph_datas = fetch_graphs_with_status_and_msg_type(
+        &mut storage_processor,
+        vec![
+            (GraphStatus::OperatorWatchtowerAndAssertNormalFinish, MessageType::None), // todo update msg send
+            (GraphStatus::OperatorKickOff, MessageType::Take2Ready),
+        ],
+    )
+    .await?;
+
+    let mut graph_map: HashMap<Uuid, GraphWithBroadcastInfo> = HashMap::new();
+    for graph_data in graph_datas {
+        graph_map
+            .entry(graph_data.graph_id)
+            .and_modify(|v| {
+                if graph_data.msg_type == MessageType::Take2Ready.to_string()
+                    && graph_data.msg_times > 0
+                {
+                    *v = graph_data.clone()
+                }
+            })
+            .or_insert(graph_data);
+    }
+    let current_height = btc_client.get_height().await?;
+    // todo Update lock_blocks
+    let watchtower_lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
+    let assert_lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
+
+    for (_graph_id, mut graph_data) in graph_map {
+        if graph_data.msg_type != MessageType::Take2Ready.to_string() {
+            // TODO send p2p message watchtower and init normal status
+        }
+        match process_watchtower_assert_normal_graph(
+            btc_client,
+            goat_client,
+            local_db,
+            &graph_data,
+            watchtower_lock_blocks,
+            assert_lock_blocks,
+            current_height,
+        )
+        .await?
+        {
+            Some((actor, content)) => {
+                // first detected take1 ready
+                if graph_data.msg_type != MessageType::Take2Ready.to_string() {
+                    graph_data.msg_times = 0;
+                    graph_data.last_msg_send_at = 0;
+                }
+
+                broadcast_message_and_record(
+                    swarm,
+                    &mut storage_processor,
+                    actor,
+                    content,
+                    &graph_data,
+                )
+                .await?;
+            }
+            None => {}
+        }
+    }
     Ok(())
 }
