@@ -24,9 +24,7 @@ use bitvm2_lib::types::{
 };
 use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_proof};
 use client::Utxo as ClientUtxo;
-use client::goat_chain::utils::{
-    get_graph_ids_by_instance_id, validate_committee, validate_operator, validate_relayer,
-};
+use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
 use client::goat_chain::{DisproveTxType, WithdrawStatus};
 use client::graphs::graph_query::BridgeInRequestEvent;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
@@ -47,6 +45,7 @@ use rand::Rng;
 use secp256k1::Secp256k1;
 use statics::*;
 
+use anyhow::anyhow;
 use bitcoin::hashes::Hash;
 use indexmap::IndexMap;
 use std::fs::{self, File};
@@ -112,7 +111,7 @@ pub mod statics {
 pub async fn should_generate_graph(
     client: &BTCClient,
     create_graph_prepare_data: &CreateGraphPrepare,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     if is_processing_graph() {
         return Ok(false);
     };
@@ -143,7 +142,7 @@ pub async fn is_valid_withdraw(
     client: &GOATClient,
     _instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok([WithdrawStatus::Initialized, WithdrawStatus::Processing].contains(&withdraw_status))
     // TODO: Only WithdrawStatus::Processing should be considered valid,
@@ -157,7 +156,7 @@ pub async fn is_withdraw_initialized_on_l2(
     client: &GOATClient,
     _instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok(withdraw_status == WithdrawStatus::Initialized)
 }
@@ -169,7 +168,7 @@ pub async fn is_withdraw_initialized_on_l2(
 pub async fn is_take1_timelock_expired(
     client: &BTCClient,
     kickoff_txid: Txid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
     let tx_status = client.get_tx_status(&kickoff_txid).await?;
     match tx_status.block_height {
@@ -188,7 +187,7 @@ pub async fn is_take1_timelock_expired(
 pub async fn is_take2_timelock_expired(
     client: &BTCClient,
     assert_final_txid: Txid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
     let tx_status = client.get_tx_status(&assert_final_txid).await?;
     match tx_status.block_height {
@@ -226,7 +225,7 @@ pub fn get_challenge_amount(pegin_amount: u64) -> Amount {
 pub async fn select_operator_inputs(
     client: &BTCClient,
     stake_amount: Amount,
-) -> Result<Option<CustomInputs>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<CustomInputs>> {
     let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
     let fee_rate = get_fee_rate(client).await?;
     match get_proper_utxo_set(
@@ -250,9 +249,7 @@ pub async fn select_operator_inputs(
 
 /// Loads partial scripts from a local cache file.
 /// If cache file does not exist, generate partial scripts by vk an cache it
-pub async fn get_partial_scripts(
-    local_db: &LocalDB,
-) -> Result<Vec<ScriptBuf>, Box<dyn std::error::Error>> {
+pub async fn get_partial_scripts(local_db: &LocalDB) -> anyhow::Result<Vec<ScriptBuf>> {
     let scripts_cache_path = SCRIPT_CACHE_FILE_NAME;
     if Path::new(scripts_cache_path).exists() {
         let file = File::open(scripts_cache_path)?;
@@ -271,13 +268,13 @@ pub async fn get_partial_scripts(
     }
 }
 
-pub async fn get_fee_rate(client: &BTCClient) -> Result<f64, Box<dyn std::error::Error>> {
+pub async fn get_fee_rate(client: &BTCClient) -> anyhow::Result<f64> {
     match client.network() {
         //TODO mempool api /fee-estimates failed, fix it latter
         Network::Testnet | Network::Regtest => Ok(10.0),
         _ => {
             let res = client.get_fee_estimates().await?;
-            Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(format!(
+            Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(anyhow!(
                 "fee for {DEFAULT_CONFIRMATION_TARGET} confirmation target not found"
             ))?)
         }
@@ -289,10 +286,7 @@ pub async fn get_fee_rate(client: &BTCClient) -> Result<f64, Box<dyn std::error:
 /// Requirements:
 /// - The mempool API URL must be configured.
 /// - The transaction should already be fully signed.
-pub async fn broadcast_tx(
-    client: &BTCClient,
-    tx: &Transaction,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> anyhow::Result<()> {
     client.broadcast(tx).await?;
     Ok(())
 }
@@ -304,7 +298,7 @@ pub async fn sign_and_broadcast_prekickoff_tx(
     client: &BTCClient,
     node_keypair: Keypair,
     prekickoff_tx: Transaction,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
     let mut prekickoff_tx = prekickoff_tx;
     for i in 0..prekickoff_tx.input.len() {
@@ -312,15 +306,18 @@ pub async fn sign_and_broadcast_prekickoff_tx(
         let prev_tx = client
             .get_tx(&prev_outpoint.txid)
             .await?
-            .ok_or(format!("previous tx {} not found", prev_outpoint.txid))?;
-        let prev_output = &prev_tx.output.get(prev_outpoint.vout as usize).ok_or(format!(
-            "previous tx {} does not have vout {}",
-            prev_outpoint.txid, prev_outpoint.vout
-        ))?;
+            .ok_or(anyhow::anyhow!("previous tx {} not found", prev_outpoint.txid))?;
+        let prev_output =
+            &prev_tx.output.get(prev_outpoint.vout as usize).ok_or(anyhow::anyhow!(
+                "previous tx {} does not have vout {}",
+                prev_outpoint.txid,
+                prev_outpoint.vout
+            ))?;
         if prev_output.script_pubkey != node_address.script_pubkey() {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "previous outpoint {}:{} not belong to this node",
-                prev_outpoint.txid, prev_outpoint.vout
+                prev_outpoint.txid,
+                prev_outpoint.vout
             )
             .into());
         };
@@ -336,12 +333,12 @@ pub async fn recycle_prekickoff_tx(
     graph_id: Uuid,
     master_key: OperatorMasterKey,
     prekickoff_txid: Txid,
-) -> Result<Option<Txid>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<Txid>> {
     let network = get_network();
     let prekickoff_tx = client
         .get_tx(&prekickoff_txid)
         .await?
-        .ok_or(format!("pre-kickoff tx {prekickoff_txid} not on chain"))?;
+        .ok_or(anyhow!("pre-kickoff tx {prekickoff_txid} not on chain"))?;
     let fee_rate = get_fee_rate(client).await?;
     let recycle_tx_vbytes = 120;
     let fee_amount = Amount::from_sat((recycle_tx_vbytes as f64 * fee_rate).ceil() as u64);
@@ -405,7 +402,7 @@ pub async fn complete_and_broadcast_challenge_tx(
     node_keypair: Keypair,
     challenge_tx: Transaction,
     // challenge_amount: Amount,
-) -> Result<Txid, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Txid> {
     let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
     let fee_rate = get_fee_rate(client).await?;
     let mut challenge_tx = challenge_tx;
@@ -453,7 +450,7 @@ pub async fn complete_and_broadcast_challenge_tx(
             broadcast_tx(client, &challenge_tx).await?;
             Ok(challenge_tx.compute_txid())
         }
-        _ => Err(format!("insufficient btc, please fund {node_address} first").into()),
+        _ => Err(anyhow!("insufficient btc, please fund {node_address} first")),
     }
 }
 
@@ -466,7 +463,7 @@ pub async fn get_proper_utxo_set(
     address: Address,
     target_amount: Amount,
     fee_rate: f64,
-) -> Result<Option<(Vec<Input>, Amount, Amount)>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<(Vec<Input>, Amount, Amount)>> {
     fn estimate_tx_vbytes(base_vbytes: u64, extra_inputs: usize, extra_outputs: usize) -> u64 {
         // p2wsh inputs/outputs
         base_vbytes
@@ -511,7 +508,7 @@ pub async fn get_proper_utxo_set(
 
 /// Returns the address to receive disprove reward, which is a P2WSH address
 /// generated by the challenge node at startup.
-pub fn disprove_reward_address() -> Result<Address, Box<dyn std::error::Error>> {
+pub fn disprove_reward_address() -> anyhow::Result<Address> {
     Ok(node_p2wsh_address(get_network(), &get_node_pubkey()?))
 }
 
@@ -532,7 +529,7 @@ pub fn node_sign(
     input_value: Amount,
     sighash_type: EcdsaSighashType,
     node_keypair: &Keypair,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let node_pubkey = node_keypair.public_key();
     populate_p2wsh_witness(
         tx,
@@ -562,7 +559,7 @@ pub async fn should_challenge(
     _instance_id: Uuid,
     graph_id: Uuid,
     kickoff_txid: &Txid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     // check if kickoff is confirmed on L1
     if btc_client.get_tx(kickoff_txid).await?.is_none() {
         return Ok(false);
@@ -599,10 +596,7 @@ pub async fn should_challenge(
 }
 
 /// Validates whether the given kickoff transaction has been confirmed on Layer 1.
-pub async fn tx_on_chain(
-    client: &BTCClient,
-    txid: &Txid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+pub async fn tx_on_chain(client: &BTCClient, txid: &Txid) -> anyhow::Result<bool> {
     match client.get_tx(txid).await? {
         Some(_) => Ok(true),
         _ => Ok(false),
@@ -613,7 +607,7 @@ pub async fn outpoint_available(
     client: &BTCClient,
     txid: &Txid,
     vout: u64,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     match client.get_output_status(txid, vout).await? {
         Some(status) => Ok(!status.spent),
         _ => Ok(false),
@@ -636,7 +630,7 @@ pub async fn validate_challenge(
     btc_client: &BTCClient,
     kickoff_txid: &Txid,
     challenge_txid: &Txid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     let challenge_tx = match btc_client.get_tx(challenge_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
@@ -650,7 +644,7 @@ pub async fn validate_disprove(
     btc_client: &BTCClient,
     assert_final_txid: &Txid,
     disprove_txid: &Txid,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     let disprove_tx = match btc_client.get_tx(disprove_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
@@ -674,7 +668,7 @@ pub async fn validate_assert(
     btc_client: &BTCClient,
     assert_commit_txns: &[Txid; COMMIT_TX_NUM],
     wots_pubkeys: WotsPublicKeys,
-) -> Result<Option<(usize, Script)>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<(usize, Script)>> {
     let mut txs = Vec::with_capacity(COMMIT_TX_NUM);
     for txid in assert_commit_txns.iter() {
         let tx = match btc_client.get_tx(txid).await? {
@@ -684,12 +678,12 @@ pub async fn validate_assert(
         txs.push(tx);
     }
     let assert_commit_txns: [Transaction; COMMIT_TX_NUM] =
-        txs.try_into().map_err(|_| "assert-commit-tx num mismatch")?;
+        txs.try_into().map_err(|_| anyhow::anyhow!("assert-commit-tx num mismatch"))?;
     let proof_sigs = extract_proof_sigs_from_assert_commit_txns(assert_commit_txns)?;
     let disprove_scripts =
         generate_disprove_scripts(&get_partial_scripts(local_db).await?, &wots_pubkeys);
     let disprove_scripts: [ScriptBuf; NUM_TAPS] =
-        disprove_scripts.try_into().map_err(|_| "disprove script num mismatch")?;
+        disprove_scripts.try_into().map_err(|_| anyhow!("disprove script num mismatch"))?;
     Ok(verify_proof(&get_vk(local_db).await?, proof_sigs, &disprove_scripts, &wots_pubkeys))
 }
 
@@ -702,7 +696,7 @@ pub async fn get_groth16_proof(
     instance_id: &Uuid,
     graph_id: &Uuid,
     challenge_txid: String,
-) -> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
+) -> anyhow::Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
         return get_test_groth16_proof();
     }
@@ -734,10 +728,10 @@ pub async fn get_groth16_proof(
                 created_at: 0,
             })
             .await?;
-        Err(format!("instance_id:{instance_id}, graph_id:{graph_id} not ready!").into())
+        Err(anyhow!("instance_id:{instance_id}, graph_id:{graph_id} not ready!"))
     }
 }
-pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey, Box<dyn std::error::Error>> {
+pub async fn get_vk(db: &LocalDB) -> anyhow::Result<VerifyingKey> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
         return get_test_vk();
     }
@@ -745,8 +739,7 @@ pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey, Box<dyn std::error::Er
     Ok(groth16::get_groth16_vk(db, &groth16::get_zkm_version()).await?)
 }
 
-pub fn get_test_groth16_proof()
--> Result<(Groth16Proof, PublicInputs, VerifyingKey), Box<dyn std::error::Error>> {
+pub fn get_test_groth16_proof() -> anyhow::Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
     let proof = hex::decode(
         "b6ef2c5aa48a2f599a13bc4d8010e4d0190aeb05ff79e21266aff8dde6353d1756191f0959c787f6dedfc0c47751aed2648775101285b9da2d6c4e912e74891f884bd672f94f4d78528fb10b5410a94b53bcef07f99952ef72b68c72a5c4ff2a3de7c314ffbf17df018a753f070448c2f698706d4c2b99bdb06f928cffe1bea0",
     )?;
@@ -758,7 +751,7 @@ pub fn get_test_groth16_proof()
     Ok((proof, pis, get_test_vk()?))
 }
 
-pub fn get_test_vk() -> Result<VerifyingKey, Box<dyn std::error::Error>> {
+pub fn get_test_vk() -> anyhow::Result<VerifyingKey> {
     let zkm_v1_vk_bytes = hex::decode(
         "e2f26dbea299f5223b646cb1fb33eadb059d9407559d7441dfd902e3a79a4d2dabb73dc17fbc13021e2471e0c08bd67d8401f52b73d6d07483794cad4778180e0c06f33bbc4c79a9cadef253a68084d382f17788f885c9afd176f7cb2f036789edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19ffdb10cf9f7e2b08673477187c33a695a397702cf22005900724518b57f92f2ce08f8dfe36ca3eff63b1743d64812936d8cab0d74c063d260e20a9a3339b2a8c0300000000000000d17e1efc51d15eef04bde8dc794edc9e5788eb7539171d3a49d970ab9215b89c9ab6c5ab119ca81927393ef29332a1d15ac5f197b878ea89a1f8f686b747011eaad636dcb52cdfd674d155ddd67d21186fbdd1c0a62ebd74dcd6ddc6784b819e",
     )?;
@@ -771,7 +764,7 @@ pub async fn gateway_finish_withdraw_happy_path(
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> anyhow::Result<String> {
     let tx_hash = goat_client.gateway_finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
@@ -781,7 +774,7 @@ pub async fn gateway_finish_withdraw_unhappy_path(
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> anyhow::Result<String> {
     let tx_hash =
         goat_client.gateway_finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
@@ -796,7 +789,7 @@ pub async fn gateway_finish_withdraw_disproved(
     tx_index: u64,
     disprove_tx: &Transaction,
     challenge_tx: &Transaction,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> anyhow::Result<String> {
     let tx_hash = goat_client
         .gateway_finish_withdraw_disproved(
             btc_client,
@@ -818,12 +811,12 @@ pub async fn store_committee_pub_nonces(
     graph_id: Uuid,
     committee_pubkey: PublicKey,
     pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut storage_process = local_db.acquire().await?;
     let nonces_vec: Vec<String> = pub_nonces.iter().map(|v| v.to_string()).collect();
     let nonces_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
         nonces_vec.try_into().map_err(|v: Vec<String>| {
-            format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
+            anyhow::anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
         })?;
     Ok(storage_process
         .store_nonces(instance_id, graph_id, &[nonces_arr], committee_pubkey.to_string(), &[])
@@ -833,10 +826,10 @@ pub async fn get_committee_pub_nonces(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>> {
     let mut storage_process = local_db.acquire().await?;
     match storage_process.get_nonces(instance_id, graph_id).await? {
-        None => Err(format!("instance id:{instance_id}, graph id:{graph_id} not found").into()),
+        None => Err(anyhow!("instance id:{instance_id}, graph id:{graph_id} not found").into()),
         Some(nonce_collect) => {
             let mut res: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]> = vec![];
             for nonces_item in nonce_collect.nonces {
@@ -845,7 +838,7 @@ pub async fn get_committee_pub_nonces(
                     .map(|v| PubNonce::from_str(v).expect("fail to decode pub nonce"))
                     .collect();
                 res.push(nonce_vec.try_into().map_err(|v: Vec<PubNonce>| {
-                    format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
+                    anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
                 })?)
             }
             Ok(res)
@@ -857,14 +850,14 @@ pub async fn store_committee_pubkeys(
     local_db: &LocalDB,
     instance_id: Uuid,
     pubkey: PublicKey,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut storage_process = local_db.acquire().await?;
     Ok(storage_process.store_pubkeys(instance_id, &[pubkey.to_string()]).await?)
 }
 pub async fn get_committee_pubkeys(
     local_db: &LocalDB,
     instance_id: Uuid,
-) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Vec<PublicKey>> {
     let mut storage_process = local_db.acquire().await?;
     match storage_process.get_pubkeys(instance_id).await? {
         None => Ok(vec![]),
@@ -882,12 +875,12 @@ pub async fn store_committee_partial_sigs(
     graph_id: Uuid,
     committee_pubkey: PublicKey,
     partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut storage_process = local_db.acquire().await?;
     let signs_vec: Vec<String> = partial_sigs.iter().map(|v| hex::encode(v.serialize())).collect();
     let signs_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
         signs_vec.try_into().map_err(|v: Vec<String>| {
-            format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
+            anyhow::anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
         })?;
 
     Ok(storage_process
@@ -899,10 +892,10 @@ pub async fn get_committee_partial_sigs(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>> {
     let mut storage_process = local_db.acquire().await?;
     match storage_process.get_nonces(instance_id, graph_id).await? {
-        None => Err(format!("instance id:{instance_id}, graph id:{graph_id} not found ").into()),
+        None => Err(anyhow!("instance id:{instance_id}, graph id:{graph_id} not found ").into()),
         Some(nonce_collect) => {
             let mut res: Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]> = vec![];
             for signs_item in nonce_collect.partial_sigs {
@@ -911,7 +904,7 @@ pub async fn get_committee_partial_sigs(
                     .map(|v| PartialSignature::from_str(v).expect("fail to decode pub nonce"))
                     .collect();
                 res.push(signs_vec.try_into().map_err(|v: Vec<PartialSignature>| {
-                    format!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
+                    anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
                 })?)
             }
             Ok(res)
@@ -928,7 +921,7 @@ pub async fn update_graph_fields(
     _challenge_txid: Option<String>,
     _disprove_txid: Option<String>,
     _bridge_out_start_at: Option<i64>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     Ok(())
 }
 
@@ -938,7 +931,7 @@ pub async fn save_unhandle_message(
     actor: &str,
     msy_type: &str,
     content: Vec<u8>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut storage_process = local_db.acquire().await?;
     storage_process
         .create_message(
@@ -956,44 +949,13 @@ pub async fn save_unhandle_message(
     Ok(())
 }
 
-// Discord
-pub async fn create_goat_tx_record_old(
-    local_db: &LocalDB,
-    goat_client: &GOATClient,
-    graph_id: Uuid,
-    instance_id: Uuid,
-    tx_hash: &str,
-    tx_type: GoatTxType,
-    prove_status: String,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(receipt) = goat_client.get_tx_receipt(tx_hash).await?
-        && receipt.block_number.is_some()
-    {
-        let mut storage_process = local_db.acquire().await?;
-        storage_process
-            .upsert_goat_tx_record(&GoatTxRecord {
-                instance_id,
-                graph_id,
-                tx_type: tx_type.to_string(),
-                tx_hash: tx_hash.to_string(),
-                height: receipt.block_number.unwrap() as i64,
-                is_local: true,
-                extra: None,
-                processing_status: prove_status,
-                created_at: current_time_secs(),
-            })
-            .await?;
-    }
-    Ok(())
-}
-
 pub async fn store_graph(
     _local_db: &LocalDB,
     _instance_id: Uuid,
     _graph_id: Uuid,
     _graph: &Bitvm2Graph,
     _status: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     Ok(())
 }
 
@@ -1004,25 +966,25 @@ pub async fn update_graph(
     graph_id: Uuid,
     graph: &Bitvm2Graph,
     status: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     store_graph(local_db, instance_id, graph_id, graph, status).await
 }
 pub async fn get_graph(
     local_db: &LocalDB,
     instance_id: Option<Uuid>,
     graph_id: Uuid,
-) -> Result<Graph, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Graph> {
     let mut storage_process = local_db.acquire().await?;
     let graph_op = storage_process.get_graph(&graph_id).await?;
     if graph_op.is_none() {
         tracing::warn!("graph:{} is not record in db", graph_id);
-        return Err(format!("graph:{graph_id} is not record in db").into());
+        return Err(anyhow!("graph:{graph_id} is not record in db").into());
     };
     let graph = graph_op.unwrap();
     if let Some(instance_id) = instance_id
         && graph.instance_id.ne(&instance_id)
     {
-        return Err(format!(
+        return Err(anyhow!(
             "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
             graph.instance_id,
         )
@@ -1035,20 +997,16 @@ pub async fn get_bitvm2_graph_from_db(
     _local_db: &LocalDB,
     _instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<Bitvm2Graph, Box<dyn std::error::Error>> {
-    Err(format!("graph:{graph_id} not found").into())
+) -> anyhow::Result<Bitvm2Graph> {
+    Err(anyhow!("graph:{graph_id} not found"))
 }
 
 pub async fn publish_graph_to_ipfs(
     ipfs: &IPFS,
     graph_id: Uuid,
     graph: &Bitvm2Graph,
-) -> Result<String, Box<dyn std::error::Error>> {
-    fn write_tx(
-        base_dir: &str,
-        tx_name: IpfsTxName,
-        tx: &Transaction,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<String> {
+    fn write_tx(base_dir: &str, tx_name: IpfsTxName, tx: &Transaction) -> anyhow::Result<()> {
         // write tx_hex to base_dir/tx_name
         let tx_hex = serialize_hex(tx);
         let tx_cache_path = format!("{base_dir}{}", tx_name.as_str());
@@ -1076,7 +1034,7 @@ pub async fn publish_graph_to_ipfs(
         .iter()
         .find(|f| f.name.is_empty())
         .map(|f| f.hash.clone())
-        .ok_or("cid for graph dir not found")?;
+        .ok_or(anyhow!("cid for graph dir not found"))?;
 
     // try to delete the cache files to free up disk, failed deletions do not affect subsequent executions, so there is no need to return an error
     let _ = fs::remove_dir_all(base_dir);
@@ -1087,7 +1045,7 @@ pub async fn get_my_graph_for_instance(
     goat_client: &GOATClient,
     instance_id: Uuid,
     operator_pubkey: PublicKey,
-) -> Result<Option<Uuid>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<Uuid>> {
     let ids_vec = goat_client
         .gateway_get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
         .await?;
@@ -1098,7 +1056,7 @@ pub async fn get_graph_status(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<Option<GraphStatus>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<GraphStatus>> {
     let mut storage_process = local_db.acquire().await?;
     let graph_op = storage_process.get_graph(&graph_id).await?;
     if graph_op.is_none() {
@@ -1106,15 +1064,14 @@ pub async fn get_graph_status(
     };
     let graph = graph_op.unwrap();
     if graph.instance_id.ne(&instance_id) {
-        return Err(format!(
+        return Err(anyhow!(
             "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
             graph.instance_id,
-        )
-        .into());
+        ));
     }
     Ok(Some(
         GraphStatus::from_str(&graph.status)
-            .map_err(|_| format!("unknown graph status: {}", graph.status))?,
+            .map_err(|_| anyhow!("unknown graph status: {}", graph.status))?,
     ))
 }
 
@@ -1122,7 +1079,7 @@ pub async fn update_graphs_status_by_instance_ids(
     local_db: &LocalDB,
     status: &str,
     instance_ids: &[Uuid],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut storage_process = local_db.acquire().await?;
     storage_process.update_graphs_status_by_instance_ids(status, instance_ids).await?;
     Ok(())
@@ -1136,7 +1093,7 @@ pub async fn wait_tx_confirmation(
     txid: &Txid,
     interval: u64,
     max_wait_secs: u64,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     use std::{
         thread,
         time::{Duration, Instant},
@@ -1158,7 +1115,7 @@ pub async fn wait_tx_confirmation(
                 }
             }
             Err(e) => {
-                return Err(format!("Failed to fetch transaction status: {e}").into());
+                return Err(anyhow!("Failed to fetch transaction status: {e}"));
             }
         }
         thread::sleep(Duration::from_secs(interval));
@@ -1171,7 +1128,7 @@ pub async fn wait_tx_appear(
     txid: &Txid,
     interval: u64,
     max_wait_secs: u64,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> anyhow::Result<bool> {
     use std::{
         thread,
         time::{Duration, Instant},
@@ -1189,7 +1146,7 @@ pub async fn wait_tx_appear(
                 }
             }
             Err(e) => {
-                return Err(format!("Failed to fetch transaction status: {e}").into());
+                return Err(anyhow!("Failed to fetch transaction status: {e}"));
             }
         }
         thread::sleep(Duration::from_secs(interval));
@@ -1232,10 +1189,14 @@ pub mod defer {
     fn test_defer() {
         use super::statics::*;
         use uuid::Uuid;
-        fn inner_func(should_success: bool) -> Result<(), Box<dyn std::error::Error>> {
-            if should_success { Ok(()) } else { Err("inner functions not success".into()) }
+        fn inner_func(should_success: bool) -> anyhow::Result<()> {
+            if should_success {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("inner functions not success"))
+            }
         }
-        fn guarded_operation(should_success: bool) -> Result<(), Box<dyn std::error::Error>> {
+        fn guarded_operation(should_success: bool) -> anyhow::Result<()> {
             defer!(on_err, {
                 force_stop_current_graph();
             });
@@ -1252,10 +1213,7 @@ pub mod defer {
     }
 }
 
-pub async fn save_node_info(
-    local_db: &LocalDB,
-    node_info: &NodeInfo,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn save_node_info(local_db: &LocalDB, node_info: &NodeInfo) -> anyhow::Result<()> {
     tracing::info!("save_node_info for {}", node_info.peer_id);
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let mut storage_process = local_db.acquire().await?;
@@ -1282,10 +1240,7 @@ pub async fn save_local_info(local_db: &LocalDB) {
     }
 }
 
-pub async fn update_node_timestamp(
-    local_db: &LocalDB,
-    peer_id: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn update_node_timestamp(local_db: &LocalDB, peer_id: &str) -> anyhow::Result<()> {
     tracing::info!("update timestamp for {peer_id}");
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let mut storage_process = local_db.acquire().await?;
@@ -1296,9 +1251,7 @@ pub async fn update_node_timestamp(
     Ok(())
 }
 
-pub async fn detect_heart_beat(
-    swarm: &mut Swarm<AllBehaviours>,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn detect_heart_beat(swarm: &mut Swarm<AllBehaviours>) -> anyhow::Result<()> {
     tracing::info!("start detect_heart_beat");
     let message_content = GOATMessageContent::RequestNodeInfo(get_local_node_info());
     // send to actor
@@ -1312,10 +1265,7 @@ pub async fn detect_heart_beat(
     Ok(())
 }
 
-pub async fn validate_actor(
-    peer_id: &[u8],
-    role: Actor,
-) -> Result<bool, Box<dyn std::error::Error>> {
+pub async fn validate_actor(peer_id: &[u8], role: Actor) -> anyhow::Result<bool> {
     let rpc_url = get_goat_url_from_env();
     let provider = ProviderBuilder::new().connect_http(rpc_url);
     let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
@@ -1366,36 +1316,6 @@ pub fn strip_hex_prefix_owned(s: &str) -> String {
     if s.starts_with("0x") || s.starts_with("0X") { s[2..].to_string() } else { s.to_string() }
 }
 
-pub async fn obsolete_sibling_graphs(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    reimbursed_graph_id: Uuid,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let rpc_url = get_goat_url_from_env();
-    let provider = ProviderBuilder::new().connect_http(rpc_url);
-    let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
-    let all_graphs =
-        get_graph_ids_by_instance_id(&provider, goat_gateway_contract_address, instance_id).await?;
-    for graph_id in all_graphs {
-        if graph_id != reimbursed_graph_id
-            && ![None, Some(GraphStatus::Disprove), Some(GraphStatus::Obsoleted)]
-                .contains(&get_graph_status(local_db, instance_id, graph_id).await?)
-        {
-            update_graph_fields(
-                local_db,
-                graph_id,
-                Some(GraphStatus::Obsoleted.to_string()),
-                None,
-                None,
-                None,
-                None,
-            )
-            .await?;
-        }
-    }
-    Ok(())
-}
-
 /// Retrieve the server's public IP via NAT protocol and combine it with
 /// the configured RPC monitoring port`rpc_addr` to generate the external RPC service address.
 pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
@@ -1429,7 +1349,7 @@ pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result
     Ok(())
 }
 // TODO
-pub fn get_fixed_disprove_output() -> Result<TxOut, Box<dyn std::error::Error>> {
+pub fn get_fixed_disprove_output() -> anyhow::Result<TxOut> {
     Ok(TxOut {
         script_pubkey: generate_burn_script_address(get_network()).script_pubkey(),
         value: Amount::from_sat(DUST_AMOUNT),
@@ -1449,7 +1369,7 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
 pub async fn pop_local_unhandle_msg(
     local_db: &LocalDB,
     actor: Actor,
-) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<Vec<u8>>> {
     // 1. create  groth16 proof for operator
     if actor == Actor::Operator
         && let Some(content) = operator_scan_ready_proof(
@@ -1490,7 +1410,7 @@ pub async fn operator_scan_ready_proof(
     local_db: &LocalDB,
     remote_proof_server_socket: Option<String>,
     uri: &str,
-) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<Vec<u8>>> {
     tracing::info!("start operator_scan_ready_proof");
     let client = reqwest::Client::new();
     let mut storage_proccessor = local_db.acquire().await?;
@@ -1501,14 +1421,13 @@ pub async fn operator_scan_ready_proof(
         )
         .await?;
 
-    let parse_challenge_txid_fn =
-        |extra_data: Option<String>| -> Result<Txid, Box<dyn std::error::Error>> {
-            if extra_data.is_none() {
-                return Err("extra data is none".into());
-            }
-            let extra: GoatTxProceedWithdrawExtra = serde_json::from_str(&extra_data.unwrap())?;
-            Ok(deserialize_hex(&extra.challenge_txid)?)
-        };
+    let parse_challenge_txid_fn = |extra_data: Option<String>| -> anyhow::Result<Txid> {
+        if extra_data.is_none() {
+            return Err(anyhow!("extra data is none"));
+        }
+        let extra: GoatTxProceedWithdrawExtra = serde_json::from_str(&extra_data.unwrap())?;
+        Ok(deserialize_hex(&extra.challenge_txid)?)
+    };
 
     let mut message_content: Option<GOATMessageContent> = None;
     for tx in check_txs {

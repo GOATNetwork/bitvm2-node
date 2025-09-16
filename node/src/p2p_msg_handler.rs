@@ -24,7 +24,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
         id: MessageId,
         message: &[u8],
     ) -> anyhow::Result<()> {
-        let res = recv_and_dispatch(
+        recv_and_dispatch(
             swarm,
             &self.local_db,
             &self.btc_client,
@@ -35,11 +35,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
             id,
             message,
         )
-        .await;
-        match res {
-            Ok(_) => Ok(()),
-            Err(err) => Err(anyhow::Error::msg(err.to_string())),
-        }
+        .await
     }
 
     async fn handle_tick_message(
@@ -67,7 +63,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                     content: "tick".as_bytes().to_vec(),
                 })?;
 
-                match recv_and_dispatch(
+                recv_and_dispatch(
                     swarm,
                     &self.local_db,
                     &self.btc_client,
@@ -79,10 +75,6 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                     &tick_data,
                 )
                 .await
-                {
-                    Ok(_) => Ok(()),
-                    Err(err) => Err(anyhow::Error::msg(err.to_string())),
-                }
             }
         }
     }

@@ -29,7 +29,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 const BLOCKHASH_COMMIT_VIN_MARGIN: i64 = 3;
-const ASSERT_COMMIT_VIN_MARGIN: i64 = 2;
+const _ASSERT_COMMIT_VIN_MARGIN: i64 = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq, Display, EnumString)]
 enum OperatorWithdrawType {

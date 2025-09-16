@@ -26,7 +26,7 @@ pub async fn relayer_scheduled_tasks(
     local_db: &LocalDB,
     btc_client: &BTCClient,
     goat_client: &GOATClient,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     if is_processing_history_events(local_db, goat_client).await? {
         warn!("Still in history events processing");
         return Ok(());
@@ -90,7 +90,7 @@ pub async fn committee_scheduled_tasks(
     local_db: &LocalDB,
     _btc_client: &BTCClient,
     goat_client: &GOATClient,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     if is_processing_history_events(local_db, goat_client).await? {
         warn!("Still in history events processing");
         return Ok(());

@@ -108,13 +108,13 @@ pub fn get_bitvm_secret() -> String {
     hex::encode(sk.secret_bytes()).to_string()
 }
 
-pub fn get_bitvm_key() -> Result<Keypair, Box<dyn std::error::Error>> {
+pub fn get_bitvm_key() -> anyhow::Result<Keypair> {
     // TODO: what if node restart with different BITVM_SECRET ?
     let bitvm_secret = get_bitvm_secret();
     Ok(Keypair::from_seckey_str_global(&bitvm_secret)?)
 }
 
-pub fn get_node_pubkey() -> Result<PublicKey, Box<dyn std::error::Error>> {
+pub fn get_node_pubkey() -> anyhow::Result<PublicKey> {
     Ok(NodeMasterKey::new(get_bitvm_key()?).master_keypair().public_key().into())
 }
 
