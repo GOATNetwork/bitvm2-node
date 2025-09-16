@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use store::GraphStatus;
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
+use tracing::log::warn;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -206,52 +207,79 @@ impl GOATMessage {
         MessageId(b"__inner_message_id__".to_vec())
     }
 }
+#[allow(clippy::too_many_arguments)]
+pub async fn handle_self_p2p_msg(
+    swarm: &mut Swarm<AllBehaviours>,
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    ipfs: &IPFS,
+    actor: Actor,
+    from_peer_id: PeerId,
+    id: MessageId,
+    message: &[u8],
+) -> anyhow::Result<()> {
+    if id != GOATMessage::default_message_id() {
+        warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
+        return Ok(());
+    }
+    let message: GOATMessage = serde_json::from_slice(&message)?;
+    tracing::info!(
+        "Got self p2p message: {}:{} with id: {} from peer: {:?}",
+        &message.actor.to_string(),
+        String::from_utf8_lossy(&message.content),
+        id,
+        from_peer_id
+    );
+
+    tracing::debug!("Get the running task, and broadcast the task status or result");
+    if actor == Actor::Relayer {
+        relayer_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
+    }
+    if actor == Actor::Committee {
+        committee_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
+    }
+
+    if let Some(message) = pop_local_unhandle_msg(local_db, actor.clone()).await?
+        && !message.is_empty()
+    {
+        recv_and_dispatch(
+            swarm,
+            local_db,
+            btc_client,
+            goat_client,
+            ipfs,
+            actor,
+            from_peer_id,
+            id,
+            &message,
+        )
+        .await
+    } else {
+        Ok(())
+    }
+}
 
 /// Filter the message and dispatch message to different handlers, like rpc handler, or other peers
 ///     * database: inner_rpc: Write or Read.
 ///     * peers: send
 #[allow(clippy::too_many_arguments)]
 pub async fn recv_and_dispatch(
-    swarm: &mut Swarm<AllBehaviours>,
+    _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    _btc_client: &BTCClient,
+    _goat_client: &GOATClient,
     _ipfs: &IPFS,
-    actor: Actor,
+    _actor: Actor,
     from_peer_id: PeerId,
     id: MessageId,
-    message: &[u8],
+    _message: &[u8],
 ) -> anyhow::Result<()> {
-    let mut local_message: Vec<u8> = vec![];
-    // Tick
-    if id == GOATMessage::default_message_id() {
-        tracing::debug!("Get the running task, and broadcast the task status or result");
-        if actor == Actor::Relayer {
-            relayer_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
-        }
-        if actor == Actor::Committee {
-            committee_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
-        }
-        if let Some(message) = pop_local_unhandle_msg(local_db, actor.clone()).await? {
-            local_message = message.clone();
-        } else {
-            return Ok(());
-        }
-    }
-
-    if local_message.is_empty() {
+    if id != GOATMessage::default_message_id() {
         update_node_timestamp(local_db, &from_peer_id.to_string()).await?;
     }
 
-    let message: GOATMessage = if local_message.is_empty() {
-        serde_json::from_slice(message)?
-    } else {
-        tracing::info!("use local message");
-        serde_json::from_slice(&local_message)?
-    };
-    // let message: GOATMessage = serde_json::from_slice(message)?;
-    let _content: GOATMessageContent = message.to_typed()?;
-    // todo handle content
+    // todo handle message
     Ok(())
 }
 

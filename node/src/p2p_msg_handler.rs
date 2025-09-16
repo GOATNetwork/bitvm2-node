@@ -1,4 +1,6 @@
-use crate::action::{GOATMessage, GOATMessageContent, recv_and_dispatch, send_to_peer};
+use crate::action::{
+    GOATMessage, GOATMessageContent, handle_self_p2p_msg, recv_and_dispatch, send_to_peer,
+};
 use crate::env::get_local_node_info;
 use crate::middleware::swarm::{BitvmSwarmWrapper, P2pMessageHandler, TickMessageType};
 use crate::utils::detect_heart_beat;
@@ -63,7 +65,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                     content: "tick".as_bytes().to_vec(),
                 })?;
 
-                recv_and_dispatch(
+                handle_self_p2p_msg(
                     swarm,
                     &self.local_db,
                     &self.btc_client,
