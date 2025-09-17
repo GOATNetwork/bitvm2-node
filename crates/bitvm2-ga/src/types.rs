@@ -79,11 +79,35 @@ pub struct Bitvm2InstanceParameters {
     pub committee_agg_pubkey: PublicKey,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct PrekickoffParameters {
+    pub cur_prekickoff_txn: PrekickoffTransaction,
+    pub replenish_fee_inputs: Vec<Input>,
+    pub replenish_fee_prev_outs: Vec<TxOut>,
+    pub fee_amount: u64,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct Bitvm2GraphParameters {
+    pub instance_parameters: Bitvm2InstanceParameters,
+    pub prekickoff_parameters: PrekickoffParameters,
+    pub graph_id: Uuid,
+    pub challenge_amount: Amount,
+    pub operator_pubkey: PublicKey,
+    #[serde(with = "node_serializer::wots_pubkeys")]
+    pub operator_wots_pubkeys: OperatorWotsPublicKeys,
+    #[serde(with = "node_serializer::address")]
+    pub operator_receive_address: Address,
+    pub watchtower_pubkeys: Vec<PublicKey>,
+    pub hashlocks: Vec<[u8; 20]>, // one for each watchtower
+}
+
 impl Bitvm2InstanceParameters {
     pub fn check_parameters(&self) -> Result<bool> {
         // TODO
         bail!("Not implemented");
     }
+
     pub fn build_pegin_tx(
         &self,
     ) -> Result<(PegInDepositTransaction, PegInConfirmTransaction, PegInRefundTransaction)> {
@@ -130,32 +154,7 @@ impl Bitvm2InstanceParameters {
 
         Ok((pegin_deposit, pegin_confirm, pegin_refund))
     }
-}
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct PrekickoffParameters {
-    pub cur_prekickoff_txn: PrekickoffTransaction,
-    pub replenish_fee_inputs: Vec<Input>,
-    pub replenish_fee_prev_outs: Vec<TxOut>,
-    pub fee_amount: u64,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct Bitvm2GraphParameters {
-    pub instance_parameters: Bitvm2InstanceParameters,
-    pub prekickoff_parameters: PrekickoffParameters,
-    pub graph_id: Uuid,
-    pub challenge_amount: Amount,
-    pub operator_pubkey: PublicKey,
-    #[serde(with = "node_serializer::wots_pubkeys")]
-    pub operator_wots_pubkeys: OperatorWotsPublicKeys,
-    #[serde(with = "node_serializer::address")]
-    pub operator_receive_address: Address,
-    pub watchtower_pubkeys: Vec<PublicKey>,
-    pub hashlocks: Vec<[u8; 20]>, // one for each watchtower
-}
-
-impl Bitvm2InstanceParameters {
     pub fn get_verifier_context(
         &self,
         committee_member_keypair: Keypair,
@@ -267,25 +266,6 @@ impl Bitvm2Graph {
     }
     // TODO: from_simplified & to_simplified
 }
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct CustomInputs {
-    pub inputs: Vec<Input>,
-    /// stake amount / pegin_amount
-    pub input_amount: Amount,
-    pub fee_amount: Amount,
-    #[serde(with = "node_serializer::address")]
-    pub change_address: Address,
-}
-
-impl CustomInputs {
-    pub fn validate_amount(&self) -> bool {
-        let res = self.inputs.iter().fold(Amount::ZERO, |acc, v| acc + v.amount);
-        res >= self.input_amount + self.fee_amount
-    }
-}
-
-pub type Error = String;
 
 pub struct BaseBitvmContext {
     pub network: Network,

@@ -1,6 +1,6 @@
 use crate::types::Bitvm2Graph;
 use anyhow::{Result, bail};
-use bitcoin::{PublicKey, XOnlyPublicKey};
+use bitcoin::{PublicKey, Transaction, XOnlyPublicKey};
 use bitcoin::{key::Keypair, taproot::Signature as TaprootSignature};
 use goat::connectors::assert_connectors::generate_chunked_assert_commit_connectors;
 use goat::connectors::connector_0::Connector0;
@@ -44,6 +44,40 @@ pub fn blockhash_commit_timeout_pre_sign_num() -> usize {
 }
 pub fn assert_commit_timeout_pre_sign_num(assert_commit_num: usize) -> usize {
     2 * assert_commit_num
+}
+
+pub fn sign_pegin_confirm(
+    graph: &Bitvm2Graph,
+    committee_member_keypair: Keypair,
+    committee_member_sec_nonce: SecNonce,
+    committee_agg_nonce: AggNonce,
+) -> Result<PartialSignature> {
+    let mut pegin_confirm = graph.parameters.instance_parameters.build_pegin_tx()?.1;
+    let verifier_context =
+        graph.parameters.instance_parameters.get_verifier_context(committee_member_keypair)?;
+    pegin_confirm
+        .sign_input_0_musig2(&verifier_context, &committee_member_sec_nonce, &committee_agg_nonce)
+        .map_err(|e| anyhow::anyhow!("fail to sign pegin confirm {}: {e}", pegin_confirm.name()))
+}
+
+pub fn agg_and_push_pegin_confirm_sigs(
+    graph: &Bitvm2Graph,
+    partial_sigs: Vec<PartialSignature>,
+    agg_nonce: &AggNonce,
+) -> Result<Transaction> {
+    let mut pegin_confirm = graph.parameters.instance_parameters.build_pegin_tx()?.1;
+    let context = graph.parameters.instance_parameters.get_base_context();
+    let agg_sig = pegin_confirm
+        .aggregate_input_0_musig2_signatures(&context, partial_sigs, agg_nonce)
+        .map_err(|e| {
+            anyhow::anyhow!("fail to aggregate pegin confirm {}: {e}", pegin_confirm.name())
+        })?;
+    let connector_0 = Connector0::new(
+        graph.parameters.instance_parameters.network,
+        &XOnlyPublicKey::from(graph.parameters.instance_parameters.committee_agg_pubkey),
+    );
+    pegin_confirm.push_input_0_signature(&connector_0, agg_sig);
+    Ok(pegin_confirm.finalize())
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
