@@ -246,25 +246,14 @@ pub enum GraphStatus {
     Challenge,
     Disprove,
 
-    //TODO Need to discuss.
-    OperatorWatchtowerAndAssertInit,
-    WatchtowerChallenge, //
-    OperatorWatchtowerChallengeTimeout,
-    OperatorChallengeACK,
-    OperatorChallengeNACK,
-    OperatorAssert,
-    AssertTimeout,
     OperatorTake1,
     OperatorTake2,
-    OperatorWatchtowerAndAssertNormalFinish,
-    OperatorWatchtowerAndAssertDisproved,
 
     Created,
     Presigned,
     L2Recorded,
     KickOffing,
     Challenging,
-    Asserting,
     Disproving,
     Obsoleted, // reimbursement by other operators
     Discarded,
@@ -294,7 +283,8 @@ pub struct Graph {
     pub graph_ipfs_base_url: String,
     pub amount: i64,
     pub challenge_amount: i64,
-    pub status: String, // GraphStatus
+    pub status: String,     // GraphStatus
+    pub sub_status: String, // GraphStatus
     pub operator_pubkey: String,
     pub pre_kickoff_txid: Option<SerializableTxid>,
     pub cur_prekickoff_txid: Option<SerializableTxid>,
@@ -352,8 +342,6 @@ pub fn modify_graph_status(ori_status: &str, is_kickoffing: bool) -> String {
             }
         }
         "OperatorKickOff" => "Challenging".to_string(),
-        "Challenge" => "OperatorAsserting".to_string(),
-        "OperatorAssert" => "Disproving".to_string(),
         _ => ori_status.to_string(),
     }
 }
@@ -366,8 +354,6 @@ pub fn convert_to_step_state(ori_status: &str) -> String {
         "L2Recorded" => "OperatorDataPushed".to_string(),
         "KickOffing" => "OperatorDataPushed".to_string(),
         "Challenging" => "OperatorKickOff".to_string(),
-        "OperatorAsserting" => "Challenge".to_string(),
-        "Disproving" => "OperatorAssert".to_string(),
         _ => ori_status.to_string(),
     }
 }
@@ -464,35 +450,10 @@ pub enum MessageType {
     SyncGraph,
 }
 
-// template query data struct
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct GraphWithBroadcastInfo {
-    pub instance_id: Uuid,
-    pub graph_id: Uuid,
-    pub status: String,
-    pub msg_times: i64,
-    pub msg_type: String,
-    pub kickoff_txid: Option<SerializableTxid>,
-    pub watchtower_challenge_init_txid: Option<SerializableTxid>,
-    #[sqlx(json)]
-    pub watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
-    #[sqlx(json)]
-    pub nack_txids: Vec<SerializableTxid>,
-    #[sqlx(json)]
-    pub assert_commit_timeout_txids: Vec<SerializableTxid>,
-    pub blockhash_commit_timeout_txid: Option<SerializableTxid>,
-    pub take1_txid: Option<SerializableTxid>,
-    pub take2_txid: Option<SerializableTxid>,
-    pub assert_init_txid: Option<SerializableTxid>,
-    pub challenge_txid: Option<SerializableTxid>,
-    pub disprove_type: String,
-    pub last_msg_send_at: i64,
-}
-
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct MessageBroadcast {
-    pub instance_id: Uuid,
-    pub graph_id: Option<Uuid>,
+    pub graph_id: Uuid,
+    pub graph_status: String,
     pub msg_type: String,
     pub msg_times: i64,
     pub updated_at: i64,

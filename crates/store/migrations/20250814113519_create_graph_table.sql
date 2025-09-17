@@ -11,6 +11,7 @@ CREATE TABLE graph
     `amount`                             BIGINT UNSIGNED NOT NULL DEFAULT 0,
     `challenge_amount`                   BIGINT UNSIGNED NOT NULL DEFAULT 0,
     `status`                             TEXT            NOT NULL DEFAULT '',
+    `sub_status`                         TEXT            NOT NULL DEFAULT '',
     `operator_pubkey`                    TEXT            NOT NULL DEFAULT '',
     `pre_kickoff_txid`                   TEXT,
     `cur_prekickoff_txid`                TEXT,

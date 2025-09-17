@@ -3,7 +3,7 @@ use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
-    GraphRawData, GraphWithBroadcastInfo, Instance, Message, Node, NodesOverview, NonceCollect,
+    GraphRawData, Instance, Message, MessageBroadcast, Node, NodesOverview, NonceCollect,
     NonceCollectMetaData, ProofInfo, ProofType, PubKeyCollect, PubKeyCollectMetaData,
     SerializableTxid, WatchContract,
 };
@@ -275,6 +275,7 @@ impl GraphQuery {
 pub struct GraphUpdate {
     pub graph_id: Uuid,
     pub status: Option<String>,
+    pub sub_status: Option<String>,
     pub ipfs_base_url: Option<String>,
     pub challenge_txid: Option<SerializableTxid>,
     pub bridge_out_start_at: Option<i64>,
@@ -288,6 +289,7 @@ impl GraphUpdate {
         Self {
             graph_id,
             status: None,
+            sub_status: None,
             ipfs_base_url: None,
             challenge_txid: None,
             bridge_out_start_at: None,
@@ -299,6 +301,11 @@ impl GraphUpdate {
     /// Set status
     pub fn with_status(mut self, status: String) -> Self {
         self.status = Some(status);
+        self
+    }
+    /// Set sub_status
+    pub fn with_sub_status(mut self, sub_status: String) -> Self {
+        self.sub_status = Some(sub_status);
         self
     }
 
@@ -335,6 +342,7 @@ impl GraphUpdate {
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
         self.status.is_some()
+            || self.sub_status.is_some()
             || self.ipfs_base_url.is_some()
             || self.challenge_txid.is_some()
             || self.bridge_out_start_at.is_some()
@@ -881,12 +889,12 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             r#"INSERT OR
              REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, graph_ipfs_base_url, amount, challenge_amount,
-                    status, operator_pubkey, pre_kickoff_txid, cur_prekickoff_txid, force_skip_kickoff_txid,
+                    status, sub_status, operator_pubkey, pre_kickoff_txid, cur_prekickoff_txid, force_skip_kickoff_txid,
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid,assert_init_txid,assert_commit_timeout_txids, disprove_type, init_withdraw_tx_hash,
                     bridge_out_start_at, zkm_version,created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
@@ -896,6 +904,7 @@ impl<'a> StorageProcessor<'a> {
             graph.amount,
             graph.challenge_amount,
             graph.status,
+            graph.sub_status,
             graph.operator_pubkey,
             graph.pre_kickoff_txid,
             graph.cur_prekickoff_txid,
@@ -931,6 +940,9 @@ impl<'a> StorageProcessor<'a> {
         // Add SET fields
         if let Some(status) = params.status {
             query_builder.set_field("status", QueryParam::Text(status));
+        }
+        if let Some(sub_status) = params.sub_status {
+            query_builder.set_field("sub_status", QueryParam::Text(sub_status));
         }
         if let Some(ipfs_base_url) = params.ipfs_base_url {
             query_builder.set_field("graph_ipfs_base_url", QueryParam::Text(ipfs_base_url));
@@ -999,6 +1011,7 @@ impl<'a> StorageProcessor<'a> {
                     amount,
                     challenge_amount,
                     status,
+                    sub_status,
                     operator_pubkey,
                     pre_kickoff_txid,
                     cur_prekickoff_txid,
@@ -1062,6 +1075,7 @@ impl<'a> StorageProcessor<'a> {
                     amount,
                     challenge_amount,
                     status,
+                    sub_status,
                     operator_pubkey,
                     pre_kickoff_txid,
                     cur_prekickoff_txid,
@@ -1200,6 +1214,7 @@ impl<'a> StorageProcessor<'a> {
                     amount,
                     challenge_amount,
                     status,
+                    sub_status,
                     operator_pubkey,
                     pre_kickoff_txid,
                     cur_prekickoff_txid,
@@ -1906,38 +1921,6 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    pub async fn fetch_graph_with_broadcast_info(
-        &mut self,
-        graph_status: &str,
-        msg_type: &str,
-    ) -> anyhow::Result<Vec<GraphWithBroadcastInfo>> {
-        Ok(
-            sqlx::query_as::<_, GraphWithBroadcastInfo>(
-                "SELECT graph.graph_id,
-                        graph.instance_id,
-                        graph.status,
-                        graph.kickoff_txid,
-                        graph.watchtower_challenge_init_txid,
-                        graph.watchtower_challenge_timeout_txids,
-                        graph.nack_txids,
-                        graph.assert_commit_timeout_txids,
-                        graph.blockhash_commit_timeout_txid,
-                        graph.take1_txid,
-                        graph.take2_txid,
-                        graph.assert_init_txid,
-                        graph.challenge_txid,
-                        graoh.disprove_type,
-                        IFNULL(message_broadcast.msg_times, 0) AS msg_times,
-                        IFNULL(message_broadcast.msg_type, ?) AS msg_type,
-                        IFNULL(message_broadcast.updated_at, 0) AS last_msg_send_at
-                 FROM graph
-                          LEFT JOIN message_broadcast ON graph.graph_id = message_broadcast.graph_id AND
-                                                         graph.instance_id = message_broadcast.instance_id AND
-                                                         message_broadcast.msg_type = ?
-                 WHERE graph.status = ?").bind(msg_type).bind(msg_type).bind(graph_status).fetch_all(self.conn()).await?
-        )
-    }
-
     pub async fn upsert_graph_raw_data(
         &mut self,
         graph_raw_data: GraphRawData,
@@ -2013,17 +1996,17 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn get_message_broadcast_times(
         &mut self,
-        instance_id: &Uuid,
         graph_id: &Uuid,
+        graph_status: &str,
         msg_type: &str,
     ) -> anyhow::Result<(i64, i64)> {
         let res = sqlx::query!(
             "SELECT msg_times, updated_at
              FROM message_broadcast
-             WHERE instance_id = ?
-               AND graph_id = ?
+             WHERE graph_id = ?
+               AND graph_status = ?
                AND msg_type = ?",
-            instance_id,
+            graph_status,
             graph_id,
             msg_type
         )
@@ -2034,21 +2017,36 @@ impl<'a> StorageProcessor<'a> {
             None => Ok((0, 0)),
         }
     }
+
+    pub async fn find_message_broadcasts(
+        &mut self,
+        graph_status: &str,
+    ) -> anyhow::Result<Vec<MessageBroadcast>> {
+        let records = sqlx::query_as!(
+            MessageBroadcast,
+            "SELECT graph_id AS \"graph_id:Uuid\", graph_status, msg_type, msg_times, created_at, updated_at
+            FROM message_broadcast
+            WHERE graph_status = ? ",
+            graph_status
+        ).fetch_all(self.conn()).await?;
+        Ok(records)
+    }
+
     pub async fn add_message_broadcast_times(
         &mut self,
-        instance_id: &Uuid,
         graph_id: &Uuid,
+        graph_status: &str,
         msg_type: &str,
         add_times: i64,
     ) -> anyhow::Result<()> {
         let current_time = get_current_timestamp_secs();
         sqlx::query!(
-            "INSERT INTO message_broadcast (instance_id, graph_id, msg_type, msg_times, created_at, updated_at)
+            "INSERT INTO message_broadcast (graph_id, graph_status, msg_type, msg_times, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(instance_id, graph_id, msg_type) DO UPDATE SET updated_at = excluded.updated_at,
+             ON CONFLICT(graph_id, graph_status, msg_type) DO UPDATE SET updated_at = excluded.updated_at,
                                                            msg_times  = message_broadcast.msg_times + excluded.msg_times",
-            instance_id,
             graph_id,
+            graph_status,
             msg_type,
             add_times,
             current_time,

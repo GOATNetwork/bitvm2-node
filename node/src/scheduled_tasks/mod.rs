@@ -5,8 +5,7 @@ pub mod instance_maintenance_tasks;
 use crate::action::GOATMessageContent;
 use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
-    detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, detect_take2_or_disprove,
-    detect_watchtower_assert_disproved, detect_watchtower_assert_init, monitor_watchtower_assert,
+    detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
     scan_obsolete_sibling_graphs,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
@@ -66,22 +65,10 @@ pub async fn relayer_scheduled_tasks(
     if let Err(err) = detect_take1_or_challenge(swarm, local_db, btc_client, goat_client).await {
         warn!("detect_take1_or_challenge, err {:?}", err)
     }
-    if let Err(err) = detect_watchtower_assert_init(swarm, local_db, btc_client, goat_client).await
-    {
-        warn!("detect_watchtower_assert_init, err {:?}", err)
-    }
-    if let Err(err) = monitor_watchtower_assert(swarm, local_db, btc_client, goat_client).await {
-        warn!("monitor_watchtower_assert, err {:?}", err)
-    }
-    if let Err(err) =
-        detect_watchtower_assert_disproved(swarm, local_db, btc_client, goat_client).await
-    {
-        warn!("detect_watchtower_assert_disproved, err {:?}", err)
-    }
-    if let Err(err) = detect_take2_or_disprove(swarm, local_db, btc_client, goat_client).await {
-        warn!("detect_take2_or_disprove, err {:?}", err)
-    }
 
+    if let Err(err) = process_graph_challenge(swarm, local_db, btc_client, goat_client).await {
+        warn!("process_grpah_challenge, err {:?}", err)
+    }
     Ok(())
 }
 
@@ -113,6 +100,7 @@ pub async fn committee_scheduled_tasks(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
     match content {
         GOATMessageContent::CreateInstance(_) => MessageType::CreateInstance,

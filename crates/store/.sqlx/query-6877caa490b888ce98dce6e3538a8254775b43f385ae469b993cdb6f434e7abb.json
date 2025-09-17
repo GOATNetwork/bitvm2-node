@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT graph_id AS \"graph_id:Uuid\", graph_status, msg_type, msg_times, created_at, updated_at\n            FROM message_broadcast\n            WHERE graph_status = ? ",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "graph_status",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "msg_type",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "msg_times",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6877caa490b888ce98dce6e3538a8254775b43f385ae469b993cdb6f434e7abb"
+}
