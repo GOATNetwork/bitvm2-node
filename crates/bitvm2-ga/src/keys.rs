@@ -1,5 +1,6 @@
 use crate::committee::{
-    CommitteeNonceSignatures, CommitteePubNonces, CommitteeSecNonces, generate_nonce_from_seed,
+    CommitteeNonceSignatures, CommitteePubNonces, CommitteeSecNonces, generate_nonce,
+    generate_nonce_from_seed,
 };
 
 use super::{
@@ -8,6 +9,8 @@ use super::{
     types::{OperatorWotsPublicKeys, OperatorWotsSecretKeys},
 };
 use bitcoin::key::Keypair;
+use musig2::{PubNonce, SecNonce};
+use secp256k1::schnorr::Signature as SchnorrSignature;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -50,7 +53,7 @@ impl CommitteeMasterKey {
         assert_commit_num: usize,
     ) -> (CommitteePubNonces, CommitteeSecNonces, CommitteeNonceSignatures) {
         let domain = [
-            b"committee_bitvm_nonces".to_vec(),
+            b"committee_bitvm_graph_nonces".to_vec(),
             instance_id.as_bytes().to_vec(),
             graph_id.as_bytes().to_vec(),
         ]
@@ -64,6 +67,13 @@ impl CommitteeMasterKey {
             watchtower_num,
             assert_commit_num,
         )
+    }
+    pub fn nonce_for_instance(&self, instance_id: Uuid) -> (SecNonce, PubNonce, SchnorrSignature) {
+        let domain =
+            [b"committee_bitvm_instance_nonce".to_vec(), instance_id.as_bytes().to_vec()].concat();
+        let nonce_seed = derive_secret(&self.0, &domain);
+        let signer_keypair = self.keypair_for_instance(instance_id);
+        generate_nonce(signer_keypair, &nonce_seed, 0)
     }
 }
 

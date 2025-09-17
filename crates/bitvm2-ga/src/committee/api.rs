@@ -555,18 +555,6 @@ pub fn generate_nonce_from_seed(
     let mut sec_nonces = CommitteeSecNonces::new_empty();
     let mut nonce_sigs = CommitteeNonceSignatures::new_empty();
     let mut index = 0;
-    fn generate_nonce(
-        signer_keypair: Keypair,
-        seed: &str,
-        index: usize,
-    ) -> (SecNonce, PubNonce, SchnorrSignature) {
-        let nonce_seed = sha256_with_id(seed, index);
-        let nonce_seed = <[u8; 32]>::from_hex(&nonce_seed).unwrap();
-        let sec_nonce = SecNonce::build(nonce_seed).build();
-        let pub_nonce = sec_nonce.public_nonce();
-        let nonce_signature = signer_keypair.sign_schnorr(get_nonce_message(&pub_nonce));
-        (sec_nonce, pub_nonce, nonce_signature)
-    }
     {
         // take1
         for _ in 0..take1_pre_sign_num() {
@@ -685,6 +673,18 @@ pub fn verify_nonce_signatures(
         && verify_vec(pubkey, &pub_nonces.assert_commit_timeout, &nonce_sigs.assert_commit_timeout))
 }
 
+pub(crate) fn generate_nonce(
+    signer_keypair: Keypair,
+    seed: &str,
+    index: usize,
+) -> (SecNonce, PubNonce, SchnorrSignature) {
+    let nonce_seed = sha256_with_id(seed, index);
+    let nonce_seed = <[u8; 32]>::from_hex(&nonce_seed).unwrap();
+    let sec_nonce = SecNonce::build(nonce_seed).build();
+    let pub_nonce = sec_nonce.public_nonce();
+    let nonce_signature = signer_keypair.sign_schnorr(get_nonce_message(&pub_nonce));
+    (sec_nonce, pub_nonce, nonce_signature)
+}
 fn sha256(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input);
