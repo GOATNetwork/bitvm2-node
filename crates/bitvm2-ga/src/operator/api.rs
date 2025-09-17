@@ -373,7 +373,7 @@ pub fn generate_bitvm_graph(
     )
     .map_err(|e| anyhow::anyhow!("failed to create watchtower-challenge-init txn: {}", e))?;
     let watchtower_challenge_init_txid = watchtower_challenge_init.tx().compute_txid();
-    let connector_g_vout = watchtower_num * 2 + 1;
+    let connector_g_vout = watchtower_num * 2;
     let connector_g_input = Input {
         outpoint: OutPoint { txid: watchtower_challenge_init_txid, vout: connector_g_vout as u32 },
         amount: watchtower_challenge_init.tx().output[connector_g_vout].value,
@@ -423,7 +423,7 @@ pub fn generate_bitvm_graph(
     }
 
     // operator-commit-blockhash-timeout
-    let blockhash_commmit_timeout = BlockhashCommitTimeoutTransaction::new_for_validation(
+    let blockhash_commit_timeout = BlockhashCommitTimeoutTransaction::new_for_validation(
         &connector_g,
         &connector_f,
         connector_g_input.clone(),
@@ -441,7 +441,7 @@ pub fn generate_bitvm_graph(
     )
     .map_err(|e| anyhow::anyhow!("failed to create assert-init txn: {}", e))?;
     let assert_init_txid = assert_init.tx().compute_txid();
-    let connector_d_vout: usize = assert_commit_connectors.len() + 1;
+    let connector_d_vout: usize = assert_commit_connectors.len();
     let connector_d_input = Input {
         outpoint: OutPoint { txid: assert_init_txid, vout: connector_d_vout as u32 },
         amount: assert_init.tx().output[connector_d_vout].value,
@@ -503,7 +503,7 @@ pub fn generate_bitvm_graph(
         watchtower_challenge_init,
         watchtower_challenge_timeout_txns,
         nack_txns,
-        blockhash_commmit_timeout,
+        blockhash_commit_timeout,
 
         assert_init,
         assert_commit_timeout_txns,
@@ -804,7 +804,7 @@ pub fn operator_sign_blockhash_commit(
         &operator_context.operator_taproot_public_key,
         &blockhash_wots_pubkey,
     );
-    let connector_g_vout = graph.watchtower_challenge_init.tx().output.len() - 2;
+    let connector_g_vout = graph.watchtower_challenge_init.tx().output.len() - 3;
     let connector_g_input = Input {
         outpoint: OutPoint {
             txid: graph.watchtower_challenge_init.tx().compute_txid(),

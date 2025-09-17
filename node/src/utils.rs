@@ -464,6 +464,15 @@ pub async fn build_sign_and_broadcast_tx(
     total_input_amount: Amount,
     txouts: Vec<TxOut>,
 ) -> Result<Txid, Box<dyn std::error::Error>> {
+    let txouts = if txouts.is_empty() {
+        // bitcoin network does not allow a transaction without outputs
+        vec![TxOut {
+            value: Amount::ZERO,
+            script_pubkey: generate_opreturn_script(vec![]),
+        }]
+    } else {
+        txouts
+    };
     let mut tx = Transaction {
         version: bitcoin::transaction::Version(2),
         lock_time: bitcoin::absolute::LockTime::ZERO,

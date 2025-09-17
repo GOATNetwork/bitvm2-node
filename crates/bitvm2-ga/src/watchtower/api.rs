@@ -7,6 +7,14 @@ use goat::{
 
 use crate::types::Bitvm2Graph;
 
+pub fn estimate_watchtower_challenge_shortfall(
+    _commitment_data_len: usize,
+    _payer_inputs_len: usize,
+) -> usize {
+    // TODO
+    panic!("Not implemented yet")
+}
+
 pub fn build_watchtower_challenge_tx(
     graph: &Bitvm2Graph,
     watchtower_keypair: &Keypair,

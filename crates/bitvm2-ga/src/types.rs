@@ -244,7 +244,7 @@ pub struct Bitvm2Graph {
     pub watchtower_challenge_init: WatchtowerChallengeInitTransaction,
     pub watchtower_challenge_timeout_txns: Vec<WatchtowerChallengeTimeoutTransaction>,
     pub nack_txns: Vec<NackTransaction>,
-    pub blockhash_commmit_timeout: BlockhashCommitTimeoutTransaction,
+    pub blockhash_commit_timeout: BlockhashCommitTimeoutTransaction,
 
     pub assert_init: AssertInitTransaction,
     pub assert_commit_timeout_txns: Vec<AssertCommitTimeoutTransaction>,

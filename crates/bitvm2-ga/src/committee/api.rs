@@ -8,6 +8,7 @@ use goat::connectors::connector_a::ConnectorA;
 use goat::connectors::connector_d::ConnectorD;
 use goat::connectors::connector_f::ConnectorF;
 use goat::connectors::connector_g::ConnectorG;
+use goat::connectors::connector_z::ConnectorZ;
 use goat::connectors::watchtower_connectors::{
     AckConnector, WatchctowerConnectors, WatchtowerChallengeConnector,
 };
@@ -72,11 +73,12 @@ pub fn agg_and_push_pegin_confirm_sigs(
         .map_err(|e| {
             anyhow::anyhow!("fail to aggregate pegin confirm {}: {e}", pegin_confirm.name())
         })?;
-    let connector_0 = Connector0::new(
+    let connector_z = ConnectorZ::new(
         graph.parameters.instance_parameters.network,
         &XOnlyPublicKey::from(graph.parameters.instance_parameters.committee_agg_pubkey),
+        &graph.parameters.instance_parameters.user_info.user_xonly_pubkey,
     );
-    pegin_confirm.push_input_0_signature(&connector_0, agg_sig);
+    pegin_confirm.push_input_0_signature(&connector_z, agg_sig);
     Ok(pegin_confirm.finalize())
 }
 
@@ -230,10 +232,9 @@ pub fn committee_pre_sign(
         // blockhash-commit-timeout
         let sec_nonces = committee_member_sec_nonce.blockhash_commit_timeout.try_into().unwrap();
         let agg_nonces = committee_agg_nonce.blockhash_commit_timeout.try_into().unwrap();
-        match graph.blockhash_commmit_timeout.pre_sign(&verifier_context, &sec_nonces, &agg_nonces)
-        {
+        match graph.blockhash_commit_timeout.pre_sign(&verifier_context, &sec_nonces, &agg_nonces) {
             Ok(v) => res.blockhash_commit_timeout = v.to_vec(),
-            Err(e) => bail!("fail to pre-sign {}: {e}", graph.blockhash_commmit_timeout.name()),
+            Err(e) => bail!("fail to pre-sign {}: {e}", graph.blockhash_commit_timeout.name()),
         }
     }
 
@@ -360,14 +361,14 @@ pub fn signature_aggregation(
         blockhash_commit_timeout_partial_sigs[0].push(r.blockhash_commit_timeout[0].clone());
         blockhash_commit_timeout_partial_sigs[1].push(r.blockhash_commit_timeout[1].clone());
     });
-    match graph.blockhash_commmit_timeout.aggregate_pre_sigs(
+    match graph.blockhash_commit_timeout.aggregate_pre_sigs(
         &context,
         &blockhash_commit_timeout_partial_sigs,
         &blockhash_commit_timeout_agg_nonces,
     ) {
         Ok(v) => res.blockhash_commit_timeout = v.to_vec(),
         Err(e) => {
-            bail!("fail to aggregate pre-sigs {}: {e}", graph.blockhash_commmit_timeout.name())
+            bail!("fail to aggregate pre-sigs {}: {e}", graph.blockhash_commit_timeout.name())
         }
     };
 
@@ -456,14 +457,14 @@ pub fn push_committee_pre_signatures(
         ConnectorA::new(network, &operator_taproot_public_key, &n_of_n_taproot_public_key);
     let connector_d =
         ConnectorD::new(network, &operator_taproot_public_key, &n_of_n_taproot_public_key);
-    let blockhash_wots_pubkey = None; //TODO;
+    let blockhash_wots_pubkey = &graph.parameters.operator_wots_pubkeys.0[0];
     let connector_f =
         ConnectorF::new(network, &operator_taproot_public_key, &n_of_n_taproot_public_key);
     let connector_g = ConnectorG::new(
         network,
         &n_of_n_taproot_public_key,
         &operator_taproot_public_key,
-        blockhash_wots_pubkey.unwrap(),
+        blockhash_wots_pubkey,
     );
     let watchtower_connectors_array = (0..watchtower_num)
         .map(|i| {
@@ -495,13 +496,13 @@ pub fn push_committee_pre_signatures(
     graph.take1.push_pre_sigs(&connector_0, sigs.take1.clone().try_into().unwrap());
 
     // take2
-    graph.take2.push_pre_sigs(&connector_0, sigs.take1.clone().try_into().unwrap());
+    graph.take2.push_pre_sigs(&connector_0, sigs.take2.clone().try_into().unwrap());
 
     // challenge
     graph.challenge.push_pre_sigs(&connector_a, sigs.challenge.clone().try_into().unwrap());
 
     // blockhash-commit-timeout
-    graph.blockhash_commmit_timeout.push_pre_sigs(
+    graph.blockhash_commit_timeout.push_pre_sigs(
         &connector_g,
         &connector_f,
         sigs.blockhash_commit_timeout.clone().try_into().unwrap(),
@@ -535,6 +536,7 @@ pub fn push_committee_pre_signatures(
         );
     }
 
+    graph.committee_pre_signed = true;
     Ok(())
 }
 
