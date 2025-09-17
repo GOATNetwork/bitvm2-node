@@ -192,7 +192,7 @@ pub async fn get_graph_tx(
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(graph_raw_data) =
             storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
-            && let Some(graph) = storage_process.get_graph(&Uuid::parse_str(&graph_id)?).await?
+            && let Some(graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
         {
             let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
             let tx_name_op = IpfsTxName::from_str(&params.tx_name);
@@ -303,7 +303,7 @@ pub async fn get_graph_txn(
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(graph_raw_data) =
             storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
-            && let Some(graph) = storage_process.get_graph(&Uuid::parse_str(&graph_id)?).await?
+            && let Some(graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
         {
             let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
             let mut resp = GraphTxnGetResponse {
@@ -887,7 +887,7 @@ pub async fn get_graph(
     let async_fn = || async move {
         let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(graph) = storage_process.get_graph(&graph_id).await? {
+        if let Some(graph) = storage_process.find_graph(&graph_id).await? {
             let graphs =
                 add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, vec![graph])
                     .await?;
@@ -1051,7 +1051,7 @@ pub async fn get_graphs(
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let filter_params: GraphQuery = params.into();
-        let (graphs, total) = storage_process.filter_graphs(filter_params).await?;
+        let (graphs, total) = storage_process.find_graphs(filter_params).await?;
         resp_clone.total = total;
         if graphs.is_empty() {
             return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone);

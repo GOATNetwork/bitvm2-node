@@ -345,7 +345,7 @@ async fn fetch_graph_and_broadcast_record_map<'a>(
     graph_status: &str,
 ) -> anyhow::Result<(Vec<Graph>, HashMap<String, MessageBroadcast>)> {
     let (graphs, _) = storage_processor
-        .filter_graphs(GraphQuery::default().with_status(graph_status.to_string()))
+        .find_graphs(GraphQuery::default().with_status(graph_status.to_string()))
         .await?;
 
     let broadcasts = storage_processor.find_message_broadcasts(graph_status).await?;

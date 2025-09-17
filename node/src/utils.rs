@@ -975,7 +975,7 @@ pub async fn get_graph(
     graph_id: Uuid,
 ) -> anyhow::Result<Graph> {
     let mut storage_process = local_db.acquire().await?;
-    let graph_op = storage_process.get_graph(&graph_id).await?;
+    let graph_op = storage_process.find_graph(&graph_id).await?;
     if graph_op.is_none() {
         tracing::warn!("graph:{} is not record in db", graph_id);
         return Err(anyhow!("graph:{graph_id} is not record in db").into());
@@ -1058,7 +1058,7 @@ pub async fn get_graph_status(
     graph_id: Uuid,
 ) -> anyhow::Result<Option<GraphStatus>> {
     let mut storage_process = local_db.acquire().await?;
-    let graph_op = storage_process.get_graph(&graph_id).await?;
+    let graph_op = storage_process.find_graph(&graph_id).await?;
     if graph_op.is_none() {
         return Ok(None);
     };

@@ -280,7 +280,6 @@ pub struct GraphUpdate {
     pub challenge_txid: Option<SerializableTxid>,
     pub bridge_out_start_at: Option<i64>,
     pub init_withdraw_txid: Option<String>,
-    pub disprove_type: Option<String>,
 }
 
 impl GraphUpdate {
@@ -294,7 +293,6 @@ impl GraphUpdate {
             challenge_txid: None,
             bridge_out_start_at: None,
             init_withdraw_txid: None,
-            disprove_type: None,
         }
     }
 
@@ -333,12 +331,6 @@ impl GraphUpdate {
         self
     }
 
-    /// Set disprove type
-    pub fn with_disprove_type(mut self, disprove_type: String) -> Self {
-        self.disprove_type = Some(disprove_type);
-        self
-    }
-
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
         self.status.is_some()
@@ -347,7 +339,6 @@ impl GraphUpdate {
             || self.challenge_txid.is_some()
             || self.bridge_out_start_at.is_some()
             || self.init_withdraw_txid.is_some()
-            || self.disprove_type.is_some()
     }
 }
 
@@ -892,9 +883,9 @@ impl<'a> StorageProcessor<'a> {
                     status, sub_status, operator_pubkey, pre_kickoff_txid, cur_prekickoff_txid, force_skip_kickoff_txid,
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
-                    blockhash_commit_timeout_txid,assert_init_txid,assert_commit_timeout_txids, disprove_type, init_withdraw_tx_hash,
+                    blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
                     bridge_out_start_at, zkm_version,created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
@@ -922,7 +913,6 @@ impl<'a> StorageProcessor<'a> {
             graph.blockhash_commit_timeout_txid,
             graph.assert_init_txid,
             assert_commit_timeout_txids_json,
-            graph.disprove_type,
             graph.init_withdraw_tx_hash,
             graph.bridge_out_start_at,
             graph.zkm_version,
@@ -961,10 +951,6 @@ impl<'a> StorageProcessor<'a> {
                 query_builder.set_field("init_withdraw_txid", QueryParam::Text(init_withdraw_txid));
             }
         }
-        if let Some(disprove_type) = params.disprove_type {
-            query_builder.set_field("disprove_type", QueryParam::Text(disprove_type));
-        }
-
         // Check if we have any updates
         if query_builder.get_params().is_empty()
             && !query_builder.get_sql().contains("init_withdraw_txid = NULL")
@@ -1000,7 +986,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn get_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {
+    pub async fn find_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {
         let row = sqlx::query_as::<_, Graph>(
             "SELECT graph_id,
                     instance_id,
@@ -1029,7 +1015,6 @@ impl<'a> StorageProcessor<'a> {
                     blockhash_commit_timeout_txid,
                     assert_init_txid,
                     assert_commit_timeout_txids,
-                    disprove_type,
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
@@ -1063,7 +1048,7 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    pub async fn filter_graphs(&mut self, params: GraphQuery) -> anyhow::Result<(Vec<Graph>, i64)> {
+    pub async fn find_graphs(&mut self, params: GraphQuery) -> anyhow::Result<(Vec<Graph>, i64)> {
         // Build base query
         let mut query = QueryBuilder::new(
             "SELECT graph_id,
@@ -1093,7 +1078,6 @@ impl<'a> StorageProcessor<'a> {
                     blockhash_commit_timeout_txid,
                     assert_init_txid,
                     assert_commit_timeout_txids,
-                    disprove_type,
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
@@ -1232,7 +1216,6 @@ impl<'a> StorageProcessor<'a> {
                     blockhash_commit_timeout_txid,
                     assert_init_txid,
                     assert_commit_timeout_txids,
-                    disprove_type,
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
