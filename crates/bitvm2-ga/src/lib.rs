@@ -7,3 +7,5 @@ pub mod actors;
 pub mod keys;
 pub mod pegin;
 pub mod types;
+
+mod tests;
