@@ -5,7 +5,7 @@ mod tests {
     use crate::{challenger::*, committee::*, keys::*, operator::*, types::*, watchtower::*};
     use bitcoin::{
         Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, TapSighashType,
-        Transaction, TxIn, TxOut, Txid, XOnlyPublicKey, key::Keypair,
+        Transaction, TxIn, TxOut, Txid, XOnlyPublicKey, hashes::Hash, key::Keypair,
     };
     use bitcoincore_rpc::{Auth, Client as BtcdClient, RpcApi};
     use bitvm::{
@@ -593,14 +593,37 @@ mod tests {
 
     async fn merge_bank_utxo(esplora: &EsploraClient) {
         // get_address_utxo may fail if there are too many UTXOs (e.g. 500), so we merge them before its too late
+        println!("merging bank UTXOs");
         let bank_address = node_p2wsh_address(network(), &bank_keypair().public_key().into());
         let utxos = esplora.get_address_utxo(bank_address.clone()).await.unwrap();
-        if utxos.len() <= 300 {
+        if utxos.len() < 300 {
+            println!("bank UTXOs are not too many, no need to merge");
             return;
         }
-        // coinbase outputs need 100 blocks to mature, so we leave 200 UTXOs untouched
-        let utxos = &utxos[0..(utxos.len() - 200)];
-        let txins: Vec<TxIn> = utxos
+        let mut selected_utxos = vec![];
+        let current_height = esplora.get_height().await.unwrap();
+        // coinbase outputs need 100 blocks to mature, so we leave them untouched
+        for utxo in utxos.into_iter() {
+            let tx_info = esplora.get_tx_info(&utxo.txid).await.unwrap().unwrap();
+            if tx_info.vin[0].txid == Txid::from_slice(&[0u8; 32]).unwrap()
+                && tx_info.vin[0].vout == u32::MAX
+            {
+                // coinbase output
+                if let Some(height) = tx_info.status.block_height {
+                    if current_height.saturating_sub(height) < 100 {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+            }
+            selected_utxos.push(utxo.clone());
+        }
+        if selected_utxos.len() < 2 {
+            println!("not enough mature UTXOs to merge");
+            return;
+        }
+        let txins: Vec<TxIn> = selected_utxos
             .iter()
             .map(|u| TxIn {
                 previous_output: OutPoint { txid: u.txid, vout: u.vout },
@@ -609,7 +632,7 @@ mod tests {
                 witness: bitcoin::Witness::default(),
             })
             .collect();
-        let total_input_amount: Amount = utxos.iter().map(|u| u.value).sum();
+        let total_input_amount: Amount = selected_utxos.iter().map(|u| u.value).sum();
         let txout = TxOut {
             value: total_input_amount - Amount::from_sat(100000),
             script_pubkey: bank_address.script_pubkey(),
@@ -621,11 +644,18 @@ mod tests {
             output: vec![txout],
         };
         for i in 0..tx.input.len() {
-            node_sign(&mut tx.clone(), i, utxos[i].value, EcdsaSighashType::All, &bank_keypair())
-                .unwrap();
+            node_sign(
+                &mut tx.clone(),
+                i,
+                selected_utxos[i].value,
+                EcdsaSighashType::All,
+                &bank_keypair(),
+            )
+            .unwrap();
         }
         esplora.broadcast(&tx).await.unwrap();
         wait_tx_confirm(esplora, tx.compute_txid()).await;
+        println!("bank UTXOs merged");
     }
 
     async fn regtest_mint_blocks(btcd: &BtcdClient, num: u32) {
@@ -641,11 +671,11 @@ mod tests {
         let esplora = get_esplora_client().await;
         let disprove_scripts = vec![script! {OP_TRUE}.compile()]; // No disprove, use empty vector to simplify
 
+        merge_bank_utxo(&esplora).await;
         let mut graph = gen_test_graph(&esplora, disprove_scripts).await;
         operator_presign_graph(&mut graph);
         committee_presign_graph(&mut graph);
         send_pegin_confirm(&esplora, &graph).await;
-        merge_bank_utxo(&esplora).await;
 
         // kickoff
         let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
@@ -673,11 +703,11 @@ mod tests {
         let bank_address = node_p2wsh_address(network(), &bank_keypair().public_key().into());
         let default_fee_amount = Amount::from_sat(1000);
 
+        merge_bank_utxo(&esplora).await;
         let mut graph = gen_test_graph(&esplora, disprove_scripts).await;
         operator_presign_graph(&mut graph);
         committee_presign_graph(&mut graph);
         send_pegin_confirm(&esplora, &graph).await;
-        merge_bank_utxo(&esplora).await;
 
         // kickoff
         let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
@@ -863,11 +893,11 @@ mod tests {
         let esplora = get_esplora_client().await;
         let disprove_scripts = vec![script! {OP_TRUE}.compile()]; // No disprove, use empty vector to simplify
 
+        merge_bank_utxo(&esplora).await;
         let mut graph = gen_test_graph(&esplora, disprove_scripts).await;
         operator_presign_graph(&mut graph);
         committee_presign_graph(&mut graph);
         send_pegin_refund(&esplora, &graph).await;
-        merge_bank_utxo(&esplora).await;
 
         // kickoff
         let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
@@ -920,11 +950,11 @@ mod tests {
         let esplora = get_esplora_client().await;
         let disprove_scripts = vec![script! {OP_TRUE}.compile()]; // No disprove, use empty vector to simplify
 
+        merge_bank_utxo(&esplora).await;
         let mut graph = gen_test_graph(&esplora, disprove_scripts).await;
         operator_presign_graph(&mut graph);
         committee_presign_graph(&mut graph);
         send_pegin_refund(&esplora, &graph).await;
-        merge_bank_utxo(&esplora).await;
 
         // kickoff
         let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
