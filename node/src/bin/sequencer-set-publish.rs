@@ -11,8 +11,8 @@
 //! ```sh
 //!     GOAT_EVM_ADDRESS=0x8943545177806ED17B9F23F0a21ee5948eCaa776
 //!     GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS=0xEE0fCB8E5cCAD0b4197BAabd633333886f5C364d
-//!     FUND_BTC_KEY_WIF=cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5
-//!     OWNER_BTC_KEY_WIF=cSWNzrM1CjFt1VZNBV7qTTr1t2fmZUgaQe2FL4jyFQRgTtrYp8Y5
+//!     FUND_BTC_KEY_WIF=
+//!     OWNER_BTC_KEY_WIF=
 //!     PUBLISHERS=0xcC1Bd124EA962Dd3e6f10F814FB6C4493CEA6d27,0x0b71c9fc399e7FE424f3c22d872735F32550eC09,0x55C55d24bBef5d79918270Af9366b97fC0C7AC7b,0xeBBa6C3BE7Dc14FAeB1c2547cF43D4ad6aD46Ef4,0xa0F88c27B535615A8D8808c6023986a540161021 
 //!     NEXTPUBLISHERS=0xcC1Bd124EA962Dd3e6f10F814FB6C4493CEA6d27,0x0b71c9fc399e7FE424f3c22d872735F32550eC09,0x55C55d24bBef5d79918270Af9366b97fC0C7AC7b 
 //! 
@@ -128,7 +128,7 @@ struct Args {
     #[arg(long, env = "GOAT_EVM_ADDRESS", value_parser = decode_eth_address)]
     goat_evm_address: [u8; 20],
 
-    #[arg(long, env = "GOAT_EVM_PRVKEY", default_value = "0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6")]
+    #[arg(long, env = "GOAT_EVM_PRVKEY")]
     goat_evm_prvkey: Option<String>,
 
     #[arg(long, env = "PUBLISHERS", value_delimiter = ',', value_parser = decode_eth_address_object)]
@@ -192,9 +192,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Action::Payfee => action_push_fee_tx(&args, &btc_client, &goat_client).await,
         Action::SignSeq => action_sign_sequencer_set_update(&args, &btc_client, &goat_client).await,
         Action::PushSeq => action_push_sequencer_set_update(&args, &btc_client, &goat_client).await,
-        Action::UpdateSeqSet => action_update_sequencer_set(&args, &btc_client, &goat_client).await,
-        Action::SignPub => action_sign_publisher_update(&args, &btc_client, &goat_client).await,
-        Action::PushPub => action_push_publisher_update(&args, &btc_client, &goat_client).await,
+        Action::UpdateSeqSet => action_update_sequencer_set_on_goat(&args, &btc_client, &goat_client).await,
+        Action::SignPub => action_sign_publisher_update_on_goat(&args, &btc_client, &goat_client).await,
+        Action::PushPub => action_push_publisher_update_on_goat(&args, &btc_client, &goat_client).await,
     }
 }
 
@@ -318,8 +318,8 @@ fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
     Ok((btc_client, goat_client))
 }
 
-async fn action_update_sequencer_set(args: &Args, _btc_client: &BTCClient, goat_client: &GOATClient) -> Result<(), Box<dyn std::error::Error>> {
-    // Todo: Fetch validator_hash and next_validator_hash from cosmos 
+async fn action_update_sequencer_set_on_goat(args: &Args, _btc_client: &BTCClient, goat_client: &GOATClient) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: Fetch validator_hash and next_validator_hash from cosmos 
     let packed = args.publishers.iter().map(|publisher| EvmAddress::abi_encode(publisher)).collect::<Vec<Vec<u8>>>().concat();
     let publishers_hash = keccak256(&packed);
 
@@ -348,7 +348,7 @@ async fn action_update_sequencer_set(args: &Args, _btc_client: &BTCClient, goat_
 }
 
 /// Sign publisher update tx
-async fn action_sign_publisher_update(
+async fn action_sign_publisher_update_on_goat(
     args: &Args,
     _btc_client: &BTCClient,
     goat_client: &GOATClient,
@@ -381,7 +381,7 @@ async fn action_sign_publisher_update(
 }
 
 /// Push publishers tx
-async fn action_push_publisher_update(
+async fn action_push_publisher_update_on_goat(
     args: &Args,
     _btc_client: &BTCClient,
     goat_client: &GOATClient,
