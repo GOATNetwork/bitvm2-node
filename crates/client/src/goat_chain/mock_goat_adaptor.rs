@@ -251,19 +251,6 @@ impl ChainAdaptor for MockAdaptor {
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn gateway_get_btc_block_hash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {
-        info!("call get_btc_block_hash");
-        Ok([0; 32])
-    }
-
-    async fn gateway_parse_btc_block_header(
-        &self,
-        _raw_header: &[u8],
-    ) -> anyhow::Result<([u8; 32], [u8; 32])> {
-        info!("call parse_btc_block_header");
-        Ok(([0; 32], [0; 32]))
-    }
-
     async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
         info!("call get_initialized_ids");
         Ok(vec![])
@@ -395,15 +382,13 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
-    async fn gateway_verify_merkle_proof(
-        &self,
-        _root: &[u8; 32],
-        _proof: &[[u8; 32]],
-        _pleaf: &[u8; 32],
-        _pindex: u64,
-    ) -> anyhow::Result<bool> {
-        info!("call verify_merkle_proof");
-        Ok(true)
+    async fn btc_spv_blockhash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {
+        info!("call get_btc_block_hash");
+        Ok([0; 32])
+    }
+
+    async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
+        Ok(0)
     }
 
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
@@ -454,10 +439,10 @@ impl ChainAdaptor for MockAdaptor {
     async fn stake_mana_pubkey_to_address(&self, _pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
         Ok([0_u8; 20])
     }
-
     async fn stake_mana_stake_of(&self, _operator: &[u8; 20]) -> anyhow::Result<u64> {
         Ok(0)
     }
+
     async fn stake_mana_lock_stake_of(&self, _operator: &[u8; 20]) -> anyhow::Result<u64> {
         Ok(0)
     }

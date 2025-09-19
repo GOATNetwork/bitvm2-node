@@ -463,10 +463,7 @@ pub async fn build_sign_and_broadcast_tx(
 ) -> Result<Txid, Box<dyn std::error::Error>> {
     let txouts = if txouts.is_empty() {
         // bitcoin network does not allow a transaction without outputs
-        vec![TxOut {
-            value: Amount::ZERO,
-            script_pubkey: generate_opreturn_script(vec![]),
-        }]
+        vec![TxOut { value: Amount::ZERO, script_pubkey: generate_opreturn_script(vec![]) }]
     } else {
         txouts
     };
@@ -480,16 +477,17 @@ pub async fn build_sign_and_broadcast_tx(
     let total_output_amount: Amount = tx.output.iter().map(|o| o.value).sum();
     let fee_rate = get_fee_rate(client).await?;
     let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
-    let shortfall = Amount::from_sat(
-        total_output_amount.to_sat().saturating_sub(total_input_amount.to_sat())
-    );
+    let shortfall =
+        Amount::from_sat(total_output_amount.to_sat().saturating_sub(total_input_amount.to_sat()));
     match get_proper_utxo_set(
         client,
         tx.weight().to_vbytes_ceil(),
         node_address.clone(),
         shortfall,
         fee_rate,
-    ).await? {
+    )
+    .await?
+    {
         Some((inputs, _, change_amount)) => {
             for input in &inputs {
                 tx.input.push(TxIn {

@@ -161,13 +161,13 @@ async fn main() {
     let latest_sequencer_commit_txid = Txid::from_str(&args.latest_sequencer_commit_txid).unwrap();
 
     let operator_latest_sequencer_commit_txn =
-        btc_client.fetch_btc_tx(&latest_sequencer_commit_txid).await.unwrap();
+        btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
     println!("operator_latest_seqeuncer_commit_txn: {:?}", operator_latest_sequencer_commit_txn);
 
     // TODO: replace it by `get_raw_transaction_info`
     let tx_merkle_proof =
         btc_client.get_btc_merkle_proof(&latest_sequencer_commit_txid).await.unwrap();
-    let block_pos = tx_merkle_proof.1.block_height;
+    let block_pos = tx_merkle_proof.2.block_height;
     println!("block height: {block_pos}");
     let target_block = btc_client.get_btc_block(block_pos).await.unwrap();
 

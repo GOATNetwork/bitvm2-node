@@ -8,7 +8,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Transaction, Txid};
 use uuid::Uuid;
 pub mod utils;
-use crate::btc_chain::BTCClient;
+use crate::btc_chain::{BTCClient, BtcTxProofData};
 use chain_adaptor::PeginStatus;
 pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
@@ -36,15 +36,6 @@ impl GOATClient {
     }
     pub fn get_default_signer_address(&self) -> Address {
         self.chain_service.get_default_signer_address()
-    }
-    pub async fn gateway_verify_merkle_proof(
-        &self,
-        root: &[u8; 32],
-        proof: &[[u8; 32]],
-        leaf: &[u8; 32],
-        index: u64,
-    ) -> anyhow::Result<bool> {
-        self.chain_service.gateway_verify_merkle_proof(root, proof, leaf, index).await
     }
 
     pub async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
@@ -199,13 +190,6 @@ impl GOATClient {
         self.chain_service.gateway_answer_pegin_request(instance_id, committee_xonly_pubkey).await
     }
 
-    pub async fn gateway_parse_btc_block_header(
-        &self,
-        raw_header: &[u8],
-    ) -> anyhow::Result<([u8; 32], [u8; 32])> {
-        self.chain_service.gateway_parse_btc_block_header(raw_header).await
-    }
-
     pub async fn gateway_get_instanceids_by_pubkey(
         &self,
         operator_pubkey: &[u8; 32],
@@ -236,7 +220,7 @@ impl GOATClient {
         }
         let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
-        let (_root, proof, _leaf, height, index, raw_header) = self
+        let tx_proof_data = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
                 "withdraw",
@@ -248,11 +232,7 @@ impl GOATClient {
             .await?;
         let raw_kickoff_tx = tx_reconstruct(tx);
         self.chain_service
-            .gateway_process_withdraw(
-                graph_id,
-                &raw_kickoff_tx,
-                &BitcoinTxProof { raw_header, height, proof, index },
-            )
+            .gateway_process_withdraw(graph_id, &raw_kickoff_tx, &tx_proof_data.into())
             .await
     }
     pub async fn gateway_finish_withdraw_happy_path(
@@ -266,7 +246,7 @@ impl GOATClient {
         }
         let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
-        let (_root, proof, _leaf, height, index, raw_header) = self
+        let tx_proof_data = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
                 "take1",
@@ -278,11 +258,7 @@ impl GOATClient {
             .await?;
         let raw_take1_tx = tx_reconstruct(tx);
         self.chain_service
-            .gateway_finish_withdraw_happy_path(
-                graph_id,
-                &raw_take1_tx,
-                &BitcoinTxProof { raw_header, height, proof, index },
-            )
+            .gateway_finish_withdraw_happy_path(graph_id, &raw_take1_tx, &tx_proof_data.into())
             .await
     }
 
@@ -297,7 +273,7 @@ impl GOATClient {
         }
         let operator_data = self.gateway_get_graph_data(graph_id).await?;
         let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
-        let (_root, proof, _leaf, height, index, raw_header) = self
+        let tx_proof_data = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
                 "take2",
@@ -309,11 +285,7 @@ impl GOATClient {
             .await?;
         let raw_take2_tx = tx_reconstruct(tx);
         self.chain_service
-            .gateway_finish_withdraw_unhappy_path(
-                graph_id,
-                &raw_take2_tx,
-                &BitcoinTxProof { raw_header, height, proof, index },
-            )
+            .gateway_finish_withdraw_unhappy_path(graph_id, &raw_take2_tx, &tx_proof_data.into())
             .await
     }
 
@@ -329,7 +301,7 @@ impl GOATClient {
         if !self.is_committee_member().await? {
             bail!("only committee member can call");
         }
-        let (_root, proof, _leaf, height, index, raw_header) = self
+        let tx_proof_data = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
                 "challenge_start",
@@ -340,8 +312,8 @@ impl GOATClient {
             )
             .await?;
         let raw_challenge_start_tx = tx_reconstruct(challenge_start_tx);
-        let challenge_start_proof = BitcoinTxProof { raw_header, height, proof, index };
-        let (_root, proof, _leaf, height, index, raw_header) = self
+        let challenge_start_proof: BitcoinTxProof = tx_proof_data.into();
+        let tx_proof_data = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,
                 "challenge_finish",
@@ -352,7 +324,7 @@ impl GOATClient {
             )
             .await?;
         let raw_challenge_finish_tx = tx_reconstruct(challenge_finish_tx);
-        let challenge_finish_proof = BitcoinTxProof { raw_header, height, proof, index };
+        let challenge_finish_proof: BitcoinTxProof = tx_proof_data.into();
         self.chain_service
             .gateway_finish_withdraw_disproved(
                 graph_id,
@@ -389,43 +361,20 @@ impl GOATClient {
             bail!("instance_id:{instance_id} pegin amount mismatch",);
         }
 
-        let (root, proof, _leaf, height, index, raw_header) =
-            btc_client.get_btc_tx_proof_info(&tx_id).await?;
+        let tx_proof_data = btc_client.get_btc_tx_proof_info(&tx_id).await?;
 
-        let (block_hash, merkle_root) = self.gateway_parse_btc_block_header(&raw_header).await?;
-        let block_hash_online = self.gateway_get_block_hash(height).await?;
-        if block_hash_online != block_hash {
+        let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
+        if block_hash_online != tx_proof_data.block_hash {
             tracing::warn!(
-                "instance_id:{instance_id}  root mismatch, from chain:{},  in contract:{}",
-                hex::encode(block_hash),
+                "instance_id:{instance_id}  block_hash mismatch, from chain:{},  in contract:{}",
+                hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
             bail!(
-                "instance_id:{instance_id}  root mismatch, from chain:{},  in contract:{}",
-                hex::encode(block_hash),
+                "instance_id:{instance_id}  block_hash mismatch, from chain:{},  in contract:{}",
+                hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
-        }
-
-        if merkle_root != root {
-            tracing::warn!(
-                "instance_id:{instance_id} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
-                hex::encode(merkle_root),
-                hex::encode(root)
-            );
-            bail!(
-                "instance_id:{instance_id} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
-                hex::encode(merkle_root),
-                hex::encode(root)
-            );
-        }
-        // check proof
-        if !self
-            .gateway_verify_merkle_proof(&merkle_root, &proof, &tx_id.to_byte_array(), index)
-            .await?
-        {
-            tracing::warn!("instance_id:{instance_id} check proof failed");
-            bail!("instance_id:{instance_id} check proof failed");
         }
         let pegin_amount_sats = tx.output[0].value.to_sat();
         let min_pegin_fee_sats = self.gateway_get_min_pegin_fee_sats().await?;
@@ -446,7 +395,7 @@ impl GOATClient {
             .gateway_post_pegin_data(
                 instance_id,
                 &raw_pegin_tx,
-                &BitcoinTxProof { raw_header, height, proof, index },
+                &tx_proof_data.into(),
                 committee_signs,
             )
             .await
@@ -520,7 +469,7 @@ impl GOATClient {
         tx_act: &Txid,
         tx_id_on_line: &Txid,
         required_status: Option<WithdrawStatus>,
-    ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64, Vec<u8>)> {
+    ) -> anyhow::Result<BtcTxProofData> {
         // check tx id match
         if tx_id_on_line.ne(tx_act) {
             tracing::warn!(
@@ -561,55 +510,26 @@ impl GOATClient {
             }
         }
         // check hash in btc chain and spv contract
-        let (root, proof, leaf, height, index, raw_header) =
-            btc_client.get_btc_tx_proof_info(tx_act).await?;
+        let tx_proof_data = btc_client.get_btc_tx_proof_info(tx_act).await?;
 
-        let (block_hash, merkle_root) = self.gateway_parse_btc_block_header(&raw_header).await?;
-        let block_hash_online = self.gateway_get_block_hash(height).await?;
-        if block_hash_online != block_hash {
+        let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
+        if block_hash_online != tx_proof_data.block_hash {
             tracing::warn!(
-                "graph_id:{} at: {} root mismatch, from chain:{},  in contract:{}",
+                "graph_id:{} at: {} block_hash mismatch, from chain:{},  in contract:{}",
                 graph_id,
                 tag,
-                hex::encode(block_hash),
+                hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
             bail!(
-                "graph_id:{} at :{} root mismatch, from chain:{},  in contract:{}",
+                "graph_id:{} at :{} block_hash mismatch, from chain:{},  in contract:{}",
                 graph_id,
                 tag,
-                hex::encode(block_hash),
+                hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
         }
-
-        if merkle_root != root {
-            tracing::warn!(
-                "graph_id:{} at: {} invalid header encoder merkle_root not equal: decode: {},  generate:{}",
-                graph_id,
-                tag,
-                hex::encode(merkle_root),
-                hex::encode(root)
-            );
-            bail!(
-                "graph_id:{} at :{}  invalid header encoder merkle_root not equal: decode: {},  generate:{}",
-                graph_id,
-                tag,
-                hex::encode(merkle_root),
-                hex::encode(root)
-            );
-        }
-
-        // check proof
-        if !self
-            .gateway_verify_merkle_proof(&merkle_root, &proof, &tx_act.to_byte_array(), index)
-            .await?
-        {
-            tracing::warn!("graph:{} at {} verify_merkle_proof failed ", tag, graph_id,);
-            bail!("graph:{} at {} verify_merkle_proof failed ", tag, graph_id,);
-        }
-
-        Ok((root, proof.to_vec(), leaf, height, index, raw_header.to_vec()))
+        Ok(tx_proof_data)
     }
 
     pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {

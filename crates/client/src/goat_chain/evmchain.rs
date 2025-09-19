@@ -164,14 +164,7 @@ impl EvmChain {
     }
 
     pub async fn gateway_get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        self.adaptor.gateway_get_btc_block_hash(height).await
-    }
-
-    pub async fn gateway_parse_btc_block_header(
-        &self,
-        raw_header: &[u8],
-    ) -> anyhow::Result<([u8; 32], [u8; 32])> {
-        self.adaptor.gateway_parse_btc_block_header(raw_header).await
+        self.adaptor.btc_spv_blockhash(height).await
     }
 
     pub async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
@@ -251,16 +244,6 @@ impl EvmChain {
                 challenge_finish_proof,
             )
             .await
-    }
-
-    pub async fn gateway_verify_merkle_proof(
-        &self,
-        root: &[u8; 32],
-        proof: &[[u8; 32]],
-        leaf: &[u8; 32],
-        index: u64,
-    ) -> anyhow::Result<bool> {
-        self.adaptor.gateway_verify_merkle_proof(root, proof, leaf, index).await
     }
 
     pub async fn get_tx_receipt(

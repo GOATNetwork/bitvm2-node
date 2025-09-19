@@ -1,8 +1,9 @@
+use crate::btc_chain::BtcTxProofData;
 use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
 use anyhow::bail;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
+use bitcoin::{Address as BtcAddress, Block, BlockHash, Network, Transaction, TxMerkleNode, Txid};
 use esplora_client::{MerkleProof, Tx, Utxo};
 
 pub struct BitcoinChain {
@@ -91,31 +92,28 @@ impl BitcoinChain {
     pub async fn get_btc_merkle_proof(
         &self,
         tx_id: &Txid,
-    ) -> anyhow::Result<(TxMerkleNode, MerkleProof, Vec<u8>)> {
+    ) -> anyhow::Result<(BlockHash, TxMerkleNode, MerkleProof, Vec<u8>)> {
         let proof = self.adaptor.get_merkle_proof(tx_id).await?;
         if let Some(proof) = proof {
             let block_hash = self.adaptor.get_block_hash(proof.block_height).await?;
             let header = self.adaptor.get_header_by_hash(&block_hash).await?;
             let raw_header = serialize(&header);
-            return Ok((header.merkle_root, proof, raw_header));
+            return Ok((block_hash, header.merkle_root, proof, raw_header));
         }
         bail!("get {} merkle proof is none", tx_id)
     }
 
-    pub async fn get_btc_tx_proof_info(
-        &self,
-        tx_id: &Txid,
-    ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64, Vec<u8>)> {
-        let (root, proof_info, raw_header) = self.get_btc_merkle_proof(tx_id).await?;
+    pub async fn get_btc_tx_proof_info(&self, tx_id: &Txid) -> anyhow::Result<BtcTxProofData> {
+        let (block_hash, root, proof_info, raw_header) = self.get_btc_merkle_proof(tx_id).await?;
         let proof: Vec<[u8; 32]> = proof_info.merkle.iter().map(|v| v.to_byte_array()).collect();
-        let leaf = tx_id.to_byte_array();
-        Ok((
-            root.to_byte_array(),
-            proof,
-            leaf,
-            proof_info.block_height as u64,
-            proof_info.pos as u64,
+        Ok(BtcTxProofData {
+            txid: tx_id.to_byte_array(),
+            height: proof_info.block_height as u64,
+            block_hash: block_hash.to_byte_array(),
             raw_header,
-        ))
+            root: root.to_byte_array(),
+            index: proof_info.pos as u64,
+            proof,
+        })
     }
 }

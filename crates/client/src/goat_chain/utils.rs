@@ -11,6 +11,7 @@ sol!(
 interface IGateway {
         address public  committeeManagement;
         address public  stakeManagement;
+        address public  bitcoinSPV;
         function isCommittee(bytes calldata id) external view returns (bool);
         function isOperator(bytes calldata id) external view returns (bool);
         function relayerPeerId() external view returns (bytes);
@@ -75,13 +76,17 @@ pub async fn get_graph_ids_by_instance_id(
     Ok(graph_ids.into_iter().map(|v| Uuid::from_bytes(v.0)).collect())
 }
 
-pub async fn get_committee_and_stake_addresses(
+pub async fn get_gateway_relay_contracts(
     provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
     >,
     gateway_address: Address,
-) -> anyhow::Result<(Address, Address)> {
+) -> anyhow::Result<(Address, Address, Address)> {
     let gateway = IGateway::new(gateway_address, provider);
-    Ok((gateway.committeeManagement().call().await?, gateway.stakeManagement().call().await?))
+    Ok((
+        gateway.committeeManagement().call().await?,
+        gateway.stakeManagement().call().await?,
+        gateway.bitcoinSPV().call().await?,
+    ))
 }

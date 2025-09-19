@@ -1,3 +1,4 @@
+use crate::btc_chain::BtcTxProofData;
 use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
@@ -64,13 +65,6 @@ pub trait ChainAdaptor: Send + Sync {
         committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String>;
 
-    async fn gateway_get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
-
-    async fn gateway_parse_btc_block_header(
-        &self,
-        raw_header: &[u8],
-    ) -> anyhow::Result<([u8; 32], [u8; 32])>;
-
     async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
     async fn gateway_get_instanceids_by_pubkey(
         &self,
@@ -112,13 +106,8 @@ pub trait ChainAdaptor: Send + Sync {
         challenge_finish_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
-    async fn gateway_verify_merkle_proof(
-        &self,
-        root: &[u8; 32],
-        proof: &[[u8; 32]],
-        leaf: &[u8; 32],
-        index: u64,
-    ) -> anyhow::Result<bool>;
+    async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
+    async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64>;
 
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
     async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>>;
@@ -292,6 +281,17 @@ pub struct BitcoinTxProof {
     pub height: u64,
     pub proof: Vec<[u8; 32]>,
     pub index: u64,
+}
+
+impl From<BtcTxProofData> for BitcoinTxProof {
+    fn from(data: BtcTxProofData) -> Self {
+        Self {
+            raw_header: data.raw_header,
+            height: data.height,
+            proof: data.proof,
+            index: data.index,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

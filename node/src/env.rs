@@ -9,7 +9,7 @@ use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
 use client::goat_chain::utils::{
-    get_committee_and_stake_addresses, validate_committee, validate_operator,
+    get_gateway_relay_contracts, validate_committee, validate_operator,
 };
 use client::goat_chain::{GoatInitConfig, GoatNetwork};
 use libp2p::PeerId;
@@ -336,27 +336,30 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     let rpc_url = get_goat_url_from_env();
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let gateway_address = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS);
-    let (chain_id, committee_management_address, stake_management_address) =
-        {
-            let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-            let chain_id = provider
-                .get_chain_id()
-                .await
-                .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}"))
-                as u32;
+    let (chain_id, committee_management_address, stake_management_address, btc_spv_address) = {
+        let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}"))
+            as u32;
 
-            let (committee_management_address, stake_management_address) =
-                if let Some(gateway_address) = gateway_address.clone() {
-                    let (committee_management_address, stake_management_address) =
-                get_committee_and_stake_addresses(&provider, gateway_address.clone())
-                    .await
-                    .expect("fail to get committee and stake management contract online addresses");
-                    (Some(committee_management_address), Some(stake_management_address))
-                } else {
-                    (None, None)
-                };
-            (chain_id, committee_management_address, stake_management_address)
-        };
+        let (committee_management_address, stake_management_address, btc_spv_address) =
+            if let Some(gateway_address) = gateway_address.clone() {
+                let (committee_management_address, stake_management_address, btc_spv_address) =
+                    get_gateway_relay_contracts(&provider, gateway_address.clone()).await.expect(
+                        "fail to get committee and stake management contract online addresses",
+                    );
+                (
+                    Some(committee_management_address),
+                    Some(stake_management_address),
+                    Some(btc_spv_address),
+                )
+            } else {
+                (None, None, None)
+            };
+        (chain_id, committee_management_address, stake_management_address, btc_spv_address)
+    };
 
     GoatInitConfig {
         rpc_url,
@@ -371,6 +374,7 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         multi_sig_verifier_address: get_goat_address_from_env(
             ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS
         ),
+        btc_spv_address,
     }
 }
 

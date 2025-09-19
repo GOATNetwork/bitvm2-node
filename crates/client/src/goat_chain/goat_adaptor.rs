@@ -2,6 +2,7 @@ use crate::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, DisproveTxType, GraphData, PeginData, PeginStatus,
     SequencerSet, Utxo, WithdrawData, WithdrawStatus,
 };
+use crate::goat_chain::goat_adaptor::IBitcoinSPV::IBitcoinSPVInstance;
 use crate::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
 use crate::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
 use crate::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
@@ -137,9 +138,6 @@ sol!(
         mapping(bytes16 instanceId => bytes16[] graphIds)
         public instanceIdToGraphIds;
 
-        function getBlockHash(uint256 height) external view returns (bytes32);
-        function parseBtcBlockHeader(bytes calldata rawHeader) public pure returns (bytes32 blockHash, bytes32 merkleRoot);
-
         function postPeginRequest(bytes16 instanceId, uint64 peginAmountSats, uint64[3] calldata txnFees, address receiverAddress, Utxo[] calldata userInputs, bytes32 userXonlyPubkey, string calldata userChangeAddress, string calldata userRefundAddress) external payable;
         function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) onlyCommittee() external;
         function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof, bytes[] calldata committeeSigs) external;
@@ -152,7 +150,6 @@ sol!(
         function finishWithdrawHappyPath(bytes16 graphId, BitcoinTx calldata rawTake1Tx, BitcoinTxProof calldata take1Proof) external;
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, DisproveTxType disproveTxType, uint256 txnIndex, BitcoinTx calldata rawChallengeStartTx, BitcoinTxProof calldata challengeStartTxProof, BitcoinTx calldata rawChallengeFinishTx, BitcoinTxProof calldata challengeFinishTxProof ) external;
-        function verifyMerkleProof(bytes32 root,bytes32[] memory proof, bytes32 leaf,uint256 index) public pure returns (bool);
 
         // Contract is not implements this functions, do something later
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
@@ -167,6 +164,15 @@ sol!(
     interface IMultiSigVerifier {
         function getOwners() external view returns (address[] memory);
         function nonce() external view returns (uint256);
+            }
+);
+sol!(
+    #[derive(Debug)]
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    interface IBitcoinSPV {
+        function blockHash(uint256 height) external view returns (bytes32);
+        function latestConfirmedHeight() external view returns (uint256);
     }
 );
 
@@ -232,6 +238,7 @@ pub struct GoatInitConfig {
     pub committee_management_address: Option<Address>,
     pub stake_management_address: Option<Address>,
     pub multi_sig_verifier_address: Option<Address>,
+    pub btc_spv_address: Option<Address>,
 }
 
 impl GoatInitConfig {
@@ -257,6 +264,7 @@ impl GoatInitConfig {
                     .parse()
                     .expect("parse contract address"),
             ),
+            btc_spv_address: None,
         }
     }
 }
@@ -270,6 +278,14 @@ pub struct GoatAdaptor {
     >,
     gateway: Option<
         IGatewayInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    >,
+    btc_spv: Option<
+        IBitcoinSPVInstance<
             FillProvider<
                 JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
                 RootProvider,
@@ -327,6 +343,19 @@ impl GoatAdaptor {
         >,
     > {
         self.gateway.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway not initialized"))
+    }
+
+    fn get_btc_spv(
+        &self,
+    ) -> anyhow::Result<
+        &IBitcoinSPVInstance<
+            FillProvider<
+                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+                RootProvider,
+            >,
+        >,
+    > {
+        self.btc_spv.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway not initialized"))
     }
 
     fn get_sequencer_set_publisher(
@@ -832,20 +861,6 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(res.to_string())
     }
 
-    async fn gateway_get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        let gateway = self.get_gateway()?;
-        Ok(gateway.getBlockHash(U256::from(height)).call().await?.0)
-    }
-
-    async fn gateway_parse_btc_block_header(
-        &self,
-        raw_header: &[u8],
-    ) -> anyhow::Result<([u8; 32], [u8; 32])> {
-        let gateway = self.get_gateway()?;
-        let res = gateway.parseBtcBlockHeader(Bytes::copy_from_slice(raw_header)).call().await?;
-        Ok((res.blockHash.0, res.merkleRoot.0))
-    }
-
     async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
         let gateway = self.get_gateway()?;
         let ids = gateway.getInitializedInstanceIds().call().await?;
@@ -986,25 +1001,19 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn gateway_verify_merkle_proof(
-        &self,
-        root: &[u8; 32],
-        proof: &[[u8; 32]],
-        leaf: &[u8; 32],
-        index: u64,
-    ) -> anyhow::Result<bool> {
-        let gateway = self.get_gateway()?;
-        let proof: Vec<FixedBytes<32>> =
-            proof.iter().map(|v| FixedBytes::<32>::from_slice(v)).collect();
-        Ok(gateway
-            .verifyMerkleProof(
-                FixedBytes::from_slice(root),
-                proof,
-                FixedBytes::from_slice(leaf),
-                U256::from(index),
-            )
+    async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        let btc_spv = self.get_btc_spv()?;
+        Ok(btc_spv.blockHash(U256::from(height)).call().await?.0)
+    }
+
+    async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
+        let btc_spv = self.get_btc_spv()?;
+        Ok(btc_spv
+            .latestConfirmedHeight()
             .call()
-            .await?)
+            .await?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("latestConfirmedHeight error :{e:?}"))?)
     }
 
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
@@ -1240,6 +1249,7 @@ impl GoatAdaptor {
             multi_sig_verifier: config
                 .multi_sig_verifier_address
                 .map(|addr| IMultiSigVerifier::new(addr, provider.clone())),
+            btc_spv: config.btc_spv_address.map(|addr| IBitcoinSPV::new(addr, provider.clone())),
         }
     }
 }

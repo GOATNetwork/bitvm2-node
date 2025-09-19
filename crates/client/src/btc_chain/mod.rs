@@ -1,6 +1,6 @@
 use crate::btc_chain::bitcoin_adaptor::{BitcoinNetwork, get_btc_chain_adapter};
 use crate::btc_chain::bitcoin_chain::BitcoinChain;
-use bitcoin::{Address as BtcAddress, Block, Network, Transaction, TxMerkleNode, Txid};
+use bitcoin::{Address as BtcAddress, Block, BlockHash, Network, Transaction, TxMerkleNode, Txid};
 use esplora_client::{MerkleProof, Tx, Utxo};
 use std::str::FromStr;
 
@@ -12,6 +12,16 @@ mod mock_bitcoin_adaptor;
 #[derive(Debug)]
 pub struct BTCClient {
     chain_service: BitcoinChain,
+}
+
+pub struct BtcTxProofData {
+    pub txid: [u8; 32],
+    pub height: u64,
+    pub block_hash: [u8; 32],
+    pub raw_header: Vec<u8>,
+    pub root: [u8; 32],
+    pub index: u64,
+    pub proof: Vec<[u8; 32]>,
 }
 
 impl BTCClient {
@@ -91,14 +101,11 @@ impl BTCClient {
     pub async fn get_btc_merkle_proof(
         &self,
         tx_id: &Txid,
-    ) -> anyhow::Result<(TxMerkleNode, MerkleProof, Vec<u8>)> {
+    ) -> anyhow::Result<(BlockHash, TxMerkleNode, MerkleProof, Vec<u8>)> {
         self.chain_service.get_btc_merkle_proof(tx_id).await
     }
 
-    pub async fn get_btc_tx_proof_info(
-        &self,
-        tx_id: &Txid,
-    ) -> anyhow::Result<([u8; 32], Vec<[u8; 32]>, [u8; 32], u64, u64, Vec<u8>)> {
+    pub async fn get_btc_tx_proof_info(&self, tx_id: &Txid) -> anyhow::Result<BtcTxProofData> {
         self.chain_service.get_btc_tx_proof_info(tx_id).await
     }
 }
