@@ -102,7 +102,7 @@ impl GatewayEventEntity {
                     .add_field(&tag, "id")
                     .add_field(&tag, "instanceId")
                     .add_field(&tag, "committeeAddress")
-                    .add_field(&tag, "committeeXonlyPubkey")
+                    .add_field(&tag, "committeePubkey")
                     .add_field(&tag, "transactionHash")
                     .add_field(&tag, "blockNumber")
                     .set_order_by(&tag, "blockNumber", "asc");
@@ -336,8 +336,8 @@ pub struct CommitteeResponseEvent {
     pub instance_id: String,
     #[serde(rename = "committeeAddress")]
     pub committee_address: String,
-    #[serde(rename = "committeeXonlyPubkey")]
-    pub committee_xonly_pubkey: String,
+    #[serde(rename = "committeePubkey")]
+    pub committee_pubkey: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

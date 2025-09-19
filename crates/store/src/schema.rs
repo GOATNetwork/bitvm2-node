@@ -157,7 +157,7 @@ macro_rules! define_numeric_array {
 }
 
 define_numeric_array!(ByteArray32, 32);
-define_numeric_array!(Int64Array3, 3, i64);
+define_numeric_array!(UInt64Array3, 3, u64);
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Node {
@@ -187,7 +187,7 @@ pub struct NodesOverview {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CommitteeSignatures {
-    pub xonly_pubkey: [u8; 32],
+    pub pubkey: Vec<u8>,
     pub l1_sig: Vec<u8>,
     pub l2_sig: Vec<u8>,
 }
@@ -215,7 +215,7 @@ pub struct Instance {
     pub from_addr: String,
     pub to_addr: String,
     pub amount: i64,
-    pub fees: Int64Array3,
+    pub fees: UInt64Array3,
     pub input_utxos: String,
     pub status: String,
     pub pegin_request_tx_hash: String, // goat tx hash

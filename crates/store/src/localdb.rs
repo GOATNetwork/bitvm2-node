@@ -774,7 +774,7 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         instance_id: &Uuid,
         committee_addr: &str,
-        xonly_pubkey: &[u8; 32],
+        pubkey: Vec<u8>,
         l1_sig: Vec<u8>,
         l2_sig: Vec<u8>,
     ) -> anyhow::Result<bool> {
@@ -788,7 +788,7 @@ impl<'a> StorageProcessor<'a> {
         committees_answers
             .entry(committee_addr.to_string())
             .and_modify(|existing| {
-                existing.xonly_pubkey = *xonly_pubkey;
+                existing.pubkey = pubkey.clone();
                 if !l1_sig.is_empty() {
                     existing.l1_sig = l1_sig.clone();
                 }
@@ -796,7 +796,7 @@ impl<'a> StorageProcessor<'a> {
                     existing.l2_sig = l2_sig.clone();
                 }
             })
-            .or_insert_with(|| CommitteeSignatures { xonly_pubkey: *xonly_pubkey, l1_sig, l2_sig });
+            .or_insert_with(|| CommitteeSignatures { pubkey, l1_sig, l2_sig });
         self.update_instance_committees_answers_map(instance_id, &committees_answers).await
     }
 

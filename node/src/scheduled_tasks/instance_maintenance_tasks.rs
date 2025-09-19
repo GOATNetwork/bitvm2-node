@@ -4,8 +4,8 @@ use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use alloy::primitives::TxHash;
 use anyhow::{anyhow, bail};
-use bitcoin::PublicKey;
 use bitcoin::hashes::Hash;
+use bitcoin::PublicKey;
 use bitvm2_lib::keys::CommitteeMasterKey;
 use client::btc_chain::BTCClient;
 use client::goat_chain::{GOATClient, GraphData};
@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     CommitteeSignatures, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus,
-    InstanceStatus,
+    Instance, InstanceStatus,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -69,11 +69,10 @@ pub async fn instance_answers_monitor(
 
         let master_key =
             CommitteeMasterKey::new(env::get_bitvm_key().map_err(|e| anyhow!("{}", e))?);
-        let (xonly_pubkey, _) =
-            master_key.keypair_for_instance(tx_record.instance_id).x_only_public_key();
+        let pubkey = master_key.keypair_for_instance(tx_record.instance_id).public_key();
 
         match goat_client
-            .gateway_answer_pegin_request(&tx_record.instance_id, &xonly_pubkey.serialize())
+            .gateway_answer_pegin_request(&tx_record.instance_id, &pubkey.serialize())
             .await
         {
             Ok(tx_hash) => {
@@ -112,26 +111,27 @@ pub async fn instance_window_expiration_monitor(
         )
         .await?;
 
+    let committee_quorum_size = goat_client.committee_mana_quorum_size().await?;
     for mut instance in instances {
         match goat_client.gateway_get_pegin_data(&instance.instance_id).await {
             Ok(pegin_data) => {
-                for (committee_addr, xonly_pubkey) in
-                    pegin_data.committee_addresses.iter().zip(pegin_data.committee_xonly_pubkeys)
+                for (committee_addr, pubkey) in
+                    pegin_data.committee_addresses.iter().zip(pegin_data.committee_pubkeys)
                 {
                     instance
                         .committees_answers
                         .entry(committee_addr.to_string())
                         .and_modify(|existing| {
-                            existing.xonly_pubkey = xonly_pubkey;
+                            existing.pubkey = pubkey.clone();
                         })
                         .or_insert_with(|| CommitteeSignatures {
-                            xonly_pubkey,
+                            pubkey,
                             l1_sig: vec![],
                             l2_sig: vec![],
                         });
                 }
 
-                if env::get_min_committee_number() <= instance.committees_answers.len() as u32 {
+                if committee_quorum_size <= instance.committees_answers.len() as u64 {
                     instance.status = InstanceStatus::CommitteesAnswered.to_string();
                 }
 
@@ -142,6 +142,7 @@ pub async fn instance_window_expiration_monitor(
                         err.to_string()
                     );
                 }
+                let _ = update_pegin_txids(&mut instance);
             }
             Err(err) => {
                 warn!(
@@ -153,6 +154,56 @@ pub async fn instance_window_expiration_monitor(
         }
     }
 
+    Ok(())
+}
+
+fn update_pegin_txids(_instance: &mut Instance) -> anyhow::Result<()> {
+    // todo open it if goat rep updated
+    // let committee_pubkeys: Vec<PublicKey> = instance
+    //     .committees_answers
+    //     .iter()
+    //     .map(|(_k, v)| PublicKey::from_slice(&v.pubkey).unwrap())
+    //     .collect();
+    // let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)?;
+    //
+    // let inputs = utxos
+    //     .into_iter()
+    //     .map(|utxo| Input {
+    //         outpoint: OutPoint { txid: Txid::from_slice(&utxo.txid).unwrap(), vout: utxo.vout },
+    //         amount: Amount::from_sat(utxo.amount_stats),
+    //     })
+    //     .collect();
+    // let network = Network::from_str(&instance.network)?;
+    // let user_change_address: Address<NetworkUnchecked> =
+    //     Address::from_str(&instance.user_change_addr)?;
+    // let user_refund_addr: Address<NetworkUnchecked> =
+    //     Address::from_str(&instance.user_change_addr)?;
+    //
+    // let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
+    // let user_info = UserInfo {
+    //     depositor_evm_address: EvmAddress::from_str(&instance.to_addr)?.into_array(),
+    //     txn_fees: instance.fees.0,
+    //     inputs,
+    //     user_xonly_pubkey: XOnlyPublicKey::from_slice(&instance.user_xonly_pubkey.0)?,
+    //     user_change_address: user_change_address.require_network(network)?,
+    //     user_refund_address: user_refund_addr.require_network(network)?,
+    // };
+    // let instance_params = Bitvm2InstanceParameters {
+    //     network,
+    //     instance_id: instance.instance_id,
+    //     user_info,
+    //     pegin_amount: Amount::from_sat(instance.amount as u64),
+    //     challenge_amount: Amount::from_sat(instance.amount as u64),
+    //     committee_pubkeys,
+    //     committee_agg_pubkey,
+    // };
+    //
+    // let (pegin_deposit_tx, pegin_confirm_tx, _pegin_refund_tx) =
+    //     instance_params.build_pegin_tx()?;
+    // instance.pegin_prepare_txid = Some(pegin_deposit_tx.tx().compute_txid().into());
+    // // instance.pegin_confirm_txid = Some(pegin_confirm_tx.tx().compute_txid().into());
+    // // instance.pegin_cancel_txid = Some(pegin_refund_tx.tx().compute_txid().into());
+    // instance.unsign_pegin_confirm_tx = Some(serde_json::to_string(&pegin_confirm_tx)?);
     Ok(())
 }
 

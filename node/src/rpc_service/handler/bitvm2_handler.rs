@@ -5,11 +5,9 @@ use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
-use bitcoin::consensus::encode::serialize_hex;
 use bitvm2_lib::types::Bitvm2Graph;
 use client::Utxo;
 use client::btc_chain::BTCClient;
-use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::collections::HashMap;
 use std::default::Default;
@@ -192,9 +190,9 @@ pub async fn get_graph_tx(
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(graph_raw_data) =
             storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
-            && let Some(graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
+            && let Some(_graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
         {
-            let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
+            let _bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
             let tx_name_op = IpfsTxName::from_str(&params.tx_name);
             if tx_name_op.is_err() {
                 return Err(format!(
@@ -203,38 +201,40 @@ pub async fn get_graph_tx(
                 )
                 .into());
             }
-            let tx_hex = match tx_name_op.unwrap() {
-                IpfsTxName::AssertCommit0 => {
-                    serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx())
-                }
-                IpfsTxName::AssertCommit1 => {
-                    serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx())
-                }
-                IpfsTxName::AssertCommit2 => {
-                    serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx())
-                }
-                IpfsTxName::AssertCommit3 => {
-                    serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx())
-                }
-                IpfsTxName::AssertInit => serialize_hex(bitvm2_graph.assert_init.tx()),
-                IpfsTxName::AssertFinal => serialize_hex(bitvm2_graph.assert_final.tx()),
-                IpfsTxName::Challenge => {
-                    let mut ori_tx_hex = serialize_hex(bitvm2_graph.challenge.tx());
-                    if let Some(challenge_txid) = graph.challenge_txid
-                        && let Ok(tx_hex) =
-                            app_state.btc_client.get_tx_hex_by_tx_id(&challenge_txid.0).await
-                    {
-                        ori_tx_hex = tx_hex
-                    }
-                    ori_tx_hex
-                }
-                IpfsTxName::Disprove => serialize_hex(bitvm2_graph.disprove.tx()),
-                IpfsTxName::Kickoff => serialize_hex(bitvm2_graph.kickoff.tx()),
-                IpfsTxName::Pegin => serialize_hex(bitvm2_graph.pegin.tx()),
-                IpfsTxName::Take1 => serialize_hex(bitvm2_graph.take1.tx()),
-                IpfsTxName::Take2 => serialize_hex(bitvm2_graph.take2.tx()),
-            };
-            Ok::<GraphTxGetResponse, Box<dyn std::error::Error>>(GraphTxGetResponse { tx_hex })
+            // todo update
+            // let tx_hex = match tx_name_op.unwrap() {
+            //     IpfsTxName::AssertCommit0 => {
+            //         serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx())
+            //     }
+            //     IpfsTxName::AssertCommit1 => {
+            //         serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx())
+            //     }
+            //     IpfsTxName::AssertCommit2 => {
+            //         serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx())
+            //     }
+            //     IpfsTxName::AssertCommit3 => {
+            //         serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx())
+            //     }
+            //     IpfsTxName::AssertInit => serialize_hex(bitvm2_graph.assert_init.tx()),
+            //     IpfsTxName::AssertFinal => serialize_hex(bitvm2_graph.assert_final.tx()),
+            //     IpfsTxName::Challenge => {
+            //         let mut ori_tx_hex = serialize_hex(bitvm2_graph.challenge.tx());
+            //         if let Some(challenge_txid) = graph.challenge_txid
+            //             && let Ok(tx_hex) =
+            //                 app_state.btc_client.get_tx_hex_by_tx_id(&challenge_txid.0).await
+            //         {
+            //             ori_tx_hex = tx_hex
+            //         }
+            //         ori_tx_hex
+            //     }
+            //     IpfsTxName::Disprove => serialize_hex(bitvm2_graph.disprove.tx()),
+            //     IpfsTxName::Kickoff => serialize_hex(bitvm2_graph.kickoff.tx()),
+            //     IpfsTxName::Pegin => serialize_hex(bitvm2_graph.pegin.tx()),
+            //     IpfsTxName::Take1 => serialize_hex(bitvm2_graph.take1.tx()),
+            //     IpfsTxName::Take2 => serialize_hex(bitvm2_graph.take2.tx()),
+            // };
+            
+            Ok::<GraphTxGetResponse, Box<dyn std::error::Error>>(GraphTxGetResponse { tx_hex: "".to_string() })
         } else {
             tracing::warn!("graph:{} is not record in db", graph_id);
             Err(format!("graph:{graph_id} is not record in db").into())
@@ -303,29 +303,31 @@ pub async fn get_graph_txn(
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(graph_raw_data) =
             storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
-            && let Some(graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
+            && let Some(_graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
         {
-            let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
-            let mut resp = GraphTxnGetResponse {
-                assert_commit0: serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
-                assert_commit1: serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
-                assert_commit2: serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx()),
-                assert_commit3: serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx()),
-                assert_init: serialize_hex(bitvm2_graph.assert_init.tx()),
-                assert_final: serialize_hex(bitvm2_graph.assert_final.tx()),
-                challenge: serialize_hex(bitvm2_graph.challenge.tx()),
-                disprove: serialize_hex(bitvm2_graph.disprove.tx()),
-                kickoff: serialize_hex(bitvm2_graph.kickoff.tx()),
-                pegin: serialize_hex(bitvm2_graph.pegin.tx()),
-                take1: serialize_hex(bitvm2_graph.take1.tx()),
-                take2: serialize_hex(bitvm2_graph.take2.tx()),
-            };
-            if let Some(challenge_txid) = graph.challenge_txid
-                && let Ok(tx_hex) =
-                    app_state.btc_client.get_tx_hex_by_tx_id(&challenge_txid.0).await
-            {
-                resp.challenge = tx_hex;
-            }
+            let _bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
+            let resp = GraphTxnGetResponse::default();
+            // TODO update
+            // let mut resp = GraphTxnGetResponse {
+            //     assert_commit0: serialize_hex(bitvm2_graph.assert_commit.commit_txns[0].tx()),
+            //     assert_commit1: serialize_hex(bitvm2_graph.assert_commit.commit_txns[1].tx()),
+            //     assert_commit2: serialize_hex(bitvm2_graph.assert_commit.commit_txns[2].tx()),
+            //     assert_commit3: serialize_hex(bitvm2_graph.assert_commit.commit_txns[3].tx()),
+            //     assert_init: serialize_hex(bitvm2_graph.assert_init.tx()),
+            //     assert_final: serialize_hex(bitvm2_graph.assert_final.tx()),
+            //     challenge: serialize_hex(bitvm2_graph.challenge.tx()),
+            //     disprove: serialize_hex(bitvm2_graph.disprove.tx()),
+            //     kickoff: serialize_hex(bitvm2_graph.kickoff.tx()),
+            //     pegin: serialize_hex(bitvm2_graph.pegin.tx()),
+            //     take1: serialize_hex(bitvm2_graph.take1.tx()),
+            //     take2: serialize_hex(bitvm2_graph.take2.tx()),
+            // };
+            // if let Some(challenge_txid) = graph.challenge_txid
+            //     && let Ok(tx_hex) =
+            //         app_state.btc_client.get_tx_hex_by_tx_id(&challenge_txid.0).await
+            // {
+            //     resp.challenge = tx_hex;
+            // }
             Ok::<GraphTxnGetResponse, Box<dyn std::error::Error>>(resp)
         } else {
             tracing::warn!("graph:{} is not record in db", graph_id);

@@ -194,7 +194,7 @@ impl ChainAdaptor for MockAdaptor {
     async fn gateway_answer_pegin_request(
         &self,
         _instance_id: &[u8; 16],
-        _committee_xonly_pubkey: &[u8; 32],
+        _committee_xonly_pubkey: &[u8; 33],
     ) -> anyhow::Result<String> {
         Ok(TxHash::default().to_string())
     }
@@ -228,7 +228,7 @@ impl ChainAdaptor for MockAdaptor {
                 pegin_txid: tx.compute_txid().to_byte_array(),
                 created_at: 0,
                 committee_addresses: vec![],
-                committee_xonly_pubkeys: vec![],
+                committee_pubkeys: vec![],
                 txn_fees: [0_u64; 3],
             },
         );

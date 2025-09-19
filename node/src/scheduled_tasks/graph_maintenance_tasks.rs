@@ -10,8 +10,6 @@ use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::{DisproveTxType, GOATClient, WithdrawStatus};
-use goat::constants::CONNECTOR_3_TIMELOCK;
-use goat::utils::num_blocks_per_network;
 use indexmap::IndexMap;
 use libp2p::Swarm;
 use serde::{Deserialize, Serialize};
@@ -560,7 +558,7 @@ pub async fn detect_take1_or_challenge(
         graphs.len()
     );
     // todo Update lock_blocks
-    let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
+    let lock_blocks =  0;
     for graph in graphs {
         let take1_ready_record = broadcast_record_map
             .get(&gen_broadcast_record_map_key(
@@ -1458,9 +1456,9 @@ async fn process_assert_commit_monitoring(
 
 /// Get timelock configurations
 fn get_timelock_configs() -> (i64, i64, i64, i64) {
-    let network = get_network();
+    let _network = get_network();
     // TODO: Update lock_blocks - these may need different values based on protocol requirements
-    let base_timelock = num_blocks_per_network(network, CONNECTOR_3_TIMELOCK) as i64;
+    let base_timelock = 0;
     let watchtower_challenge_timelock = base_timelock;
     let ack_timelock = base_timelock;
     let assert_commit_timeout_lock = base_timelock;
@@ -1720,8 +1718,8 @@ async fn detect_take2(
     current_height: i64,
 ) -> anyhow::Result<Option<(Actor, GOATMessageContent)>> {
     trace!("detecting detect_take2 graph_id {}", graph.graph_id);
-    let watchtower_lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
-    let assert_lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
+    let watchtower_lock_blocks = 0;
+    let assert_lock_blocks = 0;
     let (kickoff_txid, watchtower_challenge_init_txid, assert_init_txid, take2_txid): (
         Txid,
         Txid,

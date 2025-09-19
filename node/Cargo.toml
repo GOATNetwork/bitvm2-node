@@ -47,6 +47,7 @@ libp2p-metrics = { workspace = true }
 futures = { workspace = true }
 
 bitvm2-lib = { workspace = true }
+bitvm2-lib-ga = { workspace = true }
 store = { workspace = true }
 client = { workspace = true }
 bitcoin-light-client = { workspace = true }

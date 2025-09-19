@@ -158,7 +158,7 @@ impl GOATClient {
     pub async fn gateway_answer_pegin_request(
         &self,
         instance_id: &Uuid,
-        committee_xonly_pubkey: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 33],
     ) -> anyhow::Result<String> {
         if !self.is_committee_member().await? {
             bail!("only committee member can call");

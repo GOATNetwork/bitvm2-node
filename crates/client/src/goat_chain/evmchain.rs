@@ -122,7 +122,7 @@ impl EvmChain {
     pub async fn gateway_answer_pegin_request(
         &self,
         instance_id: &Uuid,
-        committee_xonly_pubkey: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 33],
     ) -> anyhow::Result<String> {
         self.adaptor
             .gateway_answer_pegin_request(instance_id.as_bytes(), committee_xonly_pubkey)

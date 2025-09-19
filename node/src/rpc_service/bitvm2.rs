@@ -91,7 +91,7 @@ pub struct InstanceOverview {
 pub struct GraphGetResponse {
     pub graph: Option<GraphExtended>,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Default)]
 pub struct GraphTxnGetResponse {
     #[serde(rename = "assert-commit0")]
     pub assert_commit0: String,

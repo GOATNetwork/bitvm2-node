@@ -47,7 +47,7 @@ pub trait ChainAdaptor: Send + Sync {
     async fn gateway_answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
-        committee_xonly_pubkey: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 33],
     ) -> anyhow::Result<String>;
     async fn gateway_post_pegin_data(
         &self,
@@ -241,7 +241,7 @@ pub struct PeginData {
     pub pegin_txid: [u8; 32],
     pub created_at: u64,
     pub committee_addresses: Vec<Address>,
-    pub committee_xonly_pubkeys: Vec<[u8; 32]>,
+    pub committee_pubkeys: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

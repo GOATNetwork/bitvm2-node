@@ -77,7 +77,7 @@ sol!(
              bytes32 peginTxid;
              uint256 createdAt;
              address[] committeeAddresses;
-             bytes32[] committeeXonlyPubkeys;
+             bytes[] committeePubkeys;
         }
         struct WithdrawData {
             WithdrawStatus status;
@@ -139,7 +139,7 @@ sol!(
         public instanceIdToGraphIds;
 
         function postPeginRequest(bytes16 instanceId, uint64 peginAmountSats, uint64[3] calldata txnFees, address receiverAddress, Utxo[] calldata userInputs, bytes32 userXonlyPubkey, string calldata userChangeAddress, string calldata userRefundAddress) external payable;
-        function answerPeginRequest(bytes16 instanceId, bytes32 committeeXonlyPubkey) onlyCommittee() external;
+        function answerPeginRequest(bytes16 instanceId, bytes committeeXonlyPubkey) onlyCommittee() external;
         function postPeginData(bytes16 instanceId, BitcoinTx calldata rawPeginTx, BitcoinTxProof calldata peginProof, bytes[] calldata committeeSigs) external;
         function getPeginData(bytes16 instanceId) external view returns (PeginData memory);
         function postGraphData(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData, bytes[] calldata committeeSigs) public;
@@ -578,10 +578,10 @@ impl From<IGateway::PeginData> for PeginData {
             pegin_txid: value.peginTxid.0,
             created_at: value.createdAt.try_into().expect("failed to convert created"),
             committee_addresses: value.committeeAddresses.to_vec(),
-            committee_xonly_pubkeys: value
-                .committeeXonlyPubkeys
+            committee_pubkeys: value
+                .committeePubkeys
                 .into_iter()
-                .map(|pubkey| pubkey.0)
+                .map(|pubkey| pubkey.to_vec())
                 .collect(),
         }
     }
@@ -798,13 +798,13 @@ impl ChainAdaptor for GoatAdaptor {
     async fn gateway_answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
-        committee_xonly_pubkey: &[u8; 32],
+        committee_xonly_pubkey: &[u8; 33],
     ) -> anyhow::Result<String> {
         let gateway = self.get_gateway()?;
         let tx_request = gateway
             .answerPeginRequest(
                 FixedBytes::from_slice(instance_id),
-                FixedBytes::from_slice(committee_xonly_pubkey),
+                Bytes::copy_from_slice(committee_xonly_pubkey),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
