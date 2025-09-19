@@ -1,7 +1,7 @@
 // Gateway rate multiplier constant
 const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 use alloy::consensus::crypto::secp256k1::recover_signer;
-use alloy::primitives::{Address, B256, Bytes, Signature};
+use alloy::primitives::{Address, Bytes, FixedBytes, Signature, B256, U256};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::hashes::Hash;
@@ -612,6 +612,18 @@ impl GOATClient {
         self.chain_service.seq_set_pub_get_last_block_height().await
     }
 
+    pub async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>> {
+        self.chain_service.seq_set_pub_calc_commitment(height).await
+    }
+
+    pub async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
+        self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await
+    }
+
+    pub async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
+        self.chain_service.seq_set_pub_multi_sig_verifier_get_nonce().await
+    }
+
     pub async fn seq_set_pub_get_publisher_public_keys(
         &self,
         publisher: Address,
@@ -622,7 +634,7 @@ impl GOATClient {
     pub async fn seq_set_pub_update_sequencer_set(
         &self,
         sequencer_set: &SequencerSet,
-        sign: &[u8],
+        sign: &Signature,
     ) -> anyhow::Result<String> {
         let latest_height = self.chain_service.seq_set_pub_get_last_block_height().await?;
         if latest_height > sequencer_set.goat_block_number {
@@ -632,24 +644,36 @@ impl GOATClient {
             );
         }
         let addr = recover_signer(
-            &Signature::from_raw(sign)?,
-            B256::from_slice(&sequencer_set.sequencer_set_hash),
+            sign,
+            B256::from_slice(&sequencer_set.p2wsh_sig_hash),
         )?;
         let addr_exp = self.chain_service.get_default_signer_address();
         if addr != addr_exp {
             bail!("P2WSHSignatureMismatch, exp:{addr_exp}, act:{addr}");
         }
+
+        let owners = self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await?;
+        if !owners.contains(&addr) {
+            bail!("Publisher {addr} is not a multi-sig-verifier owner");
+        }
+
+        // TODO: add more pre-checks
         self.chain_service.seq_set_pub_update_sequencer_set(sequencer_set, sign).await
     }
     pub async fn seq_set_pub_update_publisher_set(
         &self,
-        new_publishers: &[[u8; 20]],
-        new_publisher_pubkeys: &[Vec<u8>],
+        new_publishers: Vec<Address>,
+        new_publisher_btc_pubkeys: &[Vec<u8>],
         signatures: &[Vec<u8>],
-        p2wsh_sig_hash: &[u8; 32],
+        height: U256,
     ) -> anyhow::Result<String> {
         self.chain_service
-            .seq_set_pub_update_publisher_set(new_publishers, new_publisher_pubkeys, signatures, p2wsh_sig_hash)
+            .seq_set_pub_update_publisher_set(
+                new_publishers,
+                new_publisher_btc_pubkeys,
+                signatures,
+                height,
+            )
             .await
     }
 

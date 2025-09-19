@@ -128,8 +128,10 @@ impl CommitChainState {
                 assert_eq!(update_connector.previous_output.vout, 0);
                 // check the latest publishing txn's signature is signed by prev publishers
                 let prevout = &prev_commit_txn.output[0];
-                let redeem_script =
-                    crate::create_sequencer_update_script(&publisher_public_keys[..], threshold);
+                let redeem_script = crate::create_sequencer_update_script(
+                    &publisher_public_keys[..],
+                    threshold as usize,
+                );
                 crate::publisher::verify_p2wsh_multisig_witness(
                     &latest_commit_txn_with_wtns,
                     0,

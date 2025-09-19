@@ -23,18 +23,6 @@ pub fn decode_eth_address(addr: &str) -> Result<[u8; 20], hex::FromHexError> {
     Ok(arr)
 }
 
-// return [0u8; 32] from hex string if s is empty
-pub fn parse_commitment(s: &str) -> Result<[u8; 32], String> {
-    if s.is_empty() {
-        return Ok([0u8; 32]);
-    }
-    let bytes = hex::decode(s).map_err(|e| format!("Invalid hex: {}", e))?;
-    if bytes.len() != 32 {
-        return Err(format!("Commitment must be 32 bytes, got {}", bytes.len()));
-    }
-    Ok(bytes.try_into().unwrap()) // safe because we checked length
-}
-
 /// Return script length L for a standard m-of-n multisig script with compressed pubkeys.
 pub fn multisig_script_len(n: u32) -> u32 {
     // <m>(1) + n * (push(33)=1 + 33) + <n>(1) + OP_CHECKMULTISIG(1)
@@ -83,6 +71,15 @@ pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> 
         let pk = PublicKey::from_secret_key(&secp, &sk);
         keys.push((sk, pk));
     }
+    println!("Publisher private key:");
+    keys.iter().for_each(|(sk, _)| {
+        let k = bitcoin::PrivateKey {
+            compressed: true,
+            network: bitcoin::Network::Regtest.into(),
+            inner: *sk,
+        };
+        println!("{:?}\n", k.to_wif())
+    }); 
     println!("Publisher public key:");
     keys.iter().for_each(|(_, pk)| println!("{}\n", pk.to_string()));
     keys
@@ -125,10 +122,11 @@ pub fn create_fee_tx(
     })
 }
 
-pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: u16) -> ScriptBuf {
+pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
     let total = public_keys.len();
+    println!("Multi sig: {} of {}", threshold, total);
     assert!(
-        threshold as usize <= total,
+        threshold <= total,
         "Threshold must be less than or equal to total number of public keys"
     );
     let mut redeem_script = Builder::new().push_int(threshold as i64);
@@ -192,6 +190,7 @@ pub fn sign_partial(
     let secp = Secp256k1::new();
     let mut cache = SighashCache::new(tx);
     let sighash = cache.p2wsh_signature_hash(0, &redeem_script, amount, sig_hash_type)?;
+    println!("sig hash: {}", hex::encode(&sighash));
     let msg = Message::from_digest_slice(&sighash[..])?;
     let mut sig = secp.sign_ecdsa(&msg, seckey).serialize_der().to_vec();
     sig.push(sig_hash_type as u8);

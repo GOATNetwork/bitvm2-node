@@ -24,6 +24,8 @@ pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
 pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
     "GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS";
+pub const ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS: &str =
+    "ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS";
 /// Relayer
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
@@ -297,8 +299,8 @@ pub fn get_goat_url_from_env() -> Url {
 }
 
 pub fn get_goat_address_from_env(var_name: &str) -> Option<EvmAddress> {
-    let gateway_address_str = std::env::var(var_name).ok()?;
-    gateway_address_str.parse::<EvmAddress>().ok()
+    let address_str = std::env::var(var_name).ok()?;
+    address_str.parse::<EvmAddress>().ok()
 }
 
 pub fn get_goat_gateway_contract_from_env() -> EvmAddress {
@@ -366,6 +368,9 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         ),
         committee_management_address,
         stake_management_address,
+        multi_sig_verifier_address: get_goat_address_from_env(
+            ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS
+        ),
     }
 }
 

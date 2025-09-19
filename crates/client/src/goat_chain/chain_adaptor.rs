@@ -1,11 +1,12 @@
 use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
-use alloy::primitives::{Address, Bytes, U256};
+use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use alloy::rpc::types::TransactionReceipt;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use uuid::Uuid;
+use alloy::signers::Signature;
 
 #[async_trait]
 pub trait ChainAdaptor: Send + Sync {
@@ -118,6 +119,9 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<bool>;
 
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
+    async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>>;
+    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>>;
+    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256>;
     async fn seq_set_pub_get_publisher_public_keys(
         &self,
         publisher: Address,
@@ -125,14 +129,14 @@ pub trait ChainAdaptor: Send + Sync {
     async fn seq_set_pub_update_sequencer_set(
         &self,
         sequencer_set: &SequencerSet,
-        signature: &[u8],
+        signature: &Signature,
     ) -> anyhow::Result<String>;
     async fn seq_set_pub_update_publisher_set(
         &self,
-        new_publishers: &[[u8; 20]],
-        new_publisher_pubkeys: &[Vec<u8>],
+        new_publishers: Vec<Address>,
+        new_publisher_btc_pubkeys: &[Vec<u8>],
         signatures: &[Vec<u8>],
-        p2wsh_sig_hash: &[u8; 32],
+        height: U256,
     ) -> anyhow::Result<String>;
     async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]>;
     async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]>;
@@ -284,9 +288,10 @@ pub struct BitcoinTxProof {
 #[derive(Clone, Debug)]
 pub struct SequencerSet {
     pub sequencer_set_hash: [u8; 32],
-    pub publishers_hash: [u8; 32],
-    pub p2wsh_sig_hash: [u8; 32],
     pub next_sequencer_set_hash: [u8; 32],
+    pub publishers_hash: [u8; 32],
+    pub next_publishers_hash: [u8; 32],
+    pub p2wsh_sig_hash: [u8; 32],
     pub goat_block_number: u64,
 }
 
