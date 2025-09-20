@@ -4,7 +4,7 @@ use bitcoin::absolute::LockTime;
 use bitcoin::blockdata::opcodes::all::*;
 use bitcoin::blockdata::script::Builder;
 use bitcoin::transaction::Version;
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+use bitcoin::{Address, Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
 use hex::FromHex;
 
 use bitcoin::secp256k1::{
@@ -81,7 +81,7 @@ pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> 
         println!("{:?}\n", k.to_wif())
     }); 
     println!("Publisher public key:");
-    keys.iter().for_each(|(_, pk)| println!("{}\n", pk.to_string()));
+    keys.iter().for_each(|(_, pk)| println!("{}\n", CompressedPublicKey(pk.clone())));
     keys
 }
 
@@ -186,15 +186,14 @@ pub fn sign_partial(
     redeem_script: &ScriptBuf,
     amount: Amount,
     sig_hash_type: EcdsaSighashType,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>> {
     let secp = Secp256k1::new();
     let mut cache = SighashCache::new(tx);
     let sighash = cache.p2wsh_signature_hash(0, &redeem_script, amount, sig_hash_type)?;
-    println!("sig hash: {}", hex::encode(&sighash));
     let msg = Message::from_digest_slice(&sighash[..])?;
     let mut sig = secp.sign_ecdsa(&msg, seckey).serialize_der().to_vec();
     sig.push(sig_hash_type as u8);
-    Ok(sig)
+    Ok((sig, hex::encode(&sighash)))
 }
 
 pub fn finalize(
@@ -359,11 +358,11 @@ mod tests {
         };
 
         // === Step 5: sign by 2 private keys ===
-        let sig1 =
+        let (sig1, _) =
             sign_partial(&mut tx, &keys[0].0, &redeem_script, prev_value, EcdsaSighashType::All)
                 .unwrap();
 
-        let sig2 =
+        let (sig2,_) =
             sign_partial(&mut tx, &keys[1].0, &redeem_script, prev_value, EcdsaSighashType::All)
                 .unwrap();
 

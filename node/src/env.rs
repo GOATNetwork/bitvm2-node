@@ -369,7 +369,7 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
         committee_management_address,
         stake_management_address,
         multi_sig_verifier_address: get_goat_address_from_env(
-            ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS
+            ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS,
         ),
     }
 }
