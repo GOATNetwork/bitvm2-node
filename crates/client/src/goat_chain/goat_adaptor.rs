@@ -246,14 +246,14 @@ impl GoatInitConfig {
                     .expect("parse contract address"),
             ),
             sequencer_set_publisher_address: Some(
-                "0xEE0fCB8E5cCAD0b4197BAabd633333886f5C364d"
+                "0xE19dddcaF5dCb2Ec0Fe52229e3133B99396f22e2"
                     .parse()
                     .expect("parse contract address"),
             ),
             committee_management_address: None,
             stake_management_address: None,
             multi_sig_verifier_address: Some(
-                "0x60Ea774468B9397cCc04a88d8cc72e5dd2Cab7f7"
+                "0x8b6A81Eb7e63226E256a3Dc50bbE44e03ca017b1"
                     .parse()
                     .expect("parse contract address"),
             ),
@@ -1046,6 +1046,7 @@ impl ChainAdaptor for GoatAdaptor {
         let new_publisher_btc_pubkeys: Vec<Bytes> =
             new_publisher_btc_pubkeys.iter().map(|v| Bytes::copy_from_slice(v)).collect();
         let signatures: Vec<Bytes> = signatures.iter().map(|v| Bytes::copy_from_slice(v)).collect();
+        println!("signatures: {}", hex::encode(&signatures[0]));
 
         let tx_request = sequencer_set_publisher
             .updatePublisherSet(

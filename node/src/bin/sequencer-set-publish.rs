@@ -18,6 +18,7 @@ use alloy::signers::Signer;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol_types::SolValue;
 use bitcoin::CompressedPublicKey;
+use tracing_subscriber::EnvFilter;
 use bitcoin::{
     Address, Amount, Network, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction,
     TxIn, TxOut, Txid, Witness, absolute::LockTime, hashes::Hash, key::Keypair,
@@ -201,6 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let dummy_publisher_keys: Vec<_> = create_dummy_publisher_keys(5);
     // println!("dummy keys: {:?}", dummy_publisher_keys);
     dotenv().ok();
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let args = Args::parse();
     let (btc_client, goat_client) = init_clients(&args)?;
 
@@ -458,14 +460,14 @@ async fn action_update_sequencer_set_on_goat(
     // TODO: Fetch validator_hash and next_validator_hash from cosmos
     let packed = publishers
         .iter()
-        .map(|publisher| EvmAddress::abi_encode(publisher))
+        .map(|publisher| EvmAddress::abi_encode_packed(publisher))
         .collect::<Vec<Vec<u8>>>()
         .concat();
     let publishers_hash = keccak256(&packed);
 
     let packed = next_publishers
         .iter()
-        .map(|publisher| EvmAddress::abi_encode(publisher))
+        .map(|publisher| EvmAddress::abi_encode_packed(publisher))
         .collect::<Vec<Vec<u8>>>()
         .concat();
     let next_publishers_hash = keccak256(&packed);
@@ -498,34 +500,40 @@ async fn action_sign_publisher_update_on_goat(
     goat_evm_prvkey: Option<String>,
     next_publishers: Vec<EvmAddress>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+
+    use alloy::sol;
+    sol! {
+        struct OwnersUpdate {
+            uint256 nonce;
+            address[] newOwners;
+            uint256 newRequired;
+        }
+    }
+
     let signer = PrivateKeySigner::from_str(goat_evm_prvkey.as_ref().unwrap())?;
     //    bytes32 digest = keccak256(
-    //        abi.encode(nonce, newOwners, newRequired, prevCmt, p2wshSigHash)
+    //        abi.encode(nonce, newOwners, newRequired)
     //    );
     let nonce = goat_client.seq_set_pub_multi_sig_verifier_get_nonce().await?;
-
-    let new_publishers = &next_publishers;
-
-    let new_publishers_packed = {
-        let items: Vec<Vec<u8>> =
-            new_publishers.iter().map(|publisher| EvmAddress::abi_encode(publisher)).collect();
-        items.concat()
-    };
-    let new_required: U256 = U256::from((2 + new_publishers.len() * 2) / 3);
-
-    let packed =
-        vec![U256::abi_encode(&nonce), new_publishers_packed, U256::abi_encode(&new_required)]
-            .concat();
+    let new_required: U256 = U256::from((2 + next_publishers.len() * 2) / 3);
+    println!("new required: {}, nonce: {nonce}", new_required);
+    let packed = {
+        let update = OwnersUpdate {
+            nonce,
+            newOwners: next_publishers,
+            newRequired: new_required,
+        };
+        update.abi_encode_packed()
+    }; 
+    println!("hash {:?}", hex::encode(&packed));
     let sig_hash = keccak256(packed);
-
-    // sign p2wsh_sig_hash
-    let sign = signer.sign_hash(&B256::from_slice(&sig_hash.as_ref())).await?;
+    println!("sig_hash {:?}", sig_hash);
+    let sign = signer.sign_hash(&sig_hash).await?;
     println!("Signature: {sign}");
 
     let mut output = OutputData::default();
     output.publisher_sigs.push(hex::encode(&sign.as_bytes()));
     save_output(output);
-
     Ok(())
 }
 
@@ -538,7 +546,9 @@ async fn action_push_publisher_update_on_goat(
     sigs: Vec<String>,
     goat_block_number: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    println!("sigs: {:?}", sigs);
     let signatures: Vec<Vec<u8>> = sigs.iter().map(|sig| hex::decode(sig).unwrap()).collect();
+    println!("new: {}, {}", new_publishers.len(), new_publisher_btc_pubkeys.len());
     let txid = goat_client
         .seq_set_pub_update_publisher_set(
             new_publishers,
