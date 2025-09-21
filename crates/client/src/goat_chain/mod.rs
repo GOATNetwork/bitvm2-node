@@ -652,6 +652,7 @@ impl GOATClient {
             B256::from_slice(&sequencer_set.p2wsh_sig_hash),
         )?;
         let addr_exp = self.chain_service.get_default_signer_address();
+        println!("addr_exp: {}, act: {}", addr_exp, addr);
         if addr != addr_exp {
             bail!("P2WSHSignatureMismatch, exp:{addr_exp}, act:{addr}");
         }

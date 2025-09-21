@@ -1,7 +1,7 @@
 set -e
 source .env
 
-HEIGHT=100060
+HEIGHT=100063
 
 rm -rf /tmp/output.data
 #CMD="cargo run -r --bin sequencer-set-publish --"

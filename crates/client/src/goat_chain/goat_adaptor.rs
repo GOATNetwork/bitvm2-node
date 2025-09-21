@@ -246,14 +246,14 @@ impl GoatInitConfig {
                     .expect("parse contract address"),
             ),
             sequencer_set_publisher_address: Some(
-                "0xE19dddcaF5dCb2Ec0Fe52229e3133B99396f22e2"
+                "0x9ECB6f04D47FA2599449AaA523bF84476f7aD80f"
                     .parse()
                     .expect("parse contract address"),
             ),
             committee_management_address: None,
             stake_management_address: None,
             multi_sig_verifier_address: Some(
-                "0x8b6A81Eb7e63226E256a3Dc50bbE44e03ca017b1"
+                "0xE9a5d8F25F31aF8F5611FAD1b1437ac13894C5d6"
                     .parse()
                     .expect("parse contract address"),
             ),

@@ -186,14 +186,14 @@ pub fn sign_partial(
     redeem_script: &ScriptBuf,
     amount: Amount,
     sig_hash_type: EcdsaSighashType,
-) -> Result<(Vec<u8>, String), Box<dyn std::error::Error>> {
+) -> Result<(Vec<u8>, bitcoin::secp256k1::Message), Box<dyn std::error::Error>> {
     let secp = Secp256k1::new();
     let mut cache = SighashCache::new(tx);
     let sighash = cache.p2wsh_signature_hash(0, &redeem_script, amount, sig_hash_type)?;
     let msg = Message::from_digest_slice(&sighash[..])?;
     let mut sig = secp.sign_ecdsa(&msg, seckey).serialize_der().to_vec();
     sig.push(sig_hash_type as u8);
-    Ok((sig, hex::encode(&sighash)))
+    Ok((sig, msg))
 }
 
 pub fn finalize(

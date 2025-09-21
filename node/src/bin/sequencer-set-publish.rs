@@ -288,10 +288,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             next_sequencer_set_hash,
             goat_block_number,
         } => {
+            // TODO: Fetch validator_hash and next_validator_hash from cosmos
             action_update_sequencer_set_on_goat(
                 &btc_client,
                 &goat_client,
-                args.goat_evm_prvkey.clone(),
+                args.goat_evm_prvkey,
                 args.publishers,
                 next_publishers,
                 sequencer_set_hash,
@@ -457,17 +458,17 @@ async fn action_update_sequencer_set_on_goat(
     p2wsh_sig_hash: Option<[u8; 32]>,
     goat_block_number: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Fetch validator_hash and next_validator_hash from cosmos
+    // FIXME: we must use abi_encode instead of abi_encode_packed here.
     let packed = publishers
         .iter()
-        .map(|publisher| EvmAddress::abi_encode_packed(publisher))
+        .map(|publisher| EvmAddress::abi_encode(publisher))
         .collect::<Vec<Vec<u8>>>()
         .concat();
     let publishers_hash = keccak256(&packed);
 
     let packed = next_publishers
         .iter()
-        .map(|publisher| EvmAddress::abi_encode_packed(publisher))
+        .map(|publisher| EvmAddress::abi_encode(publisher))
         .collect::<Vec<Vec<u8>>>()
         .concat();
     let next_publishers_hash = keccak256(&packed);
@@ -524,7 +525,8 @@ async fn action_sign_publisher_update_on_goat(
             newRequired: new_required,
         };
         update.abi_encode_packed()
-    }; 
+    };  
+
     println!("hash {:?}", hex::encode(&packed));
     let sig_hash = keccak256(packed);
     println!("sig_hash {:?}", sig_hash);
@@ -741,7 +743,7 @@ async fn action_sign_sequencer_set_update(
     // if this is not the genesis commit tx
     if update_connector_value.is_some() {
         println!("Standard spending flow for sequencer set publish tx");
-        let (sig, hash) = sign_partial(
+        let (sig, msg) = sign_partial(
             &mut sequencer_set_publish_tx,
             &owner_private_key.inner,
             &redeem_script,
@@ -757,7 +759,7 @@ async fn action_sign_sequencer_set_update(
 
         let mut output = OutputData::default();
         output.sigs.push(hex::encode(&sig));
-        output.p2wsh_sig_hash = Some(hash);
+        output.p2wsh_sig_hash = Some(hex::encode(&msg[..]));
         save_output(output);
     }
     Ok(())
