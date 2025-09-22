@@ -11,3 +11,5 @@ pub mod types;
 pub use goat::*;
 
 mod tests;
+
+pub use goat::*;

@@ -2,12 +2,16 @@ use crate::action::{
     ChallengeSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
     Take2Ready, send_to_peer,
 };
-use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_RESEND_INTERVAL_SECOND, get_network};
+use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_RESEND_INTERVAL_SECOND};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::{get_graph, outpoint_spent_txid};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
+use bitvm2_lib_ga::constants::{
+    ACK_TIMELOCK, ASSERT_COMMIT_TIMELOCK, CONNECTOR_A_TIMELOCK, CONNECTOR_D_TIMELOCK,
+    CONNECTOR_F_TIMELOCK, CONNECTOR_G_TIMELOCK, WATCHTOWER_CHALLENGE_TIMELOCK,
+};
 use client::btc_chain::BTCClient;
 use client::goat_chain::{DisproveTxType, GOATClient, WithdrawStatus};
 use indexmap::IndexMap;
@@ -27,6 +31,36 @@ use uuid::Uuid;
 const BLOCKHASH_COMMIT_VIN_MARGIN: i64 = 3;
 const _ASSERT_COMMIT_VIN_MARGIN: i64 = 2;
 
+pub struct ChallengeTimeLockConfig {
+    pub watchtower_challenge_timelock: i64,
+    pub watchtower_ack_timelock: i64,
+    pub watchtower_blockhash_commit_timelock: i64,
+    pub assert_commit_timelock: i64,
+}
+
+fn get_challenge_timelock_config() -> ChallengeTimeLockConfig {
+    ChallengeTimeLockConfig {
+        watchtower_challenge_timelock: WATCHTOWER_CHALLENGE_TIMELOCK as i64,
+        watchtower_ack_timelock: ACK_TIMELOCK as i64,
+        watchtower_blockhash_commit_timelock: CONNECTOR_G_TIMELOCK as i64,
+        assert_commit_timelock: ASSERT_COMMIT_TIMELOCK as i64,
+    }
+}
+
+fn get_take1_timelock_config() -> i64 {
+    CONNECTOR_A_TIMELOCK as i64
+}
+
+pub struct Take2TimeLockConfig {
+    pub assert_init_out_timelock: i64,
+    pub watchtower_challenge_init_out_timelock: i64,
+}
+fn get_take2_timelock_config() -> Take2TimeLockConfig {
+    Take2TimeLockConfig {
+        assert_init_out_timelock: CONNECTOR_D_TIMELOCK as i64,
+        watchtower_challenge_init_out_timelock: CONNECTOR_F_TIMELOCK as i64,
+    }
+}
 #[derive(Clone, Debug, Eq, PartialEq, Display, EnumString)]
 enum OperatorWithdrawType {
     Take1,
@@ -552,13 +586,12 @@ pub async fn detect_take1_or_challenge(
         &GraphStatus::OperatorKickOff.to_string(),
     )
     .await?;
-    let current_height = btc_client.get_height().await?;
+    let current_height = btc_client.get_height().await? as i64;
     info!(
         "start tick action: detect_take1_or_challenge, graphs: {current_height}, current_height: {}",
         graphs.len()
     );
-    // todo Update lock_blocks
-    let lock_blocks = 0;
+    let lock_blocks = get_take1_timelock_config();
     for graph in graphs {
         let take1_ready_record = broadcast_record_map
             .get(&gen_broadcast_record_map_key(
@@ -734,19 +767,25 @@ pub async fn process_graph_challenge(
                     "process_graph_challenge graph:{} is not watchtower challenge and assert commit is finished",
                     graph.graph_id
                 );
-                detect_take2(btc_client, goat_client, local_db, &graph, current_height).await?;
+                if let Some((_actor, _content)) =
+                    detect_take2(btc_client, goat_client, local_db, &graph, current_height).await?
+                {
+                    //todo send take2 ready
+                }
             }
-        } else {
-            trace!("process_graph_challenge graph:{} is not disproved", graph.graph_id);
-            process_graph_watchtower_assert_disproved(
-                btc_client,
-                goat_client,
-                local_db,
-                &graph,
-                &mut sub_status,
-            )
-            .await?;
         }
+        trace!(
+            "process_graph_challenge graph:{} do checking disprove action until status change to disprove or take2",
+            graph.graph_id
+        );
+        process_graph_watchtower_assert_disproved(
+            btc_client,
+            goat_client,
+            local_db,
+            &graph,
+            &mut sub_status,
+        )
+        .await?;
     }
 
     Ok(())
@@ -917,8 +956,8 @@ async fn process_kickoff_graph(
     goat_client: &GOATClient,
     local_db: &LocalDB,
     graph: &Graph,
-    lock_blocks: u32,
-    current_height: u32,
+    lock_blocks: i64,
+    current_height: i64,
 ) -> anyhow::Result<Option<(Actor, GOATMessageContent)>> {
     trace!("process_kickoff_graph: {}", graph.graph_id);
     let (kickoff_txid, take1_txid) = match (graph.kickoff_txid.clone(), graph.take1_txid.clone()) {
@@ -943,8 +982,8 @@ async fn process_kickoff_graph(
                 btc_client,
                 &mut tx,
                 graph.graph_id,
-                vec![(kickoff_txid, OperatorWithdrawType::Take1, height, lock_blocks as i64)],
-                current_height as i64,
+                vec![(kickoff_txid, OperatorWithdrawType::Take1, height, lock_blocks)],
+                current_height,
             )
             .await?;
             if data_change {
@@ -1051,12 +1090,7 @@ async fn process_watchtower_challenge_monitoring(
     current_height: i64,
 ) -> anyhow::Result<()> {
     trace!("process_watchtower_challenge_monitoring start");
-    let (
-        watchtower_challenge_timelock,
-        ack_timelock,
-        blockhash_commit_timeout_lock,
-        _assert_commit_timeout_lock,
-    ) = get_timelock_configs();
+    let timelock_config = get_challenge_timelock_config();
     let (kickoff_txid, watchtower_challenge_init_txid, blockhash_commit_timeout_txid): (
         Txid,
         Txid,
@@ -1109,10 +1143,12 @@ async fn process_watchtower_challenge_monitoring(
             return Ok(());
         }
         let is_challenge_timeout =
-            out_monitor.height + watchtower_challenge_timelock > current_height;
-        let is_ack_timeout = out_monitor.height + ack_timelock > current_height;
-        let is_blockhash_commit_timeout =
-            out_monitor.height + blockhash_commit_timeout_lock > current_height;
+            out_monitor.height + timelock_config.watchtower_challenge_timelock > current_height;
+        let is_ack_timeout =
+            out_monitor.height + timelock_config.watchtower_ack_timelock > current_height;
+        let is_blockhash_commit_timeout = out_monitor.height
+            + timelock_config.watchtower_blockhash_commit_timelock
+            > current_height;
         let mut data_change = false;
         if !is_ack_timeout {
             if is_challenge_timeout {
@@ -1311,12 +1347,7 @@ async fn process_assert_commit_monitoring(
     current_height: i64,
 ) -> anyhow::Result<()> {
     trace!("process_assert_commit_monitoring start");
-    let (
-        _watchtower_challenge_timelock,
-        _ack_timelock,
-        _blockhash_commit_timeout_lock,
-        assert_commit_timeout_lock,
-    ) = get_timelock_configs();
+    let timelock_config = get_challenge_timelock_config();
     let (kickoff_txid, assert_init_txid): (Txid, Txid) = match (
         graph.kickoff_txid.clone(),
         graph.assert_init_txid.clone(),
@@ -1357,7 +1388,7 @@ async fn process_assert_commit_monitoring(
             return Ok(());
         }
         let is_assert_commit_timeout =
-            out_monitor.height + assert_commit_timeout_lock > current_height;
+            out_monitor.height + timelock_config.assert_commit_timelock > current_height;
         let mut data_change = false;
         if !is_assert_commit_timeout {
             trace!(
@@ -1451,23 +1482,6 @@ async fn process_assert_commit_monitoring(
     }
 
     Ok(())
-}
-
-/// Get timelock configurations
-fn get_timelock_configs() -> (i64, i64, i64, i64) {
-    let _network = get_network();
-    // TODO: Update lock_blocks - these may need different values based on protocol requirements
-    let base_timelock = 0;
-    let watchtower_challenge_timelock = base_timelock;
-    let ack_timelock = base_timelock;
-    let assert_commit_timeout_lock = base_timelock;
-    let blockhash_commit_timeout_lock = base_timelock;
-    (
-        watchtower_challenge_timelock,
-        ack_timelock,
-        blockhash_commit_timeout_lock,
-        assert_commit_timeout_lock,
-    )
 }
 
 /// Find the spend transaction for a disproved index
@@ -1717,8 +1731,7 @@ async fn detect_take2(
     current_height: i64,
 ) -> anyhow::Result<Option<(Actor, GOATMessageContent)>> {
     trace!("detecting detect_take2 graph_id {}", graph.graph_id);
-    let watchtower_lock_blocks = 0;
-    let assert_lock_blocks = 0;
+    let timelock_config = get_take2_timelock_config();
     let (kickoff_txid, watchtower_challenge_init_txid, assert_init_txid, take2_txid): (
         Txid,
         Txid,
@@ -1781,13 +1794,13 @@ async fn detect_take2(
                         watchtower_challenge_init_txid,
                         OperatorWithdrawType::Take2,
                         watchtower_init_height,
-                        watchtower_lock_blocks as i64,
+                        timelock_config.watchtower_challenge_init_out_timelock,
                     ),
                     (
                         assert_init_txid,
                         OperatorWithdrawType::Take2,
                         assert_init_height,
-                        assert_lock_blocks as i64,
+                        timelock_config.assert_init_out_timelock,
                     ),
                 ],
                 current_height,
