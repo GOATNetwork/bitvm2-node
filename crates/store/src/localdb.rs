@@ -1277,6 +1277,19 @@ impl<'a> StorageProcessor<'a> {
         Ok(graph_ids.into_iter().map(|v| (v.graph_id, v.instance_id, v.operator)).collect())
     }
 
+    pub async fn get_operator_max_kickoff_index(
+        &mut self,
+        operator_pubkey: &str,
+    ) -> anyhow::Result<i64> {
+        let record = sqlx::query!(
+            "SELECT  MAX(kickoff_index) AS max_kickoff_index  FROM graph  WHERE operator_pubkey = ?",
+            operator_pubkey
+        )
+        .fetch_one(self.conn())
+        .await?;
+        Ok(record.max_kickoff_index.unwrap_or(0))
+    }
+
     pub async fn update_node_timestamp(
         &mut self,
         peer_id: &str,

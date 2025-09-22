@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT  MAX(kickoff_index) AS max_kickoff_index  FROM graph  WHERE operator_pubkey = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "max_kickoff_index",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4412f032396e496556bc13d60d3c9ea68042d39f470c8a6470dbfd76f80719d1"
+}
