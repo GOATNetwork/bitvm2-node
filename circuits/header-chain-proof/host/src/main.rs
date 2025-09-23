@@ -17,7 +17,7 @@ use zkm_sdk::{
 const HEADER_CHAIN: &[u8] = include_elf!("guest");
 
 use clap::Parser;
-use std::fs;
+use std::{fs, io::{Read, Seek}};
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
@@ -42,14 +42,32 @@ pub struct Args {
 
     #[clap(long, env, default_value = "output_proof.bin")]
     output_proof: String,
+
+    #[clap(long, default_value_t = false)]
+    force_fetch: bool,
 }
 
-async fn fetch_header_chain(args: &Args) {
+async fn fetch_header_chain(args: &Args) -> Vec<CircuitBlockHeader> {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
 
-    let mut block_headers = vec![];
-    let mut writer = std::fs::File::create(&args.block_headers).unwrap();
+    let mut writer = std::fs::OpenOptions::new().read(true).write(true).create(true).open(&args.block_headers).unwrap();
+
+    let mut headers: Vec<u8> = Vec::new();
+    writer.read_to_end(&mut headers).unwrap();
+
+    let mut block_headers: Vec<_> = headers
+        .chunks(80)
+        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+        .collect::<Vec<CircuitBlockHeader>>();
+
+    if args.force_fetch {
+        block_headers.truncate(args.start);
+    }
+    assert!(block_headers.len() == args.start, "Invalid starting block number");
+
+    writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64)).unwrap();
+
     for i in args.start..(args.start + args.batch_size) {
         let block = btc_client.get_btc_block(i as u32).await.unwrap();
         println!("block_id {i}: {}", block.block_hash().to_string());
@@ -57,6 +75,8 @@ async fn fetch_header_chain(args: &Args) {
         block_headers.push(header.clone());
         header.serialize(&mut writer).unwrap();
     }
+    writer.set_len((block_headers.len() * 80) as u64).unwrap();
+    block_headers
 }
 
 #[tokio::main]
@@ -66,7 +86,7 @@ async fn main() {
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
 
-    fetch_header_chain(&args).await;
+    let total_block_headers = fetch_header_chain(&args).await;
 
     // Initialize the proving client.
     let client = ProverClient::new();
@@ -75,11 +95,6 @@ async fn main() {
     let (header_chain_proof_pk, header_chain_proof_vk) = client.setup(HEADER_CHAIN);
 
     let vk_hash = header_chain_proof_vk.hash_u32();
-    let headers = std::fs::read(&args.block_headers).unwrap();
-    let block_headers = headers
-        .chunks(80)
-        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-        .collect::<Vec<CircuitBlockHeader>>();
     let mut start = 0;
     // Set the previous proof type based on input_proof argument
     let prev_receipt = if args.init_input {
@@ -101,10 +116,12 @@ async fn main() {
     };
     println!(
         "header-chain length: {}, start: {}, batch_size: {}",
-        block_headers.len(),
+        total_block_headers.len(),
         start,
         args.batch_size
     );
+    
+    let block_headers = (&total_block_headers[args.start..args.start+args.batch_size]).to_vec();
     let input: HeaderChainCircuitInput =
         HeaderChainCircuitInput { vk_hash, prev_proof, pv_hash, block_headers };
 

@@ -68,7 +68,7 @@ impl MMRHost {
             panic!("MMR is empty");
         }
         if self.nodes[0].len() <= index as usize {
-            panic!("Index out of bounds");
+            panic!("Index {index} out of bounds {}", self.nodes[0].len());
         }
         let mut proof: Vec<[u8; 32]> = vec![];
         let mut current_index = index;

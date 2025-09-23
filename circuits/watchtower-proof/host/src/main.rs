@@ -7,10 +7,11 @@
 //! ```
 use ark_serialize::CanonicalSerialize;
 use client::btc_chain::BTCClient;
-use header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
+use header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType, CircuitBlockHeader};
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
+use borsh::BorshDeserialize;
 
 use bitcoin::{Network, Txid, hashes::Hash};
 use bitcoin_light_client::{CommitChainCircuitInput, CommitChainPrevProofType, build_spv};
@@ -40,6 +41,9 @@ pub struct Args {
 
     #[clap(long, env, default_value = "compressed.bin")]
     output: String,
+
+    #[clap(long, env, default_value = "../../header-chain-proof/host/block_headers.bin")]
+    block_headers: String,
 }
 
 #[tokio::main]
@@ -101,8 +105,17 @@ async fn main() {
     println!("block height: {block_pos}");
     let target_block = btc_client.get_btc_block(block_pos).await.unwrap();
 
+    let bitcoin_block_headers = {
+        let headers: Vec<u8> = std::fs::read(&args.block_headers).unwrap();
+        headers
+            .chunks(80)
+            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+            .collect::<Vec<CircuitBlockHeader>>()
+    };
+    println!("block headers: {:?}", bitcoin_block_headers.len());
+    
     println!("construct spv");
-    let spv = build_spv(&tx, block_pos, target_block, &header_chain_input);
+    let spv = build_spv(&tx, block_pos, target_block, &bitcoin_block_headers);
 
     // Generate the proofs.
     let mut proof = tracing::info_span!("generate proof").in_scope(|| {
@@ -112,16 +125,16 @@ async fn main() {
         stdin.write(&commit_chain_input);
         stdin.write(&spv);
 
-        if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
-            stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
-        } else {
-            println!("skip writing header chain proof");
-        }
-
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
         } else {
             println!("skip writing commit chain proof");
+        }
+
+        if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
+            stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
+        } else {
+            println!("skip writing header chain proof");
         }
 
         client.prove(&watchtower_proof_pk, stdin).groth16().run().expect("proving failed")
