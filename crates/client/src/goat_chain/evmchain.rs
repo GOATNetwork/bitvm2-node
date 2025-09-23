@@ -257,7 +257,10 @@ impl EvmChain {
         self.adaptor.seq_set_pub_get_last_block_height().await
     }
 
-    pub async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>> {
+    pub async fn seq_set_pub_calc_commitment(
+        &self,
+        height: U256,
+    ) -> anyhow::Result<FixedBytes<32>> {
         self.adaptor.seq_set_pub_calc_commitment(height).await
     }
 

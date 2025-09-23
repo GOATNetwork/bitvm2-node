@@ -558,7 +558,7 @@ pub async fn detect_take1_or_challenge(
         graphs.len()
     );
     // todo Update lock_blocks
-    let lock_blocks =  0;
+    let lock_blocks = 0;
     for graph in graphs {
         let take1_ready_record = broadcast_record_map
             .get(&gen_broadcast_record_map_key(

@@ -192,7 +192,8 @@ pub async fn get_graph_tx(
             storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
             && let Some(_graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
         {
-            let _bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
+            let _bitvm2_graph: Bitvm2Graph =
+                serde_json::from_str(graph_raw_data.raw_data.as_str())?;
             let tx_name_op = IpfsTxName::from_str(&params.tx_name);
             if tx_name_op.is_err() {
                 return Err(format!(
@@ -233,8 +234,10 @@ pub async fn get_graph_tx(
             //     IpfsTxName::Take1 => serialize_hex(bitvm2_graph.take1.tx()),
             //     IpfsTxName::Take2 => serialize_hex(bitvm2_graph.take2.tx()),
             // };
-            
-            Ok::<GraphTxGetResponse, Box<dyn std::error::Error>>(GraphTxGetResponse { tx_hex: "".to_string() })
+
+            Ok::<GraphTxGetResponse, Box<dyn std::error::Error>>(GraphTxGetResponse {
+                tx_hex: "".to_string(),
+            })
         } else {
             tracing::warn!("graph:{} is not record in db", graph_id);
             Err(format!("graph:{graph_id} is not record in db").into())
@@ -305,7 +308,8 @@ pub async fn get_graph_txn(
             storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
             && let Some(_graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
         {
-            let _bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
+            let _bitvm2_graph: Bitvm2Graph =
+                serde_json::from_str(graph_raw_data.raw_data.as_str())?;
             let resp = GraphTxnGetResponse::default();
             // TODO update
             // let mut resp = GraphTxnGetResponse {

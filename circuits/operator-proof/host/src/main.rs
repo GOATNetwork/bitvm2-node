@@ -4,7 +4,9 @@
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin"
 //! ```
 use client::btc_chain::BTCClient;
-use header_chain::{CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType, CircuitBlockHeader};
+use header_chain::{
+    CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
+};
 use std::sync::Arc;
 use zkm_sdk::{ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf};
 
@@ -14,8 +16,8 @@ use bitcoin_light_client::{
     CommitChainCircuitInput, CommitChainPrevProofType, EthClientExecutorInput, LightBlock,
     build_spv,
 };
-use std::str::FromStr;
 use borsh::BorshDeserialize;
+use std::str::FromStr;
 
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
@@ -202,7 +204,8 @@ async fn main() {
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
         // get prev outs
         // FIXME: update the index
-        let prev_txn = btc_client.get_tx(&txn.input[0].previous_output.txid).await.unwrap().unwrap();
+        let prev_txn =
+            btc_client.get_tx(&txn.input[0].previous_output.txid).await.unwrap().unwrap();
         watchtower_challenge_txn_prev_outs
             .push(prev_txn.output[txn.input[0].previous_output.vout as usize].clone());
         watchtower_challenge_txn_pubkey.push(PublicKey::from_str(pk).unwrap());

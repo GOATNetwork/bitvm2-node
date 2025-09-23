@@ -22,8 +22,8 @@ use revm_database_interface::DatabaseRef;
 use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
-use guest_executor::io::WitnessInput;
 pub use guest_executor::io::EthClientExecutorInput;
+use guest_executor::io::WitnessInput;
 
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
 fn verify_el_withdraw_tx(
@@ -324,8 +324,7 @@ pub fn build_spv(
         mmr_native.append(block_headers[j].compute_block_hash());
     }
 
-    let target_block_header: CircuitBlockHeader =
-        block_headers[target_block_pos as usize].clone();
+    let target_block_header: CircuitBlockHeader = block_headers[target_block_pos as usize].clone();
 
     // find the target block
     let tx_pos =

@@ -17,7 +17,10 @@ use zkm_sdk::{
 const HEADER_CHAIN: &[u8] = include_elf!("guest");
 
 use clap::Parser;
-use std::{fs, io::{Read, Seek}};
+use std::{
+    fs,
+    io::{Read, Seek},
+};
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
@@ -51,7 +54,12 @@ async fn fetch_header_chain(args: &Args) -> Vec<CircuitBlockHeader> {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
 
-    let mut writer = std::fs::OpenOptions::new().read(true).write(true).create(true).open(&args.block_headers).unwrap();
+    let mut writer = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&args.block_headers)
+        .unwrap();
 
     let mut headers: Vec<u8> = Vec::new();
     writer.read_to_end(&mut headers).unwrap();
@@ -120,8 +128,8 @@ async fn main() {
         start,
         args.batch_size
     );
-    
-    let block_headers = (&total_block_headers[args.start..args.start+args.batch_size]).to_vec();
+
+    let block_headers = (&total_block_headers[args.start..args.start + args.batch_size]).to_vec();
     let input: HeaderChainCircuitInput =
         HeaderChainCircuitInput { vk_hash, prev_proof, pv_hash, block_headers };
 

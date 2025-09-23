@@ -5,13 +5,14 @@ use crate::goat_chain::chain_adaptor::{
 use crate::goat_chain::goat_adaptor::IBitcoinSPV::IBitcoinSPVInstance;
 use crate::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
 use crate::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
+use crate::goat_chain::goat_adaptor::IMultiSigVerifier::IMultiSigVerifierInstance;
 use crate::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
 use crate::goat_chain::goat_adaptor::IStakeManagement::IStakeManagementInstance;
-use crate::goat_chain::goat_adaptor::IMultiSigVerifier::IMultiSigVerifierInstance;
 use alloy::eips::BlockNumberOrTag;
 use alloy::providers::Identity;
 use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
 use alloy::rpc::types::TransactionReceipt;
+use alloy::signers::Signature;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
     primitives::{Address, Bytes, ChainId, FixedBytes, TxHash, U256},
@@ -27,7 +28,6 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time;
 use uuid::Uuid;
-use alloy::signers::Signature;
 
 sol!(
     #[derive(Debug)]
@@ -403,7 +403,7 @@ impl GoatAdaptor {
             .ok_or_else(|| anyhow::anyhow!("StakeManagement not initialized"))
     }
 
-     fn get_multi_sig_verifier(
+    fn get_multi_sig_verifier(
         &self,
     ) -> anyhow::Result<
         &IMultiSigVerifierInstance<
@@ -1049,7 +1049,7 @@ impl ChainAdaptor for GoatAdaptor {
         new_publishers: Vec<Address>,
         new_publisher_btc_pubkeys: &[Vec<u8>],
         signatures: &[Vec<u8>],
-        height: U256
+        height: U256,
     ) -> anyhow::Result<String> {
         let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
         let new_publisher_btc_pubkeys: Vec<Bytes> =
@@ -1058,12 +1058,7 @@ impl ChainAdaptor for GoatAdaptor {
         println!("signatures: {}", hex::encode(&signatures[0]));
 
         let tx_request = sequencer_set_publisher
-            .updatePublisherSet(
-                new_publishers,
-                new_publisher_btc_pubkeys,
-                signatures,
-                height,
-            )
+            .updatePublisherSet(new_publishers, new_publisher_btc_pubkeys, signatures, height)
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
@@ -1082,20 +1077,12 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
         let multi_sig_verifier = self.get_multi_sig_verifier()?;
-        Ok(multi_sig_verifier
-            .getOwners()
-            .call()
-            .await?
-            .try_into()?)
+        Ok(multi_sig_verifier.getOwners().call().await?.try_into()?)
     }
 
     async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
         let multi_sig_verifier = self.get_multi_sig_verifier()?;
-        Ok(multi_sig_verifier
-            .nonce()
-            .call()
-            .await?
-            .try_into()?)
+        Ok(multi_sig_verifier.nonce().call().await?.try_into()?)
     }
 
     async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {

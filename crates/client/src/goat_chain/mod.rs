@@ -1,7 +1,7 @@
 // Gateway rate multiplier constant
 const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 use alloy::consensus::crypto::secp256k1::recover_signer;
-use alloy::primitives::{Address, Bytes, FixedBytes, Signature, B256, U256};
+use alloy::primitives::{Address, B256, Bytes, FixedBytes, Signature, U256};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::hashes::Hash;
@@ -536,7 +536,10 @@ impl GOATClient {
         self.chain_service.seq_set_pub_get_last_block_height().await
     }
 
-    pub async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>> {
+    pub async fn seq_set_pub_calc_commitment(
+        &self,
+        height: U256,
+    ) -> anyhow::Result<FixedBytes<32>> {
         self.chain_service.seq_set_pub_calc_commitment(height).await
     }
 
@@ -567,10 +570,7 @@ impl GOATClient {
                 sequencer_set.goat_block_number
             );
         }
-        let addr = recover_signer(
-            sign,
-            B256::from_slice(&sequencer_set.p2wsh_sig_hash),
-        )?;
+        let addr = recover_signer(sign, B256::from_slice(&sequencer_set.p2wsh_sig_hash))?;
         let addr_exp = self.chain_service.get_default_signer_address();
         println!("addr_exp: {}, act: {}", addr_exp, addr);
         if addr != addr_exp {

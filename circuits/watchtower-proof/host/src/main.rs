@@ -6,12 +6,12 @@
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed2.bin --output "output.bin"
 //! ```
 use ark_serialize::CanonicalSerialize;
+use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
-use header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType, CircuitBlockHeader};
+use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
-use borsh::BorshDeserialize;
 
 use bitcoin::{Network, Txid, hashes::Hash};
 use bitcoin_light_client::{CommitChainCircuitInput, CommitChainPrevProofType, build_spv};
@@ -113,7 +113,7 @@ async fn main() {
             .collect::<Vec<CircuitBlockHeader>>()
     };
     println!("block headers: {:?}", bitcoin_block_headers.len());
-    
+
     println!("construct spv");
     let spv = build_spv(&tx, block_pos, target_block, &bitcoin_block_headers);
 

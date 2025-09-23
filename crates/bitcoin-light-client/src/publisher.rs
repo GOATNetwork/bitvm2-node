@@ -4,7 +4,10 @@ use bitcoin::absolute::LockTime;
 use bitcoin::blockdata::opcodes::all::*;
 use bitcoin::blockdata::script::Builder;
 use bitcoin::transaction::Version;
-use bitcoin::{Address, Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+use bitcoin::{
+    Address, Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
+    Witness,
+};
 use hex::FromHex;
 
 use bitcoin::secp256k1::{
@@ -79,7 +82,7 @@ pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> 
             inner: *sk,
         };
         println!("{:?}\n", k.to_wif())
-    }); 
+    });
     println!("Publisher public key:");
     keys.iter().for_each(|(_, pk)| println!("{}\n", CompressedPublicKey(pk.clone())));
     keys
@@ -362,7 +365,7 @@ mod tests {
             sign_partial(&mut tx, &keys[0].0, &redeem_script, prev_value, EcdsaSighashType::All)
                 .unwrap();
 
-        let (sig2,_) =
+        let (sig2, _) =
             sign_partial(&mut tx, &keys[1].0, &redeem_script, prev_value, EcdsaSighashType::All)
                 .unwrap();
 

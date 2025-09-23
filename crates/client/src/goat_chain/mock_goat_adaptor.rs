@@ -2,6 +2,7 @@ use crate::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
 use alloy::primitives::{Address, Bytes, FixedBytes, TxHash, U256};
 use alloy::rpc::types::TransactionReceipt;
+use alloy::signers::Signature;
 use anyhow::bail;
 use async_trait::async_trait;
 use bitcoin::Transaction;
@@ -13,7 +14,6 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use tracing::info;
 use uuid::Uuid;
-use alloy::signers::Signature;
 
 const PEGIN_DATA_MAP: &str = "pegin_data_map";
 const OPERATOR_DATA_MAP: &str = "operator_data_map";

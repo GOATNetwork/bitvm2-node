@@ -356,10 +356,7 @@ async fn handle_committee_response_events<'a>(
                         )
                         .await?;
                 } else {
-                    warn!(
-                        "committee_pubkey length is not 32 bytes: {}",
-                        event.committee_pubkey
-                    );
+                    warn!("committee_pubkey length is not 32 bytes: {}", event.committee_pubkey);
                 }
             } else {
                 warn!("failed to decode committee_pubkey: {}", event.committee_pubkey);

@@ -56,7 +56,11 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
-use store::{ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus, Instance, InstanceStatus, Message, MessageState, MessageType, Node, UInt64Array3};
+use store::{
+    ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
+    Graph, GraphStatus, Instance, InstanceStatus, Message, MessageState, MessageType, Node,
+    UInt64Array3,
+};
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
