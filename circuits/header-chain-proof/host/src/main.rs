@@ -1,8 +1,8 @@
 //! Generate header chain proof
 //! Example:
 //!     export BITCOIN_NETWORK=regtest
-//!     Genesis:        RUST_LOG=debug cargo run -r -- --start 0 --batch-size 10 --init-input --output-proof "0-10.bin"
-//!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 10 --batch-size 10 --input-proof "0-10.bin" --output-proof "10-20.bin"
+//!     Genesis:        RUST_LOG=debug cargo run -r -- --start 0 --batch-size 278 --init-input --output-proof "0-10.bin"
+//!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 278 --batch-size 20 --input-proof "0-10.bin" --output-proof "10-20.bin"
 use bitcoin::Network;
 use borsh::{BorshDeserialize, BorshSerialize};
 use client::btc_chain::BTCClient;
@@ -94,7 +94,7 @@ async fn main() {
         Some(mut receipt) => {
             let prev_output: BlockHeaderCircuitOutput = receipt.public_values.read();
             start = prev_output.chain_state.block_height as usize + 1;
-            let mut pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
+            let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
             (HeaderChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
         None => (HeaderChainPrevProofType::GenesisBlock, [0u8; 32]),

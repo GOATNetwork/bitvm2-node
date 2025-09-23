@@ -5,7 +5,6 @@
 use bitcoin::{Network, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::*;
 use client::btc_chain::BTCClient;
-use sha2::Digest;
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
@@ -99,7 +98,8 @@ async fn main() {
     };
     let (prev_proof, pv_hash) = match prev_receipt.clone() {
         Some(mut receipt) => {
-            let mut pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
+            let prev_output = receipt.public_values.read();
+            let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
             (CommitChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
         None => (CommitChainPrevProofType::GenesisBlock, [0u8; 32]),

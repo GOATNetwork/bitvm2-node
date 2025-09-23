@@ -126,14 +126,14 @@ reth-chainspec = { git = "https://github.com/ziren-patches/reth", branch = "patc
 
 
 # revm
-revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-27.0.2", features = [ "kzg-rs", "bn" ], default-features = false }
+revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-22.0.0", features = [ "kzg-rs", "bn" ], default-features = false }
 revm-database-interface = { git = "https://github.com/ziren-patches/revm", branch = "patch-27.0.2", default-features = false }
 
 # alloy
 alloy-rlp = "1.0"
 alloy-trie = "1.0"
 alloy-chains = { version = "0.2.0", default-features = false }
-alloy-primitives = { version = "1.0.0", default-features = false, features = ["sha3-keccak", "map-foldhash"] }
+alloy-primitives = { version = "1.2", default-features = false, features = ["sha3-keccak", "map-foldhash"] }
 alloy-provider = { version = "1.0.0", default-features = false }
 
 [workspace.lints]

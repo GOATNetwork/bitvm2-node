@@ -11,8 +11,7 @@ uuid = { workspace = true }
 bitcoin = { workspace = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
-tracing = "0.1.41"
-
+tracing = { workspace = true }
 
 futures = { workspace = true }
 strum = { version = "0.26", features = ["derive"] }
