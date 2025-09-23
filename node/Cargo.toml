@@ -103,9 +103,6 @@ tempfile = "3.19.1"
 groth16 = { path = "../circuits/groth16" }
 tokio-util = "0.7.15"
 
-[dev-dependencies]
-serial_test = "3.2.0"
-
 [features]
 default = []
 tests = []

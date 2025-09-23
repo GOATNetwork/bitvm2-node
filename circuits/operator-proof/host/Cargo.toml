@@ -29,7 +29,7 @@ url.workspace = true
 rpc-db.workspace = true
 guest-executor.workspace = true
 host-executor.workspace = true
-reth-chainspec = { workspace = true, branch = "patch-1.3.10", default-features = false }
+reth-chainspec = { workspace = true, default-features = false }
 primitives.workspace = true
 provider.workspace = true
 
