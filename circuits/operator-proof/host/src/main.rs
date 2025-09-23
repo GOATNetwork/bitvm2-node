@@ -16,12 +16,11 @@ use bitcoin_light_client::{
 };
 use std::str::FromStr;
 
-use alloy_provider::{RootProvider, network::Ethereum};
+//use alloy_provider::{RootProvider, network::Ethereum};
 
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
 use reth_chainspec::ChainSpec;
-use rpc_db::RpcDb;
 use url::Url;
 
 /// A program that aggregates the proofs of the simple program.
@@ -38,13 +37,11 @@ fn str_to_16_bytes_exact(s: &str) -> Result<[u8; 16], String> {
     Ok(arr)
 }
 
+// https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
 async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
     // Setup the provider.
     let rpc_url = Url::parse(&args.execution_layer_rpc).expect("invalid rpc url");
-    let provider = RootProvider::<Ethereum>::new_http(rpc_url);
-
-    let rpc_db =
-        RpcDb::new(provider.clone(), provider.clone(), args.execution_layer_block_number - 1);
+    let provider = ::provider::create_provider(rpc_url);
 
     let genesis = &Genesis::GOAT;
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
@@ -55,7 +52,7 @@ async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
     let client_input = host_executor
         .execute(
             args.execution_layer_block_number,
-            &rpc_db,
+            &provider,
             &provider,
             genesis.clone(),
             custom_beneficiary,

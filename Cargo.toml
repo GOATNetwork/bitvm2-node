@@ -116,8 +116,9 @@ guest-executor = { git = "https://github.com/ProjectZKM/reth-processor", branch 
 host-executor = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
 rpc-db = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
 primitives = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
+provider = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
 
-reth-chainspec = { git = "https://github.com/ziren-patches/reth", default-features = false }
+reth-chainspec = { git = "https://github.com/ziren-patches/reth", branch = "patch-1.5.1", default-features = false }
 
 # guest-executor = { path = "../../reth-processor/crates/executor/guest" }
 # host-executor = { path = "../../reth-processor/crates/executor/host", features = ["alerting"] }
