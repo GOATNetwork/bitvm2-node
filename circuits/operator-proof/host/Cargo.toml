@@ -27,10 +27,11 @@ serde_json.workspace = true
 alloy-primitives.workspace = true
 url.workspace = true
 rpc-db.workspace = true
-reth-chainspec = { workspace = true, branch = "patch-1.3.10", default-features = false }
 guest-executor.workspace = true
-#primitives.workspace = true
-#alloy-provider.workspace = true
+host-executor.workspace = true
+reth-chainspec = { workspace = true, branch = "patch-1.3.10", default-features = false }
+primitives.workspace = true
+alloy-provider.workspace = true
 
 borsh = { workspace = true }
 bitcoin-light-client = { workspace = true }

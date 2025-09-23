@@ -5,7 +5,7 @@
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin"
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed2.bin --output "output.bin"
 //! ```
-use ark_serialize::{CanonicalSerialize, CanonicalSerializeHashExt};
+use ark_serialize::CanonicalSerialize;
 use client::btc_chain::BTCClient;
 use header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
@@ -15,7 +15,7 @@ use zkm_sdk::{
 use bitcoin::{Network, Txid, hashes::Hash};
 use bitcoin_light_client::{CommitChainCircuitInput, CommitChainPrevProofType, build_spv};
 use std::str::FromStr;
-use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, load_ark_groth16_verifying_key_from_bytes};
+use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 /// A program that aggregates the proofs of the simple program.
 const WTACHTOWER: &[u8] = include_elf!("guest");
@@ -93,11 +93,11 @@ async fn main() {
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(&args.latest_sequencer_commit_txid).unwrap();
 
-    let tx = btc_client.fetch_btc_tx(&latest_sequencer_commit_txid).await.unwrap();
+    let tx = btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
     // TODO: replace it by `get_raw_transaction_info`
     let tx_merkle_proof =
         btc_client.get_btc_merkle_proof(&latest_sequencer_commit_txid).await.unwrap();
-    let block_pos = tx_merkle_proof.1.block_height;
+    let block_pos = tx_merkle_proof.2.block_height;
     println!("block height: {block_pos}");
     let target_block = btc_client.get_btc_block(block_pos).await.unwrap();
 

@@ -113,7 +113,9 @@ logroller = { version = "0.1", features = ["tracing"] }
 
 # Reth
 guest-executor = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
+host-executor = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
 rpc-db = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
+primitives = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
 
 reth-chainspec = { git = "https://github.com/ziren-patches/reth", default-features = false }
 
@@ -132,6 +134,7 @@ alloy-rlp = "1.0"
 alloy-trie = "1.0"
 alloy-chains = { version = "0.2.0", default-features = false }
 alloy-primitives = { version = "1.0.0", default-features = false, features = ["sha3-keccak", "map-foldhash"] }
+alloy-provider = { version = "1.0.0", default-features = false }
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -149,4 +152,3 @@ rustdoc.all = "warn"
 #alloy-primitives-v1-0-0 = { git = "https://github.com/ziren-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.0.0" }
 #alloy-primitives-v1-1-0 = { git = "https://github.com/ziren-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.1.0" }
 #alloy-primitives-v1-1-2 = { git = "https://github.com/ziren-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.1.2" }
-revm-database-interface = { git = "https://github.com/bluealloy/revm", tag = "v82", default-features = false }
