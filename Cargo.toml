@@ -124,8 +124,8 @@ reth-chainspec = { git = "https://github.com/ziren-patches/reth", default-featur
 
 
 # revm
-revm = { git = "https://github.com/bluealloy/revm", rev = "9c9bec7", features = [ "kzg-rs", "bn" ], default-features = false }
-revm-database-interface = { git = "https://github.com/bluealloy/revm", rev = "9c9bec7", default-features = false }
+revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-27.0.2", features = [ "kzg-rs", "bn" ], default-features = false }
+revm-database-interface = { git = "https://github.com/ziren-patches/revm", branch = "patch-27.0.2", default-features = false }
 
 # alloy
 alloy-rlp = "1.0"

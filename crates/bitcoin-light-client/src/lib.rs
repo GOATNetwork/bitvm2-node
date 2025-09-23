@@ -27,7 +27,7 @@ pub use guest_executor::io::EthClientExecutorInput;
 
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
 fn verify_el_withdraw_tx(
-    l2_contract_address: &Address,
+    l2_contract_address: Address,
     base_slot: U256,
     key: U128,
     input: &EthClientExecutorInput,
@@ -44,8 +44,7 @@ fn verify_el_withdraw_tx(
 
     let sealed_headers: Vec<_> = input.sealed_headers().collect();
     let triedb = input.witness_db(&sealed_headers).unwrap();
-    //triedb.(l2_contract_address, slot_id.into()).unwrap()
-    U256::from(0)
+    triedb.storage_ref(l2_contract_address, slot_id.into()).unwrap()
 }
 
 /// The main entry point of the header chain circuit.
@@ -265,7 +264,7 @@ pub fn generate_operator_proof(
     // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L101
     assert_eq!(
         verify_el_withdraw_tx(
-            &l2_contract_address,
+            l2_contract_address,
             base_slot,
             U128::from_be_bytes(graph_id),
             &eth_client_execution_input,
