@@ -9,7 +9,7 @@ publish = false
 libc = { version = "0.2", features = ["extra_traits"] }
 bincode = "1.3.3"
 # workspace
-guest-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
+guest-executor = { workspace = true } 
 # guest-executor = { path = "../../../reth-processor/crates/executor/guest" }
 
 # Ziren
