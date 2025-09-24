@@ -278,6 +278,7 @@ pub struct GraphUpdate {
     pub sub_status: Option<String>,
     pub ipfs_base_url: Option<String>,
     pub challenge_txid: Option<SerializableTxid>,
+    pub disprove_txid: Option<SerializableTxid>,
     pub bridge_out_start_at: Option<i64>,
     pub init_withdraw_txid: Option<String>,
 }
@@ -291,6 +292,7 @@ impl GraphUpdate {
             sub_status: None,
             ipfs_base_url: None,
             challenge_txid: None,
+            disprove_txid: None,
             bridge_out_start_at: None,
             init_withdraw_txid: None,
         }
@@ -319,6 +321,12 @@ impl GraphUpdate {
         self
     }
 
+    /// Set disprove transaction ID
+    pub fn with_disprove_txid(mut self, disprove_txid: SerializableTxid) -> Self {
+        self.disprove_txid = Some(disprove_txid);
+        self
+    }
+
     /// Set bridge out start time
     pub fn with_bridge_out_start_at(mut self, bridge_out_start_at: i64) -> Self {
         self.bridge_out_start_at = Some(bridge_out_start_at);
@@ -339,6 +347,7 @@ impl GraphUpdate {
             || self.challenge_txid.is_some()
             || self.bridge_out_start_at.is_some()
             || self.init_withdraw_txid.is_some()
+            || self.disprove_txid.is_some()
     }
 }
 
@@ -882,10 +891,10 @@ impl<'a> StorageProcessor<'a> {
              REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, graph_ipfs_base_url, amount, challenge_amount,
                     status, sub_status, operator_pubkey, pre_kickoff_txid, cur_prekickoff_txid, force_skip_kickoff_txid,
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
-                    challenge_txid, take2_txid, watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
+                    challenge_txid, take2_txid, disprove_txid,  watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
                     bridge_out_start_at, zkm_version,created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
@@ -907,6 +916,7 @@ impl<'a> StorageProcessor<'a> {
             graph.take1_txid,
             graph.challenge_txid,
             graph.take2_txid,
+            graph.disprove_txid,
             graph.watchtower_challenge_init_txid,
             watchtower_challenge_timeout_txids_json,
             nack_txids_json,
@@ -939,6 +949,9 @@ impl<'a> StorageProcessor<'a> {
         }
         if let Some(challenge_txid) = params.challenge_txid {
             query_builder.set_field("challenge_txid", QueryParam::BTCTxid(challenge_txid));
+        }
+        if let Some(disprove_txid) = params.disprove_txid {
+            query_builder.set_field("disprove_txid", QueryParam::BTCTxid(disprove_txid));
         }
         if let Some(bridge_out_start_at) = params.bridge_out_start_at {
             query_builder.set_field("bridge_out_start_at", QueryParam::Int(bridge_out_start_at));
@@ -1009,6 +1022,7 @@ impl<'a> StorageProcessor<'a> {
                     take1_txid,
                     challenge_txid,
                     take2_txid,
+                    disprove_txid,
                     watchtower_challenge_init_txid,
                     watchtower_challenge_timeout_txids,
                     nack_txids,
@@ -1072,6 +1086,7 @@ impl<'a> StorageProcessor<'a> {
                     take1_txid,
                     challenge_txid,
                     take2_txid,
+                    disprove_txid,
                     watchtower_challenge_init_txid,
                     watchtower_challenge_timeout_txids,
                     nack_txids,
@@ -1210,6 +1225,7 @@ impl<'a> StorageProcessor<'a> {
                     take1_txid,
                     challenge_txid,
                     take2_txid,
+                    disprove_txid,
                     watchtower_challenge_init_txid,
                     watchtower_challenge_timeout_txids,
                     nack_txids,

@@ -7,11 +7,11 @@ use anyhow::{anyhow, bail};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, Txid};
+use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
+use bitvm2_lib::contexts::base::generate_n_of_n_public_key;
 use bitvm2_lib::keys::CommitteeMasterKey;
-use bitvm2_lib_ga::constants::CONNECTOR_Z_TIMELOCK;
-use bitvm2_lib_ga::contexts::base::generate_n_of_n_public_key;
-use bitvm2_lib_ga::transactions::base::{BaseTransaction, Input};
-use bitvm2_lib_ga::types::{Bitvm2InstanceParameters, UserInfo};
+use bitvm2_lib::transactions::base::{BaseTransaction, Input};
+use bitvm2_lib::types::{Bitvm2InstanceParameters, UserInfo};
 use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::{GOATClient, GraphData};
@@ -199,7 +199,6 @@ fn update_pegin_txids(instance: &mut Instance) -> anyhow::Result<()> {
         instance_id: instance.instance_id,
         user_info,
         pegin_amount: Amount::from_sat(instance.amount as u64),
-        challenge_amount: Amount::from_sat(instance.amount as u64),
         committee_pubkeys,
         committee_agg_pubkey,
     };

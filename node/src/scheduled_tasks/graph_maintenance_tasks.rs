@@ -8,7 +8,7 @@ use crate::rpc_service::current_time_secs;
 use crate::utils::{get_graph, outpoint_spent_txid};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
-use bitvm2_lib_ga::constants::{
+use bitvm2_lib::constants::{
     ACK_TIMELOCK, ASSERT_COMMIT_TIMELOCK, CONNECTOR_A_TIMELOCK, CONNECTOR_D_TIMELOCK,
     CONNECTOR_F_TIMELOCK, CONNECTOR_G_TIMELOCK, WATCHTOWER_CHALLENGE_TIMELOCK,
 };
@@ -92,6 +92,8 @@ pub struct ChallengeSubStatus {
     pub watchtower_challenge_status: WatchtowerChallengeStatus,
     pub commit_blockhash_status: CommitBlockHashStatus,
     pub assert_commit_status: AssertCommitStatus,
+    pub disprove_type: Option<DisproveTxType>,
+    pub disprove_index: i32,
 }
 
 impl ChallengeSubStatus {
@@ -112,16 +114,14 @@ impl ChallengeSubStatus {
     }
 
     pub fn is_watchtower_challenge_finished(&self) -> bool {
-        vec![WatchtowerChallengeStatus::OperatorACK, WatchtowerChallengeStatus::OperatorNACK]
+        [WatchtowerChallengeStatus::OperatorACK, WatchtowerChallengeStatus::OperatorNACK]
             .contains(&self.watchtower_challenge_status)
-            && [CommitBlockHashStatus::OperatorCommit, CommitBlockHashStatus::OperatorCommitTimeout]
+            || [CommitBlockHashStatus::OperatorCommit, CommitBlockHashStatus::OperatorCommitTimeout]
                 .contains(&self.commit_blockhash_status)
     }
 
     pub fn is_disproved(&self) -> bool {
-        self.watchtower_challenge_status == WatchtowerChallengeStatus::OperatorNACK
-            || self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommitTimeout
-            || self.assert_commit_status == AssertCommitStatus::OperatorCommitTimeout
+        self.disprove_type.is_some()
     }
 
     pub fn is_normal_finished(&self) -> bool {
@@ -214,27 +214,6 @@ impl WTInitTxVoutMonitorData {
     pub fn is_challenged(&self) -> bool {
         !self.require_disproved_indexes.is_empty()
             || self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommitTimeout
-    }
-
-    #[allow(dead_code)]
-    pub fn get_disprove_type(&self) -> Option<DisproveTxType> {
-        if self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommitTimeout {
-            return Some(DisproveTxType::OperatorCommitTimeout);
-        }
-        if !self.require_disproved_indexes.is_empty() {
-            return Some(DisproveTxType::OperatorNack);
-        }
-        None
-    }
-
-    #[allow(dead_code)]
-    pub fn is_complete_in_time(&self) -> bool {
-        self.is_complete_in_time
-    }
-
-    #[allow(dead_code)]
-    pub fn is_finished(&self) -> bool {
-        self.is_complete_in_time || self.is_challenged()
     }
 }
 
@@ -1231,6 +1210,7 @@ async fn process_watchtower_challenge_monitoring(
                         CommitBlockHashStatus::OperatorCommitTimeout;
                     sub_status.commit_blockhash_status =
                         CommitBlockHashStatus::OperatorCommitTimeout;
+                    sub_status.disprove_type = Some(DisproveTxType::OperatorCommitTimeout);
                     data_change = true;
                 }
             }
@@ -1269,6 +1249,7 @@ async fn process_watchtower_challenge_monitoring(
                     graph.graph_id
                 );
                 sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorNACK;
+                sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
             }
             data_change = true;
         }
@@ -1379,14 +1360,6 @@ async fn process_assert_commit_monitoring(
                     return Ok(());
                 }
             };
-        if vout_monitor_data.is_challenged() {
-            trace!(
-                "process_assert_commit_monitoring graph id :{} need to send p2p message: assert commit is challenged",
-                graph.graph_id
-            );
-            // TODO send p2p message: assert_commit_finish
-            return Ok(());
-        }
         let is_assert_commit_timeout =
             out_monitor.height + timelock_config.assert_commit_timelock > current_height;
         let mut data_change = false;
@@ -1419,6 +1392,7 @@ async fn process_assert_commit_monitoring(
                     graph.graph_id
                 );
                 sub_status.assert_commit_status = AssertCommitStatus::OperatorCommitTimeout;
+                sub_status.disprove_type = Some(DisproveTxType::AssertTimeout);
                 // TODO send p2p message: assert_commit_timeout
             }
             data_change = true;
@@ -1550,16 +1524,33 @@ async fn detect_disproved_txids(
     sub_status: &mut ChallengeSubStatus,
 ) -> anyhow::Result<Option<(DisproveTxType, Txid, Txid, i32)>> {
     trace!("detecting disproved txids graph_id {}", graph.graph_id);
+    let challenge_txid: Txid = match graph.challenge_txid.clone() {
+        Some(challenge_txid) => challenge_txid.into(),
+        None => {
+            warn!("graph:{} challenge_txid is none", graph.graph_id);
+            return Ok(None);
+        }
+    };
+
+    if let Some(disprove_type) = sub_status.disprove_type.clone()
+        && let Some(disprove_txid) = graph.disprove_txid.clone()
+    {
+        return Ok(Some((
+            disprove_type,
+            challenge_txid,
+            disprove_txid.into(),
+            sub_status.disprove_index,
+        )));
+    }
+
     let (
         kickoff_txid,
-        challenge_txid,
         watchtower_challenge_init_txid,
         blockhash_commit_timeout_txid,
         assert_init_txid,
         take2_txid,
-    ): (Txid, Txid, Txid, Txid, Txid, Txid) = match (
+    ): (Txid, Txid, Txid, Txid, Txid) = match (
         graph.kickoff_txid.clone(),
-        graph.challenge_txid.clone(),
         graph.watchtower_challenge_init_txid.clone(),
         graph.blockhash_commit_timeout_txid.clone(),
         graph.assert_init_txid.clone(),
@@ -1567,22 +1558,28 @@ async fn detect_disproved_txids(
     ) {
         (
             Some(kickoff_txid),
-            Some(challenge_txid),
             Some(watchtower_challenge_init_txid),
             Some(blockhash_commit_timeout_txid),
             Some(assert_init_txid),
             Some(take2_txid),
         ) => (
             kickoff_txid.into(),
-            challenge_txid.into(),
             watchtower_challenge_init_txid.into(),
             blockhash_commit_timeout_txid.into(),
             assert_init_txid.into(),
             take2_txid.into(),
         ),
-        _ => return Ok(None),
+        _ => {
+            warn!(
+                "graph:{} kickoff_txid/watchtower_challenge_init_txid/blockhash_commit_timeout_txid/\
+                    assert_init_txid/take2_txid  has none value",
+                graph.graph_id
+            );
+            return Ok(None);
+        }
     };
     if sub_status.assert_commit_status == AssertCommitStatus::OperatorCommitTimeout {
+        sub_status.disprove_type = Some(DisproveTxType::AssertTimeout);
         return Ok(
             match find_assert_timeout_spend_tx(
                 btc_client,
@@ -1601,6 +1598,7 @@ async fn detect_disproved_txids(
     }
 
     if sub_status.watchtower_challenge_status == WatchtowerChallengeStatus::OperatorNACK {
+        sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
         return Ok(
             match find_spend_tx_for_disproved_index(
                 btc_client,
@@ -1619,7 +1617,8 @@ async fn detect_disproved_txids(
         );
     }
 
-    if sub_status.watchtower_challenge_status == WatchtowerChallengeStatus::ChallengeTimeout {
+    if sub_status.commit_blockhash_status == CommitBlockHashStatus::OperatorCommitTimeout {
+        sub_status.disprove_type = Some(DisproveTxType::OperatorCommitTimeout);
         return Ok(Some((
             DisproveTxType::OperatorCommitTimeout,
             challenge_txid,
@@ -1631,6 +1630,7 @@ async fn detect_disproved_txids(
     if let Some(spent_txid) = outpoint_spent_txid(btc_client, &kickoff_txid, 3).await?
         && spent_txid == take2_txid
     {
+        sub_status.disprove_type = Some(DisproveTxType::Disprove);
         return Ok(Some((DisproveTxType::Disprove, challenge_txid, spent_txid, 0)));
     }
 
@@ -1648,6 +1648,18 @@ async fn process_graph_watchtower_assert_disproved(
     if let Some((disprove_type, start_txid, finish_txid, tx_index)) =
         detect_disproved_txids(btc_client, &mut tx, graph, sub_status).await?
     {
+        if graph.disprove_txid.is_none() {
+            sub_status.disprove_index = tx_index;
+            let mut storage_processor = local_db.acquire().await?;
+            storage_processor
+                .update_graph_fields(
+                    GraphUpdate::new(graph.graph_id)
+                        .with_disprove_txid(finish_txid.into())
+                        .with_sub_status(serde_json::to_string(sub_status).unwrap()),
+                )
+                .await?;
+        }
+
         info!(
             "process_graph_watchtower_assert_disproved disprove_type: {disprove_type}, challenge start tx: {}, challenge finish tx: {}, tx_index: {tx_index}",
             start_txid.to_string(),
@@ -1706,7 +1718,9 @@ async fn process_graph_watchtower_assert_disproved(
                 .await?;
 
                 tx.update_graph_fields(
-                    GraphUpdate::new(graph.graph_id).with_status(GraphStatus::Disprove.to_string()),
+                    GraphUpdate::new(graph.graph_id)
+                        .with_status(GraphStatus::Disprove.to_string())
+                        .with_sub_status(serde_json::to_string(sub_status).unwrap()),
                 )
                 .await?;
                 tx.commit().await?;

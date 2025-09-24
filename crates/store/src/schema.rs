@@ -297,6 +297,7 @@ pub struct Graph {
     pub take1_txid: Option<SerializableTxid>,
     pub challenge_txid: Option<SerializableTxid>,
     pub take2_txid: Option<SerializableTxid>,
+    pub disprove_txid: Option<SerializableTxid>,
     pub watchtower_challenge_init_txid: Option<SerializableTxid>,
     #[sqlx(json)]
     pub watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
