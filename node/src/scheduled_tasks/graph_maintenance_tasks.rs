@@ -7,6 +7,7 @@ use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::{get_graph, outpoint_spent_txid};
 use bitcoin::Txid;
+use bitcoin::hashes::Hash;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::{
     ACK_TIMELOCK, ASSERT_COMMIT_TIMELOCK, CONNECTOR_A_TIMELOCK, CONNECTOR_D_TIMELOCK,
@@ -28,8 +29,10 @@ use strum::{Display, EnumString};
 use tracing::{info, trace, warn};
 use uuid::Uuid;
 
-const BLOCKHASH_COMMIT_VIN_MARGIN: i64 = 3;
-const _ASSERT_COMMIT_VIN_MARGIN: i64 = 2;
+const CONNECTOR_G_MARGIN: i64 = 3;
+const CONNECTOR_D_MARGIN: u64 = 2;
+const CONNECTOR_F_MARGIN: u64 = 2;
+const CONNECTOR_GUARDIAN_MARGIN: u64 = 2;
 
 pub struct ChallengeTimeLockConfig {
     pub watchtower_challenge_timelock: i64,
@@ -639,6 +642,8 @@ pub async fn detect_take1_or_challenge(
             }
             None => {}
         }
+
+        detect_kickoff_ref_disprove_tx(btc_client, &mut storage_processor, &graph).await?;
     }
     Ok(())
 }
@@ -765,6 +770,7 @@ pub async fn process_graph_challenge(
             &mut sub_status,
         )
         .await?;
+        detect_kickoff_ref_disprove_tx(btc_client, &mut storage_processor, &graph).await?;
     }
 
     Ok(())
@@ -1188,7 +1194,7 @@ async fn process_watchtower_challenge_monitoring(
                     if let Some(spend_txid) = outpoint_spent_txid(
                         btc_client,
                         &watchtower_challenge_init_txid,
-                        (out_monitor.vout_len - BLOCKHASH_COMMIT_VIN_MARGIN) as u64,
+                        (out_monitor.vout_len - CONNECTOR_G_MARGIN) as u64,
                     )
                     .await?
                         && blockhash_commit_timeout_txid != spend_txid
@@ -1459,37 +1465,41 @@ async fn process_assert_commit_monitoring(
 }
 
 /// Find the spend transaction for a disproved index
-async fn find_spend_tx_for_disproved_index(
+async fn find_challenge_nack_tx(
     btc_client: &BTCClient,
     storage_processor: &mut StorageProcessor<'_>,
     graph_id: &Uuid,
-    txid: &SerializableTxid,
-    index_calculator: impl Fn(i32) -> u64,
+    watchtower_challenge_init_txid: &SerializableTxid,
 ) -> anyhow::Result<Option<(Txid, i32)>> {
-    let out_monitor = storage_processor.get_graph_btc_tx_vout_monitor(graph_id, txid).await?;
+    let out_monitor = storage_processor
+        .get_graph_btc_tx_vout_monitor(graph_id, watchtower_challenge_init_txid)
+        .await?;
 
     let Some(out_monitor) = out_monitor else {
         return Ok(None);
     };
 
-    let vout_monitor_data =
-        parse_monitor_data::<WTInitTxVoutMonitorData>(&out_monitor.monitor_data)
-            .map_err(|e| anyhow::anyhow!("Failed to parse monitor data: {}", e))?;
-
-    for &index in &vout_monitor_data.require_disproved_indexes {
-        let calculated_index = index_calculator(index);
-        if let Some(spend_txid) =
-            outpoint_spent_txid(btc_client, &txid.clone().into(), calculated_index).await?
-        {
-            return Ok(Some((spend_txid, index)));
+    if let Some(spend_txid) = outpoint_spent_txid(
+        btc_client,
+        &watchtower_challenge_init_txid.clone().into(),
+        out_monitor.vout_len as u64 - CONNECTOR_F_MARGIN,
+    )
+    .await?
+        && let Some(tx) = btc_client.get_tx(&spend_txid).await?
+    {
+        let index = tx.input[0].previous_output.vout as i32;
+        if index == out_monitor.vout_len as i32 - 3_i32 {
+            return Ok(None);
         }
+
+        return Ok(Some((spend_txid, index / 2)));
     }
 
     Ok(None)
 }
 
 /// Find the spend transaction for assert timeout
-async fn find_assert_timeout_spend_tx(
+async fn find_assert_timeout_tx(
     btc_client: &BTCClient,
     storage_processor: &mut StorageProcessor<'_>,
     graph_id: &Uuid,
@@ -1502,19 +1512,73 @@ async fn find_assert_timeout_spend_tx(
         return Ok(None);
     };
 
-    let vout_monitor_data =
-        parse_monitor_data::<AssertInitTxVoutMonitorData>(&out_monitor.monitor_data)
-            .map_err(|e| anyhow::anyhow!("Failed to parse assert monitor data: {}", e))?;
-
-    for &index in &vout_monitor_data.require_disproved_indexes {
-        if let Some(spend_txid) =
-            outpoint_spent_txid(btc_client, &assert_init_txid.clone().into(), index as u64).await?
-        {
-            return Ok(Some((spend_txid, index)));
-        }
+    if let Some(spend_txid) = outpoint_spent_txid(
+        btc_client,
+        &assert_init_txid.clone().into(),
+        out_monitor.vout_len as u64 - CONNECTOR_D_MARGIN,
+    )
+    .await?
+        && let Some(tx) = btc_client.get_tx(&spend_txid).await?
+    {
+        return Ok(Some((spend_txid, tx.input[0].previous_output.vout as i32)));
     }
 
     Ok(None)
+}
+
+async fn detect_kickoff_ref_disprove_tx(
+    btc_client: &BTCClient,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph: &Graph,
+) -> anyhow::Result<()> {
+    let (kickoff_txid, take1_txid, take2_txid): (Txid, Txid, Txid) = match (
+        graph.kickoff_txid.clone(),
+        graph.assert_init_txid.clone(),
+        graph.take2_txid.clone(),
+    ) {
+        (Some(kickoff_txid), Some(take1_txid), Some(take2_txid)) => {
+            (kickoff_txid.into(), take1_txid.into(), take2_txid.into())
+        }
+        _ => {
+            warn!("graph:{} kickoff_txid/take1_txid/take2_txid  has none value", graph.graph_id);
+            return Ok(());
+        }
+    };
+    let out_monitor = storage_processor
+        .get_graph_btc_tx_vout_monitor(&graph.graph_id, &kickoff_txid.clone().into())
+        .await?;
+
+    let Some(out_monitor) = out_monitor else {
+        return Ok(());
+    };
+
+    if let Some(spend_txid) = outpoint_spent_txid(
+        btc_client,
+        &kickoff_txid,
+        out_monitor.vout_len as u64 - CONNECTOR_GUARDIAN_MARGIN,
+    )
+    .await?
+        && let Some(tx) = btc_client.get_tx(&spend_txid).await?
+    {
+        if spend_txid == take1_txid || spend_txid == take2_txid || tx.input.len() < 2 {
+            return Ok(());
+        }
+
+        let _diprove_type = if tx.input[1].previous_output.vout == 0 {
+            DisproveTxType::QuickChallenge
+        } else {
+            DisproveTxType::ChallengeIncompeleteKickoff
+        };
+        let _challenge_start_txid: Txid = if let Some(txid) = graph.challenge_txid.clone() {
+            txid.into()
+        } else {
+            Txid::all_zeros()
+        };
+
+        // TODO p2p send
+    }
+
+    Ok(())
 }
 
 async fn detect_disproved_txids(
@@ -1581,7 +1645,7 @@ async fn detect_disproved_txids(
     if sub_status.assert_commit_status == AssertCommitStatus::OperatorCommitTimeout {
         sub_status.disprove_type = Some(DisproveTxType::AssertTimeout);
         return Ok(
-            match find_assert_timeout_spend_tx(
+            match find_assert_timeout_tx(
                 btc_client,
                 storage_processor,
                 &graph.graph_id,
@@ -1600,12 +1664,11 @@ async fn detect_disproved_txids(
     if sub_status.watchtower_challenge_status == WatchtowerChallengeStatus::OperatorNACK {
         sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
         return Ok(
-            match find_spend_tx_for_disproved_index(
+            match find_challenge_nack_tx(
                 btc_client,
                 storage_processor,
                 &graph.graph_id,
                 &watchtower_challenge_init_txid.into(),
-                |index| (index * 2 + 1) as u64,
             )
             .await?
             {
