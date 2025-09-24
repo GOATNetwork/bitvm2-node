@@ -287,7 +287,7 @@ pub struct Graph {
     pub status: String,     // GraphStatus
     pub sub_status: String, // GraphStatus
     pub operator_pubkey: String,
-    pub pre_kickoff_txid: Option<SerializableTxid>,
+    pub next_prekickoff: Option<SerializableTxid>,
     pub cur_prekickoff_txid: Option<SerializableTxid>,
     pub force_skip_kickoff_txid: Option<SerializableTxid>,
     pub quick_challenge_txid: Option<SerializableTxid>,

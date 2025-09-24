@@ -80,8 +80,8 @@ use tracing_subscriber::EnvFilter;
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin_light_client::{
-    create_dummy_publisher_keys, create_fee_tx, create_sequencer_update_partial_tx,
-    create_sequencer_update_script, decode_eth_address, estimate_tx_vbytes, finalize, sign_partial,
+    create_fee_tx, create_sequencer_update_partial_tx, create_sequencer_update_script,
+    decode_eth_address, estimate_tx_vbytes, finalize, sign_partial,
 };
 use hex::FromHex;
 use serde::{Deserialize, Serialize};
