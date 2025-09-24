@@ -2,8 +2,8 @@
 //! Example:
 //! ```
 //! export BITCOIN_NETWORK=regtest
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin"
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed2.bin --output "output.bin"
+//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
+//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin"
 //! ```
 use ark_serialize::CanonicalSerialize;
 use borsh::BorshDeserialize;
@@ -39,7 +39,7 @@ pub struct Args {
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
 
-    #[clap(long, env, default_value = "compressed.bin")]
+    #[clap(long, env, default_value = "commit-proof.bin")]
     output: String,
 
     #[clap(long, env, default_value = "../../header-chain-proof/host/block_headers.bin")]

@@ -78,7 +78,7 @@ bitcoin = { workspace = true }
 goat = { workspace = true }
 uuid = { workspace = true }
 hex = { workspace = true }
-alloy = { workspace = true }
+alloy = { workspace = true, features = ["full", "serde"] }
 secp256k1 = { workspace = true }
 sha2 = { workspace = true }
 dotenv = "0.15.0"

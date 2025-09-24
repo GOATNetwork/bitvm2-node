@@ -18,12 +18,11 @@ use header_chain::{
     BlockHeaderCircuitOutput, ChainState, CircuitTransaction, HeaderChainCircuitInput,
     HeaderChainPrevProofType, SPV,
 };
-use revm_database_interface::DatabaseRef;
+use revm::DatabaseRef;
 use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
 pub use guest_executor::io::EthClientExecutorInput;
-use guest_executor::io::WitnessInput;
 
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
 fn verify_el_withdraw_tx(
@@ -42,8 +41,7 @@ fn verify_el_withdraw_tx(
     data[64..].copy_from_slice(&mut k);
     let slot_id = B256::from(keccak256(data));
 
-    let sealed_headers: Vec<_> = input.sealed_headers().collect();
-    let triedb = input.witness_db(&sealed_headers).unwrap();
+    let triedb = input.witness_db().unwrap();
     triedb.storage_ref(l2_contract_address, slot_id.into()).unwrap()
 }
 

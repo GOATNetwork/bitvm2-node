@@ -53,7 +53,8 @@ blake3 = "=1.5.1"
 musig2 = { version = "0.1.0", features = ["serde", "rand"] }
 futures = "0.3.30"
 async-trait = "0.1.81"
-alloy = { git = "https://github.com/alloy-rs/alloy", features = ["full"] }
+alloy = { git = "https://github.com/alloy-rs/alloy", features = ["full", "serde"] }
+#alloy = { git = "https://github.com/ziren-patches/alloy", branch="patch-0.14.0", features = ["full", "serde"]}
 clap = { version = "4.5.23", features = ["derive", "cargo", "env"] }
 secp256k1 = { version = "0.29.1", features = ["global-context"] }
 
@@ -111,13 +112,13 @@ logroller = { version = "0.1", features = ["tracing"] }
 # workspace
 
 # Reth
-guest-executor = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
-host-executor = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
-rpc-db = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
-primitives = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
-provider = { git = "https://github.com/ProjectZKM/reth-processor", branch = "stateless" }
+guest-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
+host-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
+rpc-db = { git = "https://github.com/ProjectZKM/reth-processor" }
+primitives = { git = "https://github.com/ProjectZKM/reth-processor" }
+provider = { git = "https://github.com/ProjectZKM/reth-processor"}
 
-reth-chainspec = { git = "https://github.com/ziren-patches/reth", branch = "patch-1.5.1", default-features = false }
+reth-chainspec = { git = "https://github.com/ziren-patches/reth", branch = "patch-1.3.10", default-features = false }
 
 # guest-executor = { path = "../../reth-processor/crates/executor/guest" }
 # host-executor = { path = "../../reth-processor/crates/executor/host", features = ["alerting"] }
@@ -126,15 +127,18 @@ reth-chainspec = { git = "https://github.com/ziren-patches/reth", branch = "patc
 
 
 # revm
-revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-22.0.0", features = [ "kzg-rs", "bn" ], default-features = false }
-revm-database-interface = { git = "https://github.com/ziren-patches/revm", branch = "patch-27.0.2", default-features = false }
+revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-22.0.0", features = ["serde", "kzg-rs", "bn"], default-features = false }
+revm-database-interface = { git = "https://github.com/ziren-patches/revm", branch = "patch-27.0.2", default-features = false, features = ["serde"] }
 
 # alloy
 alloy-rlp = "1.0"
 alloy-trie = "1.0"
-alloy-chains = { version = "0.2.0", default-features = false }
-alloy-primitives = { version = "1.2", default-features = false, features = ["sha3-keccak", "map-foldhash"] }
-alloy-provider = { version = "1.0.0", default-features = false }
+alloy-chains = { version = "0.2.0", default-features = false, features = ["serde"] }
+alloy-primitives = { version = "1.2", default-features = false, features = ["sha3-keccak", "map-foldhash", "serde"] }
+alloy-provider = { git = "https://github.com/ziren-patches/alloy", branch = "patch-0.14.0", default-features = false, features = [
+    "reqwest",
+    "reqwest-rustls-tls",
+] }
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"

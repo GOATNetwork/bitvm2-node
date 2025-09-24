@@ -32,6 +32,7 @@ host-executor.workspace = true
 reth-chainspec = { workspace = true, default-features = false }
 primitives.workspace = true
 provider.workspace = true
+alloy-provider = { workspace = true, default-features = false }
 
 borsh = { workspace = true }
 bitcoin-light-client = { workspace = true }

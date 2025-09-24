@@ -22,8 +22,8 @@ tracing = { version = "0.1", features = ["max_level_off", "release_max_level_off
 
 bitcoin = { version = "0.32.6", features = ["serde", "rand", "secp-recovery"] }
 
-alloy-primitives = { version = "1.2", default-features = false, features = ["sha3-keccak", "map-foldhash"] }
-revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-22.0.0", features = [ "kzg-rs", "bn" ], default-features = false }
+alloy-primitives = { version = "1.2", default-features = false, features = ["sha3-keccak", "map-foldhash", "serde"] }
+revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-22.0.0", features = ["serde", "kzg-rs", "bn"], default-features = false }
 sha2 = "0.10.8"
 
 

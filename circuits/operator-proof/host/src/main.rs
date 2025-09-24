@@ -1,15 +1,16 @@
 //! Generate header chain proof
 //! Example:
 //! ```
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed.bin --output "output.bin"
+//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
 //! ```
 use client::btc_chain::BTCClient;
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use std::sync::Arc;
-use zkm_sdk::{ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf};
-
+use zkm_sdk::{ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf, HashableKey};
+use rpc_db::RpcDb;
+use alloy_provider::{RootProvider, network::Ethereum};
 use alloy_primitives::U256;
 use bitcoin::{Network, ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::{
@@ -18,11 +19,12 @@ use bitcoin_light_client::{
 };
 use borsh::BorshDeserialize;
 use std::str::FromStr;
-
+use ark_serialize::CanonicalSerialize;
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
 use reth_chainspec::ChainSpec;
 use url::Url;
+use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 /// A program that aggregates the proofs of the simple program.
 const OPERATOR: &[u8] = include_elf!("guest");
@@ -42,7 +44,11 @@ fn str_to_16_bytes_exact(s: &str) -> Result<[u8; 16], String> {
 async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
     // Setup the provider.
     let rpc_url = Url::parse(&args.execution_layer_rpc).expect("invalid rpc url");
-    let provider = ::provider::create_provider(rpc_url);
+
+    let provider = RootProvider::<Ethereum>::new_http(rpc_url);
+
+    let rpc_db =
+        RpcDb::new(provider.clone(), provider.clone(), args.execution_layer_block_number - 1);
 
     let genesis = &Genesis::GOAT;
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
@@ -53,7 +59,7 @@ async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
     let client_input = host_executor
         .execute(
             args.execution_layer_block_number,
-            &provider,
+            &rpc_db,
             &provider,
             genesis.clone(),
             custom_beneficiary,
@@ -103,7 +109,7 @@ pub struct Args {
     #[clap(long, env, short)]
     watchtower_challenge_info: String,
 
-    #[clap(long, env, default_value = "compressed.bin")]
+    #[clap(long, env, default_value = "commit-proof.bin")]
     output: String,
 
     #[clap(long, env, default_value = "../../header-chain-proof/host/block_headers.bin")]
@@ -262,7 +268,22 @@ async fn main() {
         client.prove(&proof_pk, stdin).groth16().run().expect("proving failed")
     });
 
-    fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
-    fs::write(&format!("{}.vk", args.output), bincode::serialize(&proof_vk).unwrap()).unwrap();
-    println!("Generate proof successfully, proof: {:?}", proof);
+    //fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
+    //fs::write(&format!("{}.vk", args.output), bincode::serialize(&proof_vk).unwrap()).unwrap();
+    //println!("Generate proof successfully, proof: {:?}", proof);
+
+    let groth16_vk = &GROTH16_VK_BYTES;
+    let ark_proof =
+        convert_ark(&proof, proof_vk.bytes32().as_ref(), groth16_vk).unwrap();
+
+    let mut writer = std::fs::File::create(format!("{}.proof.bin", args.output)).unwrap();
+    ark_proof.proof.serialize_compressed(&mut writer).unwrap();
+
+    let mut writer = std::fs::File::create(format!("{}.vk.bin", args.output)).unwrap();
+    ark_proof.groth16_vk.serialize_compressed(&mut writer).unwrap();
+
+    let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", args.output)).unwrap();
+    ark_proof.public_inputs.serialize_compressed(&mut writer).unwrap();
+
+    println!("Generate proof successfully, Ark proof: {:?}", ark_proof);
 }

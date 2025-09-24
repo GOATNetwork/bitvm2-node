@@ -1,7 +1,7 @@
 //! Generate commit chain proof
 //! Example:
-//!     Genesis:       RUST_LOG=debug cargo run -r -- --init-input --output-proof "compressed.bin"
-//!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "compressed.bin" --output-proof "compressed2.bin" --commit-info ../../../node/tests_data/commit_info2.json
+//!     Genesis:       RUST_LOG=debug cargo run -r -- --init-input --output-proof "commit-proof.bin"
+//!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
 use bitcoin::{Network, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::*;
 use client::btc_chain::BTCClient;
