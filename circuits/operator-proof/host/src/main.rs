@@ -3,27 +3,29 @@
 //! ```
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
 //! ```
-use client::btc_chain::BTCClient;
-use header_chain::{
-    CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
-};
-use std::sync::Arc;
-use zkm_sdk::{ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf, HashableKey};
-use rpc_db::RpcDb;
-use alloy_provider::{RootProvider, network::Ethereum};
 use alloy_primitives::U256;
+use alloy_provider::{RootProvider, network::Ethereum};
+use ark_serialize::CanonicalSerialize;
 use bitcoin::{Network, ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::{
     CommitChainCircuitInput, CommitChainPrevProofType, EthClientExecutorInput, LightBlock,
     build_spv,
 };
 use borsh::BorshDeserialize;
-use std::str::FromStr;
-use ark_serialize::CanonicalSerialize;
+use client::btc_chain::BTCClient;
+use header_chain::{
+    CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
+};
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
 use reth_chainspec::ChainSpec;
+use rpc_db::RpcDb;
+use std::str::FromStr;
+use std::sync::Arc;
 use url::Url;
+use zkm_sdk::{
+    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+};
 use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 /// A program that aggregates the proofs of the simple program.
@@ -273,8 +275,7 @@ async fn main() {
     //println!("Generate proof successfully, proof: {:?}", proof);
 
     let groth16_vk = &GROTH16_VK_BYTES;
-    let ark_proof =
-        convert_ark(&proof, proof_vk.bytes32().as_ref(), groth16_vk).unwrap();
+    let ark_proof = convert_ark(&proof, proof_vk.bytes32().as_ref(), groth16_vk).unwrap();
 
     let mut writer = std::fs::File::create(format!("{}.proof.bin", args.output)).unwrap();
     ark_proof.proof.serialize_compressed(&mut writer).unwrap();
