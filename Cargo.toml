@@ -6,7 +6,6 @@ edition = "2024"
 resolver = "3"
 members = [
     "node",
-    "crates/bitvm2",
     "crates/bitvm2-ga",
     "crates/store",
     "crates/client",
@@ -23,8 +22,8 @@ members = [
 default-members = ["node"]
 
 [workspace.dependencies]
-bitvm = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test-dev" }
-goat = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "goat-test-dev" }
+bitvm = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "GA" }
+goat = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "GA" }
 
 libp2p = { version = "0.55.0", features = ["tokio", "dns", "kad", "noise", "tcp", "yamux", "rsa", "ping", "mdns"] }
 libp2p-swarm-derive = "0.35.0"
@@ -82,8 +81,7 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"]
 #zkm-sdk = { path = "../Ziren/crates/sdk" }
 #zkm-verifier = { path = "../Ziren/crates/verifier" }
 
-bitvm2-lib = { path = "crates/bitvm2" }
-bitvm2-lib-ga = { path = "crates/bitvm2-ga" }
+bitvm2-lib = { path = "crates/bitvm2-ga" }
 store = { path = "crates/store" }
 client = { path = "crates/client" }
 bitcoin-light-client = { path = "crates/bitcoin-light-client" }

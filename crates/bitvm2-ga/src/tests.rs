@@ -276,7 +276,6 @@ mod tests {
             instance_id,
             user_info,
             pegin_amount,
-            challenge_amount,
             committee_pubkeys,
             committee_agg_pubkey,
         };

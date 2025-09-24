@@ -242,6 +242,7 @@ pub enum GraphStatus {
     OperatorPresigned,
     CommitteePresigned,
     OperatorDataPushed,
+    PreKickoff,
     OperatorKickOff,
     Challenge,
     Disprove,

@@ -103,8 +103,6 @@ pub async fn committee_scheduled_tasks(
 #[allow(dead_code)]
 fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
     match content {
-        GOATMessageContent::CreateInstance(_) => MessageType::CreateInstance,
-        GOATMessageContent::CreateGraphPrepare(_) => MessageType::CreateGraphPrepare,
         GOATMessageContent::CreateGraph(_) => MessageType::CreateGraph,
         GOATMessageContent::NonceGeneration(_) => MessageType::NonceGeneration,
         GOATMessageContent::CommitteePresign(_) => MessageType::CommitteePresign,
@@ -114,14 +112,13 @@ fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
         GOATMessageContent::Take1Ready(_) => MessageType::Take1Ready,
         GOATMessageContent::Take1Sent(_) => MessageType::Take1Sent,
         GOATMessageContent::ChallengeSent(_) => MessageType::ChallengeSent,
-        GOATMessageContent::AssertSent(_) => MessageType::AssertSent,
         GOATMessageContent::Take2Ready(_) => MessageType::Take2Ready,
         GOATMessageContent::Take2Sent(_) => MessageType::Take2Sent,
-        GOATMessageContent::DisproveSent(_) => MessageType::DisproveSent,
         GOATMessageContent::RequestNodeInfo(_) => MessageType::RequestNodeInfo,
         GOATMessageContent::ResponseNodeInfo(_) => MessageType::ResponseNodeInfo,
         GOATMessageContent::SyncGraphRequest(_) => MessageType::SyncGraphRequest,
         GOATMessageContent::SyncGraph(_) => MessageType::SyncGraph,
         GOATMessageContent::InstanceDiscarded(_) => MessageType::InstanceDiscarded,
+        _ => todo!("other message type"),
     }
 }

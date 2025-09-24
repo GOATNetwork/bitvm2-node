@@ -3,11 +3,11 @@ use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use alloy::rpc::types::TransactionReceipt;
+use alloy::signers::Signature;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 use uuid::Uuid;
-use alloy::signers::Signature;
 
 #[async_trait]
 pub trait ChainAdaptor: Send + Sync {

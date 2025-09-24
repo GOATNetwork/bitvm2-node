@@ -1,16 +1,17 @@
 use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::{committee_scheduled_tasks, relayer_scheduled_tasks};
 use crate::utils::*;
+use anyhow::Result;
 use bitcoin::PublicKey;
 use bitcoin::{Amount, Network, Txid};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::committee::*;
-use bitvm2_lib::types::{CustomInputs, SimplifiedBitvm2Graph};
+use bitvm2_lib::types::{Bitvm2InstanceParameters, SimplifiedBitvm2Graph, UserInfo};
+use client::goat_chain::DisproveTxType;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
-use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm, gossipsub};
-use musig2::{AggNonce, PartialSignature, PubNonce};
+use musig2::{PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
 use store::GraphStatus;
 use store::ipfs::IPFS;
@@ -26,21 +27,34 @@ pub struct GOATMessage {
 
 #[derive(Serialize, Deserialize)]
 pub enum GOATMessageContent {
-    CreateInstance(CreateInstance),
-    CreateGraphPrepare(CreateGraphPrepare),
+    PeginRequest(PeginRequest),
     CreateGraph(CreateGraph),
+    ConfirmInstance(ConfirmInstance),
     NonceGeneration(NonceGeneration),
     CommitteePresign(CommitteePresign),
     GraphFinalize(GraphFinalize),
+    EndorseGraph(EndorseGraph),
+    PeginConfirmNonce(PeginConfirmNonce),
+    PeginConfirmPartialSig(PeginConfirmPartialSig),
     KickoffReady(KickoffReady),
     KickoffSent(KickoffSent),
+    PreKickoffSent(PreKickoffSent),
+    ChallengeSent(ChallengeSent),
+    WatchtowerChallengeInitSent(WatchtowerChallengeInitSent),
+    WatchtowerChallengeSent(WatchtowerChallengeSent),
+    WatchtowerChallengeTimeout(WatchtowerChallengeTimeout),
+    OperatorAckTimeout(OperatorAckTimeout),
+    OperatorCommitBlockHashReady(OperatorCommitBlockHashReady),
+    OperatorCommitBlockHashSent(OperatorCommitBlockHashSent),
+    OperatorCommitBlockHashTimeout(OperatorCommitBlockHashTimeout),
+    AssertInitReady(AssertInitReady),
+    AssertCommitTimeout(AssertCommitTimeout),
+    DisproveReady(DisproveReady),
+    DisproveSent(DisproveSent),
     Take1Ready(Take1Ready),
     Take1Sent(Take1Sent),
-    ChallengeSent(ChallengeSent),
-    AssertSent(AssertSent),
     Take2Ready(Take2Ready),
     Take2Sent(Take2Sent),
-    DisproveSent(DisproveSent),
     RequestNodeInfo(NodeInfo),
     ResponseNodeInfo(NodeInfo),
     SyncGraphRequest(SyncGraphRequest),
@@ -48,52 +62,43 @@ pub enum GOATMessageContent {
     InstanceDiscarded(InstanceDiscarded),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct CreateInstance {
-    pub instance_id: Uuid,
-    pub network: Network,
-    pub depositor_evm_address: [u8; 20],
-    pub pegin_amount: Amount,
-    pub user_inputs: CustomInputs,
-}
+/// Pegin
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct CreateGraphPrepare {
+pub struct PeginRequest {
     pub instance_id: Uuid,
     pub network: Network,
-    pub depositor_evm_address: [u8; 20],
     pub pegin_amount: Amount,
-    pub user_inputs: CustomInputs,
-    pub committee_member_pubkey: PublicKey,
-    pub committee_members_num: usize,
+    pub user_info: UserInfo,
 }
-
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ConfirmInstance {
+    pub instance_id: Uuid,
+    pub network: Network,
+    pub parameters: Bitvm2InstanceParameters,
+}
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CreateGraph {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub graph: SimplifiedBitvm2Graph,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct NonceGeneration {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub committee_pubkey: PublicKey,
-    pub pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM],
-    pub committee_members_num: usize,
+    pub pub_nonces: CommitteePubNonces,
+    pub nonce_sigs: CommitteeNonceSignatures,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CommitteePresign {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub committee_pubkey: PublicKey,
-    pub committee_partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
-    pub agg_nonces: [AggNonce; COMMITTEE_PRE_SIGN_NUM],
-    pub committee_members_num: usize,
+    pub committee_partial_sigs: CommitteePartialSignatures,
+    pub agg_nonces: CommitteeAggNonces,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GraphFinalize {
     pub instance_id: Uuid,
@@ -101,68 +106,135 @@ pub struct GraphFinalize {
     pub graph: SimplifiedBitvm2Graph,
     pub graph_ipfs_cid: String,
 }
+#[derive(Serialize, Deserialize, Clone)]
+pub struct EndorseGraph {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub committee_pubkey: PublicKey,
+    pub committee_sig_for_graph: Vec<u8>, // ECDSA signature signed with committee evm keypair
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PeginConfirmNonce {
+    pub instance_id: Uuid,
+    pub committee_pubkey: PublicKey,
+    pub pub_nonces: PubNonce,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PeginConfirmPartialSig {
+    pub instance_id: Uuid,
+    pub committee_pubkey: PublicKey,
+    pub partial_sig: PartialSignature,
+}
+
+/// Pegout
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KickoffReady {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KickoffSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub kickoff_txid: Txid,
 }
-
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PreKickoffSent {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+}
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChallengeSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub challenge_txid: Txid,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
-pub struct AssertSent {
+pub struct WatchtowerChallengeInitSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub assert_init_txid: Txid,
-    pub assert_commit_txids: [Txid; COMMIT_TX_NUM],
-    pub assert_final_txid: Txid,
 }
-
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WatchtowerChallengeSent {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub watchtower_challenge_txids: Vec<(usize, Txid)>,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WatchtowerChallengeTimeout {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub watchtower_indexs: Vec<usize>,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct OperatorAckTimeout {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub watchtower_indexs: Vec<usize>,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct OperatorCommitBlockHashReady {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct OperatorCommitBlockHashSent {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub operator_commit_blockhash_txid: Txid,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct OperatorCommitBlockHashTimeout {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AssertInitReady {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AssertCommitTimeout {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub assert_commit_indexs: Vec<usize>,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DisproveReady {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DisproveSent {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub disprove_type: DisproveTxType,
+    pub index: usize, // nack txns index or assert timeout txns index, ignored for other disprove types
+    pub challenge_start_txid: Txid,
+    pub challenge_finish_txid: Txid,
+}
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Take1Ready {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Take1Sent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub take1_txid: Txid,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Take2Ready {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
 }
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Take2Sent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub take2_txid: Txid,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct DisproveSent {
-    pub instance_id: Uuid,
-    pub graph_id: Uuid,
-    pub disprove_txid: Txid,
-}
+/// Others
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct NodeInfo {
@@ -270,36 +342,210 @@ pub async fn recv_and_dispatch(
     _btc_client: &BTCClient,
     _goat_client: &GOATClient,
     _ipfs: &IPFS,
-    _actor: Actor,
+    actor: Actor,
     from_peer_id: PeerId,
     id: MessageId,
-    _message: &[u8],
-) -> anyhow::Result<()> {
+    message: &[u8],
+) -> Result<()> {
     if id != GOATMessage::default_message_id() {
         update_node_timestamp(local_db, &from_peer_id.to_string()).await?;
     }
 
-    // todo handle message
-    Ok(())
-}
-
-#[allow(dead_code)]
-async fn sync_graph_without_waiting(
-    swarm: &mut Swarm<AllBehaviours>,
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-) -> anyhow::Result<Option<GraphStatus>> {
-    if let Ok(status_op) = get_graph_status(local_db, instance_id, graph_id).await
-        && status_op.is_some()
-    {
-        Ok(status_op)
-    } else {
-        let message_content =
-            GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id });
-        send_to_peer(swarm, GOATMessage::from_typed(Actor::Relayer, &message_content)?)?;
-        Ok(None)
+    let message: GOATMessage = serde_json::from_slice(&message)?;
+    let content: GOATMessageContent = message.to_typed()?;
+    match (content, actor) {
+        (GOATMessageContent::PeginRequest(_data), Actor::Committee) => {
+            // triggered by BridgeInRequest event
+            // 1. check the pegin request data
+            // 2. call Gateway.answerPeginRequest
+            // 3. save the pegin request data to local db
+            todo!("Handle PeginRequest");
+        }
+        (GOATMessageContent::PeginRequest(_data), _) => {
+            // triggered by BridgeInRequest event
+            // 1. check the pegin request data
+            // 2. save the pegin request data to local db
+            todo!("Handle PeginRequest");
+        }
+        (GOATMessageContent::ConfirmInstance(_data), Actor::Operator) => {
+            // triggered by PeginDeposit tx
+            // 1. check parameters
+            // 2. create & presign graph
+            // 3. broadcast CreateGraph
+            // 4. save the instance data to local db
+            todo!("Handle ConfirmInstance");
+        }
+        (GOATMessageContent::ConfirmInstance(_data), _) => {
+            // triggered by PeginDeposit tx
+            // 1. check parameters
+            // 2. save the instance data to local db
+            todo!("Handle ConfirmInstance");
+        }
+        (GOATMessageContent::CreateGraph(_data), Actor::Committee) => {
+            // received from Operator
+            // 1. check graph data & operator stake
+            // 2. generate Musig2 nonces & broadcast NonceGeneration
+            // 3. save the graph data to local db
+            todo!("Handle CreateGraph");
+        }
+        (GOATMessageContent::NonceGeneration(_data), Actor::Committee) => {
+            // received from Committee members
+            // 1. check pub_nonces & nonce signatures
+            // 2. save the pub_nonces to local db
+            // 3. if received enough pub_nonces, generate partial signatures & broadcast CommitteePresign
+            todo!("Handle NonceGeneration");
+        }
+        (GOATMessageContent::CommitteePresign(_data), Actor::Operator) => {
+            // received from Committee members
+            // 1. check committee partial sigs
+            // 2. save the committee partial sigs to local db
+            // 3. if received enough committee partial sigs, aggregate the sigs, finalize the graph, push data to ipfs & broadcast GraphFinalize
+            todo!("Handle CommitteePresign");
+        }
+        (GOATMessageContent::GraphFinalize(_data), Actor::Committee) => {
+            // received from Operator
+            // 1. check graph data & ipfs cid
+            // 2. save the graph data to local db
+            // 3. generate endorsement signature & broadcast EndorseGraph
+            todo!("Handle GraphFinalize");
+        }
+        (GOATMessageContent::GraphFinalize(_data), _) => {
+            // received from Operator
+            // 1. check graph data & ipfs cid
+            // 2. save the graph data to local db
+            todo!("Handle GraphFinalize");
+        }
+        (GOATMessageContent::EndorseGraph(_data), Actor::Committee) => {
+            // received from Committee members
+            // 1. check endorsement signature
+            // 2. save the endorsement signature to local db
+            // 3. if received enough endorsement signatures, mark the graph as endorsed
+            // 4. if endorsed graph count >= threshold, generate & broadcast PeginConfirmNonce
+            todo!("Handle EndorseGraph");
+        }
+        (GOATMessageContent::PeginConfirmNonce(_data), Actor::Committee) => {
+            // received from Committee members
+            // 1. check pub_nonce
+            // 2. save the pub_nonce to local db
+            // 3. if received enough pub_nonces, generate partial signature & broadcast PeginConfirmPartialSig
+            todo!("Handle PeginConfirmNonce");
+        }
+        (GOATMessageContent::PeginConfirmPartialSig(_data), Actor::Committee) => {
+            // received from Committee members
+            // 1. check partial signature
+            // 2. save the partial signature to local db
+            // 3. (Relayer) if received enough partial signatures, aggregate the sigs, call postPeginData & postGraphData
+            todo!("Handle PeginConfirmPartialSig");
+        }
+        (GOATMessageContent::KickoffReady(_data), Actor::Operator) => {
+            // triggered by InitWithdraw event from GoatChain
+            // 1. check the withdraw status on GoatChain
+            // 2. sign & broadcast prekickoff & kickoff txns
+            todo!("Handle KickoffReady");
+        }
+        (GOATMessageContent::KickoffSent(_data), Actor::Challenger) => {
+            // triggered by Kickoff tx
+            // 1. check the withdraw status on GoatChain
+            // 2. if the its invalid, sign & broadcast challenge txn
+            todo!("Handle KickoffSent");
+        }
+        (GOATMessageContent::PreKickoffSent(_data), Actor::Challenger) => {
+            // triggered by PreKickoff tx
+            // 1. check the previous graph status
+            // 2. if previous kickoff is not closed, broadcast quick-challenge/challenge-incomplete-kickoff txn
+            // 3. if previous kickoff not started, broadcast force-skip-kickoff txn
+            todo!("Handle PreKickoffSent");
+        }
+        (GOATMessageContent::ChallengeSent(_data), Actor::Operator) => {
+            // triggered by Challenge tx
+            // 1. check the challenge tx status on Bitcoin chain
+            // 2. if the challenge is confirmed, sign & broadcast watchtower-challenge-init txn
+            todo!("Handle ChallengeSent");
+        }
+        (GOATMessageContent::WatchtowerChallengeInitSent(_data), Actor::Watchtower) => {
+            // triggered by WatchtowerChallengeInit tx
+            // 1. check the withdraw status on GoatChain
+            // 2. if the withdraw is invalid, sign & broadcast watchtower-challenge txn
+            todo!("Handle WatchtowerChallengeInitSent");
+        }
+        (GOATMessageContent::WatchtowerChallengeSent(_data), Actor::Operator) => {
+            // triggered by WatchtowerChallenge tx
+            // 1. check the watchtower-challenge tx status on Bitcoin chain
+            // 2. if the challenge is confirmed, sign & broadcast operator-ack txn
+            todo!("Handle WatchtowerChallengeSent");
+        }
+        (GOATMessageContent::WatchtowerChallengeTimeout(_data), Actor::Operator) => {
+            // triggered by timeout task
+            // 1. sign & broadcast operator-ack txn
+            todo!("Handle WatchtowerChallengeTimeout");
+        }
+        (GOATMessageContent::OperatorAckTimeout(_data), Actor::Challenger) => {
+            // triggered by timeout task
+            // 1. broadcast Nack txn
+            todo!("Handle OperatorAckTimeout");
+        }
+        (GOATMessageContent::OperatorCommitBlockHashReady(_data), Actor::Operator) => {
+            // triggered by timeout task
+            // 1. check that all WatchtowerChallenge Connector are spent
+            // 2. sign & broadcast commit-blockhash txn
+            todo!("Handle OperatorCommitBlockHashReady");
+        }
+        (GOATMessageContent::OperatorCommitBlockHashSent(_data), Actor::Challenger) => {
+            // triggered by CommitBlockHash tx
+            // 1. get CommitBlockHash tx, save it to local db
+            // 2. if CommitBlockHash tx and all AssertCommit txns are sent, start disprove process
+            todo!("Handle OperatorCommitBlockHashSent");
+        }
+        (GOATMessageContent::OperatorCommitBlockHashTimeout(_data), Actor::Challenger) => {
+            // triggered by timeout task
+            // 1. broadcast OperatorCommitBlockHashTimeout txn
+            todo!("Handle OperatorCommitBlockHashTimeout");
+        }
+        (GOATMessageContent::AssertInitReady(_data), Actor::Operator) => {
+            // triggered by timeout task
+            // 1. sign & broadcast assert-init txn
+            // 2. sign & broadcast assert-commit txns
+            todo!("Handle AssertInitReady");
+        }
+        (GOATMessageContent::AssertCommitTimeout(_data), Actor::Challenger) => {
+            // triggered by timeout task
+            // 1. broadcast AssertCommitTimeout txn
+            todo!("Handle AssertCommitTimeout");
+        }
+        (GOATMessageContent::DisproveReady(_data), Actor::Challenger) => {
+            // triggered by AssertCommitSent/OperatorCommitBlockHashSent
+            // 1. check assertions committed by Operator
+            // 2. if any assertion is invalid, sign & broadcast disprove txn
+            todo!("Handle DisproveReady");
+        }
+        (GOATMessageContent::DisproveSent(_data), Actor::Committee) => {
+            // triggered by Disprove tx
+            // 1. (Relayer) call finalizeWithdrawDisprove on GoatChain
+            todo!("Handle DisproveSent");
+        }
+        (GOATMessageContent::Take1Ready(_data), Actor::Operator) => {
+            // triggered by timeout task
+            // 1. sign & broadcast take1 txn
+            todo!("Handle Take1Ready");
+        }
+        (GOATMessageContent::Take1Sent(_data), Actor::Committee) => {
+            // triggered by Take1 tx
+            // 1. (Relayer) call finalizeWithdrawHappyPath on GoatChain
+            todo!("Handle Take1Sent");
+        }
+        (GOATMessageContent::Take2Ready(_data), Actor::Operator) => {
+            // triggered by timeout task
+            // 1. sign & broadcast take2 txn
+            todo!("Handle Take2Ready");
+        }
+        (GOATMessageContent::Take2Sent(_data), Actor::Committee) => {
+            // triggered by Take2 tx
+            // 1. (Relayer) call finalizeWithdrawHappyPath on GoatChain
+            todo!("Handle Take2Sent");
+        }
+        _ => {}
     }
+    Ok(())
 }
 
 pub fn send_to_peer(

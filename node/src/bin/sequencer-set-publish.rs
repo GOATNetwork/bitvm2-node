@@ -19,40 +19,40 @@
 //!     cargo build -r
 //!     CMD="../target/release/sequencer-set-publish"
 //!     
-//!     $CMD fund 
+//!     $CMD fund
 //!     
 //!     # payfee
 //!     $CMD payfee
 //!     
-//!     # sign sequencer set publishing genisis txn 
-//!     $CMD push-seq --goat-block-number $HEIGHT 
+//!     # sign sequencer set publishing genisis txn
+//!     $CMD push-seq --goat-block-number $HEIGHT
 //!     
 //!     $CMD payfee
 //!     
 //!     $CMD sign-seq --owner-btc-key-wif cMec2DGaTXkYJYfi7x3ZGjRXkeqmAvYAoWzMAcWj5fdLaqudWsNi \
-//!         --goat-block-number $HEIGHT 
+//!         --goat-block-number $HEIGHT
 //!     $CMD sign-seq --owner-btc-key-wif cMgZD2qsGReP1UvGbNQ7moL6PZFgzsuPFV3St8sGwpNxED4hqkEM \
-//!         --goat-block-number $HEIGHT 
+//!         --goat-block-number $HEIGHT
 //!     $CMD sign-seq --owner-btc-key-wif cMiWPrRA5KYDiRAq4nkgGsEf2TfcpqGbhT6YbfDpoy8ZsaAHiDeo \
 //!         --goat-block-number $HEIGHT
 //!     
 //!     # submit update-seq-set to GOAT
-//!     $CMD --goat-evm-prvkey 0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6 update-seq-set --goat-block-number $HEIGHT 
-//!     $CMD --goat-evm-prvkey 0x134e45328c0cf16fa450e9b40c34cba16a7eac2001b907f1de6a28549776f93e update-seq-set --goat-block-number $HEIGHT 
-//!     $CMD --goat-evm-prvkey 0xe079ee9ddc9440df0e55ca9966b87cdf145dad8cd04a7d6795f80a37a6130305 update-seq-set --goat-block-number $HEIGHT 
-//!     $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a91430a102fbf7 update-seq-set --goat-block-number $HEIGHT 
+//!     $CMD --goat-evm-prvkey 0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6 update-seq-set --goat-block-number $HEIGHT
+//!     $CMD --goat-evm-prvkey 0x134e45328c0cf16fa450e9b40c34cba16a7eac2001b907f1de6a28549776f93e update-seq-set --goat-block-number $HEIGHT
+//!     $CMD --goat-evm-prvkey 0xe079ee9ddc9440df0e55ca9966b87cdf145dad8cd04a7d6795f80a37a6130305 update-seq-set --goat-block-number $HEIGHT
+//!     $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a91430a102fbf7 update-seq-set --goat-block-number $HEIGHT
 //!     
-//!     # sign offchain 
-//!     $CMD --goat-evm-prvkey 0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6 sign-pub 
-//!     $CMD --goat-evm-prvkey 0x134e45328c0cf16fa450e9b40c34cba16a7eac2001b907f1de6a28549776f93e sign-pub 
-//!     $CMD --goat-evm-prvkey 0xe079ee9ddc9440df0e55ca9966b87cdf145dad8cd04a7d6795f80a37a6130305 sign-pub 
-//!     $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a91430a102fbf7 sign-pub 
+//!     # sign offchain
+//!     $CMD --goat-evm-prvkey 0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6 sign-pub
+//!     $CMD --goat-evm-prvkey 0x134e45328c0cf16fa450e9b40c34cba16a7eac2001b907f1de6a28549776f93e sign-pub
+//!     $CMD --goat-evm-prvkey 0xe079ee9ddc9440df0e55ca9966b87cdf145dad8cd04a7d6795f80a37a6130305 sign-pub
+//!     $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a91430a102fbf7 sign-pub
 //!     
 //!     # update publisher on GOAT
-//!     $CMD push-pub --goat-block-number $HEIGHT 
+//!     $CMD push-pub --goat-block-number $HEIGHT
 //!     
 //!     # broadcast publisher changes to Bitcoin
-//!     $CMD push-seq --goat-block-number $HEIGHT 
+//!     $CMD push-seq --goat-block-number $HEIGHT
 //! ```
 //! The key wif is used only for test.
 //!
@@ -61,7 +61,6 @@ use alloy::signers::Signer;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol_types::SolValue;
 use bitcoin::CompressedPublicKey;
-use tracing_subscriber::EnvFilter;
 use bitcoin::{
     Address, Amount, Network, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction,
     TxIn, TxOut, Txid, Witness, absolute::LockTime, hashes::Hash, key::Keypair,
@@ -76,6 +75,7 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::goat_chain::GoatInitConfig;
 use dotenv::dotenv;
+use tracing_subscriber::EnvFilter;
 
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
@@ -544,7 +544,6 @@ async fn action_sign_publisher_update_on_goat(
     goat_evm_prvkey: Option<String>,
     next_publishers: Vec<EvmAddress>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-
     use alloy::sol;
     sol! {
         struct OwnersUpdate {
@@ -562,13 +561,9 @@ async fn action_sign_publisher_update_on_goat(
     let new_required: U256 = U256::from((2 + next_publishers.len() * 2) / 3);
     println!("new required: {}, nonce: {nonce}", new_required);
     let packed = {
-        let update = OwnersUpdate {
-            nonce,
-            newOwners: next_publishers,
-            newRequired: new_required,
-        };
+        let update = OwnersUpdate { nonce, newOwners: next_publishers, newRequired: new_required };
         update.abi_encode_packed()
-    };  
+    };
 
     println!("hash {:?}", hex::encode(&packed));
     let sig_hash = keccak256(packed);

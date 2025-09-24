@@ -22,8 +22,8 @@ use revm_database_interface::DatabaseRef;
 use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
-use guest_executor::io::WitnessInput;
 pub use guest_executor::io::EthClientExecutorInput;
+use guest_executor::io::WitnessInput;
 
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
 fn verify_el_withdraw_tx(

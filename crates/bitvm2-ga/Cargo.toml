@@ -1,11 +1,11 @@
 [package]
-name = "bitvm2-lib-ga"
+name = "bitvm2-lib"
 edition = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-bitvm = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "GA" }
-goat = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "GA" }
+bitvm = { workspace = true }
+goat = { workspace = true }
 serde = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-bn254 = { workspace = true }

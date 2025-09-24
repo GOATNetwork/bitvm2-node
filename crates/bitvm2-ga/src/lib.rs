@@ -8,4 +8,6 @@ pub mod keys;
 pub mod pegin;
 pub mod types;
 
+pub use goat::*;
+
 mod tests;

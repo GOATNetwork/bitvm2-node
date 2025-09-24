@@ -193,6 +193,18 @@ pub fn generate_bitvm_graph(
     params: Bitvm2GraphParameters,
     disprove_scripts: Vec<ScriptBuf>,
 ) -> Result<Bitvm2Graph> {
+    let network = params.instance_parameters.network;
+    let operator_pubkey = params.operator_pubkey;
+    let operator_taproot_public_key = XOnlyPublicKey::from(operator_pubkey);
+    let (connector_e, _) =
+        ConnectorE::new_with_scripts(network, &operator_taproot_public_key, disprove_scripts);
+    generate_bitvm_graph_inner(params, connector_e)
+}
+
+pub(crate) fn generate_bitvm_graph_inner(
+    params: Bitvm2GraphParameters,
+    connector_e: ConnectorE,
+) -> Result<Bitvm2Graph> {
     // TODO: check parameters?
     let network = params.instance_parameters.network;
     let operator_pubkey = params.operator_pubkey;
@@ -261,8 +273,6 @@ pub fn generate_bitvm_graph(
         ConnectorA::new(network, &operator_taproot_public_key, &n_of_n_taproot_public_key);
     let connector_b = ConnectorB::new(network, &operator_taproot_public_key);
     let connector_c = ConnectorC::new(network, &operator_taproot_public_key);
-    let (connector_e, _) =
-        ConnectorE::new_with_scripts(network, &operator_taproot_public_key, disprove_scripts);
     let guardian_connector = GuardianConnector::new(network, &operator_taproot_public_key);
     let kickoff = KickoffTransaction::new_for_validation(
         &kickoff_connector,

@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
-use bitcoin::PrivateKey;
 use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, TxOut, XOnlyPublicKey, key::Keypair};
+use bitcoin::{PrivateKey, Witness};
 use bitvm::chunk::api::{
     NUM_HASH, NUM_PUBS, NUM_U256, PublicKeys as ProofWotsPubkeys,
     Signatures as Groth16ProofSignatures,
@@ -22,6 +22,7 @@ use goat::transactions::kickoff::KickoffTransaction;
 use goat::transactions::pegin::{
     PegInConfirmTransaction, PegInDepositTransaction, PegInRefundTransaction,
 };
+use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::prekickoff::{
     ChallengeIncompleteKickoffTransaction, ForceSkipKickoffTransaction, PrekickoffTransaction,
     QuickChallengeTransaction,
@@ -36,6 +37,9 @@ use rand::{Rng, distributions::Alphanumeric};
 use secp256k1::SECP256K1;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::committee::{CommitteeSignatures, push_committee_pre_signatures};
+use crate::operator::{generate_bitvm_graph_inner, push_operator_pre_signature};
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
@@ -74,7 +78,6 @@ pub struct Bitvm2InstanceParameters {
     pub instance_id: Uuid,
     pub user_info: UserInfo,
     pub pegin_amount: Amount,
-    pub challenge_amount: Amount,
     pub committee_pubkeys: Vec<PublicKey>,
     pub committee_agg_pubkey: PublicKey,
 }
@@ -254,7 +257,12 @@ pub struct Bitvm2Graph {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SimplifiedBitvm2Graph {
-    // TODO
+    pub(crate) operator_pre_signed: bool,
+    pub(crate) committee_pre_signed: bool,
+    pub parameters: Bitvm2GraphParameters,
+    pub connector_e: ConnectorE,
+    pub operator_pre_sigs: Option<Vec<Witness>>,
+    pub committee_pre_sigs: Option<CommitteeSignatures>,
 }
 
 impl Bitvm2Graph {
@@ -264,7 +272,98 @@ impl Bitvm2Graph {
     pub fn committee_pre_signed(&self) -> bool {
         self.committee_pre_signed
     }
-    // TODO: from_simplified & to_simplified
+    pub fn to_simplified(&self) -> Result<SimplifiedBitvm2Graph> {
+        fn extract_sig_from_witness(witness: &Witness) -> Result<bitcoin::taproot::Signature> {
+            witness
+                .nth(0)
+                .and_then(|data| bitcoin::taproot::Signature::from_slice(data).ok())
+                .ok_or_else(|| anyhow::anyhow!("No valid signature found in witness"))
+        }
+        let operator_pre_sigs = if self.operator_pre_signed {
+            Some(vec![
+                self.force_skip_kickoff.tx().input[0].witness.clone(),
+                self.force_skip_kickoff.tx().input[1].witness.clone(),
+                self.quick_challenge.tx().input[0].witness.clone(),
+                self.quick_challenge.tx().input[1].witness.clone(),
+                self.challenge_incomplete_kickoff.tx().input[0].witness.clone(),
+                self.challenge_incomplete_kickoff.tx().input[1].witness.clone(),
+            ])
+        } else {
+            None
+        };
+        let committee_pre_sigs = if self.committee_pre_signed {
+            let take1 = vec![extract_sig_from_witness(&self.take1.tx().input[0].witness)?];
+            let take2 = vec![extract_sig_from_witness(&self.take2.tx().input[0].witness)?];
+            let challenge = vec![extract_sig_from_witness(&self.challenge.tx().input[0].witness)?];
+            let blockhash_commit_timeout = vec![
+                extract_sig_from_witness(&self.blockhash_commit_timeout.tx().input[0].witness)?,
+                extract_sig_from_witness(&self.blockhash_commit_timeout.tx().input[1].witness)?,
+            ];
+            let mut watchtower_challenge_timeout = Vec::new();
+            let mut nack = Vec::new();
+            for i in 0..self.parameters.watchtower_pubkeys.len() {
+                let watchtower_challeng_timeout_sig = extract_sig_from_witness(
+                    &self.watchtower_challenge_timeout_txns[i].tx().input[1].witness,
+                )?;
+                watchtower_challenge_timeout.push(watchtower_challeng_timeout_sig);
+                let nack_sig0 = extract_sig_from_witness(&self.nack_txns[i].tx().input[0].witness)?;
+                let nack_sig1 = extract_sig_from_witness(&self.nack_txns[i].tx().input[1].witness)?;
+                nack.push(nack_sig0);
+                nack.push(nack_sig1);
+            }
+            let mut assert_commit_timeout = Vec::new();
+            for i in 0..self.assert_commit_timeout_txns.len() {
+                let sig_0 = extract_sig_from_witness(
+                    &self.assert_commit_timeout_txns[i].tx().input[0].witness,
+                )?;
+                let sig_1 = extract_sig_from_witness(
+                    &self.assert_commit_timeout_txns[i].tx().input[1].witness,
+                )?;
+                assert_commit_timeout.push(sig_0);
+                assert_commit_timeout.push(sig_1);
+            }
+            Some(CommitteeSignatures {
+                take1,
+                take2,
+                challenge,
+                blockhash_commit_timeout,
+                watchtower_challenge_timeout,
+                nack,
+                assert_commit_timeout,
+            })
+        } else {
+            None
+        };
+        Ok(SimplifiedBitvm2Graph {
+            operator_pre_signed: self.operator_pre_signed,
+            committee_pre_signed: self.committee_pre_signed,
+            parameters: self.parameters.clone(),
+            connector_e: self.connector_e.clone(),
+            operator_pre_sigs,
+            committee_pre_sigs,
+        })
+    }
+    pub fn from_simplified(simplified: &SimplifiedBitvm2Graph) -> Result<Bitvm2Graph> {
+        let mut graph = generate_bitvm_graph_inner(
+            simplified.parameters.clone(),
+            simplified.connector_e.clone(),
+        )?;
+        if simplified.operator_pre_signed {
+            let operator_pre_sigs = simplified
+                .operator_pre_sigs
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing operator pre signatures"))?;
+            push_operator_pre_signature(&mut graph, operator_pre_sigs)?;
+        }
+        if simplified.committee_pre_signed {
+            let committee_pre_sigs = simplified
+                .committee_pre_sigs
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing committee pre signatures"))?;
+            push_committee_pre_signatures(&mut graph, committee_pre_sigs)?;
+        }
+        Ok(graph)
+    }
 }
 
 pub struct BaseBitvmContext {

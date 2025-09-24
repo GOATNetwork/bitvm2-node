@@ -1,144 +1,61 @@
-use crate::action::{
-    ChallengeSent, CreateGraphPrepare, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer,
-};
+use crate::action::{ChallengeSent, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
 use crate::env::*;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::proof::Groth16ProofValue;
 use crate::rpc_service::{current_time_secs, routes};
 use alloy::primitives::Address as EvmAddress;
 use alloy::providers::ProviderBuilder;
-use bitcoin::consensus::encode::{deserialize_hex, serialize_hex};
+use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::key::Keypair;
 use bitcoin::{
     Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
-    PublicKey, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
+    PublicKey, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoin_script::{Script, script};
-use bitvm::chunk::api::NUM_TAPS;
+use bitvm::treepp::*;
 use bitvm2_lib::actors::Actor;
-use bitvm2_lib::committee::COMMITTEE_PRE_SIGN_NUM;
-use bitvm2_lib::keys::OperatorMasterKey;
-use bitvm2_lib::operator::{generate_disprove_scripts, generate_partial_scripts};
-use bitvm2_lib::types::{
-    Bitvm2Graph, CustomInputs, Groth16Proof, PublicInputs, VerifyingKey, WotsPublicKeys,
-};
-use bitvm2_lib::verifier::{extract_proof_sigs_from_assert_commit_txns, verify_proof};
+use bitvm2_lib::committee::{CommitteePartialSignatures, CommitteePubNonces};
+use bitvm2_lib::operator::*;
+use bitvm2_lib::types::{Bitvm2Graph, Groth16Proof, PublicInputs, VerifyingKey};
 use client::Utxo as ClientUtxo;
 use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
 use client::goat_chain::{DisproveTxType, WithdrawStatus};
 use client::graphs::graph_query::BridgeInRequestEvent;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
-use goat::commitments::CommitmentMessageId;
-use goat::connectors::base::TaprootConnector;
-use goat::connectors::connector_6::Connector6;
-use goat::constants::{CONNECTOR_3_TIMELOCK, CONNECTOR_4_TIMELOCK};
 use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
-use goat::transactions::assert::utils::COMMIT_TX_NUM;
 use goat::transactions::base::Input;
-use goat::transactions::pre_signed::PreSignedTransaction;
-use goat::transactions::signing::{populate_p2tr_key_spend_witness, populate_p2wsh_witness};
-use goat::utils::num_blocks_per_network;
+use goat::transactions::signing::populate_p2wsh_witness;
 use libp2p::Swarm;
-use musig2::{PartialSignature, PubNonce};
 use rand::Rng;
 use secp256k1::Secp256k1;
-use statics::*;
 
-use anyhow::anyhow;
+use anyhow::{Result, anyhow, bail};
 use bitcoin::hashes::Hash;
 use indexmap::IndexMap;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
-use store::{ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus, Instance, InstanceStatus, Message, MessageState, MessageType, Node, UInt64Array3};
+use store::{
+    ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
+    Graph, GraphStatus, Instance, InstanceStatus, Message, MessageState, MessageType, Node,
+    UInt64Array3,
+};
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
 use tracing::warn;
 use uuid::Uuid;
 
-pub mod statics {
-    use once_cell::sync::Lazy;
-    use std::sync::Mutex;
-    use uuid::Uuid;
-
-    // operator node can only process one graph at a time
-    pub static OPERATOR_CURRENT_GRAPH: Lazy<Mutex<Option<(Uuid, Uuid)>>> =
-        Lazy::new(|| Mutex::new(None));
-    pub fn try_start_new_graph(instance_id: Uuid, graph_id: Uuid) -> bool {
-        let mut current = OPERATOR_CURRENT_GRAPH.lock().unwrap();
-        if current.is_none() {
-            *current = Some((instance_id, graph_id));
-            true
-        } else {
-            false
-        }
-    }
-    #[allow(dead_code)]
-    pub fn finish_current_graph_processing(instance_id: Uuid, graph_id: Uuid) {
-        let mut current = OPERATOR_CURRENT_GRAPH.lock().unwrap();
-        if *current == Some((instance_id, graph_id)) {
-            *current = None;
-        }
-    }
-    pub fn is_processing_graph() -> bool {
-        OPERATOR_CURRENT_GRAPH.lock().unwrap().is_some()
-    }
-    pub fn current_processing_graph() -> Option<(Uuid, Uuid)> {
-        *OPERATOR_CURRENT_GRAPH.lock().unwrap()
-    }
-    pub fn force_stop_current_graph() {
-        *OPERATOR_CURRENT_GRAPH.lock().unwrap() = None;
-    }
-}
-
-/// Determines whether the operator should participate in generating a new graph.
-///
-/// Conditions:
-/// - Participation should be attempted as often as possible.
-/// - Only one graph can be generated at a time; generation must be sequential, not parallel.
-/// - If the remaining funds are less than the required stake-amount, operator should not participate.
-pub async fn should_generate_graph(
-    client: &BTCClient,
-    create_graph_prepare_data: &CreateGraphPrepare,
-) -> anyhow::Result<bool> {
-    if is_processing_graph() {
-        return Ok(false);
-    };
-    let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let utxos = client.get_address_utxo(node_address.clone()).await?;
-    let utxo_spent_fee = Amount::from_sat(
-        (get_fee_rate(client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
-    );
-    let total_effective_balance: Amount =
-        utxos
-            .iter()
-            .map(|utxo| {
-                if utxo.value > utxo_spent_fee { utxo.value - utxo_spent_fee } else { Amount::ZERO }
-            })
-            .sum();
-    let stake_amount = get_stake_amount(create_graph_prepare_data.pegin_amount.to_sat());
-    if total_effective_balance < stake_amount {
-        tracing::warn!(
-            "node address {node_address} ran out of BTC for kickoff, requiring {stake_amount}"
-        );
-        Ok(false)
-    } else {
-        Ok(true)
-    }
-}
-
 pub async fn is_valid_withdraw(
     client: &GOATClient,
     _instance_id: Uuid,
     graph_id: Uuid,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok([WithdrawStatus::Initialized, WithdrawStatus::Processing].contains(&withdraw_status))
     // TODO: Only WithdrawStatus::Processing should be considered valid,
@@ -152,55 +69,26 @@ pub async fn is_withdraw_initialized_on_l2(
     client: &GOATClient,
     _instance_id: Uuid,
     graph_id: Uuid,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     let withdraw_status = client.gateway_get_withdraw_data(&graph_id).await?.status;
     Ok(withdraw_status == WithdrawStatus::Initialized)
 }
 
-/// Checks whether the timelock for the specified kickoff transaction has expired,
-/// indicating that the `take1` transaction can now be sent.
-///
-/// The timelock duration is a fixed constant (goat::constants::CONNECTOR_3_TIMELOCK)
-pub async fn is_take1_timelock_expired(
-    client: &BTCClient,
-    kickoff_txid: Txid,
-) -> anyhow::Result<bool> {
-    let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_3_TIMELOCK);
-    let tx_status = client.get_tx_status(&kickoff_txid).await?;
-    match tx_status.block_height {
-        Some(tx_height) => {
-            let current_height = client.get_height().await?;
-            Ok(current_height >= tx_height + lock_blocks)
-        }
-        _ => Ok(false),
-    }
+pub async fn is_take1_timelock_expired(client: &BTCClient, kickoff_height: u32) -> Result<bool> {
+    let lock_blocks = take1_timelock(get_network());
+    let current_height = client.get_height().await?;
+    Ok(current_height >= kickoff_height + lock_blocks)
 }
 
-/// Checks whether the timelock for the specified assert-final transaction has expired,
-/// allowing the `take2` transaction to proceed.
-///
-/// The timelock duration is a fixed constant (goat::constants::CONNECTOR_4_TIMELOCK)
 pub async fn is_take2_timelock_expired(
     client: &BTCClient,
-    assert_final_txid: Txid,
-) -> anyhow::Result<bool> {
-    let lock_blocks = num_blocks_per_network(get_network(), CONNECTOR_4_TIMELOCK);
-    let tx_status = client.get_tx_status(&assert_final_txid).await?;
-    match tx_status.block_height {
-        Some(tx_height) => {
-            let current_height = client.get_height().await?;
-            Ok(current_height >= tx_height + lock_blocks)
-        }
-        _ => Ok(false),
-    }
-}
-
-/// Calculates the required stake amount for the operator.
-///
-/// Formula:
-/// stake_amount = fixed_min_stake_amount + (pegin_amount * stake_rate)
-pub fn get_stake_amount(pegin_amount: u64) -> Amount {
-    Amount::from_sat(MIN_SATKE_AMOUNT + pegin_amount * STAKE_RATE / RATE_MULTIPLIER)
+    watchtower_challenge_init_height: u32,
+    assert_init_height: u32,
+) -> Result<bool> {
+    let lock_blocks = take2_timelocks(get_network());
+    let current_height = client.get_height().await?;
+    Ok(current_height >= watchtower_challenge_init_height + lock_blocks.0
+        || current_height >= assert_init_height + lock_blocks.1)
 }
 
 /// Calculates the required challenge amount, which is based on the stake amount.
@@ -211,41 +99,9 @@ pub fn get_challenge_amount(pegin_amount: u64) -> Amount {
     Amount::from_sat(MIN_CHALLENGE_AMOUNT + pegin_amount * CHALLENGE_RATE / RATE_MULTIPLIER)
 }
 
-/// Selects suitable UTXOs from the operator’s available funds to construct inputs
-/// for the pre-kickoff transaction.
-///
-/// Notes:
-/// - UTXOs must be sent to a dedicated P2WSH address, generated at node startup from operator-pubkey
-/// - The same P2WSH address is also used for change output.
-/// - Returns None if operator does not have enough btc
-pub async fn select_operator_inputs(
-    client: &BTCClient,
-    stake_amount: Amount,
-) -> anyhow::Result<Option<CustomInputs>> {
-    let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let fee_rate = get_fee_rate(client).await?;
-    match get_proper_utxo_set(
-        client,
-        PRE_KICKOFF_BASE_VBYTES,
-        node_address.clone(),
-        stake_amount,
-        fee_rate,
-    )
-    .await?
-    {
-        Some((inputs, fee_amount, _)) => Ok(Some(CustomInputs {
-            inputs,
-            input_amount: stake_amount,
-            fee_amount,
-            change_address: node_address,
-        })),
-        _ => Ok(None),
-    }
-}
-
 /// Loads partial scripts from a local cache file.
 /// If cache file does not exist, generate partial scripts by vk an cache it
-pub async fn get_partial_scripts(local_db: &LocalDB) -> anyhow::Result<Vec<ScriptBuf>> {
+pub async fn get_partial_scripts(local_db: &LocalDB) -> Result<Vec<ScriptBuf>> {
     let scripts_cache_path = SCRIPT_CACHE_FILE_NAME;
     if Path::new(scripts_cache_path).exists() {
         let file = File::open(scripts_cache_path)?;
@@ -264,7 +120,7 @@ pub async fn get_partial_scripts(local_db: &LocalDB) -> anyhow::Result<Vec<Scrip
     }
 }
 
-pub async fn get_fee_rate(client: &BTCClient) -> anyhow::Result<f64> {
+pub async fn get_fee_rate(client: &BTCClient) -> Result<f64> {
     match client.network() {
         //TODO mempool api /fee-estimates failed, fix it latter
         Network::Testnet | Network::Regtest => Ok(10.0),
@@ -282,106 +138,9 @@ pub async fn get_fee_rate(client: &BTCClient) -> anyhow::Result<f64> {
 /// Requirements:
 /// - The mempool API URL must be configured.
 /// - The transaction should already be fully signed.
-pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> anyhow::Result<()> {
+pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> Result<()> {
     client.broadcast(tx).await?;
     Ok(())
-}
-
-/// Signs and broadcasts pre-kickoff transaction.
-///
-/// All inputs of pre-kickoff transaction should be utxo belonging to node-address
-pub async fn sign_and_broadcast_prekickoff_tx(
-    client: &BTCClient,
-    node_keypair: Keypair,
-    prekickoff_tx: Transaction,
-) -> anyhow::Result<()> {
-    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
-    let mut prekickoff_tx = prekickoff_tx;
-    for i in 0..prekickoff_tx.input.len() {
-        let prev_outpoint = &prekickoff_tx.input[i].previous_output;
-        let prev_tx = client
-            .get_tx(&prev_outpoint.txid)
-            .await?
-            .ok_or(anyhow::anyhow!("previous tx {} not found", prev_outpoint.txid))?;
-        let prev_output =
-            &prev_tx.output.get(prev_outpoint.vout as usize).ok_or(anyhow::anyhow!(
-                "previous tx {} does not have vout {}",
-                prev_outpoint.txid,
-                prev_outpoint.vout
-            ))?;
-        if prev_output.script_pubkey != node_address.script_pubkey() {
-            return Err(anyhow::anyhow!(
-                "previous outpoint {}:{} not belong to this node",
-                prev_outpoint.txid,
-                prev_outpoint.vout
-            )
-            .into());
-        };
-        node_sign(&mut prekickoff_tx, i, prev_output.value, EcdsaSighashType::All, &node_keypair)?;
-    }
-    broadcast_tx(client, &prekickoff_tx).await?;
-    Ok(())
-}
-
-#[allow(dead_code)]
-pub async fn recycle_prekickoff_tx(
-    client: &BTCClient,
-    graph_id: Uuid,
-    master_key: OperatorMasterKey,
-    prekickoff_txid: Txid,
-) -> anyhow::Result<Option<Txid>> {
-    let network = get_network();
-    let prekickoff_tx = client
-        .get_tx(&prekickoff_txid)
-        .await?
-        .ok_or(anyhow!("pre-kickoff tx {prekickoff_txid} not on chain"))?;
-    let fee_rate = get_fee_rate(client).await?;
-    let recycle_tx_vbytes = 120;
-    let fee_amount = Amount::from_sat((recycle_tx_vbytes as f64 * fee_rate).ceil() as u64);
-    if prekickoff_tx.output[0].value > fee_amount + Amount::from_sat(DUST_AMOUNT) {
-        let node_recycle_address =
-            node_p2wsh_address(network, &master_key.master_keypair().public_key().into());
-        let node_graph_keypair = master_key.keypair_for_graph(graph_id);
-        let (operator_taproot_pubkey, _) = node_graph_keypair.x_only_public_key();
-        let (_, operator_wots_pubkeys) = master_key.wots_keypair_for_graph(graph_id);
-        let kickoff_wots_commitment_keys =
-            CommitmentMessageId::pubkey_map_for_kickoff(&operator_wots_pubkeys.0);
-        let connector_6 =
-            Connector6::new(network, &operator_taproot_pubkey, &kickoff_wots_commitment_keys);
-        let txin_0 = TxIn {
-            previous_output: OutPoint { txid: prekickoff_txid, vout: 0 },
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
-            witness: Witness::default(),
-        };
-        let txout_0 = TxOut {
-            value: prekickoff_tx.output[0].value - fee_amount,
-            script_pubkey: node_recycle_address.script_pubkey(),
-        };
-        let mut tx = Transaction {
-            version: bitcoin::transaction::Version(2),
-            lock_time: bitcoin::absolute::LockTime::ZERO,
-            input: vec![txin_0],
-            output: vec![txout_0],
-        };
-        let prev_outs = [prekickoff_tx.output[0].clone()];
-        let taproot_merkle_root = connector_6.generate_taproot_spend_info().merkle_root();
-
-        populate_p2tr_key_spend_witness(
-            &mut tx,
-            0,
-            &prev_outs,
-            TapSighashType::All,
-            taproot_merkle_root,
-            &node_graph_keypair,
-        );
-
-        broadcast_tx(client, &tx).await?;
-
-        Ok(Some(tx.compute_txid()))
-    } else {
-        Ok(None)
-    }
 }
 
 /// Completes and broadcasts a challenge transaction.
@@ -397,57 +156,16 @@ pub async fn complete_and_broadcast_challenge_tx(
     client: &BTCClient,
     node_keypair: Keypair,
     challenge_tx: Transaction,
-    // challenge_amount: Amount,
-) -> anyhow::Result<Txid> {
-    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
-    let fee_rate = get_fee_rate(client).await?;
-    let mut challenge_tx = challenge_tx;
-    let challenge_amount = challenge_tx.output[0].value;
-    match get_proper_utxo_set(
+    challenge_input0_amount: Amount,
+) -> Result<Txid> {
+    build_sign_and_broadcast_tx(
         client,
-        CHALLENGE_BASE_VBYTES,
-        node_address.clone(),
-        challenge_amount,
-        fee_rate,
+        node_keypair,
+        challenge_tx.input,
+        challenge_input0_amount,
+        challenge_tx.output,
     )
-    .await?
-    {
-        Some((inputs, _, change_amount)) => {
-            for input in &inputs {
-                challenge_tx.input.push(TxIn {
-                    previous_output: input.outpoint,
-                    script_sig: ScriptBuf::new(),
-                    sequence: Sequence::MAX,
-                    witness: Witness::default(),
-                });
-            }
-            if let Some(goat_addr) = get_node_goat_address() {
-                // write challenger’s L2 address to an OP_RETURN output if provided
-                challenge_tx.output.push(TxOut {
-                    script_pubkey: generate_opreturn_script(goat_addr.to_vec()),
-                    value: Amount::ZERO,
-                });
-            }
-            if change_amount > Amount::from_sat(DUST_AMOUNT) {
-                challenge_tx.output.push(TxOut {
-                    script_pubkey: node_address.script_pubkey(),
-                    value: change_amount,
-                });
-            };
-            for (i, input) in inputs.iter().enumerate() {
-                node_sign(
-                    &mut challenge_tx,
-                    i + 1,
-                    input.amount,
-                    EcdsaSighashType::All,
-                    &node_keypair,
-                )?;
-            }
-            broadcast_tx(client, &challenge_tx).await?;
-            Ok(challenge_tx.compute_txid())
-        }
-        _ => Err(anyhow!("insufficient btc, please fund {node_address} first")),
-    }
+    .await
 }
 
 pub async fn build_sign_and_broadcast_tx(
@@ -456,7 +174,7 @@ pub async fn build_sign_and_broadcast_tx(
     txins: Vec<TxIn>,
     total_input_amount: Amount,
     txouts: Vec<TxOut>,
-) -> Result<Txid, Box<dyn std::error::Error>> {
+) -> Result<Txid> {
     let txouts = if txouts.is_empty() {
         // bitcoin network does not allow a transaction without outputs
         vec![TxOut { value: Amount::ZERO, script_pubkey: generate_opreturn_script(vec![]) }]
@@ -511,7 +229,7 @@ pub async fn build_sign_and_broadcast_tx(
             broadcast_tx(client, &tx).await?;
             Ok(tx.compute_txid())
         }
-        None => Err(format!("insufficient btc, please fund {node_address} first").into()),
+        None => bail!("insufficient btc, please fund {node_address} first"),
     }
 }
 
@@ -524,7 +242,7 @@ pub async fn get_proper_utxo_set(
     address: Address,
     target_amount: Amount,
     fee_rate: f64,
-) -> anyhow::Result<Option<(Vec<Input>, Amount, Amount)>> {
+) -> Result<Option<(Vec<Input>, Amount, Amount)>> {
     fn estimate_tx_vbytes(base_vbytes: u64, extra_inputs: usize, extra_outputs: usize) -> u64 {
         // p2wsh inputs/outputs
         base_vbytes
@@ -567,12 +285,6 @@ pub async fn get_proper_utxo_set(
     Ok(None)
 }
 
-/// Returns the address to receive disprove reward, which is a P2WSH address
-/// generated by the challenge node at startup.
-pub fn disprove_reward_address() -> anyhow::Result<Address> {
-    Ok(node_p2wsh_address(get_network(), &get_node_pubkey()?))
-}
-
 pub fn node_p2wsh_script(pubkey: &PublicKey) -> ScriptBuf {
     script! {
         { *pubkey }
@@ -590,7 +302,7 @@ pub fn node_sign(
     input_value: Amount,
     sighash_type: EcdsaSighashType,
     node_keypair: &Keypair,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let node_pubkey = node_keypair.public_key();
     populate_p2wsh_witness(
         tx,
@@ -620,7 +332,7 @@ pub async fn should_challenge(
     _instance_id: Uuid,
     graph_id: Uuid,
     kickoff_txid: &Txid,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     // check if kickoff is confirmed on L1
     if btc_client.get_tx(kickoff_txid).await?.is_none() {
         return Ok(false);
@@ -657,18 +369,14 @@ pub async fn should_challenge(
 }
 
 /// Validates whether the given kickoff transaction has been confirmed on Layer 1.
-pub async fn tx_on_chain(client: &BTCClient, txid: &Txid) -> anyhow::Result<bool> {
+pub async fn tx_on_chain(client: &BTCClient, txid: &Txid) -> Result<bool> {
     match client.get_tx(txid).await? {
         Some(_) => Ok(true),
         _ => Ok(false),
     }
 }
 
-pub async fn outpoint_available(
-    client: &BTCClient,
-    txid: &Txid,
-    vout: u64,
-) -> anyhow::Result<bool> {
+pub async fn outpoint_available(client: &BTCClient, txid: &Txid, vout: u64) -> Result<bool> {
     match client.get_output_status(txid, vout).await? {
         Some(status) => Ok(!status.spent),
         _ => Ok(false),
@@ -679,7 +387,7 @@ pub async fn outpoint_spent_txid(
     client: &BTCClient,
     txid: &Txid,
     vout: u64,
-) -> anyhow::Result<Option<Txid>> {
+) -> Result<Option<Txid>> {
     match client.get_output_status(txid, vout).await? {
         Some(status) => Ok(status.txid),
         _ => Ok(None),
@@ -691,7 +399,7 @@ pub async fn validate_challenge(
     btc_client: &BTCClient,
     kickoff_txid: &Txid,
     challenge_txid: &Txid,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     let challenge_tx = match btc_client.get_tx(challenge_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
@@ -703,49 +411,15 @@ pub async fn validate_challenge(
 /// Validates whether the given disprove transaction has been confirmed on Layer 1.
 pub async fn validate_disprove(
     btc_client: &BTCClient,
-    assert_final_txid: &Txid,
+    kickoff_txid: &Txid,
     disprove_txid: &Txid,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     let disprove_tx = match btc_client.get_tx(disprove_txid).await? {
         Some(tx) => tx,
         _ => return Ok(false),
     };
-    let expected_disprove_input_0 = OutPoint { txid: *assert_final_txid, vout: 1 };
+    let expected_disprove_input_0 = OutPoint { txid: *kickoff_txid, vout: 3 };
     Ok(disprove_tx.input[0].previous_output == expected_disprove_input_0)
-}
-
-/// Validates the provided assert-commit transactions.
-///
-/// Steps:
-/// - Extract the Groth16 proof from the witness fields of the provided transactions,
-/// - Verify the validity of the proof.
-///
-/// Returns:
-/// - `Ok(None)` if the assert is valid,
-/// - `Ok(Some((index, disprove_script)))` if invalid, providing the witness info for later disprove.
-///
-pub async fn validate_assert(
-    local_db: &LocalDB,
-    btc_client: &BTCClient,
-    assert_commit_txns: &[Txid; COMMIT_TX_NUM],
-    wots_pubkeys: WotsPublicKeys,
-) -> anyhow::Result<Option<(usize, Script)>> {
-    let mut txs = Vec::with_capacity(COMMIT_TX_NUM);
-    for txid in assert_commit_txns.iter() {
-        let tx = match btc_client.get_tx(txid).await? {
-            Some(v) => v,
-            _ => return Ok(None), // nothing to disprove if assert-commit-txns not on chain
-        };
-        txs.push(tx);
-    }
-    let assert_commit_txns: [Transaction; COMMIT_TX_NUM] =
-        txs.try_into().map_err(|_| anyhow::anyhow!("assert-commit-tx num mismatch"))?;
-    let proof_sigs = extract_proof_sigs_from_assert_commit_txns(assert_commit_txns)?;
-    let disprove_scripts =
-        generate_disprove_scripts(&get_partial_scripts(local_db).await?, &wots_pubkeys);
-    let disprove_scripts: [ScriptBuf; NUM_TAPS] =
-        disprove_scripts.try_into().map_err(|_| anyhow!("disprove script num mismatch"))?;
-    Ok(verify_proof(&get_vk(local_db).await?, proof_sigs, &disprove_scripts, &wots_pubkeys))
 }
 
 /// Retrieves the Groth16 proof, public inputs, and verifying key
@@ -757,7 +431,7 @@ pub async fn get_groth16_proof(
     instance_id: &Uuid,
     graph_id: &Uuid,
     challenge_txid: String,
-) -> anyhow::Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
+) -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
         return get_test_groth16_proof();
     }
@@ -792,7 +466,7 @@ pub async fn get_groth16_proof(
         Err(anyhow!("instance_id:{instance_id}, graph_id:{graph_id} not ready!"))
     }
 }
-pub async fn get_vk(db: &LocalDB) -> anyhow::Result<VerifyingKey> {
+pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
         return get_test_vk();
     }
@@ -800,7 +474,7 @@ pub async fn get_vk(db: &LocalDB) -> anyhow::Result<VerifyingKey> {
     Ok(groth16::get_groth16_vk(db, &groth16::get_zkm_version()).await?)
 }
 
-pub fn get_test_groth16_proof() -> anyhow::Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
+pub fn get_test_groth16_proof() -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
     let proof = hex::decode(
         "b6ef2c5aa48a2f599a13bc4d8010e4d0190aeb05ff79e21266aff8dde6353d1756191f0959c787f6dedfc0c47751aed2648775101285b9da2d6c4e912e74891f884bd672f94f4d78528fb10b5410a94b53bcef07f99952ef72b68c72a5c4ff2a3de7c314ffbf17df018a753f070448c2f698706d4c2b99bdb06f928cffe1bea0",
     )?;
@@ -812,7 +486,7 @@ pub fn get_test_groth16_proof() -> anyhow::Result<(Groth16Proof, PublicInputs, V
     Ok((proof, pis, get_test_vk()?))
 }
 
-pub fn get_test_vk() -> anyhow::Result<VerifyingKey> {
+pub fn get_test_vk() -> Result<VerifyingKey> {
     let zkm_v1_vk_bytes = hex::decode(
         "e2f26dbea299f5223b646cb1fb33eadb059d9407559d7441dfd902e3a79a4d2dabb73dc17fbc13021e2471e0c08bd67d8401f52b73d6d07483794cad4778180e0c06f33bbc4c79a9cadef253a68084d382f17788f885c9afd176f7cb2f036789edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19ffdb10cf9f7e2b08673477187c33a695a397702cf22005900724518b57f92f2ce08f8dfe36ca3eff63b1743d64812936d8cab0d74c063d260e20a9a3339b2a8c0300000000000000d17e1efc51d15eef04bde8dc794edc9e5788eb7539171d3a49d970ab9215b89c9ab6c5ab119ca81927393ef29332a1d15ac5f197b878ea89a1f8f686b747011eaad636dcb52cdfd674d155ddd67d21186fbdd1c0a62ebd74dcd6ddc6784b819e",
     )?;
@@ -825,7 +499,7 @@ pub async fn gateway_finish_withdraw_happy_path(
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
-) -> anyhow::Result<String> {
+) -> Result<String> {
     let tx_hash = goat_client.gateway_finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
@@ -835,7 +509,7 @@ pub async fn gateway_finish_withdraw_unhappy_path(
     goat_client: &GOATClient,
     graph_id: &Uuid,
     tx: &Transaction,
-) -> anyhow::Result<String> {
+) -> Result<String> {
     let tx_hash =
         goat_client.gateway_finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
@@ -850,7 +524,7 @@ pub async fn gateway_finish_withdraw_disproved(
     tx_index: u64,
     disprove_tx: &Transaction,
     challenge_tx: &Transaction,
-) -> anyhow::Result<String> {
+) -> Result<String> {
     let tx_hash = goat_client
         .gateway_finish_withdraw_disproved(
             btc_client,
@@ -867,58 +541,34 @@ pub async fn gateway_finish_withdraw_disproved(
 
 /// db support
 pub async fn store_committee_pub_nonces(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    committee_pubkey: PublicKey,
-    pub_nonces: [PubNonce; COMMITTEE_PRE_SIGN_NUM],
-) -> anyhow::Result<()> {
-    let mut storage_process = local_db.acquire().await?;
-    let nonces_vec: Vec<String> = pub_nonces.iter().map(|v| v.to_string()).collect();
-    let nonces_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
-        nonces_vec.try_into().map_err(|v: Vec<String>| {
-            anyhow::anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
-        })?;
-    Ok(storage_process
-        .store_nonces(instance_id, graph_id, &[nonces_arr], committee_pubkey.to_string(), &[])
-        .await?)
+    _local_db: &LocalDB,
+    _instance_id: Uuid,
+    _graph_id: Uuid,
+    _committee_pubkey: PublicKey,
+    _pub_nonces: CommitteePubNonces,
+) -> Result<()> {
+    todo!("store_committee_pub_nonces")
 }
 pub async fn get_committee_pub_nonces(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-) -> anyhow::Result<Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]>> {
-    let mut storage_process = local_db.acquire().await?;
-    match storage_process.get_nonces(instance_id, graph_id).await? {
-        None => Err(anyhow!("instance id:{instance_id}, graph id:{graph_id} not found").into()),
-        Some(nonce_collect) => {
-            let mut res: Vec<[PubNonce; COMMITTEE_PRE_SIGN_NUM]> = vec![];
-            for nonces_item in nonce_collect.nonces {
-                let nonce_vec: Vec<PubNonce> = nonces_item
-                    .iter()
-                    .map(|v| PubNonce::from_str(v).expect("fail to decode pub nonce"))
-                    .collect();
-                res.push(nonce_vec.try_into().map_err(|v: Vec<PubNonce>| {
-                    anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
-                })?)
-            }
-            Ok(res)
-        }
-    }
+    _local_db: &LocalDB,
+    _instance_id: Uuid,
+    _graph_id: Uuid,
+) -> Result<Vec<CommitteePubNonces>> {
+    todo!("get_committee_pub_nonces")
 }
 
 pub async fn store_committee_pubkeys(
     local_db: &LocalDB,
     instance_id: Uuid,
     pubkey: PublicKey,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let mut storage_process = local_db.acquire().await?;
     Ok(storage_process.store_pubkeys(instance_id, &[pubkey.to_string()]).await?)
 }
 pub async fn get_committee_pubkeys(
     local_db: &LocalDB,
     instance_id: Uuid,
-) -> anyhow::Result<Vec<PublicKey>> {
+) -> Result<Vec<PublicKey>> {
     let mut storage_process = local_db.acquire().await?;
     match storage_process.get_pubkeys(instance_id).await? {
         None => Ok(vec![]),
@@ -931,46 +581,21 @@ pub async fn get_committee_pubkeys(
 }
 
 pub async fn store_committee_partial_sigs(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    committee_pubkey: PublicKey,
-    partial_sigs: [PartialSignature; COMMITTEE_PRE_SIGN_NUM],
-) -> anyhow::Result<()> {
-    let mut storage_process = local_db.acquire().await?;
-    let signs_vec: Vec<String> = partial_sigs.iter().map(|v| hex::encode(v.serialize())).collect();
-    let signs_arr: [String; COMMITTEE_PRE_SIGN_NUM] =
-        signs_vec.try_into().map_err(|v: Vec<String>| {
-            anyhow::anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
-        })?;
-
-    Ok(storage_process
-        .store_nonces(instance_id, graph_id, &[], committee_pubkey.to_string(), &[signs_arr])
-        .await?)
+    _local_db: &LocalDB,
+    _instance_id: Uuid,
+    _graph_id: Uuid,
+    _committee_pubkey: PublicKey,
+    _partial_sigs: CommitteePartialSignatures,
+) -> Result<()> {
+    todo!("store_committee_partial_sigs")
 }
 
 pub async fn get_committee_partial_sigs(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-) -> anyhow::Result<Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]>> {
-    let mut storage_process = local_db.acquire().await?;
-    match storage_process.get_nonces(instance_id, graph_id).await? {
-        None => Err(anyhow!("instance id:{instance_id}, graph id:{graph_id} not found ").into()),
-        Some(nonce_collect) => {
-            let mut res: Vec<[PartialSignature; COMMITTEE_PRE_SIGN_NUM]> = vec![];
-            for signs_item in nonce_collect.partial_sigs {
-                let signs_vec: Vec<PartialSignature> = signs_item
-                    .iter()
-                    .map(|v| PartialSignature::from_str(v).expect("fail to decode pub nonce"))
-                    .collect();
-                res.push(signs_vec.try_into().map_err(|v: Vec<PartialSignature>| {
-                    anyhow!("length wrong: expect {COMMITTEE_PRE_SIGN_NUM}, real {}", v.len())
-                })?)
-            }
-            Ok(res)
-        }
-    }
+    _local_db: &LocalDB,
+    _instance_id: Uuid,
+    _graph_id: Uuid,
+) -> Result<Vec<CommitteePartialSignatures>> {
+    todo!("get_committee_partial_sigs")
 }
 
 // will remove later
@@ -982,7 +607,7 @@ pub async fn update_graph_fields(
     _challenge_txid: Option<String>,
     _disprove_txid: Option<String>,
     _bridge_out_start_at: Option<i64>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     Ok(())
 }
 
@@ -992,7 +617,7 @@ pub async fn save_unhandle_message(
     actor: &str,
     msy_type: &str,
     content: Vec<u8>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let mut storage_process = local_db.acquire().await?;
     storage_process
         .create_message(
@@ -1016,7 +641,7 @@ pub async fn store_graph(
     _graph_id: Uuid,
     _graph: &Bitvm2Graph,
     _status: Option<String>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     Ok(())
 }
 
@@ -1027,14 +652,14 @@ pub async fn update_graph(
     graph_id: Uuid,
     graph: &Bitvm2Graph,
     status: Option<String>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     store_graph(local_db, instance_id, graph_id, graph, status).await
 }
 pub async fn get_graph(
     local_db: &LocalDB,
     instance_id: Option<Uuid>,
     graph_id: Uuid,
-) -> anyhow::Result<Graph> {
+) -> Result<Graph> {
     let mut storage_process = local_db.acquire().await?;
     let graph_op = storage_process.find_graph(&graph_id).await?;
     if graph_op.is_none() {
@@ -1058,55 +683,23 @@ pub async fn get_bitvm2_graph_from_db(
     _local_db: &LocalDB,
     _instance_id: Uuid,
     graph_id: Uuid,
-) -> anyhow::Result<Bitvm2Graph> {
+) -> Result<Bitvm2Graph> {
     Err(anyhow!("graph:{graph_id} not found"))
 }
 
 pub async fn publish_graph_to_ipfs(
-    ipfs: &IPFS,
-    graph_id: Uuid,
-    graph: &Bitvm2Graph,
-) -> anyhow::Result<String> {
-    fn write_tx(base_dir: &str, tx_name: IpfsTxName, tx: &Transaction) -> anyhow::Result<()> {
-        // write tx_hex to base_dir/tx_name
-        let tx_hex = serialize_hex(tx);
-        let tx_cache_path = format!("{base_dir}{}", tx_name.as_str());
-        let mut file = File::create(&tx_cache_path)?;
-        file.write_all(tx_hex.as_bytes())?;
-        Ok(())
-    }
-
-    let base_dir = format!("{IPFS_GRAPH_CACHE_DIR}{graph_id}/");
-    fs::create_dir_all(base_dir.clone())?;
-    write_tx(&base_dir, IpfsTxName::AssertCommit0, graph.assert_commit.commit_txns[0].tx())?;
-    write_tx(&base_dir, IpfsTxName::AssertCommit1, graph.assert_commit.commit_txns[1].tx())?;
-    write_tx(&base_dir, IpfsTxName::AssertCommit2, graph.assert_commit.commit_txns[2].tx())?;
-    write_tx(&base_dir, IpfsTxName::AssertCommit3, graph.assert_commit.commit_txns[3].tx())?;
-    write_tx(&base_dir, IpfsTxName::AssertInit, graph.assert_init.tx())?;
-    write_tx(&base_dir, IpfsTxName::AssertFinal, graph.assert_final.tx())?;
-    write_tx(&base_dir, IpfsTxName::Challenge, graph.challenge.tx())?;
-    write_tx(&base_dir, IpfsTxName::Disprove, graph.disprove.tx())?;
-    write_tx(&base_dir, IpfsTxName::Kickoff, graph.kickoff.tx())?;
-    write_tx(&base_dir, IpfsTxName::Pegin, graph.pegin.tx())?;
-    write_tx(&base_dir, IpfsTxName::Take1, graph.take1.tx())?;
-    write_tx(&base_dir, IpfsTxName::Take2, graph.take2.tx())?;
-    let cids = ipfs.add(Path::new(&base_dir)).await?;
-    let dir_cid = cids
-        .iter()
-        .find(|f| f.name.is_empty())
-        .map(|f| f.hash.clone())
-        .ok_or(anyhow!("cid for graph dir not found"))?;
-
-    // try to delete the cache files to free up disk, failed deletions do not affect subsequent executions, so there is no need to return an error
-    let _ = fs::remove_dir_all(base_dir);
-    Ok(dir_cid)
+    _ipfs: &IPFS,
+    _graph_id: Uuid,
+    _graph: &Bitvm2Graph,
+) -> Result<String> {
+    todo!("publish_graph_to_ipfs")
 }
 
 pub async fn get_my_graph_for_instance(
     goat_client: &GOATClient,
     instance_id: Uuid,
     operator_pubkey: PublicKey,
-) -> anyhow::Result<Option<Uuid>> {
+) -> Result<Option<Uuid>> {
     let ids_vec = goat_client
         .gateway_get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
         .await?;
@@ -1117,7 +710,7 @@ pub async fn get_graph_status(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> anyhow::Result<Option<GraphStatus>> {
+) -> Result<Option<GraphStatus>> {
     let mut storage_process = local_db.acquire().await?;
     let graph_op = storage_process.find_graph(&graph_id).await?;
     if graph_op.is_none() {
@@ -1140,7 +733,7 @@ pub async fn update_graphs_status_by_instance_ids(
     local_db: &LocalDB,
     status: &str,
     instance_ids: &[Uuid],
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let mut storage_process = local_db.acquire().await?;
     storage_process.update_graphs_status_by_instance_ids(status, instance_ids).await?;
     Ok(())
@@ -1154,7 +747,7 @@ pub async fn wait_tx_confirmation(
     txid: &Txid,
     interval: u64,
     max_wait_secs: u64,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     use std::{
         thread,
         time::{Duration, Instant},
@@ -1189,7 +782,7 @@ pub async fn wait_tx_appear(
     txid: &Txid,
     interval: u64,
     max_wait_secs: u64,
-) -> anyhow::Result<bool> {
+) -> Result<bool> {
     use std::{
         thread,
         time::{Duration, Instant},
@@ -1245,36 +838,9 @@ pub mod defer {
             $name.dismiss();
         };
     }
-
-    #[test]
-    fn test_defer() {
-        use super::statics::*;
-        use uuid::Uuid;
-        fn inner_func(should_success: bool) -> anyhow::Result<()> {
-            if should_success {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("inner functions not success"))
-            }
-        }
-        fn guarded_operation(should_success: bool) -> anyhow::Result<()> {
-            defer!(on_err, {
-                force_stop_current_graph();
-            });
-            inner_func(should_success)?;
-            dismiss_defer!(on_err);
-            Ok(())
-        }
-        try_start_new_graph(Uuid::new_v4(), Uuid::new_v4());
-        assert!(is_processing_graph());
-        let _ = guarded_operation(true);
-        assert!(is_processing_graph());
-        let _ = guarded_operation(false);
-        assert!(!is_processing_graph());
-    }
 }
 
-pub async fn save_node_info(local_db: &LocalDB, node_info: &NodeInfo) -> anyhow::Result<()> {
+pub async fn save_node_info(local_db: &LocalDB, node_info: &NodeInfo) -> Result<()> {
     tracing::info!("save_node_info for {}", node_info.peer_id);
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let mut storage_process = local_db.acquire().await?;
@@ -1301,7 +867,7 @@ pub async fn save_local_info(local_db: &LocalDB) {
     }
 }
 
-pub async fn update_node_timestamp(local_db: &LocalDB, peer_id: &str) -> anyhow::Result<()> {
+pub async fn update_node_timestamp(local_db: &LocalDB, peer_id: &str) -> Result<()> {
     tracing::info!("update timestamp for {peer_id}");
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let mut storage_process = local_db.acquire().await?;
@@ -1312,7 +878,7 @@ pub async fn update_node_timestamp(local_db: &LocalDB, peer_id: &str) -> anyhow:
     Ok(())
 }
 
-pub async fn detect_heart_beat(swarm: &mut Swarm<AllBehaviours>) -> anyhow::Result<()> {
+pub async fn detect_heart_beat(swarm: &mut Swarm<AllBehaviours>) -> Result<()> {
     tracing::info!("start detect_heart_beat");
     let message_content = GOATMessageContent::RequestNodeInfo(get_local_node_info());
     // send to actor
@@ -1326,7 +892,7 @@ pub async fn detect_heart_beat(swarm: &mut Swarm<AllBehaviours>) -> anyhow::Resu
     Ok(())
 }
 
-pub async fn validate_actor(peer_id: &[u8], role: Actor) -> anyhow::Result<bool> {
+pub async fn validate_actor(peer_id: &[u8], role: Actor) -> Result<bool> {
     let rpc_url = get_goat_url_from_env();
     let provider = ProviderBuilder::new().connect_http(rpc_url);
     let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
@@ -1379,7 +945,7 @@ pub fn strip_hex_prefix_owned(s: &str) -> String {
 
 /// Retrieve the server's public IP via NAT protocol and combine it with
 /// the configured RPC monitoring port`rpc_addr` to generate the external RPC service address.
-pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result<()> {
+pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> Result<()> {
     if get_proof_server_url().is_some() {
         // not provide proof server
         return Ok(());
@@ -1410,7 +976,7 @@ pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> anyhow::Result
     Ok(())
 }
 // TODO
-pub fn get_fixed_disprove_output() -> anyhow::Result<TxOut> {
+pub fn get_fixed_disprove_output() -> Result<TxOut> {
     Ok(TxOut {
         script_pubkey: generate_burn_script_address(get_network()).script_pubkey(),
         value: Amount::from_sat(DUST_AMOUNT),
@@ -1427,10 +993,7 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
     (false, None)
 }
 
-pub async fn pop_local_unhandle_msg(
-    local_db: &LocalDB,
-    actor: Actor,
-) -> anyhow::Result<Option<Vec<u8>>> {
+pub async fn pop_local_unhandle_msg(local_db: &LocalDB, actor: Actor) -> Result<Option<Vec<u8>>> {
     // 1. create  groth16 proof for operator
     if actor == Actor::Operator
         && let Some(content) = operator_scan_ready_proof(
@@ -1471,7 +1034,7 @@ pub async fn operator_scan_ready_proof(
     local_db: &LocalDB,
     remote_proof_server_socket: Option<String>,
     uri: &str,
-) -> anyhow::Result<Option<Vec<u8>>> {
+) -> Result<Option<Vec<u8>>> {
     tracing::info!("start operator_scan_ready_proof");
     let client = reqwest::Client::new();
     let mut storage_proccessor = local_db.acquire().await?;
@@ -1482,7 +1045,7 @@ pub async fn operator_scan_ready_proof(
         )
         .await?;
 
-    let parse_challenge_txid_fn = |extra_data: Option<String>| -> anyhow::Result<Txid> {
+    let parse_challenge_txid_fn = |extra_data: Option<String>| -> Result<Txid> {
         if extra_data.is_none() {
             return Err(anyhow!("extra data is none"));
         }
@@ -1588,7 +1151,7 @@ pub fn temp_file() -> String {
 pub async fn generate_instance_from_event(
     btc_client: &BTCClient,
     event: &BridgeInRequestEvent,
-) -> anyhow::Result<Instance> {
+) -> Result<Instance> {
     let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
     let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
         .try_into()
@@ -1609,7 +1172,7 @@ pub async fn generate_instance_from_event(
                 amount_stats: v.amount_sats.parse::<u64>().unwrap_or_default(),
             })
         })
-        .collect::<anyhow::Result<Vec<ClientUtxo>>>()?;
+        .collect::<Result<Vec<ClientUtxo>>>()?;
 
     let from_addr = if !input_utxos.is_empty()
         && let Some(tx) = btc_client.get_tx(&Txid::from_slice(&input_utxos[0].txid)?).await?

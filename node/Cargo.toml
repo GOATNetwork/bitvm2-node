@@ -8,18 +8,6 @@ name = "bitvm2-noded"
 path = "src/main.rs"
 
 [[bin]]
-name = "fake-assert"
-path = "src/bin/fake_assert.rs"
-
-[[bin]]
-name = "fake-kickoff"
-path = "src/bin/fake_kickoff.rs"
-
-[[bin]]
-name = "fake-challenge"
-path = "src/bin/fake_challenge.rs"
-
-[[bin]]
 name = "sequencer-set-publish"
 path = "src/bin/sequencer-set-publish.rs"
 
@@ -47,7 +35,6 @@ libp2p-metrics = { workspace = true }
 futures = { workspace = true }
 
 bitvm2-lib = { workspace = true }
-bitvm2-lib-ga = { workspace = true }
 store = { workspace = true }
 client = { workspace = true }
 bitcoin-light-client = { workspace = true }
