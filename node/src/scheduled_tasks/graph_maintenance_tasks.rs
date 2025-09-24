@@ -20,7 +20,7 @@ use libp2p::Swarm;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::localdb::{GraphQuery, GraphUpdate, LocalDB, StorageProcessor};
+use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphBtcTxVoutMonitor, GraphStatus,
     MessageBroadcast, MessageType, SerializableTxid,
@@ -358,9 +358,18 @@ async fn fetch_graph_and_broadcast_record_map<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     graph_status: &str,
 ) -> anyhow::Result<(Vec<Graph>, HashMap<String, MessageBroadcast>)> {
-    let (graphs, _) = storage_processor
-        .find_graphs(GraphQuery::default().with_status(graph_status.to_string()))
-        .await?;
+    let graphs_ori =
+        storage_processor.find_graphs_by_status_group_by_operator(graph_status).await?;
+
+    // todo add other logic later
+    let mut graphs: Vec<Graph> = vec![];
+    let mut pre_operator_pubkey = "".to_string();
+    for graph in graphs_ori {
+        if graph.operator_pubkey != pre_operator_pubkey {
+            pre_operator_pubkey = graph.operator_pubkey.clone();
+            graphs.push(graph);
+        }
+    }
 
     let broadcasts = storage_processor.find_message_broadcasts(graph_status).await?;
     let broadcast_record_map: HashMap<String, MessageBroadcast> = broadcasts

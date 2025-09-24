@@ -1001,39 +1001,7 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn find_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {
         let row = sqlx::query_as::<_, Graph>(
-            "SELECT graph_id,
-                    instance_id,
-                    kickoff_index,
-                    from_addr,
-                    to_addr,
-                    graph_ipfs_base_url,
-                    amount,
-                    challenge_amount,
-                    status,
-                    sub_status,
-                    operator_pubkey,
-                    cur_prekickoff_txid,
-                    next_prekickoff,
-                    force_skip_kickoff_txid,
-                    quick_challenge_txid,
-                    challenge_incomplete_kickoff_txid,
-                    pegin_txid,
-                    kickoff_txid,
-                    take1_txid,
-                    challenge_txid,
-                    take2_txid,
-                    disprove_txid,
-                    watchtower_challenge_init_txid,
-                    watchtower_challenge_timeout_txids,
-                    nack_txids,
-                    blockhash_commit_timeout_txid,
-                    assert_init_txid,
-                    assert_commit_timeout_txids,
-                    init_withdraw_tx_hash,
-                    bridge_out_start_at,
-                    zkm_version,
-                    created_at,
-                    updated_at
+            "SELECT *
              FROM graph
              WHERE graph_id = ?",
         )
@@ -1197,6 +1165,21 @@ impl<'a> StorageProcessor<'a> {
             count_query_exec.fetch_one(self.conn()).await?.get::<i64, &str>("total_graphs");
 
         Ok((graphs, total_graphs))
+    }
+
+    pub async fn find_graphs_by_status_group_by_operator(
+        &mut self,
+        status: &str,
+    ) -> anyhow::Result<Vec<Graph>> {
+        let row = sqlx::query_as::<_, Graph>(
+            "SELECT * 
+             FROM graph
+             WHERE status = ? ORDER BY  operator_pubkey,  kickoff_index",
+        )
+        .bind(status)
+        .fetch_all(self.conn())
+        .await?;
+        Ok(row)
     }
 
     pub async fn get_graph_by_instance_id(
@@ -1625,7 +1608,7 @@ impl<'a> StorageProcessor<'a> {
             .await?
             .total;
         let time_pri =
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 - time_threshold;
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64 - time_threshold;
         tracing::info!("{time_pri}");
         let alive = sqlx::query!(
             r#"SELECT COUNT(peer_id) AS alive FROM node WHERE updated_at >= ?"#,
