@@ -461,6 +461,7 @@ pub async fn detect_init_withdraw_call(
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn process_operator_data_pushed_graph(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
@@ -533,7 +534,7 @@ pub async fn detect_kickoff(
     _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    _goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
     trace!("start tick action: detect_kickoff");
     let mut storage_processor = local_db.acquire().await?;
@@ -551,15 +552,35 @@ pub async fn detect_kickoff(
                 continue;
             }
         };
-        process_operator_data_pushed_graph(
-            btc_client,
-            goat_client,
-            local_db,
-            &graph.graph_id,
-            &graph.instance_id,
-            &kickoff_txid,
-        )
-        .await?;
+
+        if outpoint_spent_txid(btc_client, &kickoff_txid, 0).await?.is_some() {
+            trace!(
+                "graph_id:{} kickoff: {} output has been spend, no need to send kickoffSent message",
+                graph.graph_id,
+                kickoff_txid.to_string()
+            );
+            continue;
+        }
+        let tx_info = btc_client
+            .get_tx_info(&kickoff_txid)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("kickoff {} not found", kickoff_txid.to_string()))?;
+        if !tx_info.status.confirmed {
+            warn!("graph_id:{} kickoff:{kickoff_txid:?} is not onchain", graph.graph_id);
+            continue;
+        }
+
+        // todo p2p message
+
+        // process_operator_data_pushed_graph(
+        //     btc_client,
+        //     goat_client,
+        //     local_db,
+        //     &graph.graph_id,
+        //     &graph.instance_id,
+        //     &kickoff_txid,
+        // )
+        // .await?;
     }
     Ok(())
 }
@@ -568,7 +589,7 @@ pub async fn detect_take1_or_challenge(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    _goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
     trace!("start tick action: detect_take1_or_challenge");
     let mut storage_processor = local_db.acquire().await?;
@@ -621,15 +642,8 @@ pub async fn detect_take1_or_challenge(
             )
             .await?;
         }
-        match process_kickoff_graph(
-            btc_client,
-            goat_client,
-            local_db,
-            &graph,
-            lock_blocks,
-            current_height,
-        )
-        .await?
+        match process_kickoff_graph(btc_client, local_db, &graph, lock_blocks, current_height)
+            .await?
         {
             Some((actor, message_content)) => {
                 info!("process_kickoff_graph detect take1 ready");
@@ -661,7 +675,7 @@ pub async fn process_graph_challenge(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    _goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
     info!("start tick action: process_graph_challenge");
     let mut storage_processor = local_db.acquire().await?;
@@ -761,7 +775,7 @@ pub async fn process_graph_challenge(
                     graph.graph_id
                 );
                 if let Some((_actor, _content)) =
-                    detect_take2(btc_client, goat_client, local_db, &graph, current_height).await?
+                    detect_take2(btc_client, local_db, &graph, current_height).await?
                 {
                     //todo send take2 ready
                 }
@@ -771,21 +785,16 @@ pub async fn process_graph_challenge(
             "process_graph_challenge graph:{} do checking disprove action until status change to disprove or take2",
             graph.graph_id
         );
-        process_graph_watchtower_assert_disproved(
-            btc_client,
-            goat_client,
-            local_db,
-            &graph,
-            &mut sub_status,
-        )
-        .await?;
+        process_graph_watchtower_assert_disproved(btc_client, local_db, &graph, &mut sub_status)
+            .await?;
         detect_kickoff_ref_disprove_tx(btc_client, &mut storage_processor, &graph).await?;
     }
 
     Ok(())
 }
 
-/// Handle Take1 transaction completion
+// TODO remove me later
+#[allow(dead_code)]
 async fn handle_operator_withdraw_completion(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
@@ -878,11 +887,13 @@ async fn handle_challenge_detected(
     storage_processor
         .update_graph_fields(
             GraphUpdate::new(graph_id)
-                .with_status(GraphStatus::Challenge.to_string())
+                // .with_status(GraphStatus::Challenge.to_string())
                 .with_challenge_txid(challenge_txid.into())
                 .with_sub_status(sub_status),
         )
         .await?;
+
+    // P2P change
 
     info!("successfully updated graph_id: {graph_id} to challenge status");
     Ok(())
@@ -947,7 +958,6 @@ async fn check_operator_withdraw_ready_condition(
 /// Process graph data in KickOff status
 async fn process_kickoff_graph(
     btc_client: &BTCClient,
-    goat_client: &GOATClient,
     local_db: &LocalDB,
     graph: &Graph,
     lock_blocks: i64,
@@ -1003,22 +1013,23 @@ async fn process_kickoff_graph(
         }
     };
     let mut tx = local_db.start_transaction().await?;
-    let data_change = if spent_txid == take1_txid {
+    if spent_txid == take1_txid {
         info!(
             "process_kickoff_graph graph_id:{}, take1 is on chain, will try call contract",
             graph.graph_id
         );
+        // todo p2p messag send
         // Take1 was sent
-        handle_operator_withdraw_completion(
-            btc_client,
-            goat_client,
-            &mut tx,
-            graph.instance_id,
-            graph.graph_id,
-            OperatorWithdrawType::Take1,
-            take1_txid,
-        )
-        .await?
+        // handle_operator_withdraw_completion(
+        //     btc_client,
+        //     goat_client,
+        //     &mut tx,
+        //     graph.instance_id,
+        //     graph.graph_id,
+        //     OperatorWithdrawType::Take1,
+        //     take1_txid,
+        // )
+        // .await?
     } else {
         info!(
             "process_kickoff_graph graph_id:{}, challenge txid: {} has been detected.",
@@ -1027,12 +1038,8 @@ async fn process_kickoff_graph(
         );
         // Challenge was sent
         handle_challenge_detected(&mut tx, graph.graph_id, spent_txid).await?;
-        true
     };
-    if data_change {
-        tx.commit().await?;
-    }
-
+    tx.commit().await?;
     Ok(None)
 }
 
@@ -1708,8 +1715,37 @@ async fn detect_disproved_txids(
 
     Ok(None)
 }
-
 async fn process_graph_watchtower_assert_disproved(
+    btc_client: &BTCClient,
+    local_db: &LocalDB,
+    graph: &Graph,
+    sub_status: &mut ChallengeSubStatus,
+) -> anyhow::Result<()> {
+    let mut tx = local_db.start_transaction().await?;
+    match detect_disproved_txids(btc_client, &mut tx, graph, sub_status).await? {
+        Some((_disprove_type, _start_txid, finish_txid, tx_index)) => {
+            if graph.disprove_txid.is_none() {
+                sub_status.disprove_index = tx_index;
+                let mut storage_processor = local_db.acquire().await?;
+                storage_processor
+                    .update_graph_fields(
+                        GraphUpdate::new(graph.graph_id)
+                            .with_disprove_txid(finish_txid.into())
+                            .with_sub_status(serde_json::to_string(sub_status).unwrap()),
+                    )
+                    .await?;
+            }
+        }
+        None => {
+            trace!("process_graph_watchtower_assert_disproved get disproved tx is none");
+        }
+    }
+    Ok(())
+}
+
+// TODO remove me later
+#[allow(dead_code)]
+async fn process_graph_watchtower_assert_disproved_with_contact_call(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     local_db: &LocalDB,
@@ -1811,7 +1847,6 @@ async fn process_graph_watchtower_assert_disproved(
 /// Process graph data in Watchtower Assert Normal status
 async fn detect_take2(
     btc_client: &BTCClient,
-    goat_client: &GOATClient,
     local_db: &LocalDB,
     graph: &Graph,
     current_height: i64,
@@ -1912,29 +1947,25 @@ async fn detect_take2(
             return Ok(None);
         }
     };
-    let mut tx = local_db.start_transaction().await?;
-    let data_change = if spent_txid == take2_txid {
+
+    if spent_txid == take2_txid {
         info!(
             "detecting detect_take2 graph_id {} take2:{} is on btc chain",
             graph.graph_id,
             spent_txid.to_string()
         );
-        // Take1 was sent
-        handle_operator_withdraw_completion(
-            btc_client,
-            goat_client,
-            &mut tx,
-            graph.instance_id,
-            graph.graph_id,
-            OperatorWithdrawType::Take2,
-            take2_txid,
-        )
-        .await?
-    } else {
-        false
-    };
-    if data_change {
-        tx.commit().await?;
+        // TODO p2p message
+        // Take2 was sent
+        // handle_operator_withdraw_completion(
+        //     btc_client,
+        //     goat_client,
+        //     &mut tx,
+        //     graph.instance_id,
+        //     graph.graph_id,
+        //     OperatorWithdrawType::Take2,
+        //     take2_txid,
+        // )
+        // .await?
     }
     Ok(None)
 }

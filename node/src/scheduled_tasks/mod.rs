@@ -10,7 +10,7 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
-    instance_window_expiration_monitor, scan_post_graph_data, scan_post_pegin_data,
+    instance_window_expiration_monitor, scan_post_pegin_data,
 };
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
@@ -47,11 +47,7 @@ pub async fn relayer_scheduled_tasks(
         warn!("scan_obsolete_sibling_graphs, err {:?}", err)
     }
 
-    if let Err(err) = scan_post_pegin_data(swarm, local_db, btc_client, goat_client).await {
-        warn!("scan_post_operator_data, err {:?}", err)
-    }
-
-    if let Err(err) = scan_post_graph_data(swarm, local_db, goat_client).await {
+    if let Err(err) = scan_post_pegin_data(swarm, local_db, btc_client).await {
         warn!("scan_post_operator_data, err {:?}", err)
     }
 

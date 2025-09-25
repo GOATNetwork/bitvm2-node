@@ -2,11 +2,11 @@ use crate::env;
 use crate::env::{GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
-use alloy::primitives::{Address as EvmAddress, TxHash};
+use alloy::primitives::Address as EvmAddress;
 use anyhow::{anyhow, bail};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, Txid};
+use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, Transaction, Txid};
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::contexts::base::generate_n_of_n_public_key;
 use bitvm2_lib::keys::CommitteeMasterKey;
@@ -332,7 +332,6 @@ pub async fn scan_post_pegin_data(
     _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
-    goat_client: &GOATClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting into post_pegin_data");
     let mut storage_process = local_db.acquire().await?;
@@ -364,79 +363,51 @@ pub async fn scan_post_pegin_data(
             continue;
         }
 
-        if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_tx_hash) {
-            let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_tx_hash).await?;
-            if receipt_op.is_none() {
-                info!(
-                    "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
-                but get receipt status is false, will try later",
-                    instance.instance_id, instance.pegin_data_tx_hash
-                );
-                continue;
-            }
-            storage_process
-                .update_instance_status(
-                    &instance.instance_id,
-                    &InstanceStatus::RelayerL2Minted.to_string(),
-                )
-                .await?;
-        } else {
-            let pegin_confirm_tx = btc_client.get_tx(&pegin_confirm_txid).await?.ok_or(format!(
-                "pegin_confirm_txid {} not found",
-                pegin_confirm_txid.to_string()
-            ))?;
+        let _pegin_confirm_tx = btc_client
+            .get_tx(&pegin_confirm_txid)
+            .await?
+            .ok_or(format!("pegin_confirm_txid {} not found", pegin_confirm_txid.to_string()))?;
 
-            let committee_signs: Vec<Vec<u8>> =
-                instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
-            match goat_client
-                .gateway_post_pegin_data(
-                    btc_client,
-                    &instance.instance_id,
-                    &pegin_confirm_tx,
-                    &committee_signs,
-                )
-                .await
-            {
-                Err(err) => {
-                    warn!(
-                        "scan post_pegin_data instance id {}, tx:{} post_pegin_data failed err:{:?}",
-                        instance.instance_id,
-                        pegin_confirm_tx.compute_txid().to_string(),
-                        err
-                    );
-                    continue;
-                }
-                Ok(tx_hash) => {
-                    info!(
-                        "scan post_pegin_data finish post post_pegin_dataa for instance_id {} , tx hash:{}",
-                        instance.instance_id, tx_hash
-                    );
-                    let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
-                        Some(receipt) => receipt.block_number.unwrap_or(0),
-                        None => 0,
-                    };
-                    let mut tx = local_db.start_transaction().await?;
-                    tx.upsert_goat_tx_record(&GoatTxRecord {
-                        instance_id: instance.instance_id,
-                        graph_id: Uuid::default(),
-                        tx_type: GoatTxType::PostPeginData.to_string(),
-                        tx_hash: tx_hash.clone(),
-                        height: block_height as i64,
-                        is_local: true,
-                        processing_status: GoatTxProcessingStatus::Skipped.to_string(),
-                        extra: None,
-                        created_at: current_time_secs(),
-                    })
-                    .await?;
-                    tx.update_instance_pegin_data_txid(&instance.instance_id, &tx_hash).await?;
-                    tx.commit().await?;
-                }
-            };
-        }
+        // todo p2p message
+
+        // if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_tx_hash) {
+        //     let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_tx_hash).await?;
+        //     if receipt_op.is_none() {
+        //         info!(
+        //             "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
+        //         but get receipt status is false, will try later",
+        //             instance.instance_id, instance.pegin_data_tx_hash
+        //         );
+        //         continue;
+        //     }
+        //     storage_process
+        //         .update_instance_status(
+        //             &instance.instance_id,
+        //             &InstanceStatus::RelayerL2Minted.to_string(),
+        //         )
+        //         .await?;
+        // } else {
+        //     let pegin_confirm_tx = btc_client.get_tx(&pegin_confirm_txid).await?.ok_or(format!(
+        //         "pegin_confirm_txid {} not found",
+        //         pegin_confirm_txid.to_string()
+        //     ))?;
+        //     let committee_signs: Vec<Vec<u8>> =
+        //         instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
+        //     post_pegin_data(
+        //         local_db,
+        //         btc_client,
+        //         goat_client,
+        //         instance.instance_id,
+        //         committee_signs,
+        //         &pegin_confirm_tx,
+        //     )
+        //     .await?;
+        // }
     }
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn scan_post_graph_data(
     _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
@@ -532,6 +503,7 @@ pub async fn scan_post_graph_data(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
     if graph.pegin_txid.is_none()
         || graph.kickoff_txid.is_none()
@@ -562,4 +534,53 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
             .collect(),
         nack_txids: graph.nack_txids.iter().map(|x| x.0.to_byte_array()).collect(),
     })
+}
+
+#[allow(dead_code)]
+async fn post_pegin_data(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+    committee_signs: Vec<Vec<u8>>,
+    pegin_confirm_tx: &Transaction,
+) -> anyhow::Result<()> {
+    match goat_client
+        .gateway_post_pegin_data(btc_client, &instance_id, &pegin_confirm_tx, &committee_signs)
+        .await
+    {
+        Err(err) => {
+            warn!(
+                "scan post_pegin_data instance id {instance_id}, tx:{} post_pegin_data failed err:{:?}",
+                pegin_confirm_tx.compute_txid().to_string(),
+                err
+            );
+        }
+        Ok(tx_hash) => {
+            info!(
+                "scan post_pegin_data finish post post_pegin_dataa for instance_id {instance_id} , tx hash:{}",
+                tx_hash
+            );
+            let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
+                Some(receipt) => receipt.block_number.unwrap_or(0),
+                None => 0,
+            };
+            let mut tx = local_db.start_transaction().await?;
+            tx.upsert_goat_tx_record(&GoatTxRecord {
+                instance_id,
+                graph_id: Uuid::default(),
+                tx_type: GoatTxType::PostPeginData.to_string(),
+                tx_hash: tx_hash.clone(),
+                height: block_height as i64,
+                is_local: true,
+                processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+                extra: None,
+                created_at: current_time_secs(),
+            })
+            .await?;
+            tx.update_instance_pegin_data_txid(&instance_id, &tx_hash).await?;
+            tx.commit().await?;
+        }
+    };
+    Ok(())
 }
