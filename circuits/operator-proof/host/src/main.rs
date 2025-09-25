@@ -6,7 +6,8 @@
 use alloy_primitives::U256;
 use alloy_provider::{RootProvider, network::Ethereum};
 use ark_serialize::CanonicalSerialize;
-use bitcoin::{Network, ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
+use bitcoin::{secp256k1::{XOnlyPublicKey, PublicKey}, Network, ScriptBuf, TxOut, Txid};
+use bitcoin_script::script;
 use bitcoin_light_client::{
     CommitChainCircuitInput, CommitChainPrevProofType, EthClientExecutorInput, LightBlock,
     build_spv,
@@ -206,7 +207,8 @@ async fn main() {
     let watchtower_challenge_txids: Vec<(String, String)> = serde_json::from_slice(&bytes).unwrap();
     let mut watchtower_challenge_txns = Vec::new();
     let mut watchtower_challenge_txn_prev_outs: Vec<TxOut> = Vec::new();
-    let mut watchtower_challenge_txn_pubkey = Vec::new();
+    let mut watchtower_challenge_txn_pubkeys = Vec::new();
+    let mut watchtower_challenge_txn_scripts: Vec<ScriptBuf> = Vec::new();
     for (id, pk) in &watchtower_challenge_txids {
         let txid = id.parse().unwrap();
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
@@ -217,14 +219,22 @@ async fn main() {
             btc_client.get_tx(&txn.input[index].previous_output.txid).await.unwrap().unwrap();
         watchtower_challenge_txn_prev_outs
             .push(prev_txn.output[txn.input[index].previous_output.vout as usize].clone());
-        watchtower_challenge_txn_pubkey.push(PublicKey::from_str(pk).unwrap());
+        let public_key = PublicKey::from_str(pk).unwrap();
+        watchtower_challenge_txn_pubkeys.push(public_key.clone());
         watchtower_challenge_txns.push(CircuitTransaction(txn));
+
+        // https://github.com/GOATNetwork/BitVM/blob/GA/goat/src/transactions/watchtower_challenge.rs#L45
+        // generate_pay_to_pubkey_taproot_script
+        let watchtower_challenge_txn_script: ScriptBuf = {
+            let public_key: XOnlyPublicKey = public_key.into(); 
+            script! {
+                { public_key }
+                OP_CHECKSIG
+            }
+            .compile()
+        };
+        watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
     }
-
-    // https://github.com/GOATNetwork/BitVM/blob/GA/goat/src/transactions/watchtower_challenge.rs#L45
-    // generate_pay_to_pubkey_taproot_script
-    let watchtower_challenge_txn_script: ScriptBuf = ScriptBuf::new();
-
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
@@ -234,21 +244,16 @@ async fn main() {
 
         stdin.write(&args.graph_id);
 
-        // let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
         stdin.write(&operator_latest_sequencer_commit_txn);
-        // let consensus_blocks: LightBlock = zkm_zkvm::io::read(); // commit the sequencer set
         let bytes = std::fs::read(&args.consensus_layer_block).unwrap();
         let consensus_layer_block: LightBlock = serde_json::from_slice(&bytes).unwrap();
         stdin.write_vec(serde_cbor::to_vec(&consensus_layer_block).unwrap());
 
         stdin.write(&eth_client_execution_input);
 
-        // let watchtower_challenge_txns: Vec<CircuitTransaction> = zkm_zkvm::io::read();
         stdin.write(&watchtower_challenge_txns);
-        // let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
-        stdin.write(&watchtower_challenge_txn_pubkey);
-        // let watchtower_challenge_txn_script: ScriptBuf = zkm_zkvm::io::read();
-        stdin.write(&watchtower_challenge_txn_script);
+        stdin.write(&watchtower_challenge_txn_pubkeys);
+        stdin.write(&watchtower_challenge_txn_scripts);
         stdin.write(&watchtower_challenge_txn_prev_outs);
 
         stdin.write(&header_chain_input);

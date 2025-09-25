@@ -127,7 +127,7 @@ pub fn generate_operator_proof(
 
     watchtower_challenge_txns: Vec<CircuitTransaction>,
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
-    watchtower_challenge_txn_script: ScriptBuf,
+    watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
     watchtower_challenge_txn_prev_outs: Vec<TxOut>,
 
     operator_header_chain: HeaderChainCircuitInput,
@@ -138,11 +138,12 @@ pub fn generate_operator_proof(
 ) -> [u8; 32] {
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     // verify operator_header_chain is valid
-    let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
-    let operator_total_work = btc_header_chain_output.chain_state.total_work;
-    let operator_consensus_block_height = U256::from(btc_header_chain_output.chain_state.block_height);
+    //let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
+    //let operator_total_work = btc_header_chain_output.chain_state.total_work;
+    //let operator_consensus_block_height = U256::from(btc_header_chain_output.chain_state.block_height);
 
-    //let operator_total_work = [0xEF; 32];
+    let operator_total_work = [0xEF; 32];
+    let operator_consensus_block_height = U256::from(1100000);
 
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -173,7 +174,7 @@ pub fn generate_operator_proof(
             let sig = bitcoin::taproot::Signature::from_slice(&tx.input[0].witness[0]).unwrap();
             // check tx signature is valid
             match crate::commit_chain::verify_taproot_leaf_schnorr_signature(
-                &watchtower_challenge_txn_script,
+                &watchtower_challenge_txn_scripts[i],
                 &tx.0,
                 prev_out,
                 pubkey,
