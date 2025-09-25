@@ -164,13 +164,13 @@ pub struct WatchtowerChallengeSent {
 pub struct WatchtowerChallengeTimeout {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub watchtower_indexs: Vec<usize>,
+    pub watchtower_indexes: Vec<usize>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OperatorAckTimeout {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub watchtower_indexs: Vec<usize>,
+    pub watchtower_indexes: Vec<usize>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OperatorCommitBlockHashReady {
@@ -197,7 +197,7 @@ pub struct AssertInitReady {
 pub struct AssertCommitTimeout {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub assert_commit_indexs: Vec<usize>,
+    pub assert_commit_indexes: Vec<usize>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DisproveReady {
@@ -210,7 +210,7 @@ pub struct DisproveSent {
     pub graph_id: Uuid,
     pub disprove_type: DisproveTxType,
     pub index: usize, // nack txns index or assert timeout txns index, ignored for other disprove types
-    pub challenge_start_txid: Txid,
+    pub challenge_start_txid: Option<Txid>,
     pub challenge_finish_txid: Txid,
 }
 #[derive(Serialize, Deserialize, Clone)]
@@ -446,7 +446,7 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::KickoffSent(_data), Actor::Challenger) => {
             // triggered by Kickoff tx
             // 1. check the withdraw status on GoatChain
-            // 2. if the its invalid, sign & broadcast challenge txn
+            // 2. if it's invalid, sign & broadcast challenge txn
             todo!("Handle KickoffSent");
         }
         (GOATMessageContent::PreKickoffSent(_data), Actor::Challenger) => {
