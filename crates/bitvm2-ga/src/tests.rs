@@ -636,7 +636,7 @@ mod tests {
             value: total_input_amount - Amount::from_sat(100000),
             script_pubkey: bank_address.script_pubkey(),
         };
-        let tx = Transaction {
+        let mut tx = Transaction {
             version: bitcoin::transaction::Version(2),
             lock_time: bitcoin::absolute::LockTime::ZERO,
             input: txins,
@@ -644,7 +644,7 @@ mod tests {
         };
         for i in 0..tx.input.len() {
             node_sign(
-                &mut tx.clone(),
+                &mut tx,
                 i,
                 selected_utxos[i].value,
                 EcdsaSighashType::All,
