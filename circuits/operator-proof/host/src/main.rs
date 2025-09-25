@@ -1,12 +1,12 @@
 //! Generate header chain proof
 //! Example:
 //! ```
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
+//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 100063 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 441af2dec4a28caa3219085f514a1eb533d025d1563851be87b6c4d30715b1a0
 //! ```
 use alloy_primitives::U256;
 use alloy_provider::{RootProvider, network::Ethereum};
 use ark_serialize::CanonicalSerialize;
-use bitcoin::{secp256k1::{XOnlyPublicKey, PublicKey}, Network, ScriptBuf, TxOut, Txid};
+use bitcoin::{secp256k1::{XOnlyPublicKey, PublicKey}, Network, ScriptBuf, TxOut, Txid, Transaction};
 use bitcoin_script::script;
 use bitcoin_light_client::{
     CommitChainCircuitInput, CommitChainPrevProofType, EthClientExecutorInput, LightBlock,
@@ -112,6 +112,9 @@ pub struct Args {
     #[clap(long, env, short)]
     watchtower_challenge_info: String,
 
+    #[clap(long, env, short)]
+    watchtower_challenge_init_txid: String,
+
     #[clap(long, env, default_value = "commit-proof.bin")]
     output: String,
 
@@ -207,18 +210,24 @@ async fn main() {
     let watchtower_challenge_txids: Vec<(String, String)> = serde_json::from_slice(&bytes).unwrap();
     let mut watchtower_challenge_txns = Vec::new();
     let mut watchtower_challenge_txn_prev_outs: Vec<TxOut> = Vec::new();
+    let mut watchtower_challenge_txn_prev_indices: Vec<usize> = Vec::new();
     let mut watchtower_challenge_txn_pubkeys = Vec::new();
     let mut watchtower_challenge_txn_scripts: Vec<ScriptBuf> = Vec::new();
+
+    let watchtower_challlenge_init_txn: Transaction = btc_client.get_tx(
+        &args.watchtower_challenge_init_txid.parse().unwrap()
+    ).await.unwrap().unwrap(); 
+
     for (id, pk) in &watchtower_challenge_txids {
         let txid = id.parse().unwrap();
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
         // get prev outs
         // FIXME: update the index
-        let index = 0;
-        let prev_txn =
-            btc_client.get_tx(&txn.input[index].previous_output.txid).await.unwrap().unwrap();
+        let index = txn.input[0].previous_output.vout as usize; 
         watchtower_challenge_txn_prev_outs
-            .push(prev_txn.output[txn.input[index].previous_output.vout as usize].clone());
+            .push(watchtower_challlenge_init_txn.output[index].clone());
+        watchtower_challenge_txn_prev_indices.push(index);
+
         let public_key = PublicKey::from_str(pk).unwrap();
         watchtower_challenge_txn_pubkeys.push(public_key.clone());
         watchtower_challenge_txns.push(CircuitTransaction(txn));
@@ -255,6 +264,7 @@ async fn main() {
         stdin.write(&watchtower_challenge_txn_pubkeys);
         stdin.write(&watchtower_challenge_txn_scripts);
         stdin.write(&watchtower_challenge_txn_prev_outs);
+        stdin.write(&watchtower_challenge_txn_prev_indices);
 
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);

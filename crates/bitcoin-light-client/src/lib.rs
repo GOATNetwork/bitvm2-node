@@ -129,6 +129,7 @@ pub fn generate_operator_proof(
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
     watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
     watchtower_challenge_txn_prev_outs: Vec<TxOut>,
+    watchtower_challenge_txn_prev_indices: Vec<usize>,
 
     operator_header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
@@ -138,12 +139,12 @@ pub fn generate_operator_proof(
 ) -> [u8; 32] {
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     // verify operator_header_chain is valid
-    //let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
-    //let operator_total_work = btc_header_chain_output.chain_state.total_work;
-    //let operator_consensus_block_height = U256::from(btc_header_chain_output.chain_state.block_height);
+    let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
+    let operator_total_work = btc_header_chain_output.chain_state.total_work;
+    let operator_consensus_block_height = U256::from(btc_header_chain_output.chain_state.block_height);
 
-    let operator_total_work = [0xEF; 32];
-    let operator_consensus_block_height = U256::from(1100000);
+    //let operator_total_work = [0xEF; 32];
+    //let operator_consensus_block_height = U256::from(1100000);
 
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -168,14 +169,15 @@ pub fn generate_operator_proof(
         if included_watchertowers_bits[i] {
             let tx = &watchtower_challenge_txns[i];
             let prev_out = &watchtower_challenge_txn_prev_outs[i];
+            let prev_index = watchtower_challenge_txn_prev_indices[i];
             let pubkey = &watchtower_challenge_txn_pubkey[i];
 
-            // The index is 0
             let sig = bitcoin::taproot::Signature::from_slice(&tx.input[0].witness[0]).unwrap();
             // check tx signature is valid
             match crate::commit_chain::verify_taproot_leaf_schnorr_signature(
                 &watchtower_challenge_txn_scripts[i],
                 &tx.0,
+                prev_index,
                 prev_out,
                 pubkey,
                 &sig,
@@ -192,13 +194,13 @@ pub fn generate_operator_proof(
                 println!("Watchtower[{i}] invalid txoutput format");
                 continue;
             }
+
             let commitment = &extract_op_return_data(&tx)[..];
             // check first 16 bytes is graph_id
             if !commitment.starts_with(&graph_id) {
                 println!("Watchtower[{i}] invalid commitment: graph id");
                 continue;
             }
-
             // Get the header_chain Groth16 proof from commitment
             // proof size: 260bytes
             let proof = &commitment[16..16 + 260];
@@ -271,12 +273,15 @@ pub fn is_valid_commitment_outputs(txouts: &[TxOut]) -> bool {
     if txouts.is_empty() {
         return false;
     }
-    let last_txout = &txouts[txouts.len() - 1];
+    // the last one is change output
+    let last_txout = &txouts[txouts.len() - 2];
     if !last_txout.script_pubkey.is_op_return() {
+        println!("last txout is not op_return");
         return false;
     }
-    for txout in &txouts[..txouts.len() - 1] {
+    for txout in &txouts[..txouts.len() - 2] {
         if !txout.script_pubkey.is_p2wsh() {
+            println!("txout is not p2wsg");
             return false;
         }
     }

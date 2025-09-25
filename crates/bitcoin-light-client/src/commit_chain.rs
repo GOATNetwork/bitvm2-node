@@ -194,6 +194,7 @@ fn generate_taproot_leaf_schnorr_signature(
 pub fn verify_taproot_leaf_schnorr_signature(
     script: &ScriptBuf,
     spending_tx: &Transaction,
+    prev_index: usize,
     prev_out: &TxOut,
     pubkey: &PublicKey,
     sig: &TaprootSignature,
@@ -206,7 +207,8 @@ pub fn verify_taproot_leaf_schnorr_signature(
     let internal_xonly: XOnlyPublicKey = (*pubkey).into();
     let sighash = match SighashCache::new(spending_tx).taproot_script_spend_signature_hash(
         0,
-        &Prevouts::All(&[prev_out.clone()]),
+        //&Prevouts::All(&[prev_out.clone()]),
+        &Prevouts::One(prev_index, prev_out.clone()),
         leaf_hash,
         TapSighashType::AllPlusAnyoneCanPay,
     ) {
@@ -493,6 +495,7 @@ mod tests {
         verify_taproot_leaf_schnorr_signature(
             &script,
             &spending_tx,
+            0,
             &prev_out,
             &keypair.public_key(),
             &sig,

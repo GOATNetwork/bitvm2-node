@@ -27,6 +27,7 @@ pub fn main() {
     let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
     let watchtower_challenge_txn_scripts: Vec<ScriptBuf> = zkm_zkvm::io::read();
     let watchtower_challenge_txn_prev_outs: Vec<TxOut> = zkm_zkvm::io::read();
+    let watchtower_challenge_txn_prev_indices: Vec<usize> = zkm_zkvm::io::read();
 
     let operator_header_chain: HeaderChainCircuitInput = zkm_zkvm::io::read();
     let operator_commit_chain: CommitChainCircuitInput = zkm_zkvm::io::read();
@@ -46,6 +47,7 @@ pub fn main() {
         watchtower_challenge_txn_pubkey,
         watchtower_challenge_txn_scripts,
         watchtower_challenge_txn_prev_outs,
+        watchtower_challenge_txn_prev_indices,
         operator_header_chain,
         operator_commit_chain,
         spv,
