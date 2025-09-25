@@ -882,7 +882,7 @@ pub fn operator_sign_assert_commit(
     );
     match operator_commit_proof(
         &assert_commit_connectors,
-        &wots_secret_keys.to_vec(),
+        &wots_secret_keys[1..].to_vec(),
         &assert_commit_inputs,
         &assert_assertions,
     ) {
@@ -899,8 +899,62 @@ pub fn is_valid_wots_secrets(
     wots_seckeys: &OperatorWotsSecretKeys,
     expected_pubkeys: &OperatorWotsPublicKeys,
 ) -> bool {
-    let generated_pubkeys = wots_secrets_to_pubkeys(wots_seckeys);
-    &generated_pubkeys == expected_pubkeys
+    // let generated_pubkeys = wots_secrets_to_pubkeys(wots_seckeys);
+    // &generated_pubkeys == expected_pubkeys
+
+    // Compare each generated WOTS public key against the expected public keys
+    // without allocating large temporaries. This keeps stack usage small.
+    let (guest_extra_expected, guest_assert_expected, proof_pubkeys_box) = expected_pubkeys;
+    let proof_pubkeys = proof_pubkeys_box.as_ref();
+
+    let mut idx: usize = 0;
+
+    // guest_extra (Wots32)
+    for expected in guest_extra_expected.iter() {
+        let generated = Wots32::generate_public_key(&wots_seckeys[idx]);
+        if &generated != expected {
+            return false;
+        }
+        idx += 1;
+    }
+
+    // guest_assert (Wots32)
+    for expected in guest_assert_expected.iter() {
+        let generated = Wots32::generate_public_key(&wots_seckeys[idx]);
+        if &generated != expected {
+            return false;
+        }
+        idx += 1;
+    }
+
+    // proof pubins (Wots32)
+    for expected in proof_pubkeys.0.iter() {
+        let generated = Wots32::generate_public_key(&wots_seckeys[idx]);
+        if &generated != expected {
+            return false;
+        }
+        idx += 1;
+    }
+
+    // proof fq_arr (Wots32)
+    for expected in proof_pubkeys.1.iter() {
+        let generated = Wots32::generate_public_key(&wots_seckeys[idx]);
+        if &generated != expected {
+            return false;
+        }
+        idx += 1;
+    }
+
+    // proof h_arr (Wots16)
+    for expected in proof_pubkeys.2.iter() {
+        let generated = Wots16::generate_public_key(&wots_seckeys[idx]);
+        if &generated != expected {
+            return false;
+        }
+        idx += 1;
+    }
+
+    true
 }
 
 pub fn take1_timelock(network: Network) -> u32 {
