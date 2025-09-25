@@ -388,6 +388,8 @@ pub struct Message {
     pub msg_type: String,
     pub content: Vec<u8>,
     pub state: String,
+    pub weight: i64,
+    pub lock_time_until: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -429,26 +431,39 @@ pub struct NonceCollectMetaData {
 pub enum MessageType {
     None,
     BridgeInData,
-    CreateInstance,
-    CreateGraphPrepare,
+    PeginRequest,
     CreateGraph,
+    ConfirmInstance,
     NonceGeneration,
     CommitteePresign,
     GraphFinalize,
+    EndorseGraph,
+    PeginConfirmNonce,
+    PeginConfirmPartialSig,
     KickoffReady,
     KickoffSent,
+    PreKickoffSent,
+    ChallengeSent,
+    WatchtowerChallengeInitSent,
+    WatchtowerChallengeSent,
+    WatchtowerChallengeTimeout,
+    OperatorAckTimeout,
+    OperatorCommitBlockHashReady,
+    OperatorCommitBlockHashSent,
+    OperatorCommitBlockHashTimeout,
+    AssertInitReady,
+    AssertCommitTimeout,
+    DisproveReady,
+    DisproveSent,
     Take1Ready,
     Take1Sent,
-    ChallengeSent,
-    AssertSent,
     Take2Ready,
     Take2Sent,
-    DisproveSent,
-    InstanceDiscarded,
     RequestNodeInfo,
     ResponseNodeInfo,
     SyncGraphRequest,
     SyncGraph,
+    InstanceDiscarded,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -708,8 +723,8 @@ mod tests {
 
     #[test]
     fn test_message_type_from_str() {
-        assert_eq!(MessageType::from_str("BridgeInData").unwrap(), MessageType::BridgeInData);
-        assert_eq!(MessageType::from_str("CreateInstance").unwrap(), MessageType::CreateInstance);
+        assert_eq!(MessageType::from_str("PeginRequest").unwrap(), MessageType::PeginRequest);
+        assert_eq!(MessageType::from_str("CreateGraph").unwrap(), MessageType::CreateGraph);
         assert!(MessageType::from_str("Invalid").is_err());
     }
 

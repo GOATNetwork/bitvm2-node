@@ -1,4 +1,5 @@
 use crate::middleware::AllBehaviours;
+use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::{committee_scheduled_tasks, relayer_scheduled_tasks};
 use crate::utils::*;
 use anyhow::Result;
@@ -290,7 +291,7 @@ pub async fn handle_self_p2p_msg(
     from_peer_id: PeerId,
     id: MessageId,
     message: &[u8],
-) -> anyhow::Result<()> {
+) -> Result<()> {
     if id != GOATMessage::default_message_id() {
         warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
         return Ok(());
@@ -312,24 +313,23 @@ pub async fn handle_self_p2p_msg(
         committee_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
     }
 
-    if let Some(message) = pop_local_unhandle_msg(local_db, actor.clone()).await?
-        && !message.is_empty()
-    {
+    let messages =
+        pop_batch_local_unhandle_msg(local_db, actor.clone(), current_time_secs(), 0, 50).await?;
+    for message in messages {
         recv_and_dispatch(
             swarm,
             local_db,
             btc_client,
             goat_client,
             ipfs,
-            actor,
+            actor.clone(),
             from_peer_id,
-            id,
+            id.clone(),
             &message,
         )
-        .await
-    } else {
-        Ok(())
+        .await?;
     }
+    Ok(())
 }
 
 /// Filter the message and dispatch message to different handlers, like rpc handler, or other peers

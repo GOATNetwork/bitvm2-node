@@ -99,15 +99,42 @@ pub async fn committee_scheduled_tasks(
 #[allow(dead_code)]
 fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
     match content {
+        GOATMessageContent::PeginRequest(_) => MessageType::PeginRequest,
         GOATMessageContent::CreateGraph(_) => MessageType::CreateGraph,
+        GOATMessageContent::ConfirmInstance(_) => MessageType::ConfirmInstance,
         GOATMessageContent::NonceGeneration(_) => MessageType::NonceGeneration,
         GOATMessageContent::CommitteePresign(_) => MessageType::CommitteePresign,
         GOATMessageContent::GraphFinalize(_) => MessageType::GraphFinalize,
+        GOATMessageContent::EndorseGraph(_) => MessageType::EndorseGraph,
+        GOATMessageContent::PeginConfirmNonce(_) => MessageType::PeginConfirmNonce,
+        GOATMessageContent::PeginConfirmPartialSig(_) => MessageType::PeginConfirmPartialSig,
         GOATMessageContent::KickoffReady(_) => MessageType::KickoffReady,
         GOATMessageContent::KickoffSent(_) => MessageType::KickoffSent,
+        GOATMessageContent::PreKickoffSent(_) => MessageType::PreKickoffSent,
+        GOATMessageContent::ChallengeSent(_) => MessageType::ChallengeSent,
+        GOATMessageContent::WatchtowerChallengeInitSent(_) => {
+            MessageType::WatchtowerChallengeInitSent
+        }
+        GOATMessageContent::WatchtowerChallengeSent(_) => MessageType::WatchtowerChallengeSent,
+        GOATMessageContent::WatchtowerChallengeTimeout(_) => {
+            MessageType::WatchtowerChallengeTimeout
+        }
+        GOATMessageContent::OperatorAckTimeout(_) => MessageType::OperatorAckTimeout,
+        GOATMessageContent::OperatorCommitBlockHashReady(_) => {
+            MessageType::OperatorCommitBlockHashReady
+        }
+        GOATMessageContent::OperatorCommitBlockHashSent(_) => {
+            MessageType::OperatorCommitBlockHashSent
+        }
+        GOATMessageContent::OperatorCommitBlockHashTimeout(_) => {
+            MessageType::OperatorCommitBlockHashTimeout
+        }
+        GOATMessageContent::AssertInitReady(_) => MessageType::AssertInitReady,
+        GOATMessageContent::AssertCommitTimeout(_) => MessageType::AssertCommitTimeout,
+        GOATMessageContent::DisproveReady(_) => MessageType::DisproveReady,
+        GOATMessageContent::DisproveSent(_) => MessageType::DisproveSent,
         GOATMessageContent::Take1Ready(_) => MessageType::Take1Ready,
         GOATMessageContent::Take1Sent(_) => MessageType::Take1Sent,
-        GOATMessageContent::ChallengeSent(_) => MessageType::ChallengeSent,
         GOATMessageContent::Take2Ready(_) => MessageType::Take2Ready,
         GOATMessageContent::Take2Sent(_) => MessageType::Take2Sent,
         GOATMessageContent::RequestNodeInfo(_) => MessageType::RequestNodeInfo,
@@ -115,6 +142,5 @@ fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
         GOATMessageContent::SyncGraphRequest(_) => MessageType::SyncGraphRequest,
         GOATMessageContent::SyncGraph(_) => MessageType::SyncGraph,
         GOATMessageContent::InstanceDiscarded(_) => MessageType::InstanceDiscarded,
-        _ => todo!("other message type"),
     }
 }

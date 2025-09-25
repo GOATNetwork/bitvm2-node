@@ -42,8 +42,8 @@ use store::ipfs::IPFS;
 use store::localdb::{InstanceUpdate, LocalDB};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
-    Graph, GraphRawData, GraphStatus, Instance, InstanceStatus, Message, MessageState, MessageType,
-    Node, UInt64Array3,
+    Graph, GraphRawData, GraphStatus, Instance, InstanceStatus, Message, MessageState, Node,
+    UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 
@@ -628,6 +628,8 @@ pub async fn save_unhandle_message(
                 from_peer: from_peer_id.to_string(),
                 msg_type: msy_type.to_string(),
                 content,
+                weight: 0,
+                lock_time_until: current_time_secs(),
                 state: MessageState::Pending.to_string(),
             },
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
@@ -1079,9 +1081,16 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
     (false, None)
 }
 
-pub async fn pop_local_unhandle_msg(local_db: &LocalDB, actor: Actor) -> Result<Option<Vec<u8>>> {
+pub async fn pop_batch_local_unhandle_msg(
+    local_db: &LocalDB,
+    actor: Actor,
+    lock_time_until: i64,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<Vec<u8>>> {
+    // todo not do special for
     // 1. create  groth16 proof for operator
-    if actor == Actor::Operator
+    let (limit, mut messages_res) = if actor == Actor::Operator
         && let Some(content) = operator_scan_ready_proof(
             local_db,
             get_proof_server_url(),
@@ -1089,31 +1098,30 @@ pub async fn pop_local_unhandle_msg(local_db: &LocalDB, actor: Actor) -> Result<
         )
         .await?
     {
-        return Ok(Some(content));
-    }
+        (limit - 1, vec![content])
+    } else {
+        (limit, vec![])
+    };
 
     // 2. check unhandle msg from message table
-    let mut storage_process = local_db.acquire().await?;
+    let mut tx = local_db.start_transaction().await?;
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    storage_process.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
-    let messages = storage_process
-        .filter_messages(MessageState::Pending.to_string(), current_time - MESSAGE_EXPIRE_TIME)
+    tx.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
+    tx.delete_old_messages(current_time - MESSAGE_EXPIRE_TIME).await?;
+    let messages = tx
+        .filter_messages(
+            MessageState::Pending.to_string(),
+            0,
+            lock_time_until,
+            current_time - MESSAGE_EXPIRE_TIME,
+            limit,
+            offset,
+        )
         .await?;
 
-    for message in messages {
-        if message.msg_type != MessageType::BridgeInData.to_string() {
-            storage_process
-                .update_messages_state(
-                    &[message.id],
-                    MessageState::Processed.to_string(),
-                    current_time,
-                )
-                .await?;
-            return Ok(Some(message.content));
-        }
-    }
-
-    Ok(None)
+    messages_res.extend(messages.into_iter().map(|v| v.content));
+    tx.commit().await?;
+    Ok(messages_res)
 }
 
 pub async fn operator_scan_ready_proof(

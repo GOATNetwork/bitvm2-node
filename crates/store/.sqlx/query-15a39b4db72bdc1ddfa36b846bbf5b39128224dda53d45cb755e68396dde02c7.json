@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, from_peer, actor, msg_type, content, state\n            FROM message\n            WHERE state = ?\n              AND updated_at >= ? ORDER BY id ASC",
+  "query": "SELECT id, from_peer, actor, msg_type, content, state, weight, lock_time_until\n            FROM message\n            WHERE state = ?\n              AND weight >= ?\n              AND lock_time_until <= ?\n              AND updated_at >= ? ORDER BY id ASC LIMIT ? OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -32,12 +32,24 @@
         "name": "state",
         "ordinal": 5,
         "type_info": "Text"
+      },
+      {
+        "name": "weight",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "lock_time_until",
+        "ordinal": 7,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 6
     },
     "nullable": [
+      false,
+      false,
       false,
       false,
       false,
@@ -46,5 +58,5 @@
       false
     ]
   },
-  "hash": "3fd780c2ecdc093ff0fb3b4b8fcf0a3201aff7d33aa46f4651b8b8b17b374349"
+  "hash": "15a39b4db72bdc1ddfa36b846bbf5b39128224dda53d45cb755e68396dde02c7"
 }

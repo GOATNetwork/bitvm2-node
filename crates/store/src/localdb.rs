@@ -1652,40 +1652,36 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn filter_type_messages(
-        &mut self,
-        msg_type: String,
-        state: String,
-        expired: i64,
-    ) -> anyhow::Result<Vec<Message>> {
-        let res = sqlx::query_as!(
-            Message,
-            r#"SELECT id, from_peer, actor, msg_type, content, state
-            FROM message
-            WHERE msg_type = ?
-              AND state = ?
-              AND updated_at >= ?"#,
-            msg_type,
-            state,
-            expired
-        )
-        .fetch_all(self.conn())
-        .await?;
-        Ok(res)
+    pub async fn delete_old_messages(&mut self, expired: i64) -> anyhow::Result<()> {
+        sqlx::query!(r#"DELETE FROM message WHERE  updated_at < ?"#, expired)
+            .execute(self.conn())
+            .await?;
+        Ok(())
     }
+
     pub async fn filter_messages(
         &mut self,
         state: String,
+        weight: i64,
+        lock_time_until: i64,
         expired: i64,
+        limit: i64,
+        offset: i64,
     ) -> anyhow::Result<Vec<Message>> {
         let res = sqlx::query_as!(
             Message,
-            r#"SELECT id, from_peer, actor, msg_type, content, state
+            r#"SELECT id, from_peer, actor, msg_type, content, state, weight, lock_time_until
             FROM message
             WHERE state = ?
-              AND updated_at >= ? ORDER BY id ASC"#,
+              AND weight >= ?
+              AND lock_time_until <= ?
+              AND updated_at >= ? ORDER BY id ASC LIMIT ? OFFSET ?"#,
             state,
-            expired
+            weight,
+            lock_time_until,
+            expired,
+            limit,
+            offset
         )
         .fetch_all(self.conn())
         .await?;
@@ -1698,13 +1694,15 @@ impl<'a> StorageProcessor<'a> {
         current_time: i64,
     ) -> anyhow::Result<bool> {
         let res = sqlx::query!(
-            r#"INSERT INTO message (from_peer, actor, msg_type, content, state, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+            r#"INSERT INTO message (from_peer, actor, msg_type, content, state, lock_time_until, weight, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             msg.from_peer,
             msg.actor,
             msg.msg_type,
             msg.content,
             msg.state,
+            msg.lock_time_until,
+            msg.weight,
             current_time,
             current_time
 
