@@ -212,10 +212,11 @@ async fn main() {
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
         // get prev outs
         // FIXME: update the index
+        let index = 0;
         let prev_txn =
-            btc_client.get_tx(&txn.input[0].previous_output.txid).await.unwrap().unwrap();
+            btc_client.get_tx(&txn.input[index].previous_output.txid).await.unwrap().unwrap();
         watchtower_challenge_txn_prev_outs
-            .push(prev_txn.output[txn.input[0].previous_output.vout as usize].clone());
+            .push(prev_txn.output[txn.input[index].previous_output.vout as usize].clone());
         watchtower_challenge_txn_pubkey.push(PublicKey::from_str(pk).unwrap());
         watchtower_challenge_txns.push(CircuitTransaction(txn));
     }
