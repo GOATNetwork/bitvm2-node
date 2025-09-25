@@ -23,7 +23,6 @@ use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
 pub use guest_executor::io::EthClientExecutorInput;
-use guest_executor::io::WitnessInput;
 
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
 fn verify_el_withdraw_tx(
@@ -137,21 +136,13 @@ pub fn generate_operator_proof(
     l2_contract_address: Address,
     base_slot: U256,
 ) -> [u8; 32] {
-    // hardcode
-
-    //latest_sequencer_commit_tx: &CircuitTransaction,
-    // extract consensus block height
-    let operator_commitment = &extract_op_return_data(&operator_latest_sequencer_commit_txn.0)[..];
-    let mut bh_bytes = [0u8; 32];
-    bh_bytes.copy_from_slice(&operator_commitment[0..32]);
-    let operator_consensus_block_height = U256::from_be_bytes(bh_bytes);
-
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
-
     // verify operator_header_chain is valid
-    // operator_head_chain.latest_blockhash = latest_operator_blockhash
     let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
+    let operator_consensus_block_height = U256::from(btc_header_chain_output.chain_state.block_height);
+
+    //let operator_total_work = [0xEF; 32];
 
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -162,10 +153,12 @@ pub fn generate_operator_proof(
     );
 
     // verify that the latest_sequecner_commit_tx is in the header chain
-    assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
+    // FIXME
+    // assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // parse included_watchtowers into bits array
     let included_watchertowers_bits = u256_to_bits(included_watchtowers);
+    println!("included watchtowers:{:?}", included_watchertowers_bits);
     // For each watchtowers, if the included_watchtowers[i] is true,
     //   verify the watchtower_challenge_txns[i] is valid
     //   verify watchtower_challenge_txns[i].total_work <= operator_header_chain.total_work

@@ -4,8 +4,7 @@
 mod tests {
     use crate::{challenger::*, committee::*, keys::*, operator::*, types::*, watchtower::*};
     use bitcoin::{
-        Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, TapSighashType,
-        Transaction, TxIn, TxOut, Txid, XOnlyPublicKey, hashes::Hash, key::Keypair,
+        hashes::Hash, key::Keypair, Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey, PublicKey, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey
     };
     use bitcoincore_rpc::{Auth, Client as BtcdClient, RpcApi};
     use bitvm::{
@@ -34,7 +33,7 @@ mod tests {
         utils::num_blocks_per_network,
     };
     use musig2::PubNonce;
-    use secp256k1::SECP256K1;
+    use secp256k1::{SecretKey, SECP256K1};
     use sha2::{Digest, Sha256};
     use std::time::Duration;
     use tokio::time::sleep;
@@ -746,6 +745,7 @@ mod tests {
 
         // watchtower[0] challenge
         let watchtower_0_keypair = watchtower_master_key()[0].master_keypair();
+        println!("watchtower0 pubkey: {}", watchtower_0_keypair.public_key());
         let challenge_connector_0_input = Input {
             outpoint: OutPoint { txid: watchtower_challenge_init_txid, vout: 0 },
             amount: watchtower_challenge_init.output[0].value,

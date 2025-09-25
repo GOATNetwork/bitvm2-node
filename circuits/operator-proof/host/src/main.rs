@@ -97,7 +97,7 @@ pub struct Args {
         long,
         env,
         short,
-        default_value = "../../../crates/bitcoin-light-client/samples/light_block_5756785.json"
+        default_value = "../../../crates/bitcoin-light-client/samples/light_block_5756784.json"
     )]
     consensus_layer_block: String,
 
@@ -236,11 +236,10 @@ async fn main() {
 
         // let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
         stdin.write(&operator_latest_sequencer_commit_txn);
-
         // let consensus_blocks: LightBlock = zkm_zkvm::io::read(); // commit the sequencer set
         let bytes = std::fs::read(&args.consensus_layer_block).unwrap();
-        let consensus_layer_block: LightBlock = bincode::deserialize(&bytes).unwrap();
-        stdin.write(&consensus_layer_block);
+        let consensus_layer_block: LightBlock = serde_json::from_slice(&bytes).unwrap();
+        stdin.write_vec(serde_cbor::to_vec(&consensus_layer_block).unwrap());
 
         stdin.write(&eth_client_execution_input);
 
@@ -255,7 +254,7 @@ async fn main() {
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
         stdin.write(&spv);
-
+ 
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
         } else {

@@ -106,6 +106,7 @@ hex-literal = "0.4.1"
 rayon = "1.10.0"
 rlp = "0.5.2"
 logroller = { version = "0.1", features = ["tracing"] }
+serde_cbor = "0.11.2"
 
 # workspace
 
