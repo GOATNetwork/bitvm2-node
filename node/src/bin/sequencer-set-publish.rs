@@ -8,7 +8,7 @@
 //! docker-compose -f docker-compose.yml up -d
 //! ```
 //! Run the sequencer set publish transaction with ci.sh
-//! 
+//!
 //! The key wif is used only for test.
 //!
 use alloy::primitives::{Address as EvmAddress, B256, U256, keccak256};
@@ -21,7 +21,10 @@ use bitcoin::{
     TxIn, TxOut, Txid, Witness, absolute::LockTime, hashes::Hash, key::Keypair,
     transaction::Version,
 };
-use bitvm2_noded::env::{get_goat_address_from_env, ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS, ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS};
+use bitvm2_noded::env::{
+    ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS,
+    ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS, get_goat_address_from_env,
+};
 use bitvm2_noded::utils::broadcast_tx;
 use bitvm2_noded::utils::wait_tx_confirmation;
 use bitvm2_noded::utils::{node_p2wsh_address, node_sign};
@@ -150,14 +153,15 @@ enum Commands {
     SignSeq {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
         owner_btc_key_wif: Option<String>,
-        #[arg(long)]
-        goat_block_number: Option<u64>,
+
+        #[arg(long, env = "NEXT_SEQUENCER_SET_HASH", value_parser = hex_parse)]
+        next_sequencer_set_hash: [u8; 32],
     },
     PushSeq {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
         owner_btc_key_wif: Option<String>,
-        #[arg(long)]
-        goat_block_number: Option<u64>,
+        #[arg(long, env = "NEXT_SEQUENCER_SET_HASH", value_parser = hex_parse)]
+        next_sequencer_set_hash: [u8; 32],
     },
     Payfee {
         #[arg(long, env = "FUND_BTC_KEY_WIF")]
@@ -241,7 +245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await
         }
-        Commands::SignSeq { owner_btc_key_wif, goat_block_number } => {
+        Commands::SignSeq { owner_btc_key_wif, next_sequencer_set_hash } => {
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
             let (update_connector_txid, update_connector_vout) =
@@ -252,15 +256,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 owner_btc_key_wif,
                 args.publishers.clone(),
                 args.fee_rate,
-                goat_block_number,
                 fee_txid,
                 fee_tx_vout,
                 update_connector_txid,
                 update_connector_vout,
+                next_sequencer_set_hash,
             )
             .await
         }
-        Commands::PushSeq { owner_btc_key_wif, goat_block_number } => {
+        Commands::PushSeq { owner_btc_key_wif, next_sequencer_set_hash } => {
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
             let (update_connector_txid, update_connector_vout) =
@@ -272,12 +276,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 owner_btc_key_wif,
                 args.publishers.clone(),
                 args.fee_rate,
-                goat_block_number,
                 fee_txid,
                 fee_tx_vout,
                 update_connector_txid,
                 update_connector_vout,
                 cached_output.sigs,
+                next_sequencer_set_hash,
             )
             .await
         }
@@ -427,25 +431,15 @@ async fn fetch_publishers(
     Ok(pubkeys)
 }
 
-async fn fetch_commitment(
-    goat_client: &GOATClient,
-    height: U256,
-) -> Result<[u8; 32], anyhow::Error> {
-    let commitment = goat_client.seq_set_pub_calc_commitment(height).await?;
-    Ok(commitment.into())
-}
-
 fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
 
     let mut config = GoatInitConfig::from_env_for_test();
-    config.sequencer_set_publisher_address = get_goat_address_from_env(
-        ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS
-    ); 
-    config.multi_sig_verifier_address = get_goat_address_from_env(
-        ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS
-    );
+    config.sequencer_set_publisher_address =
+        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS);
+    config.multi_sig_verifier_address =
+        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS);
     config.private_key = args.goat_evm_prvkey.clone();
 
     let goat_client = GOATClient::new(config, client::goat_chain::GoatNetwork::Test);
@@ -570,12 +564,12 @@ async fn action_push_sequencer_set_update(
     owner_btc_key_wif: Option<String>,
     publishers: Vec<EvmAddress>,
     fee_rate: u64,
-    goat_block_number: Option<u64>,
     fee_txid: Option<String>,
     fee_tx_vout: u32,
     update_connector_txid: Option<String>,
     update_connector_vout: Option<u32>,
     sigs: Vec<String>,
+    next_sequencer_set_hash: [u8; 32],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let btc_public_keys = fetch_publishers(&goat_client, &publishers).await?;
     //println!("btc pubkeys: {btc_public_keys:?}");
@@ -593,8 +587,6 @@ async fn action_push_sequencer_set_update(
 
     println!("replenish fee: {replenish_fee:?}");
     println!("sigs: {:?}", sigs);
-    let commitment = fetch_commitment(&goat_client, U256::from(goat_block_number.unwrap())).await?;
-
     // read public key and threshold from smart contract, which is consistency with btc_public_keys
     let fee_tx = btc_client
         .get_tx(&fee_txid.as_ref().unwrap().parse()?)
@@ -619,7 +611,7 @@ async fn action_push_sequencer_set_update(
 
     // Skip construction of the genesis tx
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
-        commitment.clone(),
+        next_sequencer_set_hash,
         &update_connector,
         &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
         next_update_connector_address.clone(),
@@ -660,11 +652,11 @@ async fn action_sign_sequencer_set_update(
     owner_btc_key_wif: Option<String>,
     publishers: Vec<EvmAddress>,
     fee_rate: u64,
-    goat_block_number: Option<u64>,
     fee_txid: Option<String>,
     fee_tx_vout: u32,
     update_connector_txid: Option<String>,
     update_connector_vout: Option<u32>,
+    next_sequencer_set_hash: [u8; 32],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let network = Network::Regtest;
     // read public key and threshold from smart contract, which is consistency with btc_public_keys
@@ -681,9 +673,6 @@ async fn action_sign_sequencer_set_update(
     let replenish_fee = Amount::from_sat(fee_rate)
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as u64
         + relayer_fee;
-
-    // fetch the commitment from given block number
-    let commitment = fetch_commitment(goat_client, U256::from(goat_block_number.unwrap())).await?;
 
     let fee_tx = btc_client
         .get_tx(&fee_txid.as_ref().unwrap().parse()?)
@@ -706,7 +695,7 @@ async fn action_sign_sequencer_set_update(
         };
 
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
-        commitment.clone(),
+        next_sequencer_set_hash,
         &update_connector,
         &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
         next_update_connector_address.clone(),

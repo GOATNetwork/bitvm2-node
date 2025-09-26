@@ -1,7 +1,7 @@
 set -e
 source .env
 
-HEIGHT=100
+HEIGHT=200
 
 rm -rf /tmp/output.data
 #CMD="cargo run -r --bin sequencer-set-publish --"
@@ -14,16 +14,13 @@ $CMD fund
 $CMD payfee
 
 # sign sequencer set publishing genisis txn 
-$CMD push-seq --goat-block-number $HEIGHT 
+$CMD push-seq
 
 $CMD payfee
 
-$CMD sign-seq --owner-btc-key-wif cMec2DGaTXkYJYfi7x3ZGjRXkeqmAvYAoWzMAcWj5fdLaqudWsNi \
-    --goat-block-number $HEIGHT 
-$CMD sign-seq --owner-btc-key-wif cMgZD2qsGReP1UvGbNQ7moL6PZFgzsuPFV3St8sGwpNxED4hqkEM \
-    --goat-block-number $HEIGHT 
-$CMD sign-seq --owner-btc-key-wif cMiWPrRA5KYDiRAq4nkgGsEf2TfcpqGbhT6YbfDpoy8ZsaAHiDeo \
-    --goat-block-number $HEIGHT
+$CMD sign-seq --owner-btc-key-wif cMec2DGaTXkYJYfi7x3ZGjRXkeqmAvYAoWzMAcWj5fdLaqudWsNi
+$CMD sign-seq --owner-btc-key-wif cMgZD2qsGReP1UvGbNQ7moL6PZFgzsuPFV3St8sGwpNxED4hqkEM
+$CMD sign-seq --owner-btc-key-wif cMiWPrRA5KYDiRAq4nkgGsEf2TfcpqGbhT6YbfDpoy8ZsaAHiDeo
 
 # submit update-seq-set to GOAT
 $CMD --goat-evm-prvkey 0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6 update-seq-set --goat-block-number $HEIGHT 
@@ -40,6 +37,5 @@ $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a9143
 # update publisher on GOAT
 $CMD push-pub --goat-block-number $HEIGHT
 
-sleep 10
 # broadcast publisher changes to Bitcoin
-$CMD push-seq --goat-block-number $HEIGHT 
+$CMD push-seq
