@@ -1688,11 +1688,8 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn create_message(
-        &mut self,
-        msg: Message,
-        current_time: i64,
-    ) -> anyhow::Result<bool> {
+    pub async fn create_message(&mut self, msg: Message) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
         let res = sqlx::query!(
             r#"INSERT INTO message (from_peer, actor, msg_type, content, state, lock_time_until, weight, updated_at, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,

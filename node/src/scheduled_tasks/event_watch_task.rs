@@ -1,9 +1,8 @@
 use crate::env;
 use crate::env::LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{generate_instance_from_event, reflect_goat_address, strip_hex_prefix_owned};
+use crate::utils::{ reflect_goat_address, strip_hex_prefix_owned};
 use bitvm2_lib::actors::Actor;
-use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::GraphQueryClient;
 use client::graphs::graph_query::{
@@ -28,7 +27,6 @@ use uuid::Uuid;
 
 pub async fn fetch_and_handle_block_range_events<'a>(
     actor: Actor,
-    btc_client: &BTCClient,
     client: &GraphQueryClient,
     storage_processor: &mut StorageProcessor<'a>,
     event_entities: &[GatewayEventEntity],
@@ -118,13 +116,7 @@ pub async fn fetch_and_handle_block_range_events<'a>(
         .await?;
     handle_withdraw_paths_events(storage_processor, withdraw_paths_events).await?;
     handle_withdraw_disproved_events(storage_processor, withdraw_disproved_events).await?;
-    handle_bridge_in_request_events(
-        storage_processor,
-        actor.clone(),
-        btc_client,
-        bridge_in_request_events,
-    )
-    .await?;
+    handle_bridge_in_request_events(storage_processor, bridge_in_request_events).await?;
     handle_committee_response_events(storage_processor, committee_response_events).await?;
     handle_bridge_in_events(storage_processor, bridge_in_events).await?;
     Ok(())
@@ -306,28 +298,21 @@ async fn handle_withdraw_disproved_events<'a>(
 
 async fn handle_bridge_in_request_events<'a>(
     storage_processor: &mut StorageProcessor<'a>,
-    actor: Actor,
-    btc_client: &BTCClient,
     bridge_in_request_events: Vec<BridgeInRequestEvent>,
 ) -> anyhow::Result<()> {
-    let processing_status = if actor == Actor::Committee {
-        GoatTxProcessingStatus::Pending.to_string()
-    } else {
-        GoatTxProcessingStatus::Skipped.to_string()
-    };
     for event in bridge_in_request_events {
-        let instance = generate_instance_from_event(btc_client, &event).await?;
-        storage_processor.upsert_instance(&instance).await?;
+        // let instance = generate_instance_from_event(btc_client, &event).await?;
+        // storage_processor.upsert_instance(&instance).await?;
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
                 graph_id: Uuid::nil(),
                 tx_type: GoatTxType::BridgeInRequest.to_string(),
-                tx_hash: event.transaction_hash,
+                tx_hash: event.transaction_hash.clone(),
                 height: event.block_number.parse::<i64>()?,
                 is_local: false,
-                processing_status: processing_status.clone(),
-                extra: None,
+                processing_status: GoatTxProcessingStatus::Pending.to_string(),
+                extra: Some(serde_json::to_string(&event)?),
                 created_at: current_time_secs(),
             })
             .await?
@@ -386,7 +371,6 @@ async fn handle_bridge_in_events<'a>(
 
 pub async fn fetch_history_events(
     actor: Actor,
-    btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
     local_db: &LocalDB,
     query_client: &GraphQueryClient,
@@ -420,7 +404,6 @@ pub async fn fetch_history_events(
 
             fetch_and_handle_block_range_events(
                 actor.clone(),
-                &btc_client,
                 query_client,
                 &mut tx,
                 &event_entities,
@@ -470,7 +453,6 @@ pub async fn fetch_history_events(
 
 pub async fn monitor_events(
     actor: Actor,
-    btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
     local_db: &LocalDB,
     event_entities: Vec<GatewayEventEntity>,
@@ -504,7 +486,6 @@ pub async fn monitor_events(
         tokio::spawn(async move {
             let _ = fetch_history_events(
                 actor.clone(),
-                btc_client,
                 goat_client,
                 &local_db_clone,
                 &query_client_clone,
@@ -524,7 +505,6 @@ pub async fn monitor_events(
     let mut tx = local_db.start_transaction().await?;
     fetch_and_handle_block_range_events(
         actor.clone(),
-        &btc_client,
         &query_client,
         &mut tx,
         &event_entities,
@@ -543,7 +523,6 @@ pub async fn monitor_events(
 pub async fn run_watch_event_task(
     actor: Actor,
     local_db: LocalDB,
-    btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
     interval: u64,
     cancellation_token: CancellationToken,
@@ -573,7 +552,6 @@ pub async fn run_watch_event_task(
                 // Execute the normal monitoring logic
                 match monitor_events(
                         actor.clone(),
-                        btc_client.clone(),
                         goat_client.clone(),
                         &local_db,
                         events_map.get(&actor).cloned().unwrap_or_default()

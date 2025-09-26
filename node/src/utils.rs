@@ -39,7 +39,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::{InstanceUpdate, LocalDB};
+use store::localdb::{InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
     Graph, GraphRawData, GraphStatus, Instance, InstanceStatus, Message, MessageState, Node,
@@ -48,6 +48,7 @@ use store::{
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
+use crate::scheduled_tasks::get_goat_message_content_type;
 use bitvm2_lib::transactions::base::BaseTransaction;
 use tracing::warn;
 use uuid::Uuid;
@@ -613,27 +614,25 @@ pub async fn update_graph_fields(
 }
 
 pub async fn save_unhandle_message(
-    local_db: &LocalDB,
-    from_peer_id: &str,
-    actor: &str,
-    msy_type: &str,
-    content: Vec<u8>,
+    storage_processor: &mut StorageProcessor<'_>,
+    from_peer: String,
+    actor: Actor,
+    message_content: GOATMessageContent,
+    weight: i64,
+    lock_time: i64,
 ) -> Result<()> {
-    let mut storage_process = local_db.acquire().await?;
-    storage_process
-        .create_message(
-            Message {
-                id: 0,
-                actor: actor.to_string(),
-                from_peer: from_peer_id.to_string(),
-                msg_type: msy_type.to_string(),
-                content,
-                weight: 0,
-                lock_time_until: current_time_secs(),
-                state: MessageState::Pending.to_string(),
-            },
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-        )
+    let message = GOATMessage::from_typed(actor.clone(), &message_content)?;
+    storage_processor
+        .create_message(Message {
+            id: 0,
+            actor: actor.to_string(),
+            from_peer,
+            msg_type: get_goat_message_content_type(&message_content).to_string(),
+            content: serde_json::to_vec(&message)?,
+            weight,
+            lock_time_until: current_time_secs() + lock_time,
+            state: MessageState::Pending.to_string(),
+        })
         .await?;
     Ok(())
 }
@@ -1242,6 +1241,7 @@ pub fn temp_file() -> String {
     tmp_db.path().as_os_str().to_str().unwrap().to_string()
 }
 
+#[allow(dead_code)]
 pub async fn generate_instance_from_event(
     btc_client: &BTCClient,
     event: &BridgeInRequestEvent,

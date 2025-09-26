@@ -2,9 +2,12 @@ use crate::action::{
     ChallengeSent, GOATMessage, GOATMessageContent, KickoffReady, KickoffSent, Take1Ready,
     Take2Ready, send_to_peer,
 };
-use crate::env::{MESSAGE_BROADCAST_MAX_TIMES, MESSAGE_RESEND_INTERVAL_SECOND};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
+use crate::scheduled_tasks::{
+    BroadcastMessageDetail, broadcast_message_and_record, fetch_graph_and_broadcast_record_map,
+    gen_broadcast_record_map_key, is_need_to_send_msg,
+};
 use crate::utils::{get_graph, outpoint_spent_txid};
 use bitcoin::Txid;
 use bitcoin::hashes::Hash;
@@ -18,8 +21,6 @@ use client::goat_chain::{DisproveTxType, GOATClient, WithdrawStatus};
 use indexmap::IndexMap;
 use libp2p::Swarm;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphBtcTxVoutMonitor, GraphStatus,
@@ -314,71 +315,6 @@ where
         .map_err(|e| anyhow::anyhow!("Failed to parse monitor data: {}", e))
 }
 
-fn is_need_to_send_msg(pre_send_times: i64, last_send_at: i64) -> bool {
-    // if msg never been sent, last_send_at value is 0
-    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    (pre_send_times % MESSAGE_BROADCAST_MAX_TIMES != 0)
-        || (current_time - last_send_at) > MESSAGE_RESEND_INTERVAL_SECOND
-}
-
-pub struct BroadcastMessageDetail {
-    pub actor: Actor,
-    pub message_content: GOATMessageContent,
-    pub graph_id: Uuid,
-    pub graph_status: String,
-    pub msg_type: String,
-    pub pre_send_times: i64,
-    pub last_send_at: i64,
-}
-async fn broadcast_message_and_record(
-    swarm: &mut Swarm<AllBehaviours>,
-    storage_processor: &mut StorageProcessor<'_>,
-    msg_detail: BroadcastMessageDetail,
-) -> anyhow::Result<()> {
-    if is_need_to_send_msg(msg_detail.pre_send_times, msg_detail.last_send_at) {
-        send_to_peer(
-            swarm,
-            GOATMessage::from_typed(msg_detail.actor, &msg_detail.message_content)?,
-        )?;
-        storage_processor
-            .add_message_broadcast_times(
-                &msg_detail.graph_id,
-                &msg_detail.graph_status,
-                &msg_detail.msg_type,
-                1,
-            )
-            .await?;
-    }
-    Ok(())
-}
-fn gen_broadcast_record_map_key(graph_id: Uuid, graph_status: &str, msg_type: &str) -> String {
-    format!("{}_{}_{}", graph_id, graph_status, msg_type)
-}
-async fn fetch_graph_and_broadcast_record_map<'a>(
-    storage_processor: &mut StorageProcessor<'a>,
-    graph_status: &str,
-) -> anyhow::Result<(Vec<Graph>, HashMap<String, MessageBroadcast>)> {
-    let graphs_ori =
-        storage_processor.find_graphs_by_status_group_by_operator(graph_status).await?;
-
-    // todo add other logic later
-    let mut graphs: Vec<Graph> = vec![];
-    let mut pre_operator_pubkey = "".to_string();
-    for graph in graphs_ori {
-        if graph.operator_pubkey != pre_operator_pubkey {
-            pre_operator_pubkey = graph.operator_pubkey.clone();
-            graphs.push(graph);
-        }
-    }
-
-    let broadcasts = storage_processor.find_message_broadcasts(graph_status).await?;
-    let broadcast_record_map: HashMap<String, MessageBroadcast> = broadcasts
-        .into_iter()
-        .map(|v| (gen_broadcast_record_map_key(v.graph_id, &v.graph_status, &v.msg_type), v))
-        .collect();
-    Ok((graphs, broadcast_record_map))
-}
-
 #[allow(dead_code)]
 pub async fn get_initialized_graphs(goat_client: &GOATClient) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
     // call L2 contract : getInitializedInstanceIds
@@ -586,7 +522,7 @@ pub async fn detect_kickoff(
 }
 
 pub async fn detect_take1_or_challenge(
-    swarm: &mut Swarm<AllBehaviours>,
+    _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
     _goat_client: &GOATClient,
@@ -625,8 +561,7 @@ pub async fn detect_take1_or_challenge(
                 .clone();
             // take1 not ready
             broadcast_message_and_record(
-                swarm,
-                &mut storage_processor,
+                local_db,
                 BroadcastMessageDetail {
                     actor: Actor::All,
                     message_content: GOATMessageContent::KickoffSent(KickoffSent {
@@ -649,8 +584,7 @@ pub async fn detect_take1_or_challenge(
                 info!("process_kickoff_graph detect take1 ready");
                 // first detected take1 ready
                 broadcast_message_and_record(
-                    swarm,
-                    &mut storage_processor,
+                    local_db,
                     BroadcastMessageDetail {
                         actor,
                         message_content,
@@ -672,7 +606,7 @@ pub async fn detect_take1_or_challenge(
 }
 
 pub async fn process_graph_challenge(
-    swarm: &mut Swarm<AllBehaviours>,
+    _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
     _goat_client: &GOATClient,
@@ -721,8 +655,7 @@ pub async fn process_graph_challenge(
                     .clone();
                 // broadcast p2p message challengeSent
                 broadcast_message_and_record(
-                    swarm,
-                    &mut storage_processor,
+                    local_db,
                     BroadcastMessageDetail {
                         actor: Actor::Operator,
                         message_content: GOATMessageContent::ChallengeSent(ChallengeSent {

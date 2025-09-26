@@ -213,7 +213,7 @@ pub struct Instance {
     pub instance_id: Uuid,
     pub network: String,
     pub from_addr: String,
-    pub to_addr: String,
+    pub to_addr: String, // goat deposit addr
     pub amount: i64,
     pub fees: UInt64Array3,
     pub input_utxos: String,
@@ -430,7 +430,6 @@ pub struct NonceCollectMetaData {
 #[derive(Debug, Clone, PartialEq, Display, EnumString)]
 pub enum MessageType {
     None,
-    BridgeInData,
     PeginRequest,
     CreateGraph,
     ConfirmInstance,

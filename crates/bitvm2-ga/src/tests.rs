@@ -643,14 +643,8 @@ mod tests {
             output: vec![txout],
         };
         for i in 0..tx.input.len() {
-            node_sign(
-                &mut tx,
-                i,
-                selected_utxos[i].value,
-                EcdsaSighashType::All,
-                &bank_keypair(),
-            )
-            .unwrap();
+            node_sign(&mut tx, i, selected_utxos[i].value, EcdsaSighashType::All, &bank_keypair())
+                .unwrap();
         }
         esplora.broadcast(&tx).await.unwrap();
         wait_tx_confirm(esplora, tx.compute_txid()).await;

@@ -1,20 +1,24 @@
-use crate::env;
-use crate::env::{GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED};
+use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest};
+use crate::env::{
+    GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED, get_network,
+};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
+use crate::utils::{save_unhandle_message, strip_hex_prefix_owned};
 use alloy::primitives::Address as EvmAddress;
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, Transaction, Txid};
+use bitcoin::{Address, Amount, Denomination, Network, OutPoint, PublicKey, Transaction, Txid};
+use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::contexts::base::generate_n_of_n_public_key;
-use bitvm2_lib::keys::CommitteeMasterKey;
 use bitvm2_lib::transactions::base::{BaseTransaction, Input};
 use bitvm2_lib::types::{Bitvm2InstanceParameters, UserInfo};
 use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::{GOATClient, GraphData};
+use client::graphs::graph_query::BridgeInRequestEvent;
 use libp2p::Swarm;
 use secp256k1::XOnlyPublicKey;
 use std::str::FromStr;
@@ -46,57 +50,51 @@ async fn update_instance<'a>(
 }
 
 /// for committee
-pub async fn instance_answers_monitor(
-    local_db: &LocalDB,
-    goat_client: &GOATClient,
-) -> anyhow::Result<()> {
-    let mut storage_processor = local_db.acquire().await?;
-    let tx_records = storage_processor
-        .get_goat_tx_record_by_processing_status(
-            &GoatTxType::BridgeInRequest.to_string(),
-            &GoatTxProcessingStatus::Pending.to_string(),
-        )
-        .await?;
+pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> {
+    let tx_records = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .get_goat_tx_record_by_processing_status(
+                &GoatTxType::BridgeInRequest.to_string(),
+                &GoatTxProcessingStatus::Pending.to_string(),
+            )
+            .await?
+    };
 
     for tx_record in tx_records {
-        let instance = storage_processor.find_instance(&tx_record.instance_id).await?;
-        if instance.is_none() || instance.unwrap().status != InstanceStatus::UserInited.to_string()
-        {
-            info!("instance:{} is none or not in UserInited, skipping ", tx_record.instance_id);
-            storage_processor
-                .update_goat_tx_record_processing_status(
-                    &tx_record.graph_id,
-                    &tx_record.instance_id,
-                    &tx_record.tx_type,
-                    &GoatTxProcessingStatus::Skipped.to_string(),
+        let mut tx = local_db.start_transaction().await?;
+        match tx_record.extra {
+            Some(event) => {
+                let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
+                save_unhandle_message(
+                    &mut tx,
+                    "self".to_string(),
+                    Actor::All,
+                    GOATMessageContent::PeginRequest(PeginRequest {
+                        instance_id: tx_record.instance_id,
+                        network: get_network(),
+                        pegin_amount: Amount::from_str_in(
+                            &event.pegin_amount_sats,
+                            Denomination::Satoshi,
+                        )?,
+                        user_info: generate_user_info_from_event(&event)?,
+                    }),
+                    0,
+                    0,
                 )
                 .await?;
-            continue;
+            }
+            None => {}
         }
 
-        let master_key =
-            CommitteeMasterKey::new(env::get_bitvm_key().map_err(|e| anyhow!("{}", e))?);
-        let pubkey = master_key.keypair_for_instance(tx_record.instance_id).public_key();
-
-        match goat_client
-            .gateway_answer_pegin_request(&tx_record.instance_id, &pubkey.serialize())
-            .await
-        {
-            Ok(tx_hash) => {
-                info!("finish answer pegin request at hash {tx_hash}");
-                storage_processor
-                    .update_goat_tx_record_processing_status(
-                        &tx_record.graph_id,
-                        &tx_record.instance_id,
-                        &tx_record.tx_type,
-                        &GoatTxProcessingStatus::Processed.to_string(),
-                    )
-                    .await?
-            }
-            Err(err) => {
-                warn!("failed to answer pegin request: {}", err.to_string());
-            }
-        }
+        tx.update_goat_tx_record_processing_status(
+            &tx_record.graph_id,
+            &tx_record.instance_id,
+            &tx_record.tx_type,
+            &GoatTxProcessingStatus::Processed.to_string(),
+        )
+        .await?;
+        tx.commit().await?;
     }
     Ok(())
 }
@@ -164,14 +162,52 @@ pub async fn instance_window_expiration_monitor(
     Ok(())
 }
 
-fn update_pegin_txids(instance: &mut Instance) -> anyhow::Result<()> {
-    let committee_pubkeys: Vec<PublicKey> = instance
-        .committees_answers
-        .iter()
-        .map(|(_k, v)| PublicKey::from_slice(&v.pubkey).unwrap())
-        .collect();
-    let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)?;
+fn generate_user_info_from_event(event: &BridgeInRequestEvent) -> anyhow::Result<UserInfo> {
+    let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
+    let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("user_x_only_pubkey must be exactly 32 bytes"))?;
 
+    let input_utxos: Vec<Utxo> = event
+        .user_inputs
+        .iter()
+        .map(|v| {
+            let txid_bytes = hex::decode(&strip_hex_prefix_owned(&v.txid))
+                .map_err(|_| anyhow::anyhow!("Invalid txid hex format"))?;
+            let txid_array: [u8; 32] = txid_bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("txid must be exactly 32 bytes"))?;
+            Ok(Utxo {
+                txid: txid_array,
+                vout: v.vout,
+                amount_stats: v.amount_sats.parse::<u64>().unwrap_or_default(),
+            })
+        })
+        .collect::<anyhow::Result<Vec<Utxo>>>()?;
+
+    let txn_fees = event.txn_fees.clone().map(|v| v.parse::<u64>().unwrap_or_default());
+    gen_user_info(
+        get_network(),
+        &event.depositor_address,
+        &strip_hex_prefix_owned(&event.user_change_address),
+        &strip_hex_prefix_owned(&event.user_refund_address),
+        input_utxos,
+        txn_fees,
+        &user_xonly_pubkey_array,
+    )
+}
+
+fn gen_user_info(
+    network: Network,
+    depositor_evm_address: &str,
+    user_change_addr: &str,
+    user_refund_addr: &str,
+    utxos: Vec<Utxo>,
+    txn_fees: [u64; 3],
+    user_xonly_pubkey: &[u8; 32],
+) -> anyhow::Result<UserInfo> {
+    let user_change_address: Address<NetworkUnchecked> = Address::from_str(user_change_addr)?;
+    let user_refund_addr: Address<NetworkUnchecked> = Address::from_str(user_refund_addr)?;
     let inputs = utxos
         .into_iter()
         .map(|utxo| Input {
@@ -179,31 +215,46 @@ fn update_pegin_txids(instance: &mut Instance) -> anyhow::Result<()> {
             amount: Amount::from_sat(utxo.amount_stats),
         })
         .collect();
-    let network = Network::from_str(&instance.network)?;
-    let user_change_address: Address<NetworkUnchecked> =
-        Address::from_str(&instance.user_change_addr)?;
-    let user_refund_addr: Address<NetworkUnchecked> =
-        Address::from_str(&instance.user_change_addr)?;
-
-    let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
-    let user_info = UserInfo {
-        depositor_evm_address: EvmAddress::from_str(&instance.to_addr)?.into_array(),
-        txn_fees: instance.fees.0,
+    Ok(UserInfo {
+        depositor_evm_address: EvmAddress::from_str(&depositor_evm_address)?.into_array(),
+        txn_fees,
         inputs,
-        user_xonly_pubkey: XOnlyPublicKey::from_slice(&instance.user_xonly_pubkey.0)?,
+        user_xonly_pubkey: XOnlyPublicKey::from_slice(user_xonly_pubkey)?,
         user_change_address: user_change_address.require_network(network)?,
         user_refund_address: user_refund_addr.require_network(network)?,
-    };
-    let instance_params = Bitvm2InstanceParameters {
+    })
+}
+
+fn get_instance_params(instance: &Instance) -> anyhow::Result<Bitvm2InstanceParameters> {
+    let network = Network::from_str(&instance.network)?;
+    let committee_pubkeys: Vec<PublicKey> = instance
+        .committees_answers
+        .iter()
+        .map(|(_k, v)| PublicKey::from_slice(&v.pubkey).unwrap())
+        .collect();
+
+    let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
+    let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)?;
+    Ok(Bitvm2InstanceParameters {
         network,
         instance_id: instance.instance_id,
-        user_info,
+        user_info: gen_user_info(
+            network,
+            &instance.to_addr,
+            &instance.user_change_addr.clone(),
+            &instance.user_refund_addr.clone(),
+            utxos,
+            instance.fees.0,
+            &instance.user_xonly_pubkey.0,
+        )?,
         pegin_amount: Amount::from_sat(instance.amount as u64),
         committee_pubkeys,
         committee_agg_pubkey,
-    };
-
-    let (pegin_deposit_tx, pegin_confirm_tx, pegin_refund_tx) = instance_params.build_pegin_tx()?;
+    })
+}
+fn update_pegin_txids(instance: &mut Instance) -> anyhow::Result<()> {
+    let (pegin_deposit_tx, pegin_confirm_tx, pegin_refund_tx) =
+        get_instance_params(instance)?.build_pegin_tx()?;
     instance.pegin_prepare_txid = Some(pegin_deposit_tx.tx().compute_txid().into());
     instance.pegin_confirm_txid = Some(pegin_confirm_tx.finalize().compute_txid().into());
     instance.pegin_cancel_txid = Some(pegin_refund_tx.finalize().compute_txid().into());
@@ -258,30 +309,33 @@ pub async fn instance_btc_tx_monitor(
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
     info!("check user broadcast Pegin-Prepare");
-    let mut storage_processor = local_db.acquire().await?;
-    let (instances, _) = storage_processor
-        .find_instances(
-            InstanceQuery::default()
-                .with_statuses(vec![
-                    InstanceStatus::CommitteesAnswered.to_string(),
-                    InstanceStatus::Presigned.to_string(),
-                    InstanceStatus::Timeout.to_string(),
-                ])
-                .with_offset(0)
-                .with_limit(MAX_INSTANCE),
-        )
-        .await?;
+
+    let (instances, _) = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .find_instances(
+                InstanceQuery::default()
+                    .with_statuses(vec![
+                        InstanceStatus::CommitteesAnswered.to_string(),
+                        InstanceStatus::Presigned.to_string(),
+                        InstanceStatus::Timeout.to_string(),
+                    ])
+                    .with_offset(0)
+                    .with_limit(MAX_INSTANCE),
+            )
+            .await?
+    };
     for instance in instances {
         let (tx_id_op, next_status) = match InstanceStatus::from_str(&instance.status) {
             Ok(status) => match status {
                 InstanceStatus::CommitteesAnswered => {
-                    (instance.pegin_prepare_txid, InstanceStatus::UserBroadcastPeginPrepare)
+                    (instance.pegin_prepare_txid.clone(), InstanceStatus::UserBroadcastPeginPrepare)
                 }
                 InstanceStatus::Presigned => {
-                    (instance.pegin_confirm_txid, InstanceStatus::RelayerL1Broadcasted)
+                    (instance.pegin_confirm_txid.clone(), InstanceStatus::RelayerL1Broadcasted)
                 }
                 InstanceStatus::Timeout => {
-                    (instance.pegin_cancel_txid, InstanceStatus::UserCanceled)
+                    (instance.pegin_cancel_txid.clone(), InstanceStatus::UserCanceled)
                 }
                 _ => (None, status),
             },
@@ -299,7 +353,8 @@ pub async fn instance_btc_tx_monitor(
         if tx_id_op.is_none() {
             warn!(
                 "instance:{} status:{} get check tx id is none",
-                instance.instance_id, instance.status
+                instance.instance_id,
+                instance.status.clone()
             );
             continue;
         }
@@ -307,15 +362,31 @@ pub async fn instance_btc_tx_monitor(
         if let Ok(status) = btc_client.get_tx_status(&tx_id).await
             && status.confirmed
         {
+            let mut tx = local_db.start_transaction().await?;
             let mut instance_update =
                 InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
             if next_status == InstanceStatus::UserBroadcastPeginPrepare {
                 // todo notify user broadcast pegin prepare
                 instance_update = instance_update
                     .with_pegin_prepare_height(status.block_height.unwrap_or_default() as i64);
+
+                save_unhandle_message(
+                    &mut tx,
+                    "self".to_string(),
+                    Actor::All,
+                    GOATMessageContent::ConfirmInstance(ConfirmInstance {
+                        instance_id: instance.instance_id,
+                        network: Network::from_str(&instance.network.clone())?,
+                        parameters: get_instance_params(&instance)?,
+                    }),
+                    0,
+                    0,
+                )
+                .await?;
             }
 
-            update_instance(&mut storage_processor, &instance_update).await?;
+            update_instance(&mut tx, &instance_update).await?;
+            tx.commit().await?;
         } else {
             warn!(
                 "instance:{}, status{}, check tx_id:{} is not chain ",
