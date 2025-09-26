@@ -14,9 +14,9 @@ use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
-use store::GraphStatus;
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
+use store::{GraphStatus, MessageState};
 use tracing::log::warn;
 use uuid::Uuid;
 
@@ -325,9 +325,13 @@ pub async fn handle_self_p2p_msg(
             actor.clone(),
             from_peer_id,
             id.clone(),
-            &message,
+            &message.content,
         )
         .await?;
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .update_messages_state(&[message.id], MessageState::Processed.to_string())
+            .await?;
     }
     Ok(())
 }

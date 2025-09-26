@@ -1624,8 +1624,8 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         ids: &[i64],
         state: String,
-        current_time: i64,
     ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
         let query_str = format!(
             "Update  message Set state = \'{state}\', updated_at = {current_time} WHERE id IN ({})",
             create_place_holders(ids)

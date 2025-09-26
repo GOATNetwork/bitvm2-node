@@ -1086,23 +1086,16 @@ pub async fn pop_batch_local_unhandle_msg(
     lock_time_until: i64,
     offset: i64,
     limit: i64,
-) -> Result<Vec<Vec<u8>>> {
-    // todo not do special for
-    // 1. create  groth16 proof for operator
-    let (limit, mut messages_res) = if actor == Actor::Operator
-        && let Some(content) = operator_scan_ready_proof(
+) -> Result<Vec<Message>> {
+    // todo mv to single function
+    if actor == Actor::Operator {
+        operator_scan_ready_proof(
             local_db,
             get_proof_server_url(),
             routes::v1::PROOFS_GROTH16_BASE,
         )
-        .await?
-    {
-        (limit - 1, vec![content])
-    } else {
-        (limit, vec![])
-    };
-
-    // 2. check unhandle msg from message table
+        .await?;
+    }
     let mut tx = local_db.start_transaction().await?;
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     tx.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
@@ -1117,26 +1110,26 @@ pub async fn pop_batch_local_unhandle_msg(
             offset,
         )
         .await?;
-
-    messages_res.extend(messages.into_iter().map(|v| v.content));
     tx.commit().await?;
-    Ok(messages_res)
+    Ok(messages)
 }
 
 pub async fn operator_scan_ready_proof(
     local_db: &LocalDB,
     remote_proof_server_socket: Option<String>,
     uri: &str,
-) -> Result<Option<Vec<u8>>> {
+) -> Result<()> {
     tracing::info!("start operator_scan_ready_proof");
     let client = reqwest::Client::new();
-    let mut storage_proccessor = local_db.acquire().await?;
-    let check_txs = storage_proccessor
-        .get_goat_tx_record_by_processing_status(
-            &GoatTxType::ProceedWithdraw.to_string(),
-            &GoatTxProcessingStatus::Pending.to_string(),
-        )
-        .await?;
+    let check_txs: Vec<GoatTxRecord> = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .get_goat_tx_record_by_processing_status(
+                &GoatTxType::ProceedWithdraw.to_string(),
+                &GoatTxProcessingStatus::Pending.to_string(),
+            )
+            .await?
+    };
 
     let parse_challenge_txid_fn = |extra_data: Option<String>| -> Result<Txid> {
         if extra_data.is_none() {
@@ -1146,7 +1139,6 @@ pub async fn operator_scan_ready_proof(
         Ok(deserialize_hex(&extra.challenge_txid)?)
     };
 
-    let mut message_content: Option<GOATMessageContent> = None;
     for tx in check_txs {
         if tx.height == 0 {
             tracing::info!("Graph id :{} proceed withdraw tx online just waiting", tx.graph_id);
@@ -1154,6 +1146,7 @@ pub async fn operator_scan_ready_proof(
         }
         let challenge_txid_res = parse_challenge_txid_fn(tx.extra.clone());
         if let Ok(challenge_txid) = challenge_txid_res {
+            let mut db_tx = local_db.start_transaction().await?;
             if let Some(socket) = remote_proof_server_socket.clone() {
                 let resp = client.get(format!("http://{socket}{uri}/{}", tx.height)).send().await?;
                 if resp.status().is_success()
@@ -1166,11 +1159,10 @@ pub async fn operator_scan_ready_proof(
                         );
                         continue;
                     }
-
-                    storage_proccessor
+                    db_tx
                         .create_verifier_key(&proof_value.zkm_version, &proof_value.groth16_vk)
                         .await?;
-                    storage_proccessor
+                    db_tx
                         .add_groth16_proof(
                             tx.height,
                             tx.height,
@@ -1190,7 +1182,7 @@ pub async fn operator_scan_ready_proof(
                     continue;
                 }
             } else {
-                let (proof, _, _, _) = storage_proccessor.get_groth16_proof(tx.height).await?;
+                let (proof, _, _, _) = db_tx.get_groth16_proof(tx.height).await?;
                 if proof.is_empty() {
                     tracing::info!("Graph id :{} proof is empty just waiting", tx.graph_id);
                     continue;
@@ -1198,12 +1190,13 @@ pub async fn operator_scan_ready_proof(
             }
 
             tracing::info!("Graph id :{} proof is ready", tx.graph_id);
-            message_content = Some(GOATMessageContent::ChallengeSent(ChallengeSent {
+            let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
                 instance_id: tx.instance_id,
                 graph_id: tx.graph_id,
                 challenge_txid,
-            }));
-            storage_proccessor
+            });
+            let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
+            db_tx
                 .update_goat_tx_record_processing_status(
                     &tx.graph_id,
                     &tx.instance_id,
@@ -1211,25 +1204,23 @@ pub async fn operator_scan_ready_proof(
                     &GoatTxProcessingStatus::Processed.to_string(),
                 )
                 .await?;
-            // storage_proccessor
-            //     .update_goat_tx_proved_state_by_height(
-            //         &tx.tx_type,
-            //         &GoatTxProcessingStatus::Pending.to_string(),
-            //         &GoatTxProcessingStatus::Failed.to_string(),
-            //         tx.height,
-            //     )
-            //     .await?;
-        }
-        if message_content.is_some() {
-            break;
+
+            db_tx
+                .create_message(Message {
+                    id: 0,
+                    actor: Actor::Operator.to_string(),
+                    from_peer: "self".to_string(),
+                    msg_type: get_goat_message_content_type(&message_content).to_string(),
+                    content: serde_json::to_vec(&message)?,
+                    state: MessageState::Pending.to_string(),
+                    weight: 0,
+                    lock_time_until: current_time_secs(),
+                })
+                .await?;
+            db_tx.commit().await?;
         }
     }
-    if message_content.is_none() {
-        Ok(None)
-    } else {
-        let message = GOATMessage::from_typed(Actor::Operator, &message_content.unwrap())?;
-        Ok(Some(serde_json::to_vec(&message)?))
-    }
+    Ok(())
 }
 
 pub fn generate_local_key() -> libp2p::identity::Keypair {
