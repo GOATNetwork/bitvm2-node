@@ -613,7 +613,7 @@ pub async fn update_graph_fields(
     Ok(())
 }
 
-pub async fn save_unhandle_message(
+pub async fn store_unhandle_message(
     storage_processor: &mut StorageProcessor<'_>,
     from_peer: String,
     actor: Actor,
@@ -1190,12 +1190,6 @@ pub async fn operator_scan_ready_proof(
             }
 
             tracing::info!("Graph id :{} proof is ready", tx.graph_id);
-            let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
-                instance_id: tx.instance_id,
-                graph_id: tx.graph_id,
-                challenge_txid,
-            });
-            let message = GOATMessage::from_typed(Actor::Operator, &message_content)?;
             db_tx
                 .update_goat_tx_record_processing_status(
                     &tx.graph_id,
@@ -1205,18 +1199,19 @@ pub async fn operator_scan_ready_proof(
                 )
                 .await?;
 
-            db_tx
-                .create_message(Message {
-                    id: 0,
-                    actor: Actor::Operator.to_string(),
-                    from_peer: "self".to_string(),
-                    msg_type: get_goat_message_content_type(&message_content).to_string(),
-                    content: serde_json::to_vec(&message)?,
-                    state: MessageState::Pending.to_string(),
-                    weight: 0,
-                    lock_time_until: current_time_secs(),
-                })
-                .await?;
+            store_unhandle_message(
+                &mut db_tx,
+                "self".to_string(),
+                Actor::Operator,
+                GOATMessageContent::ChallengeSent(ChallengeSent {
+                    instance_id: tx.instance_id,
+                    graph_id: tx.graph_id,
+                    challenge_txid,
+                }),
+                0,
+                0,
+            )
+            .await?;
             db_tx.commit().await?;
         }
     }

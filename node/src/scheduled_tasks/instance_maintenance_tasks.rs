@@ -4,7 +4,7 @@ use crate::env::{
 };
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{save_unhandle_message, strip_hex_prefix_owned};
+use crate::utils::{store_unhandle_message, strip_hex_prefix_owned};
 use alloy::primitives::Address as EvmAddress;
 use anyhow::bail;
 use bitcoin::address::NetworkUnchecked;
@@ -24,7 +24,10 @@ use secp256k1::XOnlyPublicKey;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
-use store::{CommitteeSignatures, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus, Instance, InstanceStatus, Message};
+use store::{
+    CommitteeSignatures, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus,
+    Instance, InstanceStatus,
+};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -63,7 +66,7 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
         match tx_record.extra {
             Some(event) => {
                 let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
-                save_unhandle_message(
+                store_unhandle_message(
                     &mut tx,
                     "self".to_string(),
                     Actor::All,
@@ -373,7 +376,7 @@ pub async fn instance_btc_tx_monitor(
                 instance_update = instance_update
                     .with_pegin_prepare_height(status.block_height.unwrap_or_default() as i64);
 
-                save_unhandle_message(
+                store_unhandle_message(
                     &mut tx,
                     "self".to_string(),
                     Actor::All,
