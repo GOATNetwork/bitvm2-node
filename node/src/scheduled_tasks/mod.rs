@@ -12,7 +12,7 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
-    instance_window_expiration_monitor, scan_post_pegin_data,
+    instance_window_expiration_monitor,
 };
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
@@ -138,10 +138,6 @@ pub async fn relayer_scheduled_tasks(
 
     if let Err(err) = scan_obsolete_sibling_graphs(local_db).await {
         warn!("scan_obsolete_sibling_graphs, err {:?}", err)
-    }
-
-    if let Err(err) = scan_post_pegin_data(swarm, local_db, btc_client).await {
-        warn!("scan_post_operator_data, err {:?}", err)
     }
 
     if let Err(err) = detect_init_withdraw_call(swarm, local_db, goat_client, btc_client).await {

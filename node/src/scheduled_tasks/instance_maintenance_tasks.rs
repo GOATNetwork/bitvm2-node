@@ -24,10 +24,7 @@ use secp256k1::XOnlyPublicKey;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
-use store::{
-    CommitteeSignatures, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus,
-    Instance, InstanceStatus,
-};
+use store::{CommitteeSignatures, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus, Instance, InstanceStatus, Message};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -105,16 +102,18 @@ pub async fn instance_window_expiration_monitor(
 ) -> anyhow::Result<()> {
     let window_blocks = goat_client.gateway_get_response_window_blocks().await? as i64;
     let current_height = goat_client.get_latest_block_number().await?;
-    let mut storage_processor = local_db.acquire().await?;
-    let (instances, _) = storage_processor
-        .find_instances(
-            InstanceQuery::default()
-                .with_status(InstanceStatus::UserInited.to_string())
-                .with_pegin_request_height_threshold(current_height - window_blocks)
-                .with_offset(0)
-                .with_limit(MAX_INSTANCE),
-        )
-        .await?;
+    let (instances, _) = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .find_instances(
+                InstanceQuery::default()
+                    .with_status(InstanceStatus::UserInited.to_string())
+                    .with_pegin_request_height_threshold(current_height - window_blocks)
+                    .with_offset(0)
+                    .with_limit(MAX_INSTANCE),
+            )
+            .await?
+    };
 
     let committee_quorum_size = goat_client.committee_mana_quorum_size().await?;
     for mut instance in instances {
@@ -140,6 +139,8 @@ pub async fn instance_window_expiration_monitor(
                     instance.status = InstanceStatus::CommitteesAnswered.to_string();
                 }
 
+                let _ = update_pegin_txids(&mut instance);
+                let mut storage_processor = local_db.acquire().await?;
                 if let Err(err) = storage_processor.upsert_instance(&instance).await {
                     warn!(
                         "failed to upsert instance {}, err: {}",
@@ -147,7 +148,6 @@ pub async fn instance_window_expiration_monitor(
                         err.to_string()
                     );
                 }
-                let _ = update_pegin_txids(&mut instance);
             }
             Err(err) => {
                 warn!(
@@ -266,27 +266,30 @@ pub async fn instance_expiration_monitor(
     local_db: &LocalDB,
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
-    let mut storage_processor = local_db.acquire().await?;
     let current_time = current_time_secs();
     let current_height = btc_client.get_height().await? as i64;
-    let expired_num = storage_processor
-        .update_expired_instance(
-            &InstanceStatus::CommitteesAnswered.to_string(),
-            &InstanceStatus::PresignedFailed.to_string(),
-            current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
-        )
-        .await?;
-    info!("Presigned expired instances is {expired_num}");
-    let (instances, _) = storage_processor
-        .find_instances(
-            InstanceQuery::default()
-                .with_status(InstanceStatus::PresignedFailed.to_string())
-                .with_offset(0)
-                .with_limit(MAX_INSTANCE),
-        )
-        .await?;
+    let (instances, _) = {
+        let mut storage_processor = local_db.acquire().await?;
+        let expired_num = storage_processor
+            .update_expired_instance(
+                &InstanceStatus::CommitteesAnswered.to_string(),
+                &InstanceStatus::PresignedFailed.to_string(),
+                current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
+            )
+            .await?;
+        info!("Presigned expired instances is {expired_num}");
+        storage_processor
+            .find_instances(
+                InstanceQuery::default()
+                    .with_status(InstanceStatus::PresignedFailed.to_string())
+                    .with_offset(0)
+                    .with_limit(MAX_INSTANCE),
+            )
+            .await?
+    };
 
     let lock_height = CONNECTOR_Z_TIMELOCK as i64;
+    let mut storage_processor = local_db.acquire().await?;
     for instance in instances {
         if current_height > instance.pegin_prepare_height + lock_height {
             update_instance(
@@ -395,85 +398,6 @@ pub async fn instance_btc_tx_monitor(
                 tx_id.to_string()
             );
         }
-    }
-    Ok(())
-}
-
-pub async fn scan_post_pegin_data(
-    _swarm: &mut Swarm<AllBehaviours>,
-    local_db: &LocalDB,
-    btc_client: &BTCClient,
-) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting into post_pegin_data");
-    let mut storage_process = local_db.acquire().await?;
-    let (instances, _) = storage_process
-        .find_instances(
-            InstanceQuery::default()
-                .with_statuses(vec![InstanceStatus::RelayerL1Broadcasted.to_string()]),
-        )
-        .await?;
-
-    info!("Starting into scan post_pegin_data, need to send instance_size:{} ", instances.len());
-    for instance in instances {
-        let pegin_confirm_txid = match instance.pegin_confirm_txid {
-            Some(txid) => txid.into(),
-            None => {
-                warn!(
-                    "scan post_pegin_data instance:{}, pegin confirm txid is none",
-                    instance.instance_id
-                );
-                continue;
-            }
-        };
-
-        if instance.committees_answers.values().any(|v| v.l2_sig.is_empty()) {
-            warn!(
-                "scan post_pegin_data instance {} not collect all committee signs, call post pegin data will failed",
-                instance.instance_id
-            );
-            continue;
-        }
-
-        let _pegin_confirm_tx = btc_client
-            .get_tx(&pegin_confirm_txid)
-            .await?
-            .ok_or(format!("pegin_confirm_txid {} not found", pegin_confirm_txid.to_string()))?;
-
-        // todo p2p message
-
-        // if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_tx_hash) {
-        //     let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_tx_hash).await?;
-        //     if receipt_op.is_none() {
-        //         info!(
-        //             "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
-        //         but get receipt status is false, will try later",
-        //             instance.instance_id, instance.pegin_data_tx_hash
-        //         );
-        //         continue;
-        //     }
-        //     storage_process
-        //         .update_instance_status(
-        //             &instance.instance_id,
-        //             &InstanceStatus::RelayerL2Minted.to_string(),
-        //         )
-        //         .await?;
-        // } else {
-        //     let pegin_confirm_tx = btc_client.get_tx(&pegin_confirm_txid).await?.ok_or(format!(
-        //         "pegin_confirm_txid {} not found",
-        //         pegin_confirm_txid.to_string()
-        //     ))?;
-        //     let committee_signs: Vec<Vec<u8>> =
-        //         instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
-        //     post_pegin_data(
-        //         local_db,
-        //         btc_client,
-        //         goat_client,
-        //         instance.instance_id,
-        //         committee_signs,
-        //         &pegin_confirm_tx,
-        //     )
-        //     .await?;
-        // }
     }
     Ok(())
 }
