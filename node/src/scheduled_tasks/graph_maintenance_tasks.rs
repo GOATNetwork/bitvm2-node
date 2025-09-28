@@ -144,6 +144,7 @@ pub struct WTInitTxVoutMonitorData {
     pub require_disproved_indexes: Vec<usize>,
     pub commit_blockhash_status: CommitBlockHashStatus,
     pub is_complete_in_time: bool,
+    pub is_challenge_timeout_sent: bool,
 }
 
 impl WTInitTxVoutMonitorData {
@@ -157,6 +158,7 @@ impl WTInitTxVoutMonitorData {
             require_disproved_indexes: vec![],
             commit_blockhash_status: CommitBlockHashStatus::OperatorInit,
             is_complete_in_time: false,
+            is_challenge_timeout_sent: false,
         }
     }
     pub async fn monitor_vout(
@@ -1058,34 +1060,44 @@ async fn process_watchtower_challenge_monitoring(
                 }
             }
 
-            if is_challenge_timeout {
-                if sub_status.watchtower_challenge_status
-                    == WatchtowerChallengeStatus::ChallengeTimeout
-                {
-                    return Ok(());
-                }
+            if is_challenge_timeout && !vout_monitor_data.is_challenge_timeout_sent {
                 info!(
                     "process_watchtower_challenge_monitoring watchtower challenge timeout for graph id :{}",
                     graph.graph_id
                 );
-                if vout_monitor_data
+                let watchtower_indexes: Vec<usize> = vout_monitor_data
                     .data_map
                     .iter()
-                    .all(|(_, v)| *v == WatchtowerChallengeStatus::OperatorInit)
-                {
-                    sub_status.watchtower_challenge_status =
-                        WatchtowerChallengeStatus::ChallengeTimeout;
+                    .filter_map(|(&index, status)| {
+                        if *status == WatchtowerChallengeStatus::OperatorInit {
+                            Some(index as usize)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                if !watchtower_indexes.is_empty() {
+                    let sub_type = format!(
+                        "[{}]",
+                        watchtower_indexes
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<String>>()
+                            .join("_")
+                    );
                     p2p_message_contents.push((
                         Actor::Operator,
                         GOATMessageContent::WatchtowerChallengeTimeout(
                             WatchtowerChallengeTimeout {
                                 instance_id: graph.instance_id,
                                 graph_id: graph.graph_id,
-                                watchtower_indexes: vec![], // TODO
+                                watchtower_indexes,
                             },
                         ),
-                        None,
+                        Some(sub_type),
                     ));
+                    vout_monitor_data.is_challenge_timeout_sent = true;
                     data_change = true;
                 }
             }
