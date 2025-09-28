@@ -596,7 +596,7 @@ mod tests {
         println!("merging bank UTXOs");
         let bank_address = node_p2wsh_address(network(), &bank_keypair().public_key().into());
         let utxos = esplora.get_address_utxo(bank_address.clone()).await.unwrap();
-        if utxos.len() < 30 {
+        if utxos.len() < 300 {
             println!("bank UTXOs are not too many {}, no need to merge", utxos.len());
             return;
         }
