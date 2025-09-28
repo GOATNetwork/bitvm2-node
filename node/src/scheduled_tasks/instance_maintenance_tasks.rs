@@ -68,6 +68,8 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
                 let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
                 store_unhandle_message(
                     &mut tx,
+                    tx_record.instance_id,
+                    None,
                     "self".to_string(),
                     Actor::All,
                     GOATMessageContent::PeginRequest(PeginRequest {
@@ -378,6 +380,8 @@ pub async fn instance_btc_tx_monitor(
 
                 store_unhandle_message(
                     &mut tx,
+                    instance.instance_id,
+                    None,
                     "self".to_string(),
                     Actor::All,
                     GOATMessageContent::ConfirmInstance(ConfirmInstance {

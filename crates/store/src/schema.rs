@@ -382,7 +382,8 @@ pub enum MessageState {
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Message {
-    pub id: i64,
+    pub message_id: String,
+    pub business_id: Uuid, // graph_id or instance_id 
     pub actor: String,
     pub from_peer: String,
     pub msg_type: String,

@@ -613,8 +613,18 @@ pub async fn update_graph_fields(
     Ok(())
 }
 
+fn generate_message_id(business_id: Uuid, msg_type: String, sub_type: Option<String>) -> String {
+    match sub_type {
+        Some(sub_type) => {
+            format!("{business_id}_{msg_type}_{sub_type}")
+        }
+        None => format!("{business_id}_{msg_type}"),
+    }
+}
 pub async fn store_unhandle_message(
     storage_processor: &mut StorageProcessor<'_>,
+    business_id: Uuid,
+    sub_type: Option<String>,
     from_peer: String,
     actor: Actor,
     message_content: GOATMessageContent,
@@ -622,12 +632,15 @@ pub async fn store_unhandle_message(
     lock_time: i64,
 ) -> Result<()> {
     let message = GOATMessage::from_typed(actor.clone(), &message_content)?;
+    let msg_type = get_goat_message_content_type(&message_content).to_string();
+    let message_id = generate_message_id(business_id, msg_type.clone(), sub_type);
     storage_processor
         .create_message(Message {
-            id: 0,
+            message_id,
+            business_id,
             actor: actor.to_string(),
             from_peer,
-            msg_type: get_goat_message_content_type(&message_content).to_string(),
+            msg_type,
             content: serde_json::to_vec(&message)?,
             weight,
             lock_time_until: current_time_secs() + lock_time,
@@ -1201,6 +1214,8 @@ pub async fn operator_scan_ready_proof(
 
             store_unhandle_message(
                 &mut db_tx,
+                tx.graph_id,
+                None,
                 "self".to_string(),
                 Actor::Operator,
                 GOATMessageContent::ChallengeSent(ChallengeSent {

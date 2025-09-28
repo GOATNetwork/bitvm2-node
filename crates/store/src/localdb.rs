@@ -1622,7 +1622,7 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn update_messages_state(
         &mut self,
-        ids: &[i64],
+        ids: &[String],
         state: String,
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
@@ -1670,12 +1670,22 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Vec<Message>> {
         let res = sqlx::query_as!(
             Message,
-            r#"SELECT id, from_peer, actor, msg_type, content, state, weight, lock_time_until
-            FROM message
-            WHERE state = ?
-              AND weight >= ?
-              AND lock_time_until <= ?
-              AND updated_at >= ? ORDER BY id ASC LIMIT ? OFFSET ?"#,
+            "SELECT message_id,
+                    business_id AS \"business_id:Uuid\",
+                    from_peer,
+                    actor,
+                    msg_type,
+                    content,
+                    state,
+                    weight,
+                    lock_time_until
+             FROM message
+             WHERE state = ?
+               AND weight >= ?
+               AND lock_time_until <= ?
+               AND updated_at >= ?
+             ORDER BY created_at ASC
+             LIMIT ? OFFSET ?",
             state,
             weight,
             lock_time_until,
@@ -1691,8 +1701,10 @@ impl<'a> StorageProcessor<'a> {
     pub async fn create_message(&mut self, msg: Message) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let res = sqlx::query!(
-            r#"INSERT INTO message (from_peer, actor, msg_type, content, state, lock_time_until, weight, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            r#"INSERT OR IGNORE INTO message (message_id, business_id, from_peer, actor, msg_type, content, state, lock_time_until, weight, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            msg.message_id,
+            msg.business_id,
             msg.from_peer,
             msg.actor,
             msg.msg_type,

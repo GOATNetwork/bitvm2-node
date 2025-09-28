@@ -214,6 +214,17 @@ impl WTInitTxVoutMonitorData {
         }
     }
 
+    fn get_require_disproved_string(&self) -> String {
+        format!(
+            "[{}]",
+            self.require_disproved_indexes
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>()
+                .join("_")
+        )
+    }
+
     #[allow(dead_code)]
     pub fn is_challenged(&self) -> bool {
         !self.require_disproved_indexes.is_empty()
@@ -356,6 +367,8 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
 
             store_unhandle_message(
                 &mut tx,
+                graph_id,
+                None,
                 "self".to_string(),
                 Actor::Operator,
                 GOATMessageContent::KickoffReady(KickoffReady { instance_id, graph_id }),
@@ -471,6 +484,8 @@ pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyho
         let mut storage_processor = local_db.acquire().await?;
         store_unhandle_message(
             &mut storage_processor,
+            graph.graph_id,
+            None,
             "self".to_string(),
             Actor::All,
             GOATMessageContent::KickoffSent(KickoffSent {
@@ -514,6 +529,8 @@ pub async fn detect_take1_or_challenge(
                 let mut storage_processor = local_db.acquire().await?;
                 store_unhandle_message(
                     &mut storage_processor,
+                    graph.graph_id,
+                    None,
                     "self".to_string(),
                     actor,
                     message_content,
@@ -597,6 +614,8 @@ pub async fn process_graph_challenge(
                     let mut storage_processor = local_db.acquire().await?;
                     store_unhandle_message(
                         &mut storage_processor,
+                        graph.graph_id,
+                        None,
                         "self".to_string(),
                         actor,
                         message_content,
@@ -610,6 +629,8 @@ pub async fn process_graph_challenge(
             let mut storage_processor = local_db.acquire().await?;
             store_unhandle_message(
                 &mut storage_processor,
+                graph.graph_id,
+                None,
                 "self".to_string(),
                 Actor::Challenger,
                 GOATMessageContent::DisproveReady(DisproveReady {
@@ -982,7 +1003,7 @@ async fn process_watchtower_challenge_monitoring(
             + timelock_config.watchtower_blockhash_commit_timelock
             > current_height;
         let mut data_change = false;
-        let mut p2p_message_contents: Vec<(Actor, GOATMessageContent)> = vec![];
+        let mut p2p_message_contents: Vec<(Actor, GOATMessageContent, Option<String>)> = vec![];
         if !is_ack_timeout {
             if vout_monitor_data.commit_blockhash_status == CommitBlockHashStatus::OperatorInit {
                 if !is_blockhash_commit_timeout {
@@ -1009,6 +1030,7 @@ async fn process_watchtower_challenge_monitoring(
                                     operator_commit_blockhash_txid: spend_txid,
                                 },
                             ),
+                            None,
                         ));
                         data_change = true;
                     }
@@ -1030,6 +1052,7 @@ async fn process_watchtower_challenge_monitoring(
                                 graph_id: graph.graph_id,
                             },
                         ),
+                        None,
                     ));
                     data_change = true;
                 }
@@ -1061,6 +1084,7 @@ async fn process_watchtower_challenge_monitoring(
                                 watchtower_indexes: vec![], // TODO
                             },
                         ),
+                        None,
                     ));
                     data_change = true;
                 }
@@ -1100,6 +1124,7 @@ async fn process_watchtower_challenge_monitoring(
                         graph_id: graph.graph_id,
                         watchtower_challenge_txids: challenge_txids,
                     }),
+                    None,
                 ));
             }
         } else {
@@ -1128,6 +1153,7 @@ async fn process_watchtower_challenge_monitoring(
                         graph_id: graph.graph_id,
                         watchtower_indexes: vout_monitor_data.require_disproved_indexes.clone(),
                     }),
+                    Some(vout_monitor_data.get_require_disproved_string()),
                 ));
             }
             data_change = true;
@@ -1144,9 +1170,18 @@ async fn process_watchtower_challenge_monitoring(
                 serde_json::to_string(&vout_monitor_data)?,
             )
             .await?;
-            for (actor, message_content) in p2p_message_contents {
-                store_unhandle_message(&mut tx, "self".to_string(), actor, message_content, 0, 0)
-                    .await?;
+            for (actor, message_content, sub_type) in p2p_message_contents {
+                store_unhandle_message(
+                    &mut tx,
+                    graph.graph_id,
+                    sub_type,
+                    "self".to_string(),
+                    actor,
+                    message_content,
+                    0,
+                    0,
+                )
+                .await?;
             }
             tx.commit().await?;
         }
@@ -1196,6 +1231,8 @@ async fn process_watchtower_challenge_monitoring(
             .await?;
             store_unhandle_message(
                 &mut tx,
+                graph.graph_id,
+                None,
                 "self".to_string(),
                 Actor::Watchtower,
                 GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
@@ -1209,6 +1246,8 @@ async fn process_watchtower_challenge_monitoring(
 
             store_unhandle_message(
                 &mut tx,
+                graph.graph_id,
+                None,
                 "self".to_string(),
                 Actor::Operator,
                 GOATMessageContent::OperatorCommitBlockHashReady(OperatorCommitBlockHashReady {
@@ -1328,8 +1367,17 @@ async fn process_assert_commit_monitoring(
             )
             .await?;
             if let Some((actor, message_content)) = message_content {
-                store_unhandle_message(&mut tx, "self".to_string(), actor, message_content, 0, 0)
-                    .await?;
+                store_unhandle_message(
+                    &mut tx,
+                    graph.graph_id,
+                    None,
+                    "self".to_string(),
+                    actor,
+                    message_content,
+                    0,
+                    0,
+                )
+                .await?;
             }
             tx.commit().await?;
         }
@@ -1378,6 +1426,8 @@ async fn process_assert_commit_monitoring(
             let mut storage_processor = local_db.acquire().await?;
             store_unhandle_message(
                 &mut storage_processor,
+                graph.graph_id,
+                None,
                 "self".to_string(),
                 Actor::Operator,
                 GOATMessageContent::AssertInitReady(AssertInitReady {
@@ -1506,6 +1556,8 @@ async fn detect_kickoff_ref_disprove_tx(
         let mut storage_processor = local_db.acquire().await?;
         store_unhandle_message(
             &mut storage_processor,
+            graph.graph_id,
+            None,
             "self".to_string(),
             Actor::Challenger,
             GOATMessageContent::DisproveSent(DisproveSent {
@@ -1663,6 +1715,8 @@ async fn process_graph_watchtower_assert_disproved(
             }
             store_unhandle_message(
                 &mut tx,
+                graph.graph_id,
+                None,
                 "self".to_string(),
                 Actor::Challenger,
                 GOATMessageContent::DisproveSent(DisproveSent {
