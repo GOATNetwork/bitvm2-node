@@ -17,8 +17,7 @@ zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint" }
 
 # Statically turns off logging
-log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
-tracing = { version = "0.1", features = ["max_level_off", "release_max_level_off"] }
+tracing = { version = "0.1", features = ["max_level_trace"] }
 
 [patch.crates-io]
 # Precompile patches

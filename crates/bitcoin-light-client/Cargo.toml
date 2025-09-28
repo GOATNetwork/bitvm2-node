@@ -17,8 +17,7 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-ver
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
 
 # Statically turns off logging
-log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
-tracing = { workspace = true, features = ["max_level_off", "release_max_level_off"] }
+tracing = { workspace = true, features = ["max_level_trace"] }
 
 alloy-primitives = { workspace = true, features = ["sha3-keccak", "map-foldhash", "serde"] }
 revm-database-interface = { workspace = true, features = ["serde"]}

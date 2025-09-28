@@ -20,6 +20,7 @@ pub fn main() {
     println!("read cosmos block");
     let consensus_block_bytes: Vec<u8> = zkm_zkvm::io::read_vec(); // commit the sequencer set
     let consensus_block: LightBlock = serde_cbor::from_slice(&consensus_block_bytes).unwrap();
+    let consensus_txns: Vec<String> = zkm_zkvm::io::read(); 
     println!("read geth block");
     let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
@@ -42,6 +43,7 @@ pub fn main() {
         graph_id,
         operator_latest_sequencer_commit_txn,
         consensus_block,
+        consensus_txns,
         eth_client_execution_input,
         watchtower_challenge_txns,
         watchtower_challenge_txn_pubkey,

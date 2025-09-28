@@ -11,7 +11,6 @@ use header_chain::MMRHost;
 use header_chain::verify_merkle_proof;
 
 use alloy_primitives::Address;
-use alloy_primitives::hex;
 use alloy_primitives::utils::keccak256;
 use alloy_primitives::{B256, U128, U256};
 use header_chain::{
@@ -23,6 +22,11 @@ use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
 pub use guest_executor::io::EthClientExecutorInput;
+
+pub const GRAPH_ID_SIZE: usize = 16;
+pub const PROOF_SIZE: usize = 260;
+pub const PUBLIC_INPUTS_SIZE: usize = 64;
+pub const VK_HASH_SIZE: usize = 66;
 
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
 fn verify_el_withdraw_tx(
@@ -123,6 +127,7 @@ pub fn generate_operator_proof(
     operator_latest_sequencer_commit_txn: CircuitTransaction,
 
     consensus_blocks: LightBlock,
+    consensus_txns: Vec<String>,
     eth_client_execution_input: EthClientExecutorInput,
 
     watchtower_challenge_txns: Vec<CircuitTransaction>,
@@ -137,15 +142,6 @@ pub fn generate_operator_proof(
     l2_contract_address: Address,
     base_slot: U256,
 ) -> [u8; 32] {
-    // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
-    // verify operator_header_chain is valid
-    let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
-    let operator_total_work = btc_header_chain_output.chain_state.total_work;
-    let operator_consensus_block_height = U256::from(btc_header_chain_output.chain_state.block_height);
-
-    //let operator_total_work = [0xEF; 32];
-    //let operator_consensus_block_height = U256::from(1100000);
-
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
     let commit_header_chain_output = commit_chain_circuit(commit_chain.clone());
@@ -154,9 +150,15 @@ pub fn generate_operator_proof(
         operator_latest_sequencer_commit_txn.compute_txid()
     );
 
+    // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
+    // verify operator_header_chain is valid
+    let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
+    let operator_total_work = btc_header_chain_output.chain_state.total_work;
+    let operator_consensus_block_height =
+        U256::from(btc_header_chain_output.chain_state.block_height);
+
     // verify that the latest_sequecner_commit_tx is in the header chain
-    // FIXME
-    // assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
+    assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // parse included_watchtowers into bits array
     let included_watchertowers_bits = u256_to_bits(included_watchtowers);
@@ -165,6 +167,7 @@ pub fn generate_operator_proof(
     //   verify the watchtower_challenge_txns[i] is valid
     //   verify watchtower_challenge_txns[i].total_work <= operator_header_chain.total_work
     //   verify watchtower_challenge_txns[i].epoch <= operator_latest_sequencer_commit_tx.epoch
+    let mut number_of_valid_watchtower = 0;
     for i in 0..watchtower_challenge_txns.len() {
         if included_watchertowers_bits[i] {
             let tx = &watchtower_challenge_txns[i];
@@ -196,45 +199,30 @@ pub fn generate_operator_proof(
             }
 
             let commitment = &extract_op_return_data(&tx)[..];
-            // check first 16 bytes is graph_id
-            if !commitment.starts_with(&graph_id) {
+            let (parsed_graph_id, _, _, _, watchtower_total_work, watchtower_block_height) =
+                match parse_watchtower_commitment(commitment) {
+                    Ok(c) => c,
+                    Err(err) => {
+                        println!("parse commitment error {err}");
+                        continue;
+                    }
+                };
+
+            if parsed_graph_id != graph_id {
                 println!("Watchtower[{i}] invalid commitment: graph id");
                 continue;
             }
-            // Get the header_chain Groth16 proof from commitment
-            // proof size: 260bytes
-            let proof = &commitment[16..16 + 260];
-            // public inputs: 2 * [u8; 32].
-            // TODO: how to verify the connection between public inputs and commitment?
-            //  groth16 public input[1] == hash(genesis_commit_txid || watchtower_latest_commit_txid || watchtower_total work || watchtower_consensus_block_height)
-            let zkm_public_values = &commitment[16 + 260..16 + 260 + 64];
-            // vk hash: [u8; 32]
-            let zkm_vkey_hash = &commitment[16 + 260 + 64..16 + 260 + 64 + 32];
-            let zkm_vkey_hash = hex::encode(zkm_vkey_hash);
-            let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
-            let result =
-                Groth16Verifier::verify(proof, zkm_public_values, &zkm_vkey_hash, groth16_vk);
-            if !result.is_ok() {
-                println!("Watchtower[{i}] invalid commitment: head chain Groth16 proof");
-                continue;
-            }
 
+            number_of_valid_watchtower += 1;
             // extract ChainState
-            let mut bh_bytes = [0u8; 32];
-            bh_bytes.copy_from_slice(&commitment[16 + 260 + 64 + 32..16 + 260 + 64 + 32 + 32]);
-            let watchtower_total_work = U256::from_be_bytes(bh_bytes);
             // check watchtower_chain_state.total_work <= operator_header_chain.total_work
             assert!(watchtower_total_work <= U256::from_be_bytes(operator_total_work));
-            let mut bh_bytes = [0u8; 32];
-            bh_bytes.copy_from_slice(
-                &commitment[16 + 260 + 64 + 32 + 32..16 + 260 + 64 + 32 + 32 + 32],
-            );
-            let watchtower_consensus_block_height = U256::from_be_bytes(bh_bytes);
             // check watchtower.consensus.block_height <= consensus.block_height
-            assert!(watchtower_consensus_block_height <= operator_consensus_block_height);
+            assert!(watchtower_block_height <= operator_consensus_block_height);
         }
     }
 
+    assert!(number_of_valid_watchtower > 0);
     // check the consensus block is valid by verifying the block's seqeuncer set hash are equal
     let actual_sequencer_set_hash: [u8; 32] =
         consensus_blocks.signed_header.header.validators_hash.as_bytes().try_into().unwrap();
@@ -243,18 +231,19 @@ pub fn generate_operator_proof(
         commit_header_chain_output.chain_state.sequencer_set_hash
     );
 
+    println!("verify el block");
     // verify the goat block has been included by consensus
     let latest_el_block = &eth_client_execution_input.current_block;
-    let goat_txns: Vec<String> =
-        latest_el_block.body.transactions().map(|tx| hex::encode(tx.hash())).collect();
+    println!("mix hash: {}", latest_el_block.header.mix_hash.to_string());
 
     verify_el_block_from_consensus(
         latest_el_block.header.number,
-        &hex::encode(latest_el_block.header.hash_slow()),
-        &goat_txns,
+        &latest_el_block.header.hash_slow().to_string(),
+        &consensus_txns,
         consensus_blocks.clone(),
     );
 
+    println!("verify el withdraw tx");
     // latest_goat_block.get_graph_status(graph_status_storage_proof, graph_id) == GraphStatus.Proceeded
     // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L101
     assert_eq!(
@@ -350,10 +339,107 @@ pub fn build_spv(
     SPV::new(tx, bitcoin_inclusion_proof, target_block_header, mmr_inclusion_proof)
 }
 
+pub fn build_watchtower_commitment(
+    graph_id: &[u8; GRAPH_ID_SIZE],
+    proof: &[u8; PROOF_SIZE],
+    public_inputs: &[u8; PUBLIC_INPUTS_SIZE],
+    vk_hash: &str,
+    total_work: u64,
+    consensus_block_height: u64,
+) -> Vec<u8> {
+    let mut comm = graph_id.to_vec();
+    comm.extend_from_slice(proof);
+    comm.extend_from_slice(public_inputs);
+    comm.extend_from_slice(vk_hash.as_bytes());
+
+    comm.extend_from_slice(U256::from(total_work).as_le_slice());
+    comm.extend_from_slice(U256::from(consensus_block_height).as_le_slice());
+
+    comm
+}
+
+pub fn parse_watchtower_commitment(
+    commitment: &[u8],
+) -> Result<
+    ([u8; GRAPH_ID_SIZE], [u8; PROOF_SIZE], [u8; PUBLIC_INPUTS_SIZE], String, U256, U256),
+    String,
+> {
+    let mut end = GRAPH_ID_SIZE;
+    let mut graph_id = [0u8; GRAPH_ID_SIZE];
+    graph_id.copy_from_slice(&commitment[0..GRAPH_ID_SIZE]);
+
+    let mut proof = [0u8; PROOF_SIZE];
+    proof.copy_from_slice(&commitment[end..end + PROOF_SIZE]);
+    end += PROOF_SIZE;
+
+    let mut zkm_public_values = [0u8; PUBLIC_INPUTS_SIZE];
+    zkm_public_values.copy_from_slice(&commitment[end..end + PUBLIC_INPUTS_SIZE]);
+    end += PUBLIC_INPUTS_SIZE;
+
+    let mut zkm_vk_hash_bytes = [0u8; VK_HASH_SIZE];
+    zkm_vk_hash_bytes.copy_from_slice(&commitment[end..end + VK_HASH_SIZE]);
+    let zkm_vk_hash = String::from_utf8_lossy(&zkm_vk_hash_bytes[..]);
+
+    end += VK_HASH_SIZE;
+
+    // extract ChainState
+    let mut bh_bytes = [0u8; 32];
+    bh_bytes.copy_from_slice(&commitment[end..end + 32]);
+    let watchtower_total_work = U256::from_le_bytes(bh_bytes);
+    end += 32;
+
+    let mut bh_bytes = [0u8; 32];
+    bh_bytes.copy_from_slice(&commitment[end..end + 32]);
+    let watchtower_consensus_block_height = U256::from_le_bytes(bh_bytes);
+
+    let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
+    let result = Groth16Verifier::verify(&proof, &zkm_public_values, &zkm_vk_hash, groth16_vk);
+    if !result.is_ok() {
+        return Err("Watchtower[{i}] invalid commitment: head chain Groth16 proof".into());
+    }
+
+    Ok((
+        graph_id,
+        proof,
+        zkm_public_values,
+        zkm_vk_hash.to_string(),
+        watchtower_total_work,
+        watchtower_consensus_block_height,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bitcoin::{Amount, Transaction};
+    const PROOF: &[u8] = include_bytes!("../samples/output.bin.proof.bin");
+    const PUBLIC_INPUTS: &[u8] = include_bytes!("../samples/output.bin.public_inputs.bin");
+    const VK_HASH: &str = include_str!("../samples/output.bin.vk_hash.bin");
+
+    #[test]
+    fn test_build_watchtower_commitment() {
+        let graph_id = [1u8; 16];
+
+        let total_work = 100;
+        let block_height = 100;
+        let comm = build_watchtower_commitment(
+            &graph_id,
+            &PROOF.try_into().unwrap(),
+            &PUBLIC_INPUTS.try_into().unwrap(),
+            VK_HASH,
+            total_work,
+            block_height,
+        );
+
+        let expected = parse_watchtower_commitment(&comm).unwrap();
+
+        assert_eq!(expected.0, graph_id);
+        assert_eq!(expected.1, PROOF);
+        assert_eq!(expected.2, PUBLIC_INPUTS);
+        assert_eq!(expected.3, VK_HASH);
+        assert_eq!(expected.4, total_work);
+        assert_eq!(expected.5, block_height);
+    }
 
     #[test]
     fn test_words_bytes_conversion() {

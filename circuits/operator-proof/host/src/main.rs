@@ -1,17 +1,20 @@
 //! Generate header chain proof
 //! Example:
 //! ```
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/compressed2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 100063 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 441af2dec4a28caa3219085f514a1eb533d025d1563851be87b6c4d30715b1a0
+//! RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --consensus-layer-block ../../../crates/bitcoin-light-client/samples/light_block_5756785.json
 //! ```
 use alloy_primitives::U256;
 use alloy_provider::{RootProvider, network::Ethereum};
 use ark_serialize::CanonicalSerialize;
-use bitcoin::{secp256k1::{XOnlyPublicKey, PublicKey}, Network, ScriptBuf, TxOut, Txid, Transaction};
-use bitcoin_script::script;
+use bitcoin::{
+    Network, ScriptBuf, Transaction, TxOut, Txid,
+    secp256k1::{PublicKey, XOnlyPublicKey},
+};
 use bitcoin_light_client::{
     CommitChainCircuitInput, CommitChainPrevProofType, EthClientExecutorInput, LightBlock,
     build_spv,
 };
+use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use header_chain::{
@@ -21,8 +24,8 @@ use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
 use reth_chainspec::ChainSpec;
 use rpc_db::RpcDb;
-use std::str::FromStr;
 use std::sync::Arc;
+use std::{hash::Hash, str::FromStr};
 use url::Url;
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
@@ -53,7 +56,7 @@ async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
     let rpc_db =
         RpcDb::new(provider.clone(), provider.clone(), args.execution_layer_block_number - 1);
 
-    let genesis = &Genesis::GOAT;
+    let genesis = &Genesis::GoatTestnet;
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
     let custom_beneficiary = None;
 
@@ -127,6 +130,9 @@ async fn main() {
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+
+    //let out = fetch_exection_layer_block(&args).await;
+    //println!("output: {:?}", out);
 
     // Initialize the proving client.
     let client = ProverClient::new();
@@ -203,6 +209,10 @@ async fn main() {
     let eth_client_execution_input: EthClientExecutorInput =
         fetch_exection_layer_block(&args).await;
     println!("Block: {:?}", eth_client_execution_input);
+    println!(
+        "el block hash: {}",
+        eth_client_execution_input.current_block.header.hash_slow().to_string()
+    );
 
     // --- watchtower_challenge_txns --- //
     let bytes = std::fs::read(&args.watchtower_challenge_info).unwrap();
@@ -214,16 +224,18 @@ async fn main() {
     let mut watchtower_challenge_txn_pubkeys = Vec::new();
     let mut watchtower_challenge_txn_scripts: Vec<ScriptBuf> = Vec::new();
 
-    let watchtower_challlenge_init_txn: Transaction = btc_client.get_tx(
-        &args.watchtower_challenge_init_txid.parse().unwrap()
-    ).await.unwrap().unwrap(); 
+    let watchtower_challlenge_init_txn: Transaction = btc_client
+        .get_tx(&args.watchtower_challenge_init_txid.parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
 
     for (id, pk) in &watchtower_challenge_txids {
         let txid = id.parse().unwrap();
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
         // get prev outs
         // FIXME: update the index
-        let index = txn.input[0].previous_output.vout as usize; 
+        let index = txn.input[0].previous_output.vout as usize;
         watchtower_challenge_txn_prev_outs
             .push(watchtower_challlenge_init_txn.output[index].clone());
         watchtower_challenge_txn_prev_indices.push(index);
@@ -235,7 +247,7 @@ async fn main() {
         // https://github.com/GOATNetwork/BitVM/blob/GA/goat/src/transactions/watchtower_challenge.rs#L45
         // generate_pay_to_pubkey_taproot_script
         let watchtower_challenge_txn_script: ScriptBuf = {
-            let public_key: XOnlyPublicKey = public_key.into(); 
+            let public_key: XOnlyPublicKey = public_key.into();
             script! {
                 { public_key }
                 OP_CHECKSIG
@@ -258,6 +270,10 @@ async fn main() {
         let consensus_layer_block: LightBlock = serde_json::from_slice(&bytes).unwrap();
         stdin.write_vec(serde_cbor::to_vec(&consensus_layer_block).unwrap());
 
+        let bytes = std::fs::read(format!("{}.txns", args.consensus_layer_block)).unwrap();
+        let consensus_txns: Vec<String> = serde_json::from_slice(&bytes).unwrap();
+        stdin.write(&consensus_txns);
+
         stdin.write(&eth_client_execution_input);
 
         stdin.write(&watchtower_challenge_txns);
@@ -269,7 +285,7 @@ async fn main() {
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
         stdin.write(&spv);
- 
+
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
         } else {

@@ -148,7 +148,7 @@ pub fn create_sequencer_update_partial_tx(
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
     let txout_next_connector =
         TxOut { value: relayer_fee, script_pubkey: next_update_connector.script_pubkey() };
-    
+
     println!("commitment: {:?}", commitment);
 
     let script = Builder::new().push_opcode(OP_RETURN).push_slice(commitment).into_script();

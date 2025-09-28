@@ -2,7 +2,7 @@
 //! Example:
 //! ```
 //! export BITCOIN_NETWORK=regtest
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid 7b5fde8cc49a0afe1bfd6534d63d3549d4b03394dab978642db866b74f6fa62c --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
+//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin"
 //! ```
 use ark_serialize::CanonicalSerialize;
@@ -143,18 +143,8 @@ async fn main() {
     let total_work: [u8; 32] = proof.public_values.read();
     println!("total work: {total_work:?}");
 
-    let groth16_vk = &GROTH16_VK_BYTES;
-    let ark_proof =
-        convert_ark(&proof, watchtower_proof_vk.bytes32().as_ref(), groth16_vk).unwrap();
-
-    let mut writer = std::fs::File::create(format!("{}.proof.bin", args.output)).unwrap();
-    ark_proof.proof.serialize_compressed(&mut writer).unwrap();
-
-    let mut writer = std::fs::File::create(format!("{}.vk.bin", args.output)).unwrap();
-    ark_proof.groth16_vk.serialize_compressed(&mut writer).unwrap();
-
-    let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", args.output)).unwrap();
-    ark_proof.public_inputs.serialize_compressed(&mut writer).unwrap();
-
-    println!("Generate proof successfully, Ark proof: {:?}", ark_proof);
+    std::fs::write(&format!("{}.proof.bin", args.output), proof.bytes()).unwrap();
+    std::fs::write(&format!("{}.public_inputs.bin", args.output), proof.public_values.to_vec())
+        .unwrap();
+    std::fs::write(&format!("{}.vk_hash.bin", args.output), watchtower_proof_vk.bytes32()).unwrap();
 }
