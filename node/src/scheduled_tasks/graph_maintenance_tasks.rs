@@ -2,7 +2,7 @@ use crate::action::{
     AssertCommitTimeout, AssertInitReady, ChallengeSent, DisproveReady, DisproveSent,
     GOATMessageContent, KickoffReady, KickoffSent, OperatorAckTimeout,
     OperatorCommitBlockHashReady, OperatorCommitBlockHashSent, OperatorCommitBlockHashTimeout,
-    Take1Ready, Take1Sent, Take2Ready, Take2Sent, WatchtowerChallengeInitSent,
+    PreKickoffSent, Take1Ready, Take1Sent, Take2Ready, Take2Sent, WatchtowerChallengeInitSent,
     WatchtowerChallengeSent, WatchtowerChallengeTimeout,
 };
 use crate::rpc_service::current_time_secs;
@@ -469,9 +469,9 @@ pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyho
     info!("start tick action: detect_kickoff, graphs: {}", graphs.len());
     for graph in graphs {
         let kickoff_txid: Txid = match graph.kickoff_txid.clone() {
-            Some(txid) => txid.into(),
-            None => {
-                warn!("graph_id {}, kickoff txid is none", graph.graph_id);
+            Some(kickoff_txid) => kickoff_txid.into(),
+            _ => {
+                warn!("graph_id {}, kickoff txid or next_pre_kickoff is none", graph.graph_id);
                 continue;
             }
         };
@@ -523,6 +523,13 @@ pub async fn detect_take1_or_challenge(
     );
     let lock_blocks = get_take1_timelock_config();
     for graph in graphs {
+        if detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await? {
+            warn!(
+                "process_graph_challenge detect_kickoff_ref_disprove_tx happened at graph:{}",
+                graph.graph_id
+            );
+            continue;
+        }
         match process_kickoff_graph(btc_client, local_db, &graph, lock_blocks, current_height)
             .await?
         {
@@ -543,8 +550,6 @@ pub async fn detect_take1_or_challenge(
             }
             None => {}
         }
-
-        detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await?;
     }
     Ok(())
 }
@@ -562,6 +567,13 @@ pub async fn process_graph_challenge(
     let current_height = btc_client.get_height().await? as i64;
 
     for graph in graphs {
+        if detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await? {
+            warn!(
+                "process_graph_challenge detect_kickoff_ref_disprove_tx happened at graph:{}",
+                graph.graph_id
+            );
+            continue;
+        }
         let mut sub_status: ChallengeSubStatus = match serde_json::from_str(&graph.sub_status) {
             Ok(sub_status) => sub_status,
             Err(_) => {
@@ -650,7 +662,6 @@ pub async fn process_graph_challenge(
         );
         process_graph_watchtower_assert_disproved(btc_client, local_db, &graph, &mut sub_status)
             .await?;
-        detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await?;
     }
 
     Ok(())
@@ -830,7 +841,6 @@ async fn process_kickoff_graph(
             return Ok(None);
         }
     };
-
     let spent_txid = match outpoint_spent_txid(btc_client, &kickoff_txid, 0).await? {
         Some(txid) => txid,
         None => {
@@ -1522,20 +1532,32 @@ async fn detect_kickoff_ref_disprove_tx(
     btc_client: &BTCClient,
     local_db: &LocalDB,
     graph: &Graph,
-) -> anyhow::Result<()> {
-    let (kickoff_txid, take1_txid, take2_txid): (Txid, Txid, Txid) = match (
+) -> anyhow::Result<bool> {
+    let mut detected = false;
+    let (kickoff_txid, take1_txid, take2_txid, next_pre_kickoff): (
+        Txid,
+        Txid,
+        Txid,
+        SerializableTxid,
+    ) = match (
         graph.kickoff_txid.clone(),
         graph.assert_init_txid.clone(),
         graph.take2_txid.clone(),
+        graph.next_prekickoff.clone(),
     ) {
-        (Some(kickoff_txid), Some(take1_txid), Some(take2_txid)) => {
-            (kickoff_txid.into(), take1_txid.into(), take2_txid.into())
+        (Some(kickoff_txid), Some(take1_txid), Some(take2_txid), Some(next_pre_kickoff)) => {
+            (kickoff_txid.into(), take1_txid.into(), take2_txid.into(), next_pre_kickoff)
         }
         _ => {
             warn!("graph:{} kickoff_txid/take1_txid/take2_txid  has none value", graph.graph_id);
-            return Ok(());
+            return Ok(detected);
         }
     };
+    let pre_sents = check_pre_kickoff_sent(local_db, btc_client, next_pre_kickoff, 2).await?;
+    if pre_sents > 0 {
+        info!("graph_id:{} next {pre_sents} graphs's pre_kickoff has been sent!", graph.graph_id);
+        detected = true;
+    }
     let out_monitor = {
         let mut storage_processor = local_db.acquire().await?;
         storage_processor
@@ -1544,7 +1566,7 @@ async fn detect_kickoff_ref_disprove_tx(
     };
 
     let Some(out_monitor) = out_monitor else {
-        return Ok(());
+        return Ok(false);
     };
 
     if let Some(spend_txid) = outpoint_spent_txid(
@@ -1556,7 +1578,7 @@ async fn detect_kickoff_ref_disprove_tx(
         && let Some(tx) = btc_client.get_tx(&spend_txid).await?
     {
         if spend_txid == take1_txid || spend_txid == take2_txid || tx.input.len() < 2 {
-            return Ok(());
+            return Ok(false);
         }
 
         let disprove_type = if tx.input[1].previous_output.vout == 0 {
@@ -1584,9 +1606,9 @@ async fn detect_kickoff_ref_disprove_tx(
             0,
         )
         .await?;
+        detected = true;
     }
-
-    Ok(())
+    Ok(detected)
 }
 
 async fn detect_disproved_txids(
@@ -1969,4 +1991,50 @@ async fn detect_take2(
         )));
     }
     Ok(None)
+}
+
+async fn check_pre_kickoff_sent(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    pre_kickoff: SerializableTxid,
+    check_level: i32,
+) -> anyhow::Result<usize> {
+    let check_graphs = {
+        let mut check_graphs: Vec<(Uuid, Uuid, Txid)> = vec![];
+        let mut storage_processor = local_db.acquire().await?;
+        let mut check_level = check_level;
+        let mut pre_kickoff = pre_kickoff;
+
+        while check_level > 0 {
+            if let Some((graph_id, instance_id, cur_pre_kickoff, next_pre_kickoff)) =
+                storage_processor
+                    .get_graph_pre_kickoff_chain_by_cur_pre_kickoff(pre_kickoff.clone())
+                    .await?
+            {
+                check_graphs.push((graph_id, instance_id, cur_pre_kickoff.into()));
+                pre_kickoff = next_pre_kickoff;
+                check_level -= 1;
+            }
+        }
+        check_graphs
+    };
+    let mut pre_sents = 0;
+    for (graph_id, instance_id, cur_pre_kickoff) in check_graphs {
+        if btc_client.get_tx_status(&cur_pre_kickoff).await?.confirmed {
+            let mut storage_processor = local_db.acquire().await?;
+            store_unhandle_message(
+                &mut storage_processor,
+                graph_id,
+                None,
+                "self".to_string(),
+                Actor::Challenger,
+                GOATMessageContent::PreKickoffSent(PreKickoffSent { instance_id, graph_id }),
+                0,
+                0,
+            )
+            .await?;
+            pre_sents += 1;
+        }
+    }
+    Ok(pre_sents)
 }

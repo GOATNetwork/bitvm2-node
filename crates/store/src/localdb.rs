@@ -1187,39 +1187,7 @@ impl<'a> StorageProcessor<'a> {
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as::<_, Graph>(
-            "SELECT graph_id,
-                    instance_id,
-                    kickoff_index,
-                    from_addr,
-                    to_addr,
-                    graph_ipfs_base_url,
-                    amount,
-                    challenge_amount,
-                    status,
-                    sub_status,
-                    operator_pubkey,
-                    cur_prekickoff_txid,
-                    next_prekickoff,
-                    force_skip_kickoff_txid,
-                    quick_challenge_txid,
-                    challenge_incomplete_kickoff_txid,
-                    pegin_txid,
-                    kickoff_txid,
-                    take1_txid,
-                    challenge_txid,
-                    take2_txid,
-                    disprove_txid,
-                    watchtower_challenge_init_txid,
-                    watchtower_challenge_timeout_txids,
-                    nack_txids,
-                    blockhash_commit_timeout_txid,
-                    assert_init_txid,
-                    assert_commit_timeout_txids,
-                    init_withdraw_tx_hash,
-                    bridge_out_start_at,
-                    zkm_version,
-                    created_at,
-                    updated_at
+            "SELECT * 
              FROM graph
              WHERE instance_id = ?",
         )
@@ -1227,6 +1195,26 @@ impl<'a> StorageProcessor<'a> {
         .fetch_all(self.conn())
         .await?;
         Ok(res)
+    }
+
+    pub async fn get_graph_pre_kickoff_chain_by_cur_pre_kickoff(
+        &mut self,
+        current_pre_kickoff: SerializableTxid,
+    ) -> anyhow::Result<Option<(Uuid, Uuid, SerializableTxid, SerializableTxid)>> {
+        #[derive(sqlx::FromRow)]
+        struct NextPrekickoffRow {
+            pub graph_id: Uuid,
+            pub instance_id: Uuid,
+            pub cur_prekickoff_txid: SerializableTxid,
+            pub next_prekickoff: SerializableTxid,
+        }
+        let res = sqlx::query_as::<_, NextPrekickoffRow>(
+            "SELECT next_prekickoff FROM graph WHERE cur_prekickoff_txid  = ?",
+        )
+        .bind(current_pre_kickoff)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res.map(|v| (v.graph_id, v.instance_id, v.cur_prekickoff_txid, v.next_prekickoff)))
     }
 
     pub async fn update_graphs_status_by_instance_ids(
