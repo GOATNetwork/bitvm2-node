@@ -17,7 +17,7 @@ use bitvm2_lib::transactions::base::{BaseTransaction, Input};
 use bitvm2_lib::types::{Bitvm2InstanceParameters, UserInfo};
 use client::Utxo;
 use client::btc_chain::{BTCClient, BTCClientTrait};
-use client::goat_chain::{GOATClient, GraphData};
+use client::goat_chain::{GOATClient, GOATClientTrait, GraphData};
 use client::graphs::graph_query::BridgeInRequestEvent;
 use libp2p::Swarm;
 use secp256k1::XOnlyPublicKey;

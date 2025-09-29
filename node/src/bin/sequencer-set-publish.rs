@@ -72,8 +72,8 @@ use bitvm2_noded::utils::{node_p2wsh_address, node_sign};
 use clap::{Parser, Subcommand};
 use client::SequencerSet;
 use client::btc_chain::{BTCClient, BTCClientTrait};
-use client::goat_chain::GOATClient;
 use client::goat_chain::GoatInitConfig;
+use client::goat_chain::{GOATClient, GOATClientTrait};
 use dotenv::dotenv;
 use tracing_subscriber::EnvFilter;
 

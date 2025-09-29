@@ -26,106 +26,286 @@ mod evmchain;
 mod goat_adaptor;
 mod mock_goat_adaptor;
 use crate::goat_chain::evmchain::EvmChain;
+use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 pub use chain_adaptor::{DisproveTxType, Utxo};
+
+#[async_trait::async_trait]
+pub trait GOATClientTrait: Send + Sync {
+    fn get_default_signer_address(&self) -> Address;
+    async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]>;
+    async fn gateway_get_stake_management(&self) -> anyhow::Result<[u8; 20]>;
+    async fn gateway_get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData>;
+    async fn gateway_get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData>;
+    async fn gateway_get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData>;
+    async fn gateway_get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
+    async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
+    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
+    async fn is_committee_member(&self) -> anyhow::Result<bool>;
+    async fn get_finalized_block_number(&self) -> anyhow::Result<i64>;
+    async fn get_latest_block_number(&self) -> anyhow::Result<i64>;
+    async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_operator_reward_rate(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64>;
+    async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64>;
+
+    async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        pegin_amount_sats: u64,
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String>;
+
+    async fn gateway_answer_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        committee_xonly_pubkey: &[u8; 33],
+    ) -> anyhow::Result<String>;
+
+    async fn gateway_get_instanceids_by_pubkey(
+        &self,
+        operator_pubkey: &[u8; 32],
+    ) -> anyhow::Result<Vec<(Uuid, Uuid)>>;
+
+    async fn gateway_init_withdraw(
+        &self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<String>;
+
+    async fn gateway_cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String>;
+
+    async fn gateway_process_withdraw(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        tx: &bitcoin::Transaction,
+    ) -> anyhow::Result<String>;
+
+    async fn gateway_finish_withdraw_happy_path(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        tx: &bitcoin::Transaction,
+    ) -> anyhow::Result<String>;
+
+    async fn gateway_finish_withdraw_unhappy_path(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        tx: &bitcoin::Transaction,
+    ) -> anyhow::Result<String>;
+
+    async fn gateway_finish_withdraw_disproved(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        disprove_type: DisproveTxType,
+        tx_index: u64,
+        challenge_start_tx: &Transaction,
+        challenge_finish_tx: &Transaction,
+    ) -> anyhow::Result<String>;
+
+    async fn gateway_post_pegin_data(
+        &self,
+        btc_client: &BTCClient,
+        instance_id: &Uuid,
+        tx: &bitcoin::Transaction,
+        committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String>;
+
+    async fn check_withdraw_actions_and_get_proof(
+        &self,
+        btc_client: &BTCClient,
+        tag: &str,
+        graph_id: &Uuid,
+        tx_act: &Txid,
+        tx_id_on_line: &Txid,
+        required_status: Option<WithdrawStatus>,
+    ) -> anyhow::Result<MerkleProofExtend>;
+    async fn gateway_post_graph_data(
+        &self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        graph_data: &GraphData,
+        committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String>;
+
+    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
+
+    async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>>;
+
+    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>>;
+
+    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256>;
+
+    async fn seq_set_pub_get_publisher_public_keys(
+        &self,
+        publisher: Address,
+    ) -> anyhow::Result<Bytes>;
+
+    async fn seq_set_pub_update_sequencer_set(
+        &self,
+        sequencer_set: &SequencerSet,
+        sign: &Signature,
+    ) -> anyhow::Result<String>;
+
+    async fn seq_set_pub_update_publisher_set(
+        &self,
+        new_publishers: Vec<Address>,
+        new_publisher_btc_pubkeys: &[Vec<u8>],
+        signatures: &[Vec<u8>],
+        height: U256,
+    ) -> anyhow::Result<String>;
+
+    async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]>;
+
+    async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]>;
+
+    async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64>;
+
+    async fn stake_mana_lock_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64>;
+
+    async fn stake_mana_slash_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String>;
+
+    async fn stake_mana_lock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String>;
+
+    async fn stake_mana_unlock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String>;
+
+    async fn committee_mana_is_committee_member(&self, member: &[u8; 20]) -> anyhow::Result<bool>;
+
+    async fn committee_mana_committee_size(&self) -> anyhow::Result<u64>;
+
+    async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64>;
+
+    async fn committee_mana_verify_signatures(
+        &self,
+        msg_hash: &[u8; 32],
+        signs: &[Vec<u8>],
+    ) -> anyhow::Result<bool>;
+}
 
 impl GOATClient {
     pub fn new(goat_init_config: GoatInitConfig, goat_network: GoatNetwork) -> Self {
         GOATClient {
-            chain_service: EvmChain::new(get_chain_adaptor(goat_network, goat_init_config, None)),
+            chain_service: EvmChain::new(get_chain_adaptor(goat_network, goat_init_config)),
         }
     }
-    pub fn get_default_signer_address(&self) -> Address {
+}
+
+#[async_trait::async_trait]
+impl GOATClientTrait for GOATClient {
+    fn get_default_signer_address(&self) -> Address {
         self.chain_service.get_default_signer_address()
     }
 
-    pub async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
+    async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
         self.chain_service.gateway_get_committee_management().await
     }
 
-    pub async fn gateway_get_stake_management(&self) -> anyhow::Result<[u8; 20]> {
+    async fn gateway_get_stake_management(&self) -> anyhow::Result<[u8; 20]> {
         self.chain_service.gateway_get_stake_management().await
     }
-    pub async fn gateway_get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
+    async fn gateway_get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
         self.chain_service.gateway_get_pegin_data(instance_id).await
     }
 
-    pub async fn gateway_get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
+    async fn gateway_get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
         self.chain_service.gateway_get_graph_data(graph_id).await
     }
 
-    pub async fn gateway_get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
+    async fn gateway_get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
         self.chain_service.gateway_get_withdraw_data(graph_id).await
     }
 
-    pub async fn gateway_get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+    async fn gateway_get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
         self.chain_service.gateway_get_btc_block_hash(height).await
     }
 
-    pub async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+    async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
         self.chain_service.gateway_get_initialized_ids().await
     }
 
-    pub async fn get_tx_receipt(
-        &self,
-        tx_hash: &str,
-    ) -> anyhow::Result<Option<TransactionReceipt>> {
+    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
         self.chain_service.get_tx_receipt(tx_hash).await
     }
-    pub async fn is_committee_member(&self) -> anyhow::Result<bool> {
+    async fn is_committee_member(&self) -> anyhow::Result<bool> {
         let addr = self.get_default_signer_address();
         self.committee_mana_is_committee_member(&addr).await
     }
 
     // Add all EvmChain methods to GOATClient
-    pub async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
+    async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
         self.chain_service.get_finalized_block_number().await
     }
 
-    pub async fn get_latest_block_number(&self) -> anyhow::Result<i64> {
+    async fn get_latest_block_number(&self) -> anyhow::Result<i64> {
         self.chain_service.get_latest_block_number().await
     }
 
-    pub async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_response_window_blocks().await
     }
 
-    pub async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_min_challenge_amount_sats().await
     }
 
-    pub async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_min_pegin_fee_sats().await
     }
 
-    pub async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_pegin_fee_rate().await
     }
 
-    pub async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_min_operator_reward_sats().await
     }
 
-    pub async fn gateway_get_operator_reward_rate(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_operator_reward_rate(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_operator_reward_rate().await
     }
 
-    pub async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_min_stake_amount().await
     }
 
-    pub async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_min_challenger_reward().await
     }
 
-    pub async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_min_disprover_reward().await
     }
 
-    pub async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64> {
+    async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_min_slash_amount().await
     }
 
-    pub async fn gateway_post_pegin_request(
+    async fn gateway_post_pegin_request(
         &self,
         instance_id: &Uuid,
         pegin_amount_sats: u64,
@@ -155,7 +335,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn gateway_answer_pegin_request(
+    async fn gateway_answer_pegin_request(
         &self,
         instance_id: &Uuid,
         committee_xonly_pubkey: &[u8; 33],
@@ -190,14 +370,14 @@ impl GOATClient {
         self.chain_service.gateway_answer_pegin_request(instance_id, committee_xonly_pubkey).await
     }
 
-    pub async fn gateway_get_instanceids_by_pubkey(
+    async fn gateway_get_instanceids_by_pubkey(
         &self,
         operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
         self.chain_service.gateway_get_instanceids_by_pubkey(operator_pubkey).await
     }
 
-    pub async fn gateway_init_withdraw(
+    async fn gateway_init_withdraw(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
@@ -205,11 +385,11 @@ impl GOATClient {
         self.chain_service.gateway_init_withdraw(instance_id, graph_id).await
     }
 
-    pub async fn gateway_cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
+    async fn gateway_cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
         self.chain_service.gateway_cancel_withdraw(graph_id).await
     }
 
-    pub async fn gateway_process_withdraw(
+    async fn gateway_process_withdraw(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
@@ -235,7 +415,7 @@ impl GOATClient {
             .gateway_process_withdraw(graph_id, &raw_kickoff_tx, &tx_proof_data.into())
             .await
     }
-    pub async fn gateway_finish_withdraw_happy_path(
+    async fn gateway_finish_withdraw_happy_path(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
@@ -262,7 +442,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn gateway_finish_withdraw_unhappy_path(
+    async fn gateway_finish_withdraw_unhappy_path(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
@@ -289,7 +469,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn gateway_finish_withdraw_disproved(
+    async fn gateway_finish_withdraw_disproved(
         &self,
         btc_client: &BTCClient,
         graph_id: &Uuid,
@@ -338,7 +518,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn gateway_post_pegin_data(
+    async fn gateway_post_pegin_data(
         &self,
         btc_client: &BTCClient,
         instance_id: &Uuid,
@@ -401,7 +581,7 @@ impl GOATClient {
             .await
     }
 
-    pub async fn gateway_post_graph_data(
+    async fn gateway_post_graph_data(
         &self,
         instance_id: &Uuid,
         graph_id: &Uuid,
@@ -460,7 +640,6 @@ impl GOATClient {
             .gateway_post_graph_data(instance_id, graph_id, &graph_data, committee_signs)
             .await
     }
-
     async fn check_withdraw_actions_and_get_proof(
         &self,
         btc_client: &BTCClient,
@@ -531,34 +710,26 @@ impl GOATClient {
         }
         Ok(tx_proof_data)
     }
-
-    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
-        self.chain_service.seq_set_pub_get_last_block_height().await
-    }
-
-    pub async fn seq_set_pub_calc_commitment(
-        &self,
-        height: U256,
-    ) -> anyhow::Result<FixedBytes<32>> {
+    async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>> {
         self.chain_service.seq_set_pub_calc_commitment(height).await
     }
 
-    pub async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
+    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
         self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await
     }
 
-    pub async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
+    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
         self.chain_service.seq_set_pub_multi_sig_verifier_get_nonce().await
     }
 
-    pub async fn seq_set_pub_get_publisher_public_keys(
+    async fn seq_set_pub_get_publisher_public_keys(
         &self,
         publisher: Address,
     ) -> anyhow::Result<Bytes> {
         self.chain_service.seq_set_pub_get_publisher_public_keys(publisher).await
     }
 
-    pub async fn seq_set_pub_update_sequencer_set(
+    async fn seq_set_pub_update_sequencer_set(
         &self,
         sequencer_set: &SequencerSet,
         sign: &Signature,
@@ -585,7 +756,7 @@ impl GOATClient {
         // TODO: add more pre-checks
         self.chain_service.seq_set_pub_update_sequencer_set(sequencer_set, sign).await
     }
-    pub async fn seq_set_pub_update_publisher_set(
+    async fn seq_set_pub_update_publisher_set(
         &self,
         new_publishers: Vec<Address>,
         new_publisher_btc_pubkeys: &[Vec<u8>],
@@ -602,22 +773,19 @@ impl GOATClient {
             .await
     }
 
-    pub async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
+    async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
         self.chain_service.stake_mana_stake_token_address().await
     }
-    pub async fn stake_mana_pubkey_to_address(
-        &self,
-        pubkey: &[u8; 32],
-    ) -> anyhow::Result<[u8; 20]> {
+    async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
         self.chain_service.stake_mana_pubkey_to_address(pubkey).await
     }
-    pub async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+    async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
         self.chain_service.stake_mana_stake_of(operator).await
     }
-    pub async fn stake_mana_lock_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+    async fn stake_mana_lock_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
         self.chain_service.stake_mana_lock_stake_of(operator).await
     }
-    pub async fn stake_mana_slash_stake(
+    async fn stake_mana_slash_stake(
         &self,
         operator: &[u8; 20],
         amount: u64,
@@ -625,39 +793,40 @@ impl GOATClient {
         self.chain_service.stake_mana_slash_stake(operator, amount).await
     }
 
-    pub async fn stake_mana_lock_stake(
+    async fn stake_mana_lock_stake(
         &self,
         operator: &[u8; 20],
         amount: u64,
     ) -> anyhow::Result<String> {
         self.chain_service.stake_mana_lock_stake(operator, amount).await
     }
-    pub async fn stake_mana_unlock_stake(
+    async fn stake_mana_unlock_stake(
         &self,
         operator: &[u8; 20],
         amount: u64,
     ) -> anyhow::Result<String> {
         self.chain_service.stake_mana_unlock_stake(operator, amount).await
     }
-    pub async fn committee_mana_is_committee_member(
-        &self,
-        member: &[u8; 20],
-    ) -> anyhow::Result<bool> {
+    async fn committee_mana_is_committee_member(&self, member: &[u8; 20]) -> anyhow::Result<bool> {
         self.chain_service.committee_mana_is_committee_member(member).await
     }
 
-    pub async fn committee_mana_committee_size(&self) -> anyhow::Result<u64> {
+    async fn committee_mana_committee_size(&self) -> anyhow::Result<u64> {
         self.chain_service.committee_mana_committee_size().await
     }
-    pub async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64> {
+    async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64> {
         self.chain_service.committee_mana_quorum_size().await
     }
-    pub async fn committee_mana_verify_signatures(
+    async fn committee_mana_verify_signatures(
         &self,
         msg_hash: &[u8; 32],
         signs: &[Vec<u8>],
     ) -> anyhow::Result<bool> {
         self.chain_service.committee_mana_verify_signatures(msg_hash, signs).await
+    }
+
+    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        self.chain_service.seq_set_pub_get_last_block_height().await
     }
 }
 
@@ -667,5 +836,444 @@ pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {
         lock_time: tx.lock_time.to_consensus_u32(),
         input_vector: bitcoin::consensus::serialize(&tx.input),
         output_vector: bitcoin::consensus::serialize(&tx.output),
+    }
+}
+
+pub struct MockGOATClient {
+    _mock_adaptor: MockAdaptor,
+    chain_service: EvmChain,
+}
+
+impl MockGOATClient {
+    pub fn new() -> Self {
+        let mock_adaptor = MockAdaptor::new();
+        let chain_service = EvmChain::new(Box::new(mock_adaptor.clone()));
+        Self { _mock_adaptor: mock_adaptor, chain_service }
+    }
+}
+
+#[async_trait::async_trait]
+impl GOATClientTrait for MockGOATClient {
+    fn get_default_signer_address(&self) -> Address {
+        self.chain_service.get_default_signer_address()
+    }
+
+    async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.gateway_get_committee_management().await
+    }
+
+    async fn gateway_get_stake_management(&self) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.gateway_get_stake_management().await
+    }
+
+    async fn gateway_get_pegin_data(&self, instance_id: &Uuid) -> anyhow::Result<PeginData> {
+        self.chain_service.gateway_get_pegin_data(instance_id).await
+    }
+
+    async fn gateway_get_graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
+        self.chain_service.gateway_get_graph_data(graph_id).await
+    }
+
+    async fn gateway_get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
+        self.chain_service.gateway_get_withdraw_data(graph_id).await
+    }
+
+    async fn gateway_get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        self.chain_service.gateway_get_btc_block_hash(height).await
+    }
+
+    async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        self.chain_service.gateway_get_initialized_ids().await
+    }
+
+    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
+        self.chain_service.get_tx_receipt(tx_hash).await
+    }
+
+    async fn is_committee_member(&self) -> anyhow::Result<bool> {
+        let addr = self.get_default_signer_address();
+        self.committee_mana_is_committee_member(&addr).await
+    }
+
+    async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
+        self.chain_service.get_finalized_block_number().await
+    }
+
+    async fn get_latest_block_number(&self) -> anyhow::Result<i64> {
+        self.chain_service.get_latest_block_number().await
+    }
+
+    async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_response_window_blocks().await
+    }
+
+    async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_challenge_amount_sats().await
+    }
+
+    async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_pegin_fee_sats().await
+    }
+
+    async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_pegin_fee_rate().await
+    }
+
+    async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_operator_reward_sats().await
+    }
+
+    async fn gateway_get_operator_reward_rate(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_operator_reward_rate().await
+    }
+
+    async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_stake_amount().await
+    }
+
+    async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_challenger_reward().await
+    }
+
+    async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_disprover_reward().await
+    }
+
+    async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64> {
+        self.chain_service.gateway_get_min_slash_amount().await
+    }
+
+    async fn gateway_post_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        pegin_amount_sats: u64,
+        tx_fees: &[u64; 3],
+        receiver_addr: &[u8; 20],
+        user_inputs: &[Utxo],
+        user_xonly_pubkey: &[u8; 32],
+        user_change_addr: &str,
+        user_refund_addr: &str,
+    ) -> anyhow::Result<String> {
+        self.chain_service
+            .gateway_post_pegin_request(
+                instance_id,
+                pegin_amount_sats,
+                tx_fees,
+                receiver_addr,
+                user_inputs,
+                user_xonly_pubkey,
+                user_change_addr,
+                user_refund_addr,
+            )
+            .await
+    }
+
+    async fn gateway_answer_pegin_request(
+        &self,
+        instance_id: &Uuid,
+        committee_xonly_pubkey: &[u8; 33],
+    ) -> anyhow::Result<String> {
+        self.chain_service.gateway_answer_pegin_request(instance_id, committee_xonly_pubkey).await
+    }
+
+    async fn gateway_get_instanceids_by_pubkey(
+        &self,
+        operator_pubkey: &[u8; 32],
+    ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
+        self.chain_service.gateway_get_instanceids_by_pubkey(operator_pubkey).await
+    }
+
+    async fn gateway_init_withdraw(
+        &self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<String> {
+        self.chain_service.gateway_init_withdraw(instance_id, graph_id).await
+    }
+
+    async fn gateway_cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
+        self.chain_service.gateway_cancel_withdraw(graph_id).await
+    }
+
+    async fn gateway_process_withdraw(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        tx: &Transaction,
+    ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
+        let operator_data = self.gateway_get_graph_data(graph_id).await?;
+        let tx_id_on_line = Txid::from_slice(&operator_data.kickoff_txid)?;
+        let tx_proof_data = self
+            .check_withdraw_actions_and_get_proof(
+                btc_client,
+                "withdraw",
+                graph_id,
+                &tx.compute_txid(),
+                &tx_id_on_line,
+                Some(WithdrawStatus::Initialized),
+            )
+            .await?;
+        let raw_kickoff_tx = tx_reconstruct(tx);
+        self.chain_service
+            .gateway_process_withdraw(graph_id, &raw_kickoff_tx, &tx_proof_data.into())
+            .await
+    }
+
+    async fn gateway_finish_withdraw_happy_path(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        tx: &Transaction,
+    ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
+        let operator_data = self.gateway_get_graph_data(graph_id).await?;
+        let tx_id_on_line = Txid::from_slice(&operator_data.take1_txid)?;
+        let tx_proof_data = self
+            .check_withdraw_actions_and_get_proof(
+                btc_client,
+                "take1",
+                graph_id,
+                &tx.compute_txid(),
+                &tx_id_on_line,
+                Some(WithdrawStatus::Processing),
+            )
+            .await?;
+        let raw_take1_tx = tx_reconstruct(tx);
+        self.chain_service
+            .gateway_finish_withdraw_happy_path(graph_id, &raw_take1_tx, &tx_proof_data.into())
+            .await
+    }
+
+    async fn gateway_finish_withdraw_unhappy_path(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        tx: &bitcoin::Transaction,
+    ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
+        let operator_data = self.gateway_get_graph_data(graph_id).await?;
+        let tx_id_on_line = Txid::from_slice(&operator_data.take2_txid)?;
+        let tx_proof_data = self
+            .check_withdraw_actions_and_get_proof(
+                btc_client,
+                "take2",
+                graph_id,
+                &tx.compute_txid(),
+                &tx_id_on_line,
+                Some(WithdrawStatus::Processing),
+            )
+            .await?;
+        let raw_take2_tx = tx_reconstruct(tx);
+        self.chain_service
+            .gateway_finish_withdraw_unhappy_path(graph_id, &raw_take2_tx, &tx_proof_data.into())
+            .await
+    }
+
+    async fn gateway_finish_withdraw_disproved(
+        &self,
+        btc_client: &BTCClient,
+        graph_id: &Uuid,
+        disprove_type: DisproveTxType,
+        tx_index: u64,
+        challenge_start_tx: &Transaction,
+        challenge_finish_tx: &Transaction,
+    ) -> anyhow::Result<String> {
+        if !self.is_committee_member().await? {
+            bail!("only committee member can call");
+        }
+        let tx_proof_data = self
+            .check_withdraw_actions_and_get_proof(
+                btc_client,
+                "challenge_start",
+                graph_id,
+                &challenge_start_tx.compute_txid(),
+                &challenge_start_tx.compute_txid(),
+                Some(WithdrawStatus::Disproved),
+            )
+            .await?;
+        let raw_challenge_start_tx = tx_reconstruct(challenge_start_tx);
+        let challenge_start_proof: BitcoinTxProof = tx_proof_data.into();
+        let tx_proof_data = self
+            .check_withdraw_actions_and_get_proof(
+                btc_client,
+                "challenge_finish",
+                graph_id,
+                &challenge_finish_tx.compute_txid(),
+                &challenge_finish_tx.compute_txid(),
+                None,
+            )
+            .await?;
+        let raw_challenge_finish_tx = tx_reconstruct(challenge_finish_tx);
+        let challenge_finish_proof: BitcoinTxProof = tx_proof_data.into();
+        self.chain_service
+            .gateway_finish_withdraw_disproved(
+                graph_id,
+                disprove_type,
+                tx_index,
+                &raw_challenge_start_tx,
+                &challenge_start_proof,
+                &raw_challenge_finish_tx,
+                &challenge_finish_proof,
+            )
+            .await
+    }
+
+    async fn gateway_post_pegin_data(
+        &self,
+        btc_client: &BTCClient,
+        instance_id: &Uuid,
+        tx: &Transaction,
+        committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        let tx_id = tx.compute_txid();
+        let tx_proof_data = btc_client.get_merkle_proof_extend(&tx_id).await?;
+        let raw_pegin_tx = tx_reconstruct(tx);
+        self.chain_service
+            .gateway_post_pegin_data(
+                instance_id,
+                &raw_pegin_tx,
+                &tx_proof_data.into(),
+                committee_signs,
+            )
+            .await
+    }
+
+    async fn check_withdraw_actions_and_get_proof(
+        &self,
+        btc_client: &BTCClient,
+        _tag: &str,
+        _graph_id: &Uuid,
+        tx_act: &Txid,
+        _tx_id_on_line: &Txid,
+        _required_status: Option<WithdrawStatus>,
+    ) -> anyhow::Result<MerkleProofExtend> {
+        Ok(btc_client.get_merkle_proof_extend(tx_act).await?)
+    }
+
+    async fn gateway_post_graph_data(
+        &self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        graph_data: &GraphData,
+        committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        self.chain_service
+            .gateway_post_graph_data(instance_id, graph_id, &graph_data, committee_signs)
+            .await
+    }
+
+    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        self.chain_service.seq_set_pub_get_last_block_height().await
+    }
+
+    async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>> {
+        self.chain_service.seq_set_pub_calc_commitment(height).await
+    }
+
+    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
+        self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await
+    }
+
+    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
+        self.chain_service.seq_set_pub_multi_sig_verifier_get_nonce().await
+    }
+
+    async fn seq_set_pub_get_publisher_public_keys(
+        &self,
+        publisher: Address,
+    ) -> anyhow::Result<Bytes> {
+        self.chain_service.seq_set_pub_get_publisher_public_keys(publisher).await
+    }
+
+    async fn seq_set_pub_update_sequencer_set(
+        &self,
+        sequencer_set: &SequencerSet,
+        sign: &Signature,
+    ) -> anyhow::Result<String> {
+        self.chain_service.seq_set_pub_update_sequencer_set(sequencer_set, sign).await
+    }
+
+    async fn seq_set_pub_update_publisher_set(
+        &self,
+        new_publishers: Vec<Address>,
+        new_publisher_btc_pubkeys: &[Vec<u8>],
+        signatures: &[Vec<u8>],
+        height: U256,
+    ) -> anyhow::Result<String> {
+        self.chain_service
+            .seq_set_pub_update_publisher_set(
+                new_publishers,
+                new_publisher_btc_pubkeys,
+                signatures,
+                height,
+            )
+            .await
+    }
+
+    async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.stake_mana_stake_token_address().await
+    }
+
+    async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
+        self.chain_service.stake_mana_pubkey_to_address(pubkey).await
+    }
+
+    async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        self.chain_service.stake_mana_stake_of(operator).await
+    }
+
+    async fn stake_mana_lock_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        self.chain_service.stake_mana_lock_stake_of(operator).await
+    }
+
+    async fn stake_mana_slash_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.chain_service.stake_mana_slash_stake(operator, amount).await
+    }
+
+    async fn stake_mana_lock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.chain_service.stake_mana_lock_stake(operator, amount).await
+    }
+
+    async fn stake_mana_unlock_stake(
+        &self,
+        operator: &[u8; 20],
+        amount: u64,
+    ) -> anyhow::Result<String> {
+        self.chain_service.stake_mana_unlock_stake(operator, amount).await
+    }
+
+    async fn committee_mana_is_committee_member(&self, member: &[u8; 20]) -> anyhow::Result<bool> {
+        self.chain_service.committee_mana_is_committee_member(member).await
+    }
+
+    async fn committee_mana_committee_size(&self) -> anyhow::Result<u64> {
+        self.chain_service.committee_mana_committee_size().await
+    }
+
+    async fn committee_mana_quorum_size(&self) -> anyhow::Result<u64> {
+        self.chain_service.committee_mana_quorum_size().await
+    }
+
+    async fn committee_mana_verify_signatures(
+        &self,
+        msg_hash: &[u8; 32],
+        signs: &[Vec<u8>],
+    ) -> anyhow::Result<bool> {
+        self.chain_service.committee_mana_verify_signatures(msg_hash, signs).await
     }
 }
