@@ -38,7 +38,7 @@ pub struct BTCClient {
     chain_service: BitcoinChain,
 }
 
-pub struct MockBtcClient {
+pub struct MockBTCClient {
     mock_adaptor: MockBitcoinAdaptor,
     chain_service: BitcoinChain,
 }
@@ -131,7 +131,7 @@ impl BTCClientTrait for BTCClient {
     }
 }
 
-impl MockBtcClient {
+impl MockBTCClient {
     pub fn new() -> Self {
         let mock_adaptor = MockBitcoinAdaptor::new(Network::Testnet);
         let chain_service = BitcoinChain::new(Box::new(mock_adaptor.clone()));
@@ -188,7 +188,7 @@ impl MockBtcClient {
 }
 
 #[async_trait::async_trait]
-impl BTCClientTrait for MockBtcClient {
+impl BTCClientTrait for MockBTCClient {
     fn network(&self) -> Network {
         self.chain_service.network()
     }
@@ -252,11 +252,11 @@ impl BTCClientTrait for MockBtcClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::btc_chain::{BTCClientTrait, MockBtcClient};
+    use crate::btc_chain::{BTCClientTrait, MockBTCClient};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_mack_btc_client() -> anyhow::Result<()> {
-        let mock_client = MockBtcClient::new();
+        let mock_client = MockBTCClient::new();
         let height_in = 1234_u32;
         mock_client.set_height(height_in);
         let height_out = mock_client.get_height().await?;

@@ -17,7 +17,7 @@ use tracing_subscriber::EnvFilter;
 use bitvm2_noded::utils::{
     self, generate_local_key, save_local_info, set_node_external_socket_addr_env,
 };
-use bitvm2_noded::{rpc_service, run_watch_event_task};
+use bitvm2_noded::{rpc_service, run_maintenance_tasks, run_watch_event_task};
 
 use anyhow::Result;
 use bitvm2_noded::middleware::swarm::{Bitvm2SwarmConfig, BitvmNetworkManager};
@@ -26,7 +26,6 @@ use futures::future;
 use tokio::signal;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Opts {
@@ -152,8 +151,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let actor_clone1 = actor.clone();
     let actor_clone2 = actor.clone();
+    let actor_clone3 = actor.clone();
     let local_db_clone1 = local_db.clone();
     let local_db_clone2 = local_db.clone();
+    let local_db_clone3 = local_db.clone();
     let opt_rpc_addr = opt.rpc_addr.clone();
     let peer_id_string_clone = peer_id_string.clone();
     let metric_registry_clone = Arc::new(Mutex::new(metric_registry));
@@ -208,6 +209,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }));
     }
+
+    let cancel_token_clone = cancellation_token.clone();
+    task_handles.push(tokio::spawn(async move {
+        let goat_client =
+            Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
+        let btc_client = Arc::new(BTCClient::new(get_network().into(), None));
+        match run_maintenance_tasks(
+            actor_clone3,
+            local_db_clone3,
+            btc_client,
+            goat_client,
+            3,
+            cancel_token_clone,
+        )
+        .await
+        {
+            Ok(tag) => Ok(tag),
+            Err(e) => {
+                tracing::error!("Watch event task error: {}", e);
+                Err("watch_error".to_string())
+            }
+        }
+    }));
 
     let swarm_actor = actor.clone();
     let cancel_token_clone = cancellation_token.clone();

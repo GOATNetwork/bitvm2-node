@@ -312,7 +312,6 @@ pub async fn instance_expiration_monitor(
 
 /// prepare cancel confirmed
 pub async fn instance_btc_tx_monitor(
-    _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
