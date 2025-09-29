@@ -1,18 +1,21 @@
 #!/bin/bash
+set -e
 
-i=${1-100}
+batch=2000
+i=${1:-$batch}
 
-if [ $i == 100 ]; then
-  RUST_LOG=info cargo run -r -- --start 0 --batch-size 100 --init-input --output-proof "0-100.bin"
+if [ $i -eq $batch ]; then
+  RUST_LOG=info cargo run -r -- --start 0 --batch-size $batch --init-input --output-proof "0-${batch}.bin"
 fi
 
-echo $i
+echo "Start i=$i, batch=$batch"
+
 while true; do
   echo "Running for i=$i"
   RUST_LOG=info cargo run -r -- \
     --start "$i" \
-    --batch-size 100 \
-    --input-proof "$((i-100))-100.bin" \
-    --output-proof "$i-100.bin" --force-fetch
-  i=$((i+100))
+    --batch-size $batch \
+    --input-proof "$((i - batch))-${batch}.bin" \
+    --output-proof "$i-${batch}.bin" --force-fetch
+  i=$((i + batch))
 done

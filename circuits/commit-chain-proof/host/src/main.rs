@@ -3,8 +3,8 @@
 //!     Genesis:       RUST_LOG=debug cargo run -r -- --init-input --output-proof "commit-proof.bin"
 //!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
 use bitcoin::{Network, Txid, secp256k1::PublicKey};
-use bitcoin_light_client::*;
 use client::btc_chain::BTCClient;
+use commit_chain::*;
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
@@ -49,7 +49,7 @@ async fn fetch_commit_chain(args: &Args) {
     for ci in &commit_info {
         let tx = btc_client.get_tx(&Txid::from_str(&ci.txid).unwrap()).await.unwrap().unwrap();
 
-        let op_return_data = bitcoin_light_client::extract_op_return_data(&tx);
+        let op_return_data = extract_op_return_data(&tx);
         let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
         sequencer_set_hash.copy_from_slice(&op_return_data);
 

@@ -10,6 +10,7 @@ members = [
     "crates/store",
     "crates/client",
     "crates/header-chain",
+    "crates/commit-chain",
     "crates/bitcoin-light-client",
     #"circuits/continuous",
     #"circuits/aggregation",
@@ -87,6 +88,7 @@ store = { path = "crates/store" }
 client = { path = "crates/client" }
 bitcoin-light-client = { path = "crates/bitcoin-light-client" }
 header-chain = { path = "crates/header-chain" }
+commit-chain = { path = "crates/commit-chain" }
 groth16 = { path = "circuits/groth16" }
 
 chrono = "0.4.39"

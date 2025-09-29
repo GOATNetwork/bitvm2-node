@@ -5,7 +5,6 @@
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
 //! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin"
 //! ```
-use ark_serialize::CanonicalSerialize;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
@@ -14,9 +13,9 @@ use zkm_sdk::{
 };
 
 use bitcoin::{Network, Txid, hashes::Hash};
-use bitcoin_light_client::{CommitChainCircuitInput, CommitChainPrevProofType, build_spv};
+use bitcoin_light_client::build_spv;
+use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use std::str::FromStr;
-use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 /// A program that aggregates the proofs of the simple program.
 const WTACHTOWER: &[u8] = include_elf!("guest");

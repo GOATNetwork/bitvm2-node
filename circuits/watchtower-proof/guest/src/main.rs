@@ -6,7 +6,7 @@ use header_chain::{
     HeaderChainCircuitInput, 
     SPV,
 };
-use bitcoin_light_client::CommitChainCircuitInput;
+use commit_chain::CommitChainCircuitInput;
 
 pub fn main() {
     let latest_sequencer_commit_txid = zkm_zkvm::io::read::<[u8; 32]>();

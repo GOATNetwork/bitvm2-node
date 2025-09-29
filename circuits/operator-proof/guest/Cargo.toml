@@ -9,6 +9,7 @@ publish = false
 bincode = "1.3.3"
 # workspace
 header-chain = { path = "../../../crates/header-chain" }
+commit-chain = { path = "../../../crates/commit-chain" }
 bitcoin-light-client = { path = "../../../crates/bitcoin-light-client" }
 
 # Ziren

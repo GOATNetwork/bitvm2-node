@@ -5,7 +5,8 @@ use header_chain::{
     HeaderChainCircuitInput, SPV, CircuitTransaction, 
 };
 use alloy_primitives::{U256, Address};
-use bitcoin_light_client::{LightBlock, CommitChainCircuitInput, EthClientExecutorInput};
+use bitcoin_light_client::{LightBlock, EthClientExecutorInput};
+use commit_chain::CommitChainCircuitInput;
 use bitcoin::{ScriptBuf, TxOut};
 
 pub fn main() {

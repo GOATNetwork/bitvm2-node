@@ -746,7 +746,7 @@ mod tests {
             outpoint: OutPoint { txid: watchtower_challenge_init_txid, vout: 0 },
             amount: watchtower_challenge_init.output[0].value,
         };
-        let watchtower_challenge_payer_amount = Amount::from_sat(3000);
+        let watchtower_challenge_payer_amount = Amount::from_sat(5000);
         let watchtower_0_challenge_payer_input = Input {
             outpoint: fund_address(
                 &esplora,

@@ -1,21 +1,17 @@
-mod publisher;
-pub use publisher::*;
-mod commit_chain;
-pub use commit_chain::*;
-
-use bitcoin::Block;
-use bitcoin::Transaction;
-use header_chain::BitcoinMerkleTree;
-use header_chain::CircuitBlockHeader;
-use header_chain::MMRHost;
-use header_chain::verify_merkle_proof;
+mod utils;
+pub use utils::*;
+mod rollup_chain;
+pub use rollup_chain::*;
 
 use alloy_primitives::Address;
 use alloy_primitives::utils::keccak256;
 use alloy_primitives::{B256, U128, U256};
+use bitcoin::Block;
+use bitcoin::Transaction;
+use commit_chain::{CommitChainCircuitInput, commit_chain_circuit, extract_op_return_data};
 use header_chain::{
-    BlockHeaderCircuitOutput, ChainState, CircuitTransaction, HeaderChainCircuitInput,
-    HeaderChainPrevProofType, SPV,
+    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, MMRHost,
+    SPV, header_chain_circuit, verify_merkle_proof,
 };
 use revm::DatabaseRef;
 use zkm_verifier::Groth16Verifier;
@@ -35,51 +31,18 @@ fn verify_el_withdraw_tx(
     key: U128,
     input: &EthClientExecutorInput,
 ) -> U256 {
-    let mut data = [0u8; 64];
-    let mut base = base_slot.to_be_bytes::<32>();
-    data[0..32].copy_from_slice(&mut base);
-    let mut k = key.to_be_bytes::<32>();
-    data[32..].copy_from_slice(&mut k);
+    let mut data = [0u8; 32 * 2 + 16];
+    let mut base: [u8; 32] = base_slot.to_be_bytes();
+    data[..32].copy_from_slice(&mut base);
+    let mut k: [u8; 16] = key.to_be_bytes();
+    data[32..48].copy_from_slice(&mut k);
     let offset: U256 = U256::ZERO;
-    let mut k = offset.to_be_bytes::<32>();
-    data[64..].copy_from_slice(&mut k);
+    let mut k: [u8; 32] = offset.to_be_bytes();
+    data[48..].copy_from_slice(&mut k);
     let slot_id = B256::from(keccak256(data));
 
     let triedb = input.witness_db().unwrap();
     triedb.storage_ref(l2_contract_address, slot_id.into()).unwrap()
-}
-
-/// The main entry point of the header chain circuit.
-pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircuitOutput {
-    // println!("Detected network: {:?}", NETWORK_TYPE);
-    // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
-    let mut chain_state = match input.prev_proof {
-        HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
-        HeaderChainPrevProofType::PrevProof(prev_proof) => {
-            println!("verify header chain of prev proof");
-            assert_eq!(prev_proof.vk_hash, input.vk_hash);
-            zkm_zkvm::lib::verify::verify_zkm_proof(&input.vk_hash, &input.pv_hash);
-            prev_proof.chain_state
-        }
-    };
-
-    chain_state.apply_blocks(input.block_headers);
-    BlockHeaderCircuitOutput { vk_hash: input.vk_hash, chain_state }
-}
-
-pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircuitOutput {
-    let mut chain_state = match input.prev_proof {
-        CommitChainPrevProofType::GenesisBlock => CommitChainState::new(),
-        CommitChainPrevProofType::PrevProof(prev_proof) => {
-            println!("verify commit chain of prev proof");
-            assert_eq!(prev_proof.vk_hash, input.vk_hash);
-            zkm_zkvm::lib::verify::verify_zkm_proof(&input.vk_hash, &input.pv_hash);
-            prev_proof.chain_state
-        }
-    };
-
-    chain_state.apply_commit(input.commits);
-    CommitChainCircuitOutput { vk_hash: input.vk_hash, chain_state }
 }
 
 // FIXME: check genesis commit txn
@@ -177,7 +140,7 @@ pub fn generate_operator_proof(
 
             let sig = bitcoin::taproot::Signature::from_slice(&tx.input[0].witness[0]).unwrap();
             // check tx signature is valid
-            match crate::commit_chain::verify_taproot_leaf_schnorr_signature(
+            match crate::rollup_chain::verify_taproot_leaf_schnorr_signature(
                 &watchtower_challenge_txn_scripts[i],
                 &tx.0,
                 prev_index,
@@ -250,7 +213,7 @@ pub fn generate_operator_proof(
         verify_el_withdraw_tx(
             l2_contract_address,
             base_slot,
-            U128::from_be_bytes(graph_id),
+            U128::from_le_bytes(graph_id), // NOTE: follow up the endian in the watchtower-challenge txn
             &eth_client_execution_input,
         ),
         1

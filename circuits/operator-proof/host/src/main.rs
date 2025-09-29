@@ -10,13 +10,11 @@ use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
-use bitcoin_light_client::{
-    CommitChainCircuitInput, CommitChainPrevProofType, EthClientExecutorInput, LightBlock,
-    build_spv,
-};
+use bitcoin_light_client::{EthClientExecutorInput, LightBlock, build_spv};
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
+use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -24,8 +22,8 @@ use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
 use reth_chainspec::ChainSpec;
 use rpc_db::RpcDb;
+use std::str::FromStr;
 use std::sync::Arc;
-use std::{hash::Hash, str::FromStr};
 use url::Url;
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,

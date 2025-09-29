@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 zkm_zkvm::entrypoint!(main);
-use bitcoin_light_client::*;
+use commit_chain::{CommitChainCircuitInput, commit_chain_circuit};
 
 pub fn main() {
     let input: CommitChainCircuitInput = zkm_zkvm::io::read();
