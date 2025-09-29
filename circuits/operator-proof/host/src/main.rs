@@ -12,7 +12,7 @@ use bitcoin_light_client::{
     build_spv,
 };
 use borsh::BorshDeserialize;
-use client::btc_chain::BTCClient;
+use client::btc_chain::{BTCClient, BTCClientTrait};
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -175,10 +175,10 @@ async fn main() {
 
     // TODO: replace it by `get_raw_transaction_info`
     let tx_merkle_proof =
-        btc_client.get_btc_merkle_proof(&latest_sequencer_commit_txid).await.unwrap();
-    let block_pos = tx_merkle_proof.2.block_height;
+        btc_client.get_merkle_proof(&latest_sequencer_commit_txid).await.unwrap().unwrap();
+    let block_pos = tx_merkle_proof.block_height;
     println!("block height: {block_pos}");
-    let target_block = btc_client.get_btc_block(block_pos).await.unwrap();
+    let target_block = btc_client.get_block_by_height(block_pos).await.unwrap();
 
     let bitcoin_block_headers = {
         let headers: Vec<u8> = std::fs::read(&args.block_headers).unwrap();

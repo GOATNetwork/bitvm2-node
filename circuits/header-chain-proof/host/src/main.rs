@@ -5,7 +5,7 @@
 //!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 278 --batch-size 20 --input-proof "0-10.bin" --output-proof "10-20.bin"
 use bitcoin::Network;
 use borsh::{BorshDeserialize, BorshSerialize};
-use client::btc_chain::BTCClient;
+use client::btc_chain::{BTCClient, BTCClientTrait};
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -77,7 +77,7 @@ async fn fetch_header_chain(args: &Args) -> Vec<CircuitBlockHeader> {
     writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64)).unwrap();
 
     for i in args.start..(args.start + args.batch_size) {
-        let block = btc_client.get_btc_block(i as u32).await.unwrap();
+        let block = btc_client.get_block_by_height(i as u32).await.unwrap();
         println!("block_id {i}: {}", block.block_hash().to_string());
         let header: header_chain::CircuitBlockHeader = block.header.into();
         block_headers.push(header.clone());

@@ -1,4 +1,4 @@
-use crate::btc_chain::BtcTxProofData;
+use crate::btc_chain::MerkleProofExtend;
 use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
@@ -285,12 +285,12 @@ pub struct BitcoinTxProof {
     pub index: u64,
 }
 
-impl From<BtcTxProofData> for BitcoinTxProof {
-    fn from(data: BtcTxProofData) -> Self {
+impl From<MerkleProofExtend> for BitcoinTxProof {
+    fn from(data: MerkleProofExtend) -> Self {
         Self {
             raw_header: data.raw_header,
             height: data.height,
-            proof: data.proof,
+            proof: data.merkle,
             index: data.index,
         }
     }

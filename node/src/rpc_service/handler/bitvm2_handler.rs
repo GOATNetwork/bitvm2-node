@@ -7,7 +7,7 @@ use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
 use bitvm2_lib::types::Bitvm2Graph;
 use client::Utxo;
-use client::btc_chain::BTCClient;
+use client::btc_chain::{BTCClient, BTCClientTrait};
 use http::StatusCode;
 use std::collections::HashMap;
 use std::default::Default;

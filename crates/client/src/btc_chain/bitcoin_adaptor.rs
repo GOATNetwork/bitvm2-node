@@ -49,7 +49,6 @@ impl From<Network> for BitcoinNetwork {
 pub trait BitcoinAdaptor: Send + Sync {
     fn network(&self) -> Network;
     async fn get_tx_status(&self, txid: &Txid) -> anyhow::Result<esplora_client::TxStatus>;
-    // TODO: return tx status. @Jack
     async fn get_tx(&self, txid: &Txid) -> anyhow::Result<Option<Transaction>>;
     async fn get_tx_info(&self, txid: &Txid) -> anyhow::Result<Option<Tx>>;
     async fn get_address_utxo(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>>;

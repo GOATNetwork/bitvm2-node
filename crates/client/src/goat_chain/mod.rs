@@ -8,7 +8,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Transaction, Txid};
 use uuid::Uuid;
 pub mod utils;
-use crate::btc_chain::{BTCClient, BtcTxProofData};
+use crate::btc_chain::{BTCClient, BTCClientTrait, MerkleProofExtend};
 use chain_adaptor::PeginStatus;
 pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
@@ -361,7 +361,7 @@ impl GOATClient {
             bail!("instance_id:{instance_id} pegin amount mismatch",);
         }
 
-        let tx_proof_data = btc_client.get_btc_tx_proof_info(&tx_id).await?;
+        let tx_proof_data = btc_client.get_merkle_proof_extend(&tx_id).await?;
 
         let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {
@@ -469,7 +469,7 @@ impl GOATClient {
         tx_act: &Txid,
         tx_id_on_line: &Txid,
         required_status: Option<WithdrawStatus>,
-    ) -> anyhow::Result<BtcTxProofData> {
+    ) -> anyhow::Result<MerkleProofExtend> {
         // check tx id match
         if tx_id_on_line.ne(tx_act) {
             tracing::warn!(
@@ -510,7 +510,7 @@ impl GOATClient {
             }
         }
         // check hash in btc chain and spv contract
-        let tx_proof_data = btc_client.get_btc_tx_proof_info(tx_act).await?;
+        let tx_proof_data = btc_client.get_merkle_proof_extend(tx_act).await?;
 
         let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {

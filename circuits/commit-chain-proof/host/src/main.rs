@@ -4,7 +4,7 @@
 //!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
 use bitcoin::{Network, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::*;
-use client::btc_chain::BTCClient;
+use client::btc_chain::{BTCClient, BTCClientTrait};
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
