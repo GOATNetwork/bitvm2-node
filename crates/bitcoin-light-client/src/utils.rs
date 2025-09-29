@@ -59,30 +59,6 @@ pub fn estimate_tx_vbytes(
     v
 }
 
-pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> {
-    let secp = Secp256k1::new();
-
-    let mut keys = Vec::new();
-
-    for i in 0..total {
-        let sk = SecretKey::from_slice(&[i as u8 + 1; 32]).unwrap();
-        let pk = PublicKey::from_secret_key(&secp, &sk);
-        keys.push((sk, pk));
-    }
-    println!("Publisher private key:");
-    keys.iter().for_each(|(sk, _)| {
-        let k = bitcoin::PrivateKey {
-            compressed: true,
-            network: bitcoin::Network::Regtest.into(),
-            inner: *sk,
-        };
-        println!("{:?}\n", k.to_wif())
-    });
-    println!("Publisher public key:");
-    keys.iter().for_each(|(_, pk)| println!("{}\n", CompressedPublicKey(pk.clone())));
-    keys
-}
-
 /// `create_fee_tx` create a fee payment tx for `sequencer_update_tx`.
 ///  
 pub fn create_fee_tx(
@@ -118,20 +94,6 @@ pub fn create_fee_tx(
         input: vec![txin],
         output: vec![txout_fee, txout_op_return, txout_change],
     })
-}
-
-pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
-    let total = public_keys.len();
-    println!("Multi sig: {} of {}", threshold, total);
-    assert!(
-        threshold <= total,
-        "Threshold must be less than or equal to total number of public keys"
-    );
-    let mut redeem_script = Builder::new().push_int(threshold as i64);
-    for pk in public_keys {
-        redeem_script = redeem_script.push_slice(&pk.serialize());
-    }
-    redeem_script.push_int(public_keys.len() as i64).push_opcode(OP_CHECKMULTISIG).into_script()
 }
 
 pub fn create_sequencer_update_partial_tx(
@@ -178,4 +140,103 @@ pub fn create_sequencer_update_partial_tx(
         output: vec![txout_next_connector, txout_op_return],
     };
     Ok(tx)
+}
+
+pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> {
+    let secp = Secp256k1::new();
+
+    let mut keys = Vec::new();
+
+    for i in 0..total {
+        let sk = SecretKey::from_slice(&[i as u8 + 1; 32]).unwrap();
+        let pk = PublicKey::from_secret_key(&secp, &sk);
+        keys.push((sk, pk));
+    }
+    println!("Publisher private key:");
+    keys.iter().for_each(|(sk, _)| {
+        let k = bitcoin::PrivateKey {
+            compressed: true,
+            network: bitcoin::Network::Regtest.into(),
+            inner: *sk,
+        };
+        println!("{:?}\n", k.to_wif())
+    });
+    println!("Publisher public key:");
+    keys.iter().for_each(|(_, pk)| println!("{}\n", CompressedPublicKey(pk.clone())));
+    keys
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::{
+        Address, Network, OutPoint, Sequence, TxIn, absolute::LockTime, hashes::Hash,
+        transaction::Version,
+    };
+    use commit_chain::*;
+
+    #[test]
+    fn test_verify_p2wsh_multisig_witness() {
+        // === Step 1: generate key pairs ===
+        let keys = create_dummy_publisher_keys(3);
+        let pubkeys: Vec<PublicKey> = keys.iter().map(|(_, pk)| *pk).collect();
+
+        let threshold = 2;
+
+        // === Step 2: create redeem_script ===
+        let redeem_script = create_sequencer_update_script(&pubkeys, threshold);
+
+        // === Step 3: create prevout (P2WSH output) ===
+        let script_pubkey = ScriptBuf::new_p2wsh(&redeem_script.wscript_hash());
+        let prev_value = Amount::from_sat(100_000);
+        let prevout = TxOut { value: prev_value, script_pubkey };
+
+        // Fake OutPoint
+        let prev_outpoint =
+            OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32].into()), vout: 0 };
+
+        // === Step 4: construct spending tx ===
+        let mut tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: prev_outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(99_000),
+                script_pubkey: {
+                    let btc_pk0 = bitcoin::PublicKey::from(pubkeys[0]);
+                    Address::p2pkh(&btc_pk0, Network::Testnet).script_pubkey()
+                },
+            }],
+        };
+
+        // === Step 5: sign by 2 private keys ===
+        let (sig1, _) =
+            sign_partial(&mut tx, &keys[0].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
+
+        let (sig2, _) =
+            sign_partial(&mut tx, &keys[1].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
+
+        // === Step 6: finalize witness ===
+        finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
+
+        // === Step 7: verify ===
+        let ok = verify_p2wsh_multisig_witness(
+            &tx,
+            0,
+            &prevout,
+            &redeem_script,
+            &pubkeys,
+            threshold as usize,
+        )
+        .unwrap();
+
+        assert!(ok, "2-of-3 multisig witness should verify");
+    }
 }
