@@ -1,5 +1,6 @@
 use crate::action::{ChallengeSent, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
 use crate::env::*;
+use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::proof::Groth16ProofValue;
 use crate::rpc_service::{current_time_secs, routes};
@@ -9,19 +10,22 @@ use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::key::Keypair;
 use bitcoin::{
     Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
-    PublicKey, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+    PublicKey, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness, XOnlyPublicKey,
 };
 use bitvm::treepp::*;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::committee::{CommitteePartialSignatures, CommitteePubNonces};
 use bitvm2_lib::operator::*;
-use bitvm2_lib::types::{Bitvm2Graph, Groth16Proof, PublicInputs, VerifyingKey};
+use bitvm2_lib::types::{
+    Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, UserInfo, VerifyingKey,
+};
 use client::Utxo as ClientUtxo;
 use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
 use client::goat_chain::{DisproveTxType, WithdrawStatus};
 use client::graphs::graph_query::BridgeInRequestEvent;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
+use goat::contexts::base::generate_n_of_n_public_key;
 use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
 use goat::transactions::base::Input;
 use goat::transactions::signing::populate_p2wsh_witness;
@@ -48,8 +52,406 @@ use store::{
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
+use client::goat_chain::{PeginData, PeginStatus};
 use tracing::warn;
 use uuid::Uuid;
+
+pub mod todo_funcs {
+    #![allow(dead_code, unreachable_code, unused_variables)]
+
+    use bitvm2_lib::types::{Bitvm2GraphParameters, PrekickoffParameters, SimplifiedBitvm2Graph};
+    use goat::transactions::prekickoff::PrekickoffTransaction;
+    use libp2p::PeerId;
+    use musig2::{PartialSignature, PubNonce};
+
+    use super::*;
+
+    // contract calls
+    pub async fn get_pegin_data(goat_client: &GOATClient, instance_id: Uuid) -> Result<PeginData> {
+        todo!("call Gateway.getPeginData(instance_id) on goat chain")
+    }
+    pub async fn get_committee_pubkeys(
+        goat_client: &GOATClient,
+        instance_id: Uuid,
+    ) -> Result<Vec<PublicKey>> {
+        // if getCommitteePubkeys reverts, return SpecialError::EvmReverted(ReasonString)
+        todo!("call Gateway.getCommitteePubkeys(instance_id) on goat chain")
+    }
+    pub async fn answer_pegin_request(
+        goat_client: &GOATClient,
+        instance_id: Uuid,
+        pubkey_for_instance: PublicKey,
+    ) -> Result<()> {
+        todo!("call Gateway.answerPeginRequest on goat chain")
+    }
+    pub async fn get_graph_digest(
+        local_db: &LocalDB,
+        goat_client: &GOATClient,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<[u8; 32]> {
+        todo!("call Gateway.getPostGraphDigest(instance_id, graph_id, graphData) on goat chain")
+    }
+
+    // db operations
+    pub async fn get_current_prekickoff_tx(
+        local_db: &LocalDB,
+        operator_pubkey: &PublicKey,
+    ) -> Result<Option<(u64, PrekickoffTransaction)>> {
+        // return (latest_graph.nonce + 1 , latest_graph.next_prekickoff_tx)
+        // return None if no graph yet
+        todo!("get current graph nonce & prekickoff tx from local db")
+    }
+    pub async fn store_pegin_request(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        user_info: UserInfo,
+        pegin_amount: Amount,
+    ) -> Result<()> {
+        todo!("store instance info to local db")
+    }
+    pub async fn store_instance_parameters(
+        local_db: &LocalDB,
+        instance_params: &Bitvm2InstanceParameters,
+    ) -> Result<()> {
+        todo!("store instance params to local db")
+    }
+    pub async fn get_instance_parameters(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+    ) -> Result<Option<Bitvm2InstanceParameters>> {
+        todo!("get instance params from local db")
+    }
+    pub async fn store_graph(
+        local_db: &LocalDB,
+        graph_nonce: u64,
+        graph: &SimplifiedBitvm2Graph,
+    ) -> Result<()> {
+        todo!("store graph to local db")
+    }
+    pub async fn get_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<Option<(u64, SimplifiedBitvm2Graph)>> {
+        todo!("get graph from local db")
+    }
+    pub async fn store_committee_pub_nonces_for_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        committee_pubkey: PublicKey,
+        pub_nonces: CommitteePubNonces,
+    ) -> Result<()> {
+        // update if exists, insert if not exists
+        todo!("store_committee_pub_nonces")
+    }
+    pub async fn get_committee_pub_nonces_for_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<Vec<(PublicKey, CommitteePubNonces)>> {
+        todo!("get_committee_pub_nonces")
+    }
+    pub async fn store_committee_partial_sigs_for_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        committee_pubkey: PublicKey,
+        partial_sigs: CommitteePartialSignatures,
+    ) -> Result<()> {
+        // update if exists, insert if not exists
+        todo!("store_committee_partial_sigs")
+    }
+    pub async fn get_committee_partial_sigs_for_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<Vec<(PublicKey, CommitteePartialSignatures)>> {
+        todo!("get_committee_partial_sigs")
+    }
+    pub async fn store_committee_endorsement_for_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        committee_pubkey: PublicKey,
+        committee_evm_address: EvmAddress,
+        endorse_signature: Vec<u8>,
+    ) -> Result<()> {
+        // update if exists, insert if not exists
+        todo!("store_committee_endorsement")
+    }
+    pub async fn store_committee_endorsements_for_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        endorse_sigs: Vec<(PublicKey, EvmAddress, Vec<u8>)>,
+    ) -> Result<()> {
+        // update if exists, insert if not exists
+        todo!("store_committee_endorsements")
+    }
+    pub async fn get_committee_endorsements_for_graph(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<Vec<(PublicKey, EvmAddress, Vec<u8>)>> {
+        todo!("get_committee_endorsement")
+    }
+    pub async fn mark_graph_as_endorsed(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<()> {
+        todo!("mark graph as endorsed")
+    }
+    pub async fn get_endorsed_graph_count(local_db: &LocalDB, instance_id: Uuid) -> Result<usize> {
+        todo!("get number of endorsed graphs for the instance")
+    }
+    pub async fn store_committee_pub_nonce_for_instance(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        committee_pubkey: PublicKey,
+        pub_nonce: PubNonce,
+    ) -> Result<()> {
+        // update if exists, insert if not exists
+        todo!("store_committee_pub_nonce")
+    }
+    pub async fn get_committee_pub_nonce_for_instance(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        committee_pubkey: &PublicKey,
+    ) -> Result<Option<PubNonce>> {
+        todo!("get_committee_pub_nonce")
+    }
+    pub async fn get_committee_pub_nonces_for_instance(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+    ) -> Result<Vec<(PublicKey, PubNonce)>> {
+        todo!("get_committee_pub_nonce")
+    }
+    pub async fn store_committee_partial_sig_for_instance(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        committee_pubkey: PublicKey,
+        partial_sigs: PartialSignature,
+    ) -> Result<()> {
+        // update if exists, insert if not exists
+        todo!("store_committee_partial_sig")
+    }
+    pub async fn get_committee_partial_sigs_for_instance(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+    ) -> Result<Vec<(PublicKey, PartialSignature)>> {
+        todo!("get_committee_partial_sigs")
+    }
+
+    // other operations
+    pub fn is_relayer() -> bool {
+        todo!("check if the node is relayer")
+    }
+    pub fn min_required_operator() -> usize {
+        todo!("get min required operator number from goat chain")
+    }
+    pub async fn publish_graph_to_ipfs(ipfs: &IPFS, graph: &Bitvm2Graph) -> Result<String> {
+        todo!("publish graph to ipfs")
+    }
+    pub async fn validate_committee(
+        goat_client: &GOATClient,
+        peer_id: &PeerId,
+        instance_id: Uuid,
+        committee_pubkey: &PublicKey,
+    ) -> Result<()> {
+        // return SpecialError::InvalidCommittee if not valid
+        todo!("validate committee's peer id & pubkey")
+    }
+    pub async fn validate_committee_with_evm_address(
+        goat_client: &GOATClient,
+        peer_id: &PeerId,
+        instance_id: Uuid,
+        committee_pubkey: &PublicKey,
+        committee_evm_address: &EvmAddress,
+    ) -> Result<()> {
+        // return SpecialError::InvalidCommittee if not valid
+        todo!("validate committee's peer id & pubkey & evm address")
+    }
+    pub async fn validate_init_graph(
+        local_db: &LocalDB,
+        btc_client: &BTCClient,
+        goat_client: &GOATClient,
+        graph_nonce: u64,
+        graph: &SimplifiedBitvm2Graph,
+    ) -> Result<()> {
+        // return SpecialError::InvalidGraph if not valid
+        todo!("check graph parameters & operator stake")
+    }
+    pub fn validate_finalized_graph(
+        goat_client: &GOATClient,
+        graph_nonce: u64,
+        graph: &SimplifiedBitvm2Graph,
+        endorse_sigs: &Vec<(PublicKey, EvmAddress, Vec<u8>)>,
+    ) -> Result<()> {
+        // return SpecialError::InvalidGraph if not valid
+        todo!("verify graph & endorsement signatures")
+    }
+    pub fn get_node_evm_address() -> Result<EvmAddress> {
+        todo!("get node's evm address")
+    }
+    pub fn endorse_graph(graph: &Bitvm2Graph) -> Result<Vec<u8>> {
+        todo!("sign graph digest with node's evm key")
+    }
+    pub fn verify_graph_endorsement(
+        evm_address: &EvmAddress,
+        graph: &Bitvm2Graph,
+        signature: &[u8],
+    ) -> Result<bool> {
+        todo!("check endorse signature")
+    }
+    pub async fn build_genesis_prekickoff_tx(
+        btc_client: &BTCClient,
+    ) -> Result<PrekickoffTransaction> {
+        todo!("create a genesis prekickoff tx")
+    }
+    pub async fn build_prekickoff_params(
+        btc_client: &BTCClient,
+        graph_nonce: u64,
+        cur_prekickoff_txn: PrekickoffTransaction,
+    ) -> Result<PrekickoffParameters> {
+        todo!("build prekickoff params")
+    }
+    pub async fn build_graph_params(
+        instance_params: &Bitvm2InstanceParameters,
+        prekickoff_params: &PrekickoffParameters,
+    ) -> Result<Bitvm2GraphParameters> {
+        todo!("build graph params")
+    }
+    pub async fn generate_disprove_scripts(
+        instance_id: Uuid,
+        graph_id: Uuid,
+        graph_params: &Bitvm2GraphParameters,
+    ) -> Result<Vec<ScriptBuf>> {
+        todo!("generate disprove scripts for the graph")
+    }
+}
+
+pub async fn read_pegin_request(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+) -> Result<(UserInfo, Amount)> {
+    let pegin_data = todo_funcs::get_pegin_data(goat_client, instance_id).await?;
+    if pegin_data.status != PeginStatus::Pending {
+        bail!("Invalid PeginRequest: expired or already processed");
+    }
+    let network = get_network();
+    let user_change_address = Address::from_str(&pegin_data.user_change_addr)
+        .map_err(|e| SpecialError::InvalidPeginRequest(format!("invalid user_change_addr: {}", e)))?
+        .require_network(network)
+        .map_err(|e| {
+            SpecialError::InvalidPeginRequest(format!("invalid user_change_addr network: {}", e))
+        })?;
+    let user_refund_address = Address::from_str(&pegin_data.user_refund_addr)
+        .map_err(|e| SpecialError::InvalidPeginRequest(format!("invalid user_refund_addr: {}", e)))?
+        .require_network(network)
+        .map_err(|e| {
+            SpecialError::InvalidPeginRequest(format!("invalid user_refund_addr network: {}", e))
+        })?;
+    let user_xonly_pubkey =
+        XOnlyPublicKey::from_slice(&pegin_data.user_xonly_pubkey).map_err(|e| {
+            SpecialError::InvalidPeginRequest(format!("invalid user_xonly_pubkey: {}", e))
+        })?;
+    let inputs: Vec<Input> = pegin_data
+        .user_inputs
+        .iter()
+        .map(|u| Input {
+            outpoint: OutPoint { txid: Txid::from_byte_array(u.txid), vout: u.vout },
+            amount: Amount::from_sat(u.amount_stats),
+        })
+        .collect();
+    for input in &inputs {
+        if !outpoint_available(btc_client, &input.outpoint.txid, input.outpoint.vout.into()).await?
+        {
+            bail!(SpecialError::InvalidPeginRequest(format!(
+                "input {}:{} is not available",
+                input.outpoint.txid, input.outpoint.vout
+            )));
+        }
+    }
+    let user_info = UserInfo {
+        depositor_evm_address: pegin_data.depositor_address,
+        txn_fees: pegin_data.txn_fees,
+        inputs,
+        user_change_address,
+        user_refund_address,
+        user_xonly_pubkey,
+    };
+    Ok((user_info, Amount::from_sat(pegin_data.pegin_amount_sats)))
+}
+
+pub async fn read_instance_info_from_goat(
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+) -> Result<Bitvm2InstanceParameters> {
+    let pegin_data = todo_funcs::get_pegin_data(goat_client, instance_id).await?;
+    let network = get_network();
+    let user_change_address = Address::from_str(&pegin_data.user_change_addr)
+        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_change_addr: {}", e)))?
+        .require_network(network)
+        .map_err(|e| {
+            SpecialError::InvalidPeginData(format!("invalid user_change_addr network: {}", e))
+        })?;
+    let user_refund_address = Address::from_str(&pegin_data.user_refund_addr)
+        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_refund_addr: {}", e)))?
+        .require_network(network)
+        .map_err(|e| {
+            SpecialError::InvalidPeginData(format!("invalid user_refund_addr network: {}", e))
+        })?;
+    let user_xonly_pubkey = XOnlyPublicKey::from_slice(&pegin_data.user_xonly_pubkey)
+        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_xonly_pubkey: {}", e)))?;
+    let inputs: Vec<Input> = pegin_data
+        .user_inputs
+        .iter()
+        .map(|u| Input {
+            outpoint: OutPoint { txid: Txid::from_byte_array(u.txid), vout: u.vout },
+            amount: Amount::from_sat(u.amount_stats),
+        })
+        .collect();
+    let user_info = UserInfo {
+        depositor_evm_address: pegin_data.depositor_address,
+        txn_fees: pegin_data.txn_fees,
+        inputs,
+        user_change_address,
+        user_refund_address,
+        user_xonly_pubkey,
+    };
+    let committee_pubkeys = match todo_funcs::get_committee_pubkeys(goat_client, instance_id).await
+    {
+        Ok(pks) => pks,
+        Err(e) => {
+            if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                match msg {
+                    SpecialError::EvmReverted(err_msg) => {
+                        bail!(SpecialError::InvalidPeginData(format!(
+                            "fail to get committee pubkeys: {}",
+                            err_msg
+                        )))
+                    }
+                    _ => bail!(e),
+                }
+            } else {
+                bail!(e)
+            }
+        }
+    };
+    let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
+    Ok(Bitvm2InstanceParameters {
+        network,
+        instance_id,
+        user_info,
+        pegin_amount: Amount::from_sat(pegin_data.pegin_amount_sats),
+        committee_pubkeys,
+        committee_agg_pubkey,
+    })
+}
 
 pub async fn is_valid_withdraw(
     client: &GOATClient,
@@ -428,8 +830,8 @@ pub async fn validate_disprove(
 /// These are fetched via the ProofNetwork SDK.
 pub async fn get_groth16_proof(
     local_db: &LocalDB,
-    instance_id: &Uuid,
-    graph_id: &Uuid,
+    instance_id: Uuid,
+    graph_id: Uuid,
     challenge_txid: String,
 ) -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
@@ -438,7 +840,7 @@ pub async fn get_groth16_proof(
 
     let mut storage_processor = local_db.acquire().await?;
     if let Some(tx_record) = storage_processor
-        .get_graph_goat_tx_record(graph_id, &GoatTxType::ProceedWithdraw.to_string())
+        .get_graph_goat_tx_record(&graph_id, &GoatTxType::ProceedWithdraw.to_string())
         .await?
         && let Ok((proof, pis, vk, version)) =
             groth16::get_groth16_proof(local_db, tx_record.height as u64).await
@@ -450,8 +852,8 @@ pub async fn get_groth16_proof(
     } else {
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
-                instance_id: *instance_id,
-                graph_id: *graph_id,
+                instance_id,
+                graph_id,
                 tx_type: GoatTxType::ProceedWithdraw.to_string(),
                 tx_hash: "".to_string(),
                 height: 0,
@@ -497,21 +899,21 @@ pub fn get_test_vk() -> Result<VerifyingKey> {
 pub async fn gateway_finish_withdraw_happy_path(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
-    graph_id: &Uuid,
+    graph_id: Uuid,
     tx: &Transaction,
 ) -> Result<String> {
-    let tx_hash = goat_client.gateway_finish_withdraw_happy_path(btc_client, graph_id, tx).await?;
+    let tx_hash = goat_client.gateway_finish_withdraw_happy_path(btc_client, &graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
 pub async fn gateway_finish_withdraw_unhappy_path(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
-    graph_id: &Uuid,
+    graph_id: Uuid,
     tx: &Transaction,
 ) -> Result<String> {
     let tx_hash =
-        goat_client.gateway_finish_withdraw_unhappy_path(btc_client, graph_id, tx).await?;
+        goat_client.gateway_finish_withdraw_unhappy_path(btc_client, &graph_id, tx).await?;
     tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
 }
@@ -519,7 +921,7 @@ pub async fn gateway_finish_withdraw_unhappy_path(
 pub async fn gateway_finish_withdraw_disproved(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
-    graph_id: &Uuid,
+    graph_id: Uuid,
     disprove_type: DisproveTxType,
     tx_index: u64,
     disprove_tx: &Transaction,
@@ -528,7 +930,7 @@ pub async fn gateway_finish_withdraw_disproved(
     let tx_hash = goat_client
         .gateway_finish_withdraw_disproved(
             btc_client,
-            graph_id,
+            &graph_id,
             disprove_type,
             tx_index,
             disprove_tx,
@@ -537,65 +939,6 @@ pub async fn gateway_finish_withdraw_disproved(
         .await?;
     tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
     Ok(tx_hash)
-}
-
-/// db support
-pub async fn store_committee_pub_nonces(
-    _local_db: &LocalDB,
-    _instance_id: Uuid,
-    _graph_id: Uuid,
-    _committee_pubkey: PublicKey,
-    _pub_nonces: CommitteePubNonces,
-) -> Result<()> {
-    todo!("store_committee_pub_nonces")
-}
-pub async fn get_committee_pub_nonces(
-    _local_db: &LocalDB,
-    _instance_id: Uuid,
-    _graph_id: Uuid,
-) -> Result<Vec<CommitteePubNonces>> {
-    todo!("get_committee_pub_nonces")
-}
-
-pub async fn store_committee_pubkeys(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    pubkey: PublicKey,
-) -> Result<()> {
-    let mut storage_process = local_db.acquire().await?;
-    Ok(storage_process.store_pubkeys(instance_id, &[pubkey.to_string()]).await?)
-}
-pub async fn get_committee_pubkeys(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-) -> Result<Vec<PublicKey>> {
-    let mut storage_process = local_db.acquire().await?;
-    match storage_process.get_pubkeys(instance_id).await? {
-        None => Ok(vec![]),
-        Some(meta_data) => Ok(meta_data
-            .pubkeys
-            .iter()
-            .map(|v| PublicKey::from_str(v).expect("fail to decode to public key"))
-            .collect()),
-    }
-}
-
-pub async fn store_committee_partial_sigs(
-    _local_db: &LocalDB,
-    _instance_id: Uuid,
-    _graph_id: Uuid,
-    _committee_pubkey: PublicKey,
-    _partial_sigs: CommitteePartialSignatures,
-) -> Result<()> {
-    todo!("store_committee_partial_sigs")
-}
-
-pub async fn get_committee_partial_sigs(
-    _local_db: &LocalDB,
-    _instance_id: Uuid,
-    _graph_id: Uuid,
-) -> Result<Vec<CommitteePartialSignatures>> {
-    todo!("get_committee_partial_sigs")
 }
 
 // will remove later

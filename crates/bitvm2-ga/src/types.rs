@@ -261,6 +261,7 @@ pub struct SimplifiedBitvm2Graph {
     pub(crate) committee_pre_signed: bool,
     pub parameters: Bitvm2GraphParameters,
     pub connector_e: ConnectorE,
+    pub assert_commit_num: usize,
     pub operator_pre_sigs: Option<Vec<Witness>>,
     pub committee_pre_sigs: Option<CommitteeSignatures>,
 }
@@ -339,6 +340,7 @@ impl Bitvm2Graph {
             committee_pre_signed: self.committee_pre_signed,
             parameters: self.parameters.clone(),
             connector_e: self.connector_e.clone(),
+            assert_commit_num: self.assert_commit_timeout_txns.len(),
             operator_pre_sigs,
             committee_pre_sigs,
         })

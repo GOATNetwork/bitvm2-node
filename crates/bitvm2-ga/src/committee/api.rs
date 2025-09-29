@@ -268,46 +268,44 @@ pub fn nonce_aggregation(pub_nonces: &Vec<PubNonce>) -> AggNonce {
     generate_aggregated_nonce(pub_nonces)
 }
 
-pub fn nonces_aggregation(pub_nonces_vec: &Vec<CommitteePubNonces>) -> CommitteeAggNonces {
-    fn aggregate_field<F>(rows: &Vec<CommitteePubNonces>, get: F) -> Vec<AggNonce>
+pub fn nonces_aggregation(pub_nonces_vec: &Vec<CommitteePubNonces>) -> Result<CommitteeAggNonces> {
+    fn aggregate_field<F>(rows: &Vec<CommitteePubNonces>, get: F) -> Result<Vec<AggNonce>>
     where
         F: Fn(&CommitteePubNonces) -> &Vec<PubNonce>,
     {
         if rows.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         let expected = get(&rows[0]).len();
 
         for (idx, r) in rows.iter().enumerate() {
-            assert!(
-                get(r).len() == expected,
-                "length mismatch on row {}: expected {}, got {}",
-                idx,
-                expected,
-                get(r).len()
-            );
+            if get(r).len() != expected {
+                bail!("length mismatch on row {}: expected {}, got {}", idx, expected, get(r).len())
+            }
         }
 
-        (0..expected)
+        Ok((0..expected)
             .map(|i| {
                 let column: Vec<PubNonce> = rows.iter().map(|r| get(r)[i].clone()).collect();
                 nonce_aggregation(&column)
             })
-            .collect()
+            .collect())
     }
 
-    CommitteeAggNonces {
-        take1: aggregate_field(&pub_nonces_vec, |c| &c.take1),
-        take2: aggregate_field(&pub_nonces_vec, |c| &c.take2),
-        challenge: aggregate_field(&pub_nonces_vec, |c| &c.challenge),
+    Ok(CommitteeAggNonces {
+        take1: aggregate_field(&pub_nonces_vec, |c| &c.take1)?,
+        take2: aggregate_field(&pub_nonces_vec, |c| &c.take2)?,
+        challenge: aggregate_field(&pub_nonces_vec, |c| &c.challenge)?,
         watchtower_challenge_timeout: aggregate_field(&pub_nonces_vec, |c| {
             &c.watchtower_challenge_timeout
-        }),
-        nack: aggregate_field(&pub_nonces_vec, |c| &c.nack),
-        blockhash_commit_timeout: aggregate_field(&pub_nonces_vec, |c| &c.blockhash_commit_timeout),
-        assert_commit_timeout: aggregate_field(&pub_nonces_vec, |c| &c.assert_commit_timeout),
-    }
+        })?,
+        nack: aggregate_field(&pub_nonces_vec, |c| &c.nack)?,
+        blockhash_commit_timeout: aggregate_field(&pub_nonces_vec, |c| {
+            &c.blockhash_commit_timeout
+        })?,
+        assert_commit_timeout: aggregate_field(&pub_nonces_vec, |c| &c.assert_commit_timeout)?,
+    })
 }
 
 pub fn signature_aggregation(

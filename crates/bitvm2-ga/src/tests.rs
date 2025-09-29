@@ -383,7 +383,7 @@ mod tests {
             .iter()
             .map(|k| k.nonces_for_graph(instance_id, graph_id, watchtower_num, assert_commit_num).0)
             .collect();
-        let agg_nonces = nonces_aggregation(&commitee_pub_nonces);
+        let agg_nonces = nonces_aggregation(&commitee_pub_nonces).unwrap();
         let committee_partial_sigs = commitee_master_keys
             .iter()
             .map(|k| {
@@ -643,14 +643,8 @@ mod tests {
             output: vec![txout],
         };
         for i in 0..tx.input.len() {
-            node_sign(
-                &mut tx,
-                i,
-                selected_utxos[i].value,
-                EcdsaSighashType::All,
-                &bank_keypair(),
-            )
-            .unwrap();
+            node_sign(&mut tx, i, selected_utxos[i].value, EcdsaSighashType::All, &bank_keypair())
+                .unwrap();
         }
         esplora.broadcast(&tx).await.unwrap();
         wait_tx_confirm(esplora, tx.compute_txid()).await;
