@@ -14,7 +14,7 @@ use bitvm2_lib::constants::{
     ACK_TIMELOCK, ASSERT_COMMIT_TIMELOCK, CONNECTOR_A_TIMELOCK, CONNECTOR_D_TIMELOCK,
     CONNECTOR_F_TIMELOCK, CONNECTOR_G_TIMELOCK, WATCHTOWER_CHALLENGE_TIMELOCK,
 };
-use client::btc_chain::{BTCClient, BTCClientTrait};
+use client::btc_chain::BTCClient;
 use client::goat_chain::{DisproveTxType, GOATClient, GOATClientTrait, WithdrawStatus};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};

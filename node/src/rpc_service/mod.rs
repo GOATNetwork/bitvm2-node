@@ -60,7 +60,7 @@ impl AppState {
         peer_id: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let btc_client = BTCClient::new(get_network().into(), None);
+        let btc_client = BTCClient::new(get_network(), None);
         let metrics_state = MetricsState::new(registry);
         let client = Client::new();
         Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, client }))

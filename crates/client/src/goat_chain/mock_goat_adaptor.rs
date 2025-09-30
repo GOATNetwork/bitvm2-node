@@ -98,7 +98,7 @@ impl ChainAdaptor for MockAdaptor {
     }
 
     async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64> {
-        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.min_pegin_fee_sats } else { 0 })
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.pegin_fee_rate } else { 0 })
     }
 
     async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64> {
@@ -114,7 +114,7 @@ impl ChainAdaptor for MockAdaptor {
     }
 
     async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
-        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.min_slash_amount } else { 0 })
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.min_stake_amount } else { 0 })
     }
 
     async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {

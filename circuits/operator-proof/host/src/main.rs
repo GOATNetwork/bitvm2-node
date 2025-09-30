@@ -12,7 +12,7 @@ use bitcoin_light_client::{
     build_spv,
 };
 use borsh::BorshDeserialize;
-use client::btc_chain::{BTCClient, BTCClientTrait};
+use client::btc_chain::BTCClient;
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -166,7 +166,7 @@ async fn main() {
 
     // --- spv --- //
     let network = Network::Regtest;
-    let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
+    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(&args.latest_sequencer_commit_txid).unwrap();
 
     let operator_latest_sequencer_commit_txn =

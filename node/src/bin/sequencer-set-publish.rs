@@ -71,7 +71,7 @@ use bitvm2_noded::utils::wait_tx_confirmation;
 use bitvm2_noded::utils::{node_p2wsh_address, node_sign};
 use clap::{Parser, Subcommand};
 use client::SequencerSet;
-use client::btc_chain::{BTCClient, BTCClientTrait};
+use client::btc_chain::BTCClient;
 use client::goat_chain::GoatInitConfig;
 use client::goat_chain::{GOATClient, GOATClientTrait};
 use dotenv::dotenv;
@@ -481,7 +481,7 @@ async fn fetch_commitment(
 
 fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
     let network = Network::Regtest;
-    let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
+    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
 
     let mut config = GoatInitConfig::from_env_for_test();
     config.private_key = args.goat_evm_prvkey.clone();

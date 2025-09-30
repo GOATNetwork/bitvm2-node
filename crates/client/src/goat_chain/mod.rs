@@ -8,7 +8,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Transaction, Txid};
 use uuid::Uuid;
 pub mod utils;
-use crate::btc_chain::{BTCClient, BTCClientTrait, MerkleProofExtend};
+use crate::btc_chain::{BTCClient, MerkleProofExtend};
 use chain_adaptor::PeginStatus;
 pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
@@ -16,11 +16,6 @@ pub use chain_adaptor::{
     get_chain_adaptor,
 };
 pub use goat_adaptor::GoatInitConfig;
-
-pub struct GOATClient {
-    chain_service: EvmChain,
-}
-
 mod chain_adaptor;
 mod evmchain;
 mod goat_adaptor;
@@ -29,6 +24,9 @@ use crate::goat_chain::evmchain::EvmChain;
 use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 pub use chain_adaptor::{DisproveTxType, Utxo};
 
+pub struct GOATClient {
+    chain_service: EvmChain,
+}
 #[async_trait::async_trait]
 pub trait GOATClientTrait: Send + Sync {
     fn get_default_signer_address(&self) -> Address;

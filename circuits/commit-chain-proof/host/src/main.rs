@@ -4,7 +4,7 @@
 //!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
 use bitcoin::{Network, Txid, secp256k1::PublicKey};
 use bitcoin_light_client::*;
-use client::btc_chain::{BTCClient, BTCClientTrait};
+use client::btc_chain::BTCClient;
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
@@ -40,7 +40,7 @@ pub struct Args {
 
 async fn fetch_commit_chain(args: &Args) {
     let network = Network::Regtest;
-    let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
+    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
 
     let mut commits: Vec<CircuitCommit> = vec![];
 

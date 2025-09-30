@@ -7,7 +7,7 @@
 //! ```
 use ark_serialize::CanonicalSerialize;
 use borsh::BorshDeserialize;
-use client::btc_chain::{BTCClient, BTCClientTrait};
+use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
@@ -94,7 +94,7 @@ async fn main() {
 
     // --- spv --- //
     let network = Network::Regtest;
-    let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
+    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(&args.latest_sequencer_commit_txid).unwrap();
 
     let tx = btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();

@@ -50,7 +50,6 @@ use stun_client::{Attribute, Class, Client};
 use crate::env;
 use crate::scheduled_tasks::get_goat_message_content_type;
 use bitvm2_lib::transactions::base::BaseTransaction;
-use client::btc_chain::BTCClientTrait;
 use tracing::warn;
 use uuid::Uuid;
 
