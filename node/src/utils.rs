@@ -18,7 +18,7 @@ use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{Bitvm2Graph, Groth16Proof, PublicInputs, VerifyingKey};
 use client::Utxo as ClientUtxo;
 use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
-use client::goat_chain::{DisproveTxType, GOATClientTrait, WithdrawStatus};
+use client::goat_chain::{DisproveTxType, WithdrawStatus};
 use client::graphs::graph_query::BridgeInRequestEvent;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;

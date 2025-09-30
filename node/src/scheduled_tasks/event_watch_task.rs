@@ -3,7 +3,7 @@ use crate::env::LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS;
 use crate::rpc_service::current_time_secs;
 use crate::utils::{reflect_goat_address, strip_hex_prefix_owned};
 use bitvm2_lib::actors::Actor;
-use client::goat_chain::{GOATClient, GOATClientTrait};
+use client::goat_chain::GOATClient;
 use client::graphs::GraphQueryClient;
 use client::graphs::graph_query::{
     BlockRange, BridgeInEvent, BridgeInRequestEvent, CancelWithdrawEvent, CommitteeResponseEvent,
