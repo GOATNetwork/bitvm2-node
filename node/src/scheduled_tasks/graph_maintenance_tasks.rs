@@ -7,7 +7,7 @@ use crate::action::{
 };
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
-use crate::utils::{get_graph, outpoint_spent_txid, store_unhandle_message};
+use crate::utils::{get_graph, outpoint_spent_txid, create_message};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::{
@@ -367,7 +367,7 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
             )
             .await?;
 
-            store_unhandle_message(
+            create_message(
                 &mut tx,
                 graph_id,
                 None,
@@ -484,7 +484,7 @@ pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyho
             continue;
         }
         let mut storage_processor = local_db.acquire().await?;
-        store_unhandle_message(
+        create_message(
             &mut storage_processor,
             graph.graph_id,
             None,
@@ -536,7 +536,7 @@ pub async fn detect_take1_or_challenge(
             Some((actor, message_content)) => {
                 info!("process_kickoff_graph detect take1 ready or take1 sent or challenge sent");
                 let mut storage_processor = local_db.acquire().await?;
-                store_unhandle_message(
+                create_message(
                     &mut storage_processor,
                     graph.graph_id,
                     None,
@@ -626,7 +626,7 @@ pub async fn process_graph_challenge(
                     detect_take2(btc_client, local_db, &graph, current_height).await?
                 {
                     let mut storage_processor = local_db.acquire().await?;
-                    store_unhandle_message(
+                    create_message(
                         &mut storage_processor,
                         graph.graph_id,
                         None,
@@ -641,7 +641,7 @@ pub async fn process_graph_challenge(
             }
         } else {
             let mut storage_processor = local_db.acquire().await?;
-            store_unhandle_message(
+            create_message(
                 &mut storage_processor,
                 graph.graph_id,
                 None,
@@ -1193,7 +1193,7 @@ async fn process_watchtower_challenge_monitoring(
             )
             .await?;
             for (actor, message_content, sub_type) in p2p_message_contents {
-                store_unhandle_message(
+                create_message(
                     &mut tx,
                     graph.graph_id,
                     sub_type,
@@ -1251,7 +1251,7 @@ async fn process_watchtower_challenge_monitoring(
                 updated_at: current_time_secs(),
             })
             .await?;
-            store_unhandle_message(
+            create_message(
                 &mut tx,
                 graph.graph_id,
                 None,
@@ -1266,7 +1266,7 @@ async fn process_watchtower_challenge_monitoring(
             )
             .await?;
 
-            store_unhandle_message(
+            create_message(
                 &mut tx,
                 graph.graph_id,
                 None,
@@ -1389,7 +1389,7 @@ async fn process_assert_commit_monitoring(
             )
             .await?;
             if let Some((actor, message_content)) = message_content {
-                store_unhandle_message(
+                create_message(
                     &mut tx,
                     graph.graph_id,
                     None,
@@ -1446,7 +1446,7 @@ async fn process_assert_commit_monitoring(
             tx.commit().await?;
         } else {
             let mut storage_processor = local_db.acquire().await?;
-            store_unhandle_message(
+            create_message(
                 &mut storage_processor,
                 graph.graph_id,
                 None,
@@ -1588,7 +1588,7 @@ async fn detect_kickoff_ref_disprove_tx(
         };
         let challenge_start_txid: Option<Txid> = graph.challenge_txid.clone().map(|v| v.into());
         let mut storage_processor = local_db.acquire().await?;
-        store_unhandle_message(
+        create_message(
             &mut storage_processor,
             graph.graph_id,
             None,
@@ -1747,7 +1747,7 @@ async fn process_graph_watchtower_assert_disproved(
                 )
                 .await?;
             }
-            store_unhandle_message(
+            create_message(
                 &mut tx,
                 graph.graph_id,
                 None,
@@ -2022,7 +2022,7 @@ async fn check_pre_kickoff_sent(
     for (graph_id, instance_id, cur_pre_kickoff) in check_graphs {
         if btc_client.get_tx_status(&cur_pre_kickoff).await?.confirmed {
             let mut storage_processor = local_db.acquire().await?;
-            store_unhandle_message(
+            create_message(
                 &mut storage_processor,
                 graph_id,
                 None,

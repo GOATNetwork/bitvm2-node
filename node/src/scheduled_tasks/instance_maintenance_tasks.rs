@@ -4,7 +4,7 @@ use crate::env::{
 };
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{store_unhandle_message, strip_hex_prefix_owned};
+use crate::utils::{create_message, strip_hex_prefix_owned};
 use alloy::primitives::Address as EvmAddress;
 use anyhow::bail;
 use bitcoin::address::NetworkUnchecked;
@@ -66,7 +66,7 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
         match tx_record.extra {
             Some(event) => {
                 let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
-                store_unhandle_message(
+                create_message(
                     &mut tx,
                     tx_record.instance_id,
                     None,
@@ -377,7 +377,7 @@ pub async fn instance_btc_tx_monitor(
                 instance_update = instance_update
                     .with_pegin_prepare_height(status.block_height.unwrap_or_default() as i64);
 
-                store_unhandle_message(
+                create_message(
                     &mut tx,
                     instance.instance_id,
                     None,

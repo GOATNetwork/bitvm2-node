@@ -621,7 +621,7 @@ fn generate_message_id(business_id: Uuid, msg_type: String, sub_type: Option<Str
         None => format!("{business_id}_{msg_type}"),
     }
 }
-pub async fn store_unhandle_message(
+pub async fn create_message(
     storage_processor: &mut StorageProcessor<'_>,
     business_id: Uuid,
     sub_type: Option<String>,
@@ -1212,7 +1212,7 @@ pub async fn operator_scan_ready_proof(
                 )
                 .await?;
 
-            store_unhandle_message(
+            create_message(
                 &mut db_tx,
                 tx.graph_id,
                 None,
