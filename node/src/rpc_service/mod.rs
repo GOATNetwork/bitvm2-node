@@ -1,4 +1,5 @@
 mod bitvm2;
+mod cors_config;
 
 pub mod handler;
 mod node;
@@ -7,6 +8,7 @@ pub mod routes;
 
 use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
+use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::proof_handler::{
     get_groth16_proof, get_proof, get_proofs, get_proofs_overview,
 };
@@ -21,7 +23,7 @@ use axum::{
 };
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
-use http::{HeaderMap, Method, StatusCode};
+use http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use reqwest::Client;
@@ -31,7 +33,7 @@ use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::classify::ServerErrorsFailureClass;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
 
@@ -42,6 +44,19 @@ pub use crate::rpc_service::handler::node_handler::*;
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
+/// Create secure CORS layer
+pub fn create_secure_cors_layer() -> CorsLayer {
+    let cors_config = CorsConfig::from_env();
+
+    // Validate configuration security
+    let warnings = cors_config.validate_security();
+    for warning in warnings {
+        tracing::warn!("CORS security warning: {}", warning);
+    }
+
+    cors_config.create_cors_layer()
 }
 
 pub struct AppState {
@@ -120,13 +135,7 @@ pub async fn serve(
         .route(routes::v1::PROOFS_OVERVIEW, get(get_proofs_overview))
         .route(routes::METRICS, get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
-        .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ]))
+        .layer(create_secure_cors_layer())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
