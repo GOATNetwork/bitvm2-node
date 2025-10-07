@@ -30,8 +30,8 @@ impl Default for CorsConfig {
             ],
             allowed_headers: vec![
                 "content-type".to_string(),
-                "authorization".to_string(),
-                "x-requested-with".to_string(),
+                // "authorization".to_string(),
+                // "x-requested-with".to_string(),
                 "accept".to_string(),
                 "origin".to_string(),
                 "access-control-request-method".to_string(),
