@@ -1,7 +1,7 @@
-use crate::env::IpfsTxName;
 use crate::rpc_service::AppState;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
+use crate::rpc_service::validation::InputValidator;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::Txid;
@@ -102,7 +102,13 @@ pub async fn instance_settings(
 pub async fn graph_presign_check(
     Query(params): Query<GraphPresignCheckParams>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<GraphPresignCheckResponse>) {
+) -> Result<
+    (StatusCode, Json<GraphPresignCheckResponse>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate instance_id format
+    let instance_id = InputValidator::validate_uuid(&params.instance_id, "instance_id")?;
+
     let resp = GraphPresignCheckResponse {
         instance_id: params.instance_id.to_string(),
         instance_status: InstanceStatus::UserInited.to_string(),
@@ -111,7 +117,6 @@ pub async fn graph_presign_check(
     };
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
-        let instance_id = Uuid::parse_str(&params.instance_id)?;
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(instance) = storage_process.find_instance(&instance_id).await? {
             resp_clone.instance_status = instance.status.clone();
@@ -133,10 +138,10 @@ pub async fn graph_presign_check(
         }
     };
     match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
+        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
         Err(err) => {
             tracing::warn!("graph_presign_check  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(resp)))
         }
     }
 }
@@ -185,23 +190,23 @@ pub async fn get_graph_tx(
     Query(params): Query<GraphTxGetParams>,
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<Option<GraphTxGetResponse>>) {
+) -> Result<
+    (StatusCode, Json<Option<GraphTxGetResponse>>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate graph_id format
+    let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+
+    // Validate tx_name format
+    let _tx_name = InputValidator::validate_tx_name(&params.tx_name)?;
+
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(graph_raw_data) =
-            storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
-            && let Some(_graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
+        if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id_uuid).await?
+            && let Some(_graph) = storage_process.find_graph(&graph_id_uuid).await?
         {
             let _bitvm2_graph: Bitvm2Graph =
                 serde_json::from_str(graph_raw_data.raw_data.as_str())?;
-            let tx_name_op = IpfsTxName::from_str(&params.tx_name);
-            if tx_name_op.is_err() {
-                return Err(format!(
-                    "grap with graph_id:{graph_id} decode tx_name:{} failed",
-                    params.tx_name
-                )
-                .into());
-            }
             // todo update
             // let tx_hex = match tx_name_op.unwrap() {
             //     IpfsTxName::AssertCommit0 => {
@@ -244,10 +249,10 @@ pub async fn get_graph_tx(
         }
     };
     match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(Some(resp))),
+        Ok(resp) => Ok((StatusCode::OK, Json(Some(resp)))),
         Err(err) => {
             tracing::warn!("get_graph_tx  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(None)))
         }
     }
 }
@@ -301,12 +306,17 @@ pub async fn get_graph_tx(
 pub async fn get_graph_txn(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<Option<GraphTxnGetResponse>>) {
+) -> Result<
+    (StatusCode, Json<Option<GraphTxnGetResponse>>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate graph_id format
+    let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(graph_raw_data) =
-            storage_process.get_graph_raw_data(&Uuid::parse_str(&graph_id)?).await?
-            && let Some(_graph) = storage_process.find_graph(&Uuid::parse_str(&graph_id)?).await?
+        if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id_uuid).await?
+            && let Some(_graph) = storage_process.find_graph(&graph_id_uuid).await?
         {
             let _bitvm2_graph: Bitvm2Graph =
                 serde_json::from_str(graph_raw_data.raw_data.as_str())?;
@@ -339,10 +349,10 @@ pub async fn get_graph_txn(
         }
     };
     match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(Some(resp))),
+        Ok(resp) => Ok((StatusCode::OK, Json(Some(resp)))),
         Err(err) => {
             tracing::warn!("get_graph_txn  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(None)))
         }
     }
 }
@@ -484,10 +494,28 @@ pub async fn update_instance(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<InstanceUpdateRequest>,
-) -> (StatusCode, Json<InstanceUpdateResponse>) {
+) -> Result<
+    (StatusCode, Json<InstanceUpdateResponse>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate instance_id format in path
+    let _path_instance_id = InputValidator::validate_uuid(&instance_id, "instance_id")?;
+
+    // Validate instance_id format in request body
+    let _body_instance_id = InputValidator::validate_uuid(
+        &payload.instance.instance_id.to_string(),
+        "instance.instance_id",
+    )?;
+
     if instance_id != payload.instance.instance_id.to_string() {
-        tracing::warn!("instance id in boy and path not match");
-        return (StatusCode::BAD_REQUEST, Json(InstanceUpdateResponse {}));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(crate::rpc_service::validation::ValidationErrorResponse {
+                error: "MISMATCHED_INSTANCE_ID".to_string(),
+                message: "Instance ID in path does not match the one in request body".to_string(),
+                field: Some("instance_id".to_string()),
+            }),
+        ));
     }
 
     let async_fn = || async move {
@@ -496,10 +524,10 @@ pub async fn update_instance(
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {
-        Ok(_) => (StatusCode::OK, Json(InstanceUpdateResponse {})),
+        Ok(_) => Ok((StatusCode::OK, Json(InstanceUpdateResponse {}))),
         Err(err) => {
             tracing::warn!("update_instance  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceUpdateResponse {}))
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceUpdateResponse {})))
         }
     }
 }
@@ -641,16 +669,25 @@ async fn get_tx_confirmation_info(
 pub async fn get_instances(
     Query(params): Query<InstanceListRequest>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<InstanceListResponse>) {
+) -> Result<
+    (StatusCode, Json<InstanceListResponse>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate pagination parameters
+    let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
+
+    // Validate from_addr format (if provided)
+    if let Some(ref from_addr) = params.from_addr {
+        InputValidator::validate_btc_address(from_addr, "from_addr")?;
+    }
+
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let mut query = InstanceQuery::default();
         if let Some(from_addr) = params.from_addr {
             query = query.with_from_addr(from_addr);
         }
-        if let (Some(offset), Some(limit)) = (params.offset, params.limit) {
-            query = query.with_pagination(offset, limit);
-        }
+        query = query.with_pagination(offset, limit);
 
         let (instances, total) = storage_process.find_instances(query).await?;
 
@@ -686,10 +723,10 @@ pub async fn get_instances(
         })
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
             tracing::warn!("get_instances err:{:?}", err);
-            (StatusCode::OK, Json(InstanceListResponse::default()))
+            Ok((StatusCode::OK, Json(InstanceListResponse::default())))
         }
     }
 }
@@ -733,11 +770,16 @@ pub async fn get_instances(
 pub async fn get_instance(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<InstanceGetResponse>) {
+) -> Result<
+    (StatusCode, Json<InstanceGetResponse>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate instance_id format
+    let instance_id_uuid = InputValidator::validate_uuid(&instance_id, "instance_id")?;
+
     let async_fn = || async move {
-        let instance_id = Uuid::parse_str(&instance_id)?;
         let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(instance) = storage_process.find_instance(&instance_id).await? {
+        if let Some(instance) = storage_process.find_instance(&instance_id_uuid).await? {
             let current_height = app_state.btc_client.get_height().await?;
             let (confirmations, target_confirmations) = get_btc_tx_confirmation_info(
                 &app_state.btc_client,
@@ -765,10 +807,13 @@ pub async fn get_instance(
         }
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
             tracing::warn!("get_instances, err:{:?}", err);
-            (StatusCode::OK, Json(InstanceGetResponse { instance_wrap: InstanceWrap::default() }))
+            Ok((
+                StatusCode::OK,
+                Json(InstanceGetResponse { instance_wrap: InstanceWrap::default() }),
+            ))
         }
     }
 }
@@ -889,11 +934,15 @@ pub async fn get_instances_overview(
 pub async fn get_graph(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<GraphGetResponse>) {
+) -> Result<
+    (StatusCode, Json<GraphGetResponse>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate graph_id format
+    let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
     let async_fn = || async move {
-        let graph_id = Uuid::parse_str(&graph_id).unwrap();
         let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(graph) = storage_process.find_graph(&graph_id).await? {
+        if let Some(graph) = storage_process.find_graph(&graph_id_uuid).await? {
             let graphs =
                 add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, vec![graph])
                     .await?;
@@ -911,10 +960,10 @@ pub async fn get_graph(
         }
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
             tracing::warn!("get_graph  err:{:?}", err);
-            (StatusCode::OK, Json(GraphGetResponse { graph: None }))
+            Ok((StatusCode::OK, Json(GraphGetResponse { graph: None })))
         }
     }
 }
@@ -985,10 +1034,26 @@ pub async fn update_graph(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphUpdateRequest>,
-) -> (StatusCode, Json<GraphUpdateResponse>) {
+) -> Result<
+    (StatusCode, Json<GraphUpdateResponse>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate graph_id format in path
+    let _path_graph_id = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+
+    // Validate graph_id format in request body
+    let _body_graph_id =
+        InputValidator::validate_uuid(&payload.graph.graph_id.to_string(), "graph.graph_id")?;
+
     if graph_id != payload.graph.graph_id.to_string() {
-        tracing::warn!("graph id in boy and path not match");
-        return (StatusCode::BAD_REQUEST, Json(GraphUpdateResponse {}));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(crate::rpc_service::validation::ValidationErrorResponse {
+                error: "MISMATCHED_GRAPH_ID".to_string(),
+                message: "Graph ID in path does not match the one in request body".to_string(),
+                field: Some("graph_id".to_string()),
+            }),
+        ));
     }
 
     let async_fn = || async move {
@@ -997,10 +1062,10 @@ pub async fn update_graph(
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {
-        Ok(_) => (StatusCode::OK, Json(GraphUpdateResponse {})),
+        Ok(_) => Ok((StatusCode::OK, Json(GraphUpdateResponse {}))),
         Err(err) => {
             tracing::warn!("update_graph  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(GraphUpdateResponse {}))
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(GraphUpdateResponse {})))
         }
     }
 }

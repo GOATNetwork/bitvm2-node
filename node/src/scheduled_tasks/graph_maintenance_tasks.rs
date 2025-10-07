@@ -7,7 +7,7 @@ use crate::action::{
 };
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
-use crate::utils::{get_graph, outpoint_spent_txid, create_message};
+use crate::utils::{create_message, get_graph, outpoint_spent_txid};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::{
