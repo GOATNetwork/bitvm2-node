@@ -148,20 +148,15 @@ impl CorsConfig {
             }
         }
 
-        // Set allowed HTTP methods
-        cors_layer = cors_layer.allow_methods(self.allowed_methods.clone());
-
-        // Set credentials allowance
-        cors_layer = cors_layer.allow_credentials(self.allow_credentials);
-
-        // Set preflight request cache time
-        cors_layer = cors_layer.max_age(std::time::Duration::from_secs(self.max_age));
-
+        // Set allowed HTTP methods;
+        // Set credentials allowance;
+        // Set preflight request cache time;
         // Set private network allowance
-        if self.allow_private_network {
-            cors_layer = cors_layer.allow_private_network(true);
-        }
-
+        cors_layer = cors_layer
+            .allow_methods(self.allowed_methods.clone())
+            .allow_credentials(self.allow_credentials)
+            .max_age(std::time::Duration::from_secs(self.max_age))
+            .allow_private_network(self.allow_private_network);
         cors_layer
     }
 
