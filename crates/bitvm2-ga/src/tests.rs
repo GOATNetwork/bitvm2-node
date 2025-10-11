@@ -740,10 +740,6 @@ mod tests {
 
         // watchtower[0] challenge
         let watchtower_0_keypair = watchtower_master_key()[0].master_keypair();
-        let challenge_connector_0_input = Input {
-            outpoint: OutPoint { txid: watchtower_challenge_init_txid, vout: 0 },
-            amount: watchtower_challenge_init.output[0].value,
-        };
         let watchtower_challenge_payer_amount = Amount::from_sat(3000);
         let watchtower_0_challenge_payer_input = Input {
             outpoint: fund_address(
@@ -759,7 +755,6 @@ mod tests {
             &watchtower_0_keypair,
             0,
             &vec![0xffu8; 192],
-            challenge_connector_0_input,
             vec![watchtower_0_challenge_payer_input],
             &bank_address,
             default_fee_amount,

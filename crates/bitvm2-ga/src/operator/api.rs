@@ -964,8 +964,8 @@ pub fn take1_timelock(network: Network) -> u32 {
 /// take2 has two timelocks, relative to (watchtower_challenge_init, assert_init)
 pub fn take2_timelocks(network: Network) -> (u32, u32) {
     (
-        num_blocks_per_network(network, CONNECTOR_D_TIMELOCK),
         num_blocks_per_network(network, CONNECTOR_F_TIMELOCK),
+        num_blocks_per_network(network, CONNECTOR_D_TIMELOCK),
     )
 }
 

@@ -13,7 +13,7 @@ use goat::{
     disprove_scripts::{GUEST_VALIDATION_TAPS, NUM_GUEST_PUBS_ASSERT, NUM_GUEST_PUBS_EXTRA},
     scripts::{generate_opreturn_script, p2a_output},
     transactions::{
-        base::{DUST_AMOUNT, Input},
+        base::{Input, DUST_AMOUNT},
         disprove::{disprove, validate_assert},
         pre_signed::PreSignedTransaction,
         watchtower_challenge::extract_operator_preimage_from_ack_txin,
@@ -45,13 +45,12 @@ pub fn extract_assert_commit_witness(
 
 /// return (if any) disprove witness
 pub fn verify_operator_commits(
-    operator_commit_blockhash_txin: &TxIn,
+    operator_commit_blockhash_txin: TxIn,
     operator_assert_commit_txins: Vec<TxIn>,
     operator_ack_txins: Vec<TxIn>,
     watchtower_num: usize,
     vk: &VerifyingKey,
-    guest_validation_scripts: &[ScriptBuf; GUEST_VALIDATION_TAPS],
-    proof_validation_scripts: &[ScriptBuf; NUM_TAPS],
+    disprove_scripts: &[ScriptBuf; GUEST_VALIDATION_TAPS + NUM_TAPS],
 ) -> Result<Option<(RawWitness, ScriptBuf)>> {
     let mut preimages = vec![vec![]; watchtower_num];
     for txin in &operator_ack_txins {
@@ -66,8 +65,11 @@ pub fn verify_operator_commits(
             .map_err(|e| anyhow::anyhow!("Failed to extract preimage from ack txin: {}", e))?;
         preimages[watchtower_index] = preimage;
     }
+    let (guest_validation_scripts, proof_validation_scripts) = disprove_scripts.split_at(GUEST_VALIDATION_TAPS);
+    let guest_validation_scripts = <&[ScriptBuf; GUEST_VALIDATION_TAPS]>::try_from(guest_validation_scripts).unwrap();
+    let proof_validation_scripts = <&[ScriptBuf; NUM_TAPS]>::try_from(proof_validation_scripts).unwrap();
     Ok(validate_assert(
-        extract_blockhash_commit_witness(operator_commit_blockhash_txin)?,
+        extract_blockhash_commit_witness(&operator_commit_blockhash_txin)?,
         extract_assert_commit_witness(operator_assert_commit_txins)?,
         preimages,
         guest_validation_scripts,

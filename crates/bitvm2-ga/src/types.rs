@@ -44,6 +44,7 @@ use crate::operator::{generate_bitvm_graph_inner, push_operator_pre_signature};
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
 pub type Groth16Proof = ark_groth16::Proof<ark_bn254::Bn254>;
 pub type PublicInputs = Vec<ark_bn254::Fr>;
+pub type GuestInputs = [[u8; 32]; NUM_GUEST_PUBS_ASSERT];
 
 pub type OperatorWotsSignatures = (GuestPubinSignatures, Groth16ProofSignatures);
 

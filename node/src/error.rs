@@ -18,6 +18,9 @@ pub enum SpecialError {
     #[error("Invalid Committee: {0}")]
     InvalidCommittee(String),
 
+    #[error("Insufficient Balance: {0}")]
+    InsufficientBalance(String),
+
     #[error("Other Error: {0}")]
     Other(String),
 }

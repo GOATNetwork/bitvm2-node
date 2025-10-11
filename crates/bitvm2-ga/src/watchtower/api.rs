@@ -1,18 +1,18 @@
 use anyhow::{Result, bail};
-use bitcoin::{Address, Amount, Transaction, XOnlyPublicKey, key::Keypair};
+use bitcoin::{key::Keypair, Address, Amount, OutPoint, Transaction, XOnlyPublicKey};
 use goat::{
-    connectors::watchtower_connectors::{AckConnector, WatchtowerChallengeConnector},
-    transactions::{base::Input, watchtower_challenge::watchtower_challenge},
+    connectors::{watchtower_connectors::{AckConnector, WatchtowerChallengeConnector}},
+    transactions::{base::Input, pre_signed::PreSignedTransaction, watchtower_challenge::watchtower_challenge},
 };
 
 use crate::types::Bitvm2Graph;
 
-pub fn estimate_watchtower_challenge_shortfall(
-    _commitment_data_len: usize,
-    _payer_inputs_len: usize,
+pub fn estimate_watchtower_challenge_vbytes(
+    commitment_data_len: usize,
 ) -> usize {
-    // TODO
-    panic!("Not implemented yet")
+    let base_vbytes = 120;
+    let commitment_vbytes = commitment_data_len * 12 / 10; // assuming 1.2 vbytes per byte of commitment data
+    base_vbytes + commitment_vbytes
 }
 
 pub fn build_watchtower_challenge_tx(
@@ -20,7 +20,6 @@ pub fn build_watchtower_challenge_tx(
     watchtower_keypair: &Keypair,
     watchtower_index: usize,
     commitment_data: &[u8],
-    input_0: Input,
     payer_inputs: Vec<Input>,
     change_address: &Address,
     fee_amount: Amount,
@@ -46,6 +45,18 @@ pub fn build_watchtower_challenge_tx(
     if XOnlyPublicKey::from_keypair(watchtower_keypair).0 != watchtower_taproot_public_key {
         bail!("Watchtower keypair does not match the watchtower public key");
     }
+    let watchtower_challenge_connector_vout = watchtower_index * 2;
+    let watchtower_challenge_connector_amount =
+        graph.watchtower_challenge_init.tx().output.get(watchtower_challenge_connector_vout)
+            .ok_or_else(|| anyhow::anyhow!("watchtower index out of bounds"))?
+            .value;
+    let input_0 = Input {
+        outpoint: OutPoint { 
+            txid: graph.watchtower_challenge_init.tx().compute_txid(), 
+            vout: watchtower_challenge_connector_vout as u32,
+        },
+        amount: watchtower_challenge_connector_amount,
+    };
     match watchtower_challenge(
         watchtower_keypair,
         &watchtower_connectors,

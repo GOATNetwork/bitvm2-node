@@ -14,11 +14,14 @@ use bitcoin::{
 };
 use bitvm::treepp::*;
 use bitvm2_lib::actors::Actor;
+use bitvm2_lib::challenger::export_challenge_tx;
 use bitvm2_lib::committee::{CommitteePartialSignatures, CommitteePubNonces};
+use bitvm2_lib::keys::{ChallengerMasterKey, WatchtowerMasterKey};
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{
     Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, UserInfo, VerifyingKey,
 };
+use bitvm2_lib::watchtower::{build_watchtower_challenge_tx, estimate_watchtower_challenge_vbytes};
 use client::Utxo as ClientUtxo;
 use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
 use client::goat_chain::{DisproveTxType, WithdrawStatus};
@@ -28,6 +31,7 @@ use esplora_client::Utxo;
 use goat::contexts::base::generate_n_of_n_public_key;
 use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
 use goat::transactions::base::Input;
+use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::signing::populate_p2wsh_witness;
 use libp2p::Swarm;
 use rand::Rng;
@@ -52,14 +56,15 @@ use store::{
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
-use client::goat_chain::{PeginData, PeginStatus};
+use client::goat_chain::{PeginData, PeginStatus, WithdrawData};
 use tracing::warn;
 use uuid::Uuid;
 
 pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
-
-    use bitvm2_lib::types::{Bitvm2GraphParameters, PrekickoffParameters, SimplifiedBitvm2Graph};
+    use bitvm2_lib::types::{
+        Bitvm2GraphParameters, GuestInputs, PrekickoffParameters, SimplifiedBitvm2Graph,
+    };
     use goat::transactions::prekickoff::PrekickoffTransaction;
     use libp2p::PeerId;
     use musig2::{PartialSignature, PubNonce};
@@ -69,6 +74,15 @@ pub mod todo_funcs {
     // contract calls
     pub async fn get_pegin_data(goat_client: &GOATClient, instance_id: Uuid) -> Result<PeginData> {
         todo!("call Gateway.getPeginData(instance_id) on goat chain")
+    }
+    pub async fn get_withdraw_data(
+        goat_client: &GOATClient,
+        graph_id: &Uuid,
+    ) -> Result<WithdrawData> {
+        todo!("call Gateway.withdrawDataMap(graph_id) on goat chain")
+    }
+    pub async fn get_goat_confirmed_btc_height(goat_client: &GOATClient) -> Result<u32> {
+        todo!("call bitcoinSPV.latestConfirmedHeight() on goat chain")
     }
     pub async fn get_committee_pubkeys(
         goat_client: &GOATClient,
@@ -245,6 +259,26 @@ pub mod todo_funcs {
         todo!("get_committee_partial_sigs")
     }
 
+    // proof network
+    pub async fn get_watchtower_proof(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<u8>> {
+        todo!("get watchtower proof from proof network")
+    }
+    pub async fn get_operator_proof_blockhash(
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<[u8; 32]> {
+        todo!("get blockhash used for operator proof")
+    }
+    pub async fn get_operator_proof(
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)> {
+        todo!("get operator proof from proof network")
+    }
+    pub async fn get_operator_proof_vk(instance_id: Uuid, graph_id: Uuid) -> Result<VerifyingKey> {
+        todo!("get vk for operator proof")
+    }
+
     // other operations
     pub fn is_relayer() -> bool {
         todo!("check if the node is relayer")
@@ -330,6 +364,24 @@ pub mod todo_funcs {
         graph_params: &Bitvm2GraphParameters,
     ) -> Result<Vec<ScriptBuf>> {
         todo!("generate disprove scripts for the graph")
+    }
+    pub async fn build_and_broadcast_cpfp_txns(
+        btc_client: &BTCClient,
+        parent_tx: Transaction,
+        anchor_vout: u64,
+    ) -> Result<()> {
+        todo!("build child txns to cpfp the parent tx and broadcast them")
+    }
+    pub async fn get_preimage(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        index: usize,
+    ) -> Result<Vec<u8>> {
+        todo!("get preimage from local db (or derive it from master key?)")
+    }
+    pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
+        todo!("broadcast non-standard tx")
     }
 }
 
@@ -631,7 +683,17 @@ pub async fn build_sign_and_broadcast_tx(
             broadcast_tx(client, &tx).await?;
             Ok(tx.compute_txid())
         }
-        None => bail!("insufficient btc, please fund {node_address} first"),
+        None => {
+            let current_balance = client
+                .get_address_utxo(node_address)
+                .await?
+                .iter()
+                .map(|u| u.value)
+                .sum::<Amount>();
+            bail!(SpecialError::InsufficientBalance(format!(
+                "Not enough balance to complete the transaction, current_balance: {current_balance} < shortfall: {shortfall}"
+            )));
+        }
     }
 }
 
@@ -717,56 +779,78 @@ pub fn node_sign(
     Ok(())
 }
 
-/// Determines whether the challenger should challenge a kickoff
-///
-/// Conditions:
-/// - If kickoff is invalid
-/// - If challenger has enough fund
-/// - Participation should be attempted as often as possible.
-///
-/// A kickoff transaction is considered invalid if:
-/// - It has already been broadcast on Layer 1,
-/// - But the corresponding graph status on Layer 2 is not `Initialized`.
-pub async fn should_challenge(
+pub async fn send_challenge_tx(btc_client: &BTCClient, graph: &Bitvm2Graph) -> Result<Txid> {
+    let (mut challenge_tx, _) = export_challenge_tx(&graph)?;
+    let challenge_keypair = ChallengerMasterKey::new(get_bitvm_key()?).master_keypair();
+    let challenger_evm_address = todo_funcs::get_node_evm_address()?;
+    challenge_tx.output.push(bitcoin::TxOut {
+        value: Amount::ZERO,
+        script_pubkey: generate_opreturn_script(challenger_evm_address.to_vec()),
+    });
+    build_sign_and_broadcast_tx(
+        btc_client,
+        challenge_keypair,
+        challenge_tx.input,
+        graph.kickoff.tx().output[0].value,
+        challenge_tx.output,
+    )
+    .await
+}
+
+pub async fn send_watchtower_challenge_tx(
     btc_client: &BTCClient,
-    goat_client: &GOATClient,
-    challenge_amount: Amount,
-    _instance_id: Uuid,
-    graph_id: Uuid,
-    kickoff_txid: &Txid,
-) -> Result<bool> {
-    // check if kickoff is confirmed on L1
-    if btc_client.get_tx(kickoff_txid).await?.is_none() {
-        return Ok(false);
-    }
-
-    // check if withdraw is initialized on L2
-    let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
-    if withdraw_status == WithdrawStatus::Initialized
-        || withdraw_status == WithdrawStatus::Processing
+    graph: &Bitvm2Graph,
+    watchtower_index: usize,
+    commitment_data: Vec<u8>,
+) -> Result<Txid> {
+    let watchtower_keypair = WatchtowerMasterKey::new(get_bitvm_key()?).master_keypair();
+    let fee_rate = get_fee_rate(btc_client).await?;
+    let watchtower_challenge_tx_base_vbytes =
+        estimate_watchtower_challenge_vbytes(commitment_data.len());
+    let node_address = node_p2wsh_address(get_network(), &watchtower_keypair.public_key().into());
+    match get_proper_utxo_set(
+        btc_client,
+        watchtower_challenge_tx_base_vbytes as u64,
+        node_address.clone(),
+        Amount::ZERO,
+        fee_rate,
+    )
+    .await?
     {
-        return Ok(false);
-    };
-
-    let node_address = node_p2wsh_address(get_network(), &get_node_pubkey()?);
-    let utxos = btc_client.get_address_utxo(node_address.clone()).await?;
-    let utxo_spent_fee = Amount::from_sat(
-        (get_fee_rate(btc_client).await? * 2.0 * CHEKSIG_P2WSH_INPUT_VBYTES as f64).ceil() as u64,
-    );
-    let total_effective_balance: Amount =
-        utxos
-            .iter()
-            .map(|utxo| {
-                if utxo.value > utxo_spent_fee { utxo.value - utxo_spent_fee } else { Amount::ZERO }
-            })
-            .sum();
-    if total_effective_balance < challenge_amount {
-        tracing::warn!(
-            "graph {graph_id}, kickoff is invalid, but node address {node_address} ran out of BTC for challenge, requiring {challenge_amount}"
-        );
-        Ok(false)
-    } else {
-        Ok(true)
+        Some((inputs, fee_amount, _)) => {
+            let mut watchtower_challenge_tx = build_watchtower_challenge_tx(
+                graph,
+                &watchtower_keypair,
+                watchtower_index,
+                &commitment_data,
+                inputs.clone(),
+                &node_address,
+                fee_amount,
+            )
+            .unwrap();
+            for i in 0..inputs.len() {
+                node_sign(
+                    &mut watchtower_challenge_tx,
+                    i + 1,
+                    inputs[i].amount,
+                    EcdsaSighashType::All,
+                    &watchtower_keypair,
+                )?;
+            }
+            broadcast_tx(btc_client, &watchtower_challenge_tx).await?;
+            Ok(watchtower_challenge_tx.compute_txid())
+        }
+        None => {
+            let current_balance = btc_client
+                .get_address_utxo(node_address)
+                .await?
+                .iter()
+                .map(|u| u.value)
+                .sum::<Amount>();
+            bail!(SpecialError::InsufficientBalance(format!(
+                "Not enough balance to complete the transaction, current_balance: {current_balance}"
+            )));
+        }
     }
 }
 
@@ -776,6 +860,10 @@ pub async fn tx_on_chain(client: &BTCClient, txid: &Txid) -> Result<bool> {
         Some(_) => Ok(true),
         _ => Ok(false),
     }
+}
+
+pub async fn tx_confirmed(client: &BTCClient, txid: &Txid) -> Result<bool> {
+    Ok(client.get_tx_status(txid).await?.confirmed)
 }
 
 pub async fn outpoint_available(client: &BTCClient, txid: &Txid, vout: u64) -> Result<bool> {
@@ -796,32 +884,24 @@ pub async fn outpoint_spent_txid(
     }
 }
 
-/// Validates whether the given challenge transaction has been confirmed on Layer 1.
-pub async fn validate_challenge(
-    btc_client: &BTCClient,
-    kickoff_txid: &Txid,
-    challenge_txid: &Txid,
-) -> Result<bool> {
-    let challenge_tx = match btc_client.get_tx(challenge_txid).await? {
-        Some(tx) => tx,
-        _ => return Ok(false),
-    };
-    let expected_challenge_input_0 = OutPoint { txid: *kickoff_txid, vout: 1 };
-    Ok(challenge_tx.input[0].previous_output == expected_challenge_input_0)
-}
-
-/// Validates whether the given disprove transaction has been confirmed on Layer 1.
-pub async fn validate_disprove(
-    btc_client: &BTCClient,
-    kickoff_txid: &Txid,
-    disprove_txid: &Txid,
-) -> Result<bool> {
-    let disprove_tx = match btc_client.get_tx(disprove_txid).await? {
-        Some(tx) => tx,
-        _ => return Ok(false),
-    };
-    let expected_disprove_input_0 = OutPoint { txid: *kickoff_txid, vout: 3 };
-    Ok(disprove_tx.input[0].previous_output == expected_disprove_input_0)
+pub async fn outpoint_spent_txin(
+    client: &BTCClient,
+    txid: &Txid,
+    vout: u64,
+) -> Result<Option<(Txid, u64, TxIn)>> {
+    match client.get_output_status(txid, vout).await? {
+        Some(status) => {
+            if let Some(spent_txid) = status.txid
+                && let Some(vin) = status.vin
+                && let Some(spent_tx) = client.get_tx(&spent_txid).await?
+            {
+                Ok(spent_tx.input.get(vin as usize).cloned().map(|txin| (spent_txid, vin, txin)))
+            } else {
+                Ok(None)
+            }
+        }
+        _ => Ok(None),
+    }
 }
 
 /// Retrieves the Groth16 proof, public inputs, and verifying key
