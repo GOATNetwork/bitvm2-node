@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT instance_id AS \"instance_id:Uuid\", pubkeys, created_at, updated_at\n             FROM pubkey_collect\n             WHERE instance_id = ?",
+  "query": "SELECT \n                instance_id AS  \"instance_id:Uuid\", \n                process_data, \n                created_at,\n                updated_at\n             FROM pegin_instance_process_data\n             WHERE instance_id = ?",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Text"
       },
       {
-        "name": "pubkeys",
+        "name": "process_data",
         "ordinal": 1,
         "type_info": "Text"
       },
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "c7f90f8fda688a69bf87eeade743937cfbb659ab08496b7cb7b8683cc9cdf611"
+  "hash": "8286b1fd6425d24098674f413c1bcc351302099d8890e85a30882c04b2a09977"
 }

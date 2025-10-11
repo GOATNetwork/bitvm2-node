@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO pegin_graph_process_data\n                (graph_id, instance_id, process_data, is_endorsed, created_at, updated_at)\n            VALUES (?, ?, ?, ?, ?, ?)\n            ON CONFLICT(graph_id) DO UPDATE\n                SET process_data = excluded.process_data,\n                    instance_id  = excluded.instance_id,\n                    is_endorsed  = excluded.is_endorsed,\n                    updated_at   = excluded.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "f9d67a61a0234e31a4914c73ab208cd0856e542e1a49c5077d95bf54e5e78102"
+}

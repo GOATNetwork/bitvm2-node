@@ -2,10 +2,9 @@ use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    COMMITTEE_PRE_SIGN_NUM, CommitteeSignatures, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
-    GraphRawData, Instance, Message, MessageBroadcast, Node, NodesOverview, NonceCollect,
-    NonceCollectMetaData, ProofInfo, ProofType, PubKeyCollect, PubKeyCollectMetaData,
-    SerializableTxid, WatchContract,
+    CommitteeSignatures, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance,
+    Message, MessageBroadcast, Node, NodesOverview, PeginGraphProcessData,
+    PeginInstanceProcessData, ProofInfo, ProofType, SerializableTxid, WatchContract,
 };
 
 use indexmap::IndexMap;
@@ -1709,206 +1708,126 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected() > 0)
     }
 
-    pub async fn store_pubkeys(
+    pub async fn upsert_pegin_instance_process_data(
         &mut self,
-        instance_id: Uuid,
-        pubkeys: &[String],
-    ) -> anyhow::Result<()> {
-        let pubkey_collect = sqlx::query_as!(
-            PubKeyCollect,
-            "SELECT instance_id AS \"instance_id:Uuid\", pubkeys, created_at, updated_at
-             FROM pubkey_collect
+        pegin_instance_process_data: &PeginInstanceProcessData,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            "INSERT INTO pegin_instance_process_data
+                (instance_id, process_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(instance_id) DO UPDATE
+                SET process_data = excluded.process_data,
+                    updated_at       = excluded.updated_at",
+            pegin_instance_process_data.instance_id,
+            pegin_instance_process_data.process_data,
+            pegin_instance_process_data.created_at,
+            pegin_instance_process_data.updated_at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn find_pegin_instance_process_data(
+        &mut self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Option<PeginInstanceProcessData>> {
+        let row = sqlx::query_as!(
+            PeginInstanceProcessData,
+            "SELECT 
+                instance_id AS  \"instance_id:Uuid\", 
+                process_data, 
+                created_at,
+                updated_at
+             FROM pegin_instance_process_data
              WHERE instance_id = ?",
             instance_id
         )
         .fetch_optional(self.conn())
         .await?;
-
-        let pubkeys = pubkeys.to_owned();
-        let mut created_at = get_current_timestamp_secs();
-        let updated_at = get_current_timestamp_secs();
-        let pubkeys = if let Some(pubkey_collect) = pubkey_collect {
-            let mut stored_pubkeys: Vec<String> = serde_json::from_str(&pubkey_collect.pubkeys)?;
-            let pre_len = stored_pubkeys.len();
-            for pubkey in pubkeys {
-                if !stored_pubkeys.contains(&pubkey) {
-                    stored_pubkeys.push(pubkey);
-                }
-            }
-            if stored_pubkeys.len() == pre_len {
-                warn!("input pubkeys have been stored");
-                return Ok(());
-            }
-            created_at = pubkey_collect.created_at;
-            stored_pubkeys
-        } else {
-            pubkeys
-        };
-        let pubkeys_str = serde_json::to_string(&pubkeys)?;
-        let _ = sqlx::query!(
-            "INSERT OR
-             REPLACE INTO pubkey_collect (instance_id, pubkeys, created_at, updated_at)
-             VALUES (?, ?, ?, ?)",
-            instance_id,
-            pubkeys_str,
-            created_at,
-            updated_at,
-        )
-        .execute(self.conn())
-        .await;
-        Ok(())
+        Ok(row)
     }
 
-    pub async fn get_pubkeys(
+    pub async fn upsert_pegin_graph_process_data(
         &mut self,
-        instance_id: Uuid,
-    ) -> anyhow::Result<Option<PubKeyCollectMetaData>> {
-        let pubkey_collect = sqlx::query_as!(
-            PubKeyCollect,
-            "SELECT instance_id AS \"instance_id:Uuid\", pubkeys, created_at, updated_at
-             FROM pubkey_collect
-             WHERE instance_id = ?",
-            instance_id
+        pegin_graph_process_data: &PeginGraphProcessData,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            "INSERT INTO pegin_graph_process_data
+                (graph_id, instance_id, process_data, is_endorsed, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(graph_id) DO UPDATE
+                SET process_data = excluded.process_data,
+                    instance_id  = excluded.instance_id,
+                    is_endorsed  = excluded.is_endorsed,
+                    updated_at   = excluded.updated_at",
+            pegin_graph_process_data.graph_id,
+            pegin_graph_process_data.instance_id,
+            pegin_graph_process_data.process_data,
+            pegin_graph_process_data.is_endorsed,
+            pegin_graph_process_data.created_at,
+            pegin_graph_process_data.updated_at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn find_pegin_graph_process_data(
+        &mut self,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<Option<PeginGraphProcessData>> {
+        let row = sqlx::query_as!(
+            PeginGraphProcessData,
+            "SELECT
+                graph_id AS  \"graph_id:Uuid\",
+                instance_id AS  \"instance_id:Uuid\", 
+                process_data,
+                is_endorsed,
+                created_at,
+                updated_at
+             FROM pegin_graph_process_data
+             WHERE graph_id = ?",
+            graph_id
         )
         .fetch_optional(self.conn())
         .await?;
-        match pubkey_collect {
-            Some(pubkey_collect) => {
-                let pubkeys: Vec<String> = serde_json::from_str(&pubkey_collect.pubkeys)?;
-                Ok(Some(PubKeyCollectMetaData {
-                    instance_id,
-                    pubkeys,
-                    updated_at: pubkey_collect.updated_at,
-                    created_at: pubkey_collect.created_at,
-                }))
-            }
-            None => Ok(None),
-        }
+        Ok(row)
     }
 
-    pub async fn store_nonces(
+    pub async fn update_pegin_graph_endorsed(
         &mut self,
-        instance_id: Uuid,
-        graph_id: Uuid,
-        nonces: &[[String; COMMITTEE_PRE_SIGN_NUM]],
-        committee_pubkey: String,
-        partial_sigs: &[[String; COMMITTEE_PRE_SIGN_NUM]],
+        graph_id: &Uuid,
+        is_endorsed: bool,
     ) -> anyhow::Result<()> {
-        let merge_dedup_fn = |mut source: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
-                              input: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>|
-         -> (bool, Vec<[String; COMMITTEE_PRE_SIGN_NUM]>) {
-            if input.is_empty() {
-                return (false, source);
-            }
-            // source and input order never change
-            let keys: Vec<String> = source.iter().map(|v| v[0].clone()).collect();
-            let pre_len = source.len();
-            for item in input {
-                if !keys.contains(&item[0]) {
-                    source.push(item)
-                }
-            }
-            (source.len() > pre_len, source)
-        };
-        let nonce_collect = sqlx::query_as!(
-            NonceCollect,
-            "SELECT instance_id AS \"instance_id:Uuid\",
-                    graph_id  AS \"graph_id:Uuid\",
-                    nonces,
-                    committee_pubkey,
-                    partial_sigs,
-                    created_at,
-                    updated_at
-             FROM nonce_collect
-             WHERE instance_id = ?
-               AND graph_id = ?",
-            instance_id,
+        sqlx::query!(
+            r#"UPDATE
+                    pegin_graph_process_data
+               SET  is_endorsed = ?
+               WHERE graph_id = ?"#,
+            is_endorsed,
             graph_id
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        let nonces = nonces.to_owned();
-        let partial_sigs = partial_sigs.to_owned();
-        let mut created_at = get_current_timestamp_secs();
-        let updated_at = get_current_timestamp_secs();
-        let (nonces, partial_sigs) = if let Some(nonce_collect) = nonce_collect {
-            created_at = nonce_collect.created_at;
-            let stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
-                serde_json::from_str(&nonce_collect.nonces)?;
-            let stored_signs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
-                serde_json::from_str(&nonce_collect.partial_sigs)?;
-            let (update_nonce, nonces) = merge_dedup_fn(stored_nonces, nonces);
-            let (update_signs, partial_sigs) = merge_dedup_fn(stored_signs, partial_sigs);
-            if !(update_nonce || update_signs) {
-                warn!("nonces or partial_sigs have been stored");
-                return Ok(());
-            }
-            (nonces, partial_sigs)
-        } else {
-            (nonces, partial_sigs)
-        };
-
-        let nonce_str = serde_json::to_string(&nonces)?;
-        let signs_str = serde_json::to_string(&partial_sigs)?;
-        let _ = sqlx::query!(
-            "INSERT OR
-             REPLACE INTO nonce_collect (instance_id, graph_id, nonces, committee_pubkey,
-                                         partial_sigs, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-            instance_id,
-            graph_id,
-            nonce_str,
-            committee_pubkey,
-            signs_str,
-            created_at,
-            updated_at,
         )
         .execute(self.conn())
-        .await;
+        .await?;
         Ok(())
     }
-
-    pub async fn get_nonces(
+    pub async fn get_pegin_graph_endorsed_len_by_instance_id(
         &mut self,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> anyhow::Result<Option<NonceCollectMetaData>> {
-        let nonce_collect = sqlx::query_as!(
-            NonceCollect,
-            "SELECT instance_id AS \"instance_id:Uuid\",
-                    graph_id AS \"graph_id:Uuid\",
-                    nonces,
-                    committee_pubkey,
-                    partial_sigs,
-                    created_at,
-                    updated_at
-             FROM nonce_collect
-             WHERE instance_id = ?
-               AND graph_id = ?",
+        instance_id: &Uuid,
+        is_endorsed: bool,
+    ) -> anyhow::Result<i64> {
+        let record = sqlx::query!(
+            r#"SELECT count(*) AS length 
+               FROM pegin_graph_process_data
+               WHERE instance_id = ? AND is_endorsed = ?"#,
             instance_id,
-            graph_id
+            is_endorsed
         )
-        .fetch_optional(self.conn())
+        .fetch_one(self.conn())
         .await?;
-        match nonce_collect {
-            Some(nonce_collect) => {
-                let stored_nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
-                    serde_json::from_str(&nonce_collect.nonces)?;
-                let stored_sigs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]> =
-                    serde_json::from_str(&nonce_collect.partial_sigs)?;
-                Ok(Some(NonceCollectMetaData {
-                    instance_id,
-                    graph_id,
-                    nonces: stored_nonces,
-                    committee_pubkey: nonce_collect.committee_pubkey,
-                    updated_at: nonce_collect.updated_at,
-                    created_at: nonce_collect.created_at,
-                    partial_sigs: stored_sigs,
-                }))
-            }
-            None => Ok(None),
-        }
+        Ok(record.length)
     }
 
     pub async fn upsert_graph_raw_data(

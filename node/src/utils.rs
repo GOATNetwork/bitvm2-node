@@ -19,7 +19,8 @@ use bitvm2_lib::committee::*;
 use bitvm2_lib::keys::{ChallengerMasterKey, OperatorMasterKey, WatchtowerMasterKey};
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{
-    Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, UserInfo, VerifyingKey,
+    Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, SimplifiedBitvm2Graph,
+    UserInfo, VerifyingKey,
 };
 use bitvm2_lib::watchtower::*;
 use client::Utxo as ClientUtxo;
@@ -39,7 +40,10 @@ use secp256k1::Secp256k1;
 
 use anyhow::{Result, anyhow, bail};
 use bitcoin::hashes::Hash;
+use goat::transactions::prekickoff::PrekickoffTransaction;
 use indexmap::IndexMap;
+use musig2::{PartialSignature, PubNonce};
+use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::net::SocketAddr;
@@ -51,7 +55,7 @@ use store::localdb::{InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
     Graph, GraphRawData, GraphStatus, Instance, InstanceStatus, Message, MessageState, Node,
-    UInt64Array3,
+    PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 
@@ -69,7 +73,6 @@ pub mod todo_funcs {
     };
     use goat::transactions::prekickoff::PrekickoffTransaction;
     use libp2p::PeerId;
-    use musig2::{PartialSignature, PubNonce};
 
     use super::*;
 
@@ -147,114 +150,6 @@ pub mod todo_funcs {
         graph_id: Uuid,
     ) -> Result<Option<SimplifiedBitvm2Graph>> {
         todo!("get graph from local db")
-    }
-    pub async fn store_committee_pub_nonces_for_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-        committee_pubkey: PublicKey,
-        pub_nonces: CommitteePubNonces,
-    ) -> Result<()> {
-        // update if exists, insert if not exists
-        todo!("store_committee_pub_nonces")
-    }
-    pub async fn get_committee_pub_nonces_for_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<Vec<(PublicKey, CommitteePubNonces)>> {
-        todo!("get_committee_pub_nonces")
-    }
-    pub async fn store_committee_partial_sigs_for_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-        committee_pubkey: PublicKey,
-        partial_sigs: CommitteePartialSignatures,
-    ) -> Result<()> {
-        // update if exists, insert if not exists
-        todo!("store_committee_partial_sigs")
-    }
-    pub async fn get_committee_partial_sigs_for_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<Vec<(PublicKey, CommitteePartialSignatures)>> {
-        todo!("get_committee_partial_sigs")
-    }
-    pub async fn store_committee_endorsement_for_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-        committee_pubkey: PublicKey,
-        committee_evm_address: EvmAddress,
-        endorse_signature: Vec<u8>,
-    ) -> Result<()> {
-        // update if exists, insert if not exists
-        todo!("store_committee_endorsement")
-    }
-    pub async fn store_committee_endorsements_for_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-        endorse_sigs: Vec<(PublicKey, EvmAddress, Vec<u8>)>,
-    ) -> Result<()> {
-        // update if exists, insert if not exists
-        todo!("store_committee_endorsements")
-    }
-    pub async fn get_committee_endorsements_for_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<Vec<(PublicKey, EvmAddress, Vec<u8>)>> {
-        todo!("get_committee_endorsement")
-    }
-    pub async fn mark_graph_as_endorsed(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<()> {
-        todo!("mark graph as endorsed")
-    }
-    pub async fn get_endorsed_graph_count(local_db: &LocalDB, instance_id: Uuid) -> Result<usize> {
-        todo!("get number of endorsed graphs for the instance")
-    }
-    pub async fn store_committee_pub_nonce_for_instance(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        committee_pubkey: PublicKey,
-        pub_nonce: PubNonce,
-    ) -> Result<()> {
-        // update if exists, insert if not exists
-        todo!("store_committee_pub_nonce")
-    }
-    pub async fn get_committee_pub_nonce_for_instance(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        committee_pubkey: &PublicKey,
-    ) -> Result<Option<PubNonce>> {
-        todo!("get_committee_pub_nonce")
-    }
-    pub async fn get_committee_pub_nonces_for_instance(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-    ) -> Result<Vec<(PublicKey, PubNonce)>> {
-        todo!("get_committee_pub_nonce")
-    }
-    pub async fn store_committee_partial_sig_for_instance(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        committee_pubkey: PublicKey,
-        partial_sigs: PartialSignature,
-    ) -> Result<()> {
-        // update if exists, insert if not exists
-        todo!("store_committee_partial_sig")
-    }
-    pub async fn get_committee_partial_sigs_for_instance(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-    ) -> Result<Vec<(PublicKey, PartialSignature)>> {
-        todo!("get_committee_partial_sigs")
     }
     pub async fn get_latest_pegout_finalized_graph(
         local_db: &LocalDB,
@@ -1120,53 +1015,6 @@ pub fn get_test_vk() -> Result<VerifyingKey> {
     Ok(goat::proof::deserialize_vk(zkm_v1_vk_bytes))
 }
 
-/// l2 support
-pub async fn gateway_finish_withdraw_happy_path(
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
-    graph_id: Uuid,
-    tx: &Transaction,
-) -> Result<String> {
-    let tx_hash = goat_client.gateway_finish_withdraw_happy_path(btc_client, &graph_id, tx).await?;
-    tracing::info!("graph_id:{} finish take1, tx_hash: {}", graph_id, tx_hash);
-    Ok(tx_hash)
-}
-pub async fn gateway_finish_withdraw_unhappy_path(
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
-    graph_id: Uuid,
-    tx: &Transaction,
-) -> Result<String> {
-    let tx_hash =
-        goat_client.gateway_finish_withdraw_unhappy_path(btc_client, &graph_id, tx).await?;
-    tracing::info!("graph_id:{} finish take2, tx_hash: {}", graph_id, tx_hash);
-    Ok(tx_hash)
-}
-
-pub async fn gateway_finish_withdraw_disproved(
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
-    graph_id: Uuid,
-    disprove_type: DisproveTxType,
-    tx_index: u64,
-    disprove_tx: &Transaction,
-    challenge_tx: &Transaction,
-) -> Result<String> {
-    let tx_hash = goat_client
-        .gateway_finish_withdraw_disproved(
-            btc_client,
-            &graph_id,
-            disprove_type,
-            tx_index,
-            disprove_tx,
-            challenge_tx,
-        )
-        .await?;
-    tracing::info!("graph_id:{} finish disprove, tx_hash: {}", graph_id, tx_hash);
-    Ok(tx_hash)
-}
-
-// will remove later
 pub async fn update_graph_fields(
     _local_db: &LocalDB,
     _graph_id: Uuid,
@@ -1875,4 +1723,346 @@ pub async fn generate_instance_from_event(
         updated_at: current_time_secs(),
     };
     Ok(instance)
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct InstanceProcessDataItem {
+    pub pub_nonce: Option<PubNonce>,
+    pub partial_sign: Option<PartialSignature>,
+}
+pub type InstanceProcessDataMap = IndexMap<PublicKey, InstanceProcessDataItem>;
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct GraphProcessDataItem {
+    pub committee_pub_nonce: Option<CommitteePubNonces>,
+    pub partial_sigs: Option<CommitteePartialSignatures>,
+    pub committee_evm_address: Option<EvmAddress>,
+    pub endorse_signature: Vec<u8>,
+}
+pub type GraphProcessDataMap = IndexMap<PublicKey, GraphProcessDataItem>;
+
+pub async fn upsert_pegin_instance_process_data(
+    storage_processor: &mut StorageProcessor<'_>,
+    instance_id: Uuid,
+    process_data_map: &InstanceProcessDataMap,
+) -> Result<()> {
+    let current_time = current_time_secs();
+    storage_processor
+        .upsert_pegin_instance_process_data(&PeginInstanceProcessData {
+            instance_id,
+            process_data: serde_json::to_string(process_data_map)?,
+            updated_at: current_time,
+            created_at: current_time,
+        })
+        .await?;
+    Ok(())
+}
+
+pub async fn find_pegin_instance_process_data(
+    storage_processor: &mut StorageProcessor<'_>,
+    instance_id: Uuid,
+) -> Result<InstanceProcessDataMap> {
+    if let Ok(Some(data)) = storage_processor.find_pegin_instance_process_data(&instance_id).await
+        && let Ok(process_data) = serde_json::from_str(data.process_data.as_str())
+    {
+        Ok(process_data)
+    } else {
+        Ok(IndexMap::new())
+    }
+}
+
+pub async fn upsert_pegin_graph_process_data(
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_id: Uuid,
+    instance_id: Uuid,
+    is_endorsed: bool,
+    process_data_map: &GraphProcessDataMap,
+) -> Result<()> {
+    let current_time = current_time_secs();
+    storage_processor
+        .upsert_pegin_graph_process_data(&PeginGraphProcessData {
+            graph_id,
+            instance_id,
+            is_endorsed,
+            process_data: serde_json::to_string(process_data_map)?,
+            updated_at: current_time,
+            created_at: current_time,
+        })
+        .await?;
+    Ok(())
+}
+
+pub async fn find_pegin_graph_process_data(
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_id: Uuid,
+) -> Result<(bool, GraphProcessDataMap)> {
+    if let Ok(Some(data)) = storage_processor.find_pegin_graph_process_data(&graph_id).await
+        && let Ok(process_data) = serde_json::from_str(data.process_data.as_str())
+    {
+        Ok((data.is_endorsed, process_data))
+    } else {
+        Ok((false, IndexMap::new()))
+    }
+}
+
+pub async fn store_committee_pub_nonces_for_graph(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    committee_pubkey: PublicKey,
+    pub_nonces: CommitteePubNonces,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (is_endorsed, mut process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    process_data
+        .entry(committee_pubkey)
+        .and_modify(|v| v.committee_pub_nonce = Some(pub_nonces.clone()))
+        .or_insert_with(|| GraphProcessDataItem {
+            committee_pub_nonce: Some(pub_nonces),
+            partial_sigs: None,
+            committee_evm_address: None,
+            endorse_signature: vec![],
+        });
+    upsert_pegin_graph_process_data(
+        &mut storage_processor,
+        graph_id,
+        instance_id,
+        is_endorsed,
+        &process_data,
+    )
+    .await?;
+    Ok(())
+}
+pub async fn get_committee_pub_nonces_for_graph(
+    local_db: &LocalDB,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<Vec<(PublicKey, CommitteePubNonces)>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (_is_endorsed, process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    Ok(process_data
+        .iter()
+        .filter_map(|(k, v)| v.committee_pub_nonce.as_ref().map(|nonce| (k.clone(), nonce.clone())))
+        .collect::<Vec<(PublicKey, CommitteePubNonces)>>())
+}
+pub async fn store_committee_partial_sigs_for_graph(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    committee_pubkey: PublicKey,
+    partial_sigs: CommitteePartialSignatures,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (is_endorsed, mut process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    process_data
+        .entry(committee_pubkey)
+        .and_modify(|v| v.partial_sigs = Some(partial_sigs.clone()))
+        .or_insert_with(|| GraphProcessDataItem {
+            committee_pub_nonce: None,
+            partial_sigs: Some(partial_sigs),
+            committee_evm_address: None,
+            endorse_signature: vec![],
+        });
+    upsert_pegin_graph_process_data(
+        &mut storage_processor,
+        graph_id,
+        instance_id,
+        is_endorsed,
+        &process_data,
+    )
+    .await?;
+    Ok(())
+}
+pub async fn get_committee_partial_sigs_for_graph(
+    local_db: &LocalDB,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<Vec<(PublicKey, CommitteePartialSignatures)>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (_is_endorsed, process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    Ok(process_data
+        .iter()
+        .filter_map(|(k, v)| v.partial_sigs.as_ref().map(|nonce| (k.clone(), nonce.clone())))
+        .collect::<Vec<(PublicKey, CommitteePartialSignatures)>>())
+}
+pub async fn store_committee_endorsement_for_graph(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    committee_pubkey: PublicKey,
+    committee_evm_address: EvmAddress,
+    endorse_signature: Vec<u8>,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (is_endorsed, mut process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    process_data
+        .entry(committee_pubkey)
+        .and_modify(|v| {
+            v.endorse_signature = endorse_signature.clone();
+            v.committee_evm_address = Some(committee_evm_address.clone());
+        })
+        .or_insert_with(|| GraphProcessDataItem {
+            committee_pub_nonce: None,
+            partial_sigs: None,
+            committee_evm_address: Some(committee_evm_address),
+            endorse_signature,
+        });
+    upsert_pegin_graph_process_data(
+        &mut storage_processor,
+        graph_id,
+        instance_id,
+        is_endorsed,
+        &process_data,
+    )
+    .await?;
+    Ok(())
+}
+pub async fn store_committee_endorsements_for_graph(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    endorse_sigs: Vec<(PublicKey, EvmAddress, Vec<u8>)>,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (is_endorsed, mut process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+
+    for (committee_pubkey, committee_evm_address, endorse_signature) in endorse_sigs {
+        process_data
+            .entry(committee_pubkey)
+            .and_modify(|v| {
+                v.endorse_signature = endorse_signature.clone();
+                v.committee_evm_address = Some(committee_evm_address.clone());
+            })
+            .or_insert_with(|| GraphProcessDataItem {
+                committee_pub_nonce: None,
+                partial_sigs: None,
+                committee_evm_address: Some(committee_evm_address),
+                endorse_signature,
+            });
+    }
+    upsert_pegin_graph_process_data(
+        &mut storage_processor,
+        graph_id,
+        instance_id,
+        is_endorsed,
+        &process_data,
+    )
+    .await?;
+    Ok(())
+}
+pub async fn get_committee_endorsements_for_graph(
+    local_db: &LocalDB,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<Vec<(PublicKey, EvmAddress, Vec<u8>)>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (_is_endorsed, process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    Ok(process_data
+        .iter()
+        .filter_map(|(k, v)| {
+            if v.endorse_signature.len() > 0 {
+                v.committee_evm_address
+                    .as_ref()
+                    .map(|evm_addr| (k.clone(), evm_addr.clone(), v.endorse_signature.clone()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<(PublicKey, EvmAddress, Vec<u8>)>>())
+}
+pub async fn mark_graph_as_endorsed(
+    local_db: &LocalDB,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor.update_pegin_graph_endorsed(&graph_id, true).await?;
+    Ok(())
+}
+pub async fn get_endorsed_graph_count(local_db: &LocalDB, instance_id: Uuid) -> Result<usize> {
+    let mut storage_processor = local_db.acquire().await?;
+    Ok(storage_processor.get_pegin_graph_endorsed_len_by_instance_id(&instance_id, true).await?
+        as usize)
+}
+pub async fn store_committee_pub_nonce_for_instance(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    committee_pubkey: PublicKey,
+    pub_nonce: PubNonce,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let mut process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    process_data
+        .entry(committee_pubkey)
+        .and_modify(|v| v.pub_nonce = Some(pub_nonce.clone()))
+        .or_insert_with(|| InstanceProcessDataItem {
+            pub_nonce: Some(pub_nonce),
+            partial_sign: None,
+        });
+    upsert_pegin_instance_process_data(&mut storage_processor, instance_id, &process_data).await?;
+    Ok(())
+}
+pub async fn get_committee_pub_nonce_for_instance(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    committee_pubkey: &PublicKey,
+) -> Result<Option<PubNonce>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    Ok(process_data.get(committee_pubkey).and_then(|v| v.pub_nonce.clone()))
+}
+pub async fn get_committee_pub_nonces_for_instance(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+) -> Result<Vec<(PublicKey, PubNonce)>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    Ok(process_data
+        .iter()
+        .filter_map(|(k, v)| v.pub_nonce.as_ref().map(|pub_nonce| (k.clone(), pub_nonce.clone())))
+        .collect())
+}
+pub async fn store_committee_partial_sig_for_instance(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    committee_pubkey: PublicKey,
+    partial_sigs: PartialSignature,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let mut process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    process_data
+        .entry(committee_pubkey)
+        .and_modify(|v| v.partial_sign = Some(partial_sigs.clone()))
+        .or_insert_with(|| InstanceProcessDataItem {
+            pub_nonce: None,
+            partial_sign: Some(partial_sigs),
+        });
+    upsert_pegin_instance_process_data(&mut storage_processor, instance_id, &process_data).await?;
+    Ok(())
+}
+
+pub async fn get_committee_partial_sigs_for_instance(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+) -> Result<Vec<(PublicKey, PartialSignature)>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    Ok(process_data
+        .iter()
+        .filter_map(|(k, v)| {
+            v.partial_sign.as_ref().map(|partial_sign| (k.clone(), partial_sign.clone()))
+        })
+        .collect())
 }

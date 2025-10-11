@@ -557,7 +557,7 @@ pub async fn recv_and_dispatch(
                 nonce_sigs,
             });
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-            todo_funcs::store_committee_pub_nonces_for_graph(
+            store_committee_pub_nonces_for_graph(
                 local_db,
                 instance_id,
                 graph_id,
@@ -569,8 +569,7 @@ pub async fn recv_and_dispatch(
             let committee_pubkeys =
                 todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
             let pub_nonces_unchecked =
-                todo_funcs::get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id)
-                    .await?;
+                get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
             if pub_nonces_unchecked.len() == committee_pubkeys.len() {
                 let graph = todo_funcs::get_graph(local_db, instance_id, graph_id)
                     .await?
@@ -666,7 +665,7 @@ pub async fn recv_and_dispatch(
             }
             // TODO: deal with the case that one committee member sends different pub_nonces for the same graph
             // 2. save the pub_nonces to local db
-            todo_funcs::store_committee_pub_nonces_for_graph(
+            store_committee_pub_nonces_for_graph(
                 local_db,
                 instance_id,
                 graph_id,
@@ -678,8 +677,7 @@ pub async fn recv_and_dispatch(
             let committee_pubkeys =
                 todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
             let pub_nonces_unchecked =
-                todo_funcs::get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id)
-                    .await?;
+                get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
             if pub_nonces_unchecked.len() == committee_pubkeys.len() {
                 let local_committee_pubkey = CommitteeMasterKey::new(get_bitvm_key()?)
                     .keypair_for_instance(instance_id)
@@ -721,7 +719,7 @@ pub async fn recv_and_dispatch(
                     agg_nonces,
                 });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
-                todo_funcs::store_committee_partial_sigs_for_graph(
+                store_committee_partial_sigs_for_graph(
                     local_db,
                     instance_id,
                     graph_id,
@@ -730,15 +728,12 @@ pub async fn recv_and_dispatch(
                 )
                 .await?;
                 // 4. if received enough valid committee partial sigs, endorse the graph
-                let committee_partial_sigs = todo_funcs::get_committee_partial_sigs_for_graph(
-                    local_db,
-                    instance_id,
-                    graph_id,
-                )
-                .await?
-                .into_iter()
-                .map(|(_, ps)| ps)
-                .collect::<Vec<_>>();
+                let committee_partial_sigs =
+                    get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id)
+                        .await?
+                        .into_iter()
+                        .map(|(_, ps)| ps)
+                        .collect::<Vec<_>>();
                 if committee_partial_sigs.len() == committee_pubkeys.len() {
                     let committee_sig_for_graph = todo_funcs::endorse_graph(&graph)?;
                     let committee_evm_address = todo_funcs::get_node_evm_address()?;
@@ -821,7 +816,7 @@ pub async fn recv_and_dispatch(
             }
             // TODO: deal with the case that one committee member sends different pub_nonces for the same graph
             // 2. save the pub_nonces to local db
-            todo_funcs::store_committee_pub_nonces_for_graph(
+            store_committee_pub_nonces_for_graph(
                 local_db,
                 instance_id,
                 graph_id,
@@ -882,7 +877,7 @@ pub async fn recv_and_dispatch(
             );
             // 1. save the committee partial sigs to local db
             // TODO: validate the partial sigs
-            todo_funcs::store_committee_partial_sigs_for_graph(
+            store_committee_partial_sigs_for_graph(
                 local_db,
                 instance_id,
                 graph_id,
@@ -894,7 +889,7 @@ pub async fn recv_and_dispatch(
             let committee_pubkeys =
                 todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
             let committee_partial_sigs =
-                todo_funcs::get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id)
+                get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id)
                     .await?
                     .into_iter()
                     .map(|(_, ps)| ps)
@@ -959,7 +954,7 @@ pub async fn recv_and_dispatch(
             );
             // 1. save the committee partial sigs to local db
             // TODO: validate the partial sigs
-            todo_funcs::store_committee_partial_sigs_for_graph(
+            store_committee_partial_sigs_for_graph(
                 local_db,
                 instance_id,
                 graph_id,
@@ -1028,7 +1023,7 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 2. save the endorsement signature to local db
-            todo_funcs::store_committee_endorsement_for_graph(
+            store_committee_endorsement_for_graph(
                 local_db,
                 instance_id,
                 graph_id,
@@ -1085,21 +1080,16 @@ pub async fn recv_and_dispatch(
             );
             // 2. save the graph data to local db
             todo_funcs::store_graph(local_db, &graph).await?;
-            todo_funcs::store_committee_endorsements_for_graph(
-                local_db,
-                instance_id,
-                graph_id,
-                endorse_sigs,
-            )
-            .await?;
+            store_committee_endorsements_for_graph(local_db, instance_id, graph_id, endorse_sigs)
+                .await?;
             // 3. if endorsed graph count >= threshold, generate & broadcast PeginConfirmNonce
-            if todo_funcs::get_endorsed_graph_count(local_db, instance_id).await?
+            if get_endorsed_graph_count(local_db, instance_id).await?
                 >= todo_funcs::min_required_operator()
             {
                 let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
                 let local_committee_pubkey =
                     committee_master_key.keypair_for_instance(instance_id).public_key().into();
-                let stored_pub_nonce = todo_funcs::get_committee_pub_nonce_for_instance(
+                let stored_pub_nonce = get_committee_pub_nonce_for_instance(
                     local_db,
                     instance_id,
                     &local_committee_pubkey,
@@ -1119,7 +1109,7 @@ pub async fn recv_and_dispatch(
                         swarm,
                         GOATMessage::from_typed(Actor::Committee, &message_content)?,
                     )?;
-                    todo_funcs::store_committee_pub_nonce_for_instance(
+                    store_committee_pub_nonce_for_instance(
                         local_db,
                         instance_id,
                         local_committee_pubkey,
@@ -1216,7 +1206,7 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 2. save the pub_nonce to local db
-            todo_funcs::store_committee_pub_nonce_for_instance(
+            store_committee_pub_nonce_for_instance(
                 local_db,
                 instance_id,
                 received_committee_pubkey,
@@ -1226,8 +1216,7 @@ pub async fn recv_and_dispatch(
             // 3. if received enough pub_nonces, generate partial signature & broadcast PeginConfirmPartialSig
             let committee_pubkeys =
                 todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
-            let pub_nonces =
-                todo_funcs::get_committee_pub_nonces_for_instance(local_db, instance_id).await?;
+            let pub_nonces = get_committee_pub_nonces_for_instance(local_db, instance_id).await?;
             if pub_nonces.len() == committee_pubkeys.len() {
                 let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
                 let local_committee_pubkey =
@@ -1252,7 +1241,7 @@ pub async fn recv_and_dispatch(
                         partial_sig,
                     });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
-                todo_funcs::store_committee_partial_sig_for_instance(
+                store_committee_partial_sig_for_instance(
                     local_db,
                     instance_id,
                     local_committee_pubkey,
@@ -1262,7 +1251,7 @@ pub async fn recv_and_dispatch(
                 // 4. (Relayer) if received enough partial signatures, aggregate the sigs
                 if todo_funcs::is_relayer() {
                     let partial_sigs =
-                        todo_funcs::get_committee_partial_sigs_for_instance(local_db, instance_id)
+                        get_committee_partial_sigs_for_instance(local_db, instance_id)
                             .await?
                             .into_iter()
                             .map(|(_, ps)| ps)
@@ -1324,7 +1313,7 @@ pub async fn recv_and_dispatch(
             );
             // 1. TODO: check partial signature
             // 2. save the partial signature to local db
-            todo_funcs::store_committee_partial_sig_for_instance(
+            store_committee_partial_sig_for_instance(
                 local_db,
                 instance_id,
                 received_committee_pubkey,
@@ -1333,15 +1322,13 @@ pub async fn recv_and_dispatch(
             .await?;
             // 3. (Relayer) if received enough partial signatures, aggregate the sigs
             if todo_funcs::is_relayer() {
-                let partial_sigs =
-                    todo_funcs::get_committee_partial_sigs_for_instance(local_db, instance_id)
-                        .await?
-                        .into_iter()
-                        .map(|(_, ps)| ps)
-                        .collect::<Vec<_>>();
+                let partial_sigs = get_committee_partial_sigs_for_instance(local_db, instance_id)
+                    .await?
+                    .into_iter()
+                    .map(|(_, ps)| ps)
+                    .collect::<Vec<_>>();
                 let pub_nonces =
-                    todo_funcs::get_committee_pub_nonces_for_instance(local_db, instance_id)
-                        .await?;
+                    get_committee_pub_nonces_for_instance(local_db, instance_id).await?;
                 let committee_pubkeys =
                     todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
                 if partial_sigs.len() == committee_pubkeys.len()
@@ -2494,11 +2481,10 @@ pub async fn try_finalize_graph(
     broadcast_graph_finalize: bool,
 ) -> Result<()> {
     let endorsements =
-        todo_funcs::get_committee_endorsements_for_graph(local_db, instance_id, graph_id).await?;
-    let pub_nonoces =
-        todo_funcs::get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
+        get_committee_endorsements_for_graph(local_db, instance_id, graph_id).await?;
+    let pub_nonoces = get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
     let partial_sigs =
-        todo_funcs::get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id).await?;
+        get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id).await?;
     let committee_pubkeys = todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
     if endorsements.len() == committee_pubkeys.len()
         && pub_nonoces.len() == committee_pubkeys.len()

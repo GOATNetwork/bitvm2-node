@@ -11,7 +11,6 @@ use uuid::Uuid;
 
 pub const NODE_STATUS_ONLINE: &str = "Online";
 pub const NODE_STATUS_OFFLINE: &str = "Offline";
-pub const COMMITTEE_PRE_SIGN_NUM: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SerializableTxid(pub Txid);
@@ -409,36 +408,19 @@ pub struct Message {
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct PubKeyCollect {
+pub struct PeginInstanceProcessData {
     pub instance_id: Uuid,
-    pub pubkeys: String,
+    pub process_data: String,
     pub updated_at: i64,
     pub created_at: i64,
 }
 
-pub struct PubKeyCollectMetaData {
-    pub instance_id: Uuid,
-    pub pubkeys: Vec<String>,
-    pub updated_at: i64,
-    pub created_at: i64,
-}
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct NonceCollect {
-    pub instance_id: Uuid,
+pub struct PeginGraphProcessData {
     pub graph_id: Uuid,
-    pub nonces: String,
-    pub committee_pubkey: String,
-    pub partial_sigs: String,
-    pub updated_at: i64,
-    pub created_at: i64,
-}
-
-pub struct NonceCollectMetaData {
     pub instance_id: Uuid,
-    pub graph_id: Uuid,
-    pub nonces: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
-    pub committee_pubkey: String,
-    pub partial_sigs: Vec<[String; COMMITTEE_PRE_SIGN_NUM]>,
+    pub process_data: String,
+    pub is_endorsed: bool,
     pub updated_at: i64,
     pub created_at: i64,
 }
