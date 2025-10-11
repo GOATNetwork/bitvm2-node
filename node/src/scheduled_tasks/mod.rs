@@ -126,6 +126,7 @@ pub fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageTyp
         GOATMessageContent::EndorseGraph(_) => MessageType::EndorseGraph,
         GOATMessageContent::PeginConfirmNonce(_) => MessageType::PeginConfirmNonce,
         GOATMessageContent::PeginConfirmPartialSig(_) => MessageType::PeginConfirmPartialSig,
+        GOATMessageContent::PostReady(_) => MessageType::PostReady,
         GOATMessageContent::KickoffReady(_) => MessageType::KickoffReady,
         GOATMessageContent::KickoffSent(_) => MessageType::KickoffSent,
         GOATMessageContent::PreKickoffSent(_) => MessageType::PreKickoffSent,
@@ -140,9 +141,6 @@ pub fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageTyp
         GOATMessageContent::OperatorAckTimeout(_) => MessageType::OperatorAckTimeout,
         GOATMessageContent::OperatorCommitBlockHashReady(_) => {
             MessageType::OperatorCommitBlockHashReady
-        }
-        GOATMessageContent::OperatorCommitBlockHashSent(_) => {
-            MessageType::OperatorCommitBlockHashSent
         }
         GOATMessageContent::OperatorCommitBlockHashTimeout(_) => {
             MessageType::OperatorCommitBlockHashTimeout

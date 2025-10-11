@@ -9,7 +9,7 @@ use alloy::primitives::Address as EvmAddress;
 use anyhow::bail;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address, Amount, Denomination, Network, OutPoint, PublicKey, Transaction, Txid};
+use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, Transaction, Txid};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::contexts::base::generate_n_of_n_public_key;
@@ -65,7 +65,7 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
         let mut tx = local_db.start_transaction().await?;
         match tx_record.extra {
             Some(event) => {
-                let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
+                let _event: BridgeInRequestEvent = serde_json::from_str(&event)?;
                 create_message(
                     &mut tx,
                     tx_record.instance_id,
@@ -74,12 +74,6 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
                     Actor::All,
                     GOATMessageContent::PeginRequest(PeginRequest {
                         instance_id: tx_record.instance_id,
-                        network: get_network(),
-                        pegin_amount: Amount::from_str_in(
-                            &event.pegin_amount_sats,
-                            Denomination::Satoshi,
-                        )?,
-                        user_info: generate_user_info_from_event(&event)?,
                     }),
                     0,
                     0,
@@ -167,6 +161,7 @@ pub async fn instance_window_expiration_monitor(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn generate_user_info_from_event(event: &BridgeInRequestEvent) -> anyhow::Result<UserInfo> {
     let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
     let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
@@ -385,8 +380,6 @@ pub async fn instance_btc_tx_monitor(
                     Actor::All,
                     GOATMessageContent::ConfirmInstance(ConfirmInstance {
                         instance_id: instance.instance_id,
-                        network: Network::from_str(&instance.network.clone())?,
-                        parameters: get_instance_params(&instance)?,
                     }),
                     0,
                     0,

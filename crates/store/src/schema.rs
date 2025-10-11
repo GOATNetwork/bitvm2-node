@@ -440,6 +440,7 @@ pub enum MessageType {
     EndorseGraph,
     PeginConfirmNonce,
     PeginConfirmPartialSig,
+    PostReady,
     KickoffReady,
     KickoffSent,
     PreKickoffSent,

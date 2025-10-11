@@ -1,7 +1,7 @@
 use crate::action::{
     AssertCommitTimeout, AssertInitReady, ChallengeSent, DisproveReady, DisproveSent,
     GOATMessageContent, KickoffReady, KickoffSent, OperatorAckTimeout,
-    OperatorCommitBlockHashReady, OperatorCommitBlockHashSent, OperatorCommitBlockHashTimeout,
+    OperatorCommitBlockHashReady, OperatorCommitBlockHashTimeout,
     PreKickoffSent, Take1Ready, Take1Sent, Take2Ready, Take2Sent, WatchtowerChallengeInitSent,
     WatchtowerChallengeSent, WatchtowerChallengeTimeout,
 };
@@ -1035,11 +1035,11 @@ async fn process_watchtower_challenge_monitoring(
                             CommitBlockHashStatus::OperatorCommit;
                         p2p_message_contents.push((
                             Actor::Challenger,
-                            GOATMessageContent::OperatorCommitBlockHashSent(
-                                OperatorCommitBlockHashSent {
+                            // TODO: temeporary fix, CommitBlockHashSent/AssertCommitSent no longer used, push DisproveReady when both CommitBlockHash and AssertCommit finished
+                            GOATMessageContent::DisproveReady(
+                                DisproveReady {
                                     instance_id: graph.instance_id,
                                     graph_id: graph.graph_id,
-                                    operator_commit_blockhash_txid: spend_txid,
                                 },
                             ),
                             None,
@@ -1173,7 +1173,6 @@ async fn process_watchtower_challenge_monitoring(
                     GOATMessageContent::OperatorAckTimeout(OperatorAckTimeout {
                         instance_id: graph.instance_id,
                         graph_id: graph.graph_id,
-                        watchtower_indexes: vout_monitor_data.require_disproved_indexes.clone(),
                     }),
                     Some(vout_monitor_data.get_require_disproved_string()),
                 ));
@@ -1370,7 +1369,6 @@ async fn process_assert_commit_monitoring(
                     GOATMessageContent::AssertCommitTimeout(AssertCommitTimeout {
                         instance_id: graph.instance_id,
                         graph_id: graph.graph_id,
-                        assert_commit_indexes: vout_monitor_data.require_disproved_indexes.clone(),
                     }),
                 ));
             }

@@ -9,7 +9,6 @@ use bitcoin::{Transaction, Txid};
 use uuid::Uuid;
 pub mod utils;
 use crate::btc_chain::{BTCClient, MerkleProofExtend};
-use chain_adaptor::PeginStatus;
 pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
     BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, PeginStatus, WithdrawData, WithdrawStatus,

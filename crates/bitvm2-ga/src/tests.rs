@@ -4,7 +4,7 @@
 mod tests {
     use crate::{challenger::*, committee::*, keys::*, operator::*, types::*, watchtower::*};
     use bitcoin::{
-        Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
+        Address, Amount, EcdsaSighashType, Network, OutPoint,
         PublicKey, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
         hashes::Hash, key::Keypair,
     };
@@ -35,7 +35,7 @@ mod tests {
         utils::num_blocks_per_network,
     };
     use musig2::PubNonce;
-    use secp256k1::{SECP256K1, SecretKey};
+    use secp256k1::SECP256K1;
     use sha2::{Digest, Sha256};
     use std::time::Duration;
     use tokio::time::sleep;
@@ -775,7 +775,7 @@ mod tests {
             &graph,
             &watchtower_0_keypair,
             0,
-            &vec![0xffu8; 192],
+            &comm,
             vec![watchtower_0_challenge_payer_input],
             &bank_address,
             default_fee_amount,

@@ -27,7 +27,6 @@ use serde::{Deserialize, Serialize};
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
 use store::{GraphStatus, MessageState};
-use tracing::log::warn;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]

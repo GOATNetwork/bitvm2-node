@@ -170,8 +170,7 @@ pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> 
 mod tests {
     use super::*;
     use bitcoin::{
-        Address, Network, OutPoint, Sequence, TxIn, absolute::LockTime, hashes::Hash,
-        transaction::Version,
+        absolute::LockTime, hashes::Hash, transaction::Version, Address, EcdsaSighashType, Network, OutPoint, Sequence, TxIn
     };
     use commit_chain::*;
 
