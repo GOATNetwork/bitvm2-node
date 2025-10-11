@@ -15,7 +15,7 @@ pub struct EvmChain {
 
 impl Default for EvmChain {
     fn default() -> Self {
-        Self::new(Box::new(MockAdaptor::new(None)))
+        Self::new(Box::new(MockAdaptor::new()))
     }
 }
 

@@ -1,12 +1,14 @@
 mod bitvm2;
-
+mod cors_config;
 pub mod handler;
 mod node;
 pub(crate) mod proof;
 pub mod routes;
+pub mod validation;
 
 use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
+use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::proof_handler::{
     get_groth16_proof, get_proof, get_proofs, get_proofs_overview,
 };
@@ -21,7 +23,7 @@ use axum::{
 };
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
-use http::{HeaderMap, Method, StatusCode};
+use http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use reqwest::Client;
@@ -31,7 +33,7 @@ use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::classify::ServerErrorsFailureClass;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
 
@@ -42,6 +44,19 @@ pub use crate::rpc_service::handler::node_handler::*;
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
+/// Create secure CORS layer
+pub fn create_secure_cors_layer() -> CorsLayer {
+    let cors_config = CorsConfig::from_env();
+
+    // Validate configuration security
+    let warnings = cors_config.validate_security();
+    for warning in warnings {
+        tracing::warn!("CORS security warning: {}", warning);
+    }
+
+    cors_config.create_cors_layer()
 }
 
 pub struct AppState {
@@ -60,7 +75,7 @@ impl AppState {
         peer_id: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let btc_client = BTCClient::new(get_network().into(), None);
+        let btc_client = BTCClient::new(get_network(), None);
         let metrics_state = MetricsState::new(registry);
         let client = Client::new();
         Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, client }))
@@ -120,13 +135,7 @@ pub async fn serve(
         .route(routes::v1::PROOFS_OVERVIEW, get(get_proofs_overview))
         .route(routes::METRICS, get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
-        .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ]))
+        .layer(create_secure_cors_layer())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
@@ -224,6 +233,7 @@ mod tests {
     use http::Method;
     use prometheus_client::registry::Registry;
     use reqwest::Client;
+    use secp256k1::Secp256k1;
     use serde::Deserialize;
     use serde_json::{Value, json};
     use std::fs;
@@ -234,7 +244,7 @@ mod tests {
     use store::{GoatTxProcessingStatus, GoatTxRecord, GoatTxType};
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
-    use tracing::info;
+    use tracing::{error, info};
     use tracing_subscriber::EnvFilter;
     use uuid::Uuid;
 
@@ -248,6 +258,7 @@ mod tests {
 
     impl ApiTestItem {
         async fn do_test(&self, client: &Client) -> anyhow::Result<()> {
+            eprintln!("Start test api: {}", self.tag);
             info!("Start test api: {}", self.tag);
             let mut request_builder = match self.method {
                 Method::POST => client.post(self.url.clone()),
@@ -263,7 +274,23 @@ mod tests {
             }
 
             let resp = request_builder.send().await?;
-            assert_eq!(resp.status().is_success(), self.expe_res);
+            let actual_status = resp.status().is_success();
+            if actual_status != self.expe_res {
+                let data = resp.text().await?;
+                eprintln!(
+                    "Test api '{}' failed: expected status {}, got {}, resp: {data}",
+                    self.tag, self.expe_res, actual_status
+                );
+                error!(
+                    "Test api '{}' failed: expected status {}, got {}, resp: {data}",
+                    self.tag, self.expe_res, actual_status
+                );
+                return Err(anyhow::anyhow!(
+                    "Test failed: expected status {}, got {}",
+                    self.expe_res,
+                    actual_status
+                ));
+            }
             Ok(())
         }
     }
@@ -307,7 +334,9 @@ mod tests {
         let actor = Actor::Challenger;
         let local_key = generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
-        let pub_key = hex::encode(generate_random_bytes(33));
+
+        let (_, public_key) = Secp256k1::new().generate_keypair(&mut rand::thread_rng());
+        let pub_key = public_key.to_string();
         let goat_addr = format!("0x{}", hex::encode(generate_random_bytes(20)));
         let local_db = create_local_db(&temp_file()).await;
         tokio::spawn(rpc_service::serve(
@@ -322,7 +351,7 @@ mod tests {
         let client = Client::new();
         let api_test_items = [
             ApiTestItem {
-                tag: format!("{} crate node", routes::v1::NODES_BASE),
+                tag: format!("{} create node", routes::v1::NODES_BASE),
                 url: format!("http://{addr}{}", routes::v1::NODES_BASE),
                 json_payload: Some(json!({
                     "peer_id": peer_id,

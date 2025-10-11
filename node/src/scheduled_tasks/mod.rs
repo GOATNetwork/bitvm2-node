@@ -3,34 +3,58 @@ pub mod graph_maintenance_tasks;
 pub mod instance_maintenance_tasks;
 
 use crate::action::GOATMessageContent;
-use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
     scan_obsolete_sibling_graphs,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
-    instance_window_expiration_monitor, scan_post_graph_data, scan_post_pegin_data,
+    instance_window_expiration_monitor,
 };
+use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 pub use event_watch_task::{is_processing_history_events, run_watch_event_task};
-use libp2p::Swarm;
-use store::MessageType;
-use store::localdb::LocalDB;
-use tracing::warn;
+use std::sync::Arc;
+use std::time::Duration;
+use store::localdb::{LocalDB, StorageProcessor};
+use store::{Graph, MessageType};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, warn};
 
-pub async fn relayer_scheduled_tasks(
-    swarm: &mut Swarm<AllBehaviours>,
+async fn fetch_on_turn_graph_by_status<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    graph_status: &str,
+) -> anyhow::Result<Vec<Graph>> {
+    let graphs_ori =
+        storage_processor.find_graphs_by_status_group_by_operator(graph_status).await?;
+    // todo add other logic later
+    let mut graphs: Vec<Graph> = vec![];
+    let mut pre_operator_pubkey = "".to_string();
+    for graph in graphs_ori {
+        if graph.operator_pubkey != pre_operator_pubkey {
+            pre_operator_pubkey = graph.operator_pubkey.clone();
+            graphs.push(graph);
+        }
+    }
+    Ok(graphs)
+}
+async fn run(
+    _actor: Actor,
     local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    btc_client: Arc<BTCClient>,
+    goat_client: Arc<GOATClient>,
 ) -> anyhow::Result<()> {
+    let btc_client = btc_client.as_ref();
+    let goat_client = goat_client.as_ref();
     if is_processing_history_events(local_db, goat_client).await? {
         warn!("Still in history events processing");
         return Ok(());
     }
 
+    if let Err(err) = instance_answers_monitor(local_db).await {
+        warn!("instance_answers_monitor, err {:?}", err)
+    }
     if let Err(err) = instance_window_expiration_monitor(local_db, goat_client).await {
         warn!("instance_window_expiration_monitor, err {:?}", err)
     }
@@ -39,7 +63,7 @@ pub async fn relayer_scheduled_tasks(
         warn!("instance_expiration_monitor, err {:?}", err)
     }
 
-    if let Err(err) = instance_btc_tx_monitor(swarm, local_db, btc_client).await {
+    if let Err(err) = instance_btc_tx_monitor(local_db, btc_client).await {
         warn!("instance_btc_tx_monitor, err {:?}", err)
     }
 
@@ -47,71 +71,88 @@ pub async fn relayer_scheduled_tasks(
         warn!("scan_obsolete_sibling_graphs, err {:?}", err)
     }
 
-    if let Err(err) = scan_post_pegin_data(swarm, local_db, btc_client, goat_client).await {
-        warn!("scan_post_operator_data, err {:?}", err)
-    }
-
-    if let Err(err) = scan_post_graph_data(swarm, local_db, goat_client).await {
-        warn!("scan_post_operator_data, err {:?}", err)
-    }
-
-    if let Err(err) = detect_init_withdraw_call(swarm, local_db, goat_client, btc_client).await {
+    if let Err(err) = detect_init_withdraw_call(local_db).await {
         warn!("detect_init_withdraw_call, err {:?}", err)
     }
 
-    if let Err(err) = detect_kickoff(swarm, local_db, btc_client, goat_client).await {
+    if let Err(err) = detect_kickoff(local_db, btc_client).await {
         warn!("detect_kickoff, err {:?}", err)
     }
-    if let Err(err) = detect_take1_or_challenge(swarm, local_db, btc_client, goat_client).await {
+
+    if let Err(err) = detect_take1_or_challenge(local_db, btc_client).await {
         warn!("detect_take1_or_challenge, err {:?}", err)
     }
 
-    if let Err(err) = process_graph_challenge(swarm, local_db, btc_client, goat_client).await {
+    if let Err(err) = process_graph_challenge(local_db, btc_client).await {
         warn!("process_grpah_challenge, err {:?}", err)
     }
     Ok(())
 }
 
-pub async fn committee_scheduled_tasks(
-    _swarm: &mut Swarm<AllBehaviours>,
-    local_db: &LocalDB,
-    _btc_client: &BTCClient,
-    goat_client: &GOATClient,
-) -> anyhow::Result<()> {
-    if is_processing_history_events(local_db, goat_client).await? {
-        warn!("Still in history events processing");
-        return Ok(());
+pub async fn run_maintenance_tasks(
+    actor: Actor,
+    local_db: LocalDB,
+    btc_client: Arc<BTCClient>,
+    goat_client: Arc<GOATClient>,
+    interval: u64,
+    cancellation_token: CancellationToken,
+) -> anyhow::Result<String> {
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(interval)) => {
+                // Execute the normal monitoring logic
+                match run(actor.clone(),&local_db,btc_client.clone(),goat_client.clone()).await
+                {
+                    Ok(_) => {}
+                    Err(err) => {error!("run_scheduled_tasks, err {:?}", err)}
+                }
+            }
+            _ = cancellation_token.cancelled() => {
+                tracing::info!("Watch event task received shutdown signal");
+                return Ok("watch_shutdown".to_string());
+            }
+        }
     }
-
-    if let Err(err) = instance_answers_monitor(local_db, goat_client).await {
-        warn!("instance_window_expiration_monitor, err {:?}", err)
-    }
-
-    // if let Err(err) = instance_window_expiration_monitor(local_db,  goat_client).await {
-    //     warn!("instance_window_expiration_monitor, err {:?}", err)
-    // }
-    //
-    // if let Err(err) = instance_expiration_monitor( local_db).await {
-    //     warn!("instance_expiration_monitor, err {:?}", err)
-    // }
-    // if let Err(err) = instance_btc_tx_monitor(swarm, local_db, btc_client).await {
-    //     warn!("instance_btc_tx_monitor, err {:?}", err)
-    // }
-    Ok(())
 }
 
-#[allow(dead_code)]
-fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
+pub fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
     match content {
+        GOATMessageContent::PeginRequest(_) => MessageType::PeginRequest,
         GOATMessageContent::CreateGraph(_) => MessageType::CreateGraph,
+        GOATMessageContent::ConfirmInstance(_) => MessageType::ConfirmInstance,
         GOATMessageContent::NonceGeneration(_) => MessageType::NonceGeneration,
         GOATMessageContent::CommitteePresign(_) => MessageType::CommitteePresign,
         GOATMessageContent::GraphFinalize(_) => MessageType::GraphFinalize,
+        GOATMessageContent::EndorseGraph(_) => MessageType::EndorseGraph,
+        GOATMessageContent::PeginConfirmNonce(_) => MessageType::PeginConfirmNonce,
+        GOATMessageContent::PeginConfirmPartialSig(_) => MessageType::PeginConfirmPartialSig,
         GOATMessageContent::KickoffReady(_) => MessageType::KickoffReady,
         GOATMessageContent::KickoffSent(_) => MessageType::KickoffSent,
+        GOATMessageContent::PreKickoffSent(_) => MessageType::PreKickoffSent,
+        GOATMessageContent::ChallengeSent(_) => MessageType::ChallengeSent,
+        GOATMessageContent::WatchtowerChallengeInitSent(_) => {
+            MessageType::WatchtowerChallengeInitSent
+        }
+        GOATMessageContent::WatchtowerChallengeSent(_) => MessageType::WatchtowerChallengeSent,
+        GOATMessageContent::WatchtowerChallengeTimeout(_) => {
+            MessageType::WatchtowerChallengeTimeout
+        }
+        GOATMessageContent::OperatorAckTimeout(_) => MessageType::OperatorAckTimeout,
+        GOATMessageContent::OperatorCommitBlockHashReady(_) => {
+            MessageType::OperatorCommitBlockHashReady
+        }
+        GOATMessageContent::OperatorCommitBlockHashSent(_) => {
+            MessageType::OperatorCommitBlockHashSent
+        }
+        GOATMessageContent::OperatorCommitBlockHashTimeout(_) => {
+            MessageType::OperatorCommitBlockHashTimeout
+        }
+        GOATMessageContent::AssertInitReady(_) => MessageType::AssertInitReady,
+        GOATMessageContent::AssertCommitTimeout(_) => MessageType::AssertCommitTimeout,
+        GOATMessageContent::DisproveReady(_) => MessageType::DisproveReady,
+        GOATMessageContent::DisproveSent(_) => MessageType::DisproveSent,
         GOATMessageContent::Take1Ready(_) => MessageType::Take1Ready,
         GOATMessageContent::Take1Sent(_) => MessageType::Take1Sent,
-        GOATMessageContent::ChallengeSent(_) => MessageType::ChallengeSent,
         GOATMessageContent::Take2Ready(_) => MessageType::Take2Ready,
         GOATMessageContent::Take2Sent(_) => MessageType::Take2Sent,
         GOATMessageContent::RequestNodeInfo(_) => MessageType::RequestNodeInfo,
@@ -119,6 +160,5 @@ fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageType {
         GOATMessageContent::SyncGraphRequest(_) => MessageType::SyncGraphRequest,
         GOATMessageContent::SyncGraph(_) => MessageType::SyncGraph,
         GOATMessageContent::InstanceDiscarded(_) => MessageType::InstanceDiscarded,
-        _ => todo!("other message type"),
     }
 }

@@ -1,6 +1,6 @@
-use crate::btc_chain::BtcTxProofData;
+use crate::btc_chain::MerkleProofExtend;
 use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
-use crate::goat_chain::mock_goat_adaptor::{MockAdaptor, MockAdaptorConfig};
+use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::signers::Signature;
@@ -172,6 +172,8 @@ pub enum DisproveTxType {
     OperatorCommitTimeout,
     OperatorNack,
     Disprove,
+    QuickChallenge,
+    ChallengeIncompeleteKickoff,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display)]
@@ -283,12 +285,12 @@ pub struct BitcoinTxProof {
     pub index: u64,
 }
 
-impl From<BtcTxProofData> for BitcoinTxProof {
-    fn from(data: BtcTxProofData) -> Self {
+impl From<MerkleProofExtend> for BitcoinTxProof {
+    fn from(data: MerkleProofExtend) -> Self {
         Self {
             raw_header: data.raw_header,
             height: data.height,
-            proof: data.proof,
+            proof: data.merkle,
             index: data.index,
         }
     }
@@ -307,12 +309,11 @@ pub struct SequencerSet {
 pub fn get_chain_adaptor(
     network: GoatNetwork,
     goat_config: GoatInitConfig,
-    mock_adaptor_config: Option<MockAdaptorConfig>,
 ) -> Box<dyn ChainAdaptor> {
     match network {
         //GoatAdaptor
         GoatNetwork::Main => Box::new(GoatAdaptor::new(goat_config)),
         GoatNetwork::Test => Box::new(GoatAdaptor::new(goat_config)),
-        GoatNetwork::Local => Box::new(MockAdaptor::new(mock_adaptor_config)),
+        GoatNetwork::Local => Box::new(MockAdaptor::new()),
     }
 }

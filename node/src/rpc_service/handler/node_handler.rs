@@ -2,6 +2,7 @@ use crate::rpc_service::node::{
     ALIVE_TIME_JUDGE_THRESHOLD, NodeDesc, NodeListResponse, NodeOverViewResponse, NodeQueryParams,
     UpdateOrInsertNodeRequest,
 };
+use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::reflect_goat_address;
 use axum::Json;
@@ -59,12 +60,22 @@ use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 pub async fn create_node(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateOrInsertNodeRequest>,
-) -> (StatusCode, Json<Node>) {
+) -> Result<
+    (StatusCode, Json<Node>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate input parameters
+    InputValidator::validate_peer_id(&payload.peer_id, "peer_id")?;
+    let goat_addr = InputValidator::validata_goat_address(&payload.goat_addr, "goat_addr")?;
+    InputValidator::validate_btc_pub_key(&payload.btc_pub_key, "btc_pub_key")?;
+    InputValidator::validate_string_length(&payload.socket_addr, "socket_addr", 7, 100)?;
+    // Validate actor field
+    InputValidator::validate_actor(&payload.actor.to_string(), "actor")?;
     let async_fn = || async move {
         let node = Node {
             peer_id: payload.peer_id.clone(),
             actor: payload.actor.to_string(),
-            goat_addr: payload.goat_addr.clone(),
+            goat_addr,
             btc_pub_key: payload.btc_pub_key.clone(),
             socket_addr: payload.socket_addr.clone(),
             reward: 0,
@@ -78,10 +89,10 @@ pub async fn create_node(
         Ok::<Node, Box<dyn std::error::Error>>(node)
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
             tracing::warn!("create, error: {}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(Node::default()))
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(Node::default())))
         }
     }
 }
@@ -131,7 +142,23 @@ pub async fn create_node(
 pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<NodeListResponse>) {
+) -> Result<
+    (StatusCode, Json<NodeListResponse>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate pagination parameters
+    let (offset, limit) =
+        InputValidator::validate_pagination(query_params.offset, query_params.limit)?;
+
+    // Validate goat_addr format (if provided)
+    if let Some(ref goat_addr) = query_params.goat_addr {
+        InputValidator::validata_goat_address(goat_addr, "goat_addr")?;
+    }
+
+    // Validate actor field (if provided)
+    if let Some(ref actor) = query_params.actor {
+        InputValidator::validate_actor(actor, "actor")?;
+    }
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
@@ -148,8 +175,8 @@ pub async fn get_nodes(
             .node_list(
                 actor,
                 goat_addr,
-                query_params.offset,
-                query_params.limit,
+                Some(offset),
+                Some(limit),
                 time_threshold,
                 query_params.status,
             )
@@ -182,10 +209,13 @@ pub async fn get_nodes(
         })
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
             tracing::warn!("get_nodes failed, error:{}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(NodeListResponse { nodes: vec![], total: 0 }))
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(NodeListResponse { nodes: vec![], total: 0 }),
+            ))
         }
     }
 }
@@ -278,7 +308,12 @@ pub async fn get_nodes_overview(
 pub async fn get_node(
     Path(peer_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<Option<Node>>) {
+) -> Result<
+    (StatusCode, Json<Option<Node>>),
+    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
+> {
+    // Validate peer_id format
+    InputValidator::validate_peer_id(&peer_id, "peer_id")?;
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         if peer_id == app_state.peer_id {
@@ -288,10 +323,10 @@ pub async fn get_node(
         Ok::<Option<Node>, Box<dyn std::error::Error>>(res)
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
             tracing::warn!("get_nodes failed, error:{}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(None)))
         }
     }
 }

@@ -1,15 +1,26 @@
-use crate::env;
-use crate::env::{GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED};
+use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest};
+use crate::env::{
+    GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED, get_network,
+};
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
-use alloy::primitives::TxHash;
-use anyhow::{anyhow, bail};
-use bitcoin::PublicKey;
+use crate::utils::{create_message, strip_hex_prefix_owned};
+use alloy::primitives::Address as EvmAddress;
+use anyhow::bail;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitvm2_lib::keys::CommitteeMasterKey;
+use bitcoin::{Address, Amount, Denomination, Network, OutPoint, PublicKey, Transaction, Txid};
+use bitvm2_lib::actors::Actor;
+use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
+use bitvm2_lib::contexts::base::generate_n_of_n_public_key;
+use bitvm2_lib::transactions::base::{BaseTransaction, Input};
+use bitvm2_lib::types::{Bitvm2InstanceParameters, UserInfo};
+use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::{GOATClient, GraphData};
+use client::graphs::graph_query::BridgeInRequestEvent;
 use libp2p::Swarm;
+use secp256k1::XOnlyPublicKey;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
@@ -39,57 +50,53 @@ async fn update_instance<'a>(
 }
 
 /// for committee
-pub async fn instance_answers_monitor(
-    local_db: &LocalDB,
-    goat_client: &GOATClient,
-) -> anyhow::Result<()> {
-    let mut storage_processor = local_db.acquire().await?;
-    let tx_records = storage_processor
-        .get_goat_tx_record_by_processing_status(
-            &GoatTxType::BridgeInRequest.to_string(),
-            &GoatTxProcessingStatus::Pending.to_string(),
-        )
-        .await?;
+pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> {
+    let tx_records = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .get_goat_tx_record_by_processing_status(
+                &GoatTxType::BridgeInRequest.to_string(),
+                &GoatTxProcessingStatus::Pending.to_string(),
+            )
+            .await?
+    };
 
     for tx_record in tx_records {
-        let instance = storage_processor.find_instance(&tx_record.instance_id).await?;
-        if instance.is_none() || instance.unwrap().status != InstanceStatus::UserInited.to_string()
-        {
-            info!("instance:{} is none or not in UserInited, skipping ", tx_record.instance_id);
-            storage_processor
-                .update_goat_tx_record_processing_status(
-                    &tx_record.graph_id,
-                    &tx_record.instance_id,
-                    &tx_record.tx_type,
-                    &GoatTxProcessingStatus::Skipped.to_string(),
+        let mut tx = local_db.start_transaction().await?;
+        match tx_record.extra {
+            Some(event) => {
+                let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
+                create_message(
+                    &mut tx,
+                    tx_record.instance_id,
+                    None,
+                    "self".to_string(),
+                    Actor::All,
+                    GOATMessageContent::PeginRequest(PeginRequest {
+                        instance_id: tx_record.instance_id,
+                        network: get_network(),
+                        pegin_amount: Amount::from_str_in(
+                            &event.pegin_amount_sats,
+                            Denomination::Satoshi,
+                        )?,
+                        user_info: generate_user_info_from_event(&event)?,
+                    }),
+                    0,
+                    0,
                 )
                 .await?;
-            continue;
+            }
+            None => {}
         }
 
-        let master_key =
-            CommitteeMasterKey::new(env::get_bitvm_key().map_err(|e| anyhow!("{}", e))?);
-        let pubkey = master_key.keypair_for_instance(tx_record.instance_id).public_key();
-
-        match goat_client
-            .gateway_answer_pegin_request(&tx_record.instance_id, &pubkey.serialize())
-            .await
-        {
-            Ok(tx_hash) => {
-                info!("finish answer pegin request at hash {tx_hash}");
-                storage_processor
-                    .update_goat_tx_record_processing_status(
-                        &tx_record.graph_id,
-                        &tx_record.instance_id,
-                        &tx_record.tx_type,
-                        &GoatTxProcessingStatus::Processed.to_string(),
-                    )
-                    .await?
-            }
-            Err(err) => {
-                warn!("failed to answer pegin request: {}", err.to_string());
-            }
-        }
+        tx.update_goat_tx_record_processing_status(
+            &tx_record.graph_id,
+            &tx_record.instance_id,
+            &tx_record.tx_type,
+            &GoatTxProcessingStatus::Processed.to_string(),
+        )
+        .await?;
+        tx.commit().await?;
     }
     Ok(())
 }
@@ -100,16 +107,18 @@ pub async fn instance_window_expiration_monitor(
 ) -> anyhow::Result<()> {
     let window_blocks = goat_client.gateway_get_response_window_blocks().await? as i64;
     let current_height = goat_client.get_latest_block_number().await?;
-    let mut storage_processor = local_db.acquire().await?;
-    let (instances, _) = storage_processor
-        .find_instances(
-            InstanceQuery::default()
-                .with_status(InstanceStatus::UserInited.to_string())
-                .with_pegin_request_height_threshold(current_height - window_blocks)
-                .with_offset(0)
-                .with_limit(MAX_INSTANCE),
-        )
-        .await?;
+    let (instances, _) = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .find_instances(
+                InstanceQuery::default()
+                    .with_status(InstanceStatus::UserInited.to_string())
+                    .with_pegin_request_height_threshold(current_height - window_blocks)
+                    .with_offset(0)
+                    .with_limit(MAX_INSTANCE),
+            )
+            .await?
+    };
 
     let committee_quorum_size = goat_client.committee_mana_quorum_size().await?;
     for mut instance in instances {
@@ -135,6 +144,8 @@ pub async fn instance_window_expiration_monitor(
                     instance.status = InstanceStatus::CommitteesAnswered.to_string();
                 }
 
+                let _ = update_pegin_txids(&mut instance);
+                let mut storage_processor = local_db.acquire().await?;
                 if let Err(err) = storage_processor.upsert_instance(&instance).await {
                     warn!(
                         "failed to upsert instance {}, err: {}",
@@ -142,7 +153,6 @@ pub async fn instance_window_expiration_monitor(
                         err.to_string()
                     );
                 }
-                let _ = update_pegin_txids(&mut instance);
             }
             Err(err) => {
                 warn!(
@@ -157,53 +167,103 @@ pub async fn instance_window_expiration_monitor(
     Ok(())
 }
 
-fn update_pegin_txids(_instance: &mut Instance) -> anyhow::Result<()> {
-    // todo open it if goat rep updated
-    // let committee_pubkeys: Vec<PublicKey> = instance
-    //     .committees_answers
-    //     .iter()
-    //     .map(|(_k, v)| PublicKey::from_slice(&v.pubkey).unwrap())
-    //     .collect();
-    // let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)?;
-    //
-    // let inputs = utxos
-    //     .into_iter()
-    //     .map(|utxo| Input {
-    //         outpoint: OutPoint { txid: Txid::from_slice(&utxo.txid).unwrap(), vout: utxo.vout },
-    //         amount: Amount::from_sat(utxo.amount_stats),
-    //     })
-    //     .collect();
-    // let network = Network::from_str(&instance.network)?;
-    // let user_change_address: Address<NetworkUnchecked> =
-    //     Address::from_str(&instance.user_change_addr)?;
-    // let user_refund_addr: Address<NetworkUnchecked> =
-    //     Address::from_str(&instance.user_change_addr)?;
-    //
-    // let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
-    // let user_info = UserInfo {
-    //     depositor_evm_address: EvmAddress::from_str(&instance.to_addr)?.into_array(),
-    //     txn_fees: instance.fees.0,
-    //     inputs,
-    //     user_xonly_pubkey: XOnlyPublicKey::from_slice(&instance.user_xonly_pubkey.0)?,
-    //     user_change_address: user_change_address.require_network(network)?,
-    //     user_refund_address: user_refund_addr.require_network(network)?,
-    // };
-    // let instance_params = Bitvm2InstanceParameters {
-    //     network,
-    //     instance_id: instance.instance_id,
-    //     user_info,
-    //     pegin_amount: Amount::from_sat(instance.amount as u64),
-    //     challenge_amount: Amount::from_sat(instance.amount as u64),
-    //     committee_pubkeys,
-    //     committee_agg_pubkey,
-    // };
-    //
-    // let (pegin_deposit_tx, pegin_confirm_tx, _pegin_refund_tx) =
-    //     instance_params.build_pegin_tx()?;
-    // instance.pegin_prepare_txid = Some(pegin_deposit_tx.tx().compute_txid().into());
-    // // instance.pegin_confirm_txid = Some(pegin_confirm_tx.tx().compute_txid().into());
-    // // instance.pegin_cancel_txid = Some(pegin_refund_tx.tx().compute_txid().into());
-    // instance.unsign_pegin_confirm_tx = Some(serde_json::to_string(&pegin_confirm_tx)?);
+fn generate_user_info_from_event(event: &BridgeInRequestEvent) -> anyhow::Result<UserInfo> {
+    let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
+    let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("user_x_only_pubkey must be exactly 32 bytes"))?;
+
+    let input_utxos: Vec<Utxo> = event
+        .user_inputs
+        .iter()
+        .map(|v| {
+            let txid_bytes = hex::decode(&strip_hex_prefix_owned(&v.txid))
+                .map_err(|_| anyhow::anyhow!("Invalid txid hex format"))?;
+            let txid_array: [u8; 32] = txid_bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("txid must be exactly 32 bytes"))?;
+            Ok(Utxo {
+                txid: txid_array,
+                vout: v.vout,
+                amount_stats: v.amount_sats.parse::<u64>().unwrap_or_default(),
+            })
+        })
+        .collect::<anyhow::Result<Vec<Utxo>>>()?;
+
+    let txn_fees = event.txn_fees.clone().map(|v| v.parse::<u64>().unwrap_or_default());
+    gen_user_info(
+        get_network(),
+        &event.depositor_address,
+        &strip_hex_prefix_owned(&event.user_change_address),
+        &strip_hex_prefix_owned(&event.user_refund_address),
+        input_utxos,
+        txn_fees,
+        &user_xonly_pubkey_array,
+    )
+}
+
+fn gen_user_info(
+    network: Network,
+    depositor_evm_address: &str,
+    user_change_addr: &str,
+    user_refund_addr: &str,
+    utxos: Vec<Utxo>,
+    txn_fees: [u64; 3],
+    user_xonly_pubkey: &[u8; 32],
+) -> anyhow::Result<UserInfo> {
+    let user_change_address: Address<NetworkUnchecked> = Address::from_str(user_change_addr)?;
+    let user_refund_addr: Address<NetworkUnchecked> = Address::from_str(user_refund_addr)?;
+    let inputs = utxos
+        .into_iter()
+        .map(|utxo| Input {
+            outpoint: OutPoint { txid: Txid::from_slice(&utxo.txid).unwrap(), vout: utxo.vout },
+            amount: Amount::from_sat(utxo.amount_stats),
+        })
+        .collect();
+    Ok(UserInfo {
+        depositor_evm_address: EvmAddress::from_str(&depositor_evm_address)?.into_array(),
+        txn_fees,
+        inputs,
+        user_xonly_pubkey: XOnlyPublicKey::from_slice(user_xonly_pubkey)?,
+        user_change_address: user_change_address.require_network(network)?,
+        user_refund_address: user_refund_addr.require_network(network)?,
+    })
+}
+
+fn get_instance_params(instance: &Instance) -> anyhow::Result<Bitvm2InstanceParameters> {
+    let network = Network::from_str(&instance.network)?;
+    let committee_pubkeys: Vec<PublicKey> = instance
+        .committees_answers
+        .iter()
+        .map(|(_k, v)| PublicKey::from_slice(&v.pubkey).unwrap())
+        .collect();
+
+    let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
+    let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)?;
+    Ok(Bitvm2InstanceParameters {
+        network,
+        instance_id: instance.instance_id,
+        user_info: gen_user_info(
+            network,
+            &instance.to_addr,
+            &instance.user_change_addr.clone(),
+            &instance.user_refund_addr.clone(),
+            utxos,
+            instance.fees.0,
+            &instance.user_xonly_pubkey.0,
+        )?,
+        pegin_amount: Amount::from_sat(instance.amount as u64),
+        committee_pubkeys,
+        committee_agg_pubkey,
+    })
+}
+fn update_pegin_txids(instance: &mut Instance) -> anyhow::Result<()> {
+    let (pegin_deposit_tx, pegin_confirm_tx, pegin_refund_tx) =
+        get_instance_params(instance)?.build_pegin_tx()?;
+    instance.pegin_prepare_txid = Some(pegin_deposit_tx.tx().compute_txid().into());
+    instance.pegin_confirm_txid = Some(pegin_confirm_tx.finalize().compute_txid().into());
+    instance.pegin_cancel_txid = Some(pegin_refund_tx.finalize().compute_txid().into());
+    instance.unsign_pegin_confirm_tx = Some(serde_json::to_string(&pegin_confirm_tx)?);
     Ok(())
 }
 
@@ -211,28 +271,30 @@ pub async fn instance_expiration_monitor(
     local_db: &LocalDB,
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
-    let mut storage_processor = local_db.acquire().await?;
     let current_time = current_time_secs();
     let current_height = btc_client.get_height().await? as i64;
-    let expired_num = storage_processor
-        .update_expired_instance(
-            &InstanceStatus::CommitteesAnswered.to_string(),
-            &InstanceStatus::PresignedFailed.to_string(),
-            current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
-        )
-        .await?;
-    info!("Presigned expired instances is {expired_num}");
-    let (instances, _) = storage_processor
-        .find_instances(
-            InstanceQuery::default()
-                .with_status(InstanceStatus::PresignedFailed.to_string())
-                .with_offset(0)
-                .with_limit(MAX_INSTANCE),
-        )
-        .await?;
+    let (instances, _) = {
+        let mut storage_processor = local_db.acquire().await?;
+        let expired_num = storage_processor
+            .update_expired_instance(
+                &InstanceStatus::CommitteesAnswered.to_string(),
+                &InstanceStatus::PresignedFailed.to_string(),
+                current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
+            )
+            .await?;
+        info!("Presigned expired instances is {expired_num}");
+        storage_processor
+            .find_instances(
+                InstanceQuery::default()
+                    .with_status(InstanceStatus::PresignedFailed.to_string())
+                    .with_offset(0)
+                    .with_limit(MAX_INSTANCE),
+            )
+            .await?
+    };
 
-    // todo get from env
-    let lock_height = 6 * 24 as i64;
+    let lock_height = CONNECTOR_Z_TIMELOCK as i64;
+    let mut storage_processor = local_db.acquire().await?;
     for instance in instances {
         if current_height > instance.pegin_prepare_height + lock_height {
             update_instance(
@@ -250,35 +312,37 @@ pub async fn instance_expiration_monitor(
 
 /// prepare cancel confirmed
 pub async fn instance_btc_tx_monitor(
-    _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
     info!("check user broadcast Pegin-Prepare");
-    let mut storage_processor = local_db.acquire().await?;
-    let (instances, _) = storage_processor
-        .find_instances(
-            InstanceQuery::default()
-                .with_statuses(vec![
-                    InstanceStatus::CommitteesAnswered.to_string(),
-                    InstanceStatus::Presigned.to_string(),
-                    InstanceStatus::Timeout.to_string(),
-                ])
-                .with_offset(0)
-                .with_limit(MAX_INSTANCE),
-        )
-        .await?;
+
+    let (instances, _) = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .find_instances(
+                InstanceQuery::default()
+                    .with_statuses(vec![
+                        InstanceStatus::CommitteesAnswered.to_string(),
+                        InstanceStatus::Presigned.to_string(),
+                        InstanceStatus::Timeout.to_string(),
+                    ])
+                    .with_offset(0)
+                    .with_limit(MAX_INSTANCE),
+            )
+            .await?
+    };
     for instance in instances {
         let (tx_id_op, next_status) = match InstanceStatus::from_str(&instance.status) {
             Ok(status) => match status {
                 InstanceStatus::CommitteesAnswered => {
-                    (instance.pegin_prepare_txid, InstanceStatus::UserBroadcastPeginPrepare)
+                    (instance.pegin_prepare_txid.clone(), InstanceStatus::UserBroadcastPeginPrepare)
                 }
                 InstanceStatus::Presigned => {
-                    (instance.pegin_confirm_txid, InstanceStatus::RelayerL1Broadcasted)
+                    (instance.pegin_confirm_txid.clone(), InstanceStatus::RelayerL1Broadcasted)
                 }
                 InstanceStatus::Timeout => {
-                    (instance.pegin_cancel_txid, InstanceStatus::UserCanceled)
+                    (instance.pegin_cancel_txid.clone(), InstanceStatus::UserCanceled)
                 }
                 _ => (None, status),
             },
@@ -296,7 +360,8 @@ pub async fn instance_btc_tx_monitor(
         if tx_id_op.is_none() {
             warn!(
                 "instance:{} status:{} get check tx id is none",
-                instance.instance_id, instance.status
+                instance.instance_id,
+                instance.status.clone()
             );
             continue;
         }
@@ -304,15 +369,33 @@ pub async fn instance_btc_tx_monitor(
         if let Ok(status) = btc_client.get_tx_status(&tx_id).await
             && status.confirmed
         {
+            let mut tx = local_db.start_transaction().await?;
             let mut instance_update =
                 InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
             if next_status == InstanceStatus::UserBroadcastPeginPrepare {
                 // todo notify user broadcast pegin prepare
                 instance_update = instance_update
                     .with_pegin_prepare_height(status.block_height.unwrap_or_default() as i64);
+
+                create_message(
+                    &mut tx,
+                    instance.instance_id,
+                    None,
+                    "self".to_string(),
+                    Actor::All,
+                    GOATMessageContent::ConfirmInstance(ConfirmInstance {
+                        instance_id: instance.instance_id,
+                        network: Network::from_str(&instance.network.clone())?,
+                        parameters: get_instance_params(&instance)?,
+                    }),
+                    0,
+                    0,
+                )
+                .await?;
             }
 
-            update_instance(&mut storage_processor, &instance_update).await?;
+            update_instance(&mut tx, &instance_update).await?;
+            tx.commit().await?;
         } else {
             warn!(
                 "instance:{}, status{}, check tx_id:{} is not chain ",
@@ -325,115 +408,7 @@ pub async fn instance_btc_tx_monitor(
     Ok(())
 }
 
-pub async fn scan_post_pegin_data(
-    _swarm: &mut Swarm<AllBehaviours>,
-    local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
-) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting into post_pegin_data");
-    let mut storage_process = local_db.acquire().await?;
-    let (instances, _) = storage_process
-        .find_instances(
-            InstanceQuery::default()
-                .with_statuses(vec![InstanceStatus::RelayerL1Broadcasted.to_string()]),
-        )
-        .await?;
-
-    info!("Starting into scan post_pegin_data, need to send instance_size:{} ", instances.len());
-    for instance in instances {
-        let pegin_confirm_txid = match instance.pegin_confirm_txid {
-            Some(txid) => txid.into(),
-            None => {
-                warn!(
-                    "scan post_pegin_data instance:{}, pegin confirm txid is none",
-                    instance.instance_id
-                );
-                continue;
-            }
-        };
-
-        if instance.committees_answers.values().any(|v| v.l2_sig.is_empty()) {
-            warn!(
-                "scan post_pegin_data instance {} not collect all committee signs, call post pegin data will failed",
-                instance.instance_id
-            );
-            continue;
-        }
-
-        if let Ok(_tx_hash) = TxHash::from_str(&instance.pegin_data_tx_hash) {
-            let receipt_op = goat_client.get_tx_receipt(&instance.pegin_data_tx_hash).await?;
-            if receipt_op.is_none() {
-                info!(
-                    "scan post_pegin_data, instance_id: {}, goat_tx:{} finish send to chain \
-                but get receipt status is false, will try later",
-                    instance.instance_id, instance.pegin_data_tx_hash
-                );
-                continue;
-            }
-            storage_process
-                .update_instance_status(
-                    &instance.instance_id,
-                    &InstanceStatus::RelayerL2Minted.to_string(),
-                )
-                .await?;
-        } else {
-            let pegin_confirm_tx = btc_client.get_tx(&pegin_confirm_txid).await?.ok_or(format!(
-                "pegin_confirm_txid {} not found",
-                pegin_confirm_txid.to_string()
-            ))?;
-
-            let committee_signs: Vec<Vec<u8>> =
-                instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
-            match goat_client
-                .gateway_post_pegin_data(
-                    btc_client,
-                    &instance.instance_id,
-                    &pegin_confirm_tx,
-                    &committee_signs,
-                )
-                .await
-            {
-                Err(err) => {
-                    warn!(
-                        "scan post_pegin_data instance id {}, tx:{} post_pegin_data failed err:{:?}",
-                        instance.instance_id,
-                        pegin_confirm_tx.compute_txid().to_string(),
-                        err
-                    );
-                    continue;
-                }
-                Ok(tx_hash) => {
-                    info!(
-                        "scan post_pegin_data finish post post_pegin_dataa for instance_id {} , tx hash:{}",
-                        instance.instance_id, tx_hash
-                    );
-                    let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
-                        Some(receipt) => receipt.block_number.unwrap_or(0),
-                        None => 0,
-                    };
-                    let mut tx = local_db.start_transaction().await?;
-                    tx.upsert_goat_tx_record(&GoatTxRecord {
-                        instance_id: instance.instance_id,
-                        graph_id: Uuid::default(),
-                        tx_type: GoatTxType::PostPeginData.to_string(),
-                        tx_hash: tx_hash.clone(),
-                        height: block_height as i64,
-                        is_local: true,
-                        processing_status: GoatTxProcessingStatus::Skipped.to_string(),
-                        extra: None,
-                        created_at: current_time_secs(),
-                    })
-                    .await?;
-                    tx.update_instance_pegin_data_txid(&instance.instance_id, &tx_hash).await?;
-                    tx.commit().await?;
-                }
-            };
-        }
-    }
-    Ok(())
-}
-
+#[allow(dead_code)]
 pub async fn scan_post_graph_data(
     _swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
@@ -529,6 +504,7 @@ pub async fn scan_post_graph_data(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
     if graph.pegin_txid.is_none()
         || graph.kickoff_txid.is_none()
@@ -559,4 +535,53 @@ pub fn cast_graph_to_graph_data(graph: &Graph) -> anyhow::Result<GraphData> {
             .collect(),
         nack_txids: graph.nack_txids.iter().map(|x| x.0.to_byte_array()).collect(),
     })
+}
+
+#[allow(dead_code)]
+async fn post_pegin_data(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+    committee_signs: Vec<Vec<u8>>,
+    pegin_confirm_tx: &Transaction,
+) -> anyhow::Result<()> {
+    match goat_client
+        .gateway_post_pegin_data(btc_client, &instance_id, &pegin_confirm_tx, &committee_signs)
+        .await
+    {
+        Err(err) => {
+            warn!(
+                "scan post_pegin_data instance id {instance_id}, tx:{} post_pegin_data failed err:{:?}",
+                pegin_confirm_tx.compute_txid().to_string(),
+                err
+            );
+        }
+        Ok(tx_hash) => {
+            info!(
+                "scan post_pegin_data finish post post_pegin_dataa for instance_id {instance_id} , tx hash:{}",
+                tx_hash
+            );
+            let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
+                Some(receipt) => receipt.block_number.unwrap_or(0),
+                None => 0,
+            };
+            let mut tx = local_db.start_transaction().await?;
+            tx.upsert_goat_tx_record(&GoatTxRecord {
+                instance_id,
+                graph_id: Uuid::default(),
+                tx_type: GoatTxType::PostPeginData.to_string(),
+                tx_hash: tx_hash.clone(),
+                height: block_height as i64,
+                is_local: true,
+                processing_status: GoatTxProcessingStatus::Skipped.to_string(),
+                extra: None,
+                created_at: current_time_secs(),
+            })
+            .await?;
+            tx.update_instance_pegin_data_txid(&instance_id, &tx_hash).await?;
+            tx.commit().await?;
+        }
+    };
+    Ok(())
 }

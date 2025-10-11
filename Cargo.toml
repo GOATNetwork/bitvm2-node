@@ -10,6 +10,7 @@ members = [
     "crates/store",
     "crates/client",
     "crates/header-chain",
+    "crates/commit-chain",
     "crates/bitcoin-light-client",
     #"circuits/continuous",
     #"circuits/aggregation",
@@ -87,6 +88,7 @@ store = { path = "crates/store" }
 client = { path = "crates/client" }
 bitcoin-light-client = { path = "crates/bitcoin-light-client" }
 header-chain = { path = "crates/header-chain" }
+commit-chain = { path = "crates/commit-chain" }
 groth16 = { path = "circuits/groth16" }
 
 chrono = "0.4.39"
@@ -99,13 +101,14 @@ tokio = { version = "1.21", default-features = false, features = [
     "rt",
     "rt-multi-thread",
 ] }
-serde = { version = "1", default-features = false, features = ["derive"] }
+serde = { version = "1.0.226", default-features = false, features = ["derive"] }
 url = "2.3"
 thiserror = "1.0.61"
 hex-literal = "0.4.1"
 rayon = "1.10.0"
 rlp = "0.5.2"
 logroller = { version = "0.1", features = ["tracing"] }
+serde_cbor = "0.11.2"
 
 # workspace
 

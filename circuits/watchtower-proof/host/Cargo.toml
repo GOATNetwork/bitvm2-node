@@ -27,6 +27,7 @@ serde_json.workspace = true
 borsh = { workspace = true }
 bitcoin-light-client = { workspace = true }
 header-chain = { workspace = true }
+commit-chain = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
 

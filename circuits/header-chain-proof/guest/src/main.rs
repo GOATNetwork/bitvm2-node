@@ -4,11 +4,11 @@ zkm_zkvm::entrypoint!(main);
 use header_chain::{
     verify_merkle_proof, BlockHeaderCircuitOutput, BlockInclusionProof, ChainState,
     CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
+    header_chain_circuit,
 };
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use bitcoin_light_client::header_chain_circuit;
 
 pub fn main() {
     let input: HeaderChainCircuitInput = zkm_zkvm::io::read();

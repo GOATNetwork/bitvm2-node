@@ -1,9 +1,9 @@
-use crate::btc_chain::BtcTxProofData;
+use crate::btc_chain::MerkleProofExtend;
 use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
 use anyhow::bail;
 use bitcoin::consensus::serialize;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address as BtcAddress, Block, BlockHash, Network, Transaction, TxMerkleNode, Txid};
+use bitcoin::{Address as BtcAddress, Block, BlockHash, Network, Transaction, Txid};
 use esplora_client::{MerkleProof, Tx, Utxo};
 
 pub struct BitcoinChain {
@@ -20,7 +20,6 @@ impl BitcoinChain {
     pub fn new(adaptor: Box<dyn BitcoinAdaptor + Send + Sync>) -> Self {
         Self { adaptor }
     }
-
     pub fn network(&self) -> Network {
         self.adaptor.network()
     }
@@ -35,6 +34,7 @@ impl BitcoinChain {
         self.adaptor.get_tx(txid).await
     }
 
+    /// Get tx
     pub async fn get_tx_info(&self, tx_id: &Txid) -> anyhow::Result<Option<Tx>> {
         self.adaptor.get_tx_info(tx_id).await
     }
@@ -76,7 +76,8 @@ impl BitcoinChain {
         bail!("not found tx:{} on chain", tx_id.to_string());
     }
 
-    pub async fn get_btc_block(&self, block_height: u32) -> anyhow::Result<Block> {
+    /// Get block by height
+    pub async fn get_block_by_height(&self, block_height: u32) -> anyhow::Result<Block> {
         let block_hash = self.adaptor.get_block_hash(block_height).await?;
         self.adaptor.get_block_by_hash(&block_hash).await?.ok_or(anyhow::format_err!(
             "failed to fetch block at :{} hash:{}",
@@ -85,35 +86,45 @@ impl BitcoinChain {
         ))
     }
 
+    /// Get address utxos
     pub async fn get_btc_address_utxos(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
         self.adaptor.get_address_utxo(address).await
     }
 
-    pub async fn get_btc_merkle_proof(
-        &self,
-        tx_id: &Txid,
-    ) -> anyhow::Result<(BlockHash, TxMerkleNode, MerkleProof, Vec<u8>)> {
+    /// Get tx merkle proof extend data
+    pub async fn get_merkle_proof_extend(&self, tx_id: &Txid) -> anyhow::Result<MerkleProofExtend> {
         let proof = self.adaptor.get_merkle_proof(tx_id).await?;
         if let Some(proof) = proof {
             let block_hash = self.adaptor.get_block_hash(proof.block_height).await?;
             let header = self.adaptor.get_header_by_hash(&block_hash).await?;
             let raw_header = serialize(&header);
-            return Ok((block_hash, header.merkle_root, proof, raw_header));
+            let merkle: Vec<[u8; 32]> = proof.merkle.iter().map(|v| v.to_byte_array()).collect();
+            Ok(MerkleProofExtend {
+                txid: tx_id.to_byte_array(),
+                height: proof.block_height as u64,
+                block_hash: block_hash.to_byte_array(),
+                raw_header,
+                root: header.merkle_root.to_byte_array(),
+                index: proof.pos as u64,
+                merkle,
+            })
+        } else {
+            bail!("get {} merkle proof is none", tx_id)
         }
-        bail!("get {} merkle proof is none", tx_id)
     }
 
-    pub async fn get_btc_tx_proof_info(&self, tx_id: &Txid) -> anyhow::Result<BtcTxProofData> {
-        let (block_hash, root, proof_info, raw_header) = self.get_btc_merkle_proof(tx_id).await?;
-        let proof: Vec<[u8; 32]> = proof_info.merkle.iter().map(|v| v.to_byte_array()).collect();
-        Ok(BtcTxProofData {
-            txid: tx_id.to_byte_array(),
-            height: proof_info.block_height as u64,
-            block_hash: block_hash.to_byte_array(),
-            raw_header,
-            root: root.to_byte_array(),
-            index: proof_info.pos as u64,
-            proof,
-        })
+    /// Get block hash by height
+    pub async fn get_block_hash(&self, block_height: u32) -> anyhow::Result<BlockHash> {
+        self.adaptor.get_block_hash(block_height).await
+    }
+
+    /// Get block by hash
+    pub async fn get_block_by_hash(&self, block_hash: &BlockHash) -> anyhow::Result<Option<Block>> {
+        self.adaptor.get_block_by_hash(block_hash).await
+    }
+
+    /// Get merkle proof
+    pub async fn get_merkle_proof(&self, tx_id: &Txid) -> anyhow::Result<Option<MerkleProof>> {
+        self.adaptor.get_merkle_proof(tx_id).await
     }
 }

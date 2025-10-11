@@ -1,55 +1,11 @@
 use crate::btc_chain::esplora_bitcoin_adaptor::EsploraBitcoinAdaptor;
-use crate::btc_chain::mock_bitcoin_adaptor::MockBitcoinAdaptor;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid, block::Header};
 use esplora_client::{MerkleProof, Tx, Utxo};
-use strum::{Display, EnumString};
-
-#[derive(Eq, PartialEq, Clone, Copy, Default, Display, EnumString)]
-pub enum BitcoinNetwork {
-    #[strum(serialize = "bitcoin")]
-    Bitcoin,
-    #[strum(serialize = "testnet")]
-    #[default]
-    Testnet,
-    #[strum(serialize = "testnet4")]
-    Testnet4,
-    Signet,
-    #[strum(serialize = "regtest")]
-    Regtest,
-    #[strum(serialize = "local")]
-    Local, // mock
-}
-
-impl BitcoinNetwork {
-    pub fn to_network(&self) -> Network {
-        match self {
-            BitcoinNetwork::Bitcoin => Network::Bitcoin,
-            BitcoinNetwork::Testnet => Network::Testnet,
-            BitcoinNetwork::Testnet4 => Network::Testnet4,
-            BitcoinNetwork::Signet => Network::Signet,
-            BitcoinNetwork::Regtest => Network::Regtest,
-            BitcoinNetwork::Local => Network::Testnet, // Local map to Testnet
-        }
-    }
-}
-
-impl From<Network> for BitcoinNetwork {
-    fn from(network: Network) -> Self {
-        match network {
-            Network::Bitcoin => BitcoinNetwork::Bitcoin,
-            Network::Testnet => BitcoinNetwork::Testnet,
-            Network::Testnet4 => BitcoinNetwork::Testnet4,
-            Network::Signet => BitcoinNetwork::Signet,
-            Network::Regtest => BitcoinNetwork::Regtest,
-        }
-    }
-}
 
 #[async_trait::async_trait]
 pub trait BitcoinAdaptor: Send + Sync {
     fn network(&self) -> Network;
     async fn get_tx_status(&self, txid: &Txid) -> anyhow::Result<esplora_client::TxStatus>;
-    // TODO: return tx status. @Jack
     async fn get_tx(&self, txid: &Txid) -> anyhow::Result<Option<Transaction>>;
     async fn get_tx_info(&self, txid: &Txid) -> anyhow::Result<Option<Tx>>;
     async fn get_address_utxo(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>>;
@@ -71,11 +27,8 @@ pub trait BitcoinAdaptor: Send + Sync {
 }
 
 pub fn get_btc_chain_adapter(
-    network: BitcoinNetwork,
+    network: Network,
     esplora_url: Option<&str>,
 ) -> Box<dyn BitcoinAdaptor> {
-    match network {
-        BitcoinNetwork::Local => Box::new(MockBitcoinAdaptor::new(network.to_network())),
-        _ => Box::new(EsploraBitcoinAdaptor::new(network.to_network(), esplora_url)),
-    }
+    Box::new(EsploraBitcoinAdaptor::new(network, esplora_url))
 }

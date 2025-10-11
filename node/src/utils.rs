@@ -47,16 +47,18 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::LocalDB;
+use store::localdb::{InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
-    Graph, GraphStatus, Instance, InstanceStatus, Message, MessageState, MessageType, Node,
+    Graph, GraphRawData, GraphStatus, Instance, InstanceStatus, Message, MessageState, Node,
     UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
 use client::goat_chain::{PeginData, PeginStatus, WithdrawData};
+use crate::scheduled_tasks::get_goat_message_content_type;
+use bitvm2_lib::transactions::base::BaseTransaction;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -1034,49 +1036,147 @@ pub async fn update_graph_fields(
     Ok(())
 }
 
-pub async fn save_unhandle_message(
-    local_db: &LocalDB,
-    from_peer_id: &str,
-    actor: &str,
-    msy_type: &str,
-    content: Vec<u8>,
+fn generate_message_id(business_id: Uuid, msg_type: String, sub_type: Option<String>) -> String {
+    match sub_type {
+        Some(sub_type) => {
+            format!("{business_id}_{msg_type}_{sub_type}")
+        }
+        None => format!("{business_id}_{msg_type}"),
+    }
+}
+pub async fn create_message(
+    storage_processor: &mut StorageProcessor<'_>,
+    business_id: Uuid,
+    sub_type: Option<String>,
+    from_peer: String,
+    actor: Actor,
+    message_content: GOATMessageContent,
+    weight: i64,
+    lock_time: i64,
 ) -> Result<()> {
-    let mut storage_process = local_db.acquire().await?;
-    storage_process
-        .create_message(
-            Message {
-                id: 0,
-                actor: actor.to_string(),
-                from_peer: from_peer_id.to_string(),
-                msg_type: msy_type.to_string(),
-                content,
-                state: MessageState::Pending.to_string(),
-            },
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-        )
+    let message = GOATMessage::from_typed(actor.clone(), &message_content)?;
+    let msg_type = get_goat_message_content_type(&message_content).to_string();
+    let message_id = generate_message_id(business_id, msg_type.clone(), sub_type);
+    storage_processor
+        .create_message(Message {
+            message_id,
+            business_id,
+            actor: actor.to_string(),
+            from_peer,
+            msg_type,
+            content: serde_json::to_vec(&message)?,
+            weight,
+            lock_time_until: current_time_secs() + lock_time,
+            state: MessageState::Pending.to_string(),
+        })
         .await?;
     Ok(())
 }
 
+/// store new graph, graph_raw_data, and update instance_id
 pub async fn store_graph(
-    _local_db: &LocalDB,
-    _instance_id: Uuid,
-    _graph_id: Uuid,
-    _graph: &Bitvm2Graph,
-    _status: Option<String>,
-) -> Result<()> {
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    bitvm2_graph: &Bitvm2Graph,
+    status: &str,
+) -> anyhow::Result<()> {
+    let mut tx = local_db.start_transaction().await?;
+    let kickoff_index_current = tx
+        .get_operator_max_kickoff_index(&bitvm2_graph.parameters.operator_pubkey.to_string())
+        .await?;
+    let current_time = current_time_secs();
+    let mut graph = Graph {
+        graph_id,
+        instance_id,
+        kickoff_index: kickoff_index_current + 1,
+        from_addr: "".to_string(),
+        to_addr: "".to_string(),
+        graph_ipfs_base_url: "".to_string(),
+        amount: bitvm2_graph.parameters.instance_parameters.pegin_amount.to_sat() as i64,
+        challenge_amount: bitvm2_graph.parameters.challenge_amount.to_sat() as i64,
+        status: status.to_string(),
+        sub_status: "".to_string(),
+        operator_pubkey: bitvm2_graph.parameters.operator_pubkey.to_string(),
+        cur_prekickoff_txid: Some(bitvm2_graph.cur_prekickoff.finalize().compute_txid().into()),
+        next_prekickoff: Some(bitvm2_graph.next_prekickoff.finalize().compute_txid().into()),
+        force_skip_kickoff_txid: Some(
+            bitvm2_graph.force_skip_kickoff.finalize().compute_txid().into(),
+        ),
+        quick_challenge_txid: Some(bitvm2_graph.quick_challenge.finalize().compute_txid().into()),
+        challenge_incomplete_kickoff_txid: Some(
+            bitvm2_graph.challenge_incomplete_kickoff.finalize().compute_txid().into(),
+        ),
+        pegin_txid: Some(bitvm2_graph.pegin.finalize().compute_txid().into()),
+        kickoff_txid: Some(bitvm2_graph.kickoff.finalize().compute_txid().into()),
+        take1_txid: Some(bitvm2_graph.take1.finalize().compute_txid().into()),
+        challenge_txid: None,
+        take2_txid: Some(bitvm2_graph.take2.finalize().compute_txid().into()),
+        disprove_txid: None,
+        watchtower_challenge_init_txid: Some(
+            bitvm2_graph.watchtower_challenge_init.finalize().compute_txid().into(),
+        ),
+        watchtower_challenge_timeout_txids: bitvm2_graph
+            .watchtower_challenge_timeout_txns
+            .iter()
+            .map(|tx| tx.finalize().compute_txid().into())
+            .collect(),
+        nack_txids: bitvm2_graph
+            .nack_txns
+            .iter()
+            .map(|tx| tx.finalize().compute_txid().into())
+            .collect(),
+        blockhash_commit_timeout_txid: Some(
+            bitvm2_graph.blockhash_commit_timeout.finalize().compute_txid().into(),
+        ),
+        assert_init_txid: Some(bitvm2_graph.assert_init.finalize().compute_txid().into()),
+        assert_commit_timeout_txids: bitvm2_graph
+            .assert_commit_timeout_txns
+            .iter()
+            .map(|tx| tx.finalize().compute_txid().into())
+            .collect(),
+        init_withdraw_tx_hash: None,
+        bridge_out_start_at: 0,
+        zkm_version: groth16::get_zkm_version(),
+        created_at: current_time,
+        updated_at: current_time,
+    };
+
+    if let Some(node_info) =
+        tx.get_node_by_btc_pub_key(&bitvm2_graph.parameters.operator_pubkey.to_string()).await?
+    {
+        graph.from_addr = node_info.goat_addr.clone();
+        graph.to_addr =
+            node_p2wsh_address(get_network(), &bitvm2_graph.parameters.operator_pubkey).to_string();
+    }
+
+    tx.upsert_graph(graph).await?;
+    tx.update_instance(
+        &InstanceUpdate::new(instance_id).with_status(InstanceStatus::Presigned.to_string()),
+    )
+    .await?;
+    tx.upsert_graph_raw_data(GraphRawData {
+        graph_id,
+        raw_data: serde_json::to_string(&bitvm2_graph).unwrap_or_default(),
+        created_at: current_time,
+        updated_at: current_time,
+    })
+    .await?;
+
+    tx.commit().await?;
     Ok(())
 }
 
 #[allow(dead_code)]
 pub async fn update_graph(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    graph: &Bitvm2Graph,
-    status: Option<String>,
-) -> Result<()> {
-    store_graph(local_db, instance_id, graph_id, graph, status).await
+    _local_db: &LocalDB,
+    _instance_id: Uuid,
+    _graph_id: Uuid,
+    _graph: &Bitvm2Graph,
+    _status: Option<String>,
+) -> anyhow::Result<()> {
+    // store_graph(local_db, instance_id, graph_id, graph, status).await
+    Ok(())
 }
 pub async fn get_graph(
     local_db: &LocalDB,
@@ -1416,57 +1516,56 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
     (false, None)
 }
 
-pub async fn pop_local_unhandle_msg(local_db: &LocalDB, actor: Actor) -> Result<Option<Vec<u8>>> {
-    // 1. create  groth16 proof for operator
-    if actor == Actor::Operator
-        && let Some(content) = operator_scan_ready_proof(
+pub async fn pop_batch_local_unhandle_msg(
+    local_db: &LocalDB,
+    actor: Actor,
+    lock_time_until: i64,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<Message>> {
+    // todo mv to single function
+    if actor == Actor::Operator {
+        operator_scan_ready_proof(
             local_db,
             get_proof_server_url(),
             routes::v1::PROOFS_GROTH16_BASE,
         )
-        .await?
-    {
-        return Ok(Some(content));
-    }
-
-    // 2. check unhandle msg from message table
-    let mut storage_process = local_db.acquire().await?;
-    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-    storage_process.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
-    let messages = storage_process
-        .filter_messages(MessageState::Pending.to_string(), current_time - MESSAGE_EXPIRE_TIME)
         .await?;
-
-    for message in messages {
-        if message.msg_type != MessageType::BridgeInData.to_string() {
-            storage_process
-                .update_messages_state(
-                    &[message.id],
-                    MessageState::Processed.to_string(),
-                    current_time,
-                )
-                .await?;
-            return Ok(Some(message.content));
-        }
     }
-
-    Ok(None)
+    let mut tx = local_db.start_transaction().await?;
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    tx.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
+    tx.delete_old_messages(current_time - MESSAGE_EXPIRE_TIME).await?;
+    let messages = tx
+        .filter_messages(
+            MessageState::Pending.to_string(),
+            0,
+            lock_time_until,
+            current_time - MESSAGE_EXPIRE_TIME,
+            limit,
+            offset,
+        )
+        .await?;
+    tx.commit().await?;
+    Ok(messages)
 }
 
 pub async fn operator_scan_ready_proof(
     local_db: &LocalDB,
     remote_proof_server_socket: Option<String>,
     uri: &str,
-) -> Result<Option<Vec<u8>>> {
+) -> Result<()> {
     tracing::info!("start operator_scan_ready_proof");
     let client = reqwest::Client::new();
-    let mut storage_proccessor = local_db.acquire().await?;
-    let check_txs = storage_proccessor
-        .get_goat_tx_record_by_processing_status(
-            &GoatTxType::ProceedWithdraw.to_string(),
-            &GoatTxProcessingStatus::Pending.to_string(),
-        )
-        .await?;
+    let check_txs: Vec<GoatTxRecord> = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .get_goat_tx_record_by_processing_status(
+                &GoatTxType::ProceedWithdraw.to_string(),
+                &GoatTxProcessingStatus::Pending.to_string(),
+            )
+            .await?
+    };
 
     let parse_challenge_txid_fn = |extra_data: Option<String>| -> Result<Txid> {
         if extra_data.is_none() {
@@ -1476,7 +1575,6 @@ pub async fn operator_scan_ready_proof(
         Ok(deserialize_hex(&extra.challenge_txid)?)
     };
 
-    let mut message_content: Option<GOATMessageContent> = None;
     for tx in check_txs {
         if tx.height == 0 {
             tracing::info!("Graph id :{} proceed withdraw tx online just waiting", tx.graph_id);
@@ -1484,6 +1582,7 @@ pub async fn operator_scan_ready_proof(
         }
         let challenge_txid_res = parse_challenge_txid_fn(tx.extra.clone());
         if let Ok(challenge_txid) = challenge_txid_res {
+            let mut db_tx = local_db.start_transaction().await?;
             if let Some(socket) = remote_proof_server_socket.clone() {
                 let resp = client.get(format!("http://{socket}{uri}/{}", tx.height)).send().await?;
                 if resp.status().is_success()
@@ -1496,11 +1595,10 @@ pub async fn operator_scan_ready_proof(
                         );
                         continue;
                     }
-
-                    storage_proccessor
+                    db_tx
                         .create_verifier_key(&proof_value.zkm_version, &proof_value.groth16_vk)
                         .await?;
-                    storage_proccessor
+                    db_tx
                         .add_groth16_proof(
                             tx.height,
                             tx.height,
@@ -1520,7 +1618,7 @@ pub async fn operator_scan_ready_proof(
                     continue;
                 }
             } else {
-                let (proof, _, _, _) = storage_proccessor.get_groth16_proof(tx.height).await?;
+                let (proof, _, _, _) = db_tx.get_groth16_proof(tx.height).await?;
                 if proof.is_empty() {
                     tracing::info!("Graph id :{} proof is empty just waiting", tx.graph_id);
                     continue;
@@ -1528,12 +1626,7 @@ pub async fn operator_scan_ready_proof(
             }
 
             tracing::info!("Graph id :{} proof is ready", tx.graph_id);
-            message_content = Some(GOATMessageContent::ChallengeSent(ChallengeSent {
-                instance_id: tx.instance_id,
-                graph_id: tx.graph_id,
-                challenge_txid,
-            }));
-            storage_proccessor
+            db_tx
                 .update_goat_tx_record_processing_status(
                     &tx.graph_id,
                     &tx.instance_id,
@@ -1541,25 +1634,26 @@ pub async fn operator_scan_ready_proof(
                     &GoatTxProcessingStatus::Processed.to_string(),
                 )
                 .await?;
-            // storage_proccessor
-            //     .update_goat_tx_proved_state_by_height(
-            //         &tx.tx_type,
-            //         &GoatTxProcessingStatus::Pending.to_string(),
-            //         &GoatTxProcessingStatus::Failed.to_string(),
-            //         tx.height,
-            //     )
-            //     .await?;
-        }
-        if message_content.is_some() {
-            break;
+
+            create_message(
+                &mut db_tx,
+                tx.graph_id,
+                None,
+                "self".to_string(),
+                Actor::Operator,
+                GOATMessageContent::ChallengeSent(ChallengeSent {
+                    instance_id: tx.instance_id,
+                    graph_id: tx.graph_id,
+                    challenge_txid,
+                }),
+                0,
+                0,
+            )
+            .await?;
+            db_tx.commit().await?;
         }
     }
-    if message_content.is_none() {
-        Ok(None)
-    } else {
-        let message = GOATMessage::from_typed(Actor::Operator, &message_content.unwrap())?;
-        Ok(Some(serde_json::to_vec(&message)?))
-    }
+    Ok(())
 }
 
 pub fn generate_local_key() -> libp2p::identity::Keypair {
@@ -1571,6 +1665,7 @@ pub fn temp_file() -> String {
     tmp_db.path().as_os_str().to_str().unwrap().to_string()
 }
 
+#[allow(dead_code)]
 pub async fn generate_instance_from_event(
     btc_client: &BTCClient,
     event: &BridgeInRequestEvent,

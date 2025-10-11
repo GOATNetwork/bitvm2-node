@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO message (message_id, business_id, from_peer, actor, msg_type, content, state, lock_time_until, weight, updated_at, created_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "0efceb6b88dfaf5cede321b20c447b5162d1d1d7b5d336798bc8800b640b8a84"
+}

@@ -5,79 +5,55 @@ use alloy::rpc::types::TransactionReceipt;
 use alloy::signers::Signature;
 use anyhow::bail;
 use async_trait::async_trait;
-use bitcoin::Transaction;
-use bitcoin::absolute::LockTime;
-use bitcoin::hashes::Hash;
-use bitcoin::transaction::Version;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tracing::info;
 use uuid::Uuid;
 
-const PEGIN_DATA_MAP: &str = "pegin_data_map";
-const OPERATOR_DATA_MAP: &str = "operator_data_map";
-const WITHDRAW_DATA_MAP: &str = "withdraw_data_map";
-
-pub struct MockAdaptorConfig {
-    pub base_path: std::path::PathBuf,
+#[derive(Clone, Debug, Default)]
+pub struct GatewayContractConfig {
+    pub min_challenge_amount_sats: u64,
+    pub min_pegin_fee_sats: u64,
+    pub pegin_fee_rate: u64,
+    pub min_operator_reward_sats: u64,
+    pub operator_reward_rate: u64,
+    pub min_stake_amount: u64,
+    pub min_challenger_reward: u64,
+    pub min_disprover_reward: u64,
+    pub min_slash_amount: u64,
 }
 
+#[derive(Clone, Debug)]
 pub struct MockAdaptor {
-    config: MockAdaptorConfig,
+    finalized_block_number: Arc<Mutex<i64>>,
+    latest_block_number: Arc<Mutex<i64>>,
+    tx_receipts: Arc<Mutex<HashMap<String, TransactionReceipt>>>,
+    gateway_contract_config: Arc<Mutex<GatewayContractConfig>>,
 }
 
 impl MockAdaptor {
-    fn load_object(&self, file_name: &str, file_path: Option<&str>) -> std::io::Result<Vec<u8>> {
-        let path = match file_path {
-            Some(file_path) => self.config.base_path.join(file_path).join(file_name),
-            None => self.config.base_path.join(file_name),
-        };
-        if !path.exists() {
-            return Ok(vec![]);
+    pub fn set_finalized_block_number(&self, block_number: i64) {
+        if let Ok(mut h) = self.finalized_block_number.lock() {
+            *h = block_number
         }
-        std::fs::read(path)
     }
 
-    fn save_object(
-        &self,
-        file_name: &str,
-        data: Vec<u8>,
-        file_path: Option<&str>,
-    ) -> std::io::Result<()> {
-        let path = match file_path {
-            Some(file_path) => self.config.base_path.join(file_path).join(file_name),
-            None => self.config.base_path.join(file_name),
-        };
-        if let Some(parent) = path.parent()
-            && !parent.exists()
-        {
-            std::fs::create_dir_all(parent)?;
+    pub fn set_latest_block_number(&self, block_number: i64) {
+        if let Ok(mut h) = self.latest_block_number.lock() {
+            *h = block_number
         }
-        std::fs::write(path, data)
     }
 
-    fn save_hash_map<T: Serialize>(
-        &self,
-        file_name: &str,
-        data: T,
-        file_path: Option<&str>,
-    ) -> anyhow::Result<()> {
-        let content = serde_json::to_vec(&data)?;
-        self.save_object(file_name, content, file_path)?;
-        Ok(())
+    pub fn set_tx_receipt(&self, tx_hash: String, receipt: TransactionReceipt) {
+        if let Ok(mut h) = self.tx_receipts.lock() {
+            h.insert(tx_hash, receipt);
+        }
     }
 
-    fn load_hash_map<T: DeserializeOwned>(
-        &self,
-        file_name: &str,
-        file_path: Option<&str>,
-    ) -> anyhow::Result<HashMap<String, T>> {
-        let contents = self.load_object(file_name, file_path)?;
-        if contents.is_empty() {
-            return Ok(HashMap::default());
+    pub fn set_gateway_contract_config(&self, config: GatewayContractConfig) {
+        if let Ok(mut h) = self.gateway_contract_config.lock() {
+            *h = config;
         }
-        Ok(serde_json::from_slice(&contents)?)
     }
 }
 
@@ -88,51 +64,73 @@ impl ChainAdaptor for MockAdaptor {
     }
 
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64> {
-        Ok(1)
+        match self.finalized_block_number.lock() {
+            Ok(h) => Ok(*h),
+            Err(_) => bail!("MockAdaptor::get_finalized_block_number() failed"),
+        }
     }
     async fn get_latest_block_number(&self) -> anyhow::Result<i64> {
-        Ok(1)
+        match self.latest_block_number.lock() {
+            Ok(h) => Ok(*h),
+            Err(_) => bail!("MockAdaptor::get_latest_block_number() failed"),
+        }
     }
 
-    async fn get_tx_receipt(&self, _tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
+    async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
         info!("call is_tx_execute_success");
-        Ok(None)
+        Ok(if let Ok(tx_receipt) = self.tx_receipts.lock() {
+            tx_receipt.get(tx_hash).cloned()
+        } else {
+            None
+        })
     }
 
     async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() {
+            h.min_challenge_amount_sats
+        } else {
+            0
+        })
     }
 
     async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.min_pegin_fee_sats } else { 0 })
     }
 
     async fn gateway_get_pegin_fee_rate(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.pegin_fee_rate } else { 0 })
     }
 
     async fn gateway_get_min_operator_reward_sats(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() {
+            h.min_operator_reward_sats
+        } else {
+            0
+        })
     }
 
     async fn gateway_get_operator_reward_rate(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.operator_reward_rate } else { 0 })
     }
 
     async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.min_stake_amount } else { 0 })
     }
 
     async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() {
+            h.min_challenger_reward
+        } else {
+            0
+        })
     }
 
     async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.min_disprover_reward } else { 0 })
     }
 
     async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64> {
-        Ok(0)
+        Ok(if let Ok(h) = self.gateway_contract_config.lock() { h.min_slash_amount } else { 0 })
     }
 
     async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
@@ -143,34 +141,23 @@ impl ChainAdaptor for MockAdaptor {
         Ok([0_u8; 20])
     }
 
-    async fn gateway_get_pegin_data(&self, instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
+    async fn gateway_get_pegin_data(&self, _instance_id: &[u8; 16]) -> anyhow::Result<PeginData> {
         info!("call get_pegin_data");
-        let pegin_data_map = self.load_hash_map::<PeginData>(PEGIN_DATA_MAP, None)?;
-        if let Some(pegin_data) = pegin_data_map.get(&hex::encode(instance_id)) {
-            Ok(pegin_data.clone())
-        } else {
-            bail!("not find pegin data")
-        }
+
+        bail!("not find pegin data")
     }
 
-    async fn gateway_get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData> {
+    async fn gateway_get_withdraw_data(
+        &self,
+        _graph_id: &[u8; 16],
+    ) -> anyhow::Result<WithdrawData> {
         info!("call get_withdraw_data");
-        let withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
-            Ok(withdraw_data.clone())
-        } else {
-            bail!("not find withdraw data")
-        }
+        bail!("not find withdraw data")
     }
 
-    async fn gateway_get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
+    async fn gateway_get_graph_data(&self, _graph_id: &[u8; 16]) -> anyhow::Result<GraphData> {
         info!("call get_operator_data");
-        let operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;
-        if let Some(operator_data) = operator_data_map.get(&hex::encode(graph_id)) {
-            Ok(operator_data.clone())
-        } else {
-            bail!("not find operator data")
-        }
+        bail!("not find operator data")
     }
 
     async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
@@ -201,54 +188,24 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn gateway_post_pegin_data(
         &self,
-        instance_id: &[u8; 16],
-        raw_pgin_tx: &BitcoinTx,
+        _instance_id: &[u8; 16],
+        _raw_pgin_tx: &BitcoinTx,
         _pegin_proof: &BitcoinTxProof,
         _committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         info!("call post_pegin_data");
-        let tx = Transaction {
-            version: Version::non_standard(raw_pgin_tx.version as i32),
-            lock_time: LockTime::from_consensus(raw_pgin_tx.lock_time),
-            input: bitcoin::consensus::deserialize(raw_pgin_tx.input_vector.as_slice())?,
-            output: bitcoin::consensus::deserialize(raw_pgin_tx.output_vector.as_slice())?,
-        };
-        let mut pegin_data_map = self.load_hash_map::<PeginData>(PEGIN_DATA_MAP, None)?;
-        pegin_data_map.insert(
-            hex::encode(instance_id),
-            PeginData {
-                status: PeginStatus::None,
-                instance_id: [0_u8; 16],
-                depositor_address: [0_u8; 20],
-                pegin_amount_sats: 0,
-                user_inputs: vec![],
-                user_xonly_pubkey: [0_u8; 32],
-                user_change_addr: "".to_string(),
-                user_refund_addr: "".to_string(),
-                pegin_txid: tx.compute_txid().to_byte_array(),
-                created_at: 0,
-                committee_addresses: vec![],
-                committee_pubkeys: vec![],
-                txn_fees: [0_u64; 3],
-            },
-        );
-
-        self.save_hash_map(PEGIN_DATA_MAP, pegin_data_map, None)?;
-        Ok(hex::encode(generate_random_bytes(32)))
+        Ok(TxHash::default().to_string())
     }
 
     async fn gateway_post_graph_data(
         &self,
         _instance_id: &[u8; 16],
-        graph_id: &[u8; 16],
-        operator_data: &GraphData,
+        _graph_id: &[u8; 16],
+        _operator_data: &GraphData,
         _committee_signs: &[Vec<u8>],
     ) -> anyhow::Result<String> {
         info!("call post_operator_data");
-        let mut operator_data_map = self.load_hash_map::<GraphData>(OPERATOR_DATA_MAP, None)?;
-        operator_data_map.insert(hex::encode(graph_id), operator_data.clone());
-        self.save_hash_map(OPERATOR_DATA_MAP, operator_data_map, None)?;
-        Ok(hex::encode(generate_random_bytes(32)))
+        Ok(TxHash::default().to_string())
     }
 
     async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
@@ -266,102 +223,51 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn gateway_init_withdraw(
         &self,
-        instance_id: &[u8; 16],
-        graph_id: &[u8; 16],
+        _instance_id: &[u8; 16],
+        _graph_id: &[u8; 16],
     ) -> anyhow::Result<String> {
         info!("call init_withdraw");
-        let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        let mut withdraw_data = withdraw_data_map
-            .get(&hex::encode(graph_id))
-            .unwrap_or(&WithdrawData {
-                pegin_txid: generate_random_bytes(32).try_into().expect("fail to cast"),
-                operator_address: generate_random_bytes(20).try_into().expect("fail to cast"),
-                status: WithdrawStatus::Initialized,
-                instance_id: *instance_id,
-                lock_amount: Default::default(),
-                btc_block_height_withdraw: Default::default(),
-            })
-            .clone();
-        withdraw_data.status = WithdrawStatus::Initialized;
-        withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
-        self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn gateway_cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
-        let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
-            info!("call cancel_withdraw");
-            let mut withdraw_data = withdraw_data.clone();
-            withdraw_data.status = WithdrawStatus::Canceled;
-            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
-            self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
-            Ok(hex::encode(generate_random_bytes(32)))
-        } else {
-            bail!("fail to get withdraw data");
-        }
+    async fn gateway_cancel_withdraw(&self, _graph_id: &[u8; 16]) -> anyhow::Result<String> {
+        info!("call cancel_withdraw");
+        Ok(hex::encode(generate_random_bytes(32)))
     }
 
     async fn gateway_process_withdraw(
         &self,
-        graph_id: &[u8; 16],
+        _graph_id: &[u8; 16],
         _raw_kickoff_tx: &BitcoinTx,
         _kickoff_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
-            info!("call process_withdraw");
-            let mut withdraw_data = withdraw_data.clone();
-            withdraw_data.status = WithdrawStatus::Processing;
-            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
-            self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
-            Ok(hex::encode(generate_random_bytes(32)))
-        } else {
-            bail!("fail to get withdraw data");
-        }
+        info!("call process_withdraw");
+        Ok(hex::encode(generate_random_bytes(32)))
     }
 
     async fn gateway_finish_withdraw_happy_path(
         &self,
-        graph_id: &[u8; 16],
+        _graph_id: &[u8; 16],
         _raw_take1_tx: &BitcoinTx,
         _take1_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
-            info!("call finish_withdraw_happy_path");
-            let mut withdraw_data = withdraw_data.clone();
-            withdraw_data.status = WithdrawStatus::Complete;
-            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
-            self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
-            Ok(hex::encode(generate_random_bytes(32)))
-        } else {
-            bail!("fail to get withdraw data");
-        }
+        info!("call finish_withdraw_happy_path");
+        Ok(hex::encode(generate_random_bytes(32)))
     }
 
     async fn gateway_finish_withdraw_unhappy_path(
         &self,
-        graph_id: &[u8; 16],
+        _graph_id: &[u8; 16],
         _raw_take2_tx: &BitcoinTx,
         _take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
-            info!("call finish_withdraw_unhappy_path");
-            let mut withdraw_data = withdraw_data.clone();
-            withdraw_data.status = WithdrawStatus::Complete;
-            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
-            self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
-            Ok(hex::encode(generate_random_bytes(32)))
-        } else {
-            bail!("fail to get withdraw data");
-        }
+        info!("call finish_withdraw_unhappy_path");
+        Ok(hex::encode(generate_random_bytes(32)))
     }
 
     async fn gateway_finish_withdraw_disproved(
         &self,
-        graph_id: &[u8; 16],
+        _graph_id: &[u8; 16],
         _disprove_type: DisproveTxType,
         _tx_index: u64,
         _raw_challenge_start_tx: &BitcoinTx,
@@ -369,17 +275,8 @@ impl ChainAdaptor for MockAdaptor {
         _raw_challenge_finshish_tx: &BitcoinTx,
         _challenge_finish_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String> {
-        let mut withdraw_data_map = self.load_hash_map::<WithdrawData>(WITHDRAW_DATA_MAP, None)?;
-        if let Some(withdraw_data) = withdraw_data_map.get(&hex::encode(graph_id)) {
-            info!("call finish_withdraw_disproved");
-            let mut withdraw_data = withdraw_data.clone();
-            withdraw_data.status = WithdrawStatus::Complete;
-            withdraw_data_map.insert(hex::encode(graph_id), withdraw_data);
-            self.save_hash_map(WITHDRAW_DATA_MAP, withdraw_data_map, None)?;
-            Ok(hex::encode(generate_random_bytes(32)))
-        } else {
-            bail!("fail to get withdraw data");
-        }
+        info!("call gateway_finish_withdraw_disproved");
+        Ok(hex::encode(generate_random_bytes(32)))
     }
 
     async fn btc_spv_blockhash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {
@@ -399,6 +296,14 @@ impl ChainAdaptor for MockAdaptor {
         Ok(FixedBytes::<32>::new([0u8; 32]))
     }
 
+    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
+        Ok(vec![])
+    }
+
+    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
+        Ok(U256::ZERO)
+    }
+
     async fn seq_set_pub_get_publisher_public_keys(
         &self,
         _publisher: Address,
@@ -412,14 +317,6 @@ impl ChainAdaptor for MockAdaptor {
         _signature: &Signature,
     ) -> anyhow::Result<String> {
         Ok("".to_string())
-    }
-
-    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
-        Ok(vec![])
-    }
-
-    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
-        Ok(U256::ZERO)
     }
 
     async fn seq_set_pub_update_publisher_set(
@@ -493,13 +390,12 @@ impl ChainAdaptor for MockAdaptor {
 }
 
 impl MockAdaptor {
-    pub fn new(config: Option<MockAdaptorConfig>) -> Self {
-        let config = if let Some(config) = config {
-            config
-        } else {
-            let tmp_file = tempfile::NamedTempFile::new().unwrap();
-            MockAdaptorConfig { base_path: tmp_file.path().to_path_buf() }
-        };
-        Self { config }
+    pub fn new() -> Self {
+        Self {
+            finalized_block_number: Arc::new(Mutex::new(0)),
+            latest_block_number: Arc::new(Mutex::new(0)),
+            tx_receipts: Arc::new(Mutex::new(HashMap::new())),
+            gateway_contract_config: Arc::new(Mutex::new(Default::default())),
+        }
     }
 }

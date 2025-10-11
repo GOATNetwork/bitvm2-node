@@ -25,7 +25,6 @@ lazy_static = "1.5.0"
 
 borsh = { workspace = true }
 header-chain = { workspace = true }
-bitcoin-light-client = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
 

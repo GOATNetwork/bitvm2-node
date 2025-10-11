@@ -8,31 +8,37 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Transaction, Txid};
 use uuid::Uuid;
 pub mod utils;
-use crate::btc_chain::{BTCClient, BtcTxProofData};
+use crate::btc_chain::{BTCClient, MerkleProofExtend};
+use chain_adaptor::PeginStatus;
 pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
     BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, PeginStatus, WithdrawData, WithdrawStatus,
     get_chain_adaptor,
 };
 pub use goat_adaptor::GoatInitConfig;
-
-pub struct GOATClient {
-    chain_service: EvmChain,
-}
-
 mod chain_adaptor;
 mod evmchain;
 mod goat_adaptor;
 mod mock_goat_adaptor;
 use crate::goat_chain::evmchain::EvmChain;
+use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 pub use chain_adaptor::{DisproveTxType, Utxo};
 
+pub struct GOATClient {
+    chain_service: EvmChain,
+}
 impl GOATClient {
     pub fn new(goat_init_config: GoatInitConfig, goat_network: GoatNetwork) -> Self {
         GOATClient {
-            chain_service: EvmChain::new(get_chain_adaptor(goat_network, goat_init_config, None)),
+            chain_service: EvmChain::new(get_chain_adaptor(goat_network, goat_init_config)),
         }
     }
+
+    pub fn new_mock_client() -> (Self, MockAdaptor) {
+        let mock_adaptor = MockAdaptor::new();
+        (GOATClient { chain_service: EvmChain::new(Box::new(mock_adaptor.clone())) }, mock_adaptor)
+    }
+
     pub fn get_default_signer_address(&self) -> Address {
         self.chain_service.get_default_signer_address()
     }
@@ -360,7 +366,7 @@ impl GOATClient {
             bail!("instance_id:{instance_id} pegin amount mismatch",);
         }
 
-        let tx_proof_data = btc_client.get_btc_tx_proof_info(&tx_id).await?;
+        let tx_proof_data = btc_client.get_merkle_proof_extend(&tx_id).await?;
 
         let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {
@@ -459,8 +465,7 @@ impl GOATClient {
             .gateway_post_graph_data(instance_id, graph_id, &graph_data, committee_signs)
             .await
     }
-
-    async fn check_withdraw_actions_and_get_proof(
+    pub async fn check_withdraw_actions_and_get_proof(
         &self,
         btc_client: &BTCClient,
         tag: &str,
@@ -468,7 +473,7 @@ impl GOATClient {
         tx_act: &Txid,
         tx_id_on_line: &Txid,
         required_status: Option<WithdrawStatus>,
-    ) -> anyhow::Result<BtcTxProofData> {
+    ) -> anyhow::Result<MerkleProofExtend> {
         // check tx id match
         if tx_id_on_line.ne(tx_act) {
             tracing::warn!(
@@ -509,7 +514,7 @@ impl GOATClient {
             }
         }
         // check hash in btc chain and spv contract
-        let tx_proof_data = btc_client.get_btc_tx_proof_info(tx_act).await?;
+        let tx_proof_data = btc_client.get_merkle_proof_extend(tx_act).await?;
 
         let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {
@@ -530,11 +535,6 @@ impl GOATClient {
         }
         Ok(tx_proof_data)
     }
-
-    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
-        self.chain_service.seq_set_pub_get_last_block_height().await
-    }
-
     pub async fn seq_set_pub_calc_commitment(
         &self,
         height: U256,
@@ -658,6 +658,10 @@ impl GOATClient {
     ) -> anyhow::Result<bool> {
         self.chain_service.committee_mana_verify_signatures(msg_hash, signs).await
     }
+
+    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
+        self.chain_service.seq_set_pub_get_last_block_height().await
+    }
 }
 
 pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {
@@ -666,5 +670,32 @@ pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {
         lock_time: tx.lock_time.to_consensus_u32(),
         input_vector: bitcoin::consensus::serialize(&tx.input),
         output_vector: bitcoin::consensus::serialize(&tx.output),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::goat_chain::GOATClient;
+    use crate::goat_chain::mock_goat_adaptor::GatewayContractConfig;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_mack_goat_client() -> anyhow::Result<()> {
+        let (mock_client, mock_adaptor) = GOATClient::new_mock_client();
+        let min_challenge_amount_sats = 20000000;
+        mock_adaptor.set_gateway_contract_config(GatewayContractConfig {
+            min_challenge_amount_sats,
+            min_pegin_fee_sats: 0,
+            pegin_fee_rate: 0,
+            min_operator_reward_sats: 0,
+            operator_reward_rate: 0,
+            min_stake_amount: 0,
+            min_challenger_reward: 0,
+            min_disprover_reward: 0,
+            min_slash_amount: 0,
+        });
+        let min_challenge_amount_sats_act =
+            mock_client.gateway_get_min_challenge_amount_sats().await?;
+        assert_eq!(min_challenge_amount_sats, min_challenge_amount_sats_act);
+        Ok(())
     }
 }

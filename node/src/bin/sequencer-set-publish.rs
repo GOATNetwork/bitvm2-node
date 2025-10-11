@@ -7,53 +7,8 @@
 //! cd ../scripts
 //! docker-compose -f docker-compose.yml up -d
 //! ```
-//! Run the sequencer set publish transaction with
-//! ```sh
-//!     set -e
-//!     source .env
-//!     
-//!     HEIGHT=100063
-//!     
-//!     rm -rf /tmp/output.data
-//!     #CMD="cargo run -r --bin sequencer-set-publish --"
-//!     cargo build -r
-//!     CMD="../target/release/sequencer-set-publish"
-//!     
-//!     $CMD fund
-//!     
-//!     # payfee
-//!     $CMD payfee
-//!     
-//!     # sign sequencer set publishing genisis txn
-//!     $CMD push-seq --goat-block-number $HEIGHT
-//!     
-//!     $CMD payfee
-//!     
-//!     $CMD sign-seq --owner-btc-key-wif cMec2DGaTXkYJYfi7x3ZGjRXkeqmAvYAoWzMAcWj5fdLaqudWsNi \
-//!         --goat-block-number $HEIGHT
-//!     $CMD sign-seq --owner-btc-key-wif cMgZD2qsGReP1UvGbNQ7moL6PZFgzsuPFV3St8sGwpNxED4hqkEM \
-//!         --goat-block-number $HEIGHT
-//!     $CMD sign-seq --owner-btc-key-wif cMiWPrRA5KYDiRAq4nkgGsEf2TfcpqGbhT6YbfDpoy8ZsaAHiDeo \
-//!         --goat-block-number $HEIGHT
-//!     
-//!     # submit update-seq-set to GOAT
-//!     $CMD --goat-evm-prvkey 0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6 update-seq-set --goat-block-number $HEIGHT
-//!     $CMD --goat-evm-prvkey 0x134e45328c0cf16fa450e9b40c34cba16a7eac2001b907f1de6a28549776f93e update-seq-set --goat-block-number $HEIGHT
-//!     $CMD --goat-evm-prvkey 0xe079ee9ddc9440df0e55ca9966b87cdf145dad8cd04a7d6795f80a37a6130305 update-seq-set --goat-block-number $HEIGHT
-//!     $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a91430a102fbf7 update-seq-set --goat-block-number $HEIGHT
-//!     
-//!     # sign offchain
-//!     $CMD --goat-evm-prvkey 0xbb094981331d23f14f6fec3749c2bc6effa582d52a0c92c6b257809d89d37ab6 sign-pub
-//!     $CMD --goat-evm-prvkey 0x134e45328c0cf16fa450e9b40c34cba16a7eac2001b907f1de6a28549776f93e sign-pub
-//!     $CMD --goat-evm-prvkey 0xe079ee9ddc9440df0e55ca9966b87cdf145dad8cd04a7d6795f80a37a6130305 sign-pub
-//!     $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a91430a102fbf7 sign-pub
-//!     
-//!     # update publisher on GOAT
-//!     $CMD push-pub --goat-block-number $HEIGHT
-//!     
-//!     # broadcast publisher changes to Bitcoin
-//!     $CMD push-seq --goat-block-number $HEIGHT
-//! ```
+//! Run the sequencer set publish transaction with ci.sh
+//!
 //! The key wif is used only for test.
 //!
 use alloy::primitives::{Address as EvmAddress, B256, U256, keccak256};
@@ -65,6 +20,10 @@ use bitcoin::{
     Address, Amount, Network, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction,
     TxIn, TxOut, Txid, Witness, absolute::LockTime, hashes::Hash, key::Keypair,
     transaction::Version,
+};
+use bitvm2_noded::env::{
+    ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS,
+    ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS, get_goat_address_from_env,
 };
 use bitvm2_noded::utils::broadcast_tx;
 use bitvm2_noded::utils::wait_tx_confirmation;
@@ -81,8 +40,10 @@ use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin_light_client::{
     create_dummy_publisher_keys, create_fee_tx, create_sequencer_update_partial_tx,
-    create_sequencer_update_script, decode_eth_address, estimate_tx_vbytes, finalize, sign_partial,
+    decode_eth_address, estimate_tx_vbytes,
 };
+use commit_chain::{create_sequencer_update_script, finalize, sign_partial};
+
 use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -111,7 +72,7 @@ struct Args {
     #[arg(long, default_value = "https://rpc.testnet3.goat.network")]
     goat_rpc_url: String,
 
-    #[arg(long, default_value_t = 1, env = "FEE_RATE")]
+    #[arg(long, default_value_t = 2, env = "FEE_RATE")]
     fee_rate: u64, // sat/vbyte
 
     #[arg(long, env = "GOAT_EVM_PRVKEY")]
@@ -194,14 +155,15 @@ enum Commands {
     SignSeq {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
         owner_btc_key_wif: Option<String>,
-        #[arg(long)]
-        goat_block_number: Option<u64>,
+
+        #[arg(long, env = "NEXT_SEQUENCER_SET_HASH", value_parser = hex_parse)]
+        next_sequencer_set_hash: [u8; 32],
     },
     PushSeq {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
         owner_btc_key_wif: Option<String>,
-        #[arg(long)]
-        goat_block_number: Option<u64>,
+        #[arg(long, env = "NEXT_SEQUENCER_SET_HASH", value_parser = hex_parse)]
+        next_sequencer_set_hash: [u8; 32],
     },
     Payfee {
         #[arg(long, env = "FUND_BTC_KEY_WIF")]
@@ -242,8 +204,8 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // let dummy_publisher_keys: Vec<_> = create_dummy_publisher_keys(5);
-    // println!("dummy keys: {:?}", dummy_publisher_keys);
+    let dummy_publisher_keys: Vec<_> = create_dummy_publisher_keys(5);
+    println!("dummy keys: {:?}", dummy_publisher_keys);
     dotenv().ok();
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let args = Args::parse();
@@ -285,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await
         }
-        Commands::SignSeq { owner_btc_key_wif, goat_block_number } => {
+        Commands::SignSeq { owner_btc_key_wif, next_sequencer_set_hash } => {
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
             let (update_connector_txid, update_connector_vout) =
@@ -296,15 +258,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 owner_btc_key_wif,
                 args.publishers.clone(),
                 args.fee_rate,
-                goat_block_number,
                 fee_txid,
                 fee_tx_vout,
                 update_connector_txid,
                 update_connector_vout,
+                next_sequencer_set_hash,
             )
             .await
         }
-        Commands::PushSeq { owner_btc_key_wif, goat_block_number } => {
+        Commands::PushSeq { owner_btc_key_wif, next_sequencer_set_hash } => {
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
             let (update_connector_txid, update_connector_vout) =
@@ -316,12 +278,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 owner_btc_key_wif,
                 args.publishers.clone(),
                 args.fee_rate,
-                goat_block_number,
                 fee_txid,
                 fee_tx_vout,
                 update_connector_txid,
                 update_connector_vout,
                 cached_output.sigs,
+                next_sequencer_set_hash,
             )
             .await
         }
@@ -414,6 +376,7 @@ async fn push_sequencer_set_publish_tx(
         )
         .unwrap();
         input_index += 1;
+        // FIXME: should sort the sigs by public key
         let mut sigs = vec![sig];
         sigs.extend_from_slice(&publisher_sigs);
         finalize(sequencer_set_publish_tx, sigs, &redeem_script)?;
@@ -428,7 +391,6 @@ async fn push_sequencer_set_publish_tx(
     let script_code =
         ScriptBuf::new_p2pkh(&bitcoin::PubkeyHash::from_slice(signer_pkh.as_bytes())?);
 
-    println!("Sequencer set publish: {:#?}", sequencer_set_publish_tx);
     let mut cache = SighashCache::new(&mut *sequencer_set_publish_tx);
     let sighash = cache
         .p2wsh_signature_hash(
@@ -471,19 +433,15 @@ async fn fetch_publishers(
     Ok(pubkeys)
 }
 
-async fn fetch_commitment(
-    goat_client: &GOATClient,
-    height: U256,
-) -> Result<[u8; 32], anyhow::Error> {
-    let commitment = goat_client.seq_set_pub_calc_commitment(height).await?;
-    Ok(commitment.into())
-}
-
 fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
     let network = Network::Regtest;
-    let btc_client = BTCClient::new(network.into(), Some(&args.esplora_url));
+    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
 
     let mut config = GoatInitConfig::from_env_for_test();
+    config.sequencer_set_publisher_address =
+        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS);
+    config.multi_sig_verifier_address =
+        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS);
     config.private_key = args.goat_evm_prvkey.clone();
 
     let goat_client = GOATClient::new(config, client::goat_chain::GoatNetwork::Test);
@@ -588,7 +546,7 @@ async fn action_push_publisher_update_on_goat(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("sigs: {:?}", sigs);
     let signatures: Vec<Vec<u8>> = sigs.iter().map(|sig| hex::decode(sig).unwrap()).collect();
-    println!("new: {}, {}", new_publishers.len(), new_publisher_btc_pubkeys.len());
+    assert_eq!(new_publishers.len(), new_publisher_btc_pubkeys.len());
     let txid = goat_client
         .seq_set_pub_update_publisher_set(
             new_publishers,
@@ -605,16 +563,15 @@ async fn action_push_publisher_update_on_goat(
 async fn action_push_sequencer_set_update(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
-
     owner_btc_key_wif: Option<String>,
     publishers: Vec<EvmAddress>,
     fee_rate: u64,
-    goat_block_number: Option<u64>,
     fee_txid: Option<String>,
     fee_tx_vout: u32,
     update_connector_txid: Option<String>,
     update_connector_vout: Option<u32>,
     sigs: Vec<String>,
+    next_sequencer_set_hash: [u8; 32],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let btc_public_keys = fetch_publishers(&goat_client, &publishers).await?;
     //println!("btc pubkeys: {btc_public_keys:?}");
@@ -632,10 +589,7 @@ async fn action_push_sequencer_set_update(
 
     println!("replenish fee: {replenish_fee:?}");
     println!("sigs: {:?}", sigs);
-    let commitment = fetch_commitment(&goat_client, U256::from(goat_block_number.unwrap())).await?;
-
     // read public key and threshold from smart contract, which is consistency with btc_public_keys
-    //let publisher_keys: Vec<_> = create_dummy_publisher_keys(total);
     let fee_tx = btc_client
         .get_tx(&fee_txid.as_ref().unwrap().parse()?)
         .await?
@@ -659,7 +613,7 @@ async fn action_push_sequencer_set_update(
 
     // Skip construction of the genesis tx
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
-        commitment.clone(),
+        next_sequencer_set_hash,
         &update_connector,
         &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
         next_update_connector_address.clone(),
@@ -700,15 +654,14 @@ async fn action_sign_sequencer_set_update(
     owner_btc_key_wif: Option<String>,
     publishers: Vec<EvmAddress>,
     fee_rate: u64,
-    goat_block_number: Option<u64>,
     fee_txid: Option<String>,
     fee_tx_vout: u32,
     update_connector_txid: Option<String>,
     update_connector_vout: Option<u32>,
+    next_sequencer_set_hash: [u8; 32],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let network = Network::Regtest;
     // read public key and threshold from smart contract, which is consistency with btc_public_keys
-    //let publisher_keys: Vec<_> = create_dummy_publisher_keys(total);
     let btc_public_keys = fetch_publishers(&goat_client, &publishers).await?;
     //println!("btc pubkeys: {btc_public_keys:?}");
 
@@ -722,9 +675,6 @@ async fn action_sign_sequencer_set_update(
     let replenish_fee = Amount::from_sat(fee_rate)
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as u64
         + relayer_fee;
-
-    // fetch the commitment from given block number
-    let commitment = fetch_commitment(goat_client, U256::from(goat_block_number.unwrap())).await?;
 
     let fee_tx = btc_client
         .get_tx(&fee_txid.as_ref().unwrap().parse()?)
@@ -747,7 +697,7 @@ async fn action_sign_sequencer_set_update(
         };
 
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
-        commitment.clone(),
+        next_sequencer_set_hash,
         &update_connector,
         &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
         next_update_connector_address.clone(),

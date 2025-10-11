@@ -1,7 +1,7 @@
 use crate::env::{get_bitvm_key, get_network};
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
-use crate::scheduled_tasks::{committee_scheduled_tasks, relayer_scheduled_tasks};
+use crate::rpc_service::current_time_secs;
 use crate::utils::*;
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Result, anyhow, bail};
@@ -24,9 +24,10 @@ use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
-use store::GraphStatus;
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
+use store::{GraphStatus, MessageState};
+use tracing::log::warn;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -297,7 +298,7 @@ pub async fn handle_self_p2p_msg(
     from_peer_id: PeerId,
     id: MessageId,
     message: &[u8],
-) -> anyhow::Result<()> {
+) -> Result<()> {
     if id != GOATMessage::default_message_id() {
         tracing::warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
         return Ok(());
@@ -311,32 +312,27 @@ pub async fn handle_self_p2p_msg(
         from_peer_id
     );
 
-    tracing::debug!("Get the running task, and broadcast the task status or result");
-    if actor == Actor::Relayer {
-        relayer_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
-    }
-    if actor == Actor::Committee {
-        committee_scheduled_tasks(swarm, local_db, btc_client, goat_client).await?;
-    }
-
-    if let Some(message) = pop_local_unhandle_msg(local_db, actor.clone()).await?
-        && !message.is_empty()
-    {
+    let messages =
+        pop_batch_local_unhandle_msg(local_db, actor.clone(), current_time_secs(), 0, 50).await?;
+    for message in messages {
         recv_and_dispatch(
             swarm,
             local_db,
             btc_client,
             goat_client,
             ipfs,
-            actor,
+            actor.clone(),
             from_peer_id,
-            id,
-            &message,
+            id.clone(),
+            &message.content,
         )
-        .await
-    } else {
-        Ok(())
+        .await?;
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .update_messages_state(&[message.message_id], MessageState::Processed.to_string())
+            .await?;
     }
+    Ok(())
 }
 
 /// Filter the message and dispatch message to different handlers, like rpc handler, or other peers

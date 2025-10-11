@@ -213,7 +213,7 @@ pub struct Instance {
     pub instance_id: Uuid,
     pub network: String,
     pub from_addr: String,
-    pub to_addr: String,
+    pub to_addr: String, // goat deposit addr
     pub amount: i64,
     pub fees: UInt64Array3,
     pub input_utxos: String,
@@ -287,7 +287,7 @@ pub struct Graph {
     pub status: String,     // GraphStatus
     pub sub_status: String, // GraphStatus
     pub operator_pubkey: String,
-    pub pre_kickoff_txid: Option<SerializableTxid>,
+    pub next_prekickoff: Option<SerializableTxid>,
     pub cur_prekickoff_txid: Option<SerializableTxid>,
     pub force_skip_kickoff_txid: Option<SerializableTxid>,
     pub quick_challenge_txid: Option<SerializableTxid>,
@@ -297,6 +297,7 @@ pub struct Graph {
     pub take1_txid: Option<SerializableTxid>,
     pub challenge_txid: Option<SerializableTxid>,
     pub take2_txid: Option<SerializableTxid>,
+    pub disprove_txid: Option<SerializableTxid>,
     pub watchtower_challenge_init_txid: Option<SerializableTxid>,
     #[sqlx(json)]
     pub watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
@@ -381,12 +382,15 @@ pub enum MessageState {
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Message {
-    pub id: i64,
+    pub message_id: String,
+    pub business_id: Uuid, // graph_id or instance_id
     pub actor: String,
     pub from_peer: String,
     pub msg_type: String,
     pub content: Vec<u8>,
     pub state: String,
+    pub weight: i64,
+    pub lock_time_until: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -427,27 +431,39 @@ pub struct NonceCollectMetaData {
 #[derive(Debug, Clone, PartialEq, Display, EnumString)]
 pub enum MessageType {
     None,
-    BridgeInData,
-    CreateInstance,
-    CreateGraphPrepare,
+    PeginRequest,
     CreateGraph,
+    ConfirmInstance,
     NonceGeneration,
     CommitteePresign,
     GraphFinalize,
+    EndorseGraph,
+    PeginConfirmNonce,
+    PeginConfirmPartialSig,
     KickoffReady,
     KickoffSent,
+    PreKickoffSent,
+    ChallengeSent,
+    WatchtowerChallengeInitSent,
+    WatchtowerChallengeSent,
+    WatchtowerChallengeTimeout,
+    OperatorAckTimeout,
+    OperatorCommitBlockHashReady,
+    OperatorCommitBlockHashSent,
+    OperatorCommitBlockHashTimeout,
+    AssertInitReady,
+    AssertCommitTimeout,
+    DisproveReady,
+    DisproveSent,
     Take1Ready,
     Take1Sent,
-    ChallengeSent,
-    AssertSent,
     Take2Ready,
     Take2Sent,
-    DisproveSent,
-    InstanceDiscarded,
     RequestNodeInfo,
     ResponseNodeInfo,
     SyncGraphRequest,
     SyncGraph,
+    InstanceDiscarded,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -707,8 +723,8 @@ mod tests {
 
     #[test]
     fn test_message_type_from_str() {
-        assert_eq!(MessageType::from_str("BridgeInData").unwrap(), MessageType::BridgeInData);
-        assert_eq!(MessageType::from_str("CreateInstance").unwrap(), MessageType::CreateInstance);
+        assert_eq!(MessageType::from_str("PeginRequest").unwrap(), MessageType::PeginRequest);
+        assert_eq!(MessageType::from_str("CreateGraph").unwrap(), MessageType::CreateGraph);
         assert!(MessageType::from_str("Invalid").is_err());
     }
 

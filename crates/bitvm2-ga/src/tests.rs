@@ -4,8 +4,9 @@
 mod tests {
     use crate::{challenger::*, committee::*, keys::*, operator::*, types::*, watchtower::*};
     use bitcoin::{
-        Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, TapSighashType,
-        Transaction, TxIn, TxOut, Txid, XOnlyPublicKey, hashes::Hash, key::Keypair,
+        Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
+        PublicKey, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+        hashes::Hash, key::Keypair,
     };
     use bitcoincore_rpc::{Auth, Client as BtcdClient, RpcApi};
     use bitvm::{
@@ -34,7 +35,7 @@ mod tests {
         utils::num_blocks_per_network,
     };
     use musig2::PubNonce;
-    use secp256k1::SECP256K1;
+    use secp256k1::{SECP256K1, SecretKey};
     use sha2::{Digest, Sha256};
     use std::time::Duration;
     use tokio::time::sleep;
@@ -596,7 +597,7 @@ mod tests {
         let bank_address = node_p2wsh_address(network(), &bank_keypair().public_key().into());
         let utxos = esplora.get_address_utxo(bank_address.clone()).await.unwrap();
         if utxos.len() < 300 {
-            println!("bank UTXOs are not too many, no need to merge");
+            println!("bank UTXOs are not too many {}, no need to merge", utxos.len());
             return;
         }
         let mut selected_utxos = vec![];
@@ -750,6 +751,26 @@ mod tests {
             .await,
             amount: watchtower_challenge_payer_amount,
         };
+
+        const PROOF: &[u8] =
+            include_bytes!("../../bitcoin-light-client/samples/output.bin.proof.bin");
+        const PUBLIC_INPUTS: &[u8] =
+            include_bytes!("../../bitcoin-light-client/samples/output.bin.public_inputs.bin");
+        const VK_HASH: &str =
+            include_str!("../../bitcoin-light-client/samples/output.bin.vk_hash.bin");
+
+        let graph_id = graph.parameters.graph_id.to_bytes_le();
+        let total_work = 100;
+        let block_height = 100;
+        let comm = bitcoin_light_client::build_watchtower_commitment(
+            &graph_id,
+            &PROOF.try_into().unwrap(),
+            &PUBLIC_INPUTS.try_into().unwrap(),
+            VK_HASH,
+            total_work,
+            block_height,
+        );
+
         let mut watchtower_0_challenge = build_watchtower_challenge_tx(
             &graph,
             &watchtower_0_keypair,
