@@ -59,6 +59,11 @@ impl BitcoinChain {
         self.adaptor.broadcast(tx).await
     }
 
+    /// Broadcast transactions package
+    pub async fn broadcast_package(&self, txns: &[Transaction]) -> anyhow::Result<()> {
+        self.adaptor.broadcast_package(txns).await
+    }
+
     /// Get output status
     pub async fn get_output_status(
         &self,

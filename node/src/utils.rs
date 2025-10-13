@@ -14,14 +14,14 @@ use bitcoin::{
 };
 use bitvm::treepp::*;
 use bitvm2_lib::actors::Actor;
-use bitvm2_lib::challenger::export_challenge_tx;
-use bitvm2_lib::committee::{CommitteePartialSignatures, CommitteePubNonces};
-use bitvm2_lib::keys::{ChallengerMasterKey, WatchtowerMasterKey};
+use bitvm2_lib::challenger::*;
+use bitvm2_lib::committee::*;
+use bitvm2_lib::keys::{ChallengerMasterKey, OperatorMasterKey, WatchtowerMasterKey};
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{
     Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, UserInfo, VerifyingKey,
 };
-use bitvm2_lib::watchtower::{build_watchtower_challenge_tx, estimate_watchtower_challenge_vbytes};
+use bitvm2_lib::watchtower::*;
 use client::Utxo as ClientUtxo;
 use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
 use client::goat_chain::{DisproveTxType, WithdrawStatus};
@@ -56,9 +56,9 @@ use store::{
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
-use client::goat_chain::{PeginData, PeginStatus, WithdrawData};
 use crate::scheduled_tasks::get_goat_message_content_type;
 use bitvm2_lib::transactions::base::BaseTransaction;
+use client::goat_chain::{PeginData, PeginStatus, WithdrawData};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -260,6 +260,19 @@ pub mod todo_funcs {
     ) -> Result<Vec<(PublicKey, PartialSignature)>> {
         todo!("get_committee_partial_sigs")
     }
+    pub async fn get_latest_pegout_finalized_graph(
+        local_db: &LocalDB,
+        operator_pubkey: &PublicKey,
+    ) -> Result<Option<(u64, Uuid)>> {
+        todo!("get latest pegout finalized graph nonce & id from local db")
+    }
+    pub async fn get_graph_id_by_nonce(
+        local_db: &LocalDB,
+        graph_nonce: u64,
+        operator_pubkey: &PublicKey,
+    ) -> Result<Option<(Uuid, Uuid)>> {
+        todo!("get instance_id & graph_id by graph_nonce and operator_pubkey from local db")
+    }
 
     // proof network
     pub async fn get_watchtower_proof(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<u8>> {
@@ -367,12 +380,12 @@ pub mod todo_funcs {
     ) -> Result<Vec<ScriptBuf>> {
         todo!("generate disprove scripts for the graph")
     }
-    pub async fn build_and_broadcast_cpfp_txns(
+    pub async fn build_cpfp_txns(
         btc_client: &BTCClient,
         parent_tx: Transaction,
         anchor_vout: u64,
-    ) -> Result<()> {
-        todo!("build child txns to cpfp the parent tx and broadcast them")
+    ) -> Result<Vec<Transaction>> {
+        todo!("build child txns to cpfp the parent tx")
     }
     pub async fn get_preimage(
         local_db: &LocalDB,
@@ -384,6 +397,23 @@ pub mod todo_funcs {
     }
     pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
         todo!("broadcast non-standard tx")
+    }
+    pub async fn refresh_graph(
+        local_db: &LocalDB,
+        btc_client: &BTCClient,
+        goat_client: &GOATClient,
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<(Bitvm2Graph, GraphStatus)> {
+        todo!("refresh graph's status, return updated graph & status")
+    }
+    pub async fn refresh_insatnce(
+        local_db: &LocalDB,
+        btc_client: &BTCClient,
+        goat_client: &GOATClient,
+        instance_id: Uuid,
+    ) -> Result<()> {
+        todo!("refresh instance's status & all its graphs' status")
     }
 }
 
@@ -599,6 +629,11 @@ pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> Result<()> {
     Ok(())
 }
 
+pub async fn broadcast_package(client: &BTCClient, txns: &[Transaction]) -> Result<()> {
+    client.broadcast_package(txns).await?;
+    Ok(())
+}
+
 /// Completes and broadcasts a challenge transaction.
 ///
 /// This involves:
@@ -622,6 +657,47 @@ pub async fn complete_and_broadcast_challenge_tx(
         challenge_tx.output,
     )
     .await
+}
+
+pub async fn challenger_force_skip_kickoff(
+    client: &BTCClient,
+    graph: &Bitvm2Graph,
+) -> Result<Txid> {
+    let challenger_master_key = ChallengerMasterKey::new(get_bitvm_key()?);
+    let challenger_master_keypair = challenger_master_key.master_keypair();
+    let challenger_receive_address =
+        node_p2wsh_address(get_network(), &challenger_master_keypair.public_key().into());
+    let fee_rate = get_fee_rate(client).await?;
+    let (force_skip_kickoff_tx, anchor_added) =
+        build_force_skip_kickoff_tx(graph, challenger_receive_address, fee_rate)?;
+    if anchor_added {
+        let anchor_vout = force_skip_kickoff_tx.output.len() as u64 - 1;
+        let cpfp_package =
+            todo_funcs::build_cpfp_txns(client, force_skip_kickoff_tx.clone(), anchor_vout).await?;
+        broadcast_package(client, &cpfp_package).await?;
+    } else {
+        broadcast_tx(client, &force_skip_kickoff_tx).await?;
+    }
+    Ok(force_skip_kickoff_tx.compute_txid())
+}
+
+pub async fn challenger_quick_challenge(client: &BTCClient, graph: &Bitvm2Graph) -> Result<Txid> {
+    let challenger_master_key = ChallengerMasterKey::new(get_bitvm_key()?);
+    let challenger_master_keypair = challenger_master_key.master_keypair();
+    let challenger_receive_address =
+        node_p2wsh_address(get_network(), &challenger_master_keypair.public_key().into());
+    let fee_rate = get_fee_rate(client).await?;
+    let (quick_challenge_tx, anchor_added) =
+        build_quick_challenge_tx(graph, challenger_receive_address, fee_rate)?;
+    if anchor_added {
+        let anchor_vout = quick_challenge_tx.output.len() as u64 - 1;
+        let cpfp_package =
+            todo_funcs::build_cpfp_txns(client, quick_challenge_tx.clone(), anchor_vout).await?;
+        broadcast_package(client, &cpfp_package).await?;
+    } else {
+        broadcast_tx(client, &quick_challenge_tx).await?;
+    }
+    Ok(quick_challenge_tx.compute_txid())
 }
 
 pub async fn build_sign_and_broadcast_tx(
@@ -778,6 +854,78 @@ pub fn node_sign(
         input_value,
         &vec![node_keypair],
     );
+    Ok(())
+}
+
+pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -> Result<()> {
+    let graph_id = graph.parameters.graph_id;
+    let graph_nonce = graph.parameters.graph_nonce;
+    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+    let operator_master_keypair = operator_master_key.master_keypair();
+    let operator_receive_address =
+        node_p2wsh_address(get_network(), &operator_master_keypair.public_key().into());
+    let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+    let mut prekickoff_tx = operator_sign_prekickoff_input_0(operator_graph_keypair, graph)?;
+    if prekickoff_tx.input.len() != 1 {
+        let operator_nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce);
+        for i in 1..prekickoff_tx.input.len() {
+            let input_value = graph.cur_prekickoff.input_amounts[i];
+            node_sign(
+                &mut prekickoff_tx,
+                i,
+                input_value,
+                bitcoin::EcdsaSighashType::All,
+                &operator_nonce_keypair,
+            )?;
+        }
+    }
+    let anchor_vout = prekickoff_tx.output.len() as u64 - 1;
+    let mut tx_package =
+        todo_funcs::build_cpfp_txns(btc_client, prekickoff_tx, anchor_vout).await?;
+    match operator_sign_skip_kickoff(
+        operator_graph_keypair,
+        graph,
+        operator_receive_address,
+        get_fee_rate(btc_client).await?,
+    )? {
+        Some(skip_kickoff_tx) => {
+            tx_package.push(skip_kickoff_tx);
+        }
+        None => {}
+    };
+    broadcast_package(btc_client, &tx_package).await?;
+    Ok(())
+}
+
+pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -> Result<()> {
+    let graph_id = graph.parameters.graph_id;
+    let graph_nonce = graph.parameters.graph_nonce;
+    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+    let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+    let mut prekickoff_tx = operator_sign_prekickoff_input_0(operator_graph_keypair, graph)?;
+    if prekickoff_tx.input.len() != 1 {
+        let operator_nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce);
+        for i in 1..prekickoff_tx.input.len() {
+            let input_value = graph.cur_prekickoff.input_amounts[i];
+            node_sign(
+                &mut prekickoff_tx,
+                i,
+                input_value,
+                bitcoin::EcdsaSighashType::All,
+                &operator_nonce_keypair,
+            )?;
+        }
+    }
+    let anchor_vout = prekickoff_tx.output.len() as u64 - 1;
+    let mut tx_package =
+        todo_funcs::build_cpfp_txns(btc_client, prekickoff_tx, anchor_vout).await?;
+
+    let kickoff_tx = operator_sign_kickoff(operator_graph_keypair, graph)?;
+    let anchor_vout = kickoff_tx.output.len() as u64 - 1;
+    let kickoff_cpfp_package =
+        todo_funcs::build_cpfp_txns(btc_client, kickoff_tx, anchor_vout).await?;
+    tx_package.extend(kickoff_cpfp_package);
+    broadcast_package(btc_client, &tx_package).await?;
     Ok(())
 }
 

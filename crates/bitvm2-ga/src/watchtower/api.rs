@@ -1,15 +1,15 @@
 use anyhow::{Result, bail};
-use bitcoin::{key::Keypair, Address, Amount, OutPoint, Transaction, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, Transaction, XOnlyPublicKey, key::Keypair};
 use goat::{
-    connectors::{watchtower_connectors::{AckConnector, WatchtowerChallengeConnector}},
-    transactions::{base::Input, pre_signed::PreSignedTransaction, watchtower_challenge::watchtower_challenge},
+    connectors::watchtower_connectors::{AckConnector, WatchtowerChallengeConnector},
+    transactions::{
+        base::Input, pre_signed::PreSignedTransaction, watchtower_challenge::watchtower_challenge,
+    },
 };
 
 use crate::types::Bitvm2Graph;
 
-pub fn estimate_watchtower_challenge_vbytes(
-    commitment_data_len: usize,
-) -> usize {
+pub fn estimate_watchtower_challenge_vbytes(commitment_data_len: usize) -> usize {
     let base_vbytes = 120;
     let commitment_vbytes = commitment_data_len * 12 / 10; // assuming 1.2 vbytes per byte of commitment data
     base_vbytes + commitment_vbytes
@@ -46,13 +46,16 @@ pub fn build_watchtower_challenge_tx(
         bail!("Watchtower keypair does not match the watchtower public key");
     }
     let watchtower_challenge_connector_vout = watchtower_index * 2;
-    let watchtower_challenge_connector_amount =
-        graph.watchtower_challenge_init.tx().output.get(watchtower_challenge_connector_vout)
-            .ok_or_else(|| anyhow::anyhow!("watchtower index out of bounds"))?
-            .value;
+    let watchtower_challenge_connector_amount = graph
+        .watchtower_challenge_init
+        .tx()
+        .output
+        .get(watchtower_challenge_connector_vout)
+        .ok_or_else(|| anyhow::anyhow!("watchtower index out of bounds"))?
+        .value;
     let input_0 = Input {
-        outpoint: OutPoint { 
-            txid: graph.watchtower_challenge_init.tx().compute_txid(), 
+        outpoint: OutPoint {
+            txid: graph.watchtower_challenge_init.tx().compute_txid(),
             vout: watchtower_challenge_connector_vout as u32,
         },
         amount: watchtower_challenge_connector_amount,

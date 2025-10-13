@@ -157,6 +157,10 @@ impl BitcoinAdaptor for MockBitcoinAdaptor {
         Ok(())
     }
 
+    async fn broadcast_package(&self, _txns: &[Transaction]) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn get_output_status(
         &self,
         txid: &Txid,

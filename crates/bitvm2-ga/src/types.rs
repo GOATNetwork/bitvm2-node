@@ -96,6 +96,7 @@ pub struct Bitvm2GraphParameters {
     pub instance_parameters: Bitvm2InstanceParameters,
     pub prekickoff_parameters: PrekickoffParameters,
     pub graph_id: Uuid,
+    pub graph_nonce: u64,
     pub challenge_amount: Amount,
     pub operator_pubkey: PublicKey,
     #[serde(with = "node_serializer::wots_pubkeys")]

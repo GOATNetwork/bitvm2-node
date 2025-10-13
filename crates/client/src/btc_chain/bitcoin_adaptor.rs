@@ -12,6 +12,7 @@ pub trait BitcoinAdaptor: Send + Sync {
     async fn get_height(&self) -> anyhow::Result<u32>;
     async fn get_fee_estimates(&self) -> anyhow::Result<std::collections::HashMap<u16, f64>>;
     async fn broadcast(&self, tx: &Transaction) -> anyhow::Result<()>;
+    async fn broadcast_package(&self, txns: &[Transaction]) -> anyhow::Result<()>;
     async fn get_output_status(
         &self,
         txid: &Txid,

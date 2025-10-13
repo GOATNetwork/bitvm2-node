@@ -102,6 +102,10 @@ impl BTCClient {
     pub async fn broadcast(&self, tx: &Transaction) -> anyhow::Result<()> {
         self.chain_service.broadcast(tx).await
     }
+
+    pub async fn broadcast_package(&self, txns: &[Transaction]) -> anyhow::Result<()> {
+        self.chain_service.broadcast_package(txns).await
+    }
 }
 
 #[cfg(test)]

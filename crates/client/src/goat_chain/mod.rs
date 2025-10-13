@@ -11,8 +11,8 @@ pub mod utils;
 use crate::btc_chain::{BTCClient, MerkleProofExtend};
 pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, PeginStatus, WithdrawData, WithdrawStatus,
-    get_chain_adaptor,
+    BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, PeginStatus, WithdrawData,
+    WithdrawStatus, get_chain_adaptor,
 };
 pub use goat_adaptor::GoatInitConfig;
 mod chain_adaptor;

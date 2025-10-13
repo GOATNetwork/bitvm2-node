@@ -1368,6 +1368,18 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::KickoffReady(data), Actor::Operator) => {
             // triggered by InitWithdraw event from GoatChain
             let KickoffReady { instance_id, graph_id } = data;
+            let (graph_nonce, graph) = todo_funcs::get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+            let operator_pubkey = graph.parameters.operator_pubkey;
+            let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+            let node_pubkey: PublicKey =
+                operator_master_key.keypair_for_graph(graph_id).public_key().into();
+            if node_pubkey != operator_pubkey {
+                tracing::warn!("Ignore KickoffReady for {instance_id}:{graph_id}: not my graph");
+                return Ok(());
+            }
             // 1. check the withdraw status on GoatChain
             let withdraw_status =
                 todo_funcs::get_withdraw_data(goat_client, &graph_id).await?.status;
@@ -1378,9 +1390,81 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             tracing::info!("Handle KickoffReady for {instance_id}:{graph_id}");
-            // 2. check prekickoff nonce
+            // 2. check prekickoff nonce & broadcast previous pre-kickoff if needed
+            let start_nonce =
+                match todo_funcs::get_latest_pegout_finalized_graph(local_db, &operator_pubkey)
+                    .await?
+                {
+                    Some((n, _)) => n + 1,
+                    None => 0,
+                };
+            for current_nonce in start_nonce..graph_nonce {
+                let (current_instance_id, current_graph_id) =
+                    match todo_funcs::get_graph_id_by_nonce(
+                        local_db,
+                        current_nonce,
+                        &operator_pubkey,
+                    )
+                    .await?
+                    {
+                        Some(gid) => gid,
+                        None => {
+                            tracing::warn!(
+                                "Ignore KickoffReady for {instance_id}:{graph_id}: missing graph for Operator {operator_pubkey}: nonce {current_nonce}"
+                            );
+                            continue;
+                        }
+                    };
+                todo_funcs::refresh_graph(
+                    local_db,
+                    btc_client,
+                    goat_client,
+                    current_instance_id,
+                    current_graph_id,
+                )
+                .await?;
+                let current_graph_status = get_graph_status(
+                    local_db,
+                    current_instance_id,
+                    current_graph_id,
+                )
+                .await?
+                .ok_or_else(|| {
+                    anyhow!("Graph status not found for {current_instance_id}:{current_graph_id}")
+                })?;
+                if current_graph_status.is_closed() {
+                    continue;
+                } else if current_graph_status.is_pegout_started() {
+                    tracing::warn!(
+                        "Ignore KickoffReady for {instance_id}:{graph_id}: previous graph not finalized for Operator {operator_pubkey}: {current_instance_id}:{current_graph_id}"
+                    );
+                    return Ok(());
+                } else if current_graph_status.is_obsoleted() {
+                    let (_, current_graph) =
+                        todo_funcs::get_graph(local_db, current_instance_id, current_graph_id)
+                            .await?
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "Graph not found for {current_instance_id}:{current_graph_id}"
+                                )
+                            })?;
+                    let mut current_graph = Bitvm2Graph::from_simplified(&current_graph)?;
+                    operator_skip_graph(btc_client, &mut current_graph).await?;
+                    tracing::info!(
+                        "Operator {operator_pubkey} skipped obsoleted graph {current_instance_id}:{current_graph_id}"
+                    );
+                    let delay_ms = 20 * 60 * 1000; // 20 minutes
+                    push_local_unhandled_messages(local_db, message, delay_ms).await?;
+                    return Ok(());
+                } else {
+                    tracing::warn!(
+                        "Ignore KickoffReady for {instance_id}:{graph_id}: previous available graph exists for Operator {operator_pubkey}: {current_instance_id}:{current_graph_id}, please withdraw it first"
+                    );
+                    return Ok(());
+                }
+            }
             // 3. sign & broadcast prekickoff & kickoff txns
-            todo!("Handle KickoffReady");
+            operator_kickoff(btc_client, &mut graph).await?;
         }
         (GOATMessageContent::KickoffSent(data), Actor::Challenger) => {
             // triggered by Kickoff tx
@@ -1444,12 +1528,67 @@ pub async fn recv_and_dispatch(
                 }
             }
         }
-        (GOATMessageContent::PreKickoffSent(_data), Actor::Challenger) => {
+        (GOATMessageContent::PreKickoffSent(data), Actor::Challenger) => {
             // triggered by PreKickoff tx
+            let PreKickoffSent { instance_id, graph_id } = data;
+            tracing::info!("Handle PreKickoffSent for {instance_id}:{graph_id}");
+            let (graph_nonce, graph) = todo_funcs::get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            if graph_nonce == 0 {
+                return Ok(());
+            }
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            if !tx_on_chain(
+                btc_client,
+                &graph.parameters.prekickoff_parameters.cur_prekickoff_txn.tx().compute_txid(),
+            )
+            .await?
+            {
+                tracing::warn!(
+                    "Ignore PreKickoffSent for {instance_id}:{graph_id}: prekickoff tx not found on chain"
+                );
+                return Ok(());
+            }
+            tracing::info!("Handle PreKickoffSent for {instance_id}:{graph_id}");
             // 1. check the previous graph status
-            // 2. if previous kickoff is not closed, broadcast quick-challenge/challenge-incomplete-kickoff txn
-            // 3. if previous kickoff not started, broadcast force-skip-kickoff txn
-            todo!("Handle PreKickoffSent");
+            let (prev_instance_id, prev_graph_id) = todo_funcs::get_graph_id_by_nonce(
+                local_db,
+                graph_nonce - 1,
+                &graph.parameters.operator_pubkey,
+            )
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "Previous graph not found for Operator {}: nonce {}",
+                    graph.parameters.operator_pubkey,
+                    graph_nonce - 1
+                )
+            })?;
+            todo_funcs::refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                prev_instance_id,
+                prev_graph_id,
+            )
+            .await?;
+            let prev_graph_status =
+                get_graph_status(local_db, prev_instance_id, prev_graph_id).await?.ok_or_else(
+                    || anyhow!("Graph status not found for {prev_instance_id}:{prev_graph_id}"),
+                )?;
+            let prev_graph = todo_funcs::get_graph(local_db, prev_instance_id, prev_graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {prev_instance_id}:{prev_graph_id}"))?
+                .1;
+            let prev_graph = Bitvm2Graph::from_simplified(&prev_graph)?;
+            if !tx_on_chain(btc_client, &prev_graph.kickoff.tx().compute_txid()).await? {
+                // 2. if previous kickoff not started, broadcast force-skip-kickoff txn
+                challenger_force_skip_kickoff(btc_client, &prev_graph).await?;
+            } else if !prev_graph_status.is_closed() {
+                // 3. if previous kickoff is not closed, broadcast quick-challenge/challenge-incomplete-kickoff txn
+                challenger_quick_challenge(btc_client, &prev_graph).await?;
+            }
         }
         (GOATMessageContent::ChallengeSent(data), Actor::Operator) => {
             // triggered by Challenge tx
@@ -1489,13 +1628,11 @@ pub async fn recv_and_dispatch(
                 operator_master_key.keypair_for_graph(graph_id),
                 &mut graph,
             )?;
-            let anchor_vout = watchtower_challenge_init_tx.input.len() as u64 - 1;
-            todo_funcs::build_and_broadcast_cpfp_txns(
-                btc_client,
-                watchtower_challenge_init_tx,
-                anchor_vout,
-            )
-            .await?;
+            let anchor_vout = watchtower_challenge_init_tx.output.len() as u64 - 1;
+            let cpfp_package =
+                todo_funcs::build_cpfp_txns(btc_client, watchtower_challenge_init_tx, anchor_vout)
+                    .await?;
+            broadcast_package(btc_client, &cpfp_package).await?;
         }
         (GOATMessageContent::WatchtowerChallengeInitSent(data), Actor::Watchtower) => {
             // triggered by WatchtowerChallengeInit tx
@@ -1668,13 +1805,14 @@ pub async fn recv_and_dispatch(
                     &mut graph,
                     watchtower_index,
                 )?;
-                let anchor_vout = watchtower_challenge_timeout_tx.input.len() as u64 - 1;
-                todo_funcs::build_and_broadcast_cpfp_txns(
+                let anchor_vout = watchtower_challenge_timeout_tx.output.len() as u64 - 1;
+                let cpfp_package = todo_funcs::build_cpfp_txns(
                     btc_client,
                     watchtower_challenge_timeout_tx,
                     anchor_vout,
                 )
                 .await?;
+                broadcast_package(btc_client, &cpfp_package).await?;
             }
         }
         (GOATMessageContent::OperatorAckTimeout(data), Actor::Challenger) => {
@@ -1745,8 +1883,10 @@ pub async fn recv_and_dispatch(
                     anyhow!("Nack txn not found for {instance_id}:{graph_id}:{nack_index}")
                 })?
                 .finalize();
-            let anchor_vout = nack_tx.input.len() as u64 - 1;
-            todo_funcs::build_and_broadcast_cpfp_txns(btc_client, nack_tx, anchor_vout).await?;
+            let anchor_vout = nack_tx.output.len() as u64 - 1;
+            let cpfp_package =
+                todo_funcs::build_cpfp_txns(btc_client, nack_tx, anchor_vout).await?;
+            broadcast_package(btc_client, &cpfp_package).await?;
         }
         (GOATMessageContent::OperatorCommitBlockHashReady(data), Actor::Operator) => {
             // triggered by timeout task
@@ -1854,13 +1994,11 @@ pub async fn recv_and_dispatch(
             // 1. broadcast OperatorCommitBlockHashTimeout txn
             tracing::info!("Handle OperatorCommitBlockHashTimeout for {instance_id}:{graph_id}");
             let blockhash_commit_timeout_tx = graph.blockhash_commit_timeout.finalize();
-            let anchor_vout = blockhash_commit_timeout_tx.input.len() as u64 - 1;
-            todo_funcs::build_and_broadcast_cpfp_txns(
-                btc_client,
-                blockhash_commit_timeout_tx,
-                anchor_vout,
-            )
-            .await?;
+            let anchor_vout = blockhash_commit_timeout_tx.output.len() as u64 - 1;
+            let cpfp_package =
+                todo_funcs::build_cpfp_txns(btc_client, blockhash_commit_timeout_tx, anchor_vout)
+                    .await?;
+            broadcast_package(btc_client, &cpfp_package).await?;
         }
         (GOATMessageContent::AssertInitReady(data), Actor::Operator) => {
             // triggered by timeout task
@@ -1901,9 +2039,10 @@ pub async fn recv_and_dispatch(
                     return Ok(());
                 }
                 let assert_init_tx = operator_sign_assert_init(operator_graph_keypair, &mut graph)?;
-                let anchor_vout = assert_init_tx.input.len() as u64 - 1;
-                todo_funcs::build_and_broadcast_cpfp_txns(btc_client, assert_init_tx, anchor_vout)
-                    .await?;
+                let anchor_vout = assert_init_tx.output.len() as u64 - 1;
+                let cpfp_package =
+                    todo_funcs::build_cpfp_txns(btc_client, assert_init_tx, anchor_vout).await?;
+                broadcast_package(btc_client, &cpfp_package).await?;
                 // assert-commit should be broadcasted after assert-init is confirmed (wait 20 minutes here)
                 let delay_ms = 20 * 60 * 1000; // 20 minutes
                 push_local_unhandled_messages(local_db, message, delay_ms).await?;
@@ -2005,13 +2144,11 @@ pub async fn recv_and_dispatch(
             let assert_commit_timeout_tx = graph.assert_commit_timeout_txns.get(commit_index).ok_or_else(|| {
                 anyhow!("AssertCommitTimeout txn not found for {instance_id}:{graph_id}:{commit_index}")
             })?.finalize();
-            let anchor_vout = assert_commit_timeout_tx.input.len() as u64 - 1;
-            todo_funcs::build_and_broadcast_cpfp_txns(
-                btc_client,
-                assert_commit_timeout_tx,
-                anchor_vout,
-            )
-            .await?;
+            let anchor_vout = assert_commit_timeout_tx.output.len() as u64 - 1;
+            let cpfp_package =
+                todo_funcs::build_cpfp_txns(btc_client, assert_commit_timeout_tx, anchor_vout)
+                    .await?;
+            broadcast_package(btc_client, &cpfp_package).await?;
         }
         (GOATMessageContent::DisproveReady(data), Actor::Challenger) => {
             // triggered by AssertCommit tx or OperatorCommitBlockHash tx
@@ -2181,8 +2318,10 @@ pub async fn recv_and_dispatch(
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
             let take1_tx = operator_sign_take1(operator_graph_keypair, &mut graph)?;
-            let anchor_vout = take1_tx.input.len() as u64 - 1;
-            todo_funcs::build_and_broadcast_cpfp_txns(btc_client, take1_tx, anchor_vout).await?;
+            let anchor_vout = take1_tx.output.len() as u64 - 1;
+            let cpfp_package =
+                todo_funcs::build_cpfp_txns(btc_client, take1_tx, anchor_vout).await?;
+            broadcast_package(btc_client, &cpfp_package).await?;
         }
         (GOATMessageContent::Take1Sent(_data), Actor::Committee) => {
             // triggered by Take1 tx
@@ -2271,8 +2410,10 @@ pub async fn recv_and_dispatch(
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
             let take2_tx = operator_sign_take2(operator_graph_keypair, &mut graph)?;
-            let anchor_vout = take2_tx.input.len() as u64 - 1;
-            todo_funcs::build_and_broadcast_cpfp_txns(btc_client, take2_tx, anchor_vout).await?;
+            let anchor_vout = take2_tx.output.len() as u64 - 1;
+            let cpfp_package =
+                todo_funcs::build_cpfp_txns(btc_client, take2_tx, anchor_vout).await?;
+            broadcast_package(btc_client, &cpfp_package).await?;
         }
         (GOATMessageContent::Take2Sent(_data), Actor::Committee) => {
             // triggered by Take2 tx

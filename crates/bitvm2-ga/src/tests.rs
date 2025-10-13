@@ -4,9 +4,8 @@
 mod tests {
     use crate::{challenger::*, committee::*, keys::*, operator::*, types::*, watchtower::*};
     use bitcoin::{
-        Address, Amount, EcdsaSighashType, Network, OutPoint,
-        PublicKey, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
-        hashes::Hash, key::Keypair,
+        Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, TapSighashType,
+        Transaction, TxIn, TxOut, Txid, XOnlyPublicKey, hashes::Hash, key::Keypair,
     };
     use bitcoincore_rpc::{Auth, Client as BtcdClient, RpcApi};
     use bitvm::{
@@ -352,6 +351,7 @@ mod tests {
             instance_parameters: instance_params,
             prekickoff_parameters,
             graph_id,
+            graph_nonce: 0,
             challenge_amount,
             operator_pubkey: operator_keypair.public_key().into(),
             operator_wots_pubkeys,

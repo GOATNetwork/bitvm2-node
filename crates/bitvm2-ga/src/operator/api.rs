@@ -599,12 +599,12 @@ pub fn operator_sign_prekickoff_input_0(
     graph: &mut Bitvm2Graph,
 ) -> Result<Transaction> {
     let operator_context = graph.parameters.get_operator_context(operator_keypair)?;
-    let cur_prekickoff_connector = PrekickoffConnector::new(
+    let prev_prekickoff_connector = PrekickoffConnector::new(
         operator_context.network,
         &operator_context.operator_taproot_public_key,
     );
-    graph.next_prekickoff.sign_input_0(&operator_context, &cur_prekickoff_connector);
-    Ok(graph.next_prekickoff.tx().clone())
+    graph.cur_prekickoff.sign_input_0(&operator_context, &prev_prekickoff_connector);
+    Ok(graph.cur_prekickoff.tx().clone())
 }
 
 pub fn operator_sign_skip_kickoff(

@@ -63,6 +63,10 @@ impl BitcoinAdaptor for EsploraBitcoinAdaptor {
         Ok(self.esplora.broadcast(tx).await?)
     }
 
+    async fn broadcast_package(&self, txns: &[Transaction]) -> anyhow::Result<()> {
+        Ok(self.esplora.broadcast_package(txns).await?)
+    }
+
     async fn get_output_status(
         &self,
         txid: &Txid,

@@ -260,6 +260,21 @@ pub enum GraphStatus {
     Discarded,
 }
 
+impl GraphStatus {
+    pub fn is_pegin_finalized(&self) -> bool {
+        todo!("")
+    }
+    pub fn is_pegout_started(&self) -> bool {
+        todo!("")
+    }
+    pub fn is_closed(&self) -> bool {
+        todo!("")
+    }
+    pub fn is_obsoleted(&self) -> bool {
+        todo!("")
+    }
+}
+
 /// graph detail
 /// Field `graph_ipfs_base_url` is the IFPS address, which serves as a directory address containing the following files within that directory.
 /// ├── assert-commit0.hex
