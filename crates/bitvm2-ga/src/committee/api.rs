@@ -16,11 +16,11 @@ use goat::contexts::base::generate_n_of_n_public_key;
 use goat::transactions::pre_signed_musig2::{get_nonce_message, verify_public_nonce};
 use goat::transactions::{base::BaseTransaction, signing_musig2::generate_aggregated_nonce};
 use hex::FromHex;
+use hex::ToHex;
 use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use hex::ToHex;
 
 pub fn key_aggregation(pubkeys: &[PublicKey]) -> PublicKey {
     generate_n_of_n_public_key(pubkeys).0

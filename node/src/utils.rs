@@ -138,18 +138,14 @@ pub mod todo_funcs {
     ) -> Result<Option<Bitvm2InstanceParameters>> {
         todo!("get instance params from local db")
     }
-    pub async fn store_graph(
-        local_db: &LocalDB,
-        graph_nonce: u64,
-        graph: &SimplifiedBitvm2Graph,
-    ) -> Result<()> {
+    pub async fn store_graph(local_db: &LocalDB, graph: &SimplifiedBitvm2Graph) -> Result<()> {
         todo!("store graph to local db")
     }
     pub async fn get_graph(
         local_db: &LocalDB,
         instance_id: Uuid,
         graph_id: Uuid,
-    ) -> Result<Option<(u64, SimplifiedBitvm2Graph)>> {
+    ) -> Result<Option<SimplifiedBitvm2Graph>> {
         todo!("get graph from local db")
     }
     pub async fn store_committee_pub_nonces_for_graph(
@@ -327,7 +323,6 @@ pub mod todo_funcs {
         local_db: &LocalDB,
         btc_client: &BTCClient,
         goat_client: &GOATClient,
-        graph_nonce: u64,
         graph: &SimplifiedBitvm2Graph,
     ) -> Result<()> {
         // return SpecialError::InvalidGraph if not valid
@@ -335,7 +330,6 @@ pub mod todo_funcs {
     }
     pub fn validate_finalized_graph(
         goat_client: &GOATClient,
-        graph_nonce: u64,
         graph: &SimplifiedBitvm2Graph,
         endorse_sigs: &Vec<(PublicKey, EvmAddress, Vec<u8>)>,
     ) -> Result<()> {
