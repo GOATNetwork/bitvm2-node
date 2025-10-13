@@ -74,6 +74,8 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
                     Actor::All,
                     GOATMessageContent::PeginRequest(PeginRequest {
                         instance_id: tx_record.instance_id,
+                        pegin_request_tx_hash: tx_record.tx_hash,
+                        pegin_request_height: tx_record.height,
                     }),
                     0,
                     0,

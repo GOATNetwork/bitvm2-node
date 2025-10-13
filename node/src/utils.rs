@@ -112,14 +112,6 @@ pub mod todo_funcs {
     }
 
     // db operations
-    pub async fn store_pegin_request(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        user_info: UserInfo,
-        pegin_amount: Amount,
-    ) -> Result<()> {
-        todo!("store instance info to local db")
-    }
     pub async fn store_instance_parameters(
         local_db: &LocalDB,
         instance_params: &Bitvm2InstanceParameters,
@@ -1752,6 +1744,71 @@ pub async fn get_current_prekickoff_tx(
     } else {
         Ok(None)
     }
+}
+
+pub async fn store_pegin_request(
+    btc_client: &BTCClient,
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    user_info: UserInfo,
+    pegin_amount: Amount,
+    pegin_request_tx_hash: String,
+    pegin_request_height: i64,
+) -> Result<()> {
+    // store instance info to local db
+    let mut storage_processor = local_db.acquire().await?;
+    let from_addr = if !user_info.inputs.is_empty()
+        && let Some(tx) = btc_client.get_tx(&user_info.inputs[0].outpoint.txid).await?
+    {
+        let tx_scripts =
+            tx.output[user_info.inputs[0].outpoint.vout as usize].script_pubkey.clone();
+        Address::from_script(&tx_scripts, env::get_network())
+            .map(|addr| addr.to_string())
+            .unwrap_or_default()
+    } else {
+        warn!(
+            "failed to decode instance {instance_id} from_address from pegin_request as input_utxos is empty or decode address failed",
+        );
+        "".to_string()
+    };
+
+    let input_utxos = user_info
+        .inputs
+        .iter()
+        .map(|input| ClientUtxo {
+            txid: input.outpoint.txid.to_byte_array(),
+            vout: input.outpoint.vout,
+            amount_stats: input.amount.to_sat(),
+        })
+        .collect::<Vec<_>>();
+
+    storage_processor
+        .upsert_instance(&Instance {
+            instance_id,
+            network: get_network().to_string(),
+            from_addr,
+            to_addr: EvmAddress::from(&user_info.depositor_evm_address).to_string(),
+            amount: pegin_amount.to_sat() as i64,
+            fees: UInt64Array3(user_info.txn_fees.clone()),
+            input_utxos: serde_json::to_string(&input_utxos)?,
+            status: InstanceStatus::UserInited.to_string(),
+            pegin_request_tx_hash,
+            pegin_request_height,
+            user_xonly_pubkey: ByteArray32(user_info.user_xonly_pubkey.clone().serialize()),
+            user_change_addr: user_info.user_change_address.clone().to_string(),
+            user_refund_addr: user_info.user_refund_address.clone().to_string(),
+            pegin_prepare_txid: None,
+            pegin_confirm_txid: None,
+            pegin_cancel_txid: None,
+            unsign_pegin_confirm_tx: None,
+            committees_answers: IndexMap::new(),
+            pegin_data_tx_hash: "".to_string(),
+            pegin_prepare_height: 0,
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+        })
+        .await?;
+    Ok(())
 }
 
 pub async fn upsert_pegin_instance_process_data(

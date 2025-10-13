@@ -77,6 +77,8 @@ pub enum GOATMessageContent {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PeginRequest {
     pub instance_id: Uuid,
+    pub pegin_request_tx_hash: String, // goat tx hash
+    pub pegin_request_height: i64,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ConfirmInstance {
@@ -357,7 +359,14 @@ pub async fn recv_and_dispatch(
     let message: GOATMessage = serde_json::from_slice(&message)?;
     let content: GOATMessageContent = message.to_typed()?;
     match (content, actor) {
-        (GOATMessageContent::PeginRequest(PeginRequest { instance_id }), Actor::Committee) => {
+        (
+            GOATMessageContent::PeginRequest(PeginRequest {
+                instance_id,
+                pegin_request_tx_hash,
+                pegin_request_height,
+            }),
+            Actor::Committee,
+        ) => {
             // triggered by BridgeInRequest event
             tracing::info!("Handle PeginRequest for {instance_id}");
             // 1. read & check the pegin request data
@@ -380,7 +389,16 @@ pub async fn recv_and_dispatch(
                     }
                 };
             // 2. save the pegin request data to local db
-            todo_funcs::store_pegin_request(local_db, instance_id, user_info, pegin_amount).await?;
+            store_pegin_request(
+                btc_client,
+                local_db,
+                instance_id,
+                user_info,
+                pegin_amount,
+                pegin_request_tx_hash,
+                pegin_request_height,
+            )
+            .await?;
             // 3. call Gateway.answerPeginRequest
             let pubkey_for_instance = CommitteeMasterKey::new(get_bitvm_key()?)
                 .keypair_for_instance(instance_id)
@@ -388,7 +406,14 @@ pub async fn recv_and_dispatch(
                 .into();
             todo_funcs::answer_pegin_request(goat_client, instance_id, pubkey_for_instance).await?;
         }
-        (GOATMessageContent::PeginRequest(PeginRequest { instance_id }), _) => {
+        (
+            GOATMessageContent::PeginRequest(PeginRequest {
+                instance_id,
+                pegin_request_tx_hash,
+                pegin_request_height,
+            }),
+            _,
+        ) => {
             // triggered by BridgeInRequest event
             tracing::info!("Handle PeginRequest for {instance_id}");
             // 1. read & check the pegin request data
@@ -411,7 +436,16 @@ pub async fn recv_and_dispatch(
                     }
                 };
             // 2. save the pegin request data to local db
-            todo_funcs::store_pegin_request(local_db, instance_id, user_info, pegin_amount).await?;
+            store_pegin_request(
+                btc_client,
+                local_db,
+                instance_id,
+                user_info,
+                pegin_amount,
+                pegin_request_tx_hash,
+                pegin_request_height,
+            )
+            .await?;
         }
         (GOATMessageContent::ConfirmInstance(ConfirmInstance { instance_id }), Actor::Operator) => {
             // triggered by PeginDeposit tx
