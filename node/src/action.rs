@@ -450,9 +450,7 @@ pub async fn recv_and_dispatch(
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
             let (graph_nonce, cur_prekickoff_tx) =
-                match todo_funcs::get_current_prekickoff_tx(local_db, &local_operator_pubkey)
-                    .await?
-                {
+                match get_current_prekickoff_tx(local_db, &local_operator_pubkey).await? {
                     Some(v) => v,
                     None => {
                         // create a genesis prekickoff tx

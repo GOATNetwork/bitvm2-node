@@ -19,13 +19,12 @@ use bitvm2_lib::committee::*;
 use bitvm2_lib::keys::{ChallengerMasterKey, OperatorMasterKey, WatchtowerMasterKey};
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{
-    Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, SimplifiedBitvm2Graph,
-    UserInfo, VerifyingKey,
+    Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, UserInfo, VerifyingKey,
 };
 use bitvm2_lib::watchtower::*;
 use client::Utxo as ClientUtxo;
+use client::goat_chain::WithdrawStatus;
 use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
-use client::goat_chain::{DisproveTxType, WithdrawStatus};
 use client::graphs::graph_query::BridgeInRequestEvent;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
@@ -113,14 +112,6 @@ pub mod todo_funcs {
     }
 
     // db operations
-    pub async fn get_current_prekickoff_tx(
-        local_db: &LocalDB,
-        operator_pubkey: &PublicKey,
-    ) -> Result<Option<(u64, PrekickoffTransaction)>> {
-        // return (latest_graph.nonce + 1 , latest_graph.next_prekickoff_tx)
-        // return None if no graph yet
-        todo!("get current graph nonce & prekickoff tx from local db")
-    }
     pub async fn store_pegin_request(
         local_db: &LocalDB,
         instance_id: Uuid,
@@ -1073,7 +1064,7 @@ pub async fn store_graph(
     status: &str,
 ) -> anyhow::Result<()> {
     let mut tx = local_db.start_transaction().await?;
-    let kickoff_index_current = tx
+    let (_, kickoff_index_current) = tx
         .get_operator_max_kickoff_index(&bitvm2_graph.parameters.operator_pubkey.to_string())
         .await?;
     let current_time = current_time_secs();
@@ -1740,6 +1731,28 @@ pub struct GraphProcessDataItem {
     pub endorse_signature: Vec<u8>,
 }
 pub type GraphProcessDataMap = IndexMap<PublicKey, GraphProcessDataItem>;
+
+// db operations
+pub async fn get_current_prekickoff_tx(
+    local_db: &LocalDB,
+    operator_pubkey: &PublicKey,
+) -> Result<Option<(u64, PrekickoffTransaction)>> {
+    // return (latest_graph.nonce + 1 , latest_graph.next_prekickoff_tx)
+    // return None if no graph yet
+    let mut storage_processor = local_db.acquire().await?;
+    if let (Some(graph_id), index) =
+        storage_processor.get_operator_max_kickoff_index(&operator_pubkey.to_string()).await?
+        && let Some(graph_raw_data) = storage_processor.get_graph_raw_data(&graph_id).await?
+    {
+        Ok(Some((
+            (index + 1) as u64,
+            Bitvm2Graph::from_simplified(&serde_json::from_str(&graph_raw_data.raw_data)?)?
+                .next_prekickoff,
+        )))
+    } else {
+        Ok(None)
+    }
+}
 
 pub async fn upsert_pegin_instance_process_data(
     storage_processor: &mut StorageProcessor<'_>,

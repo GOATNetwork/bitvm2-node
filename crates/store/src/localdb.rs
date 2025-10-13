@@ -1266,14 +1266,26 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_operator_max_kickoff_index(
         &mut self,
         operator_pubkey: &str,
-    ) -> anyhow::Result<i64> {
-        let record = sqlx::query!(
-            "SELECT  MAX(kickoff_index) AS max_kickoff_index  FROM graph  WHERE operator_pubkey = ?",
+    ) -> anyhow::Result<(Option<Uuid>, i64)> {
+        #[derive(sqlx::FromRow)]
+        struct MaxPreKickoffIndexRow {
+            pub graph_id: Uuid,
+            pub kickoff_index: i64,
+        }
+
+        let record = sqlx::query_as!(
+            MaxPreKickoffIndexRow,
+            "SELECT graph_id AS  \"graph_id:Uuid\", kickoff_index
+                    FROM graph
+                    WHERE operator_pubkey = ?
+                    ORDER BY kickoff_index DESC
+                    limit 1",
             operator_pubkey
         )
-        .fetch_one(self.conn())
+        .fetch_optional(self.conn())
         .await?;
-        Ok(record.max_kickoff_index.unwrap_or(0))
+
+        Ok(record.map_or((None, 0), |v| (Some(v.graph_id), v.kickoff_index)))
     }
 
     pub async fn update_node_timestamp(
