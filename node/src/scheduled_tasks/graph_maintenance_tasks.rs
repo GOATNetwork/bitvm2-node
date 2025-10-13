@@ -1,9 +1,9 @@
 use crate::action::{
     AssertCommitTimeout, AssertInitReady, ChallengeSent, DisproveReady, DisproveSent,
     GOATMessageContent, KickoffReady, KickoffSent, OperatorAckTimeout,
-    OperatorCommitBlockHashReady, OperatorCommitBlockHashTimeout,
-    PreKickoffSent, Take1Ready, Take1Sent, Take2Ready, Take2Sent, WatchtowerChallengeInitSent,
-    WatchtowerChallengeSent, WatchtowerChallengeTimeout,
+    OperatorCommitBlockHashReady, OperatorCommitBlockHashTimeout, PreKickoffSent, Take1Ready,
+    Take1Sent, Take2Ready, Take2Sent, WatchtowerChallengeInitSent, WatchtowerChallengeSent,
+    WatchtowerChallengeTimeout,
 };
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
@@ -1036,12 +1036,10 @@ async fn process_watchtower_challenge_monitoring(
                         p2p_message_contents.push((
                             Actor::Challenger,
                             // TODO: temeporary fix, CommitBlockHashSent/AssertCommitSent no longer used, push DisproveReady when both CommitBlockHash and AssertCommit finished
-                            GOATMessageContent::DisproveReady(
-                                DisproveReady {
-                                    instance_id: graph.instance_id,
-                                    graph_id: graph.graph_id,
-                                },
-                            ),
+                            GOATMessageContent::DisproveReady(DisproveReady {
+                                instance_id: graph.instance_id,
+                                graph_id: graph.graph_id,
+                            }),
                             None,
                         ));
                         data_change = true;

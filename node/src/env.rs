@@ -17,7 +17,7 @@ use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use strum::{Display, EnumString};
-use tracing::info;
+use tracing::{info, warn};
 use zeroize::Zeroizing;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
@@ -51,6 +51,9 @@ pub const MAX_CUSTOM_INPUTS: usize = 100;
 
 pub const DEFAULT_CONFIRMATION_TARGET: u16 = 1;
 
+pub const ENV_BTC_NETWORK: &str = "BTC_NETWORK";
+pub const ENV_GOAT_NETWORK: &str = "GOAT_NETWORK";
+
 // fee estimate
 pub const CHEKSIG_P2WSH_INPUT_VBYTES: u64 = 100;
 pub const P2WSH_OUTPUT_VBYTES: u64 = 50;
@@ -68,8 +71,6 @@ pub const CHALLENGE_RATE: u64 = 0; // 0%
 pub const RATE_MULTIPLIER: u64 = 10000;
 
 const COMMITTEE_MEMBER_NUMBER: usize = 2;
-const BTC_NETWORK: Network = Network::Testnet;
-const GOAT_NETWORK: GoatNetwork = GoatNetwork::Test;
 
 pub const MESSAGE_BROADCAST_MAX_TIMES: i64 = 3;
 pub const MESSAGE_RESEND_INTERVAL_SECOND: i64 = 60 * 5;
@@ -91,12 +92,33 @@ pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 
 pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
 pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
+
 pub fn get_network() -> Network {
-    BTC_NETWORK
+    let network = std::env::var(ENV_BTC_NETWORK).unwrap_or("testnet".to_string());
+    match network.as_str() {
+        "bitcoin" => Network::Bitcoin,
+        "testnet" => Network::Testnet,
+        "signet" => Network::Signet,
+        "regtest" => Network::Regtest,
+        _ => {
+            warn!(
+                "Unknown BTC network: {network}, expect bitcoin, testnet, signet or regtest, return testnet by default"
+            );
+            Network::Testnet
+        }
+    }
 }
 
 pub fn get_goat_network() -> GoatNetwork {
-    GOAT_NETWORK
+    let network = std::env::var(ENV_GOAT_NETWORK).unwrap_or("test".to_string());
+    match network.as_str() {
+        "main" => GoatNetwork::Main,
+        "test" => GoatNetwork::Test,
+        _ => {
+            warn!("Unknown GOAT network: {network}, expect main, or test, return test by default");
+            GoatNetwork::Test
+        }
+    }
 }
 
 /// Get the entropy of WOTS keys for current node
