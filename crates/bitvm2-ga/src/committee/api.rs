@@ -20,6 +20,7 @@ use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use hex::ToHex;
 
 pub fn key_aggregation(pubkeys: &[PublicKey]) -> PublicKey {
     generate_n_of_n_public_key(pubkeys).0
@@ -688,10 +689,11 @@ pub(crate) fn generate_nonce(
 fn sha256(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input);
-    format!("{:x}", hasher.finalize())
+    // use encode_hex to get lowercase hex
+    hasher.finalize().encode_hex()
 }
 fn sha256_with_id(input: &str, idx: usize) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input);
-    sha256(&format!("{:x}{:04x}", hasher.finalize(), idx))
+    sha256(&format!("{}{:04x}", hasher.finalize().encode_hex::<String>(), idx))
 }

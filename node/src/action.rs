@@ -337,6 +337,7 @@ pub async fn handle_self_p2p_msg(
 /// Filter the message and dispatch message to different handlers, like rpc handler, or other peers
 ///     * database: inner_rpc: Write or Read.
 ///     * peers: send
+/// TODO: we should create a trait for all the actions of different roles to simplify this function.
 #[allow(clippy::too_many_arguments)]
 pub async fn recv_and_dispatch(
     swarm: &mut Swarm<AllBehaviours>,
@@ -356,9 +357,8 @@ pub async fn recv_and_dispatch(
     let message: GOATMessage = serde_json::from_slice(&message)?;
     let content: GOATMessageContent = message.to_typed()?;
     match (content, actor) {
-        (GOATMessageContent::PeginRequest(data), Actor::Committee) => {
+        (GOATMessageContent::PeginRequest(PeginRequest { instance_id }), Actor::Committee) => {
             // triggered by BridgeInRequest event
-            let PeginRequest { instance_id } = data;
             tracing::info!("Handle PeginRequest for {instance_id}");
             // 1. read & check the pegin request data
             let (user_info, pegin_amount) =
@@ -515,9 +515,16 @@ pub async fn recv_and_dispatch(
             // 2. save the instance data to local db
             todo_funcs::store_instance_parameters(local_db, &instance_params).await?;
         }
-        (GOATMessageContent::CreateGraph(data), Actor::Committee) => {
+        (
+            GOATMessageContent::CreateGraph(CreateGraph {
+                instance_id,
+                graph_id,
+                graph_nonce,
+                graph,
+            }),
+            Actor::Committee,
+        ) => {
             // received from Operator
-            let CreateGraph { instance_id, graph_id, graph_nonce, graph } = data;
             tracing::info!("Handle CreateGraph for {instance_id}:{graph_id}");
             // 1. check graph data & operator stake
             if let Err(e) = todo_funcs::validate_init_graph(

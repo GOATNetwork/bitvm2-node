@@ -23,7 +23,7 @@ use bitcoin::{
 };
 use bitvm2_noded::env::{
     ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS,
-    ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS, get_goat_address_from_env,
+    ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS, get_goat_address_from_env, get_network,
 };
 use bitvm2_noded::utils::broadcast_tx;
 use bitvm2_noded::utils::wait_tx_confirmation;
@@ -578,7 +578,7 @@ async fn action_push_sequencer_set_update(
     let total = btc_public_keys.len();
     let threshold = (2 * total + 2) / 3;
     let relayer_fee = Amount::from_sat(500);
-    let network = Network::Regtest;
+    let network = get_network();
 
     let redeem_script = create_sequencer_update_script(&btc_public_keys, threshold);
     let next_update_connector_address = Address::p2wsh(&redeem_script, network);
@@ -660,7 +660,7 @@ async fn action_sign_sequencer_set_update(
     update_connector_vout: Option<u32>,
     next_sequencer_set_hash: [u8; 32],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let network = Network::Regtest;
+    let network = get_network();
     // read public key and threshold from smart contract, which is consistency with btc_public_keys
     let btc_public_keys = fetch_publishers(&goat_client, &publishers).await?;
     //println!("btc pubkeys: {btc_public_keys:?}");
@@ -838,7 +838,7 @@ async fn action_fund_publishers(
     publishers: Vec<EvmAddress>,
     fund_btc_key_wif: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let network = Network::Regtest;
+    let network = get_network();
     let btc_public_keys = fetch_publishers(&goat_client, &publishers).await?;
 
     // read public key and threshold from smart contract, which is consistency with btc_public_keys

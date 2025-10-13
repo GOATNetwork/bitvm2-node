@@ -451,6 +451,7 @@ pub async fn read_pegin_request(
             amount: Amount::from_sat(u.amount_stats),
         })
         .collect();
+    // TODO: we need to run our own bitcoin node in case of downtime or ddos attack.
     for input in &inputs {
         if !outpoint_available(btc_client, &input.outpoint.txid, input.outpoint.vout.into()).await?
         {
