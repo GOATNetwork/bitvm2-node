@@ -22,6 +22,7 @@ CREATE TABLE instance
     `committees_answers`      TEXT            NOT NULL DEFAULT '{}',
     `pegin_data_tx_hash`      TEXT            NOT NULL DEFAULT '',
     `pegin_prepare_height`    BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `parameters`              TEXT,
     `created_at`              BIGINT          NOT NULL DEFAULT 0,
     `updated_at`              BIGINT          NOT NULL DEFAULT 0,
     PRIMARY KEY (`instance_id`)

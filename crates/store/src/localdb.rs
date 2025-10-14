@@ -389,8 +389,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fees, input_utxos, status, pegin_request_tx_hash, pegin_request_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_answers,
-                       pegin_data_tx_hash, pegin_prepare_height,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       pegin_data_tx_hash, pegin_prepare_height, parameters, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.network,
             instance.from_addr,
@@ -411,6 +411,7 @@ impl<'a> StorageProcessor<'a> {
             committees_answers_json,
             instance.pegin_data_tx_hash,
             instance.pegin_prepare_height,
+            instance.parameters,
             instance.created_at,
             instance.updated_at
         )
@@ -452,6 +453,7 @@ impl<'a> StorageProcessor<'a> {
                          committees_answers,
                          pegin_data_tx_hash,
                          pegin_prepare_height,
+                         parameters,
                          created_at,
                          updated_at
                  FROM instance
@@ -500,6 +502,7 @@ impl<'a> StorageProcessor<'a> {
                     committees_answers,
                     pegin_data_tx_hash,
                     pegin_prepare_height,
+                    parameters,
                     created_at,
                     updated_at
              FROM instance",
@@ -855,7 +858,7 @@ impl<'a> StorageProcessor<'a> {
         let current_time = get_current_timestamp_secs();
         let committees_answers_json = serde_json::to_string(&committees_answers)?;
 
-        let result = sqlx::query!(
+        let res = sqlx::query!(
             "UPDATE instance SET committees_answers = ?, updated_at = ? WHERE instance_id = ?",
             committees_answers_json,
             current_time,
@@ -864,7 +867,35 @@ impl<'a> StorageProcessor<'a> {
         .execute(self.conn())
         .await?;
 
-        Ok(result.rows_affected() > 0)
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn update_instance_parameters(
+        &mut self,
+        instance_id: &Uuid,
+        parameters: &str,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE instance SET parameters = ?,  updated_at = ? WHERE instance_id = ?",
+            parameters,
+            current_time,
+            instance_id
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn get_instance_parameters_by_id(
+        &mut self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Option<String>> {
+        let res =
+            sqlx::query!("SELECT parameters FROM instance WHERE instance_id = ?", instance_id)
+                .fetch_optional(self.conn())
+                .await?;
+        Ok(res.map_or(None, |record| record.parameters))
     }
 
     /// Insert or update a graph
@@ -1846,8 +1877,6 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         graph_raw_data: GraphRawData,
     ) -> anyhow::Result<u64> {
-        let timestamp = get_current_timestamp_millis();
-
         let result = sqlx::query!(
             r#"
             INSERT OR REPLACE INTO graph_raw_data (graph_id, raw_data, created_at, updated_at)
@@ -1856,7 +1885,7 @@ impl<'a> StorageProcessor<'a> {
             graph_raw_data.graph_id,
             graph_raw_data.raw_data,
             graph_raw_data.created_at,
-            timestamp,
+            graph_raw_data.updated_at
         )
         .execute(self.conn())
         .await?;

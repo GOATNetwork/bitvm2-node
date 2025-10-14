@@ -7,7 +7,7 @@ use crate::action::{
 };
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
-use crate::utils::{create_message, get_graph, outpoint_spent_txid};
+use crate::utils::{create_message, outpoint_spent_txid};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::{
@@ -356,8 +356,16 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
     };
     info!("start tick action: detect_init_withdraw_call get graphs:{}", graphs.len());
     for (instance_id, graph_id) in graphs {
-        if let Ok(_graph) = get_graph(local_db, Some(instance_id), graph_id).await {
-            let mut tx = local_db.start_transaction().await?;
+        let mut tx = local_db.start_transaction().await?;
+        if let Ok(Some(graph)) = tx.find_graph(&graph_id).await {
+            if graph.instance_id.ne(&instance_id) {
+                warn!(
+                    "Graph:{graph_id} recorded instance_id:{} not equal expected instance_id:{instance_id}",
+                    graph.instance_id
+                );
+                continue;
+            }
+
             trace!("{graph_id} on need to send KickoffReady");
             tx.update_goat_tx_record_processing_status(
                 &graph_id,

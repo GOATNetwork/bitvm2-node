@@ -19,13 +19,13 @@ use bitvm2_lib::committee::*;
 use bitvm2_lib::keys::{ChallengerMasterKey, OperatorMasterKey, WatchtowerMasterKey};
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{
-    Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, UserInfo, VerifyingKey,
+    Bitvm2Graph, Bitvm2InstanceParameters, Groth16Proof, PublicInputs, SimplifiedBitvm2Graph,
+    UserInfo, VerifyingKey,
 };
 use bitvm2_lib::watchtower::*;
 use client::Utxo as ClientUtxo;
 use client::goat_chain::WithdrawStatus;
 use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
-use client::graphs::graph_query::BridgeInRequestEvent;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
 use goat::contexts::base::generate_n_of_n_public_key;
@@ -112,28 +112,6 @@ pub mod todo_funcs {
     }
 
     // db operations
-    pub async fn store_instance_parameters(
-        local_db: &LocalDB,
-        instance_params: &Bitvm2InstanceParameters,
-    ) -> Result<()> {
-        todo!("store instance params to local db")
-    }
-    pub async fn get_instance_parameters(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-    ) -> Result<Option<Bitvm2InstanceParameters>> {
-        todo!("get instance params from local db")
-    }
-    pub async fn store_graph(local_db: &LocalDB, graph: &SimplifiedBitvm2Graph) -> Result<()> {
-        todo!("store graph to local db")
-    }
-    pub async fn get_graph(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<Option<SimplifiedBitvm2Graph>> {
-        todo!("get graph from local db")
-    }
     pub async fn get_latest_pegout_finalized_graph(
         local_db: &LocalDB,
         operator_pubkey: &PublicKey,
@@ -998,18 +976,6 @@ pub fn get_test_vk() -> Result<VerifyingKey> {
     Ok(goat::proof::deserialize_vk(zkm_v1_vk_bytes))
 }
 
-pub async fn update_graph_fields(
-    _local_db: &LocalDB,
-    _graph_id: Uuid,
-    _status: Option<String>,
-    _ipfs_base_url: Option<String>,
-    _challenge_txid: Option<String>,
-    _disprove_txid: Option<String>,
-    _bridge_out_start_at: Option<i64>,
-) -> Result<()> {
-    Ok(())
-}
-
 fn generate_message_id(business_id: Uuid, msg_type: String, sub_type: Option<String>) -> String {
     match sub_type {
         Some(sub_type) => {
@@ -1048,134 +1014,6 @@ pub async fn create_message(
 }
 
 /// store new graph, graph_raw_data, and update instance_id
-pub async fn store_graph(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    bitvm2_graph: &Bitvm2Graph,
-    status: &str,
-) -> anyhow::Result<()> {
-    let mut tx = local_db.start_transaction().await?;
-    let (_, kickoff_index_current) = tx
-        .get_operator_max_kickoff_index(&bitvm2_graph.parameters.operator_pubkey.to_string())
-        .await?;
-    let current_time = current_time_secs();
-    let mut graph = Graph {
-        graph_id,
-        instance_id,
-        kickoff_index: kickoff_index_current + 1,
-        from_addr: "".to_string(),
-        to_addr: "".to_string(),
-        graph_ipfs_base_url: "".to_string(),
-        amount: bitvm2_graph.parameters.instance_parameters.pegin_amount.to_sat() as i64,
-        challenge_amount: bitvm2_graph.parameters.challenge_amount.to_sat() as i64,
-        status: status.to_string(),
-        sub_status: "".to_string(),
-        operator_pubkey: bitvm2_graph.parameters.operator_pubkey.to_string(),
-        cur_prekickoff_txid: Some(bitvm2_graph.cur_prekickoff.finalize().compute_txid().into()),
-        next_prekickoff: Some(bitvm2_graph.next_prekickoff.finalize().compute_txid().into()),
-        force_skip_kickoff_txid: Some(
-            bitvm2_graph.force_skip_kickoff.finalize().compute_txid().into(),
-        ),
-        quick_challenge_txid: Some(bitvm2_graph.quick_challenge.finalize().compute_txid().into()),
-        challenge_incomplete_kickoff_txid: Some(
-            bitvm2_graph.challenge_incomplete_kickoff.finalize().compute_txid().into(),
-        ),
-        pegin_txid: Some(bitvm2_graph.pegin.finalize().compute_txid().into()),
-        kickoff_txid: Some(bitvm2_graph.kickoff.finalize().compute_txid().into()),
-        take1_txid: Some(bitvm2_graph.take1.finalize().compute_txid().into()),
-        challenge_txid: None,
-        take2_txid: Some(bitvm2_graph.take2.finalize().compute_txid().into()),
-        disprove_txid: None,
-        watchtower_challenge_init_txid: Some(
-            bitvm2_graph.watchtower_challenge_init.finalize().compute_txid().into(),
-        ),
-        watchtower_challenge_timeout_txids: bitvm2_graph
-            .watchtower_challenge_timeout_txns
-            .iter()
-            .map(|tx| tx.finalize().compute_txid().into())
-            .collect(),
-        nack_txids: bitvm2_graph
-            .nack_txns
-            .iter()
-            .map(|tx| tx.finalize().compute_txid().into())
-            .collect(),
-        blockhash_commit_timeout_txid: Some(
-            bitvm2_graph.blockhash_commit_timeout.finalize().compute_txid().into(),
-        ),
-        assert_init_txid: Some(bitvm2_graph.assert_init.finalize().compute_txid().into()),
-        assert_commit_timeout_txids: bitvm2_graph
-            .assert_commit_timeout_txns
-            .iter()
-            .map(|tx| tx.finalize().compute_txid().into())
-            .collect(),
-        init_withdraw_tx_hash: None,
-        bridge_out_start_at: 0,
-        zkm_version: groth16::get_zkm_version(),
-        created_at: current_time,
-        updated_at: current_time,
-    };
-
-    if let Some(node_info) =
-        tx.get_node_by_btc_pub_key(&bitvm2_graph.parameters.operator_pubkey.to_string()).await?
-    {
-        graph.from_addr = node_info.goat_addr.clone();
-        graph.to_addr =
-            node_p2wsh_address(get_network(), &bitvm2_graph.parameters.operator_pubkey).to_string();
-    }
-
-    tx.upsert_graph(graph).await?;
-    tx.update_instance(
-        &InstanceUpdate::new(instance_id).with_status(InstanceStatus::Presigned.to_string()),
-    )
-    .await?;
-    tx.upsert_graph_raw_data(GraphRawData {
-        graph_id,
-        raw_data: serde_json::to_string(&bitvm2_graph).unwrap_or_default(),
-        created_at: current_time,
-        updated_at: current_time,
-    })
-    .await?;
-
-    tx.commit().await?;
-    Ok(())
-}
-
-#[allow(dead_code)]
-pub async fn update_graph(
-    _local_db: &LocalDB,
-    _instance_id: Uuid,
-    _graph_id: Uuid,
-    _graph: &Bitvm2Graph,
-    _status: Option<String>,
-) -> anyhow::Result<()> {
-    // store_graph(local_db, instance_id, graph_id, graph, status).await
-    Ok(())
-}
-pub async fn get_graph(
-    local_db: &LocalDB,
-    instance_id: Option<Uuid>,
-    graph_id: Uuid,
-) -> Result<Graph> {
-    let mut storage_process = local_db.acquire().await?;
-    let graph_op = storage_process.find_graph(&graph_id).await?;
-    if graph_op.is_none() {
-        tracing::warn!("graph:{} is not record in db", graph_id);
-        return Err(anyhow!("graph:{graph_id} is not record in db").into());
-    };
-    let graph = graph_op.unwrap();
-    if let Some(instance_id) = instance_id
-        && graph.instance_id.ne(&instance_id)
-    {
-        return Err(anyhow!(
-            "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
-            graph.instance_id,
-        )
-        .into());
-    }
-    Ok(graph)
-}
-
 pub async fn get_bitvm2_graph_from_db(
     _local_db: &LocalDB,
     _instance_id: Uuid,
@@ -1190,17 +1028,6 @@ pub async fn publish_graph_to_ipfs(
     _graph: &Bitvm2Graph,
 ) -> Result<String> {
     todo!("publish_graph_to_ipfs")
-}
-
-pub async fn get_my_graph_for_instance(
-    goat_client: &GOATClient,
-    instance_id: Uuid,
-    operator_pubkey: PublicKey,
-) -> Result<Option<Uuid>> {
-    let ids_vec = goat_client
-        .gateway_get_instanceids_by_pubkey(&operator_pubkey.to_bytes()[1..33].try_into()?)
-        .await?;
-    Ok(ids_vec.iter().find(|(a, _)| *a == instance_id).map(|(_, b)| *b))
 }
 
 pub async fn get_graph_status(
@@ -1639,75 +1466,6 @@ pub fn temp_file() -> String {
     tmp_db.path().as_os_str().to_str().unwrap().to_string()
 }
 
-#[allow(dead_code)]
-pub async fn generate_instance_from_event(
-    btc_client: &BTCClient,
-    event: &BridgeInRequestEvent,
-) -> Result<Instance> {
-    let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
-    let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("user_x_only_pubkey must be exactly 32 bytes"))?;
-
-    let input_utxos: Vec<ClientUtxo> = event
-        .user_inputs
-        .iter()
-        .map(|v| {
-            let txid_bytes = hex::decode(&strip_hex_prefix_owned(&v.txid))
-                .map_err(|_| anyhow::anyhow!("Invalid txid hex format"))?;
-            let txid_array: [u8; 32] = txid_bytes
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("txid must be exactly 32 bytes"))?;
-            Ok(ClientUtxo {
-                txid: txid_array,
-                vout: v.vout,
-                amount_stats: v.amount_sats.parse::<u64>().unwrap_or_default(),
-            })
-        })
-        .collect::<Result<Vec<ClientUtxo>>>()?;
-
-    let from_addr = if !input_utxos.is_empty()
-        && let Some(tx) = btc_client.get_tx(&Txid::from_slice(&input_utxos[0].txid)?).await?
-    {
-        let tx_scripts = tx.output[input_utxos[0].vout as usize].script_pubkey.clone();
-        Address::from_script(&tx_scripts, env::get_network())
-            .map(|addr| addr.to_string())
-            .unwrap_or_default()
-    } else {
-        warn!(
-            "failed to decode instance  from from pegin_request event, txid:{}, as input_utxos is empty or decode address failed",
-            event.instance_id
-        );
-        "".to_string()
-    };
-
-    let instance = Instance {
-        instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
-        network: get_network().to_string(),
-        from_addr,
-        to_addr: EvmAddress::from_str(&event.depositor_address)?.to_string(),
-        amount: event.pegin_amount_sats.parse()?,
-        fees: UInt64Array3(event.txn_fees.clone().map(|v| v.parse::<u64>().unwrap_or_default())),
-        input_utxos: serde_json::to_string(&input_utxos)?,
-        status: InstanceStatus::UserInited.to_string(),
-        pegin_request_tx_hash: event.transaction_hash.clone(),
-        pegin_request_height: event.block_number.parse()?,
-        user_xonly_pubkey: ByteArray32(user_xonly_pubkey_array),
-        user_change_addr: event.user_change_address.clone(),
-        user_refund_addr: event.user_refund_address.clone(),
-        pegin_prepare_txid: None,
-        pegin_confirm_txid: None,
-        pegin_cancel_txid: None,
-        unsign_pegin_confirm_tx: None,
-        committees_answers: IndexMap::new(),
-        pegin_data_tx_hash: "".to_string(),
-        pegin_prepare_height: 0,
-        created_at: current_time_secs(),
-        updated_at: current_time_secs(),
-    };
-    Ok(instance)
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct InstanceProcessDataItem {
     pub pub_nonce: Option<PubNonce>,
@@ -1804,11 +1562,140 @@ pub async fn store_pegin_request(
             committees_answers: IndexMap::new(),
             pegin_data_tx_hash: "".to_string(),
             pegin_prepare_height: 0,
+            parameters: None,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
         .await?;
     Ok(())
+}
+
+pub async fn store_instance_parameters(
+    local_db: &LocalDB,
+    instance_params: &Bitvm2InstanceParameters,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor
+        .update_instance_parameters(
+            &instance_params.instance_id,
+            &serde_json::to_string(&instance_params)?,
+        )
+        .await?;
+    Ok(())
+}
+pub async fn get_instance_parameters(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+) -> Result<Option<Bitvm2InstanceParameters>> {
+    let mut storage_processor = local_db.acquire().await?;
+    if let Some(data_str) = storage_processor.get_instance_parameters_by_id(&instance_id).await? {
+        Ok(Some(serde_json::from_str(&data_str)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn store_graph(local_db: &LocalDB, graph: &SimplifiedBitvm2Graph) -> Result<()> {
+    let mut tx = local_db.start_transaction().await?;
+    let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(graph)?;
+    let (graph_id, instance_id, graph_nonce) = (
+        graph.parameters.graph_id,
+        graph.parameters.instance_parameters.instance_id,
+        graph.parameters.graph_nonce,
+    );
+    let current_time = current_time_secs();
+    let mut graph = Graph {
+        graph_id,
+        instance_id,
+        kickoff_index: graph_nonce as i64,
+        from_addr: "".to_string(),
+        to_addr: "".to_string(),
+        graph_ipfs_base_url: "".to_string(),
+        amount: bitvm2_graph.parameters.instance_parameters.pegin_amount.to_sat() as i64,
+        challenge_amount: bitvm2_graph.parameters.challenge_amount.to_sat() as i64,
+        status: GraphStatus::CommitteePresigned.to_string(),
+        sub_status: "".to_string(),
+        operator_pubkey: bitvm2_graph.parameters.operator_pubkey.to_string(),
+        cur_prekickoff_txid: Some(bitvm2_graph.cur_prekickoff.finalize().compute_txid().into()),
+        next_prekickoff: Some(bitvm2_graph.next_prekickoff.finalize().compute_txid().into()),
+        force_skip_kickoff_txid: Some(
+            bitvm2_graph.force_skip_kickoff.finalize().compute_txid().into(),
+        ),
+        quick_challenge_txid: Some(bitvm2_graph.quick_challenge.finalize().compute_txid().into()),
+        challenge_incomplete_kickoff_txid: Some(
+            bitvm2_graph.challenge_incomplete_kickoff.finalize().compute_txid().into(),
+        ),
+        pegin_txid: Some(bitvm2_graph.pegin.finalize().compute_txid().into()),
+        kickoff_txid: Some(bitvm2_graph.kickoff.finalize().compute_txid().into()),
+        take1_txid: Some(bitvm2_graph.take1.finalize().compute_txid().into()),
+        challenge_txid: None,
+        take2_txid: Some(bitvm2_graph.take2.finalize().compute_txid().into()),
+        disprove_txid: None,
+        watchtower_challenge_init_txid: Some(
+            bitvm2_graph.watchtower_challenge_init.finalize().compute_txid().into(),
+        ),
+        watchtower_challenge_timeout_txids: bitvm2_graph
+            .watchtower_challenge_timeout_txns
+            .iter()
+            .map(|tx| tx.finalize().compute_txid().into())
+            .collect(),
+        nack_txids: bitvm2_graph
+            .nack_txns
+            .iter()
+            .map(|tx| tx.finalize().compute_txid().into())
+            .collect(),
+        blockhash_commit_timeout_txid: Some(
+            bitvm2_graph.blockhash_commit_timeout.finalize().compute_txid().into(),
+        ),
+        assert_init_txid: Some(bitvm2_graph.assert_init.finalize().compute_txid().into()),
+        assert_commit_timeout_txids: bitvm2_graph
+            .assert_commit_timeout_txns
+            .iter()
+            .map(|tx| tx.finalize().compute_txid().into())
+            .collect(),
+        init_withdraw_tx_hash: None,
+        bridge_out_start_at: 0,
+        zkm_version: groth16::get_zkm_version(),
+        created_at: current_time,
+        updated_at: current_time,
+    };
+
+    if let Some(node_info) =
+        tx.get_node_by_btc_pub_key(&bitvm2_graph.parameters.operator_pubkey.to_string()).await?
+    {
+        graph.from_addr = node_info.goat_addr.clone();
+        graph.to_addr =
+            node_p2wsh_address(get_network(), &bitvm2_graph.parameters.operator_pubkey).to_string();
+    }
+
+    tx.upsert_graph(graph).await?;
+    tx.update_instance(
+        &InstanceUpdate::new(instance_id).with_status(InstanceStatus::Presigned.to_string()),
+    )
+    .await?;
+    tx.upsert_graph_raw_data(GraphRawData {
+        graph_id,
+        raw_data: serde_json::to_string(&bitvm2_graph).unwrap_or_default(),
+        created_at: current_time,
+        updated_at: current_time,
+    })
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn get_graph(
+    local_db: &LocalDB,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<Option<SimplifiedBitvm2Graph>> {
+    let mut storage_process = local_db.acquire().await?;
+    if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id).await? {
+        Ok(Some(serde_json::from_str(&graph_raw_data.raw_data)?))
+    } else {
+        Ok(None)
+    }
 }
 
 pub async fn upsert_pegin_instance_process_data(

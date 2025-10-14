@@ -230,6 +230,7 @@ pub struct Instance {
     pub committees_answers: IndexMap<String, CommitteeSignatures>,
     pub pegin_data_tx_hash: String,
     pub pegin_prepare_height: i64, // btc lock_time
+    pub parameters: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

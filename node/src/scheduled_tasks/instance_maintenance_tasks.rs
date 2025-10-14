@@ -370,7 +370,6 @@ pub async fn instance_btc_tx_monitor(
             let mut instance_update =
                 InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
             if next_status == InstanceStatus::UserBroadcastPeginPrepare {
-                // todo notify user broadcast pegin prepare
                 instance_update = instance_update
                     .with_pegin_prepare_height(status.block_height.unwrap_or_default() as i64);
 

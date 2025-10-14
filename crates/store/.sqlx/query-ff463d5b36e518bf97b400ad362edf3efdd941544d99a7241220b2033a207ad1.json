@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT parameters FROM instance WHERE instance_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "parameters",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ff463d5b36e518bf97b400ad362edf3efdd941544d99a7241220b2033a207ad1"
+}
