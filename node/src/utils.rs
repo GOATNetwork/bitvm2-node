@@ -110,22 +110,6 @@ pub mod todo_funcs {
     ) -> Result<[u8; 32]> {
         todo!("call Gateway.getPostGraphDigest(instance_id, graph_id, graphData) on goat chain")
     }
-
-    // db operations
-    pub async fn get_latest_pegout_finalized_graph(
-        local_db: &LocalDB,
-        operator_pubkey: &PublicKey,
-    ) -> Result<Option<(u64, Uuid)>> {
-        todo!("get latest pegout finalized graph nonce & id from local db")
-    }
-    pub async fn get_graph_id_by_nonce(
-        local_db: &LocalDB,
-        graph_nonce: u64,
-        operator_pubkey: &PublicKey,
-    ) -> Result<Option<(Uuid, Uuid)>> {
-        todo!("get instance_id & graph_id by graph_nonce and operator_pubkey from local db")
-    }
-
     // proof network
     pub async fn get_watchtower_proof(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<u8>> {
         todo!("get watchtower proof from proof network")
@@ -1490,12 +1474,23 @@ pub async fn get_current_prekickoff_tx(
     // return (latest_graph.nonce + 1 , latest_graph.next_prekickoff_tx)
     // return None if no graph yet
     let mut storage_processor = local_db.acquire().await?;
-    if let (Some(graph_id), index) =
-        storage_processor.get_operator_max_kickoff_index(&operator_pubkey.to_string()).await?
-        && let Some(graph_raw_data) = storage_processor.get_graph_raw_data(&graph_id).await?
+    let graphs = storage_processor
+        .get_operator_graphs(
+            &operator_pubkey.to_string(),
+            None,
+            vec![],
+            Some("kickoff_index DESC".to_string()),
+            None,
+            Some(1),
+        )
+        .await?;
+
+    if !graphs.is_empty()
+        && let Some(graph_raw_data) =
+            storage_processor.get_graph_raw_data(&graphs[0].graph_id).await?
     {
         Ok(Some((
-            (index + 1) as u64,
+            (graphs[0].kickoff_index + 1) as u64,
             Bitvm2Graph::from_simplified(&serde_json::from_str(&graph_raw_data.raw_data)?)?
                 .next_prekickoff,
         )))
@@ -1696,6 +1691,50 @@ pub async fn get_graph(
     } else {
         Ok(None)
     }
+}
+
+pub async fn get_latest_pegout_finalized_graph(
+    local_db: &LocalDB,
+    operator_pubkey: &PublicKey,
+) -> Result<Option<(u64, Uuid)>> {
+    // get latest pegout finalized graph nonce & id from local db
+    let statuses: Vec<String> = vec![];
+    let mut storage_processor = local_db.acquire().await?;
+    let graphs = storage_processor
+        .get_operator_graphs(
+            &operator_pubkey.to_string(),
+            None,
+            statuses,
+            Some("kickoff_index DESC".to_string()),
+            None,
+            Some(1),
+        )
+        .await?;
+    if graphs.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some((graphs[0].kickoff_index as u64, graphs[0].graph_id)))
+    }
+}
+
+pub async fn get_graph_id_by_nonce(
+    local_db: &LocalDB,
+    graph_nonce: u64,
+    operator_pubkey: &PublicKey,
+) -> Result<Option<(Uuid, Uuid)>> {
+    // get instance_id & graph_id by graph_nonce and operator_pubkey from local db
+    let mut storage_processor = local_db.acquire().await?;
+    let graphs = storage_processor
+        .get_operator_graphs(
+            &operator_pubkey.to_string(),
+            Some(graph_nonce as i64),
+            vec![],
+            Some("kickoff_index DESC".to_string()),
+            None,
+            Some(1),
+        )
+        .await?;
+    if graphs.is_empty() { Ok(None) } else { Ok(Some((graphs[0].instance_id, graphs[0].graph_id))) }
 }
 
 pub async fn upsert_pegin_instance_process_data(

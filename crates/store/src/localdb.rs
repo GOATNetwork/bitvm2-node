@@ -1294,6 +1294,44 @@ impl<'a> StorageProcessor<'a> {
         Ok(graph_ids.into_iter().map(|v| (v.graph_id, v.instance_id, v.operator)).collect())
     }
 
+    pub async fn get_operator_graphs(
+        &mut self,
+        operator_pubkey: &str,
+        kickoff_index: Option<i64>,
+        statuses: Vec<String>,
+        order: Option<String>,
+        offset: Option<u32>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<Graph>> {
+        let mut graph_query_builder = QueryBuilder::new("SELECT * FROM graph");
+        graph_query_builder
+            .and_where("operator_pubkey = ?", Some(QueryParam::Text(operator_pubkey.to_string())));
+        if let Some(kickoff_index) = kickoff_index {
+            graph_query_builder
+                .and_where("kickoff_index = ?", Some(QueryParam::Int(kickoff_index)));
+        }
+
+        if !statuses.is_empty() {
+            graph_query_builder.and_where_in("status", &statuses, false);
+        }
+        if let Some(order) = order {
+            graph_query_builder.apply_order(&order);
+        }
+        graph_query_builder.apply_pagination(limit, offset);
+        let operator_graph_sql = graph_query_builder.get_sql();
+        let query_params = graph_query_builder.get_params();
+        let mut operator_graphs_query = sqlx::query_as::<_, Graph>(&operator_graph_sql);
+        for param in &query_params {
+            operator_graphs_query = match param {
+                QueryParam::Text(s) => operator_graphs_query.bind(s),
+                QueryParam::Int(i) => operator_graphs_query.bind(i),
+                QueryParam::BTCTxid(btc_txid) => operator_graphs_query.bind(btc_txid),
+            };
+        }
+
+        Ok(operator_graphs_query.fetch_all(self.conn()).await?)
+    }
+
     pub async fn get_operator_max_kickoff_index(
         &mut self,
         operator_pubkey: &str,

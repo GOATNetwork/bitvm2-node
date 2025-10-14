@@ -1426,29 +1426,26 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle KickoffReady for {instance_id}:{graph_id}");
             // 2. check prekickoff nonce & broadcast previous pre-kickoff if needed
             let start_nonce =
-                match todo_funcs::get_latest_pegout_finalized_graph(local_db, &operator_pubkey)
-                    .await?
-                {
+                match get_latest_pegout_finalized_graph(local_db, &operator_pubkey).await? {
                     Some((n, _)) => n + 1,
                     None => 0,
                 };
             for current_nonce in start_nonce..graph.parameters.graph_nonce {
-                let (current_instance_id, current_graph_id) =
-                    match todo_funcs::get_graph_id_by_nonce(
-                        local_db,
-                        current_nonce,
-                        &operator_pubkey,
-                    )
-                    .await?
-                    {
-                        Some(gid) => gid,
-                        None => {
-                            tracing::warn!(
-                                "Ignore KickoffReady for {instance_id}:{graph_id}: missing graph for Operator {operator_pubkey}: nonce {current_nonce}"
-                            );
-                            continue;
-                        }
-                    };
+                let (current_instance_id, current_graph_id) = match get_graph_id_by_nonce(
+                    local_db,
+                    current_nonce,
+                    &operator_pubkey,
+                )
+                .await?
+                {
+                    Some(gid) => gid,
+                    None => {
+                        tracing::warn!(
+                            "Ignore KickoffReady for {instance_id}:{graph_id}: missing graph for Operator {operator_pubkey}: nonce {current_nonce}"
+                        );
+                        continue;
+                    }
+                };
                 todo_funcs::refresh_graph(
                     local_db,
                     btc_client,
@@ -1474,14 +1471,11 @@ pub async fn recv_and_dispatch(
                     );
                     return Ok(());
                 } else if current_graph_status.is_obsoleted() {
-                    let current_graph =
-                        get_graph(local_db, current_instance_id, current_graph_id)
-                            .await?
-                            .ok_or_else(|| {
-                                anyhow!(
-                                    "Graph not found for {current_instance_id}:{current_graph_id}"
-                                )
-                            })?;
+                    let current_graph = get_graph(local_db, current_instance_id, current_graph_id)
+                        .await?
+                        .ok_or_else(|| {
+                            anyhow!("Graph not found for {current_instance_id}:{current_graph_id}")
+                        })?;
                     let mut current_graph = Bitvm2Graph::from_simplified(&current_graph)?;
                     operator_skip_graph(btc_client, &mut current_graph).await?;
                     tracing::info!(
@@ -1591,19 +1585,16 @@ pub async fn recv_and_dispatch(
             }
             tracing::info!("Handle PreKickoffSent for {instance_id}:{graph_id}");
             // 1. check the previous graph status
-            let (prev_instance_id, prev_graph_id) = todo_funcs::get_graph_id_by_nonce(
-                local_db,
-                graph_nonce - 1,
-                &graph.parameters.operator_pubkey,
-            )
-            .await?
-            .ok_or_else(|| {
-                anyhow!(
-                    "Previous graph not found for Operator {}: nonce {}",
-                    graph.parameters.operator_pubkey,
-                    graph_nonce - 1
-                )
-            })?;
+            let (prev_instance_id, prev_graph_id) =
+                get_graph_id_by_nonce(local_db, graph_nonce - 1, &graph.parameters.operator_pubkey)
+                    .await?
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Previous graph not found for Operator {}: nonce {}",
+                            graph.parameters.operator_pubkey,
+                            graph_nonce - 1
+                        )
+                    })?;
             todo_funcs::refresh_graph(
                 local_db,
                 btc_client,
