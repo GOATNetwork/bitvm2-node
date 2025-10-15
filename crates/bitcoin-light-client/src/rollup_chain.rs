@@ -19,6 +19,8 @@ use bitcoin::{
     taproot::{LeafVersion, Signature as TaprootSignature, TapLeafHash},
 };
 
+use crate::proto::ExecutionPayload;
+
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.rs"));
 }
@@ -194,29 +196,37 @@ pub fn verify_validator_set_hash(commitment: [u8; 32], block: LightBlock) {
     assert_eq!(commitment.to_vec(), expected_hash.to_vec());
 }
 
+pub fn parse_cosmos_payload(tx_b64: &str) -> Option<ExecutionPayload> {
+    let txns_b64 = b64.decode(tx_b64).unwrap();
+    let tx = TxRaw::decode(&*txns_b64).unwrap();
+    let tx_body = TxBody::decode(&tx.body_bytes[..]).unwrap();
+
+    // check consistance of GOAT block hash
+    if !tx_body.messages.is_empty() {
+        let first_message = &tx_body.messages[0];
+        // https://github.com/GOATNetwork/goat/blob/main/proto/goat/goat/v1/tx.proto#L25
+        let type_url = first_message.type_url.as_str();
+        assert_eq!(type_url, "/goat.goat.v1.MsgNewEthBlock");
+        let payload = proto::MsgNewEthBlock::decode(&first_message.value[..]).unwrap();
+        let payload = payload.payload.unwrap();
+        // check GOAT block hash and number
+        println!("hash: {}, {}", hex::encode(&payload.block_hash), &payload.block_number);
+        // FIXME: do the hash check
+        // assert_eq!(hex::encode(payload.block_hash), goat_block_hash);
+        return Some(payload);
+    };
+    None
+}
+
 pub fn verify_el_block_from_consensus(
     goat_block_number: u64,
     _goat_block_hash: &str,
     txs: &[String],
     light_block: LightBlock,
 ) {
-    let txns_b64 = b64.decode(&txs[0]).unwrap();
-    let tx = TxRaw::decode(&*txns_b64).unwrap();
-    let tx_body = TxBody::decode(&tx.body_bytes[..]).unwrap();
-
-    // check consistance of GOAT block hash
-    tx_body.messages.iter().for_each(|msg| {
-        // https://github.com/GOATNetwork/goat/blob/main/proto/goat/goat/v1/tx.proto#L25
-        let type_url = msg.type_url.as_str();
-        assert_eq!(type_url, "/goat.goat.v1.MsgNewEthBlock");
-        let payload = proto::MsgNewEthBlock::decode(&msg.value[..]).unwrap();
-        let payload = payload.payload.unwrap();
-        // check GOAT block hash and number
-        println!("hash: {}, {}", hex::encode(&payload.block_hash), &payload.block_number);
-        // FIXME: do the hash check
-        // assert_eq!(hex::encode(payload.block_hash), goat_block_hash);
+    if let Some(payload) = parse_cosmos_payload(&txs[0]) {
         assert_eq!(payload.block_number, goat_block_number);
-    });
+    } 
 
     // check data hash
     let excepted_data_hash = light_block.signed_header.header.data_hash.unwrap();
