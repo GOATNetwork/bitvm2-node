@@ -3,8 +3,7 @@ use bitcoin::blockdata::opcodes::all::*;
 use bitcoin::blockdata::script::Builder;
 use bitcoin::transaction::Version;
 use bitcoin::{
-    Address, Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
-    Witness,
+    Address, Amount, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness
 };
 use hex::FromHex;
 
@@ -142,7 +141,7 @@ pub fn create_sequencer_update_partial_tx(
     Ok(tx)
 }
 
-pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> {
+pub fn create_dummy_publisher_keys(total: usize, network: Network) -> Vec<(SecretKey, PublicKey)> {
     let secp = Secp256k1::new();
 
     let mut keys = Vec::new();
@@ -156,7 +155,7 @@ pub fn create_dummy_publisher_keys(total: usize) -> Vec<(SecretKey, PublicKey)> 
     keys.iter().for_each(|(sk, _)| {
         let k = bitcoin::PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Regtest.into(),
+            network: network.into(),
             inner: *sk,
         };
         println!("{:?}\n", k.to_wif())
@@ -178,7 +177,7 @@ mod tests {
     #[test]
     fn test_verify_p2wsh_multisig_witness() {
         // === Step 1: generate key pairs ===
-        let keys = create_dummy_publisher_keys(3);
+        let keys = create_dummy_publisher_keys(3, bitcoin::Network::Regtest);
         let pubkeys: Vec<PublicKey> = keys.iter().map(|(_, pk)| *pk).collect();
 
         let threshold = 2;
