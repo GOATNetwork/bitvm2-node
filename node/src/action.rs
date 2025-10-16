@@ -404,7 +404,7 @@ pub async fn recv_and_dispatch(
                 .keypair_for_instance(instance_id)
                 .public_key()
                 .into();
-            todo_funcs::answer_pegin_request(goat_client, instance_id, pubkey_for_instance).await?;
+            answer_pegin_request(goat_client, instance_id, pubkey_for_instance).await?;
         }
         (
             GOATMessageContent::PeginRequest(PeginRequest {
@@ -598,8 +598,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 4. if collected enough pub_nonces, generate partial signatures & broadcast CommitteePresign
-            let committee_pubkeys =
-                todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
             let pub_nonces_unchecked =
                 get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
             if pub_nonces_unchecked.len() == committee_pubkeys.len() {
@@ -706,8 +705,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 3. if received enough pub_nonces, generate partial signatures & broadcast CommitteePresign
-            let committee_pubkeys =
-                todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
             let pub_nonces_unchecked =
                 get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
             if pub_nonces_unchecked.len() == committee_pubkeys.len() {
@@ -918,8 +916,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 2. if received enough valid committee partial sigs, endorse the graph
-            let committee_pubkeys =
-                todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
             let committee_partial_sigs =
                 get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id)
                     .await?
@@ -1246,8 +1243,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 3. if received enough pub_nonces, generate partial signature & broadcast PeginConfirmPartialSig
-            let committee_pubkeys =
-                todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
             let pub_nonces = get_committee_pub_nonces_for_instance(local_db, instance_id).await?;
             if pub_nonces.len() == committee_pubkeys.len() {
                 let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
@@ -1361,8 +1357,7 @@ pub async fn recv_and_dispatch(
                     .collect::<Vec<_>>();
                 let pub_nonces =
                     get_committee_pub_nonces_for_instance(local_db, instance_id).await?;
-                let committee_pubkeys =
-                    todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
+                let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
                 if partial_sigs.len() == committee_pubkeys.len()
                     && pub_nonces.len() == committee_pubkeys.len()
                 {
@@ -1415,8 +1410,7 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 1. check the withdraw status on GoatChain
-            let withdraw_status =
-                todo_funcs::get_withdraw_data(goat_client, &graph_id).await?.status;
+            let withdraw_status = get_withdraw_data(goat_client, &graph_id).await?.status;
             if withdraw_status != WithdrawStatus::Initialized {
                 tracing::warn!(
                     "Ignore KickoffReady for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status:?}"
@@ -1532,10 +1526,8 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 2. check withdraw status, if it's invalid, sign & broadcast challenge txn
-            let withdraw_status =
-                todo_funcs::get_withdraw_data(goat_client, &graph_id).await?.status;
-            let goat_confirmed_btc_height =
-                todo_funcs::get_goat_confirmed_btc_height(goat_client).await?;
+            let withdraw_status = get_withdraw_data(goat_client, &graph_id).await?.status;
+            let goat_confirmed_btc_height = get_goat_confirmed_btc_height(goat_client).await?;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
                 if kickoff_height >= goat_confirmed_btc_height {
                     let delay_ms = (kickoff_height + 1 - goat_confirmed_btc_height) * 600_000;
@@ -1706,8 +1698,7 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 1. check the withdraw status on GoatChain, if the withdraw is invalid, sign & broadcast watchtower-challenge txn
-            let withdraw_status =
-                todo_funcs::get_withdraw_data(goat_client, &graph_id).await?.status;
+            let withdraw_status = get_withdraw_data(goat_client, &graph_id).await?.status;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
                 let watchtower_proof =
                     todo_funcs::get_watchtower_proof(instance_id, graph_id).await?;
@@ -2506,7 +2497,7 @@ pub async fn try_finalize_graph(
     let pub_nonoces = get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
     let partial_sigs =
         get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id).await?;
-    let committee_pubkeys = todo_funcs::get_committee_pubkeys(goat_client, instance_id).await?;
+    let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
     if endorsements.len() == committee_pubkeys.len()
         && pub_nonoces.len() == committee_pubkeys.len()
         && partial_sigs.len() == committee_pubkeys.len()

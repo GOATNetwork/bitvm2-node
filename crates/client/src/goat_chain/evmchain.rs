@@ -122,11 +122,9 @@ impl EvmChain {
     pub async fn gateway_answer_pegin_request(
         &self,
         instance_id: &Uuid,
-        committee_xonly_pubkey: &[u8; 33],
+        committee_pubkey: &[u8],
     ) -> anyhow::Result<String> {
-        self.adaptor
-            .gateway_answer_pegin_request(instance_id.as_bytes(), committee_xonly_pubkey)
-            .await
+        self.adaptor.gateway_answer_pegin_request(instance_id.as_bytes(), committee_pubkey).await
     }
 
     pub async fn gateway_post_pegin_data(
@@ -161,10 +159,6 @@ impl EvmChain {
                 committee_signs,
             )
             .await
-    }
-
-    pub async fn gateway_get_btc_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        self.adaptor.btc_spv_blockhash(height).await
     }
 
     pub async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
@@ -253,6 +247,30 @@ impl EvmChain {
         self.adaptor.get_tx_receipt(tx_hash).await
     }
 
+    pub async fn gateway_get_committee_pubkeys(
+        &self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Vec<Vec<u8>>> {
+        self.adaptor.gateway_get_committee_pubkeys(instance_id.as_bytes()).await
+    }
+
+    pub async fn gateway_get_post_graph_digest(
+        &self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        graph_data: GraphData,
+    ) -> anyhow::Result<[u8; 32]> {
+        self.adaptor
+            .gateway_get_post_graph_digest(instance_id.as_bytes(), graph_id.as_bytes(), graph_data)
+            .await
+    }
+    pub async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        self.adaptor.btc_spv_blockhash(height).await
+    }
+
+    pub async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
+        self.adaptor.btc_spv_latest_confirmed_height().await
+    }
     pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
         self.adaptor.seq_set_pub_get_last_block_height().await
     }

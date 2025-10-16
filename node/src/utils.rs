@@ -76,32 +76,6 @@ pub mod todo_funcs {
     use super::*;
 
     // contract calls
-    pub async fn get_pegin_data(goat_client: &GOATClient, instance_id: Uuid) -> Result<PeginData> {
-        todo!("call Gateway.getPeginData(instance_id) on goat chain")
-    }
-    pub async fn get_withdraw_data(
-        goat_client: &GOATClient,
-        graph_id: &Uuid,
-    ) -> Result<WithdrawData> {
-        todo!("call Gateway.withdrawDataMap(graph_id) on goat chain")
-    }
-    pub async fn get_goat_confirmed_btc_height(goat_client: &GOATClient) -> Result<u32> {
-        todo!("call bitcoinSPV.latestConfirmedHeight() on goat chain")
-    }
-    pub async fn get_committee_pubkeys(
-        goat_client: &GOATClient,
-        instance_id: Uuid,
-    ) -> Result<Vec<PublicKey>> {
-        // if getCommitteePubkeys reverts, return SpecialError::EvmReverted(ReasonString)
-        todo!("call Gateway.getCommitteePubkeys(instance_id) on goat chain")
-    }
-    pub async fn answer_pegin_request(
-        goat_client: &GOATClient,
-        instance_id: Uuid,
-        pubkey_for_instance: PublicKey,
-    ) -> Result<()> {
-        todo!("call Gateway.answerPeginRequest on goat chain")
-    }
     pub async fn get_graph_digest(
         local_db: &LocalDB,
         goat_client: &GOATClient,
@@ -256,7 +230,7 @@ pub async fn read_pegin_request(
     goat_client: &GOATClient,
     instance_id: Uuid,
 ) -> Result<(UserInfo, Amount)> {
-    let pegin_data = todo_funcs::get_pegin_data(goat_client, instance_id).await?;
+    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
     if pegin_data.status != PeginStatus::Pending {
         bail!("Invalid PeginRequest: expired or already processed");
     }
@@ -310,7 +284,7 @@ pub async fn read_instance_info_from_goat(
     goat_client: &GOATClient,
     instance_id: Uuid,
 ) -> Result<Bitvm2InstanceParameters> {
-    let pegin_data = todo_funcs::get_pegin_data(goat_client, instance_id).await?;
+    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
     let network = get_network();
     let user_change_address = Address::from_str(&pegin_data.user_change_addr)
         .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_change_addr: {}", e)))?
@@ -342,8 +316,7 @@ pub async fn read_instance_info_from_goat(
         user_refund_address,
         user_xonly_pubkey,
     };
-    let committee_pubkeys = match todo_funcs::get_committee_pubkeys(goat_client, instance_id).await
-    {
+    let committee_pubkeys = match get_committee_pubkeys(goat_client, instance_id).await {
         Ok(pks) => pks,
         Err(e) => {
             if let Some(msg) = e.downcast_ref::<SpecialError>() {
@@ -1448,6 +1421,34 @@ pub fn generate_local_key() -> libp2p::identity::Keypair {
 pub fn temp_file() -> String {
     let tmp_db = tempfile::NamedTempFile::new().unwrap();
     tmp_db.path().as_os_str().to_str().unwrap().to_string()
+}
+
+// contract calls
+pub async fn get_pegin_data(goat_client: &GOATClient, instance_id: Uuid) -> Result<PeginData> {
+    goat_client.gateway_get_pegin_data(&instance_id).await
+}
+pub async fn get_withdraw_data(goat_client: &GOATClient, graph_id: &Uuid) -> Result<WithdrawData> {
+    goat_client.gateway_get_withdraw_data(graph_id).await
+}
+
+pub async fn get_goat_confirmed_btc_height(goat_client: &GOATClient) -> Result<u32> {
+    Ok(goat_client.btc_spv_latest_confirmed_height().await? as u32)
+}
+pub async fn get_committee_pubkeys(
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+) -> Result<Vec<PublicKey>> {
+    // if getCommitteePubkeys reverts, return SpecialError::EvmReverted(ReasonString)
+    goat_client.gateway_get_committee_pubkeys(&instance_id).await
+}
+
+pub async fn answer_pegin_request(
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+    pubkey_for_instance: PublicKey,
+) -> Result<()> {
+    goat_client.gateway_answer_pegin_request(&instance_id, &pubkey_for_instance).await?;
+    Ok(())
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

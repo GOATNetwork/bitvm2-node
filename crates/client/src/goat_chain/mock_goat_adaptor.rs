@@ -181,7 +181,7 @@ impl ChainAdaptor for MockAdaptor {
     async fn gateway_answer_pegin_request(
         &self,
         _instance_id: &[u8; 16],
-        _committee_xonly_pubkey: &[u8; 33],
+        _committee_pubkey: &[u8],
     ) -> anyhow::Result<String> {
         Ok(TxHash::default().to_string())
     }
@@ -277,6 +277,22 @@ impl ChainAdaptor for MockAdaptor {
     ) -> anyhow::Result<String> {
         info!("call gateway_finish_withdraw_disproved");
         Ok(hex::encode(generate_random_bytes(32)))
+    }
+
+    async fn gateway_get_committee_pubkeys(
+        &self,
+        _instance_id: &[u8; 16],
+    ) -> anyhow::Result<Vec<Vec<u8>>> {
+        Ok(vec![])
+    }
+
+    async fn gateway_get_post_graph_digest(
+        &self,
+        _instance_id: &[u8; 16],
+        _graph_id: &[u8; 16],
+        _graph_data: GraphData,
+    ) -> anyhow::Result<[u8; 32]> {
+        Ok([0u8; 32])
     }
 
     async fn btc_spv_blockhash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {

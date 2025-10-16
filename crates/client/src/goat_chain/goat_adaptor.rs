@@ -152,6 +152,8 @@ sol!(
         function finishWithdrawHappyPath(bytes16 graphId, BitcoinTx calldata rawTake1Tx, BitcoinTxProof calldata take1Proof) external;
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, DisproveTxType disproveTxType, uint256 txnIndex, BitcoinTx calldata rawChallengeStartTx, BitcoinTxProof calldata challengeStartTxProof, BitcoinTx calldata rawChallengeFinishTx, BitcoinTxProof calldata challengeFinishTxProof ) external;
+        function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys);
+        function getPostGraphDigest(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData) public view returns (bytes32);
 
         // Contract is not implements this functions, do something later
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
@@ -796,13 +798,13 @@ impl ChainAdaptor for GoatAdaptor {
     async fn gateway_answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
-        committee_xonly_pubkey: &[u8; 33],
+        committee_pubkey: &[u8],
     ) -> anyhow::Result<String> {
         let gateway = self.get_gateway()?;
         let tx_request = gateway
             .answerPeginRequest(
                 FixedBytes::from_slice(instance_id),
-                Bytes::copy_from_slice(committee_xonly_pubkey),
+                Bytes::copy_from_slice(committee_pubkey),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
@@ -999,6 +1001,38 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
+    async fn gateway_get_committee_pubkeys(
+        &self,
+        instance_id: &[u8; 16],
+    ) -> anyhow::Result<Vec<Vec<u8>>> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway
+            .getCommitteePubkeys(FixedBytes::from_slice(instance_id))
+            .call()
+            .await?
+            .iter()
+            .map(|pk| pk.to_vec())
+            .collect())
+    }
+
+    async fn gateway_get_post_graph_digest(
+        &self,
+        instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
+        graph_data: GraphData,
+    ) -> anyhow::Result<[u8; 32]> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway
+            .getPostGraphDigest(
+                FixedBytes::from_slice(instance_id),
+                FixedBytes::from_slice(graph_id),
+                graph_data.into(),
+            )
+            .call()
+            .await?
+            .0)
+    }
+
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
         let btc_spv = self.get_btc_spv()?;
         Ok(btc_spv.blockHash(U256::from(height)).call().await?.0)
@@ -1017,6 +1051,25 @@ impl ChainAdaptor for GoatAdaptor {
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
         let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
         Ok(sequencer_set_publisher.latestConfirmedHeight().call().await?.try_into()?)
+    }
+
+    async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>> {
+        let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
+        Ok(sequencer_set_publisher
+            .calcMajoritySequencerSetCmtAtHeightOrLatest(height)
+            .call()
+            .await?
+            .try_into()?)
+    }
+
+    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
+        let multi_sig_verifier = self.get_multi_sig_verifier()?;
+        Ok(multi_sig_verifier.getOwners().call().await?.try_into()?)
+    }
+
+    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
+        let multi_sig_verifier = self.get_multi_sig_verifier()?;
+        Ok(multi_sig_verifier.nonce().call().await?.try_into()?)
     }
 
     async fn seq_set_pub_get_publisher_public_keys(
@@ -1062,25 +1115,6 @@ impl ChainAdaptor for GoatAdaptor {
             .into_transaction_request();
         let tx_hash = self.handle_transaction_request(tx_request).await?;
         Ok(tx_hash.to_string())
-    }
-
-    async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>> {
-        let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
-        Ok(sequencer_set_publisher
-            .calcMajoritySequencerSetCmtAtHeightOrLatest(height)
-            .call()
-            .await?
-            .try_into()?)
-    }
-
-    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
-        let multi_sig_verifier = self.get_multi_sig_verifier()?;
-        Ok(multi_sig_verifier.getOwners().call().await?.try_into()?)
-    }
-
-    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
-        let multi_sig_verifier = self.get_multi_sig_verifier()?;
-        Ok(multi_sig_verifier.nonce().call().await?.try_into()?)
     }
 
     async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
