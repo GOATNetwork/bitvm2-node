@@ -1,6 +1,7 @@
 use crate::rpc_service::AppState;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
+use crate::rpc_service::response::{ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -48,11 +49,11 @@ use uuid::Uuid;
 #[axum::debug_handler]
 pub async fn instance_settings(
     State(_app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<InstanceSettingResponse>) {
-    (
+) -> ApiResult<InstanceSettingResponse> {
+    Ok((
         StatusCode::OK,
         Json(InstanceSettingResponse { bridge_in_amount: vec![0.1, 0.05, 0.02, 0.01] }),
-    )
+    ))
 }
 
 /// Check graph presign status
@@ -102,10 +103,7 @@ pub async fn instance_settings(
 pub async fn graph_presign_check(
     Query(params): Query<GraphPresignCheckParams>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<GraphPresignCheckResponse>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<GraphPresignCheckResponse> {
     // Validate instance_id format
     let instance_id = InputValidator::validate_uuid(&params.instance_id, "instance_id")?;
 
@@ -140,8 +138,14 @@ pub async fn graph_presign_check(
     match async_fn().await {
         Ok(resp) => Ok((StatusCode::OK, Json(resp))),
         Err(err) => {
-            tracing::warn!("graph_presign_check  err:{:?}", err);
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(resp)))
+            tracing::warn!("graph_presign_check err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GRAPH_CHECK_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -190,10 +194,7 @@ pub async fn get_graph_tx(
     Query(params): Query<GraphTxGetParams>,
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<Option<GraphTxGetResponse>>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<GraphTxGetResponse> {
     // Validate graph_id format
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
@@ -249,10 +250,16 @@ pub async fn get_graph_tx(
         }
     };
     match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(Some(resp)))),
+        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
         Err(err) => {
-            tracing::warn!("get_graph_tx  err:{:?}", err);
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(None)))
+            tracing::warn!("get_graph_tx err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_GRAPH_TX_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -306,10 +313,7 @@ pub async fn get_graph_tx(
 pub async fn get_graph_txn(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<Option<GraphTxnGetResponse>>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<GraphTxnGetResponse> {
     // Validate graph_id format
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
@@ -349,10 +353,16 @@ pub async fn get_graph_txn(
         }
     };
     match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(Some(resp)))),
+        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
         Err(err) => {
-            tracing::warn!("get_graph_txn  err:{:?}", err);
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(None)))
+            tracing::warn!("get graph txn err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_GRAPH_TXN_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -415,17 +425,23 @@ pub async fn get_graph_txn(
 pub async fn create_instance(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<InstanceUpdateRequest>,
-) -> (StatusCode, Json<InstanceUpdateResponse>) {
+) -> ApiResult<InstanceUpdateResponse> {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         storage_process.upsert_instance(&payload.instance).await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     };
     match async_fn().await {
-        Ok(_) => (StatusCode::OK, Json(InstanceUpdateResponse {})),
+        Ok(_) => Ok((StatusCode::OK, Json(InstanceUpdateResponse {}))),
         Err(err) => {
-            tracing::warn!("create_instance  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceUpdateResponse {}))
+            tracing::warn!("create_instance err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "CREATE_INSTANCE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -494,10 +510,7 @@ pub async fn update_instance(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<InstanceUpdateRequest>,
-) -> Result<
-    (StatusCode, Json<InstanceUpdateResponse>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<InstanceUpdateResponse> {
     // Validate instance_id format in path
     let _path_instance_id = InputValidator::validate_uuid(&instance_id, "instance_id")?;
 
@@ -510,10 +523,9 @@ pub async fn update_instance(
     if instance_id != payload.instance.instance_id.to_string() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(crate::rpc_service::validation::ValidationErrorResponse {
+            Json(ErrorResponse {
                 error: "MISMATCHED_INSTANCE_ID".to_string(),
                 message: "Instance ID in path does not match the one in request body".to_string(),
-                field: Some("instance_id".to_string()),
             }),
         ));
     }
@@ -526,8 +538,14 @@ pub async fn update_instance(
     match async_fn().await {
         Ok(_) => Ok((StatusCode::OK, Json(InstanceUpdateResponse {}))),
         Err(err) => {
-            tracing::warn!("update_instance  err:{:?}", err);
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceUpdateResponse {})))
+            tracing::warn!("create_instance err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "UPDATE_INSTANCE_ERRR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -669,10 +687,7 @@ async fn get_tx_confirmation_info(
 pub async fn get_instances(
     Query(params): Query<InstanceListRequest>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<InstanceListResponse>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<InstanceListResponse> {
     // Validate pagination parameters
     let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
 
@@ -725,8 +740,14 @@ pub async fn get_instances(
     match async_fn().await {
         Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_instances err:{:?}", err);
-            Ok((StatusCode::OK, Json(InstanceListResponse::default())))
+            tracing::warn!("get instances  err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_INSTANCE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -770,10 +791,7 @@ pub async fn get_instances(
 pub async fn get_instance(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<InstanceGetResponse>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<InstanceGetResponse> {
     // Validate instance_id format
     let instance_id_uuid = InputValidator::validate_uuid(&instance_id, "instance_id")?;
 
@@ -809,10 +827,13 @@ pub async fn get_instance(
     match async_fn().await {
         Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_instances, err:{:?}", err);
-            Ok((
-                StatusCode::OK,
-                Json(InstanceGetResponse { instance_wrap: InstanceWrap::default() }),
+            tracing::warn!("get instances err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_INSTANCE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
             ))
         }
     }
@@ -856,7 +877,7 @@ pub async fn get_instance(
 #[axum::debug_handler]
 pub async fn get_instances_overview(
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<InstanceOverviewResponse>) {
+) -> ApiResult<InstanceOverviewResponse> {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let (pegin_sum, pegin_count) = storage_process
@@ -885,10 +906,16 @@ pub async fn get_instances_overview(
         })
     };
     match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
+        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
         Err(err) => {
-            tracing::warn!("get_instances_overview  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(InstanceOverviewResponse::default()))
+            tracing::warn!("get instances overview err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "INSTANCE_OVERVIEW_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -934,10 +961,7 @@ pub async fn get_instances_overview(
 pub async fn get_graph(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<GraphGetResponse>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<GraphGetResponse> {
     // Validate graph_id format
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
     let async_fn = || async move {
@@ -962,8 +986,14 @@ pub async fn get_graph(
     match async_fn().await {
         Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_graph  err:{:?}", err);
-            Ok((StatusCode::OK, Json(GraphGetResponse { graph: None })))
+            tracing::warn!("get graph err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_GRAPH_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -1034,10 +1064,7 @@ pub async fn update_graph(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<GraphUpdateRequest>,
-) -> Result<
-    (StatusCode, Json<GraphUpdateResponse>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<GraphUpdateResponse> {
     // Validate graph_id format in path
     let _path_graph_id = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
@@ -1048,10 +1075,9 @@ pub async fn update_graph(
     if graph_id != payload.graph.graph_id.to_string() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(crate::rpc_service::validation::ValidationErrorResponse {
+            Json(ErrorResponse {
                 error: "MISMATCHED_GRAPH_ID".to_string(),
                 message: "Graph ID in path does not match the one in request body".to_string(),
-                field: Some("graph_id".to_string()),
             }),
         ));
     }
@@ -1064,8 +1090,14 @@ pub async fn update_graph(
     match async_fn().await {
         Ok(_) => Ok((StatusCode::OK, Json(GraphUpdateResponse {}))),
         Err(err) => {
-            tracing::warn!("update_graph  err:{:?}", err);
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(GraphUpdateResponse {})))
+            tracing::warn!("graph update err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GRAPH_UPDATE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -1116,7 +1148,7 @@ pub async fn update_graph(
 pub async fn get_graphs(
     Query(params): Query<GraphQueryParams>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<GraphListResponse>) {
+) -> ApiResult<GraphListResponse> {
     let resp = GraphListResponse::default();
     let mut resp_clone = resp.clone();
     let async_fn = || async move {
@@ -1132,10 +1164,16 @@ pub async fn get_graphs(
         Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp_clone)
     };
     match async_fn().await {
-        Ok(resp) => (StatusCode::OK, Json(resp)),
+        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
         Err(err) => {
-            tracing::warn!("graph_list  err:{:?}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(resp))
+            tracing::warn!("get graphs err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET GRAPHS_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }

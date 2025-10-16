@@ -3,6 +3,7 @@ mod cors_config;
 pub mod handler;
 mod node;
 pub(crate) mod proof;
+mod response;
 pub mod routes;
 pub mod validation;
 

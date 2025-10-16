@@ -2,6 +2,7 @@ use crate::rpc_service::node::{
     ALIVE_TIME_JUDGE_THRESHOLD, NodeDesc, NodeListResponse, NodeOverViewResponse, NodeQueryParams,
     UpdateOrInsertNodeRequest,
 };
+use crate::rpc_service::response::{ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::reflect_goat_address;
@@ -60,10 +61,7 @@ use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 pub async fn create_node(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<UpdateOrInsertNodeRequest>,
-) -> Result<
-    (StatusCode, Json<Node>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<Node> {
     // Validate input parameters
     InputValidator::validate_peer_id(&payload.peer_id, "peer_id")?;
     let goat_addr = InputValidator::validata_goat_address(&payload.goat_addr, "goat_addr")?;
@@ -91,8 +89,14 @@ pub async fn create_node(
     match async_fn().await {
         Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("create, error: {}", err);
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(Node::default())))
+            tracing::warn!("create node err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "CREAT_NODE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -142,10 +146,7 @@ pub async fn create_node(
 pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<NodeListResponse>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<NodeListResponse> {
     // Validate pagination parameters
     let (offset, limit) =
         InputValidator::validate_pagination(query_params.offset, query_params.limit)?;
@@ -211,10 +212,13 @@ pub async fn get_nodes(
     match async_fn().await {
         Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_nodes failed, error:{}", err);
-            Ok((
+            tracing::warn!("get nodes err:{:?}", err);
+            Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(NodeListResponse { nodes: vec![], total: 0 }),
+                Json(ErrorResponse {
+                    error: "GET_NODES_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
             ))
         }
     }
@@ -253,7 +257,7 @@ pub async fn get_nodes(
 #[axum::debug_handler]
 pub async fn get_nodes_overview(
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<NodeOverViewResponse>) {
+) -> ApiResult<NodeOverViewResponse> {
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
@@ -264,10 +268,16 @@ pub async fn get_nodes_overview(
         })
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_nodes failed, error:{}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(NodeOverViewResponse::default()))
+            tracing::warn!("nodes overview err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "NODES_OVERVIEW_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -308,10 +318,7 @@ pub async fn get_nodes_overview(
 pub async fn get_node(
     Path(peer_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> Result<
-    (StatusCode, Json<Option<Node>>),
-    (StatusCode, Json<crate::rpc_service::validation::ValidationErrorResponse>),
-> {
+) -> ApiResult<Option<Node>> {
     // Validate peer_id format
     InputValidator::validate_peer_id(&peer_id, "peer_id")?;
     let async_fn = || async move {
@@ -325,8 +332,14 @@ pub async fn get_node(
     match async_fn().await {
         Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_nodes failed, error:{}", err);
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(None)))
+            tracing::warn!("get node err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_NODE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }

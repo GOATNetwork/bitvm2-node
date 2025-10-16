@@ -4,6 +4,7 @@ use crate::rpc_service::proof::{
     BlockProofs, Groth16ProofValue, ProofItem, Proofs, ProofsOverview, ProofsOverviewQueryParams,
     ProofsQueryParams,
 };
+use crate::rpc_service::response::{ApiResult, ErrorResponse};
 use anyhow::bail;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -74,7 +75,7 @@ pub async fn get_proof(
     uri: Uri,
     Path(block_number): Path<i64>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<Option<Proofs>>) {
+) -> ApiResult<Proofs> {
     let async_fn = || async move {
         if app_state.actor == Actor::Relayer {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
@@ -82,8 +83,8 @@ pub async fn get_proof(
             if !resp.status().is_success() {
                 return Err(format!("fail to get response from {operator_url}").into());
             }
-            let res = resp.json::<Option<Proofs>>().await?;
-            return Ok::<Option<Proofs>, Box<dyn std::error::Error>>(res);
+            let res = resp.json::<Proofs>().await?;
+            return Ok::<Proofs, Box<dyn std::error::Error>>(res);
         }
         let mut storage_process = app_state.local_db.acquire().await?;
         let block_proofs_map = convert_to_proof_items(
@@ -102,20 +103,26 @@ pub async fn get_proof(
             .get_groth16_proof_info(block_number)
             .await?
             .map(|groth16_proof_info| groth16_proof_info.into());
-        Ok::<Option<Proofs>, Box<dyn std::error::Error>>(Some(Proofs {
+        Ok::<Proofs, Box<dyn std::error::Error>>(Proofs {
             block_proofs: vec![BlockProofs {
                 block_number,
                 block_proof: block_proofs_map.get(&block_number).cloned(),
                 aggregation_proof: aggregation_proofs_map.get(&block_number).cloned(),
                 groth16_proof,
             }],
-        }))
+        })
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_proof failed, error:{}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+            tracing::warn!("get proof err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GRAPH_CHECK_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -171,7 +178,7 @@ pub async fn get_proofs(
     uri: Uri,
     Query(params): Query<ProofsQueryParams>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<Option<Proofs>>) {
+) -> ApiResult<Proofs> {
     let async_fn = || async move {
         if app_state.actor == Actor::Relayer {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
@@ -179,8 +186,8 @@ pub async fn get_proofs(
             if !resp.status().is_success() {
                 return Err(format!("fail to get response from {operator_url}").into());
             }
-            let res = resp.json::<Option<Proofs>>().await?;
-            return Ok::<Option<Proofs>, Box<dyn std::error::Error>>(res);
+            let res = resp.json::<Proofs>().await?;
+            return Ok::<Proofs, Box<dyn std::error::Error>>(res);
         }
 
         if params.block_number.is_none() && params.graph_id.is_none() {
@@ -242,13 +249,19 @@ pub async fn get_proofs(
             })
         }
 
-        Ok::<Option<Proofs>, Box<dyn std::error::Error>>(Some(Proofs { block_proofs }))
+        Ok::<Proofs, Box<dyn std::error::Error>>(Proofs { block_proofs })
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_proofs failed, error:{}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+            tracing::warn!("get proofs err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_PROOFS_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -292,7 +305,7 @@ pub async fn get_proofs_overview(
     uri: Uri,
     Query(params): Query<ProofsOverviewQueryParams>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<Option<ProofsOverview>>) {
+) -> ApiResult<ProofsOverview> {
     let async_fn = || async move {
         if app_state.actor == Actor::Relayer {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
@@ -300,8 +313,8 @@ pub async fn get_proofs_overview(
             if !resp.status().is_success() {
                 return Err(format!("fail to get response from {operator_url}").into());
             }
-            let res = resp.json::<Option<ProofsOverview>>().await?;
-            return Ok::<Option<ProofsOverview>, Box<dyn std::error::Error>>(res);
+            let res = resp.json::<ProofsOverview>().await?;
+            return Ok::<ProofsOverview, Box<dyn std::error::Error>>(res);
         }
 
         let mut storage_process = app_state.local_db.acquire().await?;
@@ -316,7 +329,7 @@ pub async fn get_proofs_overview(
             .await?;
         let (block_proof_conc, agg_proof_conc, groth16_proof_conc) =
             get_proof_config(&app_state.local_db).await?;
-        Ok::<Option<ProofsOverview>, Box<dyn std::error::Error>>(Some(ProofsOverview {
+        Ok::<ProofsOverview, Box<dyn std::error::Error>>(ProofsOverview {
             total_blocks,
             avg_block_proof: calculate_proof_avg_proof_time(
                 sum_block_proof_time,
@@ -336,13 +349,19 @@ pub async fn get_proofs_overview(
             block_proof_count,
             aggregation_proof_count,
             groth16_proof_count,
-        }))
+        })
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_proofs_overview failed, error:{}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+            tracing::warn!("get proofs overview err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_PROOFS_OVERVIEW_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }
@@ -386,7 +405,7 @@ pub async fn get_groth16_proof(
     uri: Uri,
     Path(block_number): Path<i64>,
     State(app_state): State<Arc<AppState>>,
-) -> (StatusCode, Json<Option<Groth16ProofValue>>) {
+) -> ApiResult<Groth16ProofValue> {
     let async_fn = || async move {
         if app_state.actor == Actor::Relayer {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
@@ -394,8 +413,8 @@ pub async fn get_groth16_proof(
             if !resp.status().is_success() {
                 return Err(format!("fail to get response from {operator_url}").into());
             }
-            let res = resp.json::<Option<Groth16ProofValue>>().await?;
-            return Ok::<Option<Groth16ProofValue>, Box<dyn std::error::Error>>(res);
+            let res = resp.json::<Groth16ProofValue>().await?;
+            return Ok::<Groth16ProofValue, Box<dyn std::error::Error>>(res);
         }
         let mut storage_process = app_state.local_db.acquire().await?;
         let (proof, public_values, verifier_id, zkm_version) =
@@ -405,19 +424,25 @@ pub async fn get_groth16_proof(
             return Err(format!("Groth16 proof is not ready at {block_number}").into());
         }
         let groth16_vk = storage_process.get_groth16_vk(&zkm_version).await?;
-        Ok::<Option<Groth16ProofValue>, Box<dyn std::error::Error>>(Some(Groth16ProofValue {
+        Ok::<Groth16ProofValue, Box<dyn std::error::Error>>(Groth16ProofValue {
             proof,
             public_values,
             verifier_id,
             zkm_version,
             groth16_vk,
-        }))
+        })
     };
     match async_fn().await {
-        Ok(res) => (StatusCode::OK, Json(res)),
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
         Err(err) => {
-            tracing::warn!("get_detail_proof failed, error:{}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(None))
+            tracing::warn!("get groth16 proof err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_GROTH16_PROOF_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
         }
     }
 }

@@ -1,24 +1,18 @@
 use crate::env::{IpfsTxName, get_network};
+use crate::rpc_service::response::ErrorResponse;
 use alloy::primitives::Address as EvmAddress;
 use axum::Json;
 use axum::http::StatusCode;
 use bitcoin::{Address, AddressType, PublicKey};
 use bitvm2_lib::actors::Actor;
 use libp2p::PeerId;
-use serde::Serialize;
 use std::str::FromStr;
 use uuid::Uuid;
 
 /// Input validation error response
-#[derive(Debug, Serialize)]
-pub struct ValidationErrorResponse {
-    pub error: String,
-    pub message: String,
-    pub field: Option<String>,
-}
 
 /// Validation result type
-pub type ValidationResult<T> = Result<T, (StatusCode, Json<ValidationErrorResponse>)>;
+pub type ValidationResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
 
 /// Input validation utilities
 pub struct InputValidator;
@@ -29,10 +23,9 @@ impl InputValidator {
         if uuid_str.is_empty() {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_UUID".to_string(),
                     message: format!("{} cannot be empty", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -42,10 +35,9 @@ impl InputValidator {
             Ok(uuid) => Ok(uuid),
             Err(_) => Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_UUID_FORMAT".to_string(),
                     message: format!("{} is not a valid UUID format", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             )),
         }
@@ -60,10 +52,9 @@ impl InputValidator {
             Ok(goat_addr) => Ok(goat_addr.to_string()),
             Err(_) => Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_GOAT_FORMAT".to_string(),
                     message: format!("{} is not a valid goat format", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             )),
         }
@@ -84,10 +75,9 @@ impl InputValidator {
         if !validate {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_BTC_SEGWIT_ADDRESS".to_string(),
                     message: format!("{} is not a valid segwit btc address", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -99,10 +89,9 @@ impl InputValidator {
         if let Err(_) = PublicKey::from_str(btc_pubkey) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_BTC_PUBKEY".to_string(),
                     message: format!("{} is not a valid btc pub key", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -114,10 +103,9 @@ impl InputValidator {
         if let Err(_) = PeerId::from_str(addr_str) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_PEER_ID".to_string(),
                     message: format!("{} is not a valid peer id", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -135,10 +123,9 @@ impl InputValidator {
         if value.len() < min_len {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "STRING_TOO_SHORT".to_string(),
                     message: format!("{} must be at least {} characters long", field_name, min_len),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -146,10 +133,9 @@ impl InputValidator {
         if value.len() > max_len {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "STRING_TOO_LONG".to_string(),
                     message: format!("{} must be at most {} characters long", field_name, max_len),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -165,10 +151,9 @@ impl InputValidator {
         if tx_name.contains("..") || tx_name.contains("/") || tx_name.contains("\\") {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_TX_NAME".to_string(),
                     message: "tx_name contains invalid characters".to_string(),
-                    field: Some("tx_name".to_string()),
                 }),
             ));
         }
@@ -177,13 +162,12 @@ impl InputValidator {
             Ok(tx_name_enum) => Ok(tx_name_enum),
             Err(_) => Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_TX_NAME_TYPE".to_string(),
                     message: format!(
                         "Invalid tx_name: {}. Valid values are: pegin, kickoff, assert-commit0, assert-commit1, assert-commit2, assert-commit3, assert-init, assert-final, challenge, take1, take2, disprove",
                         tx_name
                     ),
-                    field: Some("tx_name".to_string()),
                 }),
             )),
         }
@@ -200,10 +184,9 @@ impl InputValidator {
         if offset > 10000 {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_OFFSET".to_string(),
                     message: "offset cannot exceed 10000".to_string(),
-                    field: Some("offset".to_string()),
                 }),
             ));
         }
@@ -211,10 +194,9 @@ impl InputValidator {
         if limit == 0 || limit > 100 {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_LIMIT".to_string(),
                     message: "limit must be between 1 and 100".to_string(),
-                    field: Some("limit".to_string()),
                 }),
             ));
         }
@@ -227,10 +209,9 @@ impl InputValidator {
         if amount <= 0 {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_AMOUNT".to_string(),
                     message: format!("{} must be greater than 0", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -239,10 +220,9 @@ impl InputValidator {
             // 21M BTC in satoshis
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "AMOUNT_TOO_LARGE".to_string(),
                     message: format!("{} exceeds maximum allowed value", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
@@ -255,10 +235,9 @@ impl InputValidator {
         if let Err(_) = Actor::from_str(actor) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ValidationErrorResponse {
+                Json(ErrorResponse {
                     error: "INVALID_ACTOR".to_string(),
                     message: format!("{} invalid actor", field_name),
-                    field: Some(field_name.to_string()),
                 }),
             ));
         }
