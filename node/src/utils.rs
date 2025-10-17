@@ -77,6 +77,12 @@ pub mod todo_funcs {
     use super::*;
 
     // contract calls
+    pub async fn get_graph_data_on_goat(
+        goat_client: &GOATClient,
+        graph_id: Uuid,
+    ) -> Result<GraphData> {
+        todo!("call Gateway.graphDataMap(graph_id) on goat chain")
+    }
     pub async fn get_graph_digest(
         goat_client: &GOATClient,
         graph: &Bitvm2Graph,
