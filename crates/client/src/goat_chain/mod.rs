@@ -5,7 +5,7 @@ use alloy::primitives::{Address, B256, Bytes, FixedBytes, Signature, U256};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::hashes::Hash;
-use bitcoin::{Transaction, Txid};
+use bitcoin::{PublicKey, Transaction, Txid};
 use uuid::Uuid;
 pub mod utils;
 use crate::btc_chain::{BTCClient, MerkleProofExtend};
@@ -59,10 +59,6 @@ impl GOATClient {
 
     pub async fn gateway_get_withdraw_data(&self, graph_id: &Uuid) -> anyhow::Result<WithdrawData> {
         self.chain_service.gateway_get_withdraw_data(graph_id).await
-    }
-
-    pub async fn gateway_get_block_hash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
-        self.chain_service.gateway_get_btc_block_hash(height).await
     }
 
     pub async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
@@ -162,7 +158,7 @@ impl GOATClient {
     pub async fn gateway_answer_pegin_request(
         &self,
         instance_id: &Uuid,
-        committee_xonly_pubkey: &[u8; 33],
+        committee_pubkey: &PublicKey,
     ) -> anyhow::Result<String> {
         if !self.is_committee_member().await? {
             bail!("only committee member can call");
@@ -191,7 +187,9 @@ impl GOATClient {
             );
         }
 
-        self.chain_service.gateway_answer_pegin_request(instance_id, committee_xonly_pubkey).await
+        self.chain_service
+            .gateway_answer_pegin_request(instance_id, &committee_pubkey.to_bytes())
+            .await
     }
 
     pub async fn gateway_get_instanceids_by_pubkey(
@@ -367,7 +365,7 @@ impl GOATClient {
 
         let tx_proof_data = btc_client.get_merkle_proof_extend(&tx_id).await?;
 
-        let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
+        let block_hash_online = self.btc_spv_blockhash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {
             tracing::warn!(
                 "instance_id:{instance_id}  block_hash mismatch, from chain:{},  in contract:{}",
@@ -515,7 +513,7 @@ impl GOATClient {
         // check hash in btc chain and spv contract
         let tx_proof_data = btc_client.get_merkle_proof_extend(tx_act).await?;
 
-        let block_hash_online = self.gateway_get_block_hash(tx_proof_data.height).await?;
+        let block_hash_online = self.btc_spv_blockhash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {
             tracing::warn!(
                 "graph_id:{} at: {} block_hash mismatch, from chain:{},  in contract:{}",
@@ -534,6 +532,33 @@ impl GOATClient {
         }
         Ok(tx_proof_data)
     }
+    pub async fn gateway_get_committee_pubkeys(
+        &self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Vec<PublicKey>> {
+        let pubkeys = self.chain_service.gateway_get_committee_pubkeys(instance_id).await?;
+        Ok(pubkeys
+            .iter()
+            .filter_map(|v| PublicKey::from_slice(v).map_or(None, |v| Some(v)))
+            .collect::<Vec<PublicKey>>())
+    }
+
+    pub async fn gateway_get_post_graph_digest(
+        &self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        graph_data: GraphData,
+    ) -> anyhow::Result<[u8; 32]> {
+        self.chain_service.gateway_get_post_graph_digest(instance_id, graph_id, graph_data).await
+    }
+    pub async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
+        self.chain_service.btc_spv_blockhash(height).await
+    }
+
+    pub async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
+        self.chain_service.btc_spv_latest_confirmed_height().await
+    }
+
     pub async fn seq_set_pub_calc_commitment(
         &self,
         height: U256,

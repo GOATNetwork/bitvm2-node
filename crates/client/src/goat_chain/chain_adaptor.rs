@@ -47,7 +47,7 @@ pub trait ChainAdaptor: Send + Sync {
     async fn gateway_answer_pegin_request(
         &self,
         instance_id: &[u8; 16],
-        committee_xonly_pubkey: &[u8; 33],
+        committee_pubkey: &[u8],
     ) -> anyhow::Result<String>;
     async fn gateway_post_pegin_data(
         &self,
@@ -105,6 +105,18 @@ pub trait ChainAdaptor: Send + Sync {
         raw_challenge_finshish_tx: &BitcoinTx,
         challenge_finish_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
+
+    async fn gateway_get_committee_pubkeys(
+        &self,
+        instance_id: &[u8; 16],
+    ) -> anyhow::Result<Vec<Vec<u8>>>;
+
+    async fn gateway_get_post_graph_digest(
+        &self,
+        instance_id: &[u8; 16],
+        graph_id: &[u8; 16],
+        graph_data: GraphData,
+    ) -> anyhow::Result<[u8; 32]>;
 
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
     async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64>;
