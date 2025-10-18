@@ -14,7 +14,7 @@ pub fn main() {
     let commit_chain: CommitChainCircuitInput = zkm_zkvm::io::read();
     let spv: SPV = zkm_zkvm::io::read();
 
-    let (total_work, latest_sequencer_commit_txid) = bitcoin_light_client::generate_watchtower_proof(
+    let (total_work, latest_sequencer_commit_txid) = bitcoin_light_client_circuit::generate_watchtower_proof(
         latest_sequencer_commit_txid,
         header_chain,
         commit_chain,

@@ -3,7 +3,8 @@ use bitcoin::blockdata::opcodes::all::*;
 use bitcoin::blockdata::script::Builder;
 use bitcoin::transaction::Version;
 use bitcoin::{
-    Address, Amount, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness
+    Address, Amount, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence, Transaction,
+    TxIn, TxOut, Witness,
 };
 use hex::FromHex;
 
@@ -153,11 +154,7 @@ pub fn create_dummy_publisher_keys(total: usize, network: Network) -> Vec<(Secre
     }
     println!("Publisher private key:");
     keys.iter().for_each(|(sk, _)| {
-        let k = bitcoin::PrivateKey {
-            compressed: true,
-            network: network.into(),
-            inner: *sk,
-        };
+        let k = bitcoin::PrivateKey { compressed: true, network: network.into(), inner: *sk };
         println!("{:?}\n", k.to_wif())
     });
     println!("Publisher public key:");

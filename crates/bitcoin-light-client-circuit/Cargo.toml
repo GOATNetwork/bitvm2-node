@@ -1,5 +1,5 @@
 [package]
-name = "bitcoin-light-client"
+name = "bitcoin-light-client-circuit"
 version.workspace = true
 edition.workspace = true
 

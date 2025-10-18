@@ -37,7 +37,7 @@ futures = { workspace = true }
 bitvm2-lib = { workspace = true }
 store = { workspace = true }
 client = { workspace = true }
-bitcoin-light-client = { workspace = true }
+bitcoin-light-client-circuit = { workspace = true }
 commit-chain = { workspace = true }
 
 clap = { workspace = true }
@@ -86,10 +86,11 @@ zkm-verifier = { workspace = true }
 stun-client = "0.1.4"
 strum = { version = "0.26", features = ["derive"] }
 borsh = {version = "1.5.3", features = ["derive"] }
+commit-chain-rpc = { workspace = true }
 
 # bin
 tempfile = "3.19.1"
-groth16 = { path = "../circuits/groth16" }
+proofs = { path = "../crates/proofs" }
 tokio-util = "0.7.15"
 
 [features]

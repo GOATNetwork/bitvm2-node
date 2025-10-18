@@ -64,7 +64,7 @@ async fn fetch_commit_chain(args: &Args) {
             publisher_public_keys,
             threshold: ci.threshold,
         };
-        commits.push(commit.clone());
+        commits.push(commit);
     }
     std::fs::write(&args.commits, serde_json::to_vec(&commits).unwrap()).unwrap();
 }

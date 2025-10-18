@@ -34,14 +34,15 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::goat_chain::GoatInitConfig;
 use dotenv::dotenv;
-use serde_json::Value;
 use tracing_subscriber::EnvFilter;
+
+use commit_chain_rpc::fetch_cosmos_validator_info;
 
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
-use bitcoin_light_client::{
+use bitcoin_light_client_circuit::{
     /*create_dummy_publisher_keys,*/ create_fee_tx, create_sequencer_update_partial_tx,
-    decode_eth_address, estimate_tx_vbytes, parse_cosmos_payload,
+    decode_eth_address, estimate_tx_vbytes,
 };
 use commit_chain::{create_sequencer_update_script, finalize, sign_partial};
 
@@ -208,84 +209,6 @@ enum Commands {
         #[arg(long)]
         goat_block_number: u64,
     },
-}
-
-fn parse_txs_field(
-    json_str: &str,
-) -> Result<(Vec<String>, String, String), Box<dyn std::error::Error>> {
-    let data: Value = serde_json::from_str(json_str)?;
-    let block = data.get("result").and_then(|result| result.get("block"));
-
-    let header = block.and_then(|block| block.get("header"));
-    let validators_hash = header
-        .and_then(|header| header.get("validators_hash"))
-        .and_then(|validator_hash| validator_hash.as_str())
-        .ok_or("Unable to extract validator_hash")?;
-
-    let next_validators_hash = header
-        .and_then(|header| header.get("next_validators_hash"))
-        .and_then(|next_validator_hash| next_validator_hash.as_str())
-        .ok_or("Unable to extract next_validator_hash")?;
-
-    // Access the "txs" field as an array of strings
-    let txs = block
-        .and_then(|block| block.get("data"))
-        .and_then(|data| data.get("txs"))
-        .and_then(|txs| txs.as_array())
-        .ok_or("Unable to extract txs array")?;
-
-    // Decode each base64-encoded transaction
-    let decoded_txs: Vec<String> =
-        txs.iter().map(|tx| serde_json::from_value(tx.clone()).unwrap()).collect::<Vec<_>>();
-    Ok((decoded_txs, validators_hash.to_string(), next_validators_hash.to_string()))
-}
-
-async fn fetch_cosmos_validator_info(
-    goat_block_height: u64,
-) -> Result<(Option<[u8; 32]>, Option<[u8; 32]>), Box<dyn std::error::Error>> {
-    let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
-        .unwrap_or("https://cosmos.testnet3.goat.network/".to_string());
-    // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
-    // 1. fetch the latest cosmos block height
-    // 2. binary search cosmos block height between goat block height and latest cosmos block height
-    // > 2.1. fetch the block info and parse the first transction: // curl "http://127.0.0.1:26657/block?height=5756784" | jq .result.block.data
-
-    let mut block_height = goat_block_height;
-    let mut sequencer_hash = None;
-    let mut next_sequencer_hash = None;
-
-    let mut max_retries = 100;
-    while max_retries > 0 {
-        let block_data = reqwest::get(format!("{}/block?height={}", cosmos_rpc_url, block_height))
-            .await?
-            .text()
-            .await?;
-
-        let (tx_data, validators_hash, next_validators_hash) = parse_txs_field(&block_data)?;
-        println!("tx_data: {:?}", tx_data);
-        if let Some(payload) = parse_cosmos_payload(&tx_data[0]) {
-            println!("payload: {payload:?}");
-            if payload.block_number == goat_block_height {
-                sequencer_hash = Some(hex_parse(&validators_hash)?);
-                next_sequencer_hash = Some(hex_parse(&next_validators_hash)?);
-                break;
-            }
-            if payload.block_number < block_height {
-                block_height += block_height - payload.block_number;
-            } else {
-                block_height -= 1;
-            }
-        }
-        max_retries -= 1;
-    }
-    if max_retries == 0 {
-        return Err(
-            "Can not find the cosmos block for goat block height {goat_block_height}".into()
-        );
-    }
-    println!("cosmos block height: {block_height}");
-
-    Ok((sequencer_hash, next_sequencer_hash))
 }
 
 #[tokio::main]

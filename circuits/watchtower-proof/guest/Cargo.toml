@@ -10,7 +10,7 @@ bincode = "1.3.3"
 # workspace
 header-chain = { path = "../../../crates/header-chain" }
 commit-chain = { path = "../../../crates/commit-chain" }
-bitcoin-light-client = { path = "../../../crates/bitcoin-light-client" }
+bitcoin-light-client-circuit = { path = "../../../crates/bitcoin-light-client-circuit" }
 
 # Ziren
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
@@ -20,7 +20,9 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-ver
 # Statically turns off logging
 tracing = { version = "0.1", features = ["max_level_trace"] }
 
-bitcoin = { version = "0.32.6", features = ["serde", "rand", "secp-recovery"] }
+#bitcoin = { version = "0.32.6", features = ["serde", "rand", "secp-recovery"] }
+
+bitcoin = { git = "https://github.com/ProjectZKM/rust-bitcoin", branch = "patch-0.32.6",  default-features = false, features = ["serde", "rand", "secp-recovery"] }
 
 alloy-primitives = { version = "1.2", default-features = false, features = ["sha3-keccak", "map-foldhash", "serde"] }
 revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-22.0.0", features = ["serde", "kzg-rs", "bn"], default-features = false }

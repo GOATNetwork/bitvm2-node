@@ -89,7 +89,9 @@ pub fn generate_operator_proof(
     graph_id: [u8; 16],
     operator_latest_sequencer_commit_txn: CircuitTransaction,
 
-    consensus_blocks: LightBlock,
+    actual_sequencer_set_hash: [u8; 32],
+    actual_data_hash: [u8; 32],
+
     consensus_txns: Vec<String>,
     eth_client_execution_input: EthClientExecutorInput,
 
@@ -187,8 +189,8 @@ pub fn generate_operator_proof(
 
     assert!(number_of_valid_watchtower > 0);
     // check the consensus block is valid by verifying the block's seqeuncer set hash are equal
-    let actual_sequencer_set_hash: [u8; 32] =
-        consensus_blocks.signed_header.header.validators_hash.as_bytes().try_into().unwrap();
+    //let actual_sequencer_set_hash: [u8; 32] =
+    //    consensus_block.signed_header.header.validators_hash.as_bytes().try_into().unwrap();
     assert_eq!(
         actual_sequencer_set_hash,
         commit_header_chain_output.chain_state.sequencer_set_hash
@@ -203,7 +205,8 @@ pub fn generate_operator_proof(
         latest_el_block.header.number,
         &latest_el_block.header.hash_slow().to_string(),
         &consensus_txns,
-        consensus_blocks.clone(),
+        actual_data_hash,
+        //consensus_block.signed_header.header.data_hash.as_ref().unwrap().as_bytes(),
     );
 
     println!("verify el withdraw tx");
