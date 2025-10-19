@@ -18,7 +18,7 @@ pub fn main() {
     let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
     let latest_sequencer_commit_txid = operator_latest_sequencer_commit_txn.0.compute_txid(); // public input
     // extract consensus block height
-    println!("read cosmos block");
+    println!("read cosmos block 111");
     let consensus_block_actual_sequencer_set_hash: [u8; 32] = zkm_zkvm::io::read(); // commit the sequencer set
     let consensus_block_actual_data_hash: [u8; 32] = zkm_zkvm::io::read(); // commit the sequencer set
     let consensus_txns: Vec<String> = zkm_zkvm::io::read(); 

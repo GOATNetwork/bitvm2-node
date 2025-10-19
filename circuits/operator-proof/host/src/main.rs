@@ -249,6 +249,8 @@ async fn main() {
         };
         watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
     }
+    let (actual_seqeuncer_set_hash, actual_data_hash, txns) =
+        commit_chain_rpc::fetch_commit_chain_proof_input(args.consensus_layer_block_number).await.unwrap();
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
@@ -260,14 +262,9 @@ async fn main() {
 
         stdin.write(&operator_latest_sequencer_commit_txn);
 
-        let (actual_seqeuncer_set_hash, actual_data_hash, _) =
-            commit_chain_rpc::fetch_commit_chain_proof_input(args.consensus_layer_block_number);
-        stdin.write(actual_seqeuncer_set_hash);
-        stdin.write(actual_data_hash);
-
-        let bytes = std::fs::read(format!("{}.txns", args.consensus_layer_block)).unwrap();
-        let consensus_txns: Vec<String> = serde_json::from_slice(&bytes).unwrap();
-        stdin.write(&consensus_txns);
+        stdin.write(&actual_seqeuncer_set_hash);
+        stdin.write(&actual_data_hash);
+        stdin.write(&txns);
 
         stdin.write(&eth_client_execution_input);
 

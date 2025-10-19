@@ -15,7 +15,6 @@ bitcoin-light-client-circuit = { path = "../../../crates/bitcoin-light-client-ci
 # Ziren
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
-#zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint" }
 
 # Statically turns off logging
 tracing = { version = "0.1", features = ["max_level_trace"] }
