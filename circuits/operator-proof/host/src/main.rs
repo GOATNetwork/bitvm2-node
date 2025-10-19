@@ -10,7 +10,7 @@ use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
-use bitcoin_light_client_circuit::{EthClientExecutorInput, LightBlock, build_spv};
+use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv};
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
@@ -250,7 +250,9 @@ async fn main() {
         watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
     }
     let (actual_seqeuncer_set_hash, actual_data_hash, txns) =
-        commit_chain_rpc::fetch_commit_chain_proof_input(args.consensus_layer_block_number).await.unwrap();
+        commit_chain_rpc::fetch_commit_chain_proof_input(args.consensus_layer_block_number)
+            .await
+            .unwrap();
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
