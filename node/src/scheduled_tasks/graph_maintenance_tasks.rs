@@ -227,6 +227,34 @@ impl WTInitTxVoutMonitorData {
         )
     }
 
+    pub fn get_challenge_process_desc(&self) -> (usize, usize) {
+        (
+            self.data_map
+                .iter()
+                .filter(|(_, v)| {
+                    **v == WatchtowerChallengeStatus::Challenge
+                        || **v == WatchtowerChallengeStatus::OperatorACK
+                })
+                .count(),
+            self.data_map.len(),
+        )
+    }
+
+    pub fn get_ack_process_desc(&self) -> (usize, usize) {
+        (
+            self.data_map
+                .iter()
+                .filter(|(_, v)| **v == WatchtowerChallengeStatus::OperatorACK)
+                .count(),
+            self.data_map
+                .iter()
+                .filter(|(_, v)| {
+                    **v == WatchtowerChallengeStatus::Challenge
+                        || **v == WatchtowerChallengeStatus::OperatorACK
+                })
+                .count(),
+        )
+    }
     #[allow(dead_code)]
     pub fn is_challenged(&self) -> bool {
         !self.require_disproved_indexes.is_empty()
@@ -284,6 +312,13 @@ impl AssertInitTxVoutMonitorData {
         }
 
         Ok(vout_spent_detect)
+    }
+
+    pub fn get_commit_process_desc(&self) -> (usize, usize) {
+        (
+            self.data_map.iter().filter(|(_, v)| **v == AssertCommitStatus::OperatorCommit).count(),
+            self.data_map.len(),
+        )
     }
 
     fn update_disprove_indexes(&mut self) {
