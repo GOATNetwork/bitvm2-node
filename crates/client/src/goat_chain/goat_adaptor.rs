@@ -154,6 +154,7 @@ sol!(
         function finishWithdrawDisproved(bytes16 graphId, DisproveTxType disproveTxType, uint256 txnIndex, BitcoinTx calldata rawChallengeStartTx, BitcoinTxProof calldata challengeStartTxProof, BitcoinTx calldata rawChallengeFinishTx, BitcoinTxProof calldata challengeFinishTxProof ) external;
         function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys);
         function getPostGraphDigest(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData) public view returns (bytes32);
+        function getGraphIdsByInstanceId(bytes16 instanceId) external view returns (bytes16[] memory);
 
         // Contract is not implements this functions, do something later
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
@@ -1031,6 +1032,20 @@ impl ChainAdaptor for GoatAdaptor {
             .call()
             .await?
             .0)
+    }
+
+    async fn gateway_get_graph_ids_by_instance_id(
+        &self,
+        instance_id: &[u8; 16],
+    ) -> anyhow::Result<Vec<[u8; 16]>> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway
+            .getGraphIdsByInstanceId(FixedBytes::from_slice(instance_id))
+            .call()
+            .await?
+            .iter()
+            .map(|v| v.0.clone())
+            .collect())
     }
 
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {

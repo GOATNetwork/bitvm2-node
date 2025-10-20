@@ -118,6 +118,8 @@ pub trait ChainAdaptor: Send + Sync {
         graph_data: GraphData,
     ) -> anyhow::Result<[u8; 32]>;
 
+    async fn gateway_get_graph_ids_by_instance_id(&self, instance_id: &[u8; 16]) -> anyhow::Result<Vec<[u8; 16]>>;
+
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
     async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64>;
 

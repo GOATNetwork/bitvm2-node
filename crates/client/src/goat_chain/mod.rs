@@ -569,7 +569,12 @@ impl GOATClient {
     pub async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
         self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await
     }
-
+    pub async fn gateway_get_graph_ids_by_instance_id(
+        &self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Vec<Uuid>> {
+        self.chain_service.gateway_get_graph_ids_by_instance_id(instance_id).await
+    }
     pub async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
         self.chain_service.seq_set_pub_multi_sig_verifier_get_nonce().await
     }
