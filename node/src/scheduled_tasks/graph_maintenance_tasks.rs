@@ -70,16 +70,6 @@ enum OperatorWithdrawType {
 
 /// Watchtower init tx vout item status
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
-pub enum WatchtowerChallengeItemStatus {
-    #[default]
-    None,
-    OperatorInit,
-    Challenge,
-    ChallengeTimeout,
-    OperatorACK,
-    OperatorNACK,
-}
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
 pub enum CommitBlockHashStatus {
     #[default]
     None,
@@ -97,9 +87,21 @@ pub enum AssertCommitStatus {
     OperatorCommitTimeout,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+pub enum WatchtowerChallengeStatus {
+    #[default]
+    None,
+    OperatorInit,
+    WatchtowerChallenge,                 // all Watchtower challenge
+    WatchtowerChallengeTimeout,          // Some Watchtower did not challenge, and timelock expired
+    OperatorACKTimeout, // Operator did not send ACK for some Watchtower, and timelock expired
+    WatchtowerChallengeNormalFinished, // Normal Finished
+    WatchtowerChallengeDisproveFinished, // Disproved Finished
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ChallengeSubStatus {
-    pub watchtower_challenge_status: WatchtowerChallengeItemStatus,
+    pub watchtower_challenge_status: WatchtowerChallengeStatus,
     pub commit_blockhash_status: CommitBlockHashStatus,
     pub assert_commit_status: AssertCommitStatus,
     pub disprove_type: Option<DisproveTxType>,
@@ -108,8 +110,11 @@ pub struct ChallengeSubStatus {
 
 impl ChallengeSubStatus {
     pub fn is_watchtower_challenge_finished(&self) -> bool {
-        [WatchtowerChallengeItemStatus::OperatorACK, WatchtowerChallengeItemStatus::OperatorNACK]
-            .contains(&self.watchtower_challenge_status)
+        [
+            WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished,
+            WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished,
+        ]
+        .contains(&self.watchtower_challenge_status)
             || [CommitBlockHashStatus::OperatorCommit, CommitBlockHashStatus::OperatorCommitTimeout]
                 .contains(&self.commit_blockhash_status)
     }
@@ -119,7 +124,8 @@ impl ChallengeSubStatus {
     }
 
     pub fn is_normal_finished(&self) -> bool {
-        self.watchtower_challenge_status == WatchtowerChallengeItemStatus::OperatorACK
+        self.watchtower_challenge_status
+            == WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished
             && self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommit
             && self.assert_commit_status == AssertCommitStatus::OperatorCommit
     }
@@ -129,6 +135,18 @@ impl ChallengeSubStatus {
             .contains(&self.assert_commit_status)
     }
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+pub enum WatchtowerChallengeItemStatus {
+    #[default]
+    None,
+    OperatorInit,
+    Challenge,
+    ChallengeTimeout,
+    OperatorACK,
+    OperatorNACK,
+}
+
 /// Watchtower init tx vout data
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WTInitTxVoutMonitorData {
@@ -1108,7 +1126,7 @@ async fn process_watchtower_challenge_monitoring(
                 }
             }
 
-            if is_challenge_timeout && !vout_monitor_data.is_challenge_timeout_sent {
+            if is_challenge_timeout {
                 info!(
                     "process_watchtower_challenge_monitoring watchtower challenge timeout for graph id :{}",
                     graph.graph_id
@@ -1124,8 +1142,7 @@ async fn process_watchtower_challenge_monitoring(
                         }
                     })
                     .collect();
-
-                if !watchtower_indexes.is_empty() {
+                if !watchtower_indexes.is_empty() && !vout_monitor_data.is_challenge_timeout_sent {
                     let sub_type = format!(
                         "[{}]",
                         watchtower_indexes
@@ -1146,6 +1163,8 @@ async fn process_watchtower_challenge_monitoring(
                         Some(sub_type),
                     ));
                     vout_monitor_data.is_challenge_timeout_sent = true;
+                    sub_status.watchtower_challenge_status =
+                        WatchtowerChallengeStatus::WatchtowerChallengeTimeout;
                     data_change = true;
                 }
             }
@@ -1163,8 +1182,15 @@ async fn process_watchtower_challenge_monitoring(
                 data_change = true;
             }
             if !challenge_txids.is_empty() {
-                if sub_status.watchtower_challenge_status
-                    == WatchtowerChallengeItemStatus::OperatorInit
+                //  contain the situations:
+                //      1. all watchtower challenge
+                //      2,challenge timeout. operator not send challenge timeout, but watchtower send challenge tx
+
+                if [
+                    WatchtowerChallengeStatus::OperatorInit,
+                    WatchtowerChallengeStatus::WatchtowerChallengeTimeout,
+                ]
+                .contains(&sub_status.watchtower_challenge_status)
                     && !vout_monitor_data
                         .data_map
                         .iter()
@@ -1176,7 +1202,7 @@ async fn process_watchtower_challenge_monitoring(
                     );
                     // all in challenge
                     sub_status.watchtower_challenge_status =
-                        WatchtowerChallengeItemStatus::Challenge;
+                        WatchtowerChallengeStatus::WatchtowerChallenge;
                     data_change = true;
                 }
                 p2p_message_contents.push((
@@ -1200,14 +1226,15 @@ async fn process_watchtower_challenge_monitoring(
                     "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::OperatorACK",
                     graph.graph_id
                 );
-                sub_status.watchtower_challenge_status = WatchtowerChallengeItemStatus::OperatorACK;
+                sub_status.watchtower_challenge_status =
+                    WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
             } else {
                 trace!(
                     "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::OperatorNACK",
                     graph.graph_id
                 );
                 sub_status.watchtower_challenge_status =
-                    WatchtowerChallengeItemStatus::OperatorNACK;
+                    WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished;
                 sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
                 p2p_message_contents.push((
                     Actor::Operator,
@@ -1261,7 +1288,7 @@ async fn process_watchtower_challenge_monitoring(
                 graph.graph_id,
                 watchtower_challenge_init_txid.to_string()
             );
-            sub_status.watchtower_challenge_status = WatchtowerChallengeItemStatus::OperatorInit;
+            sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
 
             let watchtower_challenge_init_tx = btc_client
                 .get_tx_info(&watchtower_challenge_init_txid)
@@ -1730,7 +1757,9 @@ async fn detect_disproved_txids(
         );
     }
 
-    if sub_status.watchtower_challenge_status == WatchtowerChallengeItemStatus::OperatorNACK {
+    if sub_status.watchtower_challenge_status
+        == WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished
+    {
         sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
         return Ok(
             match find_challenge_nack_tx(
