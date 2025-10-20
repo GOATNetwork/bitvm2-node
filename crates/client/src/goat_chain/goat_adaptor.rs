@@ -45,7 +45,7 @@ sol!(
         enum PeginStatus {
             None,
             Pending,
-            Withdrawbale,
+            Withdrawable,
             Processing,
             Locked,
             Claimed,
@@ -505,7 +505,7 @@ impl From<IGateway::PeginStatus> for PeginStatus {
         match value {
             IGateway::PeginStatus::None => PeginStatus::None,
             IGateway::PeginStatus::Pending => PeginStatus::Pending,
-            IGateway::PeginStatus::Withdrawbale => PeginStatus::Withdrawbale,
+            IGateway::PeginStatus::Withdrawable => PeginStatus::Withdrawable,
             IGateway::PeginStatus::Processing => PeginStatus::Processing,
             IGateway::PeginStatus::Locked => PeginStatus::Locked,
             IGateway::PeginStatus::Claimed => PeginStatus::Claimed,

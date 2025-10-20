@@ -5,7 +5,6 @@ use crate::middleware::AllBehaviours;
 use crate::rpc_service::proof::Groth16ProofValue;
 use crate::rpc_service::{current_time_secs, routes};
 use alloy::primitives::{Address as EvmAddress, Signature as EvmSignature};
-use alloy::providers::ProviderBuilder;
 use alloy::signers::Signer;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::consensus::encode::deserialize_hex;
@@ -26,7 +25,6 @@ use bitvm2_lib::types::{
 };
 use bitvm2_lib::watchtower::*;
 use client::Utxo as ClientUtxo;
-use client::goat_chain::utils::{validate_committee, validate_operator, validate_relayer};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
 use goat::contexts::base::generate_n_of_n_public_key;
@@ -34,7 +32,7 @@ use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
 use goat::transactions::base::Input;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::signing::populate_p2wsh_witness;
-use libp2p::Swarm;
+use libp2p::{PeerId, Swarm};
 use rand::Rng;
 use secp256k1::Secp256k1;
 
@@ -68,11 +66,17 @@ use uuid::Uuid;
 
 pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
+
     use bitvm2_lib::types::{
         Bitvm2GraphParameters, GuestInputs, PrekickoffParameters, SimplifiedBitvm2Graph,
     };
+    use client::goat_chain::{DisproveTxType, WithdrawStatus};
     use goat::transactions::prekickoff::PrekickoffTransaction;
     use libp2p::PeerId;
+
+    use crate::scheduled_tasks::graph_maintenance_tasks::{
+        AssertCommitStatus, ChallengeSubStatus, CommitBlockHashStatus, WatchtowerChallengeStatus,
+    };
 
     use super::*;
 
@@ -95,6 +99,18 @@ pub mod todo_funcs {
     ) -> Result<Vec<Uuid>> {
         todo!("call Gateway.getGraphIdsByInstanceId(instance_id) on goat chain")
     }
+    pub async fn get_committee_peer_id(
+        goat_client: &GOATClient,
+        committee_evm_address: &EvmAddress,
+    ) -> Result<PeerId> {
+        todo!("call CommitteeManagement.getCommitteePeerId(committee_evm_address) on goat chain")
+    }
+    pub async fn is_valid_committee_peer_id(
+        goat_client: &GOATClient,
+        peer_id: &PeerId,
+    ) -> Result<PeginData> {
+        todo!("call CommitteeManagement.isValidPeerId(peer_id) on goat chain")
+    }
 
     // db operations
     pub async fn graph_exists(
@@ -103,6 +119,15 @@ pub mod todo_funcs {
         graph_id: Uuid,
     ) -> Result<bool> {
         todo!("check if graph exists in local db")
+    }
+    pub async fn update_graph_status(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        new_status: GraphStatus,
+        sub_status: Option<ChallengeSubStatus>,
+    ) -> Result<()> {
+        todo!("update graph status in local db")
     }
 
     // proof network
@@ -134,25 +159,6 @@ pub mod todo_funcs {
     }
     pub async fn publish_graph_to_ipfs(ipfs: &IPFS, graph: &Bitvm2Graph) -> Result<String> {
         todo!("publish graph to ipfs")
-    }
-    pub async fn validate_committee(
-        goat_client: &GOATClient,
-        peer_id: &PeerId,
-        instance_id: Uuid,
-        committee_pubkey: &PublicKey,
-    ) -> Result<()> {
-        // return SpecialError::InvalidCommittee if not valid
-        todo!("validate committee's peer id & pubkey")
-    }
-    pub async fn validate_committee_with_evm_address(
-        goat_client: &GOATClient,
-        peer_id: &PeerId,
-        instance_id: Uuid,
-        committee_pubkey: &PublicKey,
-        committee_evm_address: &EvmAddress,
-    ) -> Result<()> {
-        // return SpecialError::InvalidCommittee if not valid
-        todo!("validate committee's peer id & pubkey & evm address")
     }
     pub async fn validate_init_graph(
         local_db: &LocalDB,
@@ -213,14 +219,16 @@ pub mod todo_funcs {
     pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
         todo!("broadcast non-standard tx")
     }
-    pub async fn refresh_graph(
+    pub(crate) async fn refresh_graph(
         local_db: &LocalDB,
         btc_client: &BTCClient,
         goat_client: &GOATClient,
         instance_id: Uuid,
         graph_id: Uuid,
         graph: Option<&Bitvm2Graph>,
-    ) -> Result<GraphStatus> {
+        start_status: Option<GraphStatus>,
+        start_sub_status: Option<ChallengeSubStatus>,
+    ) -> Result<(GraphStatus, Option<ChallengeSubStatus>)> {
         let graph = match graph {
             Some(g) => g,
             None => {
@@ -231,16 +239,308 @@ pub mod todo_funcs {
                 }
             }
         };
-        todo!("refresh graph's status, return updated graph & status")
+        let mut current_status = match start_status {
+            Some(s) => s,
+            None => {
+                if graph.committee_pre_signed() {
+                    GraphStatus::CommitteePresigned
+                } else {
+                    return Ok((GraphStatus::OperatorPresigned, None));
+                }
+            }
+        };
+        let mut sub_status = match start_sub_status {
+            Some(s) => s,
+            None => ChallengeSubStatus {
+                watchtower_challenge_status: WatchtowerChallengeStatus::None,
+                commit_blockhash_status: CommitBlockHashStatus::None,
+                assert_commit_status: AssertCommitStatus::None,
+                disprove_type: None,
+                disprove_index: 0,
+            },
+        };
+        // check if Graph has been posted on GoatChain
+        if current_status == GraphStatus::CommitteePresigned {
+            let graph_data_on_goat =
+                todo_funcs::get_graph_data_on_goat(goat_client, graph_id).await?;
+            if graph_data_on_goat.operator_pubkey == [0u8; 32] {
+                todo_funcs::update_graph_status(
+                    local_db,
+                    instance_id,
+                    graph_id,
+                    GraphStatus::CommitteePresigned,
+                    None,
+                )
+                .await?;
+                return Ok((GraphStatus::CommitteePresigned, None));
+            } else {
+                current_status = GraphStatus::OperatorDataPushed;
+            }
+        }
+        // check if Graph has been obsoleted on GoatChain
+        if current_status == GraphStatus::OperatorDataPushed {
+            let pegin_data = todo_funcs::get_pegin_data(goat_client, instance_id).await?;
+            let withdraw_data = get_withdraw_data(goat_client, &graph_id).await?;
+            // TBD: obesolete graph when pegin is claimed rather than processing
+            if pegin_data.status != PeginStatus::Withdrawable
+                && withdraw_data.status == WithdrawStatus::None
+            {
+                current_status = GraphStatus::Obsoleted;
+            }
+        }
+        // check Prekickoff
+        let prekickoff_txid = graph.cur_prekickoff.tx().compute_txid();
+        if matches!(current_status, GraphStatus::OperatorDataPushed | GraphStatus::Obsoleted) {
+            if !tx_on_chain(btc_client, &prekickoff_txid).await? {
+                todo_funcs::update_graph_status(
+                    local_db,
+                    instance_id,
+                    graph_id,
+                    current_status.clone(),
+                    None,
+                )
+                .await?;
+                return Ok((current_status, None));
+            } else {
+                current_status = if current_status != GraphStatus::Obsoleted {
+                    GraphStatus::PreKickoff
+                } else {
+                    GraphStatus::Obsoleted
+                };
+            }
+        }
+        // check Kickoff/SkipKickoff
+        let kickoff_txid = graph.kickoff.tx().compute_txid();
+        if matches!(current_status, GraphStatus::PreKickoff | GraphStatus::Obsoleted) {
+            let kickoff_connector_vout = 1;
+            if let Some(spent_txid) =
+                outpoint_spent_txid(btc_client, &prekickoff_txid, kickoff_connector_vout).await?
+            {
+                if spent_txid != kickoff_txid {
+                    todo_funcs::update_graph_status(
+                        local_db,
+                        instance_id,
+                        graph_id,
+                        GraphStatus::Skipped,
+                        None,
+                    )
+                    .await?;
+                    return Ok((GraphStatus::Skipped, None));
+                } else {
+                    current_status = GraphStatus::OperatorKickOff;
+                }
+            } else {
+                todo_funcs::update_graph_status(
+                    local_db,
+                    instance_id,
+                    graph_id,
+                    current_status.clone(),
+                    None,
+                )
+                .await?;
+                return Ok((current_status, None));
+            }
+        }
+        // check Take1/Challenge
+        let take1_txid = graph.take1.tx().compute_txid();
+        let connector_a_vout = 0;
+        if current_status == GraphStatus::OperatorKickOff {
+            if let Some(spent_txid) =
+                outpoint_spent_txid(btc_client, &kickoff_txid, connector_a_vout).await?
+            {
+                if spent_txid != take1_txid {
+                    current_status = GraphStatus::Challenge;
+                } else {
+                    todo_funcs::update_graph_status(
+                        local_db,
+                        instance_id,
+                        graph_id,
+                        GraphStatus::OperatorTake1,
+                        None,
+                    )
+                    .await?;
+                    return Ok((GraphStatus::OperatorTake1, None));
+                }
+            } else {
+                todo_funcs::update_graph_status(
+                    local_db,
+                    instance_id,
+                    graph_id,
+                    GraphStatus::OperatorKickOff,
+                    None,
+                )
+                .await?;
+                return Ok((GraphStatus::OperatorKickOff, None));
+            }
+        }
+        // check Take2/Disprove
+        let take2_txid = graph.take2.tx().compute_txid();
+        if current_status == GraphStatus::Challenge {
+            let connector_e_vout = 3;
+            if let Some(spent_txid) =
+                outpoint_spent_txid(btc_client, &kickoff_txid, connector_e_vout).await?
+            {
+                if spent_txid != take2_txid {
+                    sub_status.disprove_type = Some(DisproveTxType::Disprove);
+                    current_status = GraphStatus::Disprove;
+                } else {
+                    current_status = GraphStatus::OperatorTake2;
+                }
+                todo_funcs::update_graph_status(
+                    local_db,
+                    instance_id,
+                    graph_id,
+                    current_status.clone(),
+                    Some(sub_status.clone()),
+                )
+                .await?;
+                return Ok((current_status, Some(sub_status)));
+            }
+        }
+        // check Watchtower-Challenge & Assert-Commit process
+        if current_status == GraphStatus::Challenge {
+            // check Watchtower Challenge process
+            let watchtower_challenge_init_txid =
+                graph.watchtower_challenge_init.tx().compute_txid();
+            if tx_on_chain(btc_client, &watchtower_challenge_init_txid).await? {
+                sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
+                sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorInit;
+                let watchtower_num = graph.parameters.watchtower_pubkeys.len();
+                let connector_g_vout = watchtower_num * 2;
+                let connector_f_vout = watchtower_num * 2 + 1;
+                if let Some(spent_txid) = outpoint_spent_txid(
+                    btc_client,
+                    &watchtower_challenge_init_txid,
+                    connector_f_vout as u64,
+                )
+                .await?
+                {
+                    // this must not be Take2 because Take2 is already checked above
+                    current_status = GraphStatus::Disprove;
+                    let spent_tx = btc_client.get_tx(&spent_txid).await?.unwrap();
+                    let first_input_vout = spent_tx.input[0].previous_output.vout;
+                    if first_input_vout == connector_g_vout as u32 {
+                        sub_status.commit_blockhash_status =
+                            CommitBlockHashStatus::OperatorCommitTimeout;
+                        sub_status.disprove_type = Some(DisproveTxType::OperatorCommitTimeout);
+                        todo!("mark sub_status.WatchtowerChallengeStatus as Disproved");
+                    } else {
+                        sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
+                        sub_status.disprove_index = (first_input_vout / 2) as i32;
+                        todo!("mark sub_status.WatchtowerChallengeStatus as Disproved");
+                    }
+                    todo_funcs::update_graph_status(
+                        local_db,
+                        instance_id,
+                        graph_id,
+                        current_status.clone(),
+                        Some(sub_status.clone()),
+                    )
+                    .await?;
+                    return Ok((current_status, Some(sub_status)));
+                } else {
+                    todo!("check Watchtower Challenge progress");
+                }
+                if let Some(_) = outpoint_spent_txid(
+                    btc_client,
+                    &watchtower_challenge_init_txid,
+                    connector_g_vout as u64,
+                )
+                .await?
+                {
+                    // this must be OperatorCommit because OperatorCommitTimeout is already checked above
+                    sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
+                }
+            }
+            // check Assert Commit process
+            let assert_init_txid = graph.assert_init.tx().compute_txid();
+            if tx_on_chain(btc_client, &assert_init_txid).await? {
+                sub_status.assert_commit_status = AssertCommitStatus::OperatorInit;
+                let assert_commit_num = graph.assert_commit_timeout_txns.len();
+                let connector_d_vout = assert_commit_num;
+                if let Some(spent_txid) =
+                    outpoint_spent_txid(btc_client, &assert_init_txid, connector_d_vout as u64)
+                        .await?
+                {
+                    // this must not be Take2 because Take2 is already checked above
+                    current_status = GraphStatus::Disprove;
+                    let spent_tx = btc_client.get_tx(&spent_txid).await?.unwrap();
+                    let first_input_vout = spent_tx.input[0].previous_output.vout;
+                    sub_status.disprove_type = Some(DisproveTxType::AssertTimeout);
+                    sub_status.disprove_index = first_input_vout as i32;
+                    todo_funcs::update_graph_status(
+                        local_db,
+                        instance_id,
+                        graph_id,
+                        current_status.clone(),
+                        Some(sub_status.clone()),
+                    )
+                    .await?;
+                    return Ok((current_status, Some(sub_status)));
+                } else {
+                    todo!("check Assert Commit progress");
+                }
+            }
+        }
+        Ok((current_status, Some(sub_status)))
     }
-    pub async fn refresh_insatnce(
-        local_db: &LocalDB,
-        btc_client: &BTCClient,
-        goat_client: &GOATClient,
-        instance_id: Uuid,
-    ) -> Result<()> {
-        todo!("refresh instance's status & all its graphs' status")
+}
+
+pub async fn validate_committee(
+    goat_client: &GOATClient,
+    peer_id: &PeerId,
+    instance_id: Uuid,
+    committee_pubkey: &PublicKey,
+) -> Result<()> {
+    // return SpecialError::InvalidCommittee if not valid
+    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
+    for (i, pk) in pegin_data.committee_pubkeys.iter().enumerate() {
+        let pk = PublicKey::from_slice(pk)?;
+        if &pk == committee_pubkey {
+            let addr = pegin_data.committee_addresses[i];
+            let stored_peer_id = todo_funcs::get_committee_peer_id(goat_client, &addr).await?;
+            if &stored_peer_id != peer_id {
+                bail!(SpecialError::InvalidCommittee(format!(
+                    "committee pubkey & peer id mismatch"
+                )));
+            }
+            return Ok(());
+        }
     }
+    bail!(SpecialError::InvalidCommittee(format!(
+        "committee pubkey not found in instance's committee pubkeys"
+    )))
+}
+pub async fn validate_committee_with_evm_address(
+    goat_client: &GOATClient,
+    peer_id: &PeerId,
+    instance_id: Uuid,
+    committee_pubkey: &PublicKey,
+    committee_evm_address: &EvmAddress,
+) -> Result<()> {
+    // return SpecialError::InvalidCommittee if not valid
+    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
+    for i in 0..pegin_data.committee_pubkeys.len() {
+        let pk = PublicKey::from_slice(&pegin_data.committee_pubkeys[i])?;
+        let addr = &pegin_data.committee_addresses[i];
+        if addr == committee_evm_address {
+            if &pk != committee_pubkey {
+                bail!(SpecialError::InvalidCommittee(format!(
+                    "committee evm address & pubkey mismatch"
+                )));
+            }
+            let stored_peer_id = todo_funcs::get_committee_peer_id(goat_client, addr).await?;
+            if &stored_peer_id != peer_id {
+                bail!(SpecialError::InvalidCommittee(format!(
+                    "committee evm address & peer id mismatch"
+                )));
+            }
+            return Ok(());
+        }
+    }
+    bail!(SpecialError::InvalidCommittee(format!(
+        "committee evm address not found in instance's committee addresses"
+    )))
 }
 
 pub async fn validate_graph_id_on_goat(
@@ -683,6 +983,7 @@ pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph
     }
     let anchor_vout = prekickoff_tx.output.len() as u64 - 1;
     let child_tx = todo_funcs::build_cpfp_txns(btc_client, &prekickoff_tx, anchor_vout).await?;
+    // TODO: if prekickoff already confirmed, just broadcast skip_kickoff tx
     match operator_sign_skip_kickoff(
         operator_graph_keypair,
         graph,
@@ -1200,24 +1501,6 @@ pub async fn detect_heart_beat(swarm: &mut Swarm<AllBehaviours>) -> Result<()> {
         }
     }
     Ok(())
-}
-
-pub async fn validate_actor(peer_id: &[u8], role: Actor) -> Result<bool> {
-    let rpc_url = get_goat_url_from_env();
-    let provider = ProviderBuilder::new().connect_http(rpc_url);
-    let goat_gateway_contract_address = get_goat_gateway_contract_from_env();
-    match role {
-        Actor::Committee => {
-            Ok(validate_committee(&provider, goat_gateway_contract_address, peer_id).await?)
-        }
-        Actor::Operator => {
-            Ok(validate_operator(&provider, goat_gateway_contract_address, peer_id).await?)
-        }
-        Actor::Relayer => {
-            Ok(validate_relayer(&provider, goat_gateway_contract_address, peer_id).await?)
-        }
-        _ => Ok(true),
-    }
 }
 
 pub fn generate_random_bytes(len: usize) -> Vec<u8> {

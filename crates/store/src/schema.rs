@@ -246,18 +246,19 @@ pub enum GraphStatus {
     OperatorKickOff,
     Challenge,
     Disprove,
-
+    Obsoleted, // reimbursement by other operators
+    Discarded,
+    Skipped,
     OperatorTake1,
     OperatorTake2,
 
+    /// frontend use only
     Created,
     Presigned,
     L2Recorded,
     KickOffing,
     Challenging,
     Disproving,
-    Obsoleted, // reimbursement by other operators
-    Discarded,
 }
 
 impl GraphStatus {

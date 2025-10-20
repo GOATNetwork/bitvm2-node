@@ -661,7 +661,7 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if let Err(e) = todo_funcs::validate_committee(
+            if let Err(e) = validate_committee(
                 goat_client,
                 &from_peer_id,
                 instance_id,
@@ -674,6 +674,13 @@ pub async fn recv_and_dispatch(
                         SpecialError::InvalidCommittee(err_msg) => {
                             tracing::warn!(
                                 "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
                                 from_peer_id.to_string()
                             );
                             return Ok(());
@@ -809,7 +816,7 @@ pub async fn recv_and_dispatch(
             Actor::Operator,
         ) => {
             // received from Committee members
-            if let Err(e) = todo_funcs::validate_committee(
+            if let Err(e) = validate_committee(
                 goat_client,
                 &from_peer_id,
                 instance_id,
@@ -822,6 +829,13 @@ pub async fn recv_and_dispatch(
                         SpecialError::InvalidCommittee(err_msg) => {
                             tracing::warn!(
                                 "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
                                 from_peer_id.to_string()
                             );
                             return Ok(());
@@ -907,7 +921,7 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if let Err(e) = todo_funcs::validate_committee(
+            if let Err(e) = validate_committee(
                 goat_client,
                 &from_peer_id,
                 instance_id,
@@ -920,6 +934,13 @@ pub async fn recv_and_dispatch(
                         SpecialError::InvalidCommittee(err_msg) => {
                             tracing::warn!(
                                 "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
                                 from_peer_id.to_string()
                             );
                             return Ok(());
@@ -993,7 +1014,7 @@ pub async fn recv_and_dispatch(
             Actor::Operator,
         ) => {
             // received from Committee members
-            if let Err(e) = todo_funcs::validate_committee(
+            if let Err(e) = validate_committee(
                 goat_client,
                 &from_peer_id,
                 instance_id,
@@ -1006,6 +1027,13 @@ pub async fn recv_and_dispatch(
                         SpecialError::InvalidCommittee(err_msg) => {
                             tracing::warn!(
                                 "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
                                 from_peer_id.to_string()
                             );
                             return Ok(());
@@ -1046,7 +1074,7 @@ pub async fn recv_and_dispatch(
             Actor::Operator,
         ) => {
             // received from Committee members
-            if let Err(e) = todo_funcs::validate_committee_with_evm_address(
+            if let Err(e) = validate_committee_with_evm_address(
                 goat_client,
                 &from_peer_id,
                 instance_id,
@@ -1060,6 +1088,13 @@ pub async fn recv_and_dispatch(
                         SpecialError::InvalidCommittee(err_msg) => {
                             tracing::warn!(
                                 "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
                                 from_peer_id.to_string()
                             );
                             return Ok(());
@@ -1247,7 +1282,7 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if let Err(e) = todo_funcs::validate_committee(
+            if let Err(e) = validate_committee(
                 goat_client,
                 &from_peer_id,
                 instance_id,
@@ -1260,6 +1295,13 @@ pub async fn recv_and_dispatch(
                         SpecialError::InvalidCommittee(err_msg) => {
                             tracing::warn!(
                                 "Ignore PeginConfirmNonce for {instance_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore PeginConfirmNonce for {instance_id} from {}: fail to validate committee info on chain: {err_msg}",
                                 from_peer_id.to_string()
                             );
                             return Ok(());
@@ -1364,7 +1406,7 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if let Err(e) = todo_funcs::validate_committee(
+            if let Err(e) = validate_committee(
                 goat_client,
                 &from_peer_id,
                 instance_id,
@@ -1377,6 +1419,13 @@ pub async fn recv_and_dispatch(
                         SpecialError::InvalidCommittee(err_msg) => {
                             tracing::warn!(
                                 "Ignore PeginConfirmPartialSig for {instance_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore PeginConfirmPartialSig for {instance_id} from {}: fail to validate committee info on chain: {err_msg}",
                                 from_peer_id.to_string()
                             );
                             return Ok(());
@@ -1515,13 +1564,15 @@ pub async fn recv_and_dispatch(
                     None => return Ok(()),
                 };
                 let mut current_graph = Bitvm2Graph::from_simplified(&current_graph)?;
-                let current_graph_status = todo_funcs::refresh_graph(
+                let (current_graph_status, _) = todo_funcs::refresh_graph(
                     local_db,
                     btc_client,
                     goat_client,
                     current_instance_id,
                     current_graph_id,
                     Some(&current_graph),
+                    None,
+                    None,
                 )
                 .await?;
                 if current_graph_status.is_closed() {
@@ -1682,13 +1733,15 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let prev_graph = Bitvm2Graph::from_simplified(&prev_graph)?;
-            let prev_graph_status = todo_funcs::refresh_graph(
+            let (prev_graph_status, _) = todo_funcs::refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 prev_instance_id,
                 prev_graph_id,
                 Some(&prev_graph),
+                None,
+                None,
             )
             .await?;
             if !tx_on_chain(btc_client, &prev_graph.kickoff.tx().compute_txid()).await? {
@@ -2712,6 +2765,8 @@ pub async fn recv_and_dispatch(
                 instance_id,
                 graph_id,
                 Some(&graph),
+                None,
+                None,
             )
             .await?;
         }

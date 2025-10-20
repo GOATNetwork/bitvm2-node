@@ -192,7 +192,7 @@ pub enum DisproveTxType {
 pub enum PeginStatus {
     None,
     Pending,
-    Withdrawbale,
+    Withdrawable,
     Processing,
     Locked,
     Claimed,
@@ -203,7 +203,7 @@ impl From<u8> for PeginStatus {
         match value {
             0 => PeginStatus::None,
             1 => PeginStatus::Processing,
-            2 => PeginStatus::Withdrawbale,
+            2 => PeginStatus::Withdrawable,
             3 => PeginStatus::Locked,
             4 => PeginStatus::Claimed,
             _ => PeginStatus::None,
