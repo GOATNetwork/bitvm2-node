@@ -264,6 +264,14 @@ impl EvmChain {
             .gateway_get_post_graph_digest(instance_id.as_bytes(), graph_id.as_bytes(), graph_data)
             .await
     }
+    pub async fn gateway_get_graph_ids_by_instance_id(
+        &self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Vec<Uuid>> {
+        let ids: Vec<[u8; 16]> =
+            self.adaptor.gateway_get_graph_ids_by_instance_id(instance_id.as_bytes()).await?;
+        Ok(ids.into_iter().filter_map(|id| Uuid::from_slice(&id).ok()).collect::<Vec<Uuid>>())
+    }
     pub async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
         self.adaptor.btc_spv_blockhash(height).await
     }
@@ -378,5 +386,18 @@ impl EvmChain {
         signs: &[Vec<u8>],
     ) -> anyhow::Result<bool> {
         self.adaptor.committee_mana_verify_signatures(msg_hash, signs).await
+    }
+    pub async fn committee_mana_get_committee_peer_id(
+        &self,
+        member: &[u8; 20],
+    ) -> anyhow::Result<[u8; 32]> {
+        self.adaptor.committee_mana_get_committee_peer_id(member).await
+    }
+
+    pub async fn committee_mana_is_validate_peer_id(
+        &self,
+        peer_id: &[u8; 32],
+    ) -> anyhow::Result<bool> {
+        self.adaptor.committee_mana_is_validate_peer_id(peer_id).await
     }
 }

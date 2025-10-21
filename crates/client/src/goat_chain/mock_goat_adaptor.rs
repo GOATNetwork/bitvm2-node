@@ -295,6 +295,13 @@ impl ChainAdaptor for MockAdaptor {
         Ok([0u8; 32])
     }
 
+    async fn gateway_get_graph_ids_by_instance_id(
+        &self,
+        _instance_id: &[u8; 16],
+    ) -> anyhow::Result<Vec<[u8; 16]>> {
+        Ok(vec![])
+    }
+
     async fn btc_spv_blockhash(&self, _height: u64) -> anyhow::Result<[u8; 32]> {
         info!("call get_btc_block_hash");
         Ok([0; 32])
@@ -402,6 +409,20 @@ impl ChainAdaptor for MockAdaptor {
         _signs: &[Vec<u8>],
     ) -> anyhow::Result<bool> {
         Ok(false)
+    }
+
+    async fn committee_mana_get_committee_peer_id(
+        &self,
+        _member: &[u8; 20],
+    ) -> anyhow::Result<[u8; 32]> {
+        Ok([8_u8; 32])
+    }
+
+    async fn committee_mana_is_validate_peer_id(
+        &self,
+        _peer_id: &[u8; 32],
+    ) -> anyhow::Result<bool> {
+        Ok(true)
     }
 }
 

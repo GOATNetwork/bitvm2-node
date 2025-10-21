@@ -1,4 +1,4 @@
-use crate::env::{IpfsTxName, get_network};
+use crate::env::{GraphBtcTxName, get_network};
 use crate::rpc_service::response::ErrorResponse;
 use alloy::primitives::Address as EvmAddress;
 use axum::Json;
@@ -144,28 +144,16 @@ impl InputValidator {
     }
 
     /// Validate tx_name parameter
-    pub fn validate_tx_name(tx_name: &str) -> ValidationResult<IpfsTxName> {
-        Self::validate_string_length(tx_name, "tx_name", 1, 50)?;
-
-        // Check for dangerous characters
-        if tx_name.contains("..") || tx_name.contains("/") || tx_name.contains("\\") {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "INVALID_TX_NAME".to_string(),
-                    message: "tx_name contains invalid characters".to_string(),
-                }),
-            ));
-        }
-
-        match IpfsTxName::from_str(tx_name) {
+    pub fn validate_tx_name(tx_name: &str) -> ValidationResult<GraphBtcTxName> {
+        match GraphBtcTxName::from_str(tx_name) {
             Ok(tx_name_enum) => Ok(tx_name_enum),
             Err(_) => Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_TX_NAME_TYPE".to_string(),
                     message: format!(
-                        "Invalid tx_name: {}. Valid values are: pegin, kickoff, assert-commit0, assert-commit1, assert-commit2, assert-commit3, assert-init, assert-final, challenge, take1, take2, disprove",
+                        "Invalid tx_name: {}. Valid values are: pegin.hex, kickoff.hex, pre-kickoff.hex, \
+                        watchtower-challenge-init.hex, assert-init.hex, challenge.hex, take1.hex, take2.hex, disprove.hex",
                         tx_name
                     ),
                 }),

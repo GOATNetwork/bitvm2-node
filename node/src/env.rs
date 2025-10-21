@@ -269,18 +269,12 @@ pub fn get_committee_member_num() -> usize {
     COMMITTEE_MEMBER_NUMBER
 }
 
-#[derive(Display, EnumString)]
-pub enum IpfsTxName {
-    #[strum(serialize = "assert-commit0.hex")]
-    AssertCommit0,
-    #[strum(serialize = "assert-commit1.hex")]
-    AssertCommit1,
-    #[strum(serialize = "assert-commit2.hex")]
-    AssertCommit2,
-    #[strum(serialize = "assert-commit3.hex")]
-    AssertCommit3,
-    #[strum(serialize = "assert-final.hex")]
-    AssertFinal,
+#[derive(Clone, Display, EnumString)]
+pub enum GraphBtcTxName {
+    #[strum(serialize = "watchtower-challenge-init.hex")]
+    WatchtowerChallengeInit,
+    #[strum(serialize = "pre-kickoff.hex")]
+    PreKickoff,
     #[strum(serialize = "assert-init.hex")]
     AssertInit,
     #[strum(serialize = "challenge.hex")]
@@ -295,25 +289,6 @@ pub enum IpfsTxName {
     Take1,
     #[strum(serialize = "take2.hex")]
     Take2,
-}
-
-impl IpfsTxName {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            IpfsTxName::AssertCommit0 => "assert-commit0.hex",
-            IpfsTxName::AssertCommit1 => "assert-commit1.hex",
-            IpfsTxName::AssertCommit2 => "assert-commit2.hex",
-            IpfsTxName::AssertCommit3 => "assert-commit3.hex",
-            IpfsTxName::AssertFinal => "assert-final.hex",
-            IpfsTxName::AssertInit => "assert-init.hex",
-            IpfsTxName::Challenge => "challenge.hex",
-            IpfsTxName::Disprove => "disprove.hex",
-            IpfsTxName::Kickoff => "kickoff.hex",
-            IpfsTxName::Pegin => "pegin.hex",
-            IpfsTxName::Take1 => "take1.hex",
-            IpfsTxName::Take2 => "take2.hex",
-        }
-    }
 }
 
 pub fn get_goat_url_from_env() -> Url {

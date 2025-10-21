@@ -569,7 +569,12 @@ impl GOATClient {
     pub async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
         self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await
     }
-
+    pub async fn gateway_get_graph_ids_by_instance_id(
+        &self,
+        instance_id: &Uuid,
+    ) -> anyhow::Result<Vec<Uuid>> {
+        self.chain_service.gateway_get_graph_ids_by_instance_id(instance_id).await
+    }
     pub async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
         self.chain_service.seq_set_pub_multi_sig_verifier_get_nonce().await
     }
@@ -685,6 +690,19 @@ impl GOATClient {
 
     pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
         self.chain_service.seq_set_pub_get_last_block_height().await
+    }
+    pub async fn committee_mana_get_committee_peer_id(
+        &self,
+        member: &[u8; 20],
+    ) -> anyhow::Result<[u8; 32]> {
+        self.chain_service.committee_mana_get_committee_peer_id(member).await
+    }
+
+    pub async fn committee_mana_is_validate_peer_id(
+        &self,
+        peer_id: &[u8; 32],
+    ) -> anyhow::Result<bool> {
+        self.chain_service.committee_mana_is_validate_peer_id(peer_id).await
     }
 }
 

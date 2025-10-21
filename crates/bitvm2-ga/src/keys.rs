@@ -14,6 +14,7 @@ use secp256k1::schnorr::Signature as SchnorrSignature;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+// TODO: use safer key derivation function
 fn derive_secret(master_key: &Keypair, domain: &Vec<u8>) -> String {
     let secret_key = master_key.secret_key();
     let mut hasher = Sha256::new();
@@ -32,6 +33,7 @@ impl NodeMasterKey {
     }
 }
 
+// TODO: use safer key derivation function
 pub struct CommitteeMasterKey(Keypair);
 impl CommitteeMasterKey {
     pub fn new(inner: Keypair) -> Self {
@@ -77,6 +79,7 @@ impl CommitteeMasterKey {
     }
 }
 
+// TODO: use safer key derivation function
 pub struct OperatorMasterKey(Keypair);
 impl OperatorMasterKey {
     pub fn new(inner: Keypair) -> Self {

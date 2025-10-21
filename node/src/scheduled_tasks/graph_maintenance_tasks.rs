@@ -70,22 +70,33 @@ enum OperatorWithdrawType {
 
 /// Watchtower init tx vout item status
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
-pub enum WatchtowerChallengeStatus {
-    #[default]
-    None,
-    OperatorInit,
-    Challenge,
-    ChallengeTimeout,
-    OperatorACK,
-    OperatorNACK,
-}
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
 pub enum CommitBlockHashStatus {
     #[default]
     None,
     OperatorInit,
     OperatorCommit,
     OperatorCommitTimeout,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+pub enum AssertCommitStatus {
+    #[default]
+    None,
+    OperatorInit,
+    OperatorCommit,
+    OperatorCommitTimeout,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+pub enum WatchtowerChallengeStatus {
+    #[default]
+    None,
+    OperatorInit,
+    WatchtowerChallenge,                 // all Watchtower challenge
+    WatchtowerChallengeTimeout,          // Some Watchtower did not challenge, and timelock expired
+    OperatorACKTimeout, // Operator did not send ACK for some Watchtower, and timelock expired
+    WatchtowerChallengeNormalFinished, // Normal Finished
+    WatchtowerChallengeDisproveFinished, // Disproved Finished
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -98,26 +109,12 @@ pub struct ChallengeSubStatus {
 }
 
 impl ChallengeSubStatus {
-    #[allow(dead_code)]
-    pub fn is_no_init(&self) -> bool {
-        self.watchtower_challenge_status == WatchtowerChallengeStatus::None
-            && self.assert_commit_status == AssertCommitStatus::None
-    }
-
-    #[allow(dead_code)]
-    pub fn is_processing(&self) -> bool {
-        vec![
-            WatchtowerChallengeStatus::OperatorInit,
-            WatchtowerChallengeStatus::Challenge,
-            WatchtowerChallengeStatus::ChallengeTimeout,
+    pub fn is_watchtower_challenge_finished(&self) -> bool {
+        [
+            WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished,
+            WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished,
         ]
         .contains(&self.watchtower_challenge_status)
-            && self.assert_commit_status == AssertCommitStatus::OperatorInit
-    }
-
-    pub fn is_watchtower_challenge_finished(&self) -> bool {
-        [WatchtowerChallengeStatus::OperatorACK, WatchtowerChallengeStatus::OperatorNACK]
-            .contains(&self.watchtower_challenge_status)
             || [CommitBlockHashStatus::OperatorCommit, CommitBlockHashStatus::OperatorCommitTimeout]
                 .contains(&self.commit_blockhash_status)
     }
@@ -127,7 +124,8 @@ impl ChallengeSubStatus {
     }
 
     pub fn is_normal_finished(&self) -> bool {
-        self.watchtower_challenge_status == WatchtowerChallengeStatus::OperatorACK
+        self.watchtower_challenge_status
+            == WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished
             && self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommit
             && self.assert_commit_status == AssertCommitStatus::OperatorCommit
     }
@@ -137,10 +135,22 @@ impl ChallengeSubStatus {
             .contains(&self.assert_commit_status)
     }
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+pub enum WatchtowerChallengeItemStatus {
+    #[default]
+    None,
+    OperatorInit,
+    Challenge,
+    ChallengeTimeout,
+    OperatorACK,
+    OperatorNACK,
+}
+
 /// Watchtower init tx vout data
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WTInitTxVoutMonitorData {
-    pub data_map: IndexMap<i32, WatchtowerChallengeStatus>,
+    pub data_map: IndexMap<i32, WatchtowerChallengeItemStatus>,
     pub require_disproved_indexes: Vec<usize>,
     pub commit_blockhash_status: CommitBlockHashStatus,
     pub is_complete_in_time: bool,
@@ -149,9 +159,9 @@ pub struct WTInitTxVoutMonitorData {
 
 impl WTInitTxVoutMonitorData {
     pub fn new(index_size: i32) -> Self {
-        let mut data_map: IndexMap<i32, WatchtowerChallengeStatus> = IndexMap::new();
+        let mut data_map: IndexMap<i32, WatchtowerChallengeItemStatus> = IndexMap::new();
         for i in 0..index_size {
-            data_map.insert(i, WatchtowerChallengeStatus::OperatorInit);
+            data_map.insert(i, WatchtowerChallengeItemStatus::OperatorInit);
         }
         Self {
             data_map,
@@ -172,26 +182,26 @@ impl WTInitTxVoutMonitorData {
         let mut ack_txids: Vec<(usize, Txid)> = Vec::new();
         for (k, status) in self.data_map.iter_mut() {
             let index = *k;
-            if *status == WatchtowerChallengeStatus::OperatorInit
+            if *status == WatchtowerChallengeItemStatus::OperatorInit
                 && let Some(spend_txid) =
                     outpoint_spent_txid(btc_client, &txid, (index * 2) as u64).await?
             {
                 if challenge_timeout_txids.iter().any(|v| v.0 == spend_txid) {
-                    *status = WatchtowerChallengeStatus::ChallengeTimeout;
+                    *status = WatchtowerChallengeItemStatus::ChallengeTimeout;
                 } else {
-                    *status = WatchtowerChallengeStatus::Challenge;
+                    *status = WatchtowerChallengeItemStatus::Challenge;
                     challenge_txids.push((index as usize, spend_txid));
                 }
             }
 
-            if *status == WatchtowerChallengeStatus::Challenge
+            if *status == WatchtowerChallengeItemStatus::Challenge
                 && let Some(spend_txid) =
                     outpoint_spent_txid(btc_client, &txid, (index * 2 + 1) as u64).await?
             {
                 if nack_txids.iter().any(|v| v.0 == spend_txid) {
-                    *status = WatchtowerChallengeStatus::OperatorNACK;
+                    *status = WatchtowerChallengeItemStatus::OperatorNACK;
                 } else {
-                    *status = WatchtowerChallengeStatus::OperatorACK;
+                    *status = WatchtowerChallengeItemStatus::OperatorACK;
                     ack_txids.push((index as usize, spend_txid));
                 }
             }
@@ -200,7 +210,7 @@ impl WTInitTxVoutMonitorData {
             self.is_complete_in_time = self
                 .data_map
                 .values()
-                .all(|status| *status == WatchtowerChallengeStatus::OperatorACK);
+                .all(|status| *status == WatchtowerChallengeItemStatus::OperatorACK);
         }
         Ok((challenge_txids, ack_txids))
     }
@@ -208,8 +218,8 @@ impl WTInitTxVoutMonitorData {
     fn update_disprove_indexes(&mut self) {
         self.require_disproved_indexes = vec![];
         for (index, status) in self.data_map.iter() {
-            if *status == WatchtowerChallengeStatus::OperatorInit
-                || *status == WatchtowerChallengeStatus::Challenge
+            if *status == WatchtowerChallengeItemStatus::OperatorInit
+                || *status == WatchtowerChallengeItemStatus::Challenge
             {
                 self.require_disproved_indexes.push(*index as usize);
             }
@@ -227,6 +237,34 @@ impl WTInitTxVoutMonitorData {
         )
     }
 
+    pub fn get_challenge_process_desc(&self) -> (usize, usize) {
+        (
+            self.data_map
+                .iter()
+                .filter(|(_, v)| {
+                    **v == WatchtowerChallengeItemStatus::Challenge
+                        || **v == WatchtowerChallengeItemStatus::OperatorACK
+                })
+                .count(),
+            self.data_map.len(),
+        )
+    }
+
+    pub fn get_ack_process_desc(&self) -> (usize, usize) {
+        (
+            self.data_map
+                .iter()
+                .filter(|(_, v)| **v == WatchtowerChallengeItemStatus::OperatorACK)
+                .count(),
+            self.data_map
+                .iter()
+                .filter(|(_, v)| {
+                    **v == WatchtowerChallengeItemStatus::Challenge
+                        || **v == WatchtowerChallengeItemStatus::OperatorACK
+                })
+                .count(),
+        )
+    }
     #[allow(dead_code)]
     pub fn is_challenged(&self) -> bool {
         !self.require_disproved_indexes.is_empty()
@@ -236,7 +274,7 @@ impl WTInitTxVoutMonitorData {
 
 /// Assert init tx vout item status
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
-pub enum AssertCommitStatus {
+pub enum AssertCommitItemStatus {
     #[default]
     None,
     OperatorInit,
@@ -246,16 +284,16 @@ pub enum AssertCommitStatus {
 /// Assert init tx vout data
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AssertInitTxVoutMonitorData {
-    pub data_map: IndexMap<i32, AssertCommitStatus>,
+    pub data_map: IndexMap<i32, AssertCommitItemStatus>,
     pub require_disproved_indexes: Vec<usize>,
     pub is_complete_in_time: bool,
 }
 
 impl AssertInitTxVoutMonitorData {
     pub fn new(index_size: i32) -> Self {
-        let mut data_map: IndexMap<i32, AssertCommitStatus> = IndexMap::new();
+        let mut data_map: IndexMap<i32, AssertCommitItemStatus> = IndexMap::new();
         for i in 0..index_size {
-            data_map.insert(i, AssertCommitStatus::OperatorInit);
+            data_map.insert(i, AssertCommitItemStatus::OperatorInit);
         }
         Self { data_map, require_disproved_indexes: vec![], is_complete_in_time: false }
     }
@@ -267,29 +305,41 @@ impl AssertInitTxVoutMonitorData {
     ) -> anyhow::Result<i32> {
         let mut vout_spent_detect = 0;
         for (k, status) in self.data_map.iter_mut() {
-            if *status == AssertCommitStatus::OperatorInit
+            if *status == AssertCommitItemStatus::OperatorInit
                 && let Some(spend_txid) = outpoint_spent_txid(btc_client, &txid, *k as u64).await?
             {
                 if committ_timeout_txids.iter().any(|v| v.0 == spend_txid) {
-                    *status = AssertCommitStatus::OperatorCommitTimeout;
+                    *status = AssertCommitItemStatus::OperatorCommitTimeout;
                 } else {
-                    *status = AssertCommitStatus::OperatorCommit;
+                    *status = AssertCommitItemStatus::OperatorCommit;
                 }
                 vout_spent_detect += 1
             }
         }
         if vout_spent_detect > 0 {
-            self.is_complete_in_time =
-                self.data_map.values().all(|status| *status == AssertCommitStatus::OperatorCommit);
+            self.is_complete_in_time = self
+                .data_map
+                .values()
+                .all(|status| *status == AssertCommitItemStatus::OperatorCommit);
         }
 
         Ok(vout_spent_detect)
     }
 
+    pub fn get_commit_process_desc(&self) -> (usize, usize) {
+        (
+            self.data_map
+                .iter()
+                .filter(|(_, v)| **v == AssertCommitItemStatus::OperatorCommit)
+                .count(),
+            self.data_map.len(),
+        )
+    }
+
     fn update_disprove_indexes(&mut self) {
         self.require_disproved_indexes = vec![];
         for (index, status) in self.data_map.iter() {
-            if *status == AssertCommitStatus::OperatorInit {
+            if *status == AssertCommitItemStatus::OperatorInit {
                 self.require_disproved_indexes.push(*index as usize);
             }
         }
@@ -1076,7 +1126,7 @@ async fn process_watchtower_challenge_monitoring(
                 }
             }
 
-            if is_challenge_timeout && !vout_monitor_data.is_challenge_timeout_sent {
+            if is_challenge_timeout {
                 info!(
                     "process_watchtower_challenge_monitoring watchtower challenge timeout for graph id :{}",
                     graph.graph_id
@@ -1085,15 +1135,14 @@ async fn process_watchtower_challenge_monitoring(
                     .data_map
                     .iter()
                     .filter_map(|(&index, status)| {
-                        if *status == WatchtowerChallengeStatus::OperatorInit {
+                        if *status == WatchtowerChallengeItemStatus::OperatorInit {
                             Some(index as usize)
                         } else {
                             None
                         }
                     })
                     .collect();
-
-                if !watchtower_indexes.is_empty() {
+                if !watchtower_indexes.is_empty() && !vout_monitor_data.is_challenge_timeout_sent {
                     let sub_type = format!(
                         "[{}]",
                         watchtower_indexes
@@ -1114,6 +1163,8 @@ async fn process_watchtower_challenge_monitoring(
                         Some(sub_type),
                     ));
                     vout_monitor_data.is_challenge_timeout_sent = true;
+                    sub_status.watchtower_challenge_status =
+                        WatchtowerChallengeStatus::WatchtowerChallengeTimeout;
                     data_change = true;
                 }
             }
@@ -1131,18 +1182,27 @@ async fn process_watchtower_challenge_monitoring(
                 data_change = true;
             }
             if !challenge_txids.is_empty() {
-                if sub_status.watchtower_challenge_status == WatchtowerChallengeStatus::OperatorInit
+                //  contain the situations:
+                //      1. all watchtower challenge
+                //      2,challenge timeout. operator not send challenge timeout, but watchtower send challenge tx
+
+                if [
+                    WatchtowerChallengeStatus::OperatorInit,
+                    WatchtowerChallengeStatus::WatchtowerChallengeTimeout,
+                ]
+                .contains(&sub_status.watchtower_challenge_status)
                     && !vout_monitor_data
                         .data_map
                         .iter()
-                        .any(|(_, v)| *v == WatchtowerChallengeStatus::OperatorInit)
+                        .any(|(_, v)| *v == WatchtowerChallengeItemStatus::OperatorInit)
                 {
                     info!(
                         "process_watchtower_challenge_monitoring graph id :{} sub status update to  WatchtowerChallengeStatus::Challenge",
                         graph.graph_id
                     );
                     // all in challenge
-                    sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::Challenge;
+                    sub_status.watchtower_challenge_status =
+                        WatchtowerChallengeStatus::WatchtowerChallenge;
                     data_change = true;
                 }
                 p2p_message_contents.push((
@@ -1166,13 +1226,15 @@ async fn process_watchtower_challenge_monitoring(
                     "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::OperatorACK",
                     graph.graph_id
                 );
-                sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorACK;
+                sub_status.watchtower_challenge_status =
+                    WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
             } else {
                 trace!(
                     "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::OperatorNACK",
                     graph.graph_id
                 );
-                sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorNACK;
+                sub_status.watchtower_challenge_status =
+                    WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished;
                 sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
                 p2p_message_contents.push((
                     Actor::Operator,
@@ -1695,7 +1757,9 @@ async fn detect_disproved_txids(
         );
     }
 
-    if sub_status.watchtower_challenge_status == WatchtowerChallengeStatus::OperatorNACK {
+    if sub_status.watchtower_challenge_status
+        == WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished
+    {
         sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
         return Ok(
             match find_challenge_nack_tx(
