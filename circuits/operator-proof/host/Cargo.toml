@@ -37,9 +37,10 @@ alloy-provider = { workspace = true, default-features = false }
 serde_cbor.workspace = true
 
 borsh = { workspace = true }
-bitcoin-light-client = { workspace = true }
+bitcoin-light-client-circuit = { workspace = true }
 header-chain = { workspace = true }
 commit-chain = { workspace = true }
+commit-chain-rpc = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
 

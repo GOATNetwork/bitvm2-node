@@ -10,12 +10,11 @@ bincode = "1.3.3"
 # workspace
 header-chain = { path = "../../../crates/header-chain" }
 commit-chain = { path = "../../../crates/commit-chain" }
-bitcoin-light-client = { path = "../../../crates/bitcoin-light-client" }
+bitcoin-light-client-circuit = { path = "../../../crates/bitcoin-light-client-circuit" }
 
 # Ziren
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
-#zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint" }
 
 # Statically turns off logging
 tracing = { version = "0.1", features = ["max_level_trace"] }
@@ -39,3 +38,4 @@ alloy-primitives-v1-1-0 = { git = "https://github.com/ziren-patches/core.git", p
 alloy-primitives-v1-1-2 = { git = "https://github.com/ziren-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.1.2" }
 secp256k1-v0-29-1 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.29.1" }
 #secp256k1-v0-30-0 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.30.0" }
+bitcoin = { git = "https://github.com/ProjectZKM/rust-bitcoin", branch = "patch-0.32.6" }

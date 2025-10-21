@@ -853,7 +853,7 @@ mod tests {
         let graph_id = graph.parameters.graph_id.to_bytes_le();
         let total_work = 100;
         let block_height = 100;
-        let comm = bitcoin_light_client::build_watchtower_commitment(
+        let comm = bitcoin_light_client_circuit::build_watchtower_commitment(
             &graph_id,
             &PROOF.try_into().unwrap(),
             &PUBLIC_INPUTS.try_into().unwrap(),

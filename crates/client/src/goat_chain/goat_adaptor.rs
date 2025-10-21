@@ -154,6 +154,7 @@ sol!(
         function finishWithdrawDisproved(bytes16 graphId, DisproveTxType disproveTxType, uint256 txnIndex, BitcoinTx calldata rawChallengeStartTx, BitcoinTxProof calldata challengeStartTxProof, BitcoinTx calldata rawChallengeFinishTx, BitcoinTxProof calldata challengeFinishTxProof ) external;
         function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys);
         function getPostGraphDigest(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData) public view returns (bytes32);
+        function getGraphIdsByInstanceId(bytes16 instanceId) external view returns (bytes16[] memory);
 
         // Contract is not implements this functions, do something later
         function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
@@ -230,6 +231,8 @@ sol!(
         function committeeSize() external view returns (uint256);
         function quorumSize() external view returns (uint256);
         function verifySignatures(bytes32 msgHash, bytes[] memory signatures) external view returns (bool);
+        function getCommitteePeerId(address member) external view returns (bytes32);
+        function isValidPeerId(bytes32 peerId) external view returns (bool);
     }
 );
 
@@ -1033,6 +1036,20 @@ impl ChainAdaptor for GoatAdaptor {
             .0)
     }
 
+    async fn gateway_get_graph_ids_by_instance_id(
+        &self,
+        instance_id: &[u8; 16],
+    ) -> anyhow::Result<Vec<[u8; 16]>> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway
+            .getGraphIdsByInstanceId(FixedBytes::from_slice(instance_id))
+            .call()
+            .await?
+            .iter()
+            .map(|v| v.0.clone())
+            .collect())
+    }
+
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
         let btc_spv = self.get_btc_spv()?;
         Ok(btc_spv.blockHash(U256::from(height)).call().await?.0)
@@ -1234,6 +1251,19 @@ impl ChainAdaptor for GoatAdaptor {
             .await?
             .try_into()
             .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
+    }
+
+    async fn committee_mana_get_committee_peer_id(
+        &self,
+        member: &[u8; 20],
+    ) -> anyhow::Result<[u8; 32]> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management.getCommitteePeerId(Address::from_slice(member)).call().await?.0)
+    }
+
+    async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8; 32]) -> anyhow::Result<bool> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management.isValidPeerId(FixedBytes::from_slice(peer_id)).call().await?)
     }
 }
 

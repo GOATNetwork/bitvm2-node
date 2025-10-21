@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 pub use tendermint_light_client_verifier::{
     ProdVerifier, Verdict, Verifier,
     options::Options,
-    types::{LightBlock, ValidatorSet},
+    types::{Header, LightBlock, ValidatorSet},
 };
 
 use bitcoin::{
@@ -196,6 +196,7 @@ pub fn verify_validator_set_hash(commitment: [u8; 32], block: LightBlock) {
     assert_eq!(commitment.to_vec(), expected_hash.to_vec());
 }
 
+// we can not move it to commit-chain-rpc since it'll get non-std involved.
 pub fn parse_cosmos_payload(tx_b64: &str) -> Option<ExecutionPayload> {
     let txns_b64 = b64.decode(tx_b64).unwrap();
     let tx = TxRaw::decode(&*txns_b64).unwrap();
@@ -222,20 +223,20 @@ pub fn verify_el_block_from_consensus(
     goat_block_number: u64,
     _goat_block_hash: &str,
     txs: &[String],
-    light_block: LightBlock,
+    actual_data_hash: [u8; 32],
 ) {
     if let Some(payload) = parse_cosmos_payload(&txs[0]) {
         assert_eq!(payload.block_number, goat_block_number);
     }
 
     // check data hash
-    let excepted_data_hash = light_block.signed_header.header.data_hash.unwrap();
-    println!("excepted data hash: {:?}", excepted_data_hash);
+    //let excepted_data_hash = light_block.signed_header.header.data_hash.unwrap();
+    //println!("excepted data hash: {:?}", excepted_data_hash);
 
     let computed_data_hash = merkle_root_from_base64_txns(&txs);
     println!("data hash: {:?}", hex::encode(computed_data_hash));
 
-    assert_eq!(excepted_data_hash.as_bytes(), computed_data_hash);
+    assert_eq!(actual_data_hash, computed_data_hash);
 }
 
 #[cfg(test)]
@@ -284,7 +285,7 @@ mod tests {
             5756298,
             "f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a",
             &consensus_txns,
-            light_block_1,
+            light_block_1.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
 
         //
@@ -295,7 +296,7 @@ mod tests {
             5756299,
             "56473094ffd5bc070446fdbaaf2b443b9beffb82dded0e053eb6b25c7d60be0b",
             &consensus_txns,
-            light_block_2,
+            light_block_2.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
     }
 

@@ -1,64 +1,83 @@
 # BitVM2 Circuits 
 
-See [Reth Processor](https://github.com/ziren/reth-processor/blob/main/README.md)
-
-## Start by source code
-
-### Parallel block execution
-
-The block execution statistics are stored in a Sqlite database, and the number of blocks executed in parallel can be customized with the `MAX_CONCURRENT_EXECUTIONS` environment variable.
-
-```shell
-ZIREN_ZKM_CC=mipsel-zkm-zkvm-elf-gcc cargo run --bin continuous -- --block-number 1 --start --rpc-url https://archive.goat.network --chain-id 2345 --prove
-```
-
-### Aggregate block proofs
-
-Aggregate block proofs and generate groth16 proofs.
-
-```shell
-ZIREN_ZKM_CC=mipsel-zkm-zkvm-elf-gcc cargo run --bin aggregation -- --block-number 1 --start
-```
-
-### Test getting groth16 proofs
-
-```shell
-RUST_LOG=debug ZIREN_ZKM_CC=mipsel-zkm-zkvm-elf-gcc cargo test test_groth16_proof
-```
-
-## Start by docker
-
-### Start Proof Services
+## Bitcoin Header Chain
 
 ```
-# DB directory in host.
-export DB_DIR=
-
-# BLOCK_NUMBER=1 docker-compose up -d continuous
-
-# BLOCK_NUMBER=1 docker-compose up -d aggregation
-
-BLOCK_NUMBER=1 docker-compose up -d
+cd header-chain-proof/host
+bash cron.sh $start $batch
 ```
 
-### Stop Proof Services
+## Cosmos Commit Chain
+
+Prepare the `commit_info.json`, the input data is formated as below.
 
 ```
-# docker-compose down continuous
-
-# docker-compose down aggregation
-
-docker-compose down
+[
+  {
+    "txid": "dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e",
+    "threshold": 4,
+    "publisher_public_keys": [
+      "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+      "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+      "03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+      "0362c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7"
+    ]
+  }
+]
 ```
 
-### View logs
+* txid: the publisher's commitment transaction of Cosmos sequencer set. 
+* threshold: the number of publisher's signature 
+* publisher_public_keys: the publisher's compressed public keys
+
+Generate the proof:
 
 ```
-tail -f logs/continuous.log.2025-07-23
+cd commit-chain-proof/host
+//Genesis
+RUST_LOG=info cargo run -r -- --init-input --output-proof "commit-proof.bin"
+//Regular proof
+RUST_LOG=info cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
 
-tail -f logs/aggregation.log.2025-07-23
-
-docker logs -f continuous
-
-docker logs -f aggregation
 ```
+
+## Watchtower proof
+
+```
+export BITCOIN_NETWORK=regtest
+RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
+RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin"
+```
+
+* latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id
+* header-chain-input-proof: the header chain's proof, input and vk.
+* commit-chain-input-proof: the commit chain's proof, input and vk.
+
+## Operator proof
+
+Prepare for the 
+
+```
+RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --consensus-layer-block-number 5756785
+```
+
+* latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id
+* header-chain-input-proof: the header chain's proof, input and vk.
+* commit-chain-input-proof: the commit chain's proof, input and vk.
+* included-watchtower: a 256-bit bitmask; each bit flags a valid watchtower.
+* execution-layer-block-number: the block number that including `processWithdraw`(Peg-out) transaction of GOAT Network's execution layer(Geth).
+* watchtower-challenge-info: list of watchtower's challenge transaction id and compressed public key.
+* watchtower-challenge-init-txid: the watchtower challenge init transaction id in GOAT's BitVM2 graph.
+
+For example.
+```
+[
+    [
+        "207012fff4c9fddcbd659db3d36de84a867acb22d163c07ff0f49d699c6d7602",
+        "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651"
+    ] 
+]
+```
+
+* consensus-layer-block-number: the block number that including the latest sequencer set commitment transaction of GOAT Network's consensus layer. 

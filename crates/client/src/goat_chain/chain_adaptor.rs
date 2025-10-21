@@ -118,6 +118,11 @@ pub trait ChainAdaptor: Send + Sync {
         graph_data: GraphData,
     ) -> anyhow::Result<[u8; 32]>;
 
+    async fn gateway_get_graph_ids_by_instance_id(
+        &self,
+        instance_id: &[u8; 16],
+    ) -> anyhow::Result<Vec<[u8; 16]>>;
+
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
     async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64>;
 
@@ -169,6 +174,13 @@ pub trait ChainAdaptor: Send + Sync {
         msg_hash: &[u8; 32],
         signs: &[Vec<u8>],
     ) -> anyhow::Result<bool>;
+
+    async fn committee_mana_get_committee_peer_id(
+        &self,
+        member: &[u8; 20],
+    ) -> anyhow::Result<[u8; 32]>;
+
+    async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8; 32]) -> anyhow::Result<bool>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {

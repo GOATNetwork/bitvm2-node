@@ -5,7 +5,7 @@ use header_chain::{
     HeaderChainCircuitInput, SPV, CircuitTransaction, 
 };
 use alloy_primitives::{U256, Address};
-use bitcoin_light_client::{LightBlock, EthClientExecutorInput};
+use bitcoin_light_client_circuit::EthClientExecutorInput;
 use commit_chain::CommitChainCircuitInput;
 use bitcoin::{ScriptBuf, TxOut};
 
@@ -19,8 +19,8 @@ pub fn main() {
     let latest_sequencer_commit_txid = operator_latest_sequencer_commit_txn.0.compute_txid(); // public input
     // extract consensus block height
     println!("read cosmos block");
-    let consensus_block_bytes: Vec<u8> = zkm_zkvm::io::read_vec(); // commit the sequencer set
-    let consensus_block: LightBlock = serde_cbor::from_slice(&consensus_block_bytes).unwrap();
+    let consensus_block_actual_sequencer_set_hash: [u8; 32] = zkm_zkvm::io::read(); // commit the sequencer set
+    let consensus_block_actual_data_hash: [u8; 32] = zkm_zkvm::io::read(); // commit the sequencer set
     let consensus_txns: Vec<String> = zkm_zkvm::io::read(); 
     println!("read geth block");
     let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
@@ -35,15 +35,16 @@ pub fn main() {
     let operator_commit_chain: CommitChainCircuitInput = zkm_zkvm::io::read();
     let spv: SPV = zkm_zkvm::io::read();
 
-    // hardcode
+    // FIXME: pass from host 
     let l2_contract_address: Address = Address::from_str("0x99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6").unwrap();
     let base_slot: U256 = U256::from(11);
 
-    let operator_total_work = bitcoin_light_client::generate_operator_proof(
+    let operator_total_work = bitcoin_light_client_circuit::generate_operator_proof(
         included_watchertowers,
         graph_id,
         operator_latest_sequencer_commit_txn,
-        consensus_block,
+        consensus_block_actual_sequencer_set_hash,
+        consensus_block_actual_data_hash,
         consensus_txns,
         eth_client_execution_input,
         watchtower_challenge_txns,

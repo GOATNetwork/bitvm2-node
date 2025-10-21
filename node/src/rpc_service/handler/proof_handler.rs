@@ -468,8 +468,7 @@ fn calculate_proof_avg_proof_time(sum_time: i64, proof_counts: i64, concurrency:
 }
 
 async fn get_proof_config(local_db: &LocalDB) -> anyhow::Result<(i64, i64, i64)> {
-    let (block_concurrency, aggregated_block_count, _) =
-        groth16::get_proof_config(local_db).await?;
+    let (block_concurrency, aggregated_block_count, _) = proofs::get_proof_config(local_db).await?;
     Ok((block_concurrency, aggregated_block_count, 1))
 }
 

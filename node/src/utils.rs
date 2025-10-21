@@ -1285,7 +1285,7 @@ pub async fn get_groth16_proof(
         .get_graph_goat_tx_record(&graph_id, &GoatTxType::ProceedWithdraw.to_string())
         .await?
         && let Ok((proof, pis, vk, version)) =
-            groth16::get_groth16_proof(local_db, tx_record.height as u64).await
+            proofs::get_groth16_proof(local_db, tx_record.height as u64).await
     {
         tracing::info!(
             "instance_id:{instance_id}, graph_id:{graph_id} finish get groth16 proof at version: {version}"
@@ -1315,7 +1315,7 @@ pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey> {
         return get_test_vk();
     }
 
-    Ok(groth16::get_groth16_vk(db, &groth16::get_zkm_version()).await?)
+    Ok(proofs::get_groth16_vk(db, &proofs::get_zkm_version()).await?)
 }
 
 pub fn get_test_groth16_proof() -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
@@ -2011,7 +2011,7 @@ pub async fn store_graph(local_db: &LocalDB, graph: &SimplifiedBitvm2Graph) -> R
             .collect(),
         init_withdraw_tx_hash: None,
         bridge_out_start_at: 0,
-        zkm_version: groth16::get_zkm_version(),
+        zkm_version: proofs::get_zkm_version(),
         created_at: current_time,
         updated_at: current_time,
     };

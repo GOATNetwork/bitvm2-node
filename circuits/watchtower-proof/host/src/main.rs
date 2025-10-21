@@ -1,4 +1,4 @@
-//! Generate header chain proof
+//! Generate watchtower proof
 //! Example:
 //! ```
 //! export BITCOIN_NETWORK=regtest
@@ -13,7 +13,7 @@ use zkm_sdk::{
 };
 
 use bitcoin::{Network, Txid, hashes::Hash};
-use bitcoin_light_client::build_spv;
+use bitcoin_light_client_circuit::build_spv;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use std::str::FromStr;
 

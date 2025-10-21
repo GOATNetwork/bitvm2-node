@@ -31,3 +31,6 @@ scripts/bitcoin-data
 circuits/*/*/*.bin
 circuits/*/*/*.bin.vk
 circuits/*/*/*.bin.in
+
+**/*.out
+**/*/output.data*

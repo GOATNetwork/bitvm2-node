@@ -46,7 +46,7 @@ pub struct InstanceListRequest {
 }
 
 #[derive(Deserialize, Serialize, Default)]
-pub struct InstanceWrap {
+pub struct InstanceExtended {
     pub instance: Option<Instance>,
     pub utxo: Option<Vec<Utxo>>,
     pub confirmations: u32,
@@ -55,13 +55,13 @@ pub struct InstanceWrap {
 
 #[derive(Deserialize, Serialize, Default)]
 pub struct InstanceListResponse {
-    pub instance_wraps: Vec<InstanceWrap>,
+    pub instance_wraps: Vec<InstanceExtended>,
     pub total: i64,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct InstanceGetResponse {
-    pub instance_wrap: InstanceWrap,
+    pub instance_wrap: InstanceExtended,
 }
 
 #[derive(Deserialize)]
@@ -93,28 +93,44 @@ pub struct GraphGetResponse {
 }
 #[derive(Deserialize, Serialize, Default)]
 pub struct GraphTxnGetResponse {
-    #[serde(rename = "assert-commit0")]
-    pub assert_commit0: String,
-    #[serde(rename = "assert-commit1")]
-    pub assert_commit1: String,
-    #[serde(rename = "assert-commit2")]
-    pub assert_commit2: String,
-    #[serde(rename = "assert-commit3")]
-    pub assert_commit3: String,
     #[serde(rename = "assert-init")]
-    pub assert_init: String,
-    #[serde(rename = "assert-final")]
-    pub assert_final: String,
-    pub challenge: String,
-    pub disprove: String,
-    pub kickoff: String,
-    pub pegin: String,
-    pub take1: String,
-    pub take2: String,
+    pub assert_init: BtcTxData,
+    #[serde(rename = "watchtower-challenge-init")]
+    pub watchtower_challenge_init: BtcTxData,
+    #[serde(rename = "pre-kickoff")]
+    pub pre_kickoff: BtcTxData,
+    pub challenge: BtcTxData,
+    pub disprove: BtcTxData,
+    pub kickoff: BtcTxData,
+    pub pegin: BtcTxData,
+    pub take1: BtcTxData,
+    pub take2: BtcTxData,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Default)]
 pub struct GraphTxGetResponse {
-    pub tx_hex: String,
+    pub btc_tx_data: BtcTxData,
+}
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct ProgressData {
+    pub name: String,
+    pub current: usize,
+    pub total: usize,
+}
+#[derive(Deserialize, Serialize, Default)]
+pub struct BtcTxData {
+    pub raw_data: String,
+    pub progresses: Vec<ProgressData>,
+}
+
+impl BtcTxData {
+    pub fn new(raw_data: String) -> Self {
+        Self { raw_data, progresses: vec![] }
+    }
+    pub fn with_progresses(mut self, progresses: Vec<ProgressData>) -> Self {
+        self.progresses = progresses;
+        self
+    }
 }
 
 #[derive(Deserialize)]

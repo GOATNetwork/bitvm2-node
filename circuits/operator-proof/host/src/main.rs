@@ -1,7 +1,7 @@
-//! Generate header chain proof
+//! Generate operator proof
 //! Example:
 //! ```
-//! RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --consensus-layer-block ../../../crates/bitcoin-light-client/samples/light_block_5756785.json
+//! RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --consensus-layer-block-number 5756785
 //! ```
 use alloy_primitives::U256;
 use alloy_provider::{RootProvider, network::Ethereum};
@@ -10,7 +10,7 @@ use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
-use bitcoin_light_client::{EthClientExecutorInput, LightBlock, build_spv};
+use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv};
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
@@ -95,13 +95,8 @@ pub struct Args {
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
 
-    #[clap(
-        long,
-        env,
-        short,
-        default_value = "../../../crates/bitcoin-light-client/samples/light_block_5756784.json"
-    )]
-    consensus_layer_block: String,
+    #[clap(long, env, short)]
+    consensus_layer_block_number: u64,
 
     #[clap(long, env, short, default_value = "https://rpc.testnet3.goat.network")]
     execution_layer_rpc: String,
@@ -254,6 +249,10 @@ async fn main() {
         };
         watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
     }
+    let (actual_seqeuncer_set_hash, actual_data_hash, txns) =
+        commit_chain_rpc::fetch_commit_chain_proof_input(args.consensus_layer_block_number)
+            .await
+            .unwrap();
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
@@ -264,13 +263,10 @@ async fn main() {
         stdin.write(&args.graph_id);
 
         stdin.write(&operator_latest_sequencer_commit_txn);
-        let bytes = std::fs::read(&args.consensus_layer_block).unwrap();
-        let consensus_layer_block: LightBlock = serde_json::from_slice(&bytes).unwrap();
-        stdin.write_vec(serde_cbor::to_vec(&consensus_layer_block).unwrap());
 
-        let bytes = std::fs::read(format!("{}.txns", args.consensus_layer_block)).unwrap();
-        let consensus_txns: Vec<String> = serde_json::from_slice(&bytes).unwrap();
-        stdin.write(&consensus_txns);
+        stdin.write(&actual_seqeuncer_set_hash);
+        stdin.write(&actual_data_hash);
+        stdin.write(&txns);
 
         stdin.write(&eth_client_execution_input);
 
