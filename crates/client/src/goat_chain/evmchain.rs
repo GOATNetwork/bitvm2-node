@@ -387,4 +387,17 @@ impl EvmChain {
     ) -> anyhow::Result<bool> {
         self.adaptor.committee_mana_verify_signatures(msg_hash, signs).await
     }
+    pub async fn committee_mana_get_committee_peer_id(
+        &self,
+        member: &[u8; 20],
+    ) -> anyhow::Result<[u8; 32]> {
+        self.adaptor.committee_mana_get_committee_peer_id(member).await
+    }
+
+    pub async fn committee_mana_is_validate_peer_id(
+        &self,
+        peer_id: &[u8; 32],
+    ) -> anyhow::Result<bool> {
+        self.adaptor.committee_mana_is_validate_peer_id(peer_id).await
+    }
 }
