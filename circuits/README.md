@@ -36,9 +36,9 @@ Generate the proof:
 ```
 cd commit-chain-proof/host
 //Genesis
-RUST_LOG=debug cargo run -r -- --init-input --output-proof "commit-proof.bin"
+RUST_LOG=info cargo run -r -- --init-input --output-proof "commit-proof.bin"
 //Regular proof
-RUST_LOG=debug cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
+RUST_LOG=info cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
 
 ```
 
