@@ -40,7 +40,7 @@ sol!(
             OperatorNack,
             Disprove,
             QuickChallenge,
-            ChallengeIncompeleteKickoff
+            ChallengeIncompleteKickoff
         }
         enum PeginStatus {
             None,
@@ -539,8 +539,8 @@ impl From<DisproveTxType> for IGateway::DisproveTxType {
             DisproveTxType::AssertTimeout => IGateway::DisproveTxType::AssertTimeout,
             DisproveTxType::Disprove => IGateway::DisproveTxType::Disprove,
             DisproveTxType::QuickChallenge => IGateway::DisproveTxType::QuickChallenge,
-            DisproveTxType::ChallengeIncompeleteKickoff => {
-                IGateway::DisproveTxType::ChallengeIncompeleteKickoff
+            DisproveTxType::ChallengeIncompleteKickoff => {
+                IGateway::DisproveTxType::ChallengeIncompleteKickoff
             }
         }
     }

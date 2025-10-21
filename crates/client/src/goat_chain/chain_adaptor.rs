@@ -185,7 +185,7 @@ pub enum DisproveTxType {
     OperatorNack,
     Disprove,
     QuickChallenge,
-    ChallengeIncompeleteKickoff,
+    ChallengeIncompleteKickoff,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display)]

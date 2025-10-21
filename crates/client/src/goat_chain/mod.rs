@@ -297,24 +297,47 @@ impl GOATClient {
         graph_id: &Uuid,
         disprove_type: DisproveTxType,
         tx_index: u64,
-        challenge_start_tx: &Transaction,
+        challenge_start_tx: Option<&Transaction>,
         challenge_finish_tx: &Transaction,
     ) -> anyhow::Result<String> {
         if !self.is_committee_member().await? {
             bail!("only committee member can call");
         }
-        let tx_proof_data = self
-            .check_withdraw_actions_and_get_proof(
-                btc_client,
-                "challenge_start",
-                graph_id,
-                &challenge_start_tx.compute_txid(),
-                &challenge_start_tx.compute_txid(),
-                Some(WithdrawStatus::Disproved),
-            )
-            .await?;
-        let raw_challenge_start_tx = tx_reconstruct(challenge_start_tx);
-        let challenge_start_proof: BitcoinTxProof = tx_proof_data.into();
+        let (raw_challenge_start_tx, challenge_start_proof) = match challenge_start_tx {
+            Some(challenge_start_tx) => {
+                let tx_proof_data = self
+                    .check_withdraw_actions_and_get_proof(
+                        btc_client,
+                        "challenge_start",
+                        graph_id,
+                        &challenge_start_tx.compute_txid(),
+                        &challenge_start_tx.compute_txid(),
+                        Some(WithdrawStatus::Disproved),
+                    )
+                    .await?;
+                let raw_challenge_start_tx = tx_reconstruct(challenge_start_tx);
+                let challenge_start_proof: BitcoinTxProof = tx_proof_data.into();
+                (raw_challenge_start_tx, challenge_start_proof)
+            }
+            None => {
+                // if no challengeStartTx happens (for QuickChallenge & ChallengeIncompleteKickoff), set rawChallengeStartTx.inputVector to empty
+                if !matches!(
+                    disprove_type,
+                    DisproveTxType::QuickChallenge | DisproveTxType::ChallengeIncompleteKickoff
+                ) {
+                    bail!("challenge_start_tx is required for disprove type {:?}", disprove_type);
+                }
+                let raw_challenge_start_tx = BitcoinTx {
+                    version: 0,
+                    lock_time: 0,
+                    input_vector: vec![],
+                    output_vector: vec![],
+                };
+                let challenge_start_proof =
+                    BitcoinTxProof { raw_header: vec![], height: 0, proof: vec![], index: 0 };
+                (raw_challenge_start_tx, challenge_start_proof)
+            }
+        };
         let tx_proof_data = self
             .check_withdraw_actions_and_get_proof(
                 btc_client,

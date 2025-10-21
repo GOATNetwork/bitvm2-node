@@ -13,7 +13,7 @@ use bitvm2_lib::committee::*;
 use bitvm2_lib::keys::*;
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
-use client::goat_chain::{DisproveTxType, WithdrawStatus};
+use client::goat_chain::{DisproveTxType, PeginStatus, WithdrawStatus};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::base::{BaseTransaction, Input};
@@ -137,6 +137,7 @@ pub struct PeginConfirmPartialSig {
     pub instance_id: Uuid,
     pub committee_pubkey: PublicKey,
     pub partial_sig: PartialSignature,
+    pub endorse_sig: Vec<u8>, // ECDSA signature signed with committee evm keypair
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PostReady {
@@ -403,7 +404,7 @@ pub async fn recv_and_dispatch(
                 .keypair_for_instance(instance_id)
                 .public_key()
                 .into();
-            answer_pegin_request(goat_client, instance_id, pubkey_for_instance).await?;
+            goat_client.gateway_answer_pegin_request(&instance_id, &pubkey_for_instance).await?;
         }
         (
             GOATMessageContent::PeginRequest(PeginRequest {
@@ -596,7 +597,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 4. if collected enough pub_nonces, generate partial signatures & broadcast CommitteePresign
-            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
             let pub_nonces_unchecked =
                 get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
             if pub_nonces_unchecked.len() == committee_pubkeys.len() {
@@ -720,7 +721,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 3. if received enough pub_nonces, generate partial signatures & broadcast CommitteePresign
-            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
             let pub_nonces_unchecked =
                 get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
             if pub_nonces_unchecked.len() == committee_pubkeys.len() {
@@ -965,7 +966,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 2. if received enough valid committee partial sigs, endorse the graph
-            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
             let committee_partial_sigs =
                 get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id)
                     .await?
@@ -1195,8 +1196,14 @@ pub async fn recv_and_dispatch(
             );
             // 2. save the graph data to local db
             store_graph(local_db, &graph).await?;
-            store_committee_endorsements_for_graph(local_db, instance_id, graph_id, endorse_sigs)
-                .await?;
+            // TODO: check endorse_sigs
+            store_committee_endorsements_for_graph(
+                local_db,
+                instance_id,
+                graph_id,
+                endorse_sigs.clone(),
+            )
+            .await?;
             // 3. if endorsed graph count >= threshold, generate & broadcast PeginConfirmNonce
             if get_endorsed_graph_count(local_db, instance_id).await?
                 >= todo_funcs::min_required_operator()
@@ -1235,7 +1242,25 @@ pub async fn recv_and_dispatch(
             }
             // 4. (Relayer) try to call Gateway.postGraphData
             // GraphFinalize may come after PostReady, so we need to check it here
-            todo!("");
+            if todo_funcs::is_relayer() {
+                let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
+                if pegin_data.status != PeginStatus::Withdrawable {
+                    // pegin not posted yet
+                    return Ok(());
+                }
+                let graph_data = goat_client.gateway_get_graph_data(&graph_id).await?;
+                if graph_data.operator_pubkey != [0u8; 32] {
+                    // already posted
+                    return Ok(());
+                }
+                let graph = Bitvm2Graph::from_simplified(&graph)?;
+                let graph_data = build_graph_data(&graph)?;
+                let endorse_sigs =
+                    endorse_sigs.into_iter().map(|(_, _, sig)| sig).collect::<Vec<_>>();
+                goat_client
+                    .gateway_post_graph_data(&instance_id, &graph_id, &graph_data, &endorse_sigs)
+                    .await?;
+            }
         }
         (
             GOATMessageContent::GraphFinalize(GraphFinalize {
@@ -1336,7 +1361,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 3. if received enough pub_nonces, generate partial signature & broadcast PeginConfirmPartialSig
-            let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
+            let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
             let pub_nonces = get_committee_pub_nonces_for_instance(local_db, instance_id).await?;
             if pub_nonces.len() == committee_pubkeys.len() {
                 let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
@@ -1355,11 +1380,15 @@ pub async fn recv_and_dispatch(
                 let partial_sig = pegin_confirm
                     .sign_input_0_musig2(&context, &sec_nonce, &agg_nonce)
                     .map_err(|e| anyhow!("Failed to sign pegin confirm for {instance_id}: {e}"))?;
+                let endorse_sig =
+                    endorse_pegin(goat_client, instance_id, &pegin_confirm.tx().compute_txid())
+                        .await?;
                 let message_content =
                     GOATMessageContent::PeginConfirmPartialSig(PeginConfirmPartialSig {
                         instance_id,
                         committee_pubkey: local_committee_pubkey,
                         partial_sig,
+                        endorse_sig: endorse_sig.as_bytes().to_vec(),
                     });
                 send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
                 store_committee_partial_sig_for_instance(
@@ -1402,6 +1431,7 @@ pub async fn recv_and_dispatch(
                 instance_id,
                 committee_pubkey: received_committee_pubkey,
                 partial_sig,
+                endorse_sig,
             }),
             Actor::Committee,
         ) => {
@@ -1439,13 +1469,20 @@ pub async fn recv_and_dispatch(
                 "Handle PeginConfirmPartialSig for {instance_id} from {}",
                 received_committee_pubkey.to_string()
             );
-            // 1. TODO: check partial signature
+            // 1. TODO: check partial signature & endorsement signature
             // 2. save the partial signature to local db
             store_committee_partial_sig_for_instance(
                 local_db,
                 instance_id,
                 received_committee_pubkey,
                 partial_sig,
+            )
+            .await?;
+            todo_funcs::store_committee_endorse_sig_for_pegin(
+                local_db,
+                instance_id,
+                received_committee_pubkey,
+                endorse_sig,
             )
             .await?;
             // 3. (Relayer) if received enough partial signatures, aggregate the sigs
@@ -1457,7 +1494,8 @@ pub async fn recv_and_dispatch(
                     .collect::<Vec<_>>();
                 let pub_nonces =
                     get_committee_pub_nonces_for_instance(local_db, instance_id).await?;
-                let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
+                let committee_pubkeys =
+                    goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
                 if partial_sigs.len() == committee_pubkeys.len()
                     && pub_nonces.len() == committee_pubkeys.len()
                 {
@@ -1485,12 +1523,101 @@ pub async fn recv_and_dispatch(
                 }
             }
         }
-        (GOATMessageContent::PostReady(PostReady { .. }), Actor::Committee) => {
+        (GOATMessageContent::PostReady(PostReady { instance_id }), Actor::Committee) => {
             // triggered by PeginConfirm tx
-            // 1. (Relayer)check if postPeginData requirements are met
-            // 2. (Relayer)call Gateway.postPeginData on GoatChain
-            // 3. (Relayer)call Gateway.postGraphData on GoatChain
-            todo!("Handle PostReady");
+            if !todo_funcs::is_relayer() {
+                return Ok(());
+            }
+            tracing::info!("Handle PostReady for {instance_id}");
+            // 1. (Relayer)call Gateway.postPeginData on GoatChain
+            let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
+            let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
+            if pegin_data.status == PeginStatus::None {
+                tracing::warn!("Ignore PostReady for {instance_id}: not a pending pegin request");
+                return Ok(());
+            } else if pegin_data.status == PeginStatus::Pending {
+                let instance_params = get_instance_parameters(local_db, instance_id)
+                    .await?
+                    .ok_or_else(|| anyhow!("Instance parameters not found for {instance_id}"))?;
+                let pegin_confirm = instance_params.build_pegin_tx()?.1;
+                let pegin_txid = pegin_confirm.tx().compute_txid();
+                let pegin_tx = match btc_client.get_tx(&pegin_txid).await? {
+                    Some(tx) => tx,
+                    None => {
+                        tracing::warn!(
+                            "Ignore PostReady for {instance_id}: pegin confirm tx not found on Bitcoin chain: {pegin_txid}"
+                        );
+                        return Ok(());
+                    }
+                };
+                let endorse_sigs =
+                    todo_funcs::get_committee_endorse_sigs_for_pegin(local_db, instance_id)
+                        .await?
+                        .into_iter()
+                        .map(|(_, es)| es)
+                        .collect::<Vec<_>>();
+                if endorse_sigs.len() != committee_pubkeys.len() {
+                    tracing::warn!(
+                        "Ignore PostReady for {instance_id}: not enough endorse sigs for pegin confirm tx: {}",
+                        endorse_sigs.len()
+                    );
+                    return Ok(());
+                }
+                let pegin_height = match btc_client.get_tx_status(&pegin_txid).await?.block_height {
+                    Some(height) => height as u64,
+                    None => {
+                        let delay_secs = 60 * 10; // 10 minutes
+                        push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                        return Ok(());
+                    }
+                };
+                let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+                if goat_confirmed_height < pegin_height {
+                    let delay_secs = 60 * 10 * (pegin_height - goat_confirmed_height);
+                    push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                    return Ok(());
+                }
+                goat_client
+                    .gateway_post_pegin_data(btc_client, &instance_id, &pegin_tx, &endorse_sigs)
+                    .await?;
+            } else {
+                // already posted
+            }
+            // 2. (Relayer)call Gateway.postGraphData on GoatChain
+            let graph_ids = todo_funcs::get_graph_ids_for_instance(local_db, instance_id).await?;
+            for graph_id in &graph_ids {
+                let graph_data = goat_client.gateway_get_graph_data(graph_id).await?;
+                if graph_data.operator_pubkey != [0u8; 32] {
+                    // already posted
+                    continue;
+                }
+                let endorsement_sigs =
+                    get_committee_endorsements_for_graph(local_db, instance_id, *graph_id)
+                        .await?
+                        .into_iter()
+                        .map(|(_, _, sig)| sig)
+                        .collect::<Vec<_>>();
+                if endorsement_sigs.len() != committee_pubkeys.len() {
+                    tracing::warn!(
+                        "Ignore postGraphData for {instance_id}:{graph_id}: not enough endorse sigs for graph: {}",
+                        endorsement_sigs.len()
+                    );
+                    continue;
+                }
+                let graph = get_graph(local_db, instance_id, *graph_id)
+                    .await?
+                    .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+                let graph = Bitvm2Graph::from_simplified(&graph)?;
+                let graph_data = build_graph_data(&graph)?;
+                goat_client
+                    .gateway_post_graph_data(
+                        &instance_id,
+                        &graph_id,
+                        &graph_data,
+                        &endorsement_sigs,
+                    )
+                    .await?;
+            }
         }
         (
             GOATMessageContent::KickoffReady(KickoffReady { instance_id, graph_id }),
@@ -1520,7 +1647,7 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 1. check the withdraw status on GoatChain
-            let withdraw_status = get_withdraw_data(goat_client, &graph_id).await?.status;
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
             if withdraw_status != WithdrawStatus::Initialized {
                 tracing::warn!(
                     "Ignore KickoffReady for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status:?}"
@@ -1648,8 +1775,9 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 2. check withdraw status, if it's invalid, sign & broadcast challenge txn
-            let withdraw_status = get_withdraw_data(goat_client, &graph_id).await?.status;
-            let goat_confirmed_btc_height = get_goat_confirmed_btc_height(goat_client).await?;
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
+            let goat_confirmed_btc_height =
+                goat_client.btc_spv_latest_confirmed_height().await? as u32;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
                 if kickoff_height >= goat_confirmed_btc_height {
                     let delay_secs = (kickoff_height + 1 - goat_confirmed_btc_height) * 600; // blocks * 10 minutes
@@ -1859,7 +1987,7 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 1. check the withdraw status on GoatChain, if the withdraw is invalid, sign & broadcast watchtower-challenge txn
-            let withdraw_status = get_withdraw_data(goat_client, &graph_id).await?.status;
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
                 let watchtower_proof =
                     todo_funcs::get_watchtower_proof(instance_id, graph_id).await?;
@@ -2570,10 +2698,150 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
         }
-        (GOATMessageContent::DisproveSent(DisproveSent { .. }), Actor::Committee) => {
+        (
+            GOATMessageContent::DisproveSent(DisproveSent {
+                instance_id,
+                graph_id,
+                disprove_type,
+                index,
+                challenge_finish_txid,
+                ..
+            }),
+            Actor::Committee,
+        ) => {
             // triggered by Disprove tx
+            if !todo_funcs::is_relayer() {
+                tracing::warn!(
+                    "Ignore DisproveSent for {instance_id}:{graph_id}: not a relayer node"
+                );
+                return Ok(());
+            }
+            tracing::info!("Handle DisproveSent for {instance_id}:{graph_id}");
             // 1. (Relayer) call finalizeWithdrawDisprove on GoatChain
-            todo!("Handle DisproveSent");
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let kickoff_txid = graph.kickoff.tx().compute_txid();
+            let take1_txid = graph.take1.tx().compute_txid();
+            let connector_a_vout = 0;
+            let challenge_start_tx = if let Some(spent_txid) =
+                outpoint_spent_txid(btc_client, &kickoff_txid, connector_a_vout).await?
+            {
+                if spent_txid == take1_txid {
+                    tracing::warn!(
+                        "Ignore DisproveSent for {instance_id}:{graph_id}: graph already finalized by Take1 tx: {spent_txid}"
+                    );
+                    return Ok(());
+                }
+                btc_client.get_tx(&spent_txid).await?
+            } else {
+                None
+            };
+            let challenge_finish_tx = match btc_client.get_tx(&challenge_finish_txid).await? {
+                Some(tx) => tx,
+                None => {
+                    tracing::warn!(
+                        "Ignore DisproveSent for {instance_id}:{graph_id}: challenge finish tx {challenge_finish_txid} not found on chain"
+                    );
+                    return Ok(());
+                }
+            };
+            match disprove_type {
+                DisproveTxType::AssertTimeout => {
+                    if challenge_finish_txid != graph.assert_commit_timeout_txns.get(index)
+                        .ok_or_else(|| anyhow!("AssertCommitTimeout txn not found for {instance_id}:{graph_id}:{index}"))?
+                        .tx()
+                        .compute_txid()
+                    {
+                        tracing::warn!(
+                            "Ignore DisproveSent for {instance_id}:{graph_id}: challenge finish txid does not match assert commit timeout txn"
+                        );
+                        return Ok(());
+                    }
+                }
+                DisproveTxType::OperatorCommitTimeout => {
+                    if challenge_finish_txid != graph.blockhash_commit_timeout.tx().compute_txid() {
+                        tracing::warn!(
+                            "Ignore DisproveSent for {instance_id}:{graph_id}: challenge finish txid does not match operator commit timeout txn"
+                        );
+                        return Ok(());
+                    }
+                }
+                DisproveTxType::OperatorNack => {
+                    if challenge_finish_txid != graph.nack_txns.get(index)
+                        .ok_or_else(|| anyhow!("Nack txn not found for {instance_id}:{graph_id}:{index}"))?
+                        .tx()
+                        .compute_txid()
+                    {
+                        tracing::warn!(
+                            "Ignore DisproveSent for {instance_id}:{graph_id}: challenge finish txid does not match nack txn"
+                        );
+                        return Ok(());
+                    }
+                }
+                DisproveTxType::Disprove => {
+                    let connector_e_input = OutPoint {
+                        txid: kickoff_txid,
+                        vout: 3,
+                    };
+                    if challenge_finish_tx.input[0].previous_output != connector_e_input {
+                        tracing::warn!(
+                            "Ignore DisproveSent for {instance_id}:{graph_id}: challenge finish tx is not a disprove txn"
+                        );
+                        return Ok(());
+                    }
+                }
+                DisproveTxType::QuickChallenge => {
+                    let guardian_connector_input = OutPoint {
+                        txid: kickoff_txid,
+                        vout: 4,
+                    };
+                    if challenge_finish_tx.input[0].previous_output != guardian_connector_input {
+                        tracing::warn!(
+                            "Ignore DisproveSent for {instance_id}:{graph_id}: challenge finish tx is not a quick challenge txn"
+                        );
+                        return Ok(());
+                    }
+                }
+                DisproveTxType::ChallengeIncompleteKickoff => {
+                    let guardian_connector_input = OutPoint {
+                        txid: kickoff_txid,
+                        vout: 4,
+                    };
+                    if challenge_finish_tx.input[0].previous_output != guardian_connector_input {
+                        tracing::warn!(
+                            "Ignore DisproveSent for {instance_id}:{graph_id}: challenge finish tx is not a challenge incomplete kickoff txn"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+            let challenge_finish_height =
+                match btc_client.get_tx_status(&challenge_finish_txid).await?.block_height {
+                    Some(height) => height as u64,
+                    None => {
+                        let delay_secs = 60 * 10; // 10 minutes
+                        push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                        return Ok(());
+                    }
+                };
+            let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+            if goat_confirmed_height < challenge_finish_height {
+                let delay_secs = 60 * 10 * (challenge_finish_height - goat_confirmed_height);
+                push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                return Ok(());
+            }
+            goat_client
+                .gateway_finish_withdraw_disproved(
+                    btc_client,
+                    &graph_id,
+                    disprove_type,
+                    index as u64,
+                    challenge_start_tx.as_ref(),
+                    &challenge_finish_tx,
+                )
+                .await?;
         }
         (GOATMessageContent::Take1Ready(Take1Ready { instance_id, graph_id }), Actor::Operator) => {
             // triggered by timeout task
@@ -2628,10 +2896,45 @@ pub async fn recv_and_dispatch(
             let child_tx = todo_funcs::build_cpfp_txns(btc_client, &take1_tx, anchor_vout).await?;
             broadcast_package(btc_client, &[take1_tx, child_tx]).await?;
         }
-        (GOATMessageContent::Take1Sent(Take1Sent { .. }), Actor::Committee) => {
+        (GOATMessageContent::Take1Sent(Take1Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take1 tx
+            if !todo_funcs::is_relayer() {
+                tracing::warn!("Ignore Take1Sent for {instance_id}:{graph_id}: not a relayer node");
+                return Ok(());
+            }
+            tracing::info!("Handle Take1Sent for {instance_id}:{graph_id}");
             // 1. (Relayer) call finalizeWithdrawHappyPath on GoatChain
-            todo!("Handle Take1Sent");
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let take1_txid = graph.take1.tx().compute_txid();
+            let take1_tx = match btc_client.get_tx(&take1_txid).await? {
+                Some(tx) => tx,
+                None => {
+                    tracing::warn!(
+                        "Ignore Take1Sent for {instance_id}:{graph_id}: take1 tx not found on chain"
+                    );
+                    return Ok(());
+                }
+            };
+            let take1_height = match btc_client.get_tx_status(&take1_txid).await?.block_height {
+                Some(height) => height as u64,
+                None => {
+                    let delay_secs = 60 * 10; // 10 minutes
+                    push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                    return Ok(());
+                }
+            };
+            let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+            if goat_confirmed_height < take1_height {
+                let delay_secs = 60 * 10 * (take1_height - goat_confirmed_height);
+                push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                return Ok(());
+            }
+            goat_client
+                .gateway_finish_withdraw_happy_path(btc_client, &graph_id, &take1_tx)
+                .await?;
         }
         (GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id }), Actor::Operator) => {
             // triggered by timeout task
@@ -2716,10 +3019,45 @@ pub async fn recv_and_dispatch(
             let child_tx = todo_funcs::build_cpfp_txns(btc_client, &take2_tx, anchor_vout).await?;
             broadcast_package(btc_client, &[take2_tx, child_tx]).await?;
         }
-        (GOATMessageContent::Take2Sent(Take2Sent { .. }), Actor::Committee) => {
+        (GOATMessageContent::Take2Sent(Take2Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take2 tx
-            // 1. (Relayer) call finalizeWithdrawHappyPath on GoatChain
-            todo!("Handle Take2Sent");
+            if !todo_funcs::is_relayer() {
+                tracing::warn!("Ignore Take2Sent for {instance_id}:{graph_id}: not a relayer node");
+                return Ok(());
+            }
+            tracing::info!("Handle Take2Sent for {instance_id}:{graph_id}");
+            // 1. (Relayer) call finalizeWithdrawUnhappyPath on GoatChain
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let take2_txid = graph.take2.tx().compute_txid();
+            let take2_tx = match btc_client.get_tx(&take2_txid).await? {
+                Some(tx) => tx,
+                None => {
+                    tracing::warn!(
+                        "Ignore Take2Sent for {instance_id}:{graph_id}: take2 tx not found on chain"
+                    );
+                    return Ok(());
+                }
+            };
+            let take2_height = match btc_client.get_tx_status(&take2_txid).await?.block_height {
+                Some(height) => height as u64,
+                None => {
+                    let delay_secs = 60 * 10; // 10 minutes
+                    push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                    return Ok(());
+                }
+            };
+            let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+            if goat_confirmed_height < take2_height {
+                let delay_secs = 60 * 10 * (take2_height - goat_confirmed_height);
+                push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                return Ok(());
+            }
+            goat_client
+                .gateway_finish_withdraw_unhappy_path(btc_client, &graph_id, &take2_tx)
+                .await?;
         }
         (
             GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id }),
@@ -2789,7 +3127,7 @@ pub async fn try_finalize_graph(
     let pub_nonoces = get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
     let partial_sigs =
         get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id).await?;
-    let committee_pubkeys = get_committee_pubkeys(goat_client, instance_id).await?;
+    let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
     if endorsements.len() == committee_pubkeys.len()
         && pub_nonoces.len() == committee_pubkeys.len()
         && partial_sigs.len() == committee_pubkeys.len()

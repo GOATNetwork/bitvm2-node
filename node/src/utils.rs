@@ -60,7 +60,7 @@ use stun_client::{Attribute, Class, Client};
 use crate::env;
 use crate::scheduled_tasks::get_goat_message_content_type;
 use bitvm2_lib::transactions::base::BaseTransaction;
-use client::goat_chain::{GraphData, PeginData, PeginStatus, WithdrawData};
+use client::goat_chain::{GraphData, PeginData, PeginStatus};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -81,18 +81,6 @@ pub mod todo_funcs {
     use super::*;
 
     // contract calls
-    pub async fn get_graph_data_on_goat(
-        goat_client: &GOATClient,
-        graph_id: Uuid,
-    ) -> Result<GraphData> {
-        todo!("call Gateway.graphDataMap(graph_id) on goat chain")
-    }
-    pub async fn get_graph_digest(
-        goat_client: &GOATClient,
-        graph: &Bitvm2Graph,
-    ) -> Result<[u8; 32]> {
-        todo!("call Gateway.getPostGraphDigest(instance_id, graph_id, graphData) on goat chain")
-    }
     pub async fn get_graph_ids_by_instance_id(
         goat_client: &GOATClient,
         instance_id: Uuid,
@@ -111,6 +99,13 @@ pub mod todo_funcs {
     ) -> Result<PeginData> {
         todo!("call CommitteeManagement.isValidPeerId(peer_id) on goat chain")
     }
+    pub async fn get_post_pegin_digest(
+        goat_client: &GOATClient,
+        instance_id: Uuid,
+        pegin_txid: &Txid,
+    ) -> Result<[u8; 32]> {
+        todo!("call Gateway.getPostPeginDigest(instance_id, pegin_txid) on goat chain")
+    }
 
     // db operations
     pub async fn graph_exists(
@@ -128,6 +123,26 @@ pub mod todo_funcs {
         sub_status: Option<ChallengeSubStatus>,
     ) -> Result<()> {
         todo!("update graph status in local db")
+    }
+    pub async fn get_graph_ids_for_instance(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+    ) -> Result<Vec<Uuid>> {
+        todo!("get all graph ids for the instance from local db")
+    }
+    pub async fn store_committee_endorse_sig_for_pegin(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+        committee_pubkey: PublicKey,
+        endorse_sig: Vec<u8>,
+    ) -> Result<()> {
+        todo!("store committee endorse sig for the instance in local db")
+    }
+    pub async fn get_committee_endorse_sigs_for_pegin(
+        local_db: &LocalDB,
+        instance_id: Uuid,
+    ) -> Result<Vec<(PublicKey, Vec<u8>)>> {
+        todo!("get committee endorse sigs for the instance from local db")
     }
 
     // proof network
@@ -150,12 +165,21 @@ pub mod todo_funcs {
         todo!("get vk for operator proof")
     }
 
-    // other operations
+    // get from env
     pub fn is_relayer() -> bool {
         todo!("check if the node is relayer")
     }
+    pub fn get_node_evm_address() -> Result<EvmAddress> {
+        todo!("get node's evm address")
+    }
+    pub fn get_node_evm_private_key() -> Result<String> {
+        todo!("get node's evm private key")
+    }
+
+    // other operations
     pub fn min_required_operator() -> usize {
-        todo!("get min required operator number from goat chain")
+        // todo!("get min required operator number")
+        1
     }
     pub async fn publish_graph_to_ipfs(ipfs: &IPFS, graph: &Bitvm2Graph) -> Result<String> {
         todo!("publish graph to ipfs")
@@ -167,7 +191,8 @@ pub mod todo_funcs {
         graph: &SimplifiedBitvm2Graph,
     ) -> Result<()> {
         // return SpecialError::InvalidGraph if not valid
-        todo!("check graph parameters & operator stake")
+        // todo!("check graph parameters & operator stake")
+        Ok(())
     }
     pub fn validate_finalized_graph(
         goat_client: &GOATClient,
@@ -175,13 +200,8 @@ pub mod todo_funcs {
         endorse_sigs: &Vec<(PublicKey, EvmAddress, Vec<u8>)>,
     ) -> Result<()> {
         // return SpecialError::InvalidGraph if not valid
-        todo!("verify graph & endorsement signatures")
-    }
-    pub fn get_node_evm_address() -> Result<EvmAddress> {
-        todo!("get node's evm address")
-    }
-    pub fn get_node_evm_private_key() -> Result<String> {
-        todo!("get node's evm private key")
+        // todo!("verify graph & endorsement signatures")
+        Ok(())
     }
     pub async fn build_genesis_prekickoff_tx(
         btc_client: &BTCClient,
@@ -214,7 +234,8 @@ pub mod todo_funcs {
         graph_id: Uuid,
         index: usize,
     ) -> Result<Vec<u8>> {
-        todo!("get preimage from local db (or derive it from master key?)")
+        let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+        Ok(operator_master_key.preimage_for_graph(graph_id, index))
     }
     pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
         todo!("broadcast non-standard tx")
@@ -261,8 +282,7 @@ pub mod todo_funcs {
         };
         // check if Graph has been posted on GoatChain
         if current_status == GraphStatus::CommitteePresigned {
-            let graph_data_on_goat =
-                todo_funcs::get_graph_data_on_goat(goat_client, graph_id).await?;
+            let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
             if graph_data_on_goat.operator_pubkey == [0u8; 32] {
                 todo_funcs::update_graph_status(
                     local_db,
@@ -279,8 +299,8 @@ pub mod todo_funcs {
         }
         // check if Graph has been obsoleted on GoatChain
         if current_status == GraphStatus::OperatorDataPushed {
-            let pegin_data = todo_funcs::get_pegin_data(goat_client, instance_id).await?;
-            let withdraw_data = get_withdraw_data(goat_client, &graph_id).await?;
+            let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
+            let withdraw_data = goat_client.gateway_get_withdraw_data(&graph_id).await?;
             // TBD: obesolete graph when pegin is claimed rather than processing
             if pegin_data.status != PeginStatus::Withdrawable
                 && withdraw_data.status == WithdrawStatus::None
@@ -486,6 +506,48 @@ pub mod todo_funcs {
     }
 }
 
+pub fn build_graph_data(graph: &Bitvm2Graph) -> Result<GraphData> {
+    // operator pubkey: first byte is prefix, next 32 bytes are key
+    let op_pk_bytes = graph.parameters.operator_pubkey.to_bytes();
+    let operator_pubkey_prefix = op_pk_bytes[0];
+    let operator_pubkey: [u8; 32] =
+        op_pk_bytes[1..33].try_into().map_err(|_| anyhow!("invalid operator pubkey length"))?;
+
+    // compute txids for all required transactions
+    let pegin_txid = graph.pegin.finalize().compute_txid().to_byte_array();
+    let kickoff_txid = graph.kickoff.finalize().compute_txid().to_byte_array();
+    let take1_txid = graph.take1.finalize().compute_txid().to_byte_array();
+    let take2_txid = graph.take2.finalize().compute_txid().to_byte_array();
+    let commit_timout_txid =
+        graph.blockhash_commit_timeout.finalize().compute_txid().to_byte_array();
+    let assert_timeout_txids: Vec<[u8; 32]> = graph
+        .assert_commit_timeout_txns
+        .iter()
+        .map(|tx| tx.finalize().compute_txid().to_byte_array())
+        .collect();
+    let nack_txids: Vec<[u8; 32]> =
+        graph.nack_txns.iter().map(|tx| tx.finalize().compute_txid().to_byte_array()).collect();
+
+    Ok(GraphData {
+        operator_pubkey_prefix,
+        operator_pubkey,
+        pegin_txid,
+        kickoff_txid,
+        take1_txid,
+        take2_txid,
+        commit_timout_txid,
+        assert_timeout_txids,
+        nack_txids,
+    })
+}
+
+pub async fn get_graph_digest(goat_client: &GOATClient, graph: &Bitvm2Graph) -> Result<[u8; 32]> {
+    let instance_id = graph.parameters.instance_parameters.instance_id;
+    let graph_id = graph.parameters.graph_id;
+    let graph_data = build_graph_data(graph)?;
+    goat_client.gateway_get_post_graph_digest(&instance_id, &graph_id, graph_data).await
+}
+
 pub async fn validate_committee(
     goat_client: &GOATClient,
     peer_id: &PeerId,
@@ -493,7 +555,7 @@ pub async fn validate_committee(
     committee_pubkey: &PublicKey,
 ) -> Result<()> {
     // return SpecialError::InvalidCommittee if not valid
-    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
+    let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
     for (i, pk) in pegin_data.committee_pubkeys.iter().enumerate() {
         let pk = PublicKey::from_slice(pk)?;
         if &pk == committee_pubkey {
@@ -519,7 +581,7 @@ pub async fn validate_committee_with_evm_address(
     committee_evm_address: &EvmAddress,
 ) -> Result<()> {
     // return SpecialError::InvalidCommittee if not valid
-    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
+    let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
     for i in 0..pegin_data.committee_pubkeys.len() {
         let pk = PublicKey::from_slice(&pegin_data.committee_pubkeys[i])?;
         let addr = &pegin_data.committee_addresses[i];
@@ -548,7 +610,7 @@ pub async fn validate_graph_id_on_goat(
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
-    let graph_data_on_goat = todo_funcs::get_graph_data_on_goat(goat_client, graph_id).await?;
+    let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
     if graph_data_on_goat.operator_pubkey == [0u8; 32] {
         bail!("Graph {graph_id} not found on GoatChain")
     }
@@ -565,7 +627,7 @@ pub async fn read_pegin_request(
     goat_client: &GOATClient,
     instance_id: Uuid,
 ) -> Result<(UserInfo, Amount)> {
-    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
+    let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
     if pegin_data.status != PeginStatus::Pending {
         bail!("Invalid PeginRequest: expired or already processed");
     }
@@ -619,7 +681,7 @@ pub async fn read_instance_info_from_goat(
     goat_client: &GOATClient,
     instance_id: Uuid,
 ) -> Result<Bitvm2InstanceParameters> {
-    let pegin_data = get_pegin_data(goat_client, instance_id).await?;
+    let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
     let network = get_network();
     let user_change_address = Address::from_str(&pegin_data.user_change_addr)
         .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_change_addr: {}", e)))?
@@ -651,7 +713,7 @@ pub async fn read_instance_info_from_goat(
         user_refund_address,
         user_xonly_pubkey,
     };
-    let committee_pubkeys = match get_committee_pubkeys(goat_client, instance_id).await {
+    let committee_pubkeys = match goat_client.gateway_get_committee_pubkeys(&instance_id).await {
         Ok(pks) => pks,
         Err(e) => {
             if let Some(msg) = e.downcast_ref::<SpecialError>() {
@@ -1124,8 +1186,20 @@ pub async fn send_watchtower_challenge_tx(
 
 pub async fn endorse_graph(goat_client: &GOATClient, graph: &Bitvm2Graph) -> Result<EvmSignature> {
     let signer = PrivateKeySigner::from_str(&todo_funcs::get_node_evm_private_key()?)?;
-    let graph_digest = todo_funcs::get_graph_digest(goat_client, graph).await?;
+    let graph_digest = get_graph_digest(goat_client, graph).await?;
     let sig = signer.sign_hash(&graph_digest.into()).await?;
+    Ok(sig)
+}
+
+pub async fn endorse_pegin(
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+    pegin_txid: &Txid,
+) -> Result<EvmSignature> {
+    let signer = PrivateKeySigner::from_str(&todo_funcs::get_node_evm_private_key()?)?;
+    let pegin_digest =
+        todo_funcs::get_post_pegin_digest(goat_client, instance_id, pegin_txid).await?;
+    let sig = signer.sign_hash(&pegin_digest.into()).await?;
     Ok(sig)
 }
 
@@ -1135,7 +1209,7 @@ pub async fn verify_graph_endorsement(
     graph: &Bitvm2Graph,
     signature: &[u8],
 ) -> Result<bool> {
-    let graph_digest = todo_funcs::get_graph_digest(goat_client, graph).await?;
+    let graph_digest = get_graph_digest(goat_client, graph).await?;
     let sig = EvmSignature::try_from(signature)?;
     sig.recover_address_from_prehash(&graph_digest.into())
         .map(|addr| &addr == evm_address)
@@ -1736,32 +1810,6 @@ pub fn temp_file() -> String {
 }
 
 // contract calls
-pub async fn get_pegin_data(goat_client: &GOATClient, instance_id: Uuid) -> Result<PeginData> {
-    goat_client.gateway_get_pegin_data(&instance_id).await
-}
-pub async fn get_withdraw_data(goat_client: &GOATClient, graph_id: &Uuid) -> Result<WithdrawData> {
-    goat_client.gateway_get_withdraw_data(graph_id).await
-}
-
-pub async fn get_goat_confirmed_btc_height(goat_client: &GOATClient) -> Result<u32> {
-    Ok(goat_client.btc_spv_latest_confirmed_height().await? as u32)
-}
-pub async fn get_committee_pubkeys(
-    goat_client: &GOATClient,
-    instance_id: Uuid,
-) -> Result<Vec<PublicKey>> {
-    // if getCommitteePubkeys reverts, return SpecialError::EvmReverted(ReasonString)
-    goat_client.gateway_get_committee_pubkeys(&instance_id).await
-}
-
-pub async fn answer_pegin_request(
-    goat_client: &GOATClient,
-    instance_id: Uuid,
-    pubkey_for_instance: PublicKey,
-) -> Result<()> {
-    goat_client.gateway_answer_pegin_request(&instance_id, &pubkey_for_instance).await?;
-    Ok(())
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct InstanceProcessDataItem {

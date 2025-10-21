@@ -1588,7 +1588,7 @@ async fn detect_kickoff_ref_disprove_tx(
         let disprove_type = if tx.input[1].previous_output.vout == 0 {
             DisproveTxType::QuickChallenge
         } else {
-            DisproveTxType::ChallengeIncompeleteKickoff
+            DisproveTxType::ChallengeIncompleteKickoff
         };
         let challenge_start_txid: Option<Txid> = graph.challenge_txid.clone().map(|v| v.into());
         let mut storage_processor = local_db.acquire().await?;
@@ -1822,7 +1822,7 @@ async fn process_graph_watchtower_assert_disproved_with_contact_call(
                 &graph.graph_id,
                 disprove_type,
                 tx_index as u64,
-                &challenge_start_tx,
+                Some(&challenge_start_tx),
                 &challenge_finish_tx,
             )
             .await
