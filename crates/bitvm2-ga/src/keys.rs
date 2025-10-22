@@ -88,9 +88,6 @@ impl OperatorMasterKey {
     pub fn master_keypair(&self) -> Keypair {
         NodeMasterKey(self.0).master_keypair()
     }
-    pub fn keypair_for_graph(&self, _graph_id: Uuid) -> Keypair {
-        self.master_keypair()
-    }
     pub fn keypair_for_nonce(&self, nonce: u64) -> Keypair {
         let domain = [b"operator_bitvm_key".to_vec(), nonce.to_be_bytes().to_vec()].concat();
         let nonce_seed = derive_secret(&self.0, &domain);

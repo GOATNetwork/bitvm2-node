@@ -457,7 +457,7 @@ mod tests {
 
     fn operator_presign_graph(graph: &mut Bitvm2Graph) {
         operator_pre_sign(
-            operator_master_key().keypair_for_graph(graph.parameters.graph_id),
+            operator_master_key().master_keypair(),
             graph,
         )
         .unwrap();
@@ -762,7 +762,7 @@ mod tests {
         send_pegin_confirm(&esplora, &graph).await;
 
         // kickoff
-        let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
+        let operator_keypair = operator_master_key().master_keypair();
         let kickoff = operator_sign_kickoff(operator_keypair, &mut graph).unwrap();
         println!("broadcasting kickoff tx {}", kickoff.compute_txid());
         esplora.broadcast(&kickoff).await.unwrap();
@@ -794,7 +794,7 @@ mod tests {
         send_pegin_confirm(&esplora, &graph).await;
 
         // kickoff
-        let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
+        let operator_keypair = operator_master_key().master_keypair();
         let kickoff = operator_sign_kickoff(operator_keypair, &mut graph).unwrap();
         println!("broadcasting kickoff tx {}", kickoff.compute_txid());
         esplora.broadcast(&kickoff).await.unwrap();
@@ -1000,7 +1000,7 @@ mod tests {
         send_pegin_refund(&esplora, &graph).await;
 
         // kickoff
-        let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
+        let operator_keypair = operator_master_key().master_keypair();
         let kickoff = operator_sign_kickoff(operator_keypair, &mut graph).unwrap();
         println!("broadcasting kickoff tx {}", kickoff.compute_txid());
         esplora.broadcast(&kickoff).await.unwrap();
@@ -1057,7 +1057,7 @@ mod tests {
         send_pegin_refund(&esplora, &graph).await;
 
         // kickoff
-        let operator_keypair = operator_master_key().keypair_for_graph(graph.parameters.graph_id);
+        let operator_keypair = operator_master_key().master_keypair();
         let kickoff = operator_sign_kickoff(operator_keypair, &mut graph).unwrap();
         println!("broadcasting kickoff tx {}", kickoff.compute_txid());
         esplora.broadcast(&kickoff).await.unwrap();

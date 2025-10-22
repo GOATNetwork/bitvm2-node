@@ -20,14 +20,19 @@ use bitvm2_lib::committee::*;
 use bitvm2_lib::keys::{ChallengerMasterKey, OperatorMasterKey, WatchtowerMasterKey};
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{
-    Bitvm2Graph, Bitvm2GraphParameters, Bitvm2InstanceParameters, Groth16Proof, PublicInputs,
-    SimplifiedBitvm2Graph, UserInfo, VerifyingKey,
+    Bitvm2Graph, Bitvm2GraphParameters, Bitvm2InstanceParameters, Groth16Proof,
+    PrekickoffParameters, PublicInputs, SimplifiedBitvm2Graph, UserInfo, VerifyingKey,
 };
 use bitvm2_lib::watchtower::*;
 use client::Utxo as ClientUtxo;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
+use goat::connectors::{
+    base::TaprootConnector,
+    kickoff_connectors::{ForceSkipConnector, KickoffConnector, PrekickoffConnector},
+};
 use goat::contexts::base::generate_n_of_n_public_key;
+use goat::disprove_scripts::hash160;
 use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
 use goat::transactions::base::Input;
 use goat::transactions::pre_signed::PreSignedTransaction;
@@ -59,24 +64,24 @@ use stun_client::{Attribute, Class, Client};
 
 use crate::env;
 use crate::scheduled_tasks::get_goat_message_content_type;
+use crate::scheduled_tasks::graph_maintenance_tasks::{
+    AssertCommitStatus, ChallengeSubStatus, CommitBlockHashStatus, WatchtowerChallengeStatus,
+};
 use bitvm2_lib::transactions::base::BaseTransaction;
-use client::goat_chain::{GraphData, PeginData, PeginStatus};
+use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
 use tracing::warn;
 use uuid::Uuid;
 
 pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
 
-    use bitvm2_lib::types::{
-        Bitvm2GraphParameters, GuestInputs, PrekickoffParameters, SimplifiedBitvm2Graph,
+    use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+    use bitvm2_lib::types::{GuestInputs, SimplifiedBitvm2Graph};
+    use goat::{
+        connectors::assert_connectors::chunk_assert_commit, disprove_scripts::NUM_GUEST_PUBS_ASSERT,
     };
-    use client::goat_chain::{DisproveTxType, WithdrawStatus};
-    use goat::transactions::prekickoff::PrekickoffTransaction;
-    use libp2p::PeerId;
 
-    use crate::scheduled_tasks::graph_maintenance_tasks::{
-        AssertCommitStatus, ChallengeSubStatus, CommitBlockHashStatus, WatchtowerChallengeStatus,
-    };
+    use crate::scheduled_tasks::graph_maintenance_tasks::ChallengeSubStatus;
 
     use super::*;
 
@@ -87,24 +92,15 @@ pub mod todo_funcs {
     ) -> Result<Vec<Uuid>> {
         todo!("call Gateway.getGraphIdsByInstanceId(instance_id) on goat chain")
     }
-    pub async fn get_committee_peer_id(
-        goat_client: &GOATClient,
-        committee_evm_address: &EvmAddress,
-    ) -> Result<PeerId> {
-        todo!("call CommitteeManagement.getCommitteePeerId(committee_evm_address) on goat chain")
-    }
-    pub async fn is_valid_committee_peer_id(
-        goat_client: &GOATClient,
-        peer_id: &PeerId,
-    ) -> Result<PeginData> {
-        todo!("call CommitteeManagement.isValidPeerId(peer_id) on goat chain")
-    }
     pub async fn get_post_pegin_digest(
         goat_client: &GOATClient,
         instance_id: Uuid,
         pegin_txid: &Txid,
     ) -> Result<[u8; 32]> {
         todo!("call Gateway.getPostPeginDigest(instance_id, pegin_txid) on goat chain")
+    }
+    pub async fn get_watchtowers(goat_client: &GOATClient) -> Result<Vec<PublicKey>> {
+        todo!("call CommitteeManagement.getWatchtowers() on goat chain")
     }
 
     // db operations
@@ -164,6 +160,9 @@ pub mod todo_funcs {
     pub async fn get_operator_proof_vk(instance_id: Uuid, graph_id: Uuid) -> Result<VerifyingKey> {
         todo!("get vk for operator proof")
     }
+    pub async fn get_guest_constant_value(instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
+        todo!("get guest constant value")
+    }
 
     // get from env
     pub fn is_relayer() -> bool {
@@ -177,6 +176,12 @@ pub mod todo_funcs {
     }
 
     // other operations
+    pub fn assert_commmit_num() -> usize {
+        let use_compact = false;
+        let wots32_num = NUM_GUEST_PUBS_ASSERT + NUM_PUBS + NUM_U256;
+        let wots16_num = NUM_HASH;
+        chunk_assert_commit(wots32_num, wots16_num, use_compact).len()
+    }
     pub fn min_required_operator() -> usize {
         // todo!("get min required operator number")
         1
@@ -203,30 +208,19 @@ pub mod todo_funcs {
         // todo!("verify graph & endorsement signatures")
         Ok(())
     }
-    pub async fn build_genesis_prekickoff_tx(
-        btc_client: &BTCClient,
-    ) -> Result<PrekickoffTransaction> {
-        todo!("create a genesis prekickoff tx")
+    pub fn prekickoff_replenishment_amount() -> Amount {
+        Amount::from_sat(500000)
     }
-    pub async fn build_prekickoff_params(
-        btc_client: &BTCClient,
-        graph_nonce: u64,
-        cur_prekickoff_txn: PrekickoffTransaction,
-    ) -> Result<PrekickoffParameters> {
-        todo!("build prekickoff params")
+    pub fn min_prekickoff_input_amount() -> Amount {
+        Amount::from_sat(100000)
     }
-    pub async fn build_graph_params(
-        instance_params: &Bitvm2InstanceParameters,
-        prekickoff_params: &PrekickoffParameters,
-    ) -> Result<Bitvm2GraphParameters> {
-        todo!("build graph params")
+    pub fn challenge_amount() -> Amount {
+        Amount::from_sat(20000)
     }
-    pub async fn build_cpfp_txns(
-        btc_client: &BTCClient,
-        parent_tx: &Transaction,
-        anchor_vout: u64,
-    ) -> Result<Transaction> {
-        todo!("build child txns to cpfp the parent tx")
+    pub fn prekickoff_fee_amount(replenish_fee_inputs_num: usize) -> Amount {
+        let tx_vbytes = PRE_KICKOFF_BASE_VBYTES
+            + (replenish_fee_inputs_num as u64 * CHEKSIG_P2WSH_INPUT_VBYTES);
+        Amount::from_sat(tx_vbytes)
     }
     pub async fn get_preimage(
         local_db: &LocalDB,
@@ -240,171 +234,217 @@ pub mod todo_funcs {
     pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
         todo!("broadcast non-standard tx")
     }
-    pub(crate) async fn refresh_graph(
-        local_db: &LocalDB,
-        btc_client: &BTCClient,
-        goat_client: &GOATClient,
-        instance_id: Uuid,
-        graph_id: Uuid,
-        graph: Option<&Bitvm2Graph>,
-        start_status: Option<GraphStatus>,
-        start_sub_status: Option<ChallengeSubStatus>,
-    ) -> Result<(GraphStatus, Option<ChallengeSubStatus>)> {
-        let graph = match graph {
-            Some(g) => g,
-            None => {
-                let g = todo_funcs::get_graph(local_db, instance_id, graph_id).await?;
-                match g {
-                    Some(g) => &Bitvm2Graph::from_simplified(&g)?,
-                    None => bail!("Graph {graph_id} not found in local db"),
-                }
+}
+
+pub(crate) async fn refresh_graph(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    graph: Option<&Bitvm2Graph>,
+    start_status: Option<GraphStatus>,
+    start_sub_status: Option<ChallengeSubStatus>,
+) -> Result<(GraphStatus, Option<ChallengeSubStatus>)> {
+    let graph = match graph {
+        Some(g) => g,
+        None => {
+            let g = get_graph(local_db, instance_id, graph_id).await?;
+            match g {
+                Some(g) => &Bitvm2Graph::from_simplified(&g)?,
+                None => bail!("Graph {graph_id} not found in local db"),
             }
-        };
-        let mut current_status = match start_status {
-            Some(s) => s,
-            None => {
-                if graph.committee_pre_signed() {
-                    GraphStatus::CommitteePresigned
-                } else {
-                    return Ok((GraphStatus::OperatorPresigned, None));
-                }
+        }
+    };
+    let mut current_status = match start_status {
+        Some(s) => s,
+        None => {
+            if graph.committee_pre_signed() {
+                GraphStatus::CommitteePresigned
+            } else {
+                return Ok((GraphStatus::OperatorPresigned, None));
             }
-        };
-        let mut sub_status = match start_sub_status {
-            Some(s) => s,
-            None => ChallengeSubStatus {
-                watchtower_challenge_status: WatchtowerChallengeStatus::None,
-                commit_blockhash_status: CommitBlockHashStatus::None,
-                assert_commit_status: AssertCommitStatus::None,
-                disprove_type: None,
-                disprove_index: 0,
-            },
-        };
-        // check if Graph has been posted on GoatChain
-        if current_status == GraphStatus::CommitteePresigned {
-            let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
-            if graph_data_on_goat.operator_pubkey == [0u8; 32] {
+        }
+    };
+    let mut sub_status = match start_sub_status {
+        Some(s) => s,
+        None => ChallengeSubStatus {
+            watchtower_challenge_status: WatchtowerChallengeStatus::None,
+            commit_blockhash_status: CommitBlockHashStatus::None,
+            assert_commit_status: AssertCommitStatus::None,
+            disprove_type: None,
+            disprove_index: 0,
+        },
+    };
+    // check if Graph has been posted on GoatChain
+    if current_status == GraphStatus::CommitteePresigned {
+        let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
+        if graph_data_on_goat.operator_pubkey == [0u8; 32] {
+            todo_funcs::update_graph_status(
+                local_db,
+                instance_id,
+                graph_id,
+                GraphStatus::CommitteePresigned,
+                None,
+            )
+            .await?;
+            return Ok((GraphStatus::CommitteePresigned, None));
+        } else {
+            current_status = GraphStatus::OperatorDataPushed;
+        }
+    }
+    // check if Graph has been obsoleted on GoatChain
+    if current_status == GraphStatus::OperatorDataPushed {
+        let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
+        let withdraw_data = goat_client.gateway_get_withdraw_data(&graph_id).await?;
+        // TBD: obesolete graph when pegin is claimed rather than processing
+        if pegin_data.status != PeginStatus::Withdrawable
+            && withdraw_data.status == WithdrawStatus::None
+        {
+            current_status = GraphStatus::Obsoleted;
+        }
+    }
+    // check Prekickoff
+    let prekickoff_txid = graph.cur_prekickoff.tx().compute_txid();
+    if matches!(current_status, GraphStatus::OperatorDataPushed | GraphStatus::Obsoleted) {
+        if !tx_on_chain(btc_client, &prekickoff_txid).await? {
+            todo_funcs::update_graph_status(
+                local_db,
+                instance_id,
+                graph_id,
+                current_status.clone(),
+                None,
+            )
+            .await?;
+            return Ok((current_status, None));
+        } else {
+            current_status = if current_status != GraphStatus::Obsoleted {
+                GraphStatus::PreKickoff
+            } else {
+                GraphStatus::Obsoleted
+            };
+        }
+    }
+    // check Kickoff/SkipKickoff
+    let kickoff_txid = graph.kickoff.tx().compute_txid();
+    if matches!(current_status, GraphStatus::PreKickoff | GraphStatus::Obsoleted) {
+        let kickoff_connector_vout = 1;
+        if let Some(spent_txid) =
+            outpoint_spent_txid(btc_client, &prekickoff_txid, kickoff_connector_vout).await?
+        {
+            if spent_txid != kickoff_txid {
                 todo_funcs::update_graph_status(
                     local_db,
                     instance_id,
                     graph_id,
-                    GraphStatus::CommitteePresigned,
+                    GraphStatus::Skipped,
                     None,
                 )
                 .await?;
-                return Ok((GraphStatus::CommitteePresigned, None));
+                return Ok((GraphStatus::Skipped, None));
             } else {
-                current_status = GraphStatus::OperatorDataPushed;
+                current_status = GraphStatus::OperatorKickOff;
             }
+        } else {
+            todo_funcs::update_graph_status(
+                local_db,
+                instance_id,
+                graph_id,
+                current_status.clone(),
+                None,
+            )
+            .await?;
+            return Ok((current_status, None));
         }
-        // check if Graph has been obsoleted on GoatChain
-        if current_status == GraphStatus::OperatorDataPushed {
-            let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
-            let withdraw_data = goat_client.gateway_get_withdraw_data(&graph_id).await?;
-            // TBD: obesolete graph when pegin is claimed rather than processing
-            if pegin_data.status != PeginStatus::Withdrawable
-                && withdraw_data.status == WithdrawStatus::None
-            {
-                current_status = GraphStatus::Obsoleted;
-            }
-        }
-        // check Prekickoff
-        let prekickoff_txid = graph.cur_prekickoff.tx().compute_txid();
-        if matches!(current_status, GraphStatus::OperatorDataPushed | GraphStatus::Obsoleted) {
-            if !tx_on_chain(btc_client, &prekickoff_txid).await? {
-                todo_funcs::update_graph_status(
-                    local_db,
-                    instance_id,
-                    graph_id,
-                    current_status.clone(),
-                    None,
-                )
-                .await?;
-                return Ok((current_status, None));
-            } else {
-                current_status = if current_status != GraphStatus::Obsoleted {
-                    GraphStatus::PreKickoff
-                } else {
-                    GraphStatus::Obsoleted
-                };
-            }
-        }
-        // check Kickoff/SkipKickoff
-        let kickoff_txid = graph.kickoff.tx().compute_txid();
-        if matches!(current_status, GraphStatus::PreKickoff | GraphStatus::Obsoleted) {
-            let kickoff_connector_vout = 1;
-            if let Some(spent_txid) =
-                outpoint_spent_txid(btc_client, &prekickoff_txid, kickoff_connector_vout).await?
-            {
-                if spent_txid != kickoff_txid {
-                    todo_funcs::update_graph_status(
-                        local_db,
-                        instance_id,
-                        graph_id,
-                        GraphStatus::Skipped,
-                        None,
-                    )
-                    .await?;
-                    return Ok((GraphStatus::Skipped, None));
-                } else {
-                    current_status = GraphStatus::OperatorKickOff;
-                }
-            } else {
-                todo_funcs::update_graph_status(
-                    local_db,
-                    instance_id,
-                    graph_id,
-                    current_status.clone(),
-                    None,
-                )
-                .await?;
-                return Ok((current_status, None));
-            }
-        }
-        // check Take1/Challenge
-        let take1_txid = graph.take1.tx().compute_txid();
-        let connector_a_vout = 0;
-        if current_status == GraphStatus::OperatorKickOff {
-            if let Some(spent_txid) =
-                outpoint_spent_txid(btc_client, &kickoff_txid, connector_a_vout).await?
-            {
-                if spent_txid != take1_txid {
-                    current_status = GraphStatus::Challenge;
-                } else {
-                    todo_funcs::update_graph_status(
-                        local_db,
-                        instance_id,
-                        graph_id,
-                        GraphStatus::OperatorTake1,
-                        None,
-                    )
-                    .await?;
-                    return Ok((GraphStatus::OperatorTake1, None));
-                }
+    }
+    // check Take1/Challenge
+    let take1_txid = graph.take1.tx().compute_txid();
+    let connector_a_vout = 0;
+    if current_status == GraphStatus::OperatorKickOff {
+        if let Some(spent_txid) =
+            outpoint_spent_txid(btc_client, &kickoff_txid, connector_a_vout).await?
+        {
+            if spent_txid != take1_txid {
+                current_status = GraphStatus::Challenge;
             } else {
                 todo_funcs::update_graph_status(
                     local_db,
                     instance_id,
                     graph_id,
-                    GraphStatus::OperatorKickOff,
+                    GraphStatus::OperatorTake1,
                     None,
                 )
                 .await?;
-                return Ok((GraphStatus::OperatorKickOff, None));
+                return Ok((GraphStatus::OperatorTake1, None));
             }
+        } else {
+            todo_funcs::update_graph_status(
+                local_db,
+                instance_id,
+                graph_id,
+                GraphStatus::OperatorKickOff,
+                None,
+            )
+            .await?;
+            return Ok((GraphStatus::OperatorKickOff, None));
         }
-        // check Take2/Disprove
-        let take2_txid = graph.take2.tx().compute_txid();
-        if current_status == GraphStatus::Challenge {
-            let connector_e_vout = 3;
-            if let Some(spent_txid) =
-                outpoint_spent_txid(btc_client, &kickoff_txid, connector_e_vout).await?
+    }
+    // check Take2/Disprove
+    let take2_txid = graph.take2.tx().compute_txid();
+    if current_status == GraphStatus::Challenge {
+        let connector_e_vout = 3;
+        if let Some(spent_txid) =
+            outpoint_spent_txid(btc_client, &kickoff_txid, connector_e_vout).await?
+        {
+            if spent_txid != take2_txid {
+                sub_status.disprove_type = Some(DisproveTxType::Disprove);
+                current_status = GraphStatus::Disprove;
+            } else {
+                current_status = GraphStatus::OperatorTake2;
+            }
+            todo_funcs::update_graph_status(
+                local_db,
+                instance_id,
+                graph_id,
+                current_status.clone(),
+                Some(sub_status.clone()),
+            )
+            .await?;
+            return Ok((current_status, Some(sub_status)));
+        }
+    }
+    // check Watchtower-Challenge & Assert-Commit process
+    if current_status == GraphStatus::Challenge {
+        // check Watchtower Challenge process
+        let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
+        if tx_on_chain(btc_client, &watchtower_challenge_init_txid).await? {
+            sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
+            sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorInit;
+            let watchtower_num = graph.parameters.watchtower_pubkeys.len();
+            let connector_g_vout = watchtower_num * 2;
+            let connector_f_vout = watchtower_num * 2 + 1;
+            if let Some(spent_txid) = outpoint_spent_txid(
+                btc_client,
+                &watchtower_challenge_init_txid,
+                connector_f_vout as u64,
+            )
+            .await?
             {
-                if spent_txid != take2_txid {
-                    sub_status.disprove_type = Some(DisproveTxType::Disprove);
-                    current_status = GraphStatus::Disprove;
+                // this must not be Take2 because Take2 is already checked above
+                current_status = GraphStatus::Disprove;
+                let spent_tx = btc_client.get_tx(&spent_txid).await?.unwrap();
+                let first_input_vout = spent_tx.input[0].previous_output.vout;
+                if first_input_vout == connector_g_vout as u32 {
+                    sub_status.commit_blockhash_status =
+                        CommitBlockHashStatus::OperatorCommitTimeout;
+                    sub_status.disprove_type = Some(DisproveTxType::OperatorCommitTimeout);
+                    sub_status.watchtower_challenge_status =
+                        WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished;
                 } else {
-                    current_status = GraphStatus::OperatorTake2;
+                    sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
+                    sub_status.disprove_index = (first_input_vout / 2) as i32;
+                    sub_status.watchtower_challenge_status =
+                        WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished;
                 }
                 todo_funcs::update_graph_status(
                     local_db,
@@ -415,95 +455,133 @@ pub mod todo_funcs {
                 )
                 .await?;
                 return Ok((current_status, Some(sub_status)));
-            }
-        }
-        // check Watchtower-Challenge & Assert-Commit process
-        if current_status == GraphStatus::Challenge {
-            // check Watchtower Challenge process
-            let watchtower_challenge_init_txid =
-                graph.watchtower_challenge_init.tx().compute_txid();
-            if tx_on_chain(btc_client, &watchtower_challenge_init_txid).await? {
-                sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
-                sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorInit;
-                let watchtower_num = graph.parameters.watchtower_pubkeys.len();
-                let connector_g_vout = watchtower_num * 2;
-                let connector_f_vout = watchtower_num * 2 + 1;
-                if let Some(spent_txid) = outpoint_spent_txid(
-                    btc_client,
-                    &watchtower_challenge_init_txid,
-                    connector_f_vout as u64,
-                )
-                .await?
+            } else if let Some(watchtower_challenge_init_height) =
+                btc_client.get_tx_status(&watchtower_challenge_init_txid).await?.block_height
+            {
+                let current_height = btc_client.get_height().await?;
+                if current_height > watchtower_challenge_init_height + nack_timelock(get_network())
                 {
-                    // this must not be Take2 because Take2 is already checked above
-                    current_status = GraphStatus::Disprove;
-                    let spent_tx = btc_client.get_tx(&spent_txid).await?.unwrap();
-                    let first_input_vout = spent_tx.input[0].previous_output.vout;
-                    if first_input_vout == connector_g_vout as u32 {
+                    for i in 0..watchtower_num {
+                        let ack_connector_vout = i * 2 + 1;
+                        if let None = outpoint_spent_txid(
+                            btc_client,
+                            &watchtower_challenge_init_txid,
+                            ack_connector_vout as u64,
+                        )
+                        .await?
+                        {
+                            sub_status.watchtower_challenge_status =
+                                WatchtowerChallengeStatus::OperatorACKTimeout;
+                            break;
+                        }
+                    }
+                } else if current_height
+                    > watchtower_challenge_init_height
+                        + watchtower_challenge_timeout_timelock(get_network())
+                {
+                    for i in 0..watchtower_num {
+                        let challenge_connector_vout = i * 2;
+                        if let None = outpoint_spent_txid(
+                            btc_client,
+                            &watchtower_challenge_init_txid,
+                            challenge_connector_vout as u64,
+                        )
+                        .await?
+                        {
+                            sub_status.watchtower_challenge_status =
+                                WatchtowerChallengeStatus::WatchtowerChallengeTimeout;
+                            break;
+                        }
+                    }
+                }
+                if current_height
+                    > watchtower_challenge_init_height
+                        + commit_blockhash_timeout_timelock(get_network())
+                {
+                    let connector_g_vout = watchtower_num * 2;
+                    if let None = outpoint_spent_txid(
+                        btc_client,
+                        &watchtower_challenge_init_txid,
+                        connector_g_vout as u64,
+                    )
+                    .await?
+                    {
                         sub_status.commit_blockhash_status =
                             CommitBlockHashStatus::OperatorCommitTimeout;
-                        sub_status.disprove_type = Some(DisproveTxType::OperatorCommitTimeout);
-                        todo!("mark sub_status.WatchtowerChallengeStatus as Disproved");
-                    } else {
-                        sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
-                        sub_status.disprove_index = (first_input_vout / 2) as i32;
-                        todo!("mark sub_status.WatchtowerChallengeStatus as Disproved");
                     }
-                    todo_funcs::update_graph_status(
-                        local_db,
-                        instance_id,
-                        graph_id,
-                        current_status.clone(),
-                        Some(sub_status.clone()),
-                    )
-                    .await?;
-                    return Ok((current_status, Some(sub_status)));
-                } else {
-                    todo!("check Watchtower Challenge progress");
-                }
-                if let Some(_) = outpoint_spent_txid(
-                    btc_client,
-                    &watchtower_challenge_init_txid,
-                    connector_g_vout as u64,
-                )
-                .await?
-                {
-                    // this must be OperatorCommit because OperatorCommitTimeout is already checked above
-                    sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
                 }
             }
-            // check Assert Commit process
-            let assert_init_txid = graph.assert_init.tx().compute_txid();
-            if tx_on_chain(btc_client, &assert_init_txid).await? {
-                sub_status.assert_commit_status = AssertCommitStatus::OperatorInit;
-                let assert_commit_num = graph.assert_commit_timeout_txns.len();
-                let connector_d_vout = assert_commit_num;
-                if let Some(spent_txid) =
-                    outpoint_spent_txid(btc_client, &assert_init_txid, connector_d_vout as u64)
-                        .await?
+            if let Some(_) = outpoint_spent_txid(
+                btc_client,
+                &watchtower_challenge_init_txid,
+                connector_g_vout as u64,
+            )
+            .await?
+            {
+                // this must be OperatorCommit because OperatorCommitTimeout is already checked above
+                sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
+            }
+        }
+        // check Assert Commit process
+        let assert_init_txid = graph.assert_init.tx().compute_txid();
+        if tx_on_chain(btc_client, &assert_init_txid).await? {
+            sub_status.assert_commit_status = AssertCommitStatus::OperatorInit;
+            let assert_commit_num = graph.assert_commit_timeout_txns.len();
+            let connector_d_vout = assert_commit_num;
+            if let Some(spent_txid) =
+                outpoint_spent_txid(btc_client, &assert_init_txid, connector_d_vout as u64).await?
+            {
+                // this must not be Take2 because Take2 is already checked above
+                current_status = GraphStatus::Disprove;
+                let spent_tx = btc_client.get_tx(&spent_txid).await?.unwrap();
+                let first_input_vout = spent_tx.input[0].previous_output.vout;
+                sub_status.disprove_type = Some(DisproveTxType::AssertTimeout);
+                sub_status.disprove_index = first_input_vout as i32;
+                todo_funcs::update_graph_status(
+                    local_db,
+                    instance_id,
+                    graph_id,
+                    current_status.clone(),
+                    Some(sub_status.clone()),
+                )
+                .await?;
+                return Ok((current_status, Some(sub_status)));
+            } else {
+                if let Some(assert_init_height) =
+                    btc_client.get_tx_status(&assert_init_txid).await?.block_height
                 {
-                    // this must not be Take2 because Take2 is already checked above
-                    current_status = GraphStatus::Disprove;
-                    let spent_tx = btc_client.get_tx(&spent_txid).await?.unwrap();
-                    let first_input_vout = spent_tx.input[0].previous_output.vout;
-                    sub_status.disprove_type = Some(DisproveTxType::AssertTimeout);
-                    sub_status.disprove_index = first_input_vout as i32;
-                    todo_funcs::update_graph_status(
-                        local_db,
-                        instance_id,
-                        graph_id,
-                        current_status.clone(),
-                        Some(sub_status.clone()),
-                    )
-                    .await?;
-                    return Ok((current_status, Some(sub_status)));
-                } else {
-                    todo!("check Assert Commit progress");
+                    let current_height = btc_client.get_height().await?;
+                    if current_height
+                        > assert_init_height + assert_commit_timeout_timelock(get_network())
+                    {
+                        for i in 0..assert_commit_num {
+                            let assert_connector_vout = i;
+                            if let None = outpoint_spent_txid(
+                                btc_client,
+                                &assert_init_txid,
+                                assert_connector_vout as u64,
+                            )
+                            .await?
+                            {
+                                sub_status.assert_commit_status =
+                                    AssertCommitStatus::OperatorCommitTimeout;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
-        Ok((current_status, Some(sub_status)))
     }
+    todo_funcs::update_graph_status(
+        local_db,
+        instance_id,
+        graph_id,
+        current_status.clone(),
+        Some(sub_status.clone()),
+    )
+    .await?;
+    Ok((current_status, Some(sub_status)))
 }
 
 pub fn build_graph_data(graph: &Bitvm2Graph) -> Result<GraphData> {
@@ -560,8 +638,8 @@ pub async fn validate_committee(
         let pk = PublicKey::from_slice(pk)?;
         if &pk == committee_pubkey {
             let addr = pegin_data.committee_addresses[i];
-            let stored_peer_id = todo_funcs::get_committee_peer_id(goat_client, &addr).await?;
-            if &stored_peer_id != peer_id {
+            let stored_peer_id = goat_client.committee_mana_get_committee_peer_id(&addr).await?;
+            if stored_peer_id.to_vec() != peer_id.to_bytes() {
                 bail!(SpecialError::InvalidCommittee(format!(
                     "committee pubkey & peer id mismatch"
                 )));
@@ -591,8 +669,8 @@ pub async fn validate_committee_with_evm_address(
                     "committee evm address & pubkey mismatch"
                 )));
             }
-            let stored_peer_id = todo_funcs::get_committee_peer_id(goat_client, addr).await?;
-            if &stored_peer_id != peer_id {
+            let stored_peer_id = goat_client.committee_mana_get_committee_peer_id(&addr).await?;
+            if stored_peer_id.to_vec() != peer_id.to_bytes() {
                 bail!(SpecialError::InvalidCommittee(format!(
                     "committee evm address & peer id mismatch"
                 )));
@@ -836,9 +914,19 @@ pub async fn challenger_force_skip_kickoff(
         build_force_skip_kickoff_tx(graph, challenger_receive_address, fee_rate)?;
     if anchor_added {
         let anchor_vout = force_skip_kickoff_tx.output.len() as u64 - 1;
-        let child_tx =
-            todo_funcs::build_cpfp_txns(client, &force_skip_kickoff_tx, anchor_vout).await?;
-        broadcast_package(client, &[force_skip_kickoff_tx.clone(), child_tx]).await?;
+        let force_skip_kickoff_tx_total_input_amount =
+            graph.force_skip_kickoff.prev_outs().iter().map(|o| o.value).sum::<Amount>();
+        let child_tx = build_cpfp_txns(
+            client,
+            &force_skip_kickoff_tx,
+            anchor_vout,
+            force_skip_kickoff_tx_total_input_amount,
+        )
+        .await?;
+        match child_tx {
+            Some(tx) => broadcast_package(client, &[force_skip_kickoff_tx.clone(), tx]).await?,
+            None => broadcast_tx(client, &force_skip_kickoff_tx).await?,
+        }
     } else {
         broadcast_tx(client, &force_skip_kickoff_tx).await?;
     }
@@ -855,13 +943,36 @@ pub async fn challenger_quick_challenge(client: &BTCClient, graph: &Bitvm2Graph)
         build_quick_challenge_tx(graph, challenger_receive_address, fee_rate)?;
     if anchor_added {
         let anchor_vout = quick_challenge_tx.output.len() as u64 - 1;
-        let child_tx =
-            todo_funcs::build_cpfp_txns(client, &quick_challenge_tx, anchor_vout).await?;
-        broadcast_package(client, &[quick_challenge_tx.clone(), child_tx]).await?;
+        let quick_challenge_tx_total_input_amount =
+            graph.quick_challenge.prev_outs().iter().map(|o| o.value).sum::<Amount>();
+        let child_tx = build_cpfp_txns(
+            client,
+            &quick_challenge_tx,
+            anchor_vout,
+            quick_challenge_tx_total_input_amount,
+        )
+        .await?;
+        match child_tx {
+            Some(tx) => broadcast_package(client, &[quick_challenge_tx.clone(), tx]).await?,
+            None => broadcast_tx(client, &quick_challenge_tx).await?,
+        }
     } else {
         broadcast_tx(client, &quick_challenge_tx).await?;
     }
     Ok(quick_challenge_tx.compute_txid())
+}
+
+pub async fn fund_address(
+    client: &BTCClient,
+    node_keypair: Keypair,
+    address: Address,
+    amount: Amount,
+) -> Result<OutPoint> {
+    let txins = Vec::new();
+    let txouts = vec![TxOut { script_pubkey: address.script_pubkey(), value: amount }];
+    let txid =
+        build_sign_and_broadcast_tx(client, node_keypair, txins, Amount::ZERO, txouts).await?;
+    Ok(OutPoint { txid, vout: 0 })
 }
 
 pub async fn build_sign_and_broadcast_tx(
@@ -935,6 +1046,92 @@ pub async fn build_sign_and_broadcast_tx(
             bail!(SpecialError::InsufficientBalance(format!(
                 "Not enough balance to complete the transaction, current_balance: {current_balance} < shortfall: {shortfall}"
             )));
+        }
+    }
+}
+
+pub async fn build_cpfp_txns(
+    btc_client: &BTCClient,
+    parent_tx: &Transaction,
+    anchor_vout: u64,
+    parent_tx_total_input_amount: Amount,
+) -> Result<Option<Transaction>> {
+    let node_master_keypair = get_bitvm_key()?;
+    let node_address = node_p2wsh_address(get_network(), &node_master_keypair.public_key().into());
+    let total_output_amount: Amount = parent_tx.output.iter().map(|o| o.value).sum();
+    let fee_rate = get_fee_rate(btc_client).await?;
+    let fee_amount =
+        Amount::from_sat((parent_tx.weight().to_vbytes_ceil() as f64 * fee_rate).ceil() as u64);
+    if total_output_amount + fee_amount <= parent_tx_total_input_amount {
+        return Ok(None);
+    };
+    let shortfall = total_output_amount + fee_amount - parent_tx_total_input_amount;
+    match get_proper_utxo_set(
+        btc_client,
+        ANCHOR_CHILD_BASE_VBYTES,
+        node_address.clone(),
+        shortfall,
+        fee_rate,
+    )
+    .await?
+    {
+        Some((inputs, _, change_amount)) => {
+            let mut child_tx = Transaction {
+                version: bitcoin::transaction::Version(2),
+                lock_time: bitcoin::absolute::LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            };
+            if change_amount > Amount::from_sat(DUST_AMOUNT) {
+                child_tx.output.push(TxOut {
+                    script_pubkey: node_address.script_pubkey(),
+                    value: change_amount,
+                });
+            } else {
+                // add an op_return output to avoid no-output transaction
+                child_tx.output.push(TxOut {
+                    script_pubkey: generate_opreturn_script(vec![]),
+                    value: Amount::ZERO,
+                });
+            }
+            for input in &inputs {
+                child_tx.input.push(TxIn {
+                    previous_output: input.outpoint,
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: Witness::default(),
+                });
+            }
+            child_tx.input.push(TxIn {
+                previous_output: OutPoint {
+                    txid: parent_tx.compute_txid(),
+                    vout: anchor_vout as u32,
+                },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            });
+            for (i, input) in inputs.iter().enumerate() {
+                node_sign(
+                    &mut child_tx,
+                    i,
+                    input.amount,
+                    EcdsaSighashType::All,
+                    &node_master_keypair,
+                )?;
+            }
+            Ok(Some(child_tx))
+        }
+        None => {
+            let current_balance = btc_client
+                .get_address_utxo(node_address)
+                .await?
+                .iter()
+                .map(|u| u.value)
+                .sum::<Amount>();
+            bail!(SpecialError::InsufficientBalance(format!(
+                "Not enough balance to complete the transaction, current_balance: {current_balance}"
+            )))
         }
     }
 }
@@ -1021,14 +1218,146 @@ pub fn node_sign(
     Ok(())
 }
 
+pub async fn build_genesis_prekickoff_tx(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+) -> Result<PrekickoffTransaction> {
+    let assert_commit_num = todo_funcs::assert_commmit_num();
+    let watchtower_num = todo_funcs::get_watchtowers(goat_client).await?.len();
+    let network = get_network();
+    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+    let node_keypair = operator_master_key.master_keypair();
+    let operator_taproot_public_key = node_keypair.x_only_public_key().0;
+    let cur_prekickoff_connector = PrekickoffConnector::new(network, &operator_taproot_public_key);
+    let next_force_skip_connector = ForceSkipConnector::new(network, &operator_taproot_public_key);
+    let next_kickoff_connector = KickoffConnector::new(network, &operator_taproot_public_key);
+    let next_prekickoff_connector = PrekickoffConnector::new(network, &operator_taproot_public_key);
+    let init_amount = todo_funcs::prekickoff_replenishment_amount();
+    let cur_prekickoff_connector_input = Input {
+        outpoint: fund_address(
+            btc_client,
+            node_keypair,
+            cur_prekickoff_connector.generate_taproot_address(),
+            init_amount,
+        )
+        .await?,
+        amount: init_amount,
+    };
+    let fee_amount = todo_funcs::prekickoff_fee_amount(0);
+    PrekickoffTransaction::new_for_validation(
+        &cur_prekickoff_connector,
+        &next_force_skip_connector,
+        &next_kickoff_connector,
+        &next_prekickoff_connector,
+        cur_prekickoff_connector_input,
+        vec![],
+        vec![],
+        fee_amount.to_sat(),
+        watchtower_num,
+        assert_commit_num,
+    )
+    .map_err(|e| anyhow::anyhow!("failed to create pre-kickoff txn: {}", e))
+}
+
+pub async fn build_prekickoff_params(
+    btc_client: &BTCClient,
+    graph_nonce: u64,
+    cur_prekickoff_txn: PrekickoffTransaction,
+) -> Result<PrekickoffParameters> {
+    let prekickoff_remaining_amount = cur_prekickoff_txn.tx().output[2].value;
+    let (replenish_fee_inputs, replenish_fee_prev_outs, fee_amount) = if prekickoff_remaining_amount
+        >= todo_funcs::min_prekickoff_input_amount()
+    {
+        // no need to replenish funds
+        (vec![], vec![], todo_funcs::prekickoff_fee_amount(0))
+    } else {
+        let network = get_network();
+        let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+        let master_keypair = operator_master_key.master_keypair();
+        let nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce);
+        let nonce_address = node_p2wsh_address(network, &nonce_keypair.public_key().into());
+        let replenishment_amount = todo_funcs::prekickoff_replenishment_amount();
+        let mut replenish_fee_inputs: Vec<Input> = btc_client
+            .get_address_utxo(nonce_address.clone())
+            .await?
+            .into_iter()
+            .map(|u| Input { outpoint: OutPoint { txid: u.txid, vout: u.vout }, amount: u.value })
+            .collect();
+        let current_balance: Amount = replenish_fee_inputs.iter().map(|i| i.amount).sum();
+        if current_balance < replenishment_amount {
+            let shortfall = replenishment_amount - current_balance;
+            let extra_input = Input {
+                outpoint: fund_address(
+                    btc_client,
+                    master_keypair,
+                    nonce_address.clone(),
+                    shortfall,
+                )
+                .await?,
+                amount: shortfall,
+            };
+            replenish_fee_inputs.push(extra_input);
+        };
+        let replenish_fee_prev_outs: Vec<TxOut> = replenish_fee_inputs
+            .iter()
+            .map(|i| TxOut { value: i.amount, script_pubkey: nonce_address.script_pubkey() })
+            .collect();
+        let fee_amount = todo_funcs::prekickoff_fee_amount(replenish_fee_inputs.len());
+        (replenish_fee_inputs, replenish_fee_prev_outs, fee_amount)
+    };
+    Ok(PrekickoffParameters {
+        cur_prekickoff_txn,
+        replenish_fee_inputs,
+        replenish_fee_prev_outs,
+        fee_amount: fee_amount.to_sat(),
+    })
+}
+
+pub async fn build_graph_params(
+    local_db: &LocalDB,
+    goat_client: &GOATClient,
+    instance_parameters: Bitvm2InstanceParameters,
+    prekickoff_parameters: PrekickoffParameters,
+    graph_nonce: u64,
+    graph_id: Uuid,
+) -> Result<Bitvm2GraphParameters> {
+    let instance_id = instance_parameters.instance_id;
+    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+    let operator_master_keypair = operator_master_key.master_keypair();
+    let operator_pubkey = operator_master_keypair.public_key().into();
+    let operator_receive_address =
+        node_p2wsh_address(instance_parameters.network, &operator_pubkey);
+    let operator_wots_pubkeys = operator_master_key.wots_keypair_for_graph(graph_id).1;
+    let watchtower_pubkeys = todo_funcs::get_watchtowers(goat_client).await?;
+    let mut hashlocks = vec![];
+    for index in 0..watchtower_pubkeys.len() {
+        let preimage = todo_funcs::get_preimage(local_db, instance_id, graph_id, index).await?;
+        let hashlock = hash160(&preimage);
+        hashlocks.push(hashlock);
+    }
+    let guest_constant_value = todo_funcs::get_guest_constant_value(instance_id, graph_id).await?;
+    Ok(Bitvm2GraphParameters {
+        instance_parameters,
+        prekickoff_parameters,
+        graph_id,
+        graph_nonce,
+        challenge_amount: todo_funcs::challenge_amount(),
+        operator_pubkey,
+        operator_wots_pubkeys,
+        operator_receive_address,
+        watchtower_pubkeys,
+        hashlocks,
+        guest_constant_value,
+    })
+}
+
 pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -> Result<()> {
-    let graph_id = graph.parameters.graph_id;
     let graph_nonce = graph.parameters.graph_nonce;
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let operator_master_keypair = operator_master_key.master_keypair();
     let operator_receive_address =
         node_p2wsh_address(get_network(), &operator_master_keypair.public_key().into());
-    let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+    let operator_graph_keypair = operator_master_key.master_keypair();
     let mut prekickoff_tx = operator_sign_prekickoff_input_0(operator_graph_keypair, graph)?;
     if prekickoff_tx.input.len() != 1 {
         let operator_nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce);
@@ -1044,7 +1373,11 @@ pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph
         }
     }
     let anchor_vout = prekickoff_tx.output.len() as u64 - 1;
-    let child_tx = todo_funcs::build_cpfp_txns(btc_client, &prekickoff_tx, anchor_vout).await?;
+    let prekickoff_tx_total_input_amount =
+        graph.cur_prekickoff.input_amounts.clone().into_iter().sum();
+    let child_tx =
+        build_cpfp_txns(btc_client, &prekickoff_tx, anchor_vout, prekickoff_tx_total_input_amount)
+            .await?;
     // TODO: if prekickoff already confirmed, just broadcast skip_kickoff tx
     match operator_sign_skip_kickoff(
         operator_graph_keypair,
@@ -1058,20 +1391,26 @@ pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph
             if !tx_on_chain(btc_client, &prekickoff_txid).await? {
                 bail!("prekickoff tx not on chain after broadcasting");
             }
-            broadcast_tx(btc_client, &child_tx).await?;
+            if let Some(child_tx) = child_tx {
+                broadcast_tx(btc_client, &child_tx).await?;
+            }
         }
-        None => {
-            broadcast_package(btc_client, &[prekickoff_tx, child_tx]).await?;
-        }
+        None => match child_tx {
+            Some(tx) => {
+                broadcast_package(btc_client, &[prekickoff_tx, tx]).await?;
+            }
+            None => {
+                broadcast_tx(btc_client, &prekickoff_tx).await?;
+            }
+        },
     };
     Ok(())
 }
 
 pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -> Result<()> {
-    let graph_id = graph.parameters.graph_id;
     let graph_nonce = graph.parameters.graph_nonce;
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-    let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+    let operator_graph_keypair = operator_master_key.master_keypair();
     let mut prekickoff_tx = operator_sign_prekickoff_input_0(operator_graph_keypair, graph)?;
     if prekickoff_tx.input.len() != 1 {
         let operator_nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce);
@@ -1088,24 +1427,33 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
     }
     let prekickoff_txid = prekickoff_tx.compute_txid();
     let anchor_vout = prekickoff_tx.output.len() as u64 - 1;
+    let prekickoff_tx_total_input_amount =
+        graph.cur_prekickoff.input_amounts.clone().into_iter().sum();
     let prekickoff_child_tx =
-        todo_funcs::build_cpfp_txns(btc_client, &prekickoff_tx, anchor_vout).await?;
+        build_cpfp_txns(btc_client, &prekickoff_tx, anchor_vout, prekickoff_tx_total_input_amount)
+            .await?;
 
     let kickoff_tx = operator_sign_kickoff(operator_graph_keypair, graph)?;
     let kickoff_txid = kickoff_tx.compute_txid();
     let anchor_vout = kickoff_tx.output.len() as u64 - 1;
+    let kickoff_tx_total_input_amount = graph.kickoff.prev_outs().iter().map(|o| o.value).sum();
     let kickoff_child_tx =
-        todo_funcs::build_cpfp_txns(btc_client, &kickoff_tx, anchor_vout).await?;
+        build_cpfp_txns(btc_client, &kickoff_tx, anchor_vout, kickoff_tx_total_input_amount)
+            .await?;
 
     broadcast_package(btc_client, &[prekickoff_tx, kickoff_tx]).await?;
     if !tx_on_chain(btc_client, &prekickoff_txid).await? {
         bail!("prekickoff tx not on chain after broadcasting");
     }
-    broadcast_tx(btc_client, &prekickoff_child_tx).await?;
+    if let Some(prekickoff_child_tx) = prekickoff_child_tx {
+        broadcast_tx(btc_client, &prekickoff_child_tx).await?;
+    }
     if !tx_on_chain(btc_client, &kickoff_txid).await? {
         bail!("kickoff tx not on chain after broadcasting");
     }
-    broadcast_tx(btc_client, &kickoff_child_tx).await?;
+    if let Some(kickoff_child_tx) = kickoff_child_tx {
+        broadcast_tx(btc_client, &kickoff_child_tx).await?;
+    }
     Ok(())
 }
 

@@ -500,19 +500,25 @@ pub async fn recv_and_dispatch(
                     None => {
                         // create a genesis prekickoff tx
                         let genesis_prekickoff_tx =
-                            todo_funcs::build_genesis_prekickoff_tx(btc_client).await?;
+                            build_genesis_prekickoff_tx(btc_client, goat_client).await?;
                         (0, genesis_prekickoff_tx)
                     }
                 };
             let prekickoff_params =
-                todo_funcs::build_prekickoff_params(btc_client, graph_nonce, cur_prekickoff_tx)
-                    .await?;
-            let graph_params =
-                todo_funcs::build_graph_params(&instance_params, &prekickoff_params).await?;
+                build_prekickoff_params(btc_client, graph_nonce, cur_prekickoff_tx).await?;
+            let graph_params = build_graph_params(
+                local_db,
+                goat_client,
+                instance_params,
+                prekickoff_params,
+                graph_nonce,
+                Uuid::new_v4(),
+            )
+            .await?;
             let graph_id = graph_params.graph_id;
             let disprove_scripts = get_disprove_scripts(local_db, &graph_params).await?;
             let mut graph = generate_bitvm_graph(graph_params, disprove_scripts)?;
-            operator_pre_sign(operator_master_key.keypair_for_graph(graph_id), &mut graph)?;
+            operator_pre_sign(operator_master_key.master_keypair(), &mut graph)?;
             // 4. broadcast CreateGraph
             let message_content = GOATMessageContent::CreateGraph(CreateGraph {
                 instance_id,
@@ -1578,14 +1584,21 @@ pub async fn recv_and_dispatch(
                     Some(height) => height as u64,
                     None => {
                         let delay_secs = 60 * 10; // 10 minutes
-                        push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                        push_local_unhandled_messages(local_db, instance_id, &message, delay_secs)
+                            .await?;
                         return Ok(());
                     }
                 };
                 let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
                 if goat_confirmed_height < pegin_height {
                     let delay_secs = 60 * 10 * (pegin_height - goat_confirmed_height);
-                    push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                    push_local_unhandled_messages(
+                        local_db,
+                        instance_id,
+                        &message,
+                        delay_secs as usize,
+                    )
+                    .await?;
                     return Ok(());
                 }
                 goat_client
@@ -1651,8 +1664,7 @@ pub async fn recv_and_dispatch(
             let mut graph = Bitvm2Graph::from_simplified(&graph)?;
             let operator_pubkey = graph.parameters.operator_pubkey;
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-            let node_pubkey: PublicKey =
-                operator_master_key.keypair_for_graph(graph_id).public_key().into();
+            let node_pubkey: PublicKey = operator_master_key.master_keypair().public_key().into();
             if node_pubkey != operator_pubkey {
                 tracing::warn!("Ignore KickoffReady for {instance_id}:{graph_id}: not my graph");
                 return Ok(());
@@ -1702,7 +1714,7 @@ pub async fn recv_and_dispatch(
                     None => return Ok(()),
                 };
                 let mut current_graph = Bitvm2Graph::from_simplified(&current_graph)?;
-                let (current_graph_status, _) = todo_funcs::refresh_graph(
+                let (current_graph_status, _) = refresh_graph(
                     local_db,
                     btc_client,
                     goat_client,
@@ -1879,7 +1891,7 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let prev_graph = Bitvm2Graph::from_simplified(&prev_graph)?;
-            let (prev_graph_status, _) = todo_funcs::refresh_graph(
+            let (prev_graph_status, _) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
@@ -1949,14 +1961,25 @@ pub async fn recv_and_dispatch(
             // 2. if the challenge is confirmed, sign & broadcast watchtower-challenge-init txn
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let watchtower_challenge_init_tx = operator_sign_watchtower_challenge_init(
-                operator_master_key.keypair_for_graph(graph_id),
+                operator_master_key.master_keypair(),
                 &mut graph,
             )?;
             let anchor_vout = watchtower_challenge_init_tx.output.len() as u64 - 1;
-            let child_tx =
-                todo_funcs::build_cpfp_txns(btc_client, &watchtower_challenge_init_tx, anchor_vout)
-                    .await?;
-            broadcast_package(btc_client, &[watchtower_challenge_init_tx, child_tx]).await?;
+            let watchtower_challenge_init_tx_total_input_amount =
+                graph.watchtower_challenge_init.prev_outs().iter().map(|o| o.value).sum();
+            let child_tx = build_cpfp_txns(
+                btc_client,
+                &watchtower_challenge_init_tx,
+                anchor_vout,
+                watchtower_challenge_init_tx_total_input_amount,
+            )
+            .await?;
+            match child_tx {
+                Some(tx) => {
+                    broadcast_package(btc_client, &[watchtower_challenge_init_tx, tx]).await?
+                }
+                None => broadcast_tx(btc_client, &watchtower_challenge_init_tx).await?,
+            };
         }
         (
             GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
@@ -2055,7 +2078,7 @@ pub async fn recv_and_dispatch(
             let watchtower_challenge_init_txid =
                 graph.watchtower_challenge_init.tx().compute_txid();
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-            let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+            let operator_graph_keypair = operator_master_key.master_keypair();
             let operator_master_keypair = operator_master_key.master_keypair();
             for (watchtower_index, watchtower_challenge_txid) in watchtower_challenge_txids {
                 tracing::info!(
@@ -2164,9 +2187,6 @@ pub async fn recv_and_dispatch(
                 .await?
                 .is_some()
                 {
-                    tracing::warn!(
-                        "Ignore WatchtowerChallengeTimeout for {instance_id}:{graph_id}:{watchtower_index}: watchtower challenge connector already spent"
-                    );
                     continue;
                 }
                 let watchtower_challenge_timeout_tx = operator_sign_watchtower_challenge_timeout(
@@ -2175,13 +2195,26 @@ pub async fn recv_and_dispatch(
                     watchtower_index,
                 )?;
                 let anchor_vout = watchtower_challenge_timeout_tx.output.len() as u64 - 1;
-                let child_tx = todo_funcs::build_cpfp_txns(
+                let watchtower_challenge_timeout_tx_total_input_amount = graph
+                    .watchtower_challenge_timeout_txns[watchtower_index]
+                    .prev_outs()
+                    .iter()
+                    .map(|o| o.value)
+                    .sum();
+                let child_tx = build_cpfp_txns(
                     btc_client,
                     &watchtower_challenge_timeout_tx,
                     anchor_vout,
+                    watchtower_challenge_timeout_tx_total_input_amount,
                 )
                 .await?;
-                broadcast_package(btc_client, &[watchtower_challenge_timeout_tx, child_tx]).await?;
+                match child_tx {
+                    Some(tx) => {
+                        broadcast_package(btc_client, &[watchtower_challenge_timeout_tx, tx])
+                            .await?
+                    }
+                    None => broadcast_tx(btc_client, &watchtower_challenge_timeout_tx).await?,
+                };
             }
         }
         (
@@ -2265,8 +2298,15 @@ pub async fn recv_and_dispatch(
                 })?
                 .finalize();
             let anchor_vout = nack_tx.output.len() as u64 - 1;
-            let child_tx = todo_funcs::build_cpfp_txns(btc_client, &nack_tx, anchor_vout).await?;
-            broadcast_package(btc_client, &[nack_tx, child_tx]).await?;
+            let nack_tx_total_input_amount =
+                graph.nack_txns[nack_index].prev_outs().iter().map(|o| o.value).sum();
+            let child_tx =
+                build_cpfp_txns(btc_client, &nack_tx, anchor_vout, nack_tx_total_input_amount)
+                    .await?;
+            match child_tx {
+                Some(tx) => broadcast_package(btc_client, &[nack_tx, tx]).await?,
+                None => broadcast_package(btc_client, &[nack_tx]).await?,
+            };
         }
         (
             GOATMessageContent::OperatorCommitBlockHashReady(OperatorCommitBlockHashReady {
@@ -2312,7 +2352,7 @@ pub async fn recv_and_dispatch(
             // 2. sign & broadcast commit-blockhash txn
             tracing::info!("Handle OperatorCommitBlockHashReady for {instance_id}:{graph_id}");
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-            let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+            let operator_graph_keypair = operator_master_key.master_keypair();
             let operator_master_keypair = operator_master_key.master_keypair();
             let wots_secret_keys =
                 operator_master_key.wots_keypair_for_graph(graph.parameters.graph_id).0;
@@ -2405,10 +2445,21 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle OperatorCommitBlockHashTimeout for {instance_id}:{graph_id}");
             let blockhash_commit_timeout_tx = graph.blockhash_commit_timeout.finalize();
             let anchor_vout = blockhash_commit_timeout_tx.output.len() as u64 - 1;
-            let child_tx =
-                todo_funcs::build_cpfp_txns(btc_client, &blockhash_commit_timeout_tx, anchor_vout)
-                    .await?;
-            broadcast_package(btc_client, &[blockhash_commit_timeout_tx, child_tx]).await?;
+            let blockhash_commit_timeout_tx_total_input_amount =
+                graph.blockhash_commit_timeout.prev_outs().iter().map(|o| o.value).sum();
+            let child_tx = build_cpfp_txns(
+                btc_client,
+                &blockhash_commit_timeout_tx,
+                anchor_vout,
+                blockhash_commit_timeout_tx_total_input_amount,
+            )
+            .await?;
+            match child_tx {
+                Some(tx) => {
+                    broadcast_package(btc_client, &[blockhash_commit_timeout_tx, tx]).await?
+                }
+                None => broadcast_package(btc_client, &[blockhash_commit_timeout_tx]).await?,
+            };
         }
         (
             GOATMessageContent::AssertInitReady(AssertInitReady { instance_id, graph_id }),
@@ -2430,7 +2481,7 @@ pub async fn recv_and_dispatch(
             };
             let mut graph = Bitvm2Graph::from_simplified(&graph)?;
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-            let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+            let operator_graph_keypair = operator_master_key.master_keypair();
             let operator_master_keypair = operator_master_key.master_keypair();
             let assert_init_txid = graph.assert_init.tx().compute_txid();
             // 1. sign & broadcast assert-init txn
@@ -2462,9 +2513,19 @@ pub async fn recv_and_dispatch(
                 }
                 let assert_init_tx = operator_sign_assert_init(operator_graph_keypair, &mut graph)?;
                 let anchor_vout = assert_init_tx.output.len() as u64 - 1;
-                let child_tx =
-                    todo_funcs::build_cpfp_txns(btc_client, &assert_init_tx, anchor_vout).await?;
-                broadcast_package(btc_client, &[assert_init_tx, child_tx]).await?;
+                let assert_init_tx_total_input_amount =
+                    graph.assert_init.prev_outs().iter().map(|o| o.value).sum();
+                let child_tx = build_cpfp_txns(
+                    btc_client,
+                    &assert_init_tx,
+                    anchor_vout,
+                    assert_init_tx_total_input_amount,
+                )
+                .await?;
+                match child_tx {
+                    Some(tx) => broadcast_package(btc_client, &[assert_init_tx, tx]).await?,
+                    None => broadcast_tx(btc_client, &assert_init_tx).await?,
+                };
                 // assert-commit should be broadcasted after assert-init is confirmed (wait 20 minutes here)
                 let delay_secs = 20 * 60; // 20 minutes
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs).await?;
@@ -2579,10 +2640,23 @@ pub async fn recv_and_dispatch(
                 anyhow!("AssertCommitTimeout txn not found for {instance_id}:{graph_id}:{commit_index}")
             })?.finalize();
             let anchor_vout = assert_commit_timeout_tx.output.len() as u64 - 1;
-            let child_tx =
-                todo_funcs::build_cpfp_txns(btc_client, &assert_commit_timeout_tx, anchor_vout)
-                    .await?;
-            broadcast_package(btc_client, &[assert_commit_timeout_tx, child_tx]).await?;
+            let assert_commit_timeout_tx_total_input_amount = graph.assert_commit_timeout_txns
+                [commit_index]
+                .prev_outs()
+                .iter()
+                .map(|o| o.value)
+                .sum();
+            let child_tx = build_cpfp_txns(
+                btc_client,
+                &assert_commit_timeout_tx,
+                anchor_vout,
+                assert_commit_timeout_tx_total_input_amount,
+            )
+            .await?;
+            match child_tx {
+                Some(tx) => broadcast_package(btc_client, &[assert_commit_timeout_tx, tx]).await?,
+                None => broadcast_tx(btc_client, &assert_commit_timeout_tx).await?,
+            };
         }
         (
             GOATMessageContent::DisproveReady(DisproveReady { instance_id, graph_id }),
@@ -2840,14 +2914,16 @@ pub async fn recv_and_dispatch(
                     Some(height) => height as u64,
                     None => {
                         let delay_secs = 60 * 10; // 10 minutes
-                        push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                        push_local_unhandled_messages(local_db, graph_id, &message, delay_secs)
+                            .await?;
                         return Ok(());
                     }
                 };
             let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
             if goat_confirmed_height < challenge_finish_height {
                 let delay_secs = 60 * 10 * (challenge_finish_height - goat_confirmed_height);
-                push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
+                    .await?;
                 return Ok(());
             }
             goat_client
@@ -2908,11 +2984,17 @@ pub async fn recv_and_dispatch(
             // 1. sign & broadcast take1 txn
             tracing::info!("Handle Take1Ready for {instance_id}:{graph_id}");
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-            let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+            let operator_graph_keypair = operator_master_key.master_keypair();
             let take1_tx = operator_sign_take1(operator_graph_keypair, &mut graph)?;
             let anchor_vout = take1_tx.output.len() as u64 - 1;
-            let child_tx = todo_funcs::build_cpfp_txns(btc_client, &take1_tx, anchor_vout).await?;
-            broadcast_package(btc_client, &[take1_tx, child_tx]).await?;
+            let take1_tx_total_input_amount = graph.take1.prev_outs().iter().map(|o| o.value).sum();
+            let child_tx =
+                build_cpfp_txns(btc_client, &take1_tx, anchor_vout, take1_tx_total_input_amount)
+                    .await?;
+            match child_tx {
+                Some(tx) => broadcast_package(btc_client, &[take1_tx, tx]).await?,
+                None => broadcast_tx(btc_client, &take1_tx).await?,
+            };
         }
         (GOATMessageContent::Take1Sent(Take1Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take1 tx
@@ -2940,14 +3022,15 @@ pub async fn recv_and_dispatch(
                 Some(height) => height as u64,
                 None => {
                     let delay_secs = 60 * 10; // 10 minutes
-                    push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                    push_local_unhandled_messages(local_db, graph_id, &message, delay_secs).await?;
                     return Ok(());
                 }
             };
             let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
             if goat_confirmed_height < take1_height {
                 let delay_secs = 60 * 10 * (take1_height - goat_confirmed_height);
-                push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
+                    .await?;
                 return Ok(());
             }
             goat_client
@@ -3031,11 +3114,17 @@ pub async fn recv_and_dispatch(
             // 1. sign & broadcast take2 txn
             tracing::info!("Handle Take2Ready for {instance_id}:{graph_id}");
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-            let operator_graph_keypair = operator_master_key.keypair_for_graph(graph_id);
+            let operator_graph_keypair = operator_master_key.master_keypair();
             let take2_tx = operator_sign_take2(operator_graph_keypair, &mut graph)?;
             let anchor_vout = take2_tx.output.len() as u64 - 1;
-            let child_tx = todo_funcs::build_cpfp_txns(btc_client, &take2_tx, anchor_vout).await?;
-            broadcast_package(btc_client, &[take2_tx, child_tx]).await?;
+            let take2_tx_total_input_amount = graph.take2.prev_outs().iter().map(|o| o.value).sum();
+            let child_tx =
+                build_cpfp_txns(btc_client, &take2_tx, anchor_vout, take2_tx_total_input_amount)
+                    .await?;
+            match child_tx {
+                Some(tx) => broadcast_package(btc_client, &[take2_tx, tx]).await?,
+                None => broadcast_tx(btc_client, &take2_tx).await?,
+            };
         }
         (GOATMessageContent::Take2Sent(Take2Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take2 tx
@@ -3063,14 +3152,15 @@ pub async fn recv_and_dispatch(
                 Some(height) => height as u64,
                 None => {
                     let delay_secs = 60 * 10; // 10 minutes
-                    push_local_unhandled_messages(local_db, &message, delay_secs).await?;
+                    push_local_unhandled_messages(local_db, graph_id, &message, delay_secs).await?;
                     return Ok(());
                 }
             };
             let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
             if goat_confirmed_height < take2_height {
                 let delay_secs = 60 * 10 * (take2_height - goat_confirmed_height);
-                push_local_unhandled_messages(local_db, &message, delay_secs as usize).await?;
+                push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
+                    .await?;
                 return Ok(());
             }
             goat_client
@@ -3114,7 +3204,7 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle SyncGraph for {instance_id}:{graph_id}");
             store_graph(local_db, &graph).await?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            todo_funcs::refresh_graph(
+            refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,

@@ -55,12 +55,16 @@ pub const ENV_BTC_NETWORK: &str = "BTC_NETWORK";
 pub const ENV_GOAT_NETWORK: &str = "GOAT_NETWORK";
 
 // fee estimate
+// TODO: more precise fee estimation
 pub const CHEKSIG_P2WSH_INPUT_VBYTES: u64 = 100;
+pub const CHEKSIG_P2TR_INPUT_VBYTES: u64 = 100;
 pub const P2WSH_OUTPUT_VBYTES: u64 = 50;
 pub const P2TR_OUTPUT_VBYTES: u64 = 50;
+pub const P2A_OUTPUT_VBYTES: u64 = 50;
 pub const PRE_KICKOFF_BASE_VBYTES: u64 = 200;
 pub const PEGIN_BASE_VBYTES: u64 = 200;
 pub const CHALLENGE_BASE_VBYTES: u64 = 200;
+pub const ANCHOR_CHILD_BASE_VBYTES: u64 = 100;
 
 // reduce costs to facilitate testing
 pub const MIN_SATKE_AMOUNT: u64 = 4_000_000; // 0.04 BTC
