@@ -895,7 +895,7 @@ impl<'a> StorageProcessor<'a> {
             sqlx::query!("SELECT parameters FROM instance WHERE instance_id = ?", instance_id)
                 .fetch_optional(self.conn())
                 .await?;
-        Ok(res.map_or(None, |record| record.parameters))
+        Ok(res.and_then(|record| record.parameters))
     }
 
     /// Insert or update a graph

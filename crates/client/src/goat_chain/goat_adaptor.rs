@@ -32,6 +32,7 @@ use uuid::Uuid;
 sol!(
     #[derive(Debug)]
     #[allow(missing_docs)]
+    #[allow(clippy::too_many_arguments)]
     #[sol(rpc)]
     interface IGateway {
         enum DisproveTxType {
@@ -267,7 +268,45 @@ impl GoatInitConfig {
         }
     }
 }
+type GatewayInstance = IGatewayInstance<
+    FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+>;
 
+type BitcoinSPVInstance = IBitcoinSPVInstance<
+    FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+>;
+type SequencerSetPublisherInstance = ISequencerSetPublisherInstance<
+    FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+>;
+type CommitteeManagementInstance = ICommitteeManagementInstance<
+    FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+>;
+
+type StakeManagementInstance = IStakeManagementInstance<
+    FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+>;
+
+type MultiSigVerifierInstance = IMultiSigVerifierInstance<
+    FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+>;
 pub struct GoatAdaptor {
     chain_id: ChainId,
     signer: EthereumWallet,
@@ -275,54 +314,12 @@ pub struct GoatAdaptor {
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
     >,
-    gateway: Option<
-        IGatewayInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    >,
-    btc_spv: Option<
-        IBitcoinSPVInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    >,
-    sequencer_set_publisher: Option<
-        ISequencerSetPublisherInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    >,
-    committee_management: Option<
-        ICommitteeManagementInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    >,
-    stake_management: Option<
-        IStakeManagementInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    >,
-    multi_sig_verifier: Option<
-        IMultiSigVerifierInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    >,
+    gateway: Option<GatewayInstance>,
+    btc_spv: Option<BitcoinSPVInstance>,
+    sequencer_set_publisher: Option<SequencerSetPublisherInstance>,
+    committee_management: Option<CommitteeManagementInstance>,
+    stake_management: Option<StakeManagementInstance>,
+    multi_sig_verifier: Option<MultiSigVerifierInstance>,
 }
 
 impl GoatAdaptor {
@@ -331,87 +328,33 @@ impl GoatAdaptor {
         price
     }
 
-    fn get_gateway(
-        &self,
-    ) -> anyhow::Result<
-        &IGatewayInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    > {
+    fn get_gateway(&self) -> anyhow::Result<&GatewayInstance> {
         self.gateway.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway not initialized"))
     }
 
-    fn get_btc_spv(
-        &self,
-    ) -> anyhow::Result<
-        &IBitcoinSPVInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    > {
+    fn get_btc_spv(&self) -> anyhow::Result<&BitcoinSPVInstance> {
         self.btc_spv.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway not initialized"))
     }
 
-    fn get_sequencer_set_publisher(
-        &self,
-    ) -> anyhow::Result<
-        &ISequencerSetPublisherInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    > {
+    fn get_sequencer_set_publisher(&self) -> anyhow::Result<&SequencerSetPublisherInstance> {
         self.sequencer_set_publisher
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("SequencerSetPublisher not initialized"))
     }
 
-    fn get_committee_management(
-        &self,
-    ) -> anyhow::Result<
-        &ICommitteeManagementInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    > {
+    fn get_committee_management(&self) -> anyhow::Result<&CommitteeManagementInstance> {
         self.committee_management
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("CommitteeMnagement not initialized"))
     }
 
-    fn get_stake_management(
-        &self,
-    ) -> anyhow::Result<
-        &IStakeManagementInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    > {
+    fn get_stake_management(&self) -> anyhow::Result<&StakeManagementInstance> {
         self.stake_management
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("StakeManagement not initialized"))
     }
 
-    fn get_multi_sig_verifier(
-        &self,
-    ) -> anyhow::Result<
-        &IMultiSigVerifierInstance<
-            FillProvider<
-                JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-                RootProvider,
-            >,
-        >,
-    > {
+    fn get_multi_sig_verifier(&self) -> anyhow::Result<&MultiSigVerifierInstance> {
         self.multi_sig_verifier
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("SequencerSet.multiSigVerifier not initialized"))
@@ -428,9 +371,8 @@ impl GoatAdaptor {
         tx_request.gas = Some(self.provider.clone().estimate_gas(tx_request.clone()).await?);
 
         // change into unsigned tx
-        let unsigned_tx = tx_request
-            .build_typed_tx()
-            .map_err(|v| format_err!("{:?} fail to build typed tx", v))?;
+        let unsigned_tx =
+            tx_request.build_typed_tx().map_err(|v| format_err!("{v:?} fail to build typed tx"))?;
         // signed tx
         let signed_tx = <EthereumWallet as NetworkWallet<Ethereum>>::sign_transaction(
             &self.signer,
@@ -473,7 +415,7 @@ impl GoatAdaptor {
             };
         }
         if !is_success {
-            bail!("tx_hash:{} execute failed on chain", tx_hash.to_string());
+            bail!("tx_hash:{tx_hash} execute failed on chain");
         }
         Ok(*tx_hash)
     }
@@ -767,6 +709,7 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(gateway.responseWindowBlocks().call().await?.try_into()?)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn gateway_post_pegin_request(
         &self,
         instance_id: &[u8; 16],
@@ -784,7 +727,7 @@ impl ChainAdaptor for GoatAdaptor {
             .postPeginRequest(
                 FixedBytes::from_slice(instance_id),
                 pegin_amount_sats,
-                tx_fees.clone(),
+                *tx_fees,
                 Address::from_slice(receiver_addr),
                 user_inputs,
                 FixedBytes::from_slice(user_xonly_pubkey),
@@ -976,6 +919,7 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],
@@ -1046,7 +990,7 @@ impl ChainAdaptor for GoatAdaptor {
             .call()
             .await?
             .iter()
-            .map(|v| v.0.clone())
+            .map(|v| v.0)
             .collect())
     }
 
@@ -1075,18 +1019,17 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(sequencer_set_publisher
             .calcMajoritySequencerSetCmtAtHeightOrLatest(height)
             .call()
-            .await?
-            .try_into()?)
+            .await?)
     }
 
     async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
         let multi_sig_verifier = self.get_multi_sig_verifier()?;
-        Ok(multi_sig_verifier.getOwners().call().await?.try_into()?)
+        Ok(multi_sig_verifier.getOwners().call().await?)
     }
 
     async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
         let multi_sig_verifier = self.get_multi_sig_verifier()?;
-        Ok(multi_sig_verifier.nonce().call().await?.try_into()?)
+        Ok(multi_sig_verifier.nonce().call().await?)
     }
 
     async fn seq_set_pub_get_publisher_public_keys(
@@ -1094,7 +1037,7 @@ impl ChainAdaptor for GoatAdaptor {
         publisher: Address,
     ) -> anyhow::Result<Bytes> {
         let sequencer_set_publisher = self.get_sequencer_set_publisher()?;
-        Ok(sequencer_set_publisher.publisherBTCPubkeys(publisher).call().await?.try_into()?)
+        Ok(sequencer_set_publisher.publisherBTCPubkeys(publisher).call().await?)
     }
 
     async fn seq_set_pub_update_sequencer_set(
@@ -1248,9 +1191,7 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(committee_management
             .verifySignatures(FixedBytes::from_slice(msg_hash), signatures)
             .call()
-            .await?
-            .try_into()
-            .map_err(|e| anyhow::anyhow!("StakeOf error :{e:?}"))?)
+            .await?)
     }
 
     async fn committee_mana_get_committee_peer_id(

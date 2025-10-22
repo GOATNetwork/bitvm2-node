@@ -11,14 +11,14 @@ use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 
 pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
     let total = public_keys.len();
-    println!("Multi sig: {} of {}", threshold, total);
+    println!("Multi sig: {threshold} of {total}");
     assert!(
         threshold <= total,
         "Threshold must be less than or equal to total number of public keys"
     );
     let mut redeem_script = Builder::new().push_int(threshold as i64);
     for pk in public_keys {
-        redeem_script = redeem_script.push_slice(&pk.serialize());
+        redeem_script = redeem_script.push_slice(pk.serialize());
     }
     redeem_script.push_int(public_keys.len() as i64).push_opcode(OP_CHECKMULTISIG).into_script()
 }
@@ -32,7 +32,7 @@ pub fn sign_partial(
 ) -> Result<(Vec<u8>, bitcoin::secp256k1::Message), Box<dyn std::error::Error>> {
     let secp = Secp256k1::new();
     let mut cache = SighashCache::new(tx);
-    let sighash = cache.p2wsh_signature_hash(0, &redeem_script, amount, sig_hash_type)?;
+    let sighash = cache.p2wsh_signature_hash(0, redeem_script, amount, sig_hash_type)?;
     let msg = Message::from_digest_slice(&sighash[..])?;
     let mut sig = secp.sign_ecdsa(&msg, seckey).serialize_der().to_vec();
     sig.push(sig_hash_type as u8);
@@ -45,8 +45,8 @@ pub fn finalize(
     redeem_script: &ScriptBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut wtns = vec![vec![]];
-    for i in 0..sigs.len() {
-        wtns.push(sigs[i].clone());
+    for sig in &sigs {
+        wtns.push(sig.clone());
     }
     wtns.push(redeem_script.to_bytes()); // the redeem script itself
     tx.input[0].witness = Witness::from(wtns);
@@ -89,7 +89,6 @@ pub fn verify_p2wsh_multisig_witness(
         .iter()
         .skip(1)
         .take(witness.len() - 2) // exclude last (redeem_script)
-        .map(|v| v)
         .collect();
 
     if raw_sigs.is_empty() {
@@ -101,14 +100,14 @@ pub fn verify_p2wsh_multisig_witness(
     let mut parsed_sigs: Vec<(EcdsaSignature, EcdsaSighashType)> =
         Vec::with_capacity(raw_sigs.len());
     for (i, raw) in raw_sigs.iter().enumerate() {
-        if raw.len() < 1 {
-            return Err(format!("signature[{}] too short", i).into());
+        if raw.is_empty() {
+            return Err(format!("signature[{i}] too short").into());
         }
         let flag = raw[raw.len() - 1];
         let sighash_ty = EcdsaSighashType::from_consensus(flag as u32);
         let der = &raw[..raw.len() - 1];
         let sig = EcdsaSignature::from_der(der)
-            .map_err(|e| format!("invalid DER signature at index {}: {}", i, e))?;
+            .map_err(|e| format!("invalid DER signature at index {i}: {e:?}"))?;
         parsed_sigs.push((sig, sighash_ty));
     }
 
@@ -134,7 +133,7 @@ pub fn verify_p2wsh_multisig_witness(
             cache.p2wsh_signature_hash(input_index, redeem_script, prevout.value, sighash_ty)?;
 
         let msg = Message::from_digest_slice(&sighash[..])
-            .map_err(|e| format!("bad message from sighash: {}", e))?;
+            .map_err(|e| format!("bad message from sighash: {e:?}"))?;
 
         // Try verify current signature against this pubkey
         match secp.verify_ecdsa(&msg, sig, pk) {

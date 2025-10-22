@@ -109,7 +109,7 @@ fn largest_power_of_two_less_than(n: usize) -> usize {
 
 fn compute_merkle_root(items: &[[u8; 32]]) -> [u8; 32] {
     match items.len() {
-        0 => Sha256::digest(&[]).into(),
+        0 => Sha256::digest([]).into(),
         1 => merkle_leaf_hash(&items[0]),
         n => {
             let k = largest_power_of_two_less_than(n);
@@ -184,7 +184,7 @@ pub fn verify_validator_set(light_block_1: LightBlock, light_block_2: LightBlock
         Verdict::Success => {
             println!("success");
         }
-        v => panic!("expected success, got: {:?}", v),
+        v => panic!("expected success, got: {v:?}"),
     }
 }
 
@@ -233,7 +233,7 @@ pub fn verify_el_block_from_consensus(
     //let excepted_data_hash = light_block.signed_header.header.data_hash.unwrap();
     //println!("excepted data hash: {:?}", excepted_data_hash);
 
-    let computed_data_hash = merkle_root_from_base64_txns(&txs);
+    let computed_data_hash = merkle_root_from_base64_txns(txs);
     println!("data hash: {:?}", hex::encode(computed_data_hash));
 
     assert_eq!(actual_data_hash, computed_data_hash);

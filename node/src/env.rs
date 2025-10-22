@@ -348,9 +348,9 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
             as u32;
 
         let (committee_management_address, stake_management_address, btc_spv_address) =
-            if let Some(gateway_address) = gateway_address.clone() {
+            if let Some(gateway_address) = gateway_address {
                 let (committee_management_address, stake_management_address, btc_spv_address) =
-                    get_gateway_relay_contracts(&provider, gateway_address.clone()).await.expect(
+                    get_gateway_relay_contracts(&provider, gateway_address).await.expect(
                         "fail to get committee and stake management contract online addresses",
                     );
                 (

@@ -269,8 +269,8 @@ pub fn nonce_aggregation(pub_nonces: &Vec<PubNonce>) -> AggNonce {
     generate_aggregated_nonce(pub_nonces)
 }
 
-pub fn nonces_aggregation(pub_nonces_vec: &Vec<CommitteePubNonces>) -> Result<CommitteeAggNonces> {
-    fn aggregate_field<F>(rows: &Vec<CommitteePubNonces>, get: F) -> Result<Vec<AggNonce>>
+pub fn nonces_aggregation(pub_nonces_vec: &[CommitteePubNonces]) -> Result<CommitteeAggNonces> {
+    fn aggregate_field<F>(rows: &[CommitteePubNonces], get: F) -> Result<Vec<AggNonce>>
     where
         F: Fn(&CommitteePubNonces) -> &Vec<PubNonce>,
     {
@@ -295,17 +295,15 @@ pub fn nonces_aggregation(pub_nonces_vec: &Vec<CommitteePubNonces>) -> Result<Co
     }
 
     Ok(CommitteeAggNonces {
-        take1: aggregate_field(&pub_nonces_vec, |c| &c.take1)?,
-        take2: aggregate_field(&pub_nonces_vec, |c| &c.take2)?,
-        challenge: aggregate_field(&pub_nonces_vec, |c| &c.challenge)?,
-        watchtower_challenge_timeout: aggregate_field(&pub_nonces_vec, |c| {
+        take1: aggregate_field(pub_nonces_vec, |c| &c.take1)?,
+        take2: aggregate_field(pub_nonces_vec, |c| &c.take2)?,
+        challenge: aggregate_field(pub_nonces_vec, |c| &c.challenge)?,
+        watchtower_challenge_timeout: aggregate_field(pub_nonces_vec, |c| {
             &c.watchtower_challenge_timeout
         })?,
-        nack: aggregate_field(&pub_nonces_vec, |c| &c.nack)?,
-        blockhash_commit_timeout: aggregate_field(&pub_nonces_vec, |c| {
-            &c.blockhash_commit_timeout
-        })?,
-        assert_commit_timeout: aggregate_field(&pub_nonces_vec, |c| &c.assert_commit_timeout)?,
+        nack: aggregate_field(pub_nonces_vec, |c| &c.nack)?,
+        blockhash_commit_timeout: aggregate_field(pub_nonces_vec, |c| &c.blockhash_commit_timeout)?,
+        assert_commit_timeout: aggregate_field(pub_nonces_vec, |c| &c.assert_commit_timeout)?,
     })
 }
 
@@ -326,7 +324,7 @@ pub fn signature_aggregation(
 
     // take1
     let take1_agg_nonces = agg_nonces.take1.clone().try_into().unwrap();
-    let take1_partial_sigs = [partial_sigs.iter().map(|r| r.take1[0].clone()).collect()];
+    let take1_partial_sigs = [partial_sigs.iter().map(|r| r.take1[0]).collect()];
     match graph.take1.aggregate_pre_sigs(&context, &take1_partial_sigs, &take1_agg_nonces) {
         Ok(v) => res.take1 = v.to_vec(),
         Err(e) => bail!("fail to aggregate pre-sigs {}: {e}", graph.take1.name()),
@@ -334,7 +332,7 @@ pub fn signature_aggregation(
 
     // take2
     let take2_agg_nonces = agg_nonces.take2.clone().try_into().unwrap();
-    let take2_partial_sigs = [partial_sigs.iter().map(|r| r.take2[0].clone()).collect()];
+    let take2_partial_sigs = [partial_sigs.iter().map(|r| r.take2[0]).collect()];
     match graph.take2.aggregate_pre_sigs(&context, &take2_partial_sigs, &take2_agg_nonces) {
         Ok(v) => res.take2 = v.to_vec(),
         Err(e) => bail!("fail to aggregate pre-sigs {}: {e}", graph.take2.name()),
@@ -342,7 +340,7 @@ pub fn signature_aggregation(
 
     // challenge
     let challenge_agg_nonces = agg_nonces.challenge.clone().try_into().unwrap();
-    let challenge_partial_sigs = [partial_sigs.iter().map(|r| r.challenge[0].clone()).collect()];
+    let challenge_partial_sigs = [partial_sigs.iter().map(|r| r.challenge[0]).collect()];
     match graph.challenge.aggregate_pre_sigs(
         &context,
         &challenge_partial_sigs,
@@ -357,8 +355,8 @@ pub fn signature_aggregation(
         agg_nonces.blockhash_commit_timeout.clone().try_into().unwrap();
     let mut blockhash_commit_timeout_partial_sigs = [vec![], vec![]];
     partial_sigs.iter().for_each(|r| {
-        blockhash_commit_timeout_partial_sigs[0].push(r.blockhash_commit_timeout[0].clone());
-        blockhash_commit_timeout_partial_sigs[1].push(r.blockhash_commit_timeout[1].clone());
+        blockhash_commit_timeout_partial_sigs[0].push(r.blockhash_commit_timeout[0]);
+        blockhash_commit_timeout_partial_sigs[1].push(r.blockhash_commit_timeout[1]);
     });
     match graph.blockhash_commit_timeout.aggregate_pre_sigs(
         &context,
@@ -379,7 +377,7 @@ pub fn signature_aggregation(
         let _agg_nonces = [agg_nonces.watchtower_challenge_timeout[i].clone()];
         let mut _partial_sigs = [vec![]];
         partial_sigs.iter().for_each(|r| {
-            _partial_sigs[0].push(r.watchtower_challenge_timeout[i].clone());
+            _partial_sigs[0].push(r.watchtower_challenge_timeout[i]);
         });
         let sigs = watchtower_challenge_timeout_tx
             .aggregate_pre_sigs(&context, &_partial_sigs, &_agg_nonces)
@@ -399,8 +397,8 @@ pub fn signature_aggregation(
         let _agg_nonces = [agg_nonces.nack[i * 2].clone(), agg_nonces.nack[i * 2 + 1].clone()];
         let mut _partial_sigs = [vec![], vec![]];
         partial_sigs.iter().for_each(|r| {
-            _partial_sigs[0].push(r.nack[i * 2].clone());
-            _partial_sigs[1].push(r.nack[i * 2 + 1].clone());
+            _partial_sigs[0].push(r.nack[i * 2]);
+            _partial_sigs[1].push(r.nack[i * 2 + 1]);
         });
         let sigs = nack_tx
             .aggregate_pre_sigs(&context, &_partial_sigs, &_agg_nonces)
@@ -418,8 +416,8 @@ pub fn signature_aggregation(
         ];
         let mut _partial_sigs = [vec![], vec![]];
         partial_sigs.iter().for_each(|r| {
-            _partial_sigs[0].push(r.assert_commit_timeout[i * 2].clone());
-            _partial_sigs[1].push(r.assert_commit_timeout[i * 2 + 1].clone());
+            _partial_sigs[0].push(r.assert_commit_timeout[i * 2]);
+            _partial_sigs[1].push(r.assert_commit_timeout[i * 2 + 1]);
         });
         let sigs = assert_commit_timeout_tx
             .aggregate_pre_sigs(&context, &_partial_sigs, &_agg_nonces)
@@ -481,10 +479,8 @@ pub fn push_committee_pre_signatures(
             )
         })
         .collect::<Vec<WatchctowerConnectors>>();
-    let assert_wots_pubkeys = (
-        graph.parameters.operator_wots_pubkeys.1.clone(),
-        *graph.parameters.operator_wots_pubkeys.2,
-    );
+    let assert_wots_pubkeys =
+        (graph.parameters.operator_wots_pubkeys.1, *graph.parameters.operator_wots_pubkeys.2);
     let assert_commit_connectors = generate_chunked_assert_commit_connectors(
         network,
         &n_of_n_taproot_public_key,
@@ -646,11 +642,7 @@ pub fn verify_nonce_signatures(
     pub_nonces.validate_length(watchtower_num, assert_commit_num)?;
     nonce_sigs.validate_length(watchtower_num, assert_commit_num)?;
 
-    fn verify_vec(
-        pubkey: &XOnlyPublicKey,
-        nonces: &Vec<PubNonce>,
-        sigs: &Vec<SchnorrSignature>,
-    ) -> bool {
+    fn verify_vec(pubkey: &XOnlyPublicKey, nonces: &[PubNonce], sigs: &[SchnorrSignature]) -> bool {
         if nonces.len() != sigs.len() {
             return false;
         }

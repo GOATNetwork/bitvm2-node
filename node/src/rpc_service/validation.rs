@@ -10,7 +10,6 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 /// Input validation error response
-
 /// Validation result type
 pub type ValidationResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
 
@@ -25,7 +24,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_UUID".to_string(),
-                    message: format!("{} cannot be empty", field_name),
+                    message: format!("{field_name} cannot be empty"),
                 }),
             ));
         }
@@ -37,7 +36,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_UUID_FORMAT".to_string(),
-                    message: format!("{} is not a valid UUID format", field_name),
+                    message: format!("{field_name} is not a valid UUID format"),
                 }),
             )),
         }
@@ -54,7 +53,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_GOAT_FORMAT".to_string(),
-                    message: format!("{} is not a valid goat format", field_name),
+                    message: format!("{field_name} is not a valid goat format"),
                 }),
             )),
         }
@@ -77,7 +76,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_BTC_SEGWIT_ADDRESS".to_string(),
-                    message: format!("{} is not a valid segwit btc address", field_name),
+                    message: format!("{field_name} is not a valid segwit btc address"),
                 }),
             ));
         }
@@ -86,12 +85,12 @@ impl InputValidator {
 
     /// Validate btc pub key
     pub fn validate_btc_pub_key(btc_pubkey: &str, field_name: &str) -> ValidationResult<()> {
-        if let Err(_) = PublicKey::from_str(btc_pubkey) {
+        if PublicKey::from_str(btc_pubkey).is_err() {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_BTC_PUBKEY".to_string(),
-                    message: format!("{} is not a valid btc pub key", field_name),
+                    message: format!("{field_name} is not a valid btc pub key"),
                 }),
             ));
         }
@@ -100,12 +99,12 @@ impl InputValidator {
 
     /// Validate peer_id
     pub fn validate_peer_id(addr_str: &str, field_name: &str) -> ValidationResult<()> {
-        if let Err(_) = PeerId::from_str(addr_str) {
+        if PeerId::from_str(addr_str).is_err() {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_PEER_ID".to_string(),
-                    message: format!("{} is not a valid peer id", field_name),
+                    message: format!("{field_name} is not a valid peer id"),
                 }),
             ));
         }
@@ -125,7 +124,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "STRING_TOO_SHORT".to_string(),
-                    message: format!("{} must be at least {} characters long", field_name, min_len),
+                    message: format!("{field_name} must be at least {min_len} characters long"),
                 }),
             ));
         }
@@ -135,7 +134,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "STRING_TOO_LONG".to_string(),
-                    message: format!("{} must be at most {} characters long", field_name, max_len),
+                    message: format!("{field_name} must be at most {max_len} characters long"),
                 }),
             ));
         }
@@ -152,9 +151,8 @@ impl InputValidator {
                 Json(ErrorResponse {
                     error: "INVALID_TX_NAME_TYPE".to_string(),
                     message: format!(
-                        "Invalid tx_name: {}. Valid values are: pegin.hex, kickoff.hex, pre-kickoff.hex, \
-                        watchtower-challenge-init.hex, assert-init.hex, challenge.hex, take1.hex, take2.hex, disprove.hex",
-                        tx_name
+                        "Invalid tx_name: {tx_name}. Valid values are: pegin.hex, kickoff.hex, pre-kickoff.hex, \
+                        watchtower-challenge-init.hex, assert-init.hex, challenge.hex, take1.hex, take2.hex, disprove.hex"
                     ),
                 }),
             )),
@@ -199,7 +197,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_AMOUNT".to_string(),
-                    message: format!("{} must be greater than 0", field_name),
+                    message: format!("{field_name} must be greater than 0"),
                 }),
             ));
         }
@@ -210,7 +208,7 @@ impl InputValidator {
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "AMOUNT_TOO_LARGE".to_string(),
-                    message: format!("{} exceeds maximum allowed value", field_name),
+                    message: format!("{field_name} exceeds maximum allowed value"),
                 }),
             ));
         }
@@ -220,12 +218,12 @@ impl InputValidator {
 
     /// Validate status field
     pub fn validate_actor(actor: &str, field_name: &str) -> ValidationResult<()> {
-        if let Err(_) = Actor::from_str(actor) {
+        if Actor::from_str(actor).is_err() {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "INVALID_ACTOR".to_string(),
-                    message: format!("{} invalid actor", field_name),
+                    message: format!("{field_name} invalid actor"),
                 }),
             ));
         }

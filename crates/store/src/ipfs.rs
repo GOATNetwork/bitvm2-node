@@ -84,7 +84,7 @@ impl IPFS {
             let response_body = response.text().await?;
             Ok(serde_json::from_str(&response_body)?)
         } else {
-            bail!("IPFS read failed, {:?}", response)
+            bail!("IPFS read failed, {response:?}")
         }
     }
 
@@ -98,7 +98,7 @@ impl IPFS {
             let response_body = response.text().await?;
             Ok(response_body.to_string())
         } else {
-            bail!("IPFS read failed, {:?}", response)
+            bail!("IPFS read failed, {response:?}")
         }
     }
 
@@ -117,7 +117,7 @@ impl IPFS {
                 shares.iter().map(|f| serde_json::from_str(f).unwrap()).collect::<Vec<AddedFile>>();
             Ok(added_files)
         } else {
-            bail!("IPFS upload failed, {:?}", response)
+            bail!("IPFS upload failed, {response:?}")
         }
     }
 }

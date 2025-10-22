@@ -1,3 +1,5 @@
+#![allow(clippy::needless_borrows_for_generic_args)]
+
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest};
 use crate::env::{
     GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED, INSTANCE_PRESIGNED_TIME_EXPIRED, get_network,
@@ -63,26 +65,23 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
 
     for tx_record in tx_records {
         let mut tx = local_db.start_transaction().await?;
-        match tx_record.extra {
-            Some(event) => {
-                let _event: BridgeInRequestEvent = serde_json::from_str(&event)?;
-                create_message(
-                    &mut tx,
-                    tx_record.instance_id,
-                    None,
-                    "self".to_string(),
-                    Actor::All,
-                    GOATMessageContent::PeginRequest(PeginRequest {
-                        instance_id: tx_record.instance_id,
-                        pegin_request_tx_hash: tx_record.tx_hash,
-                        pegin_request_height: tx_record.height,
-                    }),
-                    0,
-                    0,
-                )
-                .await?;
-            }
-            None => {}
+        if let Some(event) = tx_record.extra {
+            let _event: BridgeInRequestEvent = serde_json::from_str(&event)?;
+            create_message(
+                &mut tx,
+                tx_record.instance_id,
+                None,
+                "self".to_string(),
+                Actor::All,
+                GOATMessageContent::PeginRequest(PeginRequest {
+                    instance_id: tx_record.instance_id,
+                    pegin_request_tx_hash: tx_record.tx_hash,
+                    pegin_request_height: tx_record.height,
+                }),
+                0,
+                0,
+            )
+            .await?;
         }
 
         tx.update_goat_tx_record_processing_status(
@@ -218,7 +217,7 @@ fn gen_user_info(
         })
         .collect();
     Ok(UserInfo {
-        depositor_evm_address: EvmAddress::from_str(&depositor_evm_address)?.into_array(),
+        depositor_evm_address: EvmAddress::from_str(depositor_evm_address)?.into_array(),
         txn_fees,
         inputs,
         user_xonly_pubkey: XOnlyPublicKey::from_slice(user_xonly_pubkey)?,
@@ -541,7 +540,7 @@ async fn post_pegin_data(
     pegin_confirm_tx: &Transaction,
 ) -> anyhow::Result<()> {
     match goat_client
-        .gateway_post_pegin_data(btc_client, &instance_id, &pegin_confirm_tx, &committee_signs)
+        .gateway_post_pegin_data(btc_client, &instance_id, pegin_confirm_tx, &committee_signs)
         .await
     {
         Err(err) => {

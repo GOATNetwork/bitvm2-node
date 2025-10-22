@@ -125,6 +125,7 @@ impl GOATClient {
         self.chain_service.gateway_get_min_slash_amount().await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn gateway_post_pegin_request(
         &self,
         instance_id: &Uuid,
@@ -325,7 +326,7 @@ impl GOATClient {
                     disprove_type,
                     DisproveTxType::QuickChallenge | DisproveTxType::ChallengeIncompleteKickoff
                 ) {
-                    bail!("challenge_start_tx is required for disprove type {:?}", disprove_type);
+                    bail!("challenge_start_tx is required for disprove type {disprove_type:?}");
                 }
                 let raw_challenge_start_tx = BitcoinTx {
                     version: 0,
@@ -482,7 +483,7 @@ impl GOATClient {
         }
 
         self.chain_service
-            .gateway_post_graph_data(instance_id, graph_id, &graph_data, committee_signs)
+            .gateway_post_graph_data(instance_id, graph_id, graph_data, committee_signs)
             .await
     }
     pub async fn check_withdraw_actions_and_get_proof(
@@ -503,26 +504,18 @@ impl GOATClient {
                 tx_id_on_line.to_string(),
                 tx_act.to_string()
             );
-            bail!(
-                "graph:{} at {} txid mismatch, exp:{},  act:{}",
-                tag,
-                graph_id,
-                tx_id_on_line.to_string(),
-                tx_act.to_string()
-            );
+            bail!("graph:{tag} at {graph_id} txid mismatch, exp:{tx_id_on_line},  act:{tx_act}",);
         }
 
         // check withdraw status
         if let Some(status) = required_status {
             let withdraw_data = self.gateway_get_withdraw_data(graph_id).await?;
             if withdraw_data.status == WithdrawStatus::Disproved {
-                tracing::warn!("graph:{} at {} stage already disproved", tag, graph_id);
-                bail!("graph:{} at {} stagealready disproved", tag, graph_id);
+                tracing::warn!("graph:{tag} at {graph_id} stage already disproved");
+                bail!("graph:{tag} at {graph_id} stagealready disproved");
             } else if withdraw_data.status != status {
                 tracing::warn!(
-                    "graph:{} at {} stage not match, exp: {status}, act: {}",
-                    tag,
-                    graph_id,
+                    "graph:{tag} at {graph_id} stage not match, exp: {status}, act: {}",
                     withdraw_data.status
                 );
                 bail!(
@@ -539,16 +532,12 @@ impl GOATClient {
         let block_hash_online = self.btc_spv_blockhash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {
             tracing::warn!(
-                "graph_id:{} at: {} block_hash mismatch, from chain:{},  in contract:{}",
-                graph_id,
-                tag,
+                "graph:{tag} at {graph_id} block_hash mismatch, from chain:{},  in contract:{}",
                 hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
             bail!(
-                "graph_id:{} at :{} block_hash mismatch, from chain:{},  in contract:{}",
-                graph_id,
-                tag,
+                "graph:{tag} at {graph_id}block_hash mismatch, from chain:{},  in contract:{}",
                 hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
@@ -560,10 +549,7 @@ impl GOATClient {
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<PublicKey>> {
         let pubkeys = self.chain_service.gateway_get_committee_pubkeys(instance_id).await?;
-        Ok(pubkeys
-            .iter()
-            .filter_map(|v| PublicKey::from_slice(v).map_or(None, |v| Some(v)))
-            .collect::<Vec<PublicKey>>())
+        Ok(pubkeys.iter().filter_map(|v| PublicKey::from_slice(v).ok()).collect::<Vec<PublicKey>>())
     }
 
     pub async fn gateway_get_post_graph_digest(
@@ -623,7 +609,7 @@ impl GOATClient {
         }
         let addr = recover_signer(sign, B256::from_slice(&sequencer_set.p2wsh_sig_hash))?;
         let addr_exp = self.chain_service.get_default_signer_address();
-        println!("addr_exp: {}, act: {}", addr_exp, addr);
+        println!("addr_exp: {addr_exp}, act: {addr}");
         if addr != addr_exp {
             bail!("P2WSHSignatureMismatch, exp:{addr_exp}, act:{addr}");
         }

@@ -32,6 +32,7 @@ pub trait ChainAdaptor: Send + Sync {
     async fn gateway_get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData>;
     async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn gateway_post_pegin_request(
         &self,
         instance_id: &[u8; 16],
@@ -95,6 +96,7 @@ pub trait ChainAdaptor: Send + Sync {
         take2_proof: &BitcoinTxProof,
     ) -> anyhow::Result<String>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &[u8; 16],

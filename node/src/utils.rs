@@ -202,7 +202,7 @@ pub mod todo_funcs {
     pub fn validate_finalized_graph(
         goat_client: &GOATClient,
         graph: &SimplifiedBitvm2Graph,
-        endorse_sigs: &Vec<(PublicKey, EvmAddress, Vec<u8>)>,
+        endorse_sigs: &[(PublicKey, EvmAddress, Vec<u8>)],
     ) -> Result<()> {
         // return SpecialError::InvalidGraph if not valid
         // todo!("verify graph & endorsement signatures")
@@ -235,7 +235,9 @@ pub mod todo_funcs {
         todo!("broadcast non-standard tx")
     }
 }
-
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::redundant_pattern_matching)]
+#[allow(clippy::collapsible_else_if)]
 pub(crate) async fn refresh_graph(
     local_db: &LocalDB,
     btc_client: &BTCClient,
@@ -640,16 +642,16 @@ pub async fn validate_committee(
             let addr = pegin_data.committee_addresses[i];
             let stored_peer_id = goat_client.committee_mana_get_committee_peer_id(&addr).await?;
             if stored_peer_id.to_vec() != peer_id.to_bytes() {
-                bail!(SpecialError::InvalidCommittee(format!(
-                    "committee pubkey & peer id mismatch"
-                )));
+                bail!(SpecialError::InvalidCommittee(
+                    "committee pubkey & peer id mismatch".to_string()
+                ));
             }
             return Ok(());
         }
     }
-    bail!(SpecialError::InvalidCommittee(format!(
-        "committee pubkey not found in instance's committee pubkeys"
-    )))
+    bail!(SpecialError::InvalidCommittee(
+        "committee pubkey not found in instance's committee pubkeys".to_string()
+    ))
 }
 pub async fn validate_committee_with_evm_address(
     goat_client: &GOATClient,
@@ -665,22 +667,22 @@ pub async fn validate_committee_with_evm_address(
         let addr = &pegin_data.committee_addresses[i];
         if addr == committee_evm_address {
             if &pk != committee_pubkey {
-                bail!(SpecialError::InvalidCommittee(format!(
-                    "committee evm address & pubkey mismatch"
-                )));
+                bail!(SpecialError::InvalidCommittee(
+                    "committee evm address & pubkey mismatch".to_string()
+                ));
             }
-            let stored_peer_id = goat_client.committee_mana_get_committee_peer_id(&addr).await?;
+            let stored_peer_id = goat_client.committee_mana_get_committee_peer_id(addr).await?;
             if stored_peer_id.to_vec() != peer_id.to_bytes() {
-                bail!(SpecialError::InvalidCommittee(format!(
-                    "committee evm address & peer id mismatch"
-                )));
+                bail!(SpecialError::InvalidCommittee(
+                    "committee evm address & peer id mismatch".to_string()
+                ));
             }
             return Ok(());
         }
     }
-    bail!(SpecialError::InvalidCommittee(format!(
-        "committee evm address not found in instance's committee addresses"
-    )))
+    bail!(SpecialError::InvalidCommittee(
+        "committee evm address not found in instance's committee addresses".to_string()
+    ))
 }
 
 pub async fn validate_graph_id_on_goat(
@@ -711,20 +713,20 @@ pub async fn read_pegin_request(
     }
     let network = get_network();
     let user_change_address = Address::from_str(&pegin_data.user_change_addr)
-        .map_err(|e| SpecialError::InvalidPeginRequest(format!("invalid user_change_addr: {}", e)))?
+        .map_err(|e| SpecialError::InvalidPeginRequest(format!("invalid user_change_addr: {e}")))?
         .require_network(network)
         .map_err(|e| {
-            SpecialError::InvalidPeginRequest(format!("invalid user_change_addr network: {}", e))
+            SpecialError::InvalidPeginRequest(format!("invalid user_change_addr network: {e}"))
         })?;
     let user_refund_address = Address::from_str(&pegin_data.user_refund_addr)
-        .map_err(|e| SpecialError::InvalidPeginRequest(format!("invalid user_refund_addr: {}", e)))?
+        .map_err(|e| SpecialError::InvalidPeginRequest(format!("invalid user_refund_addr: {e}")))?
         .require_network(network)
         .map_err(|e| {
-            SpecialError::InvalidPeginRequest(format!("invalid user_refund_addr network: {}", e))
+            SpecialError::InvalidPeginRequest(format!("invalid user_refund_addr network: {e}"))
         })?;
     let user_xonly_pubkey =
         XOnlyPublicKey::from_slice(&pegin_data.user_xonly_pubkey).map_err(|e| {
-            SpecialError::InvalidPeginRequest(format!("invalid user_xonly_pubkey: {}", e))
+            SpecialError::InvalidPeginRequest(format!("invalid user_xonly_pubkey: {e}"))
         })?;
     let inputs: Vec<Input> = pegin_data
         .user_inputs
@@ -762,19 +764,19 @@ pub async fn read_instance_info_from_goat(
     let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
     let network = get_network();
     let user_change_address = Address::from_str(&pegin_data.user_change_addr)
-        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_change_addr: {}", e)))?
+        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_change_addr: {e}")))?
         .require_network(network)
         .map_err(|e| {
-            SpecialError::InvalidPeginData(format!("invalid user_change_addr network: {}", e))
+            SpecialError::InvalidPeginData(format!("invalid user_change_addr network: {e}"))
         })?;
     let user_refund_address = Address::from_str(&pegin_data.user_refund_addr)
-        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_refund_addr: {}", e)))?
+        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_refund_addr: {e}")))?
         .require_network(network)
         .map_err(|e| {
-            SpecialError::InvalidPeginData(format!("invalid user_refund_addr network: {}", e))
+            SpecialError::InvalidPeginData(format!("invalid user_refund_addr network: {e}"))
         })?;
     let user_xonly_pubkey = XOnlyPublicKey::from_slice(&pegin_data.user_xonly_pubkey)
-        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_xonly_pubkey: {}", e)))?;
+        .map_err(|e| SpecialError::InvalidPeginData(format!("invalid user_xonly_pubkey: {e}")))?;
     let inputs: Vec<Input> = pegin_data
         .user_inputs
         .iter()
@@ -798,8 +800,7 @@ pub async fn read_instance_info_from_goat(
                 match msg {
                     SpecialError::EvmReverted(err_msg) => {
                         bail!(SpecialError::InvalidPeginData(format!(
-                            "fail to get committee pubkeys: {}",
-                            err_msg
+                            "fail to get committee pubkeys: {err_msg}"
                         )))
                     }
                     _ => bail!(e),
@@ -1256,7 +1257,7 @@ pub async fn build_genesis_prekickoff_tx(
         watchtower_num,
         assert_commit_num,
     )
-    .map_err(|e| anyhow::anyhow!("failed to create pre-kickoff txn: {}", e))
+    .map_err(|e| anyhow::anyhow!("failed to create pre-kickoff txn: {e}"))
 }
 
 pub async fn build_prekickoff_params(
@@ -1458,7 +1459,7 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
 }
 
 pub async fn send_challenge_tx(btc_client: &BTCClient, graph: &Bitvm2Graph) -> Result<Txid> {
-    let (mut challenge_tx, _) = export_challenge_tx(&graph)?;
+    let (mut challenge_tx, _) = export_challenge_tx(graph)?;
     let challenge_keypair = ChallengerMasterKey::new(get_bitvm_key()?).master_keypair();
     let challenger_evm_address = todo_funcs::get_node_evm_address()?;
     challenge_tx.output.push(bitcoin::TxOut {
@@ -1506,11 +1507,11 @@ pub async fn send_watchtower_challenge_tx(
                 fee_amount,
             )
             .unwrap();
-            for i in 0..inputs.len() {
+            for (i, input) in inputs.iter().enumerate() {
                 node_sign(
                     &mut watchtower_challenge_tx,
                     i + 1,
-                    inputs[i].amount,
+                    input.amount,
                     EcdsaSighashType::All,
                     &watchtower_keypair,
                 )?;
@@ -1663,7 +1664,7 @@ pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey> {
         return get_test_vk();
     }
 
-    Ok(proofs::get_groth16_vk(db, &proofs::get_zkm_version()).await?)
+    proofs::get_groth16_vk(db, &proofs::get_zkm_version()).await
 }
 
 pub fn get_test_groth16_proof() -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
@@ -1693,6 +1694,7 @@ fn generate_message_id(business_id: Uuid, msg_type: String, sub_type: Option<Str
         None => format!("{business_id}_{msg_type}"),
     }
 }
+#[allow(clippy::too_many_arguments)]
 pub async fn create_message(
     storage_processor: &mut StorageProcessor<'_>,
     business_id: Uuid,
@@ -2251,7 +2253,7 @@ pub async fn store_pegin_request(
             from_addr,
             to_addr: EvmAddress::from(&user_info.depositor_evm_address).to_string(),
             amount: pegin_amount.to_sat() as i64,
-            fees: UInt64Array3(user_info.txn_fees.clone()),
+            fees: UInt64Array3(user_info.txn_fees),
             input_utxos: serde_json::to_string(&input_utxos)?,
             status: InstanceStatus::UserInited.to_string(),
             pegin_request_tx_hash,
@@ -2549,7 +2551,7 @@ pub async fn get_committee_pub_nonces_for_graph(
         find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
     Ok(process_data
         .iter()
-        .filter_map(|(k, v)| v.committee_pub_nonce.as_ref().map(|nonce| (k.clone(), nonce.clone())))
+        .filter_map(|(k, v)| v.committee_pub_nonce.as_ref().map(|nonce| (*k, nonce.clone())))
         .collect::<Vec<(PublicKey, CommitteePubNonces)>>())
 }
 pub async fn store_committee_partial_sigs_for_graph(
@@ -2591,7 +2593,7 @@ pub async fn get_committee_partial_sigs_for_graph(
         find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
     Ok(process_data
         .iter()
-        .filter_map(|(k, v)| v.partial_sigs.as_ref().map(|nonce| (k.clone(), nonce.clone())))
+        .filter_map(|(k, v)| v.partial_sigs.as_ref().map(|nonce| (*k, nonce.clone())))
         .collect::<Vec<(PublicKey, CommitteePartialSignatures)>>())
 }
 pub async fn store_committee_endorsement_for_graph(
@@ -2609,7 +2611,7 @@ pub async fn store_committee_endorsement_for_graph(
         .entry(committee_pubkey)
         .and_modify(|v| {
             v.endorse_signature = endorse_signature.clone();
-            v.committee_evm_address = Some(committee_evm_address.clone());
+            v.committee_evm_address = Some(committee_evm_address);
         })
         .or_insert_with(|| GraphProcessDataItem {
             committee_pub_nonce: None,
@@ -2642,7 +2644,7 @@ pub async fn store_committee_endorsements_for_graph(
             .entry(committee_pubkey)
             .and_modify(|v| {
                 v.endorse_signature = endorse_signature.clone();
-                v.committee_evm_address = Some(committee_evm_address.clone());
+                v.committee_evm_address = Some(committee_evm_address);
             })
             .or_insert_with(|| GraphProcessDataItem {
                 committee_pub_nonce: None,
@@ -2672,10 +2674,10 @@ pub async fn get_committee_endorsements_for_graph(
     Ok(process_data
         .iter()
         .filter_map(|(k, v)| {
-            if v.endorse_signature.len() > 0 {
+            if !v.endorse_signature.is_empty() {
                 v.committee_evm_address
                     .as_ref()
-                    .map(|evm_addr| (k.clone(), evm_addr.clone(), v.endorse_signature.clone()))
+                    .map(|evm_addr| (*k, *evm_addr, v.endorse_signature.clone()))
             } else {
                 None
             }
@@ -2734,7 +2736,7 @@ pub async fn get_committee_pub_nonces_for_instance(
         find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
     Ok(process_data
         .iter()
-        .filter_map(|(k, v)| v.pub_nonce.as_ref().map(|pub_nonce| (k.clone(), pub_nonce.clone())))
+        .filter_map(|(k, v)| v.pub_nonce.as_ref().map(|pub_nonce| (*k, pub_nonce.clone())))
         .collect())
 }
 pub async fn store_committee_partial_sig_for_instance(
@@ -2748,7 +2750,7 @@ pub async fn store_committee_partial_sig_for_instance(
         find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
     process_data
         .entry(committee_pubkey)
-        .and_modify(|v| v.partial_sign = Some(partial_sigs.clone()))
+        .and_modify(|v| v.partial_sign = Some(partial_sigs))
         .or_insert_with(|| InstanceProcessDataItem {
             pub_nonce: None,
             partial_sign: Some(partial_sigs),
@@ -2766,8 +2768,6 @@ pub async fn get_committee_partial_sigs_for_instance(
         find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
     Ok(process_data
         .iter()
-        .filter_map(|(k, v)| {
-            v.partial_sign.as_ref().map(|partial_sign| (k.clone(), partial_sign.clone()))
-        })
+        .filter_map(|(k, v)| v.partial_sign.as_ref().map(|partial_sign| (*k, *partial_sign)))
         .collect())
 }

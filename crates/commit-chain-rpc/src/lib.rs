@@ -2,7 +2,7 @@ use bitcoin_light_client_circuit::{Header, parse_cosmos_payload};
 use serde_json::Value;
 
 fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn std::error::Error>> {
-    let block_data_json: Value = serde_json::from_str(&block_data)?;
+    let block_data_json: Value = serde_json::from_str(block_data)?;
     let block = block_data_json.get("result").and_then(|result| result.get("block"));
 
     let header = block.and_then(|block| block.get("header")).ok_or("Unable to extract header")?;
@@ -40,7 +40,7 @@ pub async fn fetch_cosmos_validator_info(
 
     let mut max_retries = 100;
     while max_retries > 0 {
-        let block_data = reqwest::get(format!("{}/block?height={}", cosmos_rpc_url, block_height))
+        let block_data = reqwest::get(format!("{cosmos_rpc_url}/block?height={block_height}"))
             .await?
             .text()
             .await?;
@@ -77,10 +77,8 @@ pub async fn fetch_commit_chain_proof_input(
     block_number: u64,
 ) -> Result<([u8; 32], [u8; 32], Vec<String>), Box<dyn std::error::Error>> {
     let cosmos_rpc_url = get_cosmos_rpc_url();
-    let block_data = reqwest::get(format!("{}/block?height={}", cosmos_rpc_url, block_number))
-        .await?
-        .text()
-        .await?;
+    let block_data =
+        reqwest::get(format!("{cosmos_rpc_url}/block?height={block_number}")).await?.text().await?;
     let (header, tx_data) = parse_block_data(&block_data)?;
 
     let sequencer_set_hash = header.validators_hash.as_bytes();

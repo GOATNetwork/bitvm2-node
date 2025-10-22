@@ -177,7 +177,7 @@ pub async fn serve(
                 Ok(_) => Ok("RPC server finished normally".to_string()),
                 Err(e) => {
                     tracing::error!("RPC server error: {}", e);
-                    Err(anyhow::anyhow!("RPC server error: {}", e))
+                    Err(anyhow::anyhow!("RPC server error: {e}"))
                 }
             }
         }

@@ -456,11 +456,7 @@ mod tests {
     }
 
     fn operator_presign_graph(graph: &mut Bitvm2Graph) {
-        operator_pre_sign(
-            operator_master_key().master_keypair(),
-            graph,
-        )
-        .unwrap();
+        operator_pre_sign(operator_master_key().master_keypair(), graph).unwrap();
     }
 
     fn committee_presign_graph(graph: &mut Bitvm2Graph) {

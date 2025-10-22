@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::u16;
 pub use tendermint_light_client_verifier::{
     ProdVerifier, Verdict, Verifier,
     options::Options,
@@ -64,6 +63,12 @@ pub struct CommitChainCircuitInput {
     pub commits: Vec<CircuitCommit>,
 }
 
+impl Default for CommitChainState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommitChainState {
     pub fn new() -> Self {
         CommitChainState {
@@ -76,7 +81,7 @@ impl CommitChainState {
     }
 
     pub fn apply_commit(&mut self, commits: Vec<CircuitCommit>) {
-        let mut prev_sequencer_set_hash = self.sequencer_set_hash.clone();
+        let mut prev_sequencer_set_hash = self.sequencer_set_hash;
         let mut prev_commit_txn = self.commit_txn.clone();
         let mut prev_publisher_public_keys: Vec<PublicKey> = vec![];
         let mut prev_threshold: u16 = u16::MAX;
@@ -88,17 +93,14 @@ impl CommitChainState {
             let threshold = commit.threshold;
 
             let prev_commit_txid = prev_commit_txn.compute_txid();
-            println!("prev commit txid: {}, {:?}", prev_commit_txid.to_string(), prev_commit_txn);
+            println!("prev commit txid: {prev_commit_txid}, {prev_commit_txn:?}");
             // calculate the commitment of prev sequencer set and check the equivalent
             let expected_prev_commit = extract_op_return_data(&prev_commit_txn);
-            println!(
-                "expected prev commit: {:?}\n{:?}",
-                expected_prev_commit, prev_sequencer_set_hash
-            );
+            println!("expected prev commit: {expected_prev_commit:?}\n{prev_sequencer_set_hash:?}");
             assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit);
 
             // calculate the commitment of latest sequencer set and check the equivalent
-            let expected_latest_commit = extract_op_return_data(&latest_commit_txn_with_wtns);
+            let expected_latest_commit = extract_op_return_data(latest_commit_txn_with_wtns);
             assert_eq!(latest_sequencer_set_hash[..], expected_latest_commit);
 
             // check the latest txn's prev out is equals to the output of prev_txn
@@ -116,17 +118,16 @@ impl CommitChainState {
                     threshold as usize,
                 );
                 crate::publisher::verify_p2wsh_multisig_witness(
-                    &latest_commit_txn_with_wtns,
+                    latest_commit_txn_with_wtns,
                     0,
                     prevout,
                     &redeem_script,
-                    &publisher_public_keys,
+                    publisher_public_keys,
                     threshold as usize,
                 )
                 .unwrap();
             }
-
-            prev_sequencer_set_hash = latest_sequencer_set_hash.clone();
+            prev_sequencer_set_hash = *latest_sequencer_set_hash;
 
             // remove witness
             prev_commit_txn = latest_commit_txn_with_wtns.clone();
@@ -151,17 +152,16 @@ pub fn extract_op_return_data(tx: &Transaction) -> Vec<u8> {
         // Parse instructions from the script
         let mut instructions = script.instructions();
         // First instruction should be OP_RETURN
-        if let Some(Ok(bitcoin::script::Instruction::Op(op))) = instructions.next() {
-            if op == bitcoin::opcodes::all::OP_RETURN {
-                // Next should be pushed data
-                if let Some(Ok(bitcoin::script::Instruction::PushBytes(data))) = instructions.next()
-                {
-                    results = data.as_bytes().to_vec();
-                }
+        if let Some(Ok(bitcoin::script::Instruction::Op(op))) = instructions.next()
+            && op == bitcoin::opcodes::all::OP_RETURN
+        {
+            // Next should be pushed data
+            if let Some(Ok(bitcoin::script::Instruction::PushBytes(data))) = instructions.next() {
+                results = data.as_bytes().to_vec();
             }
         }
     }
-    if results.len() == 0 {
+    if results.is_empty() {
         results = [0u8; 32].to_vec();
     }
     results

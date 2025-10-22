@@ -75,19 +75,17 @@ impl BitcoinChain {
 
     /// Get transaction hex string by serialize txid
     pub async fn get_tx_hex_by_tx_id(&self, tx_id: &Txid) -> anyhow::Result<String> {
-        if let Some(tx) = self.adaptor.get_tx(&tx_id).await? {
+        if let Some(tx) = self.adaptor.get_tx(tx_id).await? {
             return Ok(bitcoin::consensus::encode::serialize_hex(&tx));
         }
-        bail!("not found tx:{} on chain", tx_id.to_string());
+        bail!("not found tx:{tx_id} on chain");
     }
 
     /// Get block by height
     pub async fn get_block_by_height(&self, block_height: u32) -> anyhow::Result<Block> {
         let block_hash = self.adaptor.get_block_hash(block_height).await?;
         self.adaptor.get_block_by_hash(&block_hash).await?.ok_or(anyhow::format_err!(
-            "failed to fetch block at :{} hash:{}",
-            block_height,
-            block_hash.to_string()
+            "failed to fetch block at :{block_height} hash:{block_hash}"
         ))
     }
 
@@ -114,7 +112,7 @@ impl BitcoinChain {
                 merkle,
             })
         } else {
-            bail!("get {} merkle proof is none", tx_id)
+            bail!("get {tx_id} merkle proof is none")
         }
     }
 

@@ -1,3 +1,7 @@
+#![allow(clippy::collapsible_match)]
+#![allow(clippy::single_match)]
+#![allow(clippy::collapsible_else_if)]
+
 use crate::env::{get_bitvm_key, get_network};
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
@@ -305,7 +309,7 @@ pub async fn handle_self_p2p_msg(
         tracing::warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
         return Ok(());
     }
-    let message: GOATMessage = serde_json::from_slice(&message)?;
+    let message: GOATMessage = serde_json::from_slice(message)?;
     tracing::info!(
         "Got self p2p message: {}:{} with id: {} from peer: {:?}",
         &message.actor.to_string(),
@@ -367,7 +371,7 @@ pub async fn recv_and_dispatch(
         update_node_timestamp(local_db, &from_peer_id.to_string()).await?;
     }
 
-    let message: GOATMessage = serde_json::from_slice(&message)?;
+    let message: GOATMessage = serde_json::from_slice(message)?;
     let content: GOATMessageContent = message.to_typed()?;
     match (content, actor) {
         (
@@ -1234,7 +1238,7 @@ pub async fn recv_and_dispatch(
                     &local_committee_pubkey,
                 )
                 .await?;
-                if let None = stored_pub_nonce {
+                if stored_pub_nonce.is_none() {
                     let (_, pub_nonce, nonce_sig) =
                         committee_master_key.nonce_for_instance(instance_id);
                     let message_content =
@@ -1634,12 +1638,7 @@ pub async fn recv_and_dispatch(
                 let graph = Bitvm2Graph::from_simplified(&graph)?;
                 let graph_data = build_graph_data(&graph)?;
                 goat_client
-                    .gateway_post_graph_data(
-                        &instance_id,
-                        &graph_id,
-                        &graph_data,
-                        &endorsement_sigs,
-                    )
+                    .gateway_post_graph_data(&instance_id, graph_id, &graph_data, &endorsement_sigs)
                     .await?;
             }
         }

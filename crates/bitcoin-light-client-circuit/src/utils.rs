@@ -28,6 +28,7 @@ pub fn multisig_script_len(n: u32) -> u32 {
 }
 
 /// Estimate vbytes for a P2WSH m-of-n input (SegWit v0), rounding up.
+#[allow(clippy::manual_div_ceil)]
 pub fn p2wsh_input_vbytes(m: u32, n: u32, siglen: u32) -> u32 {
     let l = multisig_script_len(n);
     // witness = 1(count) + 1(dummy) + m*(1+siglen) + (1 + L)
@@ -75,7 +76,7 @@ pub fn create_fee_tx(
     let change_value = input_value - replennish_fee - relayer_fee;
 
     let txin = TxIn {
-        previous_output: input.clone(),
+        previous_output: *input,
         script_sig: ScriptBuf::new(), // empty for P2WSH
         sequence: Sequence::MAX,
         witness: Witness::default(), // to be filled after signing
@@ -106,7 +107,7 @@ pub fn create_sequencer_update_partial_tx(
     let txout_next_connector =
         TxOut { value: relayer_fee, script_pubkey: next_update_connector.script_pubkey() };
 
-    println!("commitment: {:?}", commitment);
+    println!("commitment: {commitment:?}");
 
     let script = Builder::new().push_opcode(OP_RETURN).push_slice(commitment).into_script();
 
@@ -116,7 +117,7 @@ pub fn create_sequencer_update_partial_tx(
     let mut input = Vec::new();
     if let Some(uc) = update_connector {
         let txin_connector = TxIn {
-            previous_output: uc.clone(),
+            previous_output: *uc,
             script_sig: ScriptBuf::new(), // empty for P2WSH
             sequence: Sequence::MAX,
             witness: Witness::default(), // to be filled after signing
@@ -125,7 +126,7 @@ pub fn create_sequencer_update_partial_tx(
     }
     if let Some(rfc) = replenish_fee_connector {
         let txin_replenish_fee_connector = TxIn {
-            previous_output: rfc.clone(),
+            previous_output: *rfc,
             script_sig: ScriptBuf::new(),
             sequence: Sequence::MAX,
             witness: Witness::default(), // to be filled after signing
@@ -158,7 +159,7 @@ pub fn create_dummy_publisher_keys(total: usize, network: Network) -> Vec<(Secre
         println!("{:?}\n", k.to_wif())
     });
     println!("Publisher public key:");
-    keys.iter().for_each(|(_, pk)| println!("{}\n", CompressedPublicKey(pk.clone())));
+    keys.iter().for_each(|(_, pk)| println!("{}\n", CompressedPublicKey(*pk)));
     keys
 }
 

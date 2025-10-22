@@ -70,6 +70,6 @@ pub fn build_watchtower_challenge_tx(
         fee_amount,
     ) {
         Ok(tx) => Ok(tx),
-        Err(e) => bail!("Failed to build watchtower challenge transaction: {}", e),
+        Err(e) => bail!("Failed to build watchtower challenge transaction: {e}"),
     }
 }

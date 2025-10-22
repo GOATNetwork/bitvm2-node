@@ -32,13 +32,13 @@ fn verify_el_withdraw_tx(
     input: &EthClientExecutorInput,
 ) -> U256 {
     let mut data = [0u8; 32 * 2 + 16];
-    let mut base: [u8; 32] = base_slot.to_be_bytes();
-    data[..32].copy_from_slice(&mut base);
-    let mut k: [u8; 16] = key.to_be_bytes();
-    data[32..48].copy_from_slice(&mut k);
+    let base: [u8; 32] = base_slot.to_be_bytes();
+    data[..32].copy_from_slice(&base);
+    let k: [u8; 16] = key.to_be_bytes();
+    data[32..48].copy_from_slice(&k);
     let offset: U256 = U256::ZERO;
-    let mut k: [u8; 32] = offset.to_be_bytes();
-    data[48..].copy_from_slice(&mut k);
+    let k: [u8; 32] = offset.to_be_bytes();
+    data[48..].copy_from_slice(&k);
     let slot_id = B256::from(keccak256(data));
 
     let triedb = input.witness_db().unwrap();
@@ -77,13 +77,14 @@ pub fn generate_watchtower_proof(
 
 fn u256_to_bits(u: U256) -> [bool; 256] {
     let mut bits = [false; 256];
-    for i in 0..256 {
-        bits[i] = u.bit(i); // U256 provides `.bit(n)` method
+    for (i, item) in bits.iter_mut().enumerate() {
+        *item = u.bit(i); // U256 provides `.bit(n)` method
     }
     bits
 }
 
 // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
+#[allow(clippy::too_many_arguments)]
 pub fn generate_operator_proof(
     included_watchtowers: U256,
     graph_id: [u8; 16],
@@ -127,7 +128,7 @@ pub fn generate_operator_proof(
 
     // parse included_watchtowers into bits array
     let included_watchertowers_bits = u256_to_bits(included_watchtowers);
-    println!("included watchtowers:{:?}", included_watchertowers_bits);
+    println!("included watchtowers:{included_watchertowers_bits:?}");
     // For each watchtowers, if the included_watchtowers[i] is true,
     //   verify the watchtower_challenge_txns[i] is valid
     //   verify watchtower_challenge_txns[i].total_work <= operator_header_chain.total_work
@@ -152,7 +153,7 @@ pub fn generate_operator_proof(
             ) {
                 Ok(_) => {}
                 Err(msg) => {
-                    println!("Watchtower[{i}] signature verification: {}", msg);
+                    println!("Watchtower[{i}] signature verification: {msg}");
                     continue;
                 }
             };
@@ -163,7 +164,7 @@ pub fn generate_operator_proof(
                 continue;
             }
 
-            let commitment = &extract_op_return_data(&tx)[..];
+            let commitment = &extract_op_return_data(tx)[..];
             let (parsed_graph_id, _, _, _, watchtower_total_work, watchtower_block_height) =
                 match parse_watchtower_commitment(commitment) {
                     Ok(c) => c,
@@ -199,7 +200,7 @@ pub fn generate_operator_proof(
     println!("verify el block");
     // verify the goat block has been included by consensus
     let latest_el_block = &eth_client_execution_input.current_block;
-    println!("mix hash: {}", latest_el_block.header.mix_hash.to_string());
+    println!("mix hash: {}", latest_el_block.header.mix_hash);
 
     verify_el_block_from_consensus(
         latest_el_block.header.number,
@@ -267,14 +268,14 @@ pub fn build_spv(
     latest_sequencer_commit_txn: &Transaction,
     target_block_pos: u32,
     target_block: Block,
-    block_headers: &Vec<CircuitBlockHeader>,
+    block_headers: &[CircuitBlockHeader],
 ) -> SPV {
     let tx: CircuitTransaction = CircuitTransaction(latest_sequencer_commit_txn.clone());
     let latest_sequencer_commit_txid = tx.0.compute_txid();
 
     let mut mmr_native = MMRHost::new();
-    for j in 0..block_headers.len() {
-        mmr_native.append(block_headers[j].compute_block_hash());
+    for block_header in block_headers {
+        mmr_native.append(block_header.compute_block_hash());
     }
 
     let target_block_header: CircuitBlockHeader = block_headers[target_block_pos as usize].clone();
@@ -324,12 +325,12 @@ pub fn build_watchtower_commitment(
     comm
 }
 
+pub type WatchtowerCommitmentResult =
+    ([u8; GRAPH_ID_SIZE], [u8; PROOF_SIZE], [u8; PUBLIC_INPUTS_SIZE], String, U256, U256);
+
 pub fn parse_watchtower_commitment(
     commitment: &[u8],
-) -> Result<
-    ([u8; GRAPH_ID_SIZE], [u8; PROOF_SIZE], [u8; PUBLIC_INPUTS_SIZE], String, U256, U256),
-    String,
-> {
+) -> Result<WatchtowerCommitmentResult, String> {
     let mut end = GRAPH_ID_SIZE;
     let mut graph_id = [0u8; GRAPH_ID_SIZE];
     graph_id.copy_from_slice(&commitment[0..GRAPH_ID_SIZE]);
@@ -360,7 +361,7 @@ pub fn parse_watchtower_commitment(
 
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
     let result = Groth16Verifier::verify(&proof, &zkm_public_values, &zkm_vk_hash, groth16_vk);
-    if !result.is_ok() {
+    if result.is_err() {
         return Err("Watchtower[{i}] invalid commitment: head chain Groth16 proof".into());
     }
 

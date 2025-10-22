@@ -94,6 +94,7 @@ impl EvmChain {
         self.adaptor.gateway_get_graph_data(graph_id.as_bytes()).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn gateway_post_pegin_request(
         &self,
         instance_id: &Uuid,
@@ -217,6 +218,7 @@ impl EvmChain {
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn gateway_finish_withdraw_disproved(
         &self,
         graph_id: &Uuid,

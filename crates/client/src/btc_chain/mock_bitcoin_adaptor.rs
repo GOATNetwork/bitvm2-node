@@ -61,7 +61,7 @@ impl MockBitcoinAdaptor {
                     (vin.txid, vin.vout as u64),
                     OutputStatus {
                         spent: true,
-                        txid: Some(txid.clone()),
+                        txid: Some(txid),
                         vin: Some(index as u64),
                         status: Some(tx.status.clone()),
                     },
@@ -122,7 +122,7 @@ impl BitcoinAdaptor for MockBitcoinAdaptor {
     async fn get_tx_status(&self, txid: &Txid) -> anyhow::Result<TxStatus> {
         match self.get_tx_info(txid).await? {
             Some(tx) => Ok(tx.status),
-            None => anyhow::bail!("Transaction status not found for txid {}", txid),
+            None => anyhow::bail!("Transaction status not found for txid {txid}"),
         }
     }
 
@@ -176,7 +176,7 @@ impl BitcoinAdaptor for MockBitcoinAdaptor {
     async fn get_block_hash(&self, block_height: u32) -> anyhow::Result<BlockHash> {
         match self.get_block_hash_for_height(block_height) {
             Some(hash) => Ok(hash),
-            None => anyhow::bail!("Block hash not found for height {}", block_height),
+            None => anyhow::bail!("Block hash not found for height {block_height}"),
         }
     }
 
@@ -195,7 +195,7 @@ impl BitcoinAdaptor for MockBitcoinAdaptor {
     async fn get_header_by_hash(&self, block_hash: &BlockHash) -> anyhow::Result<Header> {
         match self.get_block_by_hash(block_hash).await? {
             Some(b) => Ok(b.header),
-            None => anyhow::bail!("Block hash not found for height {}", block_hash),
+            None => anyhow::bail!("Block hash not found for height {block_hash}"),
         }
     }
 }

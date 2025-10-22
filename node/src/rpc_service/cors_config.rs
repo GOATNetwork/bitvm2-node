@@ -175,7 +175,7 @@ impl CorsConfig {
                 warnings.push("CORS contains wildcard origin, security risk".to_string());
             }
             if origin.starts_with("http://") && !origin.contains("localhost") {
-                warnings.push(format!("CORS contains insecure HTTP origin: {}", origin));
+                warnings.push(format!("CORS contains insecure HTTP origin: {origin}"));
             }
         }
 
@@ -188,7 +188,7 @@ impl CorsConfig {
         let sensitive_headers = ["authorization", "cookie", "x-api-key"];
         for header in &self.allowed_headers {
             if sensitive_headers.contains(&header.as_str()) {
-                warnings.push(format!("CORS allows sensitive header: {}", header));
+                warnings.push(format!("CORS allows sensitive header: {header}"));
             }
         }
 
@@ -213,8 +213,7 @@ impl CorsConfig {
             for origin in &self.allowed_origins {
                 if origin.starts_with("http://") && !origin.contains("localhost") {
                     warnings.push(format!(
-                        "CORS allows credentials with insecure HTTP origin: {}",
-                        origin
+                        "CORS allows credentials with insecure HTTP origin: {origin}"
                     ));
                 }
             }
@@ -223,8 +222,7 @@ impl CorsConfig {
             for origin in &self.allowed_origins {
                 if origin.contains("*") && !origin.starts_with("https://") {
                     warnings.push(format!(
-                        "CORS allows credentials with potentially unsafe origin pattern: {}",
-                        origin
+                        "CORS allows credentials with potentially unsafe origin pattern: {origin}"
                     ));
                 }
             }
@@ -265,9 +263,11 @@ mod tests {
 
     #[test]
     fn test_cors_config_validation() {
-        let mut config = CorsConfig::default();
-        config.allowed_origins = vec!["*".to_string()];
-        config.allow_credentials = true;
+        let config = CorsConfig {
+            allowed_origins: vec!["*".to_string()],
+            allow_credentials: true,
+            ..Default::default()
+        };
 
         let warnings = config.validate_security();
         assert!(!warnings.is_empty());
@@ -292,10 +292,11 @@ mod tests {
 
     #[test]
     fn test_max_age_warnings() {
-        let mut config = CorsConfig::default();
-
         // Test very long max_age
-        config.max_age = 172800; // 48 hours
+        let mut config = CorsConfig {
+            max_age: 172800, // 48 hours
+            ..Default::default()
+        };
         let warnings = config.validate_security();
         assert!(warnings.iter().any(|w| w.contains("too long")));
 
@@ -312,11 +313,12 @@ mod tests {
 
     #[test]
     fn test_credentials_security() {
-        let mut config = CorsConfig::default();
-
         // Test credentials with wildcard origin (should warn)
-        config.allow_credentials = true;
-        config.allowed_origins = vec!["*".to_string()];
+        let mut config = CorsConfig {
+            allow_credentials: true,
+            allowed_origins: vec!["*".to_string()],
+            ..Default::default()
+        };
         let warnings = config.validate_security();
         assert!(warnings.iter().any(|w| w.contains("credentials with wildcard origin")));
 

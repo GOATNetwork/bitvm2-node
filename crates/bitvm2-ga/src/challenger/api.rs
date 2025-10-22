@@ -26,7 +26,7 @@ pub fn extract_blockhash_commit_witness(
 ) -> Result<Vec<RawWitness>> {
     match extract_commits_from_txin(operator_commit_blockhash_txin, NUM_GUEST_PUBS_EXTRA, 0) {
         Ok(v) => Ok(v),
-        Err(e) => bail!("Failed to extract blockhash commit witness: {}", e),
+        Err(e) => bail!("Failed to extract blockhash commit witness: {e}"),
     }
 }
 
@@ -39,7 +39,7 @@ pub fn extract_assert_commit_witness(
         NUM_HASH,
     ) {
         Ok(v) => Ok(v),
-        Err(e) => bail!("Failed to extract assert commit witness: {}", e),
+        Err(e) => bail!("Failed to extract assert commit witness: {e}"),
     }
 }
 
@@ -62,7 +62,7 @@ pub fn verify_operator_commits(
             );
         }
         let preimage = extract_operator_preimage_from_ack_txin(txin)
-            .map_err(|e| anyhow::anyhow!("Failed to extract preimage from ack txin: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to extract preimage from ack txin: {e}"))?;
         preimages[watchtower_index] = preimage;
     }
     let (guest_validation_scripts, proof_validation_scripts) =
@@ -114,7 +114,7 @@ pub fn sign_disprove(
         input_script_witness,
         input_lock_script,
     )
-    .map_err(|e| anyhow::anyhow!("Failed to create disprove txin: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("Failed to create disprove txin: {e}"))?;
     let mut disprove_tx = Transaction {
         version: bitcoin::transaction::Version(2),
         lock_time: bitcoin::absolute::LockTime::ZERO,

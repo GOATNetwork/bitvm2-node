@@ -167,6 +167,12 @@ pub struct ChainState {
     pub block_hashes_mmr: MMRGuest,
 }
 
+impl Default for ChainState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChainState {
     pub fn new() -> Self {
         ChainState {
@@ -204,7 +210,7 @@ impl ChainState {
             let (target_to_use, expected_bits, work_to_add) = if IS_TESTNET4 {
                 if block_header.time > last_block_time + 1200 {
                     // If the block is an epoch block, then it still has to have the real target.
-                    if self.block_height % BLOCKS_PER_EPOCH == 0 {
+                    if self.block_height.is_multiple_of(BLOCKS_PER_EPOCH) {
                         (
                             current_target_bytes,
                             self.current_target_bits,
@@ -252,7 +258,7 @@ impl ChainState {
             self.best_block_hash = new_block_hash;
             current_work = current_work.wrapping_add(&work_to_add);
 
-            if !IS_REGTEST && self.block_height % BLOCKS_PER_EPOCH == 0 {
+            if !IS_REGTEST && self.block_height.is_multiple_of(BLOCKS_PER_EPOCH) {
                 self.epoch_start_time = block_header.time;
             }
 
@@ -306,9 +312,9 @@ fn target_to_bits(target: &[u8; 32]) -> u32 {
     let size = (263 - target_bits) / 8;
     let mut compact_target = [0u8; 4];
     compact_target[0] = 33 - size as u8;
-    compact_target[1] = target[size - 1 as usize];
-    compact_target[2] = target[size + 0 as usize];
-    compact_target[3] = target[size + 1 as usize];
+    compact_target[1] = target[size - 1_usize];
+    compact_target[2] = target[size];
+    compact_target[3] = target[size + 1_usize];
     u32::from_be_bytes(compact_target)
 }
 
@@ -348,8 +354,7 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
 fn calculate_work(target: &[u8; 32]) -> U256 {
     let target = U256::from_be_slice(target);
     let target_plus_one = target.saturating_add(&U256::ONE);
-    let work = U256::MAX.wrapping_div(&target_plus_one);
-    work
+    U256::MAX.wrapping_div(&target_plus_one)
 }
 
 /// The output of the header chain circuit.

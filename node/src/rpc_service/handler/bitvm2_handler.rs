@@ -584,6 +584,7 @@ pub async fn update_instance(
 ///
 /// - `Ok((blocks_passed, target_confirmations))`: Tuple of blocks passed and target confirmations
 /// - `Err`: Error if transaction lookup fails
+///
 /// Get Bitcoin transaction confirmation information
 ///
 /// Helper function to retrieve confirmation status for Bitcoin transactions.
@@ -1219,6 +1220,7 @@ pub async fn get_graphs(
 /// - Calculates transaction confirmation status
 /// - Modifies graph status based on withdrawal transaction presence
 /// - Adds proof height and query URL information
+///
 /// Add extended data to graphs
 ///
 /// Helper function to enrich graph data with confirmation status and proof information.

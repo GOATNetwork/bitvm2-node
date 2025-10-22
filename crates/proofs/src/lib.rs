@@ -32,7 +32,7 @@ pub async fn get_groth16_vk(db: &LocalDB, zkm_version: &str) -> Result<Verifying
     let mut storage_process = db.acquire().await?;
     let groth16_vk_bytes = storage_process.get_groth16_vk(zkm_version).await?;
     if groth16_vk_bytes.is_empty() {
-        return Err(anyhow::anyhow!("No Groth16 VK found for version: {}", zkm_version));
+        return Err(anyhow::anyhow!("No Groth16 VK found for version: {zkm_version}"));
     }
     Ok(load_ark_groth16_verifying_key_from_bytes(&groth16_vk_bytes)?)
 }

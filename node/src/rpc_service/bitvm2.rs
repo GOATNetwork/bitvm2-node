@@ -273,6 +273,6 @@ mod tests {
         assert_eq!(params.from_addr, Some("0x1234567890abcdef".to_string()));
         assert_eq!(params.offset, Some(10));
         assert_eq!(params.limit, Some(20));
-        assert_eq!(params.is_bridge_out, true);
+        assert!(params.is_bridge_out);
     }
 }

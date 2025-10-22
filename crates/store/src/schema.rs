@@ -334,13 +334,7 @@ pub struct Graph {
 impl Graph {
     pub fn get_check_tx_param(&self) -> Result<(Option<String>, u32), String> {
         // todo update
-        let status = GraphStatus::from_str(&self.status);
-        if status.is_err() {
-            return Err("Graph status is wrong".to_string());
-        }
-        match status.unwrap() {
-            _ => Err("not check status".to_string()),
-        }
+        Err("Graph status is wrong".to_string())
     }
 
     pub fn reverse_btc_txid(&mut self) {}

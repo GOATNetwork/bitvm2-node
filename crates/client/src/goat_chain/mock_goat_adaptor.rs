@@ -164,6 +164,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok(0)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn gateway_post_pegin_request(
         &self,
         _instance_id: &[u8; 16],
@@ -265,6 +266,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn gateway_finish_withdraw_disproved(
         &self,
         _graph_id: &[u8; 16],
@@ -423,6 +425,12 @@ impl ChainAdaptor for MockAdaptor {
         _peer_id: &[u8; 32],
     ) -> anyhow::Result<bool> {
         Ok(true)
+    }
+}
+
+impl Default for MockAdaptor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

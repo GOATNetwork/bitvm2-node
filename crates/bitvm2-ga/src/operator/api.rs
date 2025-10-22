@@ -212,8 +212,7 @@ pub(crate) fn generate_bitvm_graph_inner(
     let n_of_n_taproot_public_key =
         XOnlyPublicKey::from(params.instance_parameters.committee_agg_pubkey);
     let watchtower_num = params.watchtower_pubkeys.len();
-    let assert_wots_pubkeys =
-        (params.operator_wots_pubkeys.1.clone(), *params.operator_wots_pubkeys.2);
+    let assert_wots_pubkeys = (params.operator_wots_pubkeys.1, *params.operator_wots_pubkeys.2);
     let assert_commit_connectors = generate_chunked_assert_commit_connectors(
         network,
         &n_of_n_taproot_public_key,
@@ -252,7 +251,7 @@ pub(crate) fn generate_bitvm_graph_inner(
         watchtower_num,
         assert_commit_num,
     )
-    .map_err(|e| anyhow::anyhow!("failed to create pre-kickoff txn: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to create pre-kickoff txn: {e}"))?;
     let next_prekickoff_txid = next_prekickoff.tx().compute_txid();
     let next_force_skip_connector_input = Input {
         outpoint: OutPoint { txid: next_prekickoff_txid, vout: 0 },
@@ -285,7 +284,7 @@ pub(crate) fn generate_bitvm_graph_inner(
         watchtower_num,
         assert_commit_num,
     )
-    .map_err(|e| anyhow::anyhow!("failed to create kickoff txn: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to create kickoff txn: {e}"))?;
     let kickoff_txid = kickoff.tx().compute_txid();
     let connector_a_input = Input {
         outpoint: OutPoint { txid: kickoff_txid, vout: 0 },
@@ -343,7 +342,7 @@ pub(crate) fn generate_bitvm_graph_inner(
         guardian_connector_input.clone(),
         &params.operator_receive_address,
     )
-    .map_err(|e| anyhow::anyhow!("failed to create take-1 txn: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to create take-1 txn: {e}"))?;
 
     // challenge
     let challenge = ChallengeTransaction::new_for_validation(
@@ -381,7 +380,7 @@ pub(crate) fn generate_bitvm_graph_inner(
         &watchtower_connectors_array,
         connector_b_input,
     )
-    .map_err(|e| anyhow::anyhow!("failed to create watchtower-challenge-init txn: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to create watchtower-challenge-init txn: {e}"))?;
     let watchtower_challenge_init_txid = watchtower_challenge_init.tx().compute_txid();
     let connector_g_vout = watchtower_num * 2;
     let connector_g_input = Input {
@@ -449,7 +448,7 @@ pub(crate) fn generate_bitvm_graph_inner(
         &assert_commit_connectors,
         &connector_c_input,
     )
-    .map_err(|e| anyhow::anyhow!("failed to create assert-init txn: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to create assert-init txn: {e}"))?;
     let assert_init_txid = assert_init.tx().compute_txid();
     let connector_d_vout: usize = assert_commit_connectors.len();
     let connector_d_input = Input {
@@ -491,7 +490,7 @@ pub(crate) fn generate_bitvm_graph_inner(
         guardian_connector_input,
         &params.operator_receive_address,
     )
-    .map_err(|e| anyhow::anyhow!("failed to create take-2 txn: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to create take-2 txn: {e}"))?;
 
     Ok(Bitvm2Graph {
         operator_pre_signed: false,
@@ -573,7 +572,7 @@ pub fn operator_pre_sign(
 
 pub fn push_operator_pre_signature(
     graph: &mut Bitvm2Graph,
-    signed_witness: &Vec<Witness>,
+    signed_witness: &[Witness],
 ) -> Result<()> {
     if graph.operator_pre_signed {
         bail!("already pre-signed by operator".to_string())
@@ -630,7 +629,7 @@ pub fn operator_sign_skip_kickoff(
         Amount::ZERO,
         operator_receive_address.clone(),
     )
-    .map_err(|e| anyhow::anyhow!("failed to create sample skip-kickoff txn: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("failed to create sample skip-kickoff txn: {e}"))?;
 
     let fee_amount =
         Amount::from_sat((sample_tx.weight().to_vbytes_ceil() as f64 * fee_rate).ceil() as u64);
@@ -646,7 +645,7 @@ pub fn operator_sign_skip_kickoff(
         operator_receive_address,
     ) {
         Ok(tx) => Ok(Some(tx)),
-        Err(e) => bail!("failed to create skip-kickoff txn: {}", e),
+        Err(e) => bail!("failed to create skip-kickoff txn: {e}"),
     }
 }
 
@@ -793,7 +792,7 @@ pub fn operator_sign_ack(
     };
     match operator_ack(&watchtower_connectors, preimage, ack_input.clone()) {
         Ok(txin) => Ok((txin, ack_input.amount)),
-        Err(e) => bail!("failed to sign ack for watchtower index {watchtower_index}: {}", e),
+        Err(e) => bail!("failed to sign ack for watchtower index {watchtower_index}: {e}"),
     }
 }
 
@@ -829,7 +828,7 @@ pub fn operator_sign_blockhash_commit(
         connector_g_input.clone(),
     ) {
         Ok(txin) => Ok((txin, connector_g_input.amount)),
-        Err(e) => bail!("failed to sign blockhash commit: {}", e),
+        Err(e) => bail!("failed to sign blockhash commit: {e}"),
     }
 }
 
@@ -857,10 +856,8 @@ pub fn operator_sign_assert_commit(
     if !is_valid_wots_secrets(wots_secret_keys, &graph.parameters.operator_wots_pubkeys) {
         bail!("provided WOTS secret keys do not match expected public keys".to_string())
     };
-    let assert_wots_pubkeys = (
-        graph.parameters.operator_wots_pubkeys.1.clone(),
-        *graph.parameters.operator_wots_pubkeys.2,
-    );
+    let assert_wots_pubkeys =
+        (graph.parameters.operator_wots_pubkeys.1, *graph.parameters.operator_wots_pubkeys.2);
     let assert_commit_connectors = generate_chunked_assert_commit_connectors(
         operator_context.network,
         &operator_context.n_of_n_taproot_public_key,
@@ -878,7 +875,7 @@ pub fn operator_sign_assert_commit(
     let assert_assertions = (
         guest_inputs,
         generate_assertions(proof, groth16_pubin, vk)
-            .map_err(|e| anyhow::anyhow!("failed to generate assertions: {}", e))?,
+            .map_err(|e| anyhow::anyhow!("failed to generate assertions: {e}"))?,
     );
     match operator_commit_proof(
         &assert_commit_connectors,
@@ -891,7 +888,7 @@ pub fn operator_sign_assert_commit(
             .enumerate()
             .map(|(i, txin)| (txin, assert_commit_inputs[i].amount))
             .collect::<Vec<(TxIn, Amount)>>()),
-        Err(e) => bail!("failed to sign assert commit: {}", e),
+        Err(e) => bail!("failed to sign assert commit: {e}"),
     }
 }
 

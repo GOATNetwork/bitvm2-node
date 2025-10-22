@@ -105,7 +105,7 @@ impl OperatorMasterKey {
         let domain = [b"operator_bitvm_preimage".to_vec(), graph_id.as_bytes().to_vec()].concat();
         let preimage_seed = derive_secret(&self.0, &domain);
         let mut hasher = Sha256::new();
-        hasher.update(format!("{preimage_seed}/{:04x}", index).as_bytes());
+        hasher.update(format!("{preimage_seed}/{index:04x}").as_bytes());
         hasher.finalize().to_vec()
     }
 }
