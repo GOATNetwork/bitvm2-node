@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                graph_id  AS \"graph_id:Uuid\",\n                included_watchtowers,\n                latest_sequencer_commit_txid,\n                header_chain_proof_file_path,\n                commit_chain_proof_file_path,\n                consensus_layer_block_number,\n                execution_layer_block_number,\n                watchtower_challenge_info,\n                watchtower_challenge_init_txid,\n                block_headers_file_path,\n                proof_file_path,\n                status,\n                proving_time,\n                zkm_version,\n                created_at,\n                updated_at\n            FROM operator_proof WHERE graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "included_watchtowers",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "latest_sequencer_commit_txid",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "header_chain_proof_file_path",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "commit_chain_proof_file_path",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "consensus_layer_block_number",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "execution_layer_block_number",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "watchtower_challenge_info",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "watchtower_challenge_init_txid",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "block_headers_file_path",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "proof_file_path",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "status",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "proving_time",
+        "ordinal": 12,
+        "type_info": "Integer"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 14,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 15,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fb03c3afb8c46b8342dc25bd4e16b97174dd413203a947f54217b0b4c3da88a6"
+}

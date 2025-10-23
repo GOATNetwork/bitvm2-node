@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO operator_proof (graph_id, included_watchtowers, latest_sequencer_commit_txid,\n                            header_chain_proof_file_path, commit_chain_proof_file_path, consensus_layer_block_number,\n                            execution_layer_block_number, watchtower_challenge_info, watchtower_challenge_init_txid, \n                            block_headers_file_path, proof_file_path, status, proving_time, zkm_version,\n                            created_at, updated_at)\n              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 16
+    },
+    "nullable": []
+  },
+  "hash": "e97147622512f48d58d5fb489627efd34ed88dfd0b332731d0f9164ee1a664b6"
+}

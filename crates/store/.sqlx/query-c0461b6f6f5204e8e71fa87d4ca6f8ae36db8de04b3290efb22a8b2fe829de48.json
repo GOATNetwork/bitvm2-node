@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO commit_chain_proof (commits_info, pre_proof_file_path, proof_file_path, status, proving_time, zkm_version,\n                                            created_at, updated_at)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "c0461b6f6f5204e8e71fa87d4ca6f8ae36db8de04b3290efb22a8b2fe829de48"
+}

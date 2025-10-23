@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE commit_chain_proof SET status = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "001f331f7a6feb231cbb9d25ed59b6cae435a777a01b2890588c0c4168c91f5a"
+}

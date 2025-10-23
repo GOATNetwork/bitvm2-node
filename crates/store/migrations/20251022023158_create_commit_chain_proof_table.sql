@@ -8,6 +8,7 @@ CREATE TABLE commit_chain_proof
     `proof_file_path`     TEXT   NOT NULL,
     `status`              TEXT   NOT NULL CHECK (status IN ('queued', 'executed', 'proved', 'failed')),
     `proving_time`        BIGINT NOT NULL DEFAULT 0,
+    `zkm_version`         TEXT   NOT NULL,
     `created_at`          BIGINT NOT NULL DEFAULT 0,
-    `updated_at`          BIGINT NOT NULL DEFAULT 0,
+    `updated_at`          BIGINT NOT NULL DEFAULT 0
 );

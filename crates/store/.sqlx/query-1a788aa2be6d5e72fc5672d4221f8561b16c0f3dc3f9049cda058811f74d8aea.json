@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE header_chain_proof SET status = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "1a788aa2be6d5e72fc5672d4221f8561b16c0f3dc3f9049cda058811f74d8aea"
+}
