@@ -1503,7 +1503,7 @@ pub async fn recv_and_dispatch(
                 partial_sig,
             )
             .await?;
-            todo_funcs::store_committee_endorse_sig_for_pegin(
+            store_committee_endorse_sig_for_pegin(
                 local_db,
                 instance_id,
                 received_committee_pubkey,
@@ -1575,12 +1575,11 @@ pub async fn recv_and_dispatch(
                         return Ok(());
                     }
                 };
-                let endorse_sigs =
-                    todo_funcs::get_committee_endorse_sigs_for_pegin(local_db, instance_id)
-                        .await?
-                        .into_iter()
-                        .map(|(_, es)| es)
-                        .collect::<Vec<_>>();
+                let endorse_sigs = get_committee_endorse_sigs_for_pegin(local_db, instance_id)
+                    .await?
+                    .into_iter()
+                    .map(|(_, es)| es)
+                    .collect::<Vec<_>>();
                 if endorse_sigs.len() != committee_pubkeys.len() {
                     tracing::warn!(
                         "Ignore PostReady for {instance_id}: not enough endorse sigs for pegin confirm tx: {}",
@@ -1616,7 +1615,7 @@ pub async fn recv_and_dispatch(
                 // already posted
             }
             // 2. (Relayer)call Gateway.postGraphData on GoatChain
-            let graph_ids = todo_funcs::get_graph_ids_for_instance(local_db, instance_id).await?;
+            let graph_ids = get_graph_ids_for_instance(local_db, instance_id).await?;
             for graph_id in &graph_ids {
                 let graph_data = goat_client.gateway_get_graph_data(graph_id).await?;
                 if graph_data.operator_pubkey != [0u8; 32] {
@@ -3197,7 +3196,7 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::SyncGraph(SyncGraph { instance_id, graph_id, graph }), _) => {
             // sent by relayer nodes in response to SyncGraphRequest
-            if todo_funcs::graph_exists(local_db, instance_id, graph_id).await? {
+            if graph_exists(local_db, instance_id, graph_id).await? {
                 tracing::warn!(
                     "Ignore SyncGraph for {instance_id}:{graph_id}: graph already exists locally"
                 );

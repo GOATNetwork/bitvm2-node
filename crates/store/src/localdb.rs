@@ -1212,7 +1212,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(row)
     }
 
-    pub async fn get_graph_by_instance_id(
+    pub async fn get_graphs_by_instance_id(
         &mut self,
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Graph>> {

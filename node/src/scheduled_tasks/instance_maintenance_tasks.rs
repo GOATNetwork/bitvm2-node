@@ -432,7 +432,7 @@ pub async fn scan_post_graph_data(
         let committee_signs: Vec<Vec<u8>> =
             instance.committees_answers.values().map(|v| v.clone().l2_sig).collect();
 
-        let graphs = storage_process.get_graph_by_instance_id(&instance.instance_id).await?;
+        let graphs = storage_process.get_graphs_by_instance_id(&instance.instance_id).await?;
         if graphs.is_empty() {
             warn!(
                 "scan post_operator_data instance {}, status is L2Minted, but graph is none",

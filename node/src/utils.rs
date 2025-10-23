@@ -54,7 +54,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::{InstanceUpdate, LocalDB, StorageProcessor};
+use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
     Graph, GraphRawData, GraphStatus, Instance, InstanceStatus, Message, MessageState, Node,
@@ -81,8 +81,6 @@ pub mod todo_funcs {
         connectors::assert_connectors::chunk_assert_commit, disprove_scripts::NUM_GUEST_PUBS_ASSERT,
     };
 
-    use crate::scheduled_tasks::graph_maintenance_tasks::ChallengeSubStatus;
-
     use super::*;
 
     // contract calls
@@ -104,43 +102,6 @@ pub mod todo_funcs {
     }
 
     // db operations
-    pub async fn graph_exists(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<bool> {
-        todo!("check if graph exists in local db")
-    }
-    pub async fn update_graph_status(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        graph_id: Uuid,
-        new_status: GraphStatus,
-        sub_status: Option<ChallengeSubStatus>,
-    ) -> Result<()> {
-        todo!("update graph status in local db")
-    }
-    pub async fn get_graph_ids_for_instance(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-    ) -> Result<Vec<Uuid>> {
-        todo!("get all graph ids for the instance from local db")
-    }
-    pub async fn store_committee_endorse_sig_for_pegin(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-        committee_pubkey: PublicKey,
-        endorse_sig: Vec<u8>,
-    ) -> Result<()> {
-        todo!("store committee endorse sig for the instance in local db")
-    }
-    pub async fn get_committee_endorse_sigs_for_pegin(
-        local_db: &LocalDB,
-        instance_id: Uuid,
-    ) -> Result<Vec<(PublicKey, Vec<u8>)>> {
-        todo!("get committee endorse sigs for the instance from local db")
-    }
-
     // proof network
     pub async fn get_watchtower_proof(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<u8>> {
         todo!("get watchtower proof from proof network")
@@ -271,7 +232,7 @@ pub(crate) async fn refresh_graph(
     if current_status == GraphStatus::CommitteePresigned {
         let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
         if graph_data_on_goat.operator_pubkey == [0u8; 32] {
-            todo_funcs::update_graph_status(
+            update_graph_status(
                 local_db,
                 instance_id,
                 graph_id,
@@ -299,14 +260,8 @@ pub(crate) async fn refresh_graph(
     let prekickoff_txid = graph.cur_prekickoff.tx().compute_txid();
     if matches!(current_status, GraphStatus::OperatorDataPushed | GraphStatus::Obsoleted) {
         if !tx_on_chain(btc_client, &prekickoff_txid).await? {
-            todo_funcs::update_graph_status(
-                local_db,
-                instance_id,
-                graph_id,
-                current_status.clone(),
-                None,
-            )
-            .await?;
+            update_graph_status(local_db, instance_id, graph_id, current_status.clone(), None)
+                .await?;
             return Ok((current_status, None));
         } else {
             current_status = if current_status != GraphStatus::Obsoleted {
@@ -324,27 +279,15 @@ pub(crate) async fn refresh_graph(
             outpoint_spent_txid(btc_client, &prekickoff_txid, kickoff_connector_vout).await?
         {
             if spent_txid != kickoff_txid {
-                todo_funcs::update_graph_status(
-                    local_db,
-                    instance_id,
-                    graph_id,
-                    GraphStatus::Skipped,
-                    None,
-                )
-                .await?;
+                update_graph_status(local_db, instance_id, graph_id, GraphStatus::Skipped, None)
+                    .await?;
                 return Ok((GraphStatus::Skipped, None));
             } else {
                 current_status = GraphStatus::OperatorKickOff;
             }
         } else {
-            todo_funcs::update_graph_status(
-                local_db,
-                instance_id,
-                graph_id,
-                current_status.clone(),
-                None,
-            )
-            .await?;
+            update_graph_status(local_db, instance_id, graph_id, current_status.clone(), None)
+                .await?;
             return Ok((current_status, None));
         }
     }
@@ -358,7 +301,7 @@ pub(crate) async fn refresh_graph(
             if spent_txid != take1_txid {
                 current_status = GraphStatus::Challenge;
             } else {
-                todo_funcs::update_graph_status(
+                update_graph_status(
                     local_db,
                     instance_id,
                     graph_id,
@@ -369,7 +312,7 @@ pub(crate) async fn refresh_graph(
                 return Ok((GraphStatus::OperatorTake1, None));
             }
         } else {
-            todo_funcs::update_graph_status(
+            update_graph_status(
                 local_db,
                 instance_id,
                 graph_id,
@@ -393,7 +336,7 @@ pub(crate) async fn refresh_graph(
             } else {
                 current_status = GraphStatus::OperatorTake2;
             }
-            todo_funcs::update_graph_status(
+            update_graph_status(
                 local_db,
                 instance_id,
                 graph_id,
@@ -437,7 +380,7 @@ pub(crate) async fn refresh_graph(
                     sub_status.watchtower_challenge_status =
                         WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished;
                 }
-                todo_funcs::update_graph_status(
+                update_graph_status(
                     local_db,
                     instance_id,
                     graph_id,
@@ -528,7 +471,7 @@ pub(crate) async fn refresh_graph(
                 let first_input_vout = spent_tx.input[0].previous_output.vout;
                 sub_status.disprove_type = Some(DisproveTxType::AssertTimeout);
                 sub_status.disprove_index = first_input_vout as i32;
-                todo_funcs::update_graph_status(
+                update_graph_status(
                     local_db,
                     instance_id,
                     graph_id,
@@ -564,7 +507,7 @@ pub(crate) async fn refresh_graph(
             }
         }
     }
-    todo_funcs::update_graph_status(
+    update_graph_status(
         local_db,
         instance_id,
         graph_id,
@@ -2155,6 +2098,7 @@ pub fn temp_file() -> String {
 pub struct InstanceProcessDataItem {
     pub pub_nonce: Option<PubNonce>,
     pub partial_sign: Option<PartialSignature>,
+    pub endorse_signature: Vec<u8>,
 }
 pub type InstanceProcessDataMap = IndexMap<PublicKey, InstanceProcessDataItem>;
 
@@ -2703,6 +2647,7 @@ pub async fn store_committee_pub_nonce_for_instance(
         .or_insert_with(|| InstanceProcessDataItem {
             pub_nonce: Some(pub_nonce),
             partial_sign: None,
+            endorse_signature: vec![],
         });
     upsert_pegin_instance_process_data(&mut storage_processor, instance_id, &process_data).await?;
     Ok(())
@@ -2744,6 +2689,7 @@ pub async fn store_committee_partial_sig_for_instance(
         .or_insert_with(|| InstanceProcessDataItem {
             pub_nonce: None,
             partial_sign: Some(partial_sigs),
+            endorse_signature: vec![],
         });
     upsert_pegin_instance_process_data(&mut storage_processor, instance_id, &process_data).await?;
     Ok(())
@@ -2760,4 +2706,78 @@ pub async fn get_committee_partial_sigs_for_instance(
         .iter()
         .filter_map(|(k, v)| v.partial_sign.as_ref().map(|partial_sign| (*k, *partial_sign)))
         .collect())
+}
+
+pub async fn store_committee_endorse_sig_for_pegin(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    committee_pubkey: PublicKey,
+    endorse_sig: Vec<u8>,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let mut process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    process_data
+        .entry(committee_pubkey)
+        .and_modify(|v| v.endorse_signature = endorse_sig.clone())
+        .or_insert_with(|| InstanceProcessDataItem {
+            pub_nonce: None,
+            partial_sign: None,
+            endorse_signature: endorse_sig,
+        });
+    upsert_pegin_instance_process_data(&mut storage_processor, instance_id, &process_data).await?;
+    Ok(())
+}
+pub async fn get_committee_endorse_sigs_for_pegin(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+) -> Result<Vec<(PublicKey, Vec<u8>)>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    Ok(process_data
+        .iter()
+        .filter_map(|(k, v)| {
+            if !v.endorse_signature.is_empty() {
+                Some((*k, v.endorse_signature.clone()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<(PublicKey, Vec<u8>)>>())
+}
+
+pub async fn graph_exists(local_db: &LocalDB, instance_id: Uuid, graph_id: Uuid) -> Result<bool> {
+    let mut storage_processor = local_db.acquire().await?;
+    if let Some(graph) = storage_processor.find_graph(&graph_id).await?
+        && graph.instance_id == instance_id
+    {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+pub async fn update_graph_status(
+    local_db: &LocalDB,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+    new_status: GraphStatus,
+    sub_status: Option<ChallengeSubStatus>,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());
+    if let Some(sub_status) = sub_status {
+        graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
+    }
+    storage_processor.update_graph_fields(graph_update).await?;
+    Ok(())
+}
+pub async fn get_graph_ids_for_instance(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+) -> Result<Vec<Uuid>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let graphs = storage_processor.get_graphs_by_instance_id(&instance_id).await?;
+    Ok(graphs.into_iter().map(|v| v.graph_id).collect())
 }
