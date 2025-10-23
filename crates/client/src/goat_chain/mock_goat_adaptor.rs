@@ -297,6 +297,14 @@ impl ChainAdaptor for MockAdaptor {
         Ok([0u8; 32])
     }
 
+    async fn gateway_get_post_pegin_digest(
+        &self,
+        _instance_id: &[u8; 16],
+        _pegin_txid: &[u8; 32],
+    ) -> anyhow::Result<[u8; 32]> {
+        Ok([0u8; 32])
+    }
+
     async fn gateway_get_graph_ids_by_instance_id(
         &self,
         _instance_id: &[u8; 16],
@@ -425,6 +433,28 @@ impl ChainAdaptor for MockAdaptor {
         _peer_id: &[u8; 32],
     ) -> anyhow::Result<bool> {
         Ok(true)
+    }
+
+    async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>> {
+        Ok(vec![])
+    }
+
+    async fn committee_mana_add_watchtower(
+        &self,
+        _watchtower: &[u8; 32],
+        _nonce: U256,
+        _auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
+    }
+
+    async fn committee_mana_remove_watchtower(
+        &self,
+        _watchtower: &[u8; 32],
+        _nonce: U256,
+        _auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        Ok("".to_string())
     }
 }
 

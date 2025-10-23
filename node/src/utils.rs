@@ -84,23 +84,6 @@ pub mod todo_funcs {
     use super::*;
 
     // contract calls
-    pub async fn get_graph_ids_by_instance_id(
-        goat_client: &GOATClient,
-        instance_id: Uuid,
-    ) -> Result<Vec<Uuid>> {
-        todo!("call Gateway.getGraphIdsByInstanceId(instance_id) on goat chain")
-    }
-    pub async fn get_post_pegin_digest(
-        goat_client: &GOATClient,
-        instance_id: Uuid,
-        pegin_txid: &Txid,
-    ) -> Result<[u8; 32]> {
-        todo!("call Gateway.getPostPeginDigest(instance_id, pegin_txid) on goat chain")
-    }
-    pub async fn get_watchtowers(goat_client: &GOATClient) -> Result<Vec<PublicKey>> {
-        todo!("call CommitteeManagement.getWatchtowers() on goat chain")
-    }
-
     // db operations
     // proof network
     pub async fn get_watchtower_proof(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<u8>> {
@@ -627,7 +610,7 @@ pub async fn validate_graph_id_on_goat(
         bail!("Graph {graph_id} not found on GoatChain")
     }
     let all_instance_graph_ids =
-        todo_funcs::get_graph_ids_by_instance_id(goat_client, instance_id).await?;
+        goat_client.gateway_get_graph_ids_by_instance_id(&instance_id).await?;
     if !all_instance_graph_ids.contains(&graph_id) {
         bail!("graph_id: {graph_id} and instance_id {instance_id} mismatch")
     }
@@ -1156,7 +1139,7 @@ pub async fn build_genesis_prekickoff_tx(
     goat_client: &GOATClient,
 ) -> Result<PrekickoffTransaction> {
     let assert_commit_num = todo_funcs::assert_commmit_num();
-    let watchtower_num = todo_funcs::get_watchtowers(goat_client).await?.len();
+    let watchtower_num = goat_client.committee_mana_get_watchtowers().await?.len();
     let network = get_network();
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let node_keypair = operator_master_key.master_keypair();
@@ -1261,7 +1244,7 @@ pub async fn build_graph_params(
     let operator_receive_address =
         node_p2wsh_address(instance_parameters.network, &operator_pubkey);
     let operator_wots_pubkeys = operator_master_key.wots_keypair_for_graph(graph_id).1;
-    let watchtower_pubkeys = todo_funcs::get_watchtowers(goat_client).await?;
+    let watchtower_pubkeys = goat_client.committee_mana_get_watchtowers().await?;
     let mut hashlocks = vec![];
     for index in 0..watchtower_pubkeys.len() {
         let preimage = todo_funcs::get_preimage(local_db, instance_id, graph_id, index).await?;
@@ -1479,8 +1462,7 @@ pub async fn endorse_pegin(
     pegin_txid: &Txid,
 ) -> Result<EvmSignature> {
     let signer = PrivateKeySigner::from_str(&get_node_goat_private_key()?)?;
-    let pegin_digest =
-        todo_funcs::get_post_pegin_digest(goat_client, instance_id, pegin_txid).await?;
+    let pegin_digest = goat_client.gateway_get_post_pegin_digest(&instance_id, pegin_txid).await?;
     let sig = signer.sign_hash(&pegin_digest.into()).await?;
     Ok(sig)
 }

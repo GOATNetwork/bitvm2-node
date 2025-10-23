@@ -560,6 +560,14 @@ impl GOATClient {
     ) -> anyhow::Result<[u8; 32]> {
         self.chain_service.gateway_get_post_graph_digest(instance_id, graph_id, graph_data).await
     }
+
+    pub async fn gateway_get_post_pegin_digest(
+        &self,
+        instance_id: &Uuid,
+        pegin_txid: &Txid,
+    ) -> anyhow::Result<[u8; 32]> {
+        self.chain_service.gateway_get_post_pegin_digest(instance_id, pegin_txid).await
+    }
     pub async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]> {
         self.chain_service.btc_spv_blockhash(height).await
     }
@@ -712,6 +720,31 @@ impl GOATClient {
         peer_id: &[u8; 32],
     ) -> anyhow::Result<bool> {
         self.chain_service.committee_mana_is_validate_peer_id(peer_id).await
+    }
+
+    pub async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<PublicKey>> {
+        let watchtowers = self.chain_service.committee_mana_get_watchtowers().await?;
+        Ok(watchtowers
+            .iter()
+            .filter_map(|v| PublicKey::from_slice(v).ok())
+            .collect::<Vec<PublicKey>>())
+    }
+    pub async fn committee_mana_add_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: u64,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        self.chain_service.committee_mana_add_watchtower(watchtower, nonce, auth_signs).await
+    }
+
+    pub async fn committee_mana_remove_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: u64,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        self.chain_service.committee_mana_remove_watchtower(watchtower, nonce, auth_signs).await
     }
 }
 
