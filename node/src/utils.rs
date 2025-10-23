@@ -164,17 +164,6 @@ pub mod todo_funcs {
         todo!("get guest constant value")
     }
 
-    // get from env
-    pub fn is_relayer() -> bool {
-        todo!("check if the node is relayer")
-    }
-    pub fn get_node_evm_address() -> Result<EvmAddress> {
-        todo!("get node's evm address")
-    }
-    pub fn get_node_evm_private_key() -> Result<String> {
-        todo!("get node's evm private key")
-    }
-
     // other operations
     pub fn assert_commmit_num() -> usize {
         let use_compact = false;
@@ -1461,7 +1450,8 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
 pub async fn send_challenge_tx(btc_client: &BTCClient, graph: &Bitvm2Graph) -> Result<Txid> {
     let (mut challenge_tx, _) = export_challenge_tx(graph)?;
     let challenge_keypair = ChallengerMasterKey::new(get_bitvm_key()?).master_keypair();
-    let challenger_evm_address = todo_funcs::get_node_evm_address()?;
+    let challenger_evm_address = get_node_goat_address()
+        .ok_or_else(|| anyhow::anyhow!("failed to get node goat address".to_string()))?;
     challenge_tx.output.push(bitcoin::TxOut {
         value: Amount::ZERO,
         script_pubkey: generate_opreturn_script(challenger_evm_address.to_vec()),
@@ -1534,7 +1524,7 @@ pub async fn send_watchtower_challenge_tx(
 }
 
 pub async fn endorse_graph(goat_client: &GOATClient, graph: &Bitvm2Graph) -> Result<EvmSignature> {
-    let signer = PrivateKeySigner::from_str(&todo_funcs::get_node_evm_private_key()?)?;
+    let signer = PrivateKeySigner::from_str(&get_node_goat_private_key()?)?;
     let graph_digest = get_graph_digest(goat_client, graph).await?;
     let sig = signer.sign_hash(&graph_digest.into()).await?;
     Ok(sig)
@@ -1545,7 +1535,7 @@ pub async fn endorse_pegin(
     instance_id: Uuid,
     pegin_txid: &Txid,
 ) -> Result<EvmSignature> {
-    let signer = PrivateKeySigner::from_str(&todo_funcs::get_node_evm_private_key()?)?;
+    let signer = PrivateKeySigner::from_str(&get_node_goat_private_key()?)?;
     let pegin_digest =
         todo_funcs::get_post_pegin_digest(goat_client, instance_id, pegin_txid).await?;
     let sig = signer.sign_hash(&pegin_digest.into()).await?;

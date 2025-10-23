@@ -27,6 +27,7 @@ pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
 pub const ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS: &str =
     "ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS";
 /// Relayer
+pub const ENV_ENABLE_RELAYER: &str = "ENABLE_RELAYER";
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
 pub const ENV_GOAT_EVENT_THE_GRAPH_URL: &str = "GOAT_EVENT_THE_GRAPH_URL";
@@ -171,8 +172,18 @@ pub fn get_ipfs_url() -> String {
     std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
 }
 
+pub fn is_relayer() -> bool {
+    match std::env::var(ENV_ENABLE_RELAYER) {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+pub fn get_node_goat_private_key() -> anyhow::Result<String> {
+    std::env::var(ENV_GOAT_PRIVATE_KEY).map_err(|_| anyhow::anyhow!("Goat private key is missing"))
+}
+
 pub fn get_node_goat_address() -> Option<EvmAddress> {
-    if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
+    if let Ok(private_key_hex) = get_node_goat_private_key() {
         let singer =
             PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
         Some(singer.address())
