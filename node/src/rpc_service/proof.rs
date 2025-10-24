@@ -3,7 +3,7 @@ use ark_groth16::Groth16;
 use ark_groth16::r1cs_to_qap::LibsnarkReduction;
 use serde::{Deserialize, Serialize};
 use store::ProofInfo;
-use zkm_sdk::{ZKMProofWithPublicValues, ZKMStdin};
+use zkm_sdk::ZKMProofWithPublicValues;
 use zkm_verifier::convert_ark;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -116,7 +116,7 @@ impl Groth16ProofValue {
             proof: bincode::deserialize(&self.proof)?,
             public_values: bincode::deserialize(&self.public_values)?,
             zkm_version: self.zkm_version.clone(),
-            stdin: ZKMStdin::default(),
+            // stdin: ZKMStdin::default(),
         };
         let ark_proof = convert_ark(&proof, &self.verifier_id, &self.groth16_vk)?;
         Ok(Groth16::<Bn254, LibsnarkReduction>::verify_proof(

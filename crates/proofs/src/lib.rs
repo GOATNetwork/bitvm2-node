@@ -1,7 +1,7 @@
 use anyhow::Result;
 use store::localdb::LocalDB;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
-use zkm_sdk::{ZKMProofWithPublicValues, ZKMStdin};
+use zkm_sdk::ZKMProofWithPublicValues;
 use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, load_ark_groth16_verifying_key_from_bytes};
 
 pub type VerifyingKey = ark_groth16::VerifyingKey<ark_bn254::Bn254>;
@@ -56,7 +56,7 @@ pub async fn get_groth16_proof(
         proof: bincode::deserialize(&proof)?,
         public_values: bincode::deserialize(&public_values)?,
         zkm_version: zkm_version.to_string(),
-        stdin: ZKMStdin::default(),
+        // stdin: ZKMStdin::default(),
     };
 
     // Convert the gnark proof to an arkworks proof.
