@@ -881,7 +881,7 @@ mod tests {
             prev_block_hash: [0u8; 32],
             merkle_root,
             time: 1231006505,
-            bits: 545259519,
+            bits: 486604799,
             nonce: 2083236893,
         };
 

@@ -1,10 +1,5 @@
 //! Generate watchtower proof
-//! Example:
-//! ```
-//! export BITCOIN_NETWORK=regtest
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
-//! RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin"
-//! ```
+//!
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
@@ -30,6 +25,9 @@ pub struct Args {
     esplora_url: String,
 
     #[clap(long, env)]
+    genesis_sequencer_commit_txid: String,
+
+    #[clap(long, env)]
     latest_sequencer_commit_txid: String,
 
     #[clap(long, env, short)]
@@ -38,15 +36,16 @@ pub struct Args {
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
 
-    #[clap(long, env, default_value = "commit-proof.bin")]
+    #[clap(long, env)]
     output: String,
 
-    #[clap(long, env, default_value = "../../header-chain-proof/host/block_headers.bin")]
+    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
     block_headers: String,
 }
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
@@ -94,6 +93,8 @@ async fn main() {
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
+    let genesis_sequencer_commit_txid =
+        Txid::from_str(&args.genesis_sequencer_commit_txid).unwrap();
     let latest_sequencer_commit_txid = Txid::from_str(&args.latest_sequencer_commit_txid).unwrap();
 
     let tx = btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
@@ -119,6 +120,7 @@ async fn main() {
     // Generate the proofs.
     let mut proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
+        stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
         stdin.write(&latest_sequencer_commit_txid.to_byte_array());
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);

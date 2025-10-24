@@ -45,8 +45,8 @@ fn verify_el_withdraw_tx(
     triedb.storage_ref(l2_contract_address, slot_id.into()).unwrap()
 }
 
-// FIXME: check genesis commit txn
 pub fn generate_watchtower_proof(
+    genesis_sequencer_commit_txid: [u8; 32],
     latest_sequencer_commit_txid: [u8; 32],
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
@@ -61,6 +61,7 @@ pub fn generate_watchtower_proof(
         commit_header_chain_output.chain_state.commit_txn.compute_txid(),
         Txid::from_byte_array(latest_sequencer_commit_txid)
     );
+    assert_eq!(genesis_sequencer_commit_txid, commit_header_chain_output.chain_state.genesis_txid);
 
     println!("header chain: applying: {}", header_chain.block_headers.len());
     // verify header_chain is valid

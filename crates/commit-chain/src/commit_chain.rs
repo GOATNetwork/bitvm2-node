@@ -12,6 +12,7 @@ pub struct CommitInfo {
     pub threshold: u16,
     pub publisher_public_keys: Vec<String>,
     pub txid: String,
+    pub genesis_txid: String,
 }
 
 fn build_dummy_tx() -> Transaction {
@@ -34,6 +35,7 @@ pub enum CommitChainPrevProofType {
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CircuitCommit {
     pub commit_txn: Transaction,
+    pub genesis_txid: [u8; 32],
     pub sequencer_set_hash: [u8; 32],
     pub publisher_public_keys: Vec<PublicKey>,
     pub threshold: u16,
@@ -44,6 +46,7 @@ pub struct CircuitCommit {
 pub struct CommitChainState {
     pub block_height: u64,
     pub commit_txn: Transaction,
+    pub genesis_txid: [u8; 32],
     pub sequencer_set_hash: [u8; 32],
     pub publisher_public_keys: Vec<PublicKey>,
     pub threshold: u16,
@@ -74,6 +77,7 @@ impl CommitChainState {
         CommitChainState {
             block_height: u64::MAX,
             commit_txn: build_dummy_tx(),
+            genesis_txid: [0u8; 32],
             sequencer_set_hash: [0u8; 32],
             publisher_public_keys: vec![],
             threshold: u16::MAX,
@@ -91,6 +95,11 @@ impl CommitChainState {
             let latest_sequencer_set_hash = &commit.sequencer_set_hash;
             let publisher_public_keys = &commit.publisher_public_keys;
             let threshold = commit.threshold;
+
+            if self.genesis_txid == [0u8; 32] {
+                self.genesis_txid = commit.genesis_txid;
+            }
+            assert_eq!(commit.genesis_txid, self.genesis_txid);
 
             let prev_commit_txid = prev_commit_txn.compute_txid();
             println!("prev commit txid: {prev_commit_txid}, {prev_commit_txn:?}");

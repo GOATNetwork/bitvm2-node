@@ -2,7 +2,7 @@
 //! Example:
 //!     Genesis:       RUST_LOG=debug cargo run -r -- --init-input --output-proof "commit-proof.bin"
 //!     Regular proof: RUST_LOG=debug cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
-use bitcoin::{Network, Txid, secp256k1::PublicKey};
+use bitcoin::{Network, Txid, hashes::Hash, secp256k1::PublicKey};
 use client::btc_chain::BTCClient;
 use commit_chain::*;
 use std::str::FromStr;
@@ -22,7 +22,7 @@ pub struct Args {
     #[arg(long, default_value = "http://127.0.0.1:3002")]
     esplora_url: String,
 
-    #[arg(long, default_value = "../../../node/tests_data/commit_info.json")]
+    #[arg(long, default_value = "../node/tests_data/commit_info.json")]
     commit_info: String,
 
     #[arg(long, default_value = "commits.bin")]
@@ -63,6 +63,7 @@ async fn fetch_commit_chain(args: &Args) {
             sequencer_set_hash,
             publisher_public_keys,
             threshold: ci.threshold,
+            genesis_txid: Txid::from_str(&ci.genesis_txid).unwrap().as_raw_hash().to_byte_array(),
         };
         commits.push(commit);
     }
@@ -71,6 +72,7 @@ async fn fetch_commit_chain(args: &Args) {
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     println!("args: {:?}", args);
     fetch_commit_chain(&args).await;
