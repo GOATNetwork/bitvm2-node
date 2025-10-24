@@ -7,8 +7,9 @@ CREATE TABLE watchtower_proof
     `header_chain_proof_file_path` TEXT   NOT NULL,
     `commit_chain_proof_file_path` TEXT   NOT NULL,
     `proof_file_path`              TEXT   NOT NULL,
-    `status`                       TEXT   NOT NULLCHECK (status IN ('queued', 'executed', 'proved', 'failed')),
+    `status`                       TEXT   NOT NULL CHECK (status IN ('queued', 'executed', 'proved', 'failed')),
     `proving_time`                 BIGINT NOT NULL DEFAULT 0,
+    `zkm_version`                  TEXT   NOT NULL,
     `created_at`                   BIGINT NOT NULL DEFAULT 0,
-    `updated_at`                   BIGINT NOT NULL DEFAULT 0,
+    `updated_at`                   BIGINT NOT NULL DEFAULT 0
 );

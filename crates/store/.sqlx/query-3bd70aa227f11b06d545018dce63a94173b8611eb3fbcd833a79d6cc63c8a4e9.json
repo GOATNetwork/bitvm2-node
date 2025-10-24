@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT * FROM watchtower_proof WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "latest_sequencer_commit_txid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "header_chain_proof_file_path",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "commit_chain_proof_file_path",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "proof_file_path",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "status",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "proving_time",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 9,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3bd70aa227f11b06d545018dce63a94173b8611eb3fbcd833a79d6cc63c8a4e9"
+}

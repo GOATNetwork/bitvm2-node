@@ -2,9 +2,10 @@ use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    CommitteeSignatures, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance,
-    Message, MessageBroadcast, Node, NodesOverview, PeginGraphProcessData,
-    PeginInstanceProcessData, ProofInfo, ProofType, SerializableTxid, WatchContract,
+    CommitChainProof, CommitteeSignatures, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
+    GraphRawData, HeaderChainProof, Instance, Message, MessageBroadcast, Node, NodesOverview,
+    OperatorProof, PeginGraphProcessData, PeginInstanceProcessData, ProofInfo, ProofType,
+    SerializableTxid, WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -1212,7 +1213,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(row)
     }
 
-    pub async fn get_graph_by_instance_id(
+    pub async fn get_graphs_by_instance_id(
         &mut self,
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Graph>> {
@@ -3314,6 +3315,225 @@ impl<'a> StorageProcessor<'a> {
         .execute(self.conn())
         .await?;
         Ok(res.rows_affected())
+    }
+
+    pub async fn insert_commit_chain_proof(
+        &mut self,
+        commit_chain_proof: &CommitChainProof,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            r#"INSERT INTO commit_chain_proof (commits_info, pre_proof_file_path, proof_file_path, status, proving_time, zkm_version,
+                                            created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+            commit_chain_proof.commits_info,
+            commit_chain_proof.pre_proof_file_path,
+            commit_chain_proof.proof_file_path,
+            commit_chain_proof.status,
+            commit_chain_proof.proving_time,
+            commit_chain_proof.zkm_version,
+            commit_chain_proof.created_at,
+            commit_chain_proof.updated_at
+        )
+            .execute(self.conn())
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn find_commit_chain_proof_by_id(
+        &mut self,
+        id: i64,
+    ) -> anyhow::Result<Option<CommitChainProof>> {
+        Ok(sqlx::query_as!(
+            CommitChainProof,
+            r#"SELECT * FROM commit_chain_proof WHERE id = ?"#,
+            id
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    pub async fn update_commit_chain_proof_status(
+        &mut self,
+        id: i64,
+        status: &str,
+    ) -> anyhow::Result<bool> {
+        let res =
+            sqlx::query!(r#"UPDATE commit_chain_proof SET status = ? WHERE id = ?"#, status, id,)
+                .execute(self.conn())
+                .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn insert_header_chain_proof(
+        &mut self,
+        header_chain_proof: &HeaderChainProof,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            r#"INSERT INTO header_chain_proof (block_headers_file_path, pre_proof_file_path, batch_size, start,
+                                proof_file_path, status, proving_time, zkm_version, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            header_chain_proof.block_headers_file_path,
+            header_chain_proof.pre_proof_file_path,
+            header_chain_proof.batch_size,
+            header_chain_proof.start,
+            header_chain_proof.proof_file_path,
+            header_chain_proof.status,
+            header_chain_proof.proving_time,
+            header_chain_proof.zkm_version,
+            header_chain_proof.created_at,
+            header_chain_proof.updated_at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn find_header_chain_proof_by_id(
+        &mut self,
+        id: i64,
+    ) -> anyhow::Result<Option<HeaderChainProof>> {
+        Ok(sqlx::query_as!(
+            HeaderChainProof,
+            r#"SELECT * FROM header_chain_proof WHERE id = ?"#,
+            id
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    pub async fn update_header_chain_proof_status(
+        &mut self,
+        id: i64,
+        status: &str,
+    ) -> anyhow::Result<bool> {
+        let res =
+            sqlx::query!(r#"UPDATE header_chain_proof SET status = ? WHERE id = ?"#, status, id,)
+                .execute(self.conn())
+                .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn insert_watchtower_proof(
+        &mut self,
+        watchtower_proof: &WatchtowerProof,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            r#"INSERT INTO watchtower_proof (latest_sequencer_commit_txid, header_chain_proof_file_path,
+                              commit_chain_proof_file_path, proof_file_path, status, proving_time, zkm_version,
+                              created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            watchtower_proof.latest_sequencer_commit_txid,
+            watchtower_proof.header_chain_proof_file_path,
+            watchtower_proof.commit_chain_proof_file_path,
+            watchtower_proof.proof_file_path,
+            watchtower_proof.status,
+            watchtower_proof.proving_time,
+            watchtower_proof.zkm_version,
+            watchtower_proof.created_at,
+            watchtower_proof.updated_at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn find_watchtower_proof_by_id(
+        &mut self,
+        id: i64,
+    ) -> anyhow::Result<Option<WatchtowerProof>> {
+        Ok(sqlx::query_as!(WatchtowerProof, r#"SELECT * FROM watchtower_proof WHERE id = ?"#, id)
+            .fetch_optional(self.conn())
+            .await?)
+    }
+
+    pub async fn update_watchtower_proof_status(
+        &mut self,
+        id: i64,
+        status: &str,
+    ) -> anyhow::Result<bool> {
+        let res =
+            sqlx::query!(r#"UPDATE watchtower_proof SET status = ? WHERE id = ?"#, status, id,)
+                .execute(self.conn())
+                .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn insert_operator_proof(
+        &mut self,
+        operator_proof: &OperatorProof,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            r#"INSERT INTO operator_proof (graph_id, included_watchtowers, latest_sequencer_commit_txid,
+                            header_chain_proof_file_path, commit_chain_proof_file_path, consensus_layer_block_number,
+                            execution_layer_block_number, watchtower_challenge_info, watchtower_challenge_init_txid, 
+                            block_headers_file_path, proof_file_path, status, proving_time, zkm_version,
+                            created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            operator_proof.graph_id,
+            operator_proof.included_watchtowers,
+            operator_proof.latest_sequencer_commit_txid,
+            operator_proof.header_chain_proof_file_path,
+            operator_proof.commit_chain_proof_file_path,
+            operator_proof.consensus_layer_block_number,
+            operator_proof.execution_layer_block_number,
+            operator_proof.watchtower_challenge_info,
+            operator_proof.watchtower_challenge_init_txid,
+            operator_proof.block_headers_file_path,
+            operator_proof.proof_file_path,
+            operator_proof.status,
+            operator_proof.proving_time,
+            operator_proof.zkm_version,
+            operator_proof.created_at,
+            operator_proof.updated_at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn find_operator_proof_by_graph_id(
+        &mut self,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<Option<OperatorProof>> {
+        Ok(sqlx::query_as!(
+            OperatorProof,
+            "SELECT
+                graph_id  AS \"graph_id:Uuid\",
+                included_watchtowers,
+                latest_sequencer_commit_txid,
+                header_chain_proof_file_path,
+                commit_chain_proof_file_path,
+                consensus_layer_block_number,
+                execution_layer_block_number,
+                watchtower_challenge_info,
+                watchtower_challenge_init_txid,
+                block_headers_file_path,
+                proof_file_path,
+                status,
+                proving_time,
+                zkm_version,
+                created_at,
+                updated_at
+            FROM operator_proof WHERE graph_id = ?",
+            graph_id
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    pub async fn update_operator_proof_status(
+        &mut self,
+        graph_id: Uuid,
+        status: &str,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query!(
+            "UPDATE operator_proof SET status = ? WHERE graph_id = ?",
+            status,
+            graph_id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
     }
 }
 

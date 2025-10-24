@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO watchtower_proof (latest_sequencer_commit_txid, header_chain_proof_file_path,\n                              commit_chain_proof_file_path, proof_file_path, status, proving_time, zkm_version,\n                              created_at, updated_at)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "8e44d5a71f3dfe9ee28363ea74f7c2280e3b9ee86b26f06c2ee487881c963db2"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE operator_proof SET status = ? WHERE graph_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "b9b5e495a26bdbf62b3d5b2eeb097cd926dbb9ad1006a1b6edc1517609c9dce0"
+}

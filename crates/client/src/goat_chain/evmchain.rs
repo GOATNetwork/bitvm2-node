@@ -7,6 +7,8 @@ use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::signers::Signature;
+use bitcoin::Txid;
+use bitcoin::hashes::Hash;
 use uuid::Uuid;
 
 pub struct EvmChain {
@@ -266,6 +268,16 @@ impl EvmChain {
             .gateway_get_post_graph_digest(instance_id.as_bytes(), graph_id.as_bytes(), graph_data)
             .await
     }
+
+    pub async fn gateway_get_post_pegin_digest(
+        &self,
+        instance_id: &Uuid,
+        pegin_txid: &Txid,
+    ) -> anyhow::Result<[u8; 32]> {
+        self.adaptor
+            .gateway_get_post_pegin_digest(instance_id.as_bytes(), &pegin_txid.to_byte_array())
+            .await
+    }
     pub async fn gateway_get_graph_ids_by_instance_id(
         &self,
         instance_id: &Uuid,
@@ -401,5 +413,28 @@ impl EvmChain {
         peer_id: &[u8; 32],
     ) -> anyhow::Result<bool> {
         self.adaptor.committee_mana_is_validate_peer_id(peer_id).await
+    }
+
+    pub async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>> {
+        self.adaptor.committee_mana_get_watchtowers().await
+    }
+    pub async fn committee_mana_add_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: u64,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        self.adaptor.committee_mana_add_watchtower(watchtower, U256::from(nonce), auth_signs).await
+    }
+
+    pub async fn committee_mana_remove_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: u64,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        self.adaptor
+            .committee_mana_remove_watchtower(watchtower, U256::from(nonce), auth_signs)
+            .await
     }
 }

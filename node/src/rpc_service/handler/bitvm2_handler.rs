@@ -128,7 +128,7 @@ pub async fn graph_presign_check(
         if let Some(instance) = storage_process.find_instance(&instance_id).await? {
             resp_clone.instance_status = instance.status.clone();
             resp_clone.tx = Some(instance);
-            let graphs = storage_process.get_graph_by_instance_id(&instance_id).await?;
+            let graphs = storage_process.get_graphs_by_instance_id(&instance_id).await?;
             resp_clone.graph_status = graphs
                 .into_iter()
                 .map(|v| {

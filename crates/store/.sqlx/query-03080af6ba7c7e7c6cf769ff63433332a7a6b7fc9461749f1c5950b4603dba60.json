@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT * FROM commit_chain_proof WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "commits_info",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "pre_proof_file_path",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "proof_file_path",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "status",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "proving_time",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "03080af6ba7c7e7c6cf769ff63433332a7a6b7fc9461749f1c5950b4603dba60"
+}

@@ -2,7 +2,7 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::collapsible_else_if)]
 
-use crate::env::{get_bitvm_key, get_network};
+use crate::env::{get_bitvm_key, get_network, get_node_goat_address, is_relayer};
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
@@ -813,7 +813,9 @@ pub async fn recv_and_dispatch(
                         .collect::<Vec<_>>();
                 if committee_partial_sigs.len() == committee_pubkeys.len() {
                     let committee_sig_for_graph = endorse_graph(goat_client, &graph).await?;
-                    let committee_evm_address = todo_funcs::get_node_evm_address()?;
+                    let committee_evm_address = get_node_goat_address().ok_or_else(|| {
+                        anyhow::anyhow!("failed to get node goat address".to_string())
+                    })?;
                     let message_content = GOATMessageContent::EndorseGraph(EndorseGraph {
                         instance_id,
                         graph_id,
@@ -1014,7 +1016,9 @@ pub async fn recv_and_dispatch(
                     .keypair_for_instance(instance_id)
                     .public_key()
                     .into();
-                let committee_evm_address = todo_funcs::get_node_evm_address()?;
+                let committee_evm_address = get_node_goat_address().ok_or_else(|| {
+                    anyhow::anyhow!("failed to get node goat address".to_string())
+                })?;
                 let message_content = GOATMessageContent::EndorseGraph(EndorseGraph {
                     instance_id,
                     graph_id,
@@ -1263,7 +1267,7 @@ pub async fn recv_and_dispatch(
             }
             // 4. (Relayer) try to call Gateway.postGraphData
             // GraphFinalize may come after PostReady, so we need to check it here
-            if todo_funcs::is_relayer() {
+            if is_relayer() {
                 let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
                 if pegin_data.status != PeginStatus::Withdrawable {
                     // pegin not posted yet
@@ -1420,7 +1424,7 @@ pub async fn recv_and_dispatch(
                 )
                 .await?;
                 // 4. (Relayer) if received enough partial signatures, aggregate the sigs
-                if todo_funcs::is_relayer() {
+                if is_relayer() {
                     let partial_sigs =
                         get_committee_partial_sigs_for_instance(local_db, instance_id)
                             .await?
@@ -1499,7 +1503,7 @@ pub async fn recv_and_dispatch(
                 partial_sig,
             )
             .await?;
-            todo_funcs::store_committee_endorse_sig_for_pegin(
+            store_committee_endorse_sig_for_pegin(
                 local_db,
                 instance_id,
                 received_committee_pubkey,
@@ -1507,7 +1511,7 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             // 3. (Relayer) if received enough partial signatures, aggregate the sigs
-            if todo_funcs::is_relayer() {
+            if is_relayer() {
                 let partial_sigs = get_committee_partial_sigs_for_instance(local_db, instance_id)
                     .await?
                     .into_iter()
@@ -1546,7 +1550,7 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::PostReady(PostReady { instance_id }), Actor::Committee) => {
             // triggered by PeginConfirm tx
-            if !todo_funcs::is_relayer() {
+            if !is_relayer() {
                 return Ok(());
             }
             tracing::info!("Handle PostReady for {instance_id}");
@@ -1571,12 +1575,11 @@ pub async fn recv_and_dispatch(
                         return Ok(());
                     }
                 };
-                let endorse_sigs =
-                    todo_funcs::get_committee_endorse_sigs_for_pegin(local_db, instance_id)
-                        .await?
-                        .into_iter()
-                        .map(|(_, es)| es)
-                        .collect::<Vec<_>>();
+                let endorse_sigs = get_committee_endorse_sigs_for_pegin(local_db, instance_id)
+                    .await?
+                    .into_iter()
+                    .map(|(_, es)| es)
+                    .collect::<Vec<_>>();
                 if endorse_sigs.len() != committee_pubkeys.len() {
                     tracing::warn!(
                         "Ignore PostReady for {instance_id}: not enough endorse sigs for pegin confirm tx: {}",
@@ -1612,7 +1615,7 @@ pub async fn recv_and_dispatch(
                 // already posted
             }
             // 2. (Relayer)call Gateway.postGraphData on GoatChain
-            let graph_ids = todo_funcs::get_graph_ids_for_instance(local_db, instance_id).await?;
+            let graph_ids = get_graph_ids_for_instance(local_db, instance_id).await?;
             for graph_id in &graph_ids {
                 let graph_data = goat_client.gateway_get_graph_data(graph_id).await?;
                 if graph_data.operator_pubkey != [0u8; 32] {
@@ -2769,7 +2772,9 @@ pub async fn recv_and_dispatch(
                 &vk,
                 &disprove_scripts,
             )? {
-                let disprover_evm_address = todo_funcs::get_node_evm_address()?;
+                let disprover_evm_address = get_node_goat_address().ok_or_else(|| {
+                    anyhow::anyhow!("failed to get node goat address".to_string())
+                })?;
                 let connector_e_input = Input {
                     outpoint: OutPoint { txid: graph.kickoff.tx().compute_txid(), vout: 3 },
                     amount: graph.kickoff.tx().output[3].value,
@@ -2801,7 +2806,7 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // triggered by Disprove tx
-            if !todo_funcs::is_relayer() {
+            if !is_relayer() {
                 tracing::warn!(
                     "Ignore DisproveSent for {instance_id}:{graph_id}: not a relayer node"
                 );
@@ -2997,7 +3002,7 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::Take1Sent(Take1Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take1 tx
-            if !todo_funcs::is_relayer() {
+            if !is_relayer() {
                 tracing::warn!("Ignore Take1Sent for {instance_id}:{graph_id}: not a relayer node");
                 return Ok(());
             }
@@ -3127,7 +3132,7 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::Take2Sent(Take2Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take2 tx
-            if !todo_funcs::is_relayer() {
+            if !is_relayer() {
                 tracing::warn!("Ignore Take2Sent for {instance_id}:{graph_id}: not a relayer node");
                 return Ok(());
             }
@@ -3172,7 +3177,7 @@ pub async fn recv_and_dispatch(
         ) => {
             // sent by other nodes when they find a graph is missing locally
             // 1. (Relayer) send SyncGraph response if have the graph
-            if !todo_funcs::is_relayer() {
+            if !is_relayer() {
                 tracing::warn!(
                     "Ignore SyncGraphRequest for {instance_id}:{graph_id}: not a relayer node"
                 );
@@ -3191,7 +3196,7 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::SyncGraph(SyncGraph { instance_id, graph_id, graph }), _) => {
             // sent by relayer nodes in response to SyncGraphRequest
-            if todo_funcs::graph_exists(local_db, instance_id, graph_id).await? {
+            if graph_exists(local_db, instance_id, graph_id).await? {
                 tracing::warn!(
                     "Ignore SyncGraph for {instance_id}:{graph_id}: graph already exists locally"
                 );

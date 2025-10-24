@@ -155,6 +155,7 @@ sol!(
         function finishWithdrawDisproved(bytes16 graphId, DisproveTxType disproveTxType, uint256 txnIndex, BitcoinTx calldata rawChallengeStartTx, BitcoinTxProof calldata challengeStartTxProof, BitcoinTx calldata rawChallengeFinishTx, BitcoinTxProof calldata challengeFinishTxProof ) external;
         function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys);
         function getPostGraphDigest(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData) public view returns (bytes32);
+        function getPostPeginDigest(bytes16 instanceId, bytes32 peginTxid) public view returns (bytes32);
         function getGraphIdsByInstanceId(bytes16 instanceId) external view returns (bytes16[] memory);
 
         // Contract is not implements this functions, do something later
@@ -234,6 +235,9 @@ sol!(
         function verifySignatures(bytes32 msgHash, bytes[] memory signatures) external view returns (bool);
         function getCommitteePeerId(address member) external view returns (bytes32);
         function isValidPeerId(bytes32 peerId) external view returns (bool);
+        function getWatchtowers() external view returns (bytes32[] memory);
+        function addWatchtower(bytes32 watchtower, uint256 nonce, bytes[] memory authSignatures) external;
+        function removeWatchtower(bytes32 watchtower, uint256 nonce, bytes[] memory authSignatures) external;
     }
 );
 
@@ -980,6 +984,22 @@ impl ChainAdaptor for GoatAdaptor {
             .0)
     }
 
+    async fn gateway_get_post_pegin_digest(
+        &self,
+        instance_id: &[u8; 16],
+        pegin_txid: &[u8; 32],
+    ) -> anyhow::Result<[u8; 32]> {
+        let gateway = self.get_gateway()?;
+        Ok(gateway
+            .getPostPeginDigest(
+                FixedBytes::from_slice(instance_id),
+                FixedBytes::from_slice(pegin_txid),
+            )
+            .call()
+            .await?
+            .0)
+    }
+
     async fn gateway_get_graph_ids_by_instance_id(
         &self,
         instance_id: &[u8; 16],
@@ -1205,6 +1225,51 @@ impl ChainAdaptor for GoatAdaptor {
     async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8; 32]) -> anyhow::Result<bool> {
         let committee_management = self.get_committee_management()?;
         Ok(committee_management.isValidPeerId(FixedBytes::from_slice(peer_id)).call().await?)
+    }
+
+    async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management
+            .getWatchtowers()
+            .call()
+            .await?
+            .into_iter()
+            .map(|w| w.0)
+            .collect::<Vec<[u8; 32]>>())
+    }
+
+    async fn committee_mana_add_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: U256,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        let committee_management = self.get_committee_management()?;
+        let auth_signs: Vec<Bytes> = auth_signs.iter().map(|v| Bytes::copy_from_slice(v)).collect();
+        let tx_request = committee_management
+            .addWatchtower(FixedBytes::from_slice(watchtower), nonce, auth_signs)
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
+    }
+
+    async fn committee_mana_remove_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: U256,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        let committee_management = self.get_committee_management()?;
+        let auth_signs: Vec<Bytes> = auth_signs.iter().map(|v| Bytes::copy_from_slice(v)).collect();
+        let tx_request = committee_management
+            .removeWatchtower(FixedBytes::from_slice(watchtower), nonce, auth_signs)
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 }
 

@@ -120,6 +120,12 @@ pub trait ChainAdaptor: Send + Sync {
         graph_data: GraphData,
     ) -> anyhow::Result<[u8; 32]>;
 
+    async fn gateway_get_post_pegin_digest(
+        &self,
+        instance_id: &[u8; 16],
+        pegin_txid: &[u8; 32],
+    ) -> anyhow::Result<[u8; 32]>;
+
     async fn gateway_get_graph_ids_by_instance_id(
         &self,
         instance_id: &[u8; 16],
@@ -183,6 +189,20 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<[u8; 32]>;
 
     async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8; 32]) -> anyhow::Result<bool>;
+
+    async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>>;
+    async fn committee_mana_add_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: U256,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String>;
+    async fn committee_mana_remove_watchtower(
+        &self,
+        watchtower: &[u8; 32],
+        nonce: U256,
+        auth_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {
