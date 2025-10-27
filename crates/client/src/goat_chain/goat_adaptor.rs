@@ -233,8 +233,8 @@ sol!(
         function committeeSize() external view returns (uint256);
         function quorumSize() external view returns (uint256);
         function verifySignatures(bytes32 msgHash, bytes[] memory signatures) external view returns (bool);
-        function getCommitteePeerId(address member) external view returns (bytes32);
-        function isValidPeerId(bytes32 peerId) external view returns (bool);
+        function getCommitteePeerId(address member) external view returns (bytes);
+        function isValidPeerId(bytes peerId) external view returns (bool);
         function getWatchtowers() external view returns (bytes32[] memory);
         function addWatchtower(bytes32 watchtower, uint256 nonce, bytes[] memory authSignatures) external;
         function removeWatchtower(bytes32 watchtower, uint256 nonce, bytes[] memory authSignatures) external;
@@ -1217,14 +1217,19 @@ impl ChainAdaptor for GoatAdaptor {
     async fn committee_mana_get_committee_peer_id(
         &self,
         member: &[u8; 20],
-    ) -> anyhow::Result<[u8; 32]> {
+    ) -> anyhow::Result<Vec<u8>> {
         let committee_management = self.get_committee_management()?;
-        Ok(committee_management.getCommitteePeerId(Address::from_slice(member)).call().await?.0)
+        Ok(committee_management
+            .getCommitteePeerId(Address::from_slice(member))
+            .call()
+            .await?
+            .0
+            .to_vec())
     }
 
-    async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8; 32]) -> anyhow::Result<bool> {
+    async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8]) -> anyhow::Result<bool> {
         let committee_management = self.get_committee_management()?;
-        Ok(committee_management.isValidPeerId(FixedBytes::from_slice(peer_id)).call().await?)
+        Ok(committee_management.isValidPeerId(Bytes::copy_from_slice(peer_id)).call().await?)
     }
 
     async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>> {

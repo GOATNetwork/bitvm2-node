@@ -424,14 +424,11 @@ impl ChainAdaptor for MockAdaptor {
     async fn committee_mana_get_committee_peer_id(
         &self,
         _member: &[u8; 20],
-    ) -> anyhow::Result<[u8; 32]> {
-        Ok([8_u8; 32])
+    ) -> anyhow::Result<Vec<u8>> {
+        Ok(vec![])
     }
 
-    async fn committee_mana_is_validate_peer_id(
-        &self,
-        _peer_id: &[u8; 32],
-    ) -> anyhow::Result<bool> {
+    async fn committee_mana_is_validate_peer_id(&self, _peer_id: &[u8]) -> anyhow::Result<bool> {
         Ok(true)
     }
 

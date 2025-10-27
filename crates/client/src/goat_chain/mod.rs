@@ -711,14 +711,11 @@ impl GOATClient {
     pub async fn committee_mana_get_committee_peer_id(
         &self,
         member: &[u8; 20],
-    ) -> anyhow::Result<[u8; 32]> {
+    ) -> anyhow::Result<Vec<u8>> {
         self.chain_service.committee_mana_get_committee_peer_id(member).await
     }
 
-    pub async fn committee_mana_is_validate_peer_id(
-        &self,
-        peer_id: &[u8; 32],
-    ) -> anyhow::Result<bool> {
+    pub async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8]) -> anyhow::Result<bool> {
         self.chain_service.committee_mana_is_validate_peer_id(peer_id).await
     }
 

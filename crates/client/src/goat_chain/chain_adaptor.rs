@@ -186,9 +186,9 @@ pub trait ChainAdaptor: Send + Sync {
     async fn committee_mana_get_committee_peer_id(
         &self,
         member: &[u8; 20],
-    ) -> anyhow::Result<[u8; 32]>;
+    ) -> anyhow::Result<Vec<u8>>;
 
-    async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8; 32]) -> anyhow::Result<bool>;
+    async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8]) -> anyhow::Result<bool>;
 
     async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>>;
     async fn committee_mana_add_watchtower(
