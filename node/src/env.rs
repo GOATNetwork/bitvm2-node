@@ -173,10 +173,11 @@ pub fn get_ipfs_url() -> String {
 }
 
 pub fn is_relayer() -> bool {
-    match std::env::var(ENV_ENABLE_RELAYER) {
+    let enable_relayer = match std::env::var(ENV_ENABLE_RELAYER) {
         Ok(value) => value.to_lowercase() == "true",
         Err(_) => false,
-    }
+    };
+    enable_relayer && get_actor() == Actor::Committee
 }
 pub fn get_node_goat_private_key() -> anyhow::Result<String> {
     std::env::var(ENV_GOAT_PRIVATE_KEY).map_err(|_| anyhow::anyhow!("Goat private key is missing"))
@@ -200,7 +201,7 @@ pub fn get_node_goat_address() -> Option<EvmAddress> {
 }
 
 pub async fn check_node_info() {
-    if [Actor::Relayer.to_string(), Actor::Committee.to_string()].contains(&get_actor().to_string())
+    if [Actor::Committee.to_string()].contains(&get_actor().to_string())
         && std::env::var(ENV_GOAT_PRIVATE_KEY).is_err()
     {
         panic!("Relayer and Committee must set goat secret key");
@@ -252,11 +253,7 @@ pub async fn check_node_info() {
 pub fn get_local_node_info() -> NodeInfo {
     let actor = get_actor();
     let peer_key = get_peer_id();
-    let pubkey_str = if actor != Actor::Relayer {
-        get_node_pubkey().expect("fail to get pubkey").to_string()
-    } else {
-        "".to_string()
-    };
+    let pubkey_str = get_node_pubkey().expect("fail to get pubkey").to_string();
     let goat_address = if let Ok(private_key_hex) = std::env::var(ENV_GOAT_PRIVATE_KEY) {
         let singer =
             PrivateKeySigner::from_str(&private_key_hex).expect("fail to decode goat private key");
@@ -407,7 +404,7 @@ pub fn get_proto_base() -> String {
 }
 
 pub fn get_rpc_support_actors() -> Vec<Actor> {
-    vec![Actor::Relayer]
+    vec![Actor::Committee]
 }
 
 pub fn get_proof_server_url() -> Option<String> {

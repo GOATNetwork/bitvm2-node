@@ -1,4 +1,4 @@
-use crate::env::get_proof_server_url;
+use crate::env::{get_proof_server_url, is_relayer};
 use crate::rpc_service::AppState;
 use crate::rpc_service::proof::{
     BlockProofs, Groth16ProofValue, ProofItem, Proofs, ProofsOverview, ProofsOverviewQueryParams,
@@ -8,7 +8,6 @@ use crate::rpc_service::response::{ApiResult, ErrorResponse};
 use anyhow::bail;
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use bitvm2_lib::actors::Actor;
 use http::{StatusCode, Uri};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -77,7 +76,7 @@ pub async fn get_proof(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<Proofs> {
     let async_fn = || async move {
-        if app_state.actor == Actor::Relayer {
+        if is_relayer() {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
             let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
             if !resp.status().is_success() {
@@ -180,7 +179,7 @@ pub async fn get_proofs(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<Proofs> {
     let async_fn = || async move {
-        if app_state.actor == Actor::Relayer {
+        if is_relayer() {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
             let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
             if !resp.status().is_success() {
@@ -307,7 +306,7 @@ pub async fn get_proofs_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<ProofsOverview> {
     let async_fn = || async move {
-        if app_state.actor == Actor::Relayer {
+        if is_relayer() {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
             let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
             if !resp.status().is_success() {
@@ -407,7 +406,7 @@ pub async fn get_groth16_proof(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<Groth16ProofValue> {
     let async_fn = || async move {
-        if app_state.actor == Actor::Relayer {
+        if is_relayer() {
             let operator_url = get_online_operator_url(&app_state.local_db).await?;
             let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
             if !resp.status().is_success() {

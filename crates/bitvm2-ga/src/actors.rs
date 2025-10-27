@@ -6,7 +6,6 @@ pub enum Actor {
     Committee,
     Operator,
     Challenger,
-    Relayer, // TODO: delete
     Watchtower,
     All,
 }

@@ -790,7 +790,7 @@ mod tests {
         let addr_relayer = available_addr();
         init(Some(addr_operator.clone()));
         info!("Start relayer server");
-        let relayer = Actor::Relayer;
+        let relayer = Actor::Committee;
         let relayer_peer_id = generate_local_key().public().to_peer_id().to_string();
         let relayer_local_db = create_local_db(&temp_file()).await;
         tokio::spawn(rpc_service::serve(

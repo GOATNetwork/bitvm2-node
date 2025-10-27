@@ -155,7 +155,7 @@ mod tests {
                     Actor::Committee.to_string(),
                     Actor::Challenger.to_string(),
                     Actor::Operator.to_string(),
-                    Actor::Relayer.to_string(),
+                    Actor::Watchtower.to_string(),
                     Actor::All.to_string(),
                 ],
                 heartbeat_interval: 2,
@@ -279,7 +279,7 @@ mod tests {
             Some(local_key),
             9100,
             vec![],
-            Actor::Relayer,
+            Actor::Committee,
             Some(local_db),
             cancel_token_clone,
         ));

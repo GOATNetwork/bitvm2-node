@@ -132,7 +132,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 Actor::Committee.to_string(),
                 Actor::Challenger.to_string(),
                 Actor::Operator.to_string(),
-                Actor::Relayer.to_string(),
+                Actor::Watchtower.to_string(),
                 Actor::All.to_string(),
             ],
             heartbeat_interval: env::HEARTBEAT_INTERVAL_SECOND,
@@ -187,7 +187,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }));
-    if actor == Actor::Relayer || actor == Actor::Operator || actor == Actor::Committee {
+    if actor == Actor::Committee || actor == Actor::Operator {
         let cancel_token_clone = cancellation_token.clone();
         task_handles.push(tokio::spawn(async move {
             let goat_client =

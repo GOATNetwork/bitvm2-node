@@ -220,6 +220,7 @@ impl BitvmNetworkManager {
                                continue;
                             }
                             let topic = topic_limb.1;
+
                             debug!("subscribed: {:?}, {:?}", peer_id, topic);
                             // Except for the bootNode, all other nodes need to request information from other nodes after registering the event `ALL`.
                             if self.config.bootnodes.is_empty(){

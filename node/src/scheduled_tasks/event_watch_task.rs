@@ -529,7 +529,7 @@ pub async fn run_watch_event_task(
 ) -> anyhow::Result<String> {
     let events_map: HashMap<Actor, Vec<GatewayEventEntity>> = HashMap::from([
         (
-            Actor::Relayer,
+            Actor::Committee,
             vec![
                 GatewayEventEntity::InitWithdraws,
                 GatewayEventEntity::CancelWithdraws,
@@ -544,7 +544,6 @@ pub async fn run_watch_event_task(
             Actor::Operator,
             vec![GatewayEventEntity::ProceedWithdraws, GatewayEventEntity::BridgeInRequests],
         ),
-        (Actor::Committee, vec![GatewayEventEntity::BridgeInRequests]),
     ]);
     loop {
         tokio::select! {
