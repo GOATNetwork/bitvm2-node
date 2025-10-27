@@ -687,11 +687,25 @@ pub enum ProofType {
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct CommitInfo {
+    pub txid: SerializableTxid,
+    pub threshold: i64,
+    #[sqlx(json)]
+    pub publisher_public_keys: Vec<String>,
+    pub commit_proof_id: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct CommitChainProof {
     pub id: i64,
-    pub commits_info: Option<String>,
-    pub pre_proof_file_path: Option<String>,
+    #[sqlx(json)]
+    pub commit_info_txids: Vec<SerializableTxid>,
+    pub prev_proof_file_path: Option<String>,
     pub proof_file_path: String,
+    pub vk_file_path: String,
+    pub public_inputs_file_path: String,
     pub status: String,
     pub proving_time: i64,
     pub zkm_version: String,
@@ -702,11 +716,12 @@ pub struct CommitChainProof {
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct HeaderChainProof {
     pub id: i64,
-    pub block_headers_file_path: Option<String>,
-    pub pre_proof_file_path: Option<String>,
+    pub prev_proof_file_path: Option<String>,
     pub batch_size: i64,
     pub start: i64,
     pub proof_file_path: String,
+    pub vk_file_path: String,
+    pub public_inputs_file_path: String,
     pub status: String,
     pub proving_time: i64,
     pub zkm_version: String,
@@ -716,11 +731,16 @@ pub struct HeaderChainProof {
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct WatchtowerProof {
-    pub id: i64,
+    pub graph_id: Uuid,
+    pub instance_id: Uuid,
+    pub process_withdraw_height: i64,
+    pub commit_block_hash_height: i64,
     pub latest_sequencer_commit_txid: String,
     pub header_chain_proof_file_path: String,
     pub commit_chain_proof_file_path: String,
-    pub proof_file_path: String,
+    pub proof: String,
+    pub groth16_vk: String,
+    pub public_inputs: String,
     pub status: String,
     pub proving_time: i64,
     pub zkm_version: String,
@@ -731,6 +751,7 @@ pub struct WatchtowerProof {
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct OperatorProof {
     pub graph_id: Uuid,
+    pub instance_id: Uuid,
     pub included_watchtowers: String,
     pub latest_sequencer_commit_txid: String,
     pub header_chain_proof_file_path: String,
@@ -740,7 +761,9 @@ pub struct OperatorProof {
     pub watchtower_challenge_info: String,
     pub watchtower_challenge_init_txid: String,
     pub block_headers_file_path: String,
-    pub proof_file_path: String,
+    pub proof: Option<String>,
+    pub groth16_vk: Option<String>,
+    pub public_inputs: Option<String>,
     pub status: String,
     pub proving_time: i64,
     pub zkm_version: String,

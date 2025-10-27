@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE commit_info SET commit_proof_id = ? WHERE txid = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "93264c10e81264373dea533a44332f99f306d12fd0c7aeb0eea74825a9db91d6"
+}

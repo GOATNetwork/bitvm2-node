@@ -89,8 +89,9 @@ async fn fetch_header_chain(args: &Args) -> Vec<CircuitBlockHeader> {
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
     let args = Args::parse();
-    println!("args: {:?}", args);
+    println!("ca path: {:?}", std::env::var("CA_CERT_PATH"));
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
 

@@ -1,10 +1,19 @@
 # BitVM2 Circuits 
 
+## Preparation
+
+```
+mkdir -p data/header-chain
+mkdir -p data/commit-chain
+mkdir -p data/watchtower
+```
+
+if `Network Prover` is used, see [this](https://docs.zkm.io/dev/prover.html#network-prover) for more details.
+
 ## Bitcoin Header Chain
 
 ```
-cd header-chain-proof/host
-bash cron.sh $start $batch
+bash cron-header-chain-proof.sh $start $batch
 ```
 
 ## Cosmos Commit Chain
@@ -36,18 +45,18 @@ Generate the proof:
 ```
 cd commit-chain-proof/host
 //Genesis
-RUST_LOG=info cargo run -r -- --init-input --output-proof "commit-proof.bin"
+RUST_LOG=debug cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/commit-proof.bin" --commits data/commit-chain/commits.bin
 //Regular proof
-RUST_LOG=info cargo run -r -- --input-proof "commit-proof.bin" --output-proof "commit-proof2.bin" --commit-info ../../../node/tests_data/commit_info2.json
-
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof.bin" --output-proof "data/commit-chain/commit-proof2.bin" --commit-info ../node/tests_data/commit_info2.json --commits data/commit-chain/commits.bin
 ```
 
 ## Watchtower proof
 
 ```
 export BITCOIN_NETWORK=regtest
-RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof.bin --output "output.bin"
-RUST_LOG=debug cargo run -r -- --latest-sequencer-commit-txid b3634687ec158f4b72608d1021cab3e8789742fbef0cf2f381cdaf1820d13a41 --header-chain-input-proof ../../header-chain-proof/host/0-10.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin"
+RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof data/header-chain/540100-20000.bin --commit-chain-input-proof data/commit-chain/commit-proof.bin --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
+
+RUST_LOG=debug cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof data/header-chain/540100-20000.bin --commit-chain-input-proof data/commit-chain/commit-proof2.bin --output "data/watchtower/output2.bin"
 ```
 
 * latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id
