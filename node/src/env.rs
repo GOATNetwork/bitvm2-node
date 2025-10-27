@@ -9,7 +9,7 @@ use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::keys::NodeMasterKey;
 use client::goat_chain::utils::{
-    get_committee_management_contracts, get_gateway_relay_contracts, is_validate_committee,
+    get_committee_management_contract, get_gateway_relay_contracts, is_validate_committee,
 };
 use client::goat_chain::{GoatInitConfig, GoatNetwork};
 use libp2p::PeerId;
@@ -219,7 +219,7 @@ pub async fn check_node_info() {
         let gateway_address = get_goat_gateway_contract_from_env();
         let provider = ProviderBuilder::new().connect_http(rpc_url);
         let committee_management_address =
-            get_committee_management_contracts(&provider, gateway_address)
+            get_committee_management_contract(&provider, gateway_address)
                 .await
                 .expect("fail to get committee manager address");
         let peer_id = PeerId::from_str(&node_info.peer_id).expect("fail to decode");

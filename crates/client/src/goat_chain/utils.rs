@@ -54,7 +54,7 @@ pub async fn get_graph_ids_by_instance_id(
     Ok(graph_ids.into_iter().map(|v| Uuid::from_bytes(v.0)).collect())
 }
 
-pub async fn get_committee_management_contracts(
+pub async fn get_committee_management_contract(
     provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
@@ -65,7 +65,7 @@ pub async fn get_committee_management_contracts(
     Ok(gateway.committeeManagement().call().await?)
 }
 
-pub async fn get_stake_management_contracts(
+pub async fn get_stake_management_contract(
     provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
@@ -76,7 +76,7 @@ pub async fn get_stake_management_contracts(
     Ok(gateway.stakeManagement().call().await?)
 }
 
-pub async fn get_btc_spv_contracts(
+pub async fn get_btc_spv_contract(
     provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
@@ -95,8 +95,8 @@ pub async fn get_gateway_relay_contracts(
     gateway_address: Address,
 ) -> anyhow::Result<(Address, Address, Address)> {
     Ok((
-        get_committee_management_contracts(provider, gateway_address).await?,
-        get_stake_management_contracts(provider, gateway_address).await?,
-        get_btc_spv_contracts(provider, gateway_address).await?,
+        get_committee_management_contract(provider, gateway_address).await?,
+        get_stake_management_contract(provider, gateway_address).await?,
+        get_btc_spv_contract(provider, gateway_address).await?,
     ))
 }
