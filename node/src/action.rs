@@ -2,7 +2,9 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::collapsible_else_if)]
 
-use crate::env::{get_bitvm_key, get_network, get_node_goat_address, is_relayer};
+use crate::env::{
+    get_bitvm_key, get_local_node_info, get_network, get_node_goat_address, is_relayer,
+};
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
@@ -3219,6 +3221,15 @@ pub async fn recv_and_dispatch(
                 None,
             )
             .await?;
+        }
+        (GOATMessageContent::RequestNodeInfo(node_info), _) => {
+            save_node_info(local_db, &node_info).await?;
+            let message_content = GOATMessageContent::ResponseNodeInfo(get_local_node_info());
+            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+        }
+
+        (GOATMessageContent::ResponseNodeInfo(node_info), _) => {
+            save_node_info(local_db, &node_info).await?;
         }
         _ => {}
     }
