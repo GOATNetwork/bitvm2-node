@@ -12,14 +12,21 @@ interface IGateway {
         address public  committeeManagement;
         address public  stakeManagement;
         address public  bitcoinSPV;
-        function isCommittee(bytes calldata id) external view returns (bool);
-        function isOperator(bytes calldata id) external view returns (bool);
-        function relayerPeerId() external view returns (bytes);
-
+        //function isOperator(bytes calldata id) external view returns (bool);
         function getGraphIdsByInstanceId(bytes16 instanceId) external view returns (bytes16[]);
-});
+}
+);
 
-pub async fn validate_committee(
+sol!(
+    #[derive(Debug)]
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    interface ICommitteeManagement {
+        function isValidPeerId(bytes peerId) external view returns (bool);
+    }
+);
+
+pub async fn is_validate_committee(
     provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
@@ -27,37 +34,8 @@ pub async fn validate_committee(
     address: Address,
     peer_id: &[u8],
 ) -> anyhow::Result<bool> {
-    let gate_way = IGateway::new(address, provider);
-    Ok(gate_way.isCommittee(Bytes::copy_from_slice(peer_id)).call().await?)
-}
-
-pub async fn validate_operator(
-    _provider: &FillProvider<
-        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-        RootProvider,
-    >,
-    _address: Address,
-    _peer_id: &[u8],
-) -> anyhow::Result<bool> {
-    // let gate_way = IGateway::new(address, provider);
-    // Ok(gate_way.isOperator(Bytes::copy_from_slice(peer_id)).call().await?)
-    // contract not support check; TODO update
-    Ok(true)
-}
-
-pub async fn validate_relayer(
-    _provider: &FillProvider<
-        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
-        RootProvider,
-    >,
-    _address: Address,
-    _peer_id: &[u8],
-) -> anyhow::Result<bool> {
-    // let gate_way = IGateway::new(address, provider);
-    // let relayer_peer_id = gate_way.relayerPeerId().call().await?;
-    // Ok(relayer_peer_id == Bytes::copy_from_slice(peer_id))
-    // contract not support check; TODO update
-    Ok(true)
+    let committee_management = ICommitteeManagement::new(address, provider);
+    Ok(committee_management.isValidPeerId(Bytes::copy_from_slice(peer_id)).call().await?)
 }
 
 pub async fn get_graph_ids_by_instance_id(
@@ -76,6 +54,39 @@ pub async fn get_graph_ids_by_instance_id(
     Ok(graph_ids.into_iter().map(|v| Uuid::from_bytes(v.0)).collect())
 }
 
+pub async fn get_committee_management_contracts(
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+    gateway_address: Address,
+) -> anyhow::Result<Address> {
+    let gateway = IGateway::new(gateway_address, provider);
+    Ok(gateway.committeeManagement().call().await?)
+}
+
+pub async fn get_stake_management_contracts(
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+    gateway_address: Address,
+) -> anyhow::Result<Address> {
+    let gateway = IGateway::new(gateway_address, provider);
+    Ok(gateway.stakeManagement().call().await?)
+}
+
+pub async fn get_btc_spv_contracts(
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+    gateway_address: Address,
+) -> anyhow::Result<Address> {
+    let gateway = IGateway::new(gateway_address, provider);
+    Ok(gateway.bitcoinSPV().call().await?)
+}
+
 pub async fn get_gateway_relay_contracts(
     provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
@@ -83,10 +94,9 @@ pub async fn get_gateway_relay_contracts(
     >,
     gateway_address: Address,
 ) -> anyhow::Result<(Address, Address, Address)> {
-    let gateway = IGateway::new(gateway_address, provider);
     Ok((
-        gateway.committeeManagement().call().await?,
-        gateway.stakeManagement().call().await?,
-        gateway.bitcoinSPV().call().await?,
+        get_committee_management_contracts(provider, gateway_address).await?,
+        get_stake_management_contracts(provider, gateway_address).await?,
+        get_btc_spv_contracts(provider, gateway_address).await?,
     ))
 }
