@@ -34,24 +34,38 @@ mod tests {
         utils::num_blocks_per_network,
     };
     use musig2::PubNonce;
-    use once_cell::sync::Lazy;
     use secp256k1::SECP256K1;
     use sha2::{Digest, Sha256};
-    use std::{sync::RwLock, time::Duration, vec};
+    use std::{time::Duration, vec};
     use tokio::time::sleep;
     use uuid::Uuid;
 
-    // Static mutable network with a setter; default to Regtest.
-    static NETWORK: Lazy<RwLock<Network>> = Lazy::new(|| RwLock::new(Network::Regtest));
-
-    #[inline]
     fn network() -> Network {
-        *NETWORK.read().unwrap()
+        const ENV_KEY: &str = "BITVM_NETWORK";
+        match std::env::var(ENV_KEY) {
+            Ok(v) => match v.to_lowercase().as_str() {
+                "regtest" => Network::Regtest,
+                "testnet" => Network::Testnet,
+                "signet" => Network::Signet,
+                "bitcoin" | "mainnet" => Network::Bitcoin,
+                _ => Network::Regtest,
+            },
+            Err(_) => Network::Regtest,
+        }
     }
 
-    #[inline]
     fn set_network(n: Network) {
-        *NETWORK.write().unwrap() = n;
+        const ENV_KEY: &str = "BITVM_NETWORK";
+        let v = match n {
+            Network::Regtest => "regtest",
+            Network::Testnet => "testnet",
+            Network::Signet => "signet",
+            Network::Bitcoin => "bitcoin",
+            _ => "regtest",
+        };
+        unsafe {
+            std::env::set_var(ENV_KEY, v);
+        }
     }
 
     fn fee_rate() -> f64 {
