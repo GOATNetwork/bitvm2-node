@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO commit_chain_proof (commit_info_txids, in_location, prev_proof, out_location, proof,\n                                vk,  public_inputs,  status, proving_time, zkm_version, created_at, updated_at)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "5ea6504fa0858a223472da451a8bb671f77851859ce808d2e74418d61eab1a19"
+}

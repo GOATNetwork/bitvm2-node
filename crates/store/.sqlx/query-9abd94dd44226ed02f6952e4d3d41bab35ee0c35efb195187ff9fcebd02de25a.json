@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO header_chain_proof (in_location,  prev_proof, batch_size, start, out_location, proof,\n                                vk,  public_inputs,  status, proving_time, zkm_version, created_at, updated_at)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 13
+    },
+    "nullable": []
+  },
+  "hash": "9abd94dd44226ed02f6952e4d3d41bab35ee0c35efb195187ff9fcebd02de25a"
+}
