@@ -1,7 +1,7 @@
 //! Generate operator proof
 //! Example:
 //! ```
-//! RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --consensus-layer-block-number 5756785
+//! RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c
 //! ```
 use alloy_primitives::U256;
 use alloy_provider::{RootProvider, network::Ethereum};

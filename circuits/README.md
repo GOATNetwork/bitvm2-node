@@ -54,9 +54,9 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 
 ```
 export BITCOIN_NETWORK=regtest
-RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof data/header-chain/540100-20000.bin --commit-chain-input-proof data/commit-chain/commit-proof.bin --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
+RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --latest-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --header-chain-input-proof data/header-chain/560100-1.bin --commit-chain-input-proof data/commit-chain/commit-proof.bin --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 
-RUST_LOG=debug cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof data/header-chain/540100-20000.bin --commit-chain-input-proof data/commit-chain/commit-proof2.bin --output "data/watchtower/output2.bin"
+RUST_LOG=debug cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid dcadccc909994689e9f3a36c9d349e89f0cb96764f6d8f4d9632e0f76b0ec84e --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof data/header-chain/560100-1.bin --commit-chain-input-proof data/commit-chain/commit-proof2.bin --output "data/watchtower/output2.bin"
 ```
 
 * latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id
@@ -65,10 +65,10 @@ RUST_LOG=debug cargo run --package watchtower-proof --bin watchtower-proof -r --
 
 ## Operator proof
 
-Prepare for the 
+After calling the [`initWithdraw`](https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L509), we generate the operator proof with corresponding `graph_id` and transaction id. 
 
 ```
-RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --consensus-layer-block-number 5756785
+RUST_BACKTRACE=1 cargo run --package operator-proof --bin operator-proof -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof data/header-chain/560100-1.bin --commit-chain-input-proof data/commit-chain/commit-proof2.bin --output "data/operator-proof/output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./operator-proof/host/watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --graph-id 0x00112233445566778899aabbccddeeff
 ```
 
 * latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id
@@ -88,5 +88,3 @@ For example.
     ] 
 ]
 ```
-
-* consensus-layer-block-number: the block number that including the latest sequencer set commitment transaction of GOAT Network's consensus layer. 
