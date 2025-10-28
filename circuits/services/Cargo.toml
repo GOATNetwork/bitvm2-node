@@ -1,0 +1,25 @@
+[package]
+name = "services"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "proof_services"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+futures = { workspace = true }
+dotenv = { workspace = true }
+anyhow = { workspace = true }
+store = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = "0.7.15"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+serde = { version = "1.0.226", default-features = false, features = ["derive"] }
+axum = { workspace = true, features = ["macros", "json"] }
+http-body-util = "0.1"
+prometheus-client = { workspace = true }
+[lints]
+workspace = true

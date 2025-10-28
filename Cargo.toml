@@ -15,7 +15,7 @@ members = [
     "circuits/header-chain-proof/host",
     "circuits/commit-chain-proof/host",
     "circuits/watchtower-proof/host",
-    "circuits/operator-proof/host", "crates/commit-chain-rpc",
+    "circuits/operator-proof/host", "crates/commit-chain-rpc", "circuits/services",
 ]
 default-members = ["node"]
 
