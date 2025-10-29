@@ -27,7 +27,7 @@ pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 64;
 pub const VK_HASH_SIZE: usize = 66;
 
-// https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
+// https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L192
 // Get base slot:  forge inspect src/GatewayDebug.sol:GatewayDebug storage-layout
 pub fn verify_el_withdraw_tx(
     l2_contract_address: Address,
@@ -50,8 +50,7 @@ pub fn verify_el_withdraw_tx(
     let (header, _) = executor
         .execute(
             input,
-            Some(l2_contract_address),
-            Some(vec![(slot_id.into(), U256::from(1).into())]),
+            Some(vec![(l2_contract_address, slot_id.into(), U256::from(1).into())]),
         )
         .expect("failed to execute client");
     let block_hash = header.hash_slow();
