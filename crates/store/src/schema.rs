@@ -180,8 +180,8 @@ pub struct NodesOverview {
     pub offline_challenger: i64,
     pub online_committee: i64,
     pub offline_committee: i64,
-    pub online_relayer: i64,
-    pub offline_relayer: i64,
+    pub online_watchtower: i64,
+    pub offline_watchtower: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -203,13 +203,15 @@ pub enum InstanceStatus {
     RelayerL1Broadcasted,      // PeginConfirm broadcast by relayer
     RelayerL2Minted,           // success
     RelayerL2MintedFailed,
-    Timeout,      // time to cancle bridgein
-    UserCanceled, // user broadcast Pegin-cancel tx
+    Timeout,                    // time to cancle bridgein
+    UserCanceled,               // user broadcast Pegin-cancel tx
+    NoEnoughCommitteesAnswered, // no enough committee responsed & window expired
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Instance {
     pub instance_id: Uuid,
+    pub is_bridge_in: bool,
     pub network: String,
     pub from_addr: String,
     pub to_addr: String, // goat deposit addr
@@ -217,19 +219,18 @@ pub struct Instance {
     pub fees: UInt64Array3,
     pub input_utxos: String,
     pub status: String,
-    pub pegin_request_tx_hash: String, // goat tx hash
-    pub pegin_request_height: i64,
+    pub goat_tx_hash: String, // bridgeIn:pegin Request tx || bridgeOut goat tx
+    pub goat_tx_height: i64,
     pub user_xonly_pubkey: ByteArray32,
     pub user_change_addr: String,
     pub user_refund_addr: String,
-    pub pegin_prepare_txid: Option<SerializableTxid>, // btc txid
+    pub btc_txid: Option<SerializableTxid>, // bridgeIn: Pegin Prepare Request tx || bridgeOut Btc tx
+    pub btc_height: i64,
     pub pegin_confirm_txid: Option<SerializableTxid>, // btc txid
     pub pegin_cancel_txid: Option<SerializableTxid>,  // btc txid
-    pub unsign_pegin_confirm_tx: Option<String>,
     #[sqlx(json)]
-    pub committees_answers: IndexMap<String, CommitteeSignatures>,
+    pub committees_answers: IndexMap<String, Vec<u8>>,
     pub pegin_data_tx_hash: String,
-    pub pegin_prepare_height: i64, // btc lock_time
     pub parameters: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,

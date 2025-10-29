@@ -1,16 +1,18 @@
 use crate::env::GraphBtcTxName;
 use crate::rpc_service::AppState;
 use crate::rpc_service::bitvm2::*;
+use crate::rpc_service::handler::is_use_mock_data;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::response::{ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertInitTxVoutMonitorData, WTInitTxVoutMonitorData,
 };
+use crate::utils::{get_rand_btc_address_p2wpkh, get_rand_goat_address};
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use bitcoin::Txid;
 use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::{Network, Txid};
 use bitvm2_lib::types::Bitvm2Graph;
 use client::Utxo;
 use client::btc_chain::BTCClient;
@@ -22,7 +24,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
 use store::{
-    GoatTxType, Graph, GraphStatus, InstanceStatus, SerializableTxid, modify_graph_status,
+    GoatTxType, Graph, GraphStatus, Instance, InstanceStatus, SerializableTxid, UInt64Array3,
+    modify_graph_status,
 };
 use uuid::Uuid;
 
@@ -65,93 +68,288 @@ pub async fn instance_settings(
     ))
 }
 
-/// Check graph presign status
-///
-/// Check the presign status of graphs based on instance ID, returns instance status and all related graph status information.
-/// This endpoint provides a comprehensive view of the bridge instance and its associated graphs' current states.
-///
-/// # Parameters
-///
-/// - `instance_id`: Instance ID (UUID format)
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns presign check result
-/// - `500 Internal Server Error`: Server internal error or database operation failed
-///
-/// # Response Includes
-///
-/// - Instance status and transaction details
-/// - Graph status mapping for all related graphs
-/// - Complete instance information
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/graphs/presign_check?instance_id=123e4567-e89b-12d3-a456-426614174000
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///   "instance_status": "Submitted",
-///   "graph_status": {
-///     "graph-id-1": "OperatorPresigned",
-///     "graph-id-2": "Created"
-///   },
-///   "tx": {
-///     "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///     "status": "Submitted",
-///     "amount": 1000,
-///     ...
-///   }
-/// }
-/// ```
 #[axum::debug_handler]
-pub async fn graph_presign_check(
-    Query(params): Query<GraphPresignCheckParams>,
+pub async fn get_instances(
+    Query(params): Query<InstanceListRequest>,
     State(app_state): State<Arc<AppState>>,
-) -> ApiResult<GraphPresignCheckResponse> {
-    // Validate instance_id format
-    let instance_id = InputValidator::validate_uuid(&params.instance_id, "instance_id")?;
+) -> ApiResult<InstanceListResponse> {
+    // todo update statusExtra
+    // Validate pagination parameters
+    let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
 
-    let resp = GraphPresignCheckResponse {
-        instance_id: params.instance_id.to_string(),
-        instance_status: InstanceStatus::UserInited.to_string(),
-        graph_status: HashMap::new(),
-        tx: None,
-    };
-    let mut resp_clone = resp.clone();
+    // Validate from_addr format (if provided)
+    if let Some(ref from_addr) = params.from_addr {
+        InputValidator::validate_btc_address(from_addr, "from_addr")?;
+    }
+
+    if is_use_mock_data() {
+        let (from_addr, to_addr) = if params.is_bridge_in {
+            (get_rand_btc_address_p2wpkh(Network::Testnet), get_rand_goat_address())
+        } else {
+            (get_rand_goat_address(), get_rand_btc_address_p2wpkh(Network::Testnet))
+        };
+        return Ok((
+            StatusCode::OK,
+            Json(InstanceListResponse {
+                instance_wraps: vec![InstanceExtended {
+                    instance: Instance {
+                        instance_id: Uuid::new_v4(),
+                        is_bridge_in: params.is_bridge_in,
+                        network: "testnet".to_string(),
+                        from_addr,
+                        to_addr,
+                        amount: 100000000,
+                        fees: UInt64Array3([10, 20, 30]),
+                        input_utxos: "".to_string(),
+                        status: InstanceStatus::CommitteesAnswered.to_string(),
+                        goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
+                        goat_tx_height: 8509060,
+                        user_xonly_pubkey: Default::default(),
+                        user_change_addr: "".to_string(),
+                        user_refund_addr: "".to_string(),
+                        btc_txid: Some(Txid::from_str("0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e").expect("fail to decode btc txid").into()),
+                        btc_height: 0,
+                        pegin_confirm_txid: None,
+                        pegin_cancel_txid: None,
+                        committees_answers: Default::default(),
+                        pegin_data_tx_hash: "".to_string(),
+                        parameters: None,
+                        created_at: 0,
+                        updated_at: 0,
+                    },
+                    utxo: vec![],
+                    waiting_time_in_mins: 60,
+                    confirmations: 0,
+                    target_confirmations: 6,
+                    status_extra: StatusExtra{
+                        user_action: StatusUserAction::Submit,
+                        is_failed: false,
+                        error: None,
+                    },
+                }],
+                total: 1,
+            }),
+        ));
+    }
+
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(instance) = storage_process.find_instance(&instance_id).await? {
-            resp_clone.instance_status = instance.status.clone();
-            resp_clone.tx = Some(instance);
-            let graphs = storage_process.get_graphs_by_instance_id(&instance_id).await?;
-            resp_clone.graph_status = graphs
-                .into_iter()
-                .map(|v| {
-                    (
-                        v.graph_id.to_string(),
-                        modify_graph_status(&v.status, v.init_withdraw_tx_hash.is_some()),
-                    )
-                })
-                .collect();
-            Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone)
+        let mut query = InstanceQuery::default();
+        if let Some(from_addr) = params.from_addr {
+            query = query.with_from_addr(from_addr);
+        }
+        query = query
+            .with_pagination(offset, limit)
+            .with_order("created_at DESC".to_string())
+            .with_is_bridge_in(params.is_bridge_in);
+
+        let (instances, total) = storage_process.find_instances(query).await?;
+
+        if instances.is_empty() {
+            tracing::warn!("get_instances instance is empty: total {}", total);
+            return Ok::<InstanceListResponse, Box<dyn std::error::Error>>(
+                InstanceListResponse::default(),
+            );
+        }
+        let current_height = app_state.btc_client.get_height().await?;
+        let mut items = vec![];
+        for instance in instances {
+            let (confirmations, target_confirmations) = get_btc_tx_confirmation_info(
+                &app_state.btc_client,
+                instance.pegin_confirm_txid.clone(),
+                current_height,
+                6,
+            )
+            .await?;
+            let utxo: Vec<Utxo> =
+                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
+            items.push(InstanceExtended {
+                utxo,
+                instance,
+                confirmations,
+                target_confirmations,
+                waiting_time_in_mins: 0,
+                status_extra: Default::default(),
+            })
+        }
+
+        Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
+            instance_wraps: items,
+            total,
+        })
+    };
+    match async_fn().await {
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
+        Err(err) => {
+            tracing::warn!("get instances err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_INSTANCE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
+        }
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_instance(
+    Path(instance_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<InstanceGetResponse> {
+    // todo update statusExtra
+    // Validate instance_id format
+    let instance_id_uuid = InputValidator::validate_uuid(&instance_id, "instance_id")?;
+
+    if is_use_mock_data() {
+        return Ok((
+            StatusCode::OK,
+            Json(InstanceGetResponse {
+                instance_wrap: InstanceExtended {
+                    instance: Instance {
+                        instance_id: Uuid::new_v4(),
+                        is_bridge_in: true,
+                        network: "testnet".to_string(),
+                        from_addr:get_rand_btc_address_p2wpkh(Network::Testnet),
+                        to_addr:get_rand_goat_address(),
+                        amount: 100000000,
+                        fees: UInt64Array3([10, 20, 30]),
+                        input_utxos: "".to_string(),
+                        status: InstanceStatus::CommitteesAnswered.to_string(),
+                        goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
+                        goat_tx_height: 8509060,
+                        user_xonly_pubkey: Default::default(),
+                        user_change_addr: "".to_string(),
+                        user_refund_addr: "".to_string(),
+                        btc_txid: Some(Txid::from_str("0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e").expect("fail to decode btc txid").into()),
+                        btc_height: 0,
+                        pegin_confirm_txid: None,
+                        pegin_cancel_txid: None,
+                        committees_answers: Default::default(),
+                        pegin_data_tx_hash: "".to_string(),
+                        parameters: None,
+                        created_at: 0,
+                        updated_at: 0,
+                    },
+                    utxo: vec![],
+                    waiting_time_in_mins: 60,
+                    confirmations: 0,
+                    target_confirmations: 6,
+                    status_extra: StatusExtra{
+                        user_action: StatusUserAction::Submit,
+                        is_failed: false,
+                        error: None,
+                    },
+                }
+            }),
+        ));
+    }
+
+    let async_fn = || async move {
+        let mut storage_process = app_state.local_db.acquire().await?;
+        if let Some(instance) = storage_process.find_instance(&instance_id_uuid).await? {
+            let current_height = app_state.btc_client.get_height().await?;
+            let (confirmations, target_confirmations) = get_btc_tx_confirmation_info(
+                &app_state.btc_client,
+                instance.pegin_confirm_txid.clone(),
+                current_height,
+                6,
+            )
+            .await?;
+
+            let utxo: Vec<Utxo> =
+                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
+            Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
+                instance_wrap: InstanceExtended {
+                    utxo,
+                    instance,
+                    confirmations,
+                    target_confirmations,
+                    waiting_time_in_mins: 0,
+                    status_extra: Default::default(),
+                },
+            })
         } else {
             tracing::info!("instance_id {} has no record in database", instance_id);
-            Ok::<GraphPresignCheckResponse, Box<dyn std::error::Error>>(resp_clone)
+            Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
+                instance_wrap: InstanceExtended::default(),
+            })
         }
+    };
+    match async_fn().await {
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
+        Err(err) => {
+            tracing::warn!("get instances err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_INSTANCE_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
+        }
+    }
+}
+
+#[axum::debug_handler]
+pub async fn get_instances_overview(
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<InstanceOverviewResponse> {
+    if is_use_mock_data() {
+        return Ok((
+            StatusCode::OK,
+            Json(InstanceOverviewResponse {
+                instances_overview: InstanceOverview {
+                    total_bridge_in_amount: 3000000,
+                    total_bridge_in_txn: 1,
+                    total_bridge_out_amount: 2000000,
+                    total_bridge_out_txn: 2,
+                    total_peg_out_amount: 1000000,
+                    total_peg_out_txn: 1,
+                    online_nodes: 3,
+                    total_nodes: 4,
+                },
+            }),
+        ));
+    }
+    let async_fn = || async move {
+        let mut storage_process = app_state.local_db.acquire().await?;
+        let (pegin_sum, pegin_count) = storage_process
+            .get_sum_bridge_in(&[
+                InstanceStatus::RelayerL1Broadcasted.to_string(),
+                InstanceStatus::RelayerL2Minted.to_string(),
+            ])
+            .await?;
+        let (pegout_sum, pegout_count) = storage_process
+            .get_sum_bridge_out(&[
+                GraphStatus::OperatorTake1.to_string(),
+                GraphStatus::OperatorTake2.to_string(),
+                GraphStatus::Disprove.to_string(),
+            ])
+            .await?;
+        let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
+        Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
+            instances_overview: InstanceOverview {
+                total_bridge_in_amount: pegin_sum,
+                total_bridge_in_txn: pegin_count,
+                total_bridge_out_amount: pegout_sum,
+                total_bridge_out_txn: pegout_count,
+                total_peg_out_amount: 0,
+                total_peg_out_txn: 0,
+                online_nodes: alive,
+                total_nodes: total,
+            },
+        })
     };
     match async_fn().await {
         Ok(resp) => Ok((StatusCode::OK, Json(resp))),
         Err(err) => {
-            tracing::warn!("graph_presign_check err:{:?}", err);
+            tracing::warn!("get instances overview err:{:?}", err);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: "GRAPH_CHECK_ERROR".to_string(),
+                    error: "INSTANCE_OVERVIEW_ERROR".to_string(),
                     message: err.to_string(),
                 }),
             ))
@@ -386,189 +584,6 @@ pub async fn get_graph_txn(
     }
 }
 
-/// Create new bridge instance
-///
-/// Create a new bridge instance for managing asset transfers from Bitcoin to GOAT network.
-/// This endpoint initializes a new pegin (bridge-in) process.
-/// The function uses INSERT OR REPLACE, so it can also update existing instances.
-///
-/// # Request Body
-///
-/// Contains complete instance information wrapped in an InstanceUpdateRequest.
-/// Required fields include instance_id, network, from_addr, to_addr, amount, and status.
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully created/updated instance
-/// - `500 Internal Server Error`: Server internal error or database operation failed
-///
-/// # Example
-///
-/// ```http
-/// POST /v1/instances
-/// Content-Type: application/json
-///
-/// {
-///   "instance": {
-///     "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///     "network": "testnet",
-///     "from_addr": "tb1q...",
-///     "to_addr": "0x...",
-///     "amount": 20000,
-///     "fees": [1000, 0, 0],
-///     "input_utxos": "[{\"txid\":\"...\",\"vout\":0,\"amount\":20000}]",
-///     "status": "UserInited",
-///     "pegin_request_tx_hash": "0x...",
-///     "pegin_request_height": 123456,
-///     "user_xonly_pubkey": [241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
-///     "user_change_addr": "tb1q...",
-///     "user_refund_addr": "tb1q...",
-///     "pegin_prepare_txid": null,
-///     "pegin_confirm_txid": null,
-///     "pegin_cancel_txid": null,
-///     "unsign_pegin_confirm_tx": null,
-///     "committees_answers": {},
-///     "pegin_data_tx_hash": "",
-///     "pegin_prepare_height": 0,
-///     "created_at": 1640995200,
-///     "updated_at": 1640995200
-///   }
-/// }
-/// ```
-///
-/// Response example:
-/// ```json
-/// {}
-/// ```
-#[axum::debug_handler]
-pub async fn create_instance(
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<InstanceUpdateRequest>,
-) -> ApiResult<InstanceUpdateResponse> {
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.upsert_instance(&payload.instance).await?;
-        Ok::<(), Box<dyn std::error::Error>>(())
-    };
-    match async_fn().await {
-        Ok(_) => Ok((StatusCode::OK, Json(InstanceUpdateResponse {}))),
-        Err(err) => {
-            tracing::warn!("create_instance err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "CREATE_INSTANCE_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-/// Update existing bridge instance
-///
-/// Update information for a specified bridge instance, including status, transaction IDs, and other fields.
-/// This endpoint is used to update the state of an existing pegin (bridge-in) process.
-/// All fields in the request body will completely replace the existing instance data.
-///
-/// # Parameters
-///
-/// - `instance_id`: Instance ID (UUID format) - must match the instance_id in the request body
-///
-/// # Request Body
-///
-/// Contains complete instance information wrapped in an InstanceUpdateRequest.
-/// All fields will be updated with the provided values. Missing fields will be set to null/empty.
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully updated instance
-/// - `400 Bad Request`: Instance ID in path doesn't match the one in request body
-/// - `500 Internal Server Error`: Server internal error or database operation failed
-///
-/// # Example
-///
-/// ```http
-/// PUT /v1/instances/123e4567-e89b-12d3-a456-426614174000
-/// Content-Type: application/json
-///
-/// {
-///   "instance": {
-///     "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///     "network": "testnet",
-///     "from_addr": "tb1q...",
-///     "to_addr": "0x...",
-///     "amount": 20000,
-///     "fees": [1000, 0, 0],
-///     "input_utxos": "[{\"txid\":\"...\",\"vout\":0,\"amount\":20000}]",
-///     "status": "Presigned",
-///     "pegin_request_tx_hash": "0x...",
-///     "pegin_request_height": 123456,
-///     "user_xonly_pubkey": [241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
-///     "user_change_addr": "tb1q...",
-///     "user_refund_addr": "tb1q...",
-///     "pegin_prepare_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-///     "pegin_confirm_txid": null,
-///     "pegin_cancel_txid": null,
-///     "unsign_pegin_confirm_tx": null,
-///     "committees_answers": {},
-///     "pegin_data_tx_hash": "",
-///     "pegin_prepare_height": 123456,
-///     "created_at": 1640995200,
-///     "updated_at": 1640995200
-///   }
-/// }
-/// ```
-///
-/// Response example:
-/// ```json
-/// {}
-/// ```
-#[axum::debug_handler]
-pub async fn update_instance(
-    Path(instance_id): Path<String>,
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<InstanceUpdateRequest>,
-) -> ApiResult<InstanceUpdateResponse> {
-    // Validate instance_id format in path
-    let _path_instance_id = InputValidator::validate_uuid(&instance_id, "instance_id")?;
-
-    // Validate instance_id format in request body
-    let _body_instance_id = InputValidator::validate_uuid(
-        &payload.instance.instance_id.to_string(),
-        "instance.instance_id",
-    )?;
-
-    if instance_id != payload.instance.instance_id.to_string() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "MISMATCHED_INSTANCE_ID".to_string(),
-                message: "Instance ID in path does not match the one in request body".to_string(),
-            }),
-        ));
-    }
-
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.upsert_instance(&payload.instance).await?;
-        Ok::<(), Box<dyn std::error::Error>>(())
-    };
-    match async_fn().await {
-        Ok(_) => Ok((StatusCode::OK, Json(InstanceUpdateResponse {}))),
-        Err(err) => {
-            tracing::warn!("create_instance err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "UPDATE_INSTANCE_ERRR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
 /// Get Bitcoin transaction confirmation information
 ///
 /// Helper function to retrieve confirmation status for Bitcoin transactions.
@@ -663,283 +678,6 @@ async fn get_tx_confirmation_info(
     Ok((blocks_pass, target_confirm_num))
 }
 
-/// Get bridge instance list
-///
-/// Get bridge instance list based on query parameters, supports filtering by address and pagination.
-/// Each instance includes confirmation status for the pegin confirm transaction.
-///
-/// # Query Parameters
-///
-/// - `from_addr`: Source address filter (optional) - filters instances by source Bitcoin address
-/// - `offset`: Pagination offset (default: 0) - number of items to skip
-/// - `limit`: Items per page (default: 10) - maximum number of items to return
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns instance list with confirmation status
-/// - Response includes total count and paginated instance data
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/instances?from_addr=tb1q...&offset=0&limit=10
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "instance_wraps": [
-///     {
-///       "instance": {
-///         "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///         "status": "Presigned",
-///         "amount": 20000,
-///         ...
-///       },
-///       "confirmations": 3,
-///       "target_confirmations": 6
-///     }
-///   ],
-///   "total": 1
-/// }
-/// ```
-#[axum::debug_handler]
-pub async fn get_instances(
-    Query(params): Query<InstanceListRequest>,
-    State(app_state): State<Arc<AppState>>,
-) -> ApiResult<InstanceListResponse> {
-    // Validate pagination parameters
-    let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
-
-    // Validate from_addr format (if provided)
-    if let Some(ref from_addr) = params.from_addr {
-        InputValidator::validate_btc_address(from_addr, "from_addr")?;
-    }
-
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let mut query = InstanceQuery::default();
-        if let Some(from_addr) = params.from_addr {
-            query = query.with_from_addr(from_addr);
-        }
-        query = query.with_pagination(offset, limit).with_order("created_at DESC".to_string());
-
-        let (instances, total) = storage_process.find_instances(query).await?;
-
-        if instances.is_empty() {
-            tracing::warn!("get_instances instance is empty: total {}", total);
-            return Ok::<InstanceListResponse, Box<dyn std::error::Error>>(
-                InstanceListResponse::default(),
-            );
-        }
-        let current_height = app_state.btc_client.get_height().await?;
-        let mut items = vec![];
-        for instance in instances {
-            let (confirmations, target_confirmations) = get_btc_tx_confirmation_info(
-                &app_state.btc_client,
-                instance.pegin_confirm_txid.clone(),
-                current_height,
-                6,
-            )
-            .await?;
-            let utxo: Vec<Utxo> =
-                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
-            items.push(InstanceExtended {
-                utxo: Some(utxo),
-                instance: Some(instance),
-                confirmations,
-                target_confirmations,
-            })
-        }
-
-        Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
-            instance_wraps: items,
-            total,
-        })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get instances  err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_INSTANCE_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-/// Get detailed information for a specific bridge instance
-///
-/// Get detailed information for a single bridge instance based on instance ID, including confirmation status.
-/// Returns complete instance data with UTXO information and transaction confirmation details.
-///
-/// # Parameters
-///
-/// - `instance_id`: Instance ID (UUID format)
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns instance details with confirmation status
-/// - Returns empty instance wrap if instance not found
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/instances/123e4567-e89b-12d3-a456-426614174000
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "instance_wrap": {
-///     "instance": {
-///       "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///       "status": "Presigned",
-///       "amount": 20000,
-///       ...
-///     },
-///     "confirmations": 3,
-///     "target_confirmations": 6
-///   }
-/// }
-/// ```
-#[axum::debug_handler]
-pub async fn get_instance(
-    Path(instance_id): Path<String>,
-    State(app_state): State<Arc<AppState>>,
-) -> ApiResult<InstanceGetResponse> {
-    // Validate instance_id format
-    let instance_id_uuid = InputValidator::validate_uuid(&instance_id, "instance_id")?;
-
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(instance) = storage_process.find_instance(&instance_id_uuid).await? {
-            let current_height = app_state.btc_client.get_height().await?;
-            let (confirmations, target_confirmations) = get_btc_tx_confirmation_info(
-                &app_state.btc_client,
-                instance.pegin_confirm_txid.clone(),
-                current_height,
-                6,
-            )
-            .await?;
-
-            let utxo: Vec<Utxo> =
-                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
-            Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
-                instance_wrap: InstanceExtended {
-                    utxo: Some(utxo),
-                    instance: Some(instance),
-                    confirmations,
-                    target_confirmations,
-                },
-            })
-        } else {
-            tracing::info!("instance_id {} has no record in database", instance_id);
-            Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
-                instance_wrap: InstanceExtended::default(),
-            })
-        }
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get instances err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_INSTANCE_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-/// Get bridge instance overview statistics
-///
-/// Returns overall statistics for the bridge system, including total amounts, transaction counts, online nodes, etc.
-/// Provides a comprehensive overview of the bridge's operational status and performance metrics.
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns overview information with bridge statistics
-/// - `500 Internal Server Error`: Server internal error or database operation failed
-///
-/// # Statistics Included
-///
-/// - Bridge-in amounts and transaction counts
-/// - Bridge-out amounts and transaction counts  
-/// - Node status (online vs total)
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/instances/overview
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "instances_overview": {
-///     "total_bridge_in_amount": 100000,
-///     "total_bridge_in_txn": 50,
-///     "total_bridge_out_amount": 80000,
-///     "total_bridge_out_txn": 30,
-///     "online_nodes": 5,
-///     "total_nodes": 8
-///   }
-/// }
-/// ```
-#[axum::debug_handler]
-pub async fn get_instances_overview(
-    State(app_state): State<Arc<AppState>>,
-) -> ApiResult<InstanceOverviewResponse> {
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let (pegin_sum, pegin_count) = storage_process
-            .get_sum_bridge_in(&[
-                InstanceStatus::RelayerL1Broadcasted.to_string(),
-                InstanceStatus::RelayerL2Minted.to_string(),
-            ])
-            .await?;
-        let (pegout_sum, pegout_count) = storage_process
-            .get_sum_bridge_out(&[
-                GraphStatus::OperatorTake1.to_string(),
-                GraphStatus::OperatorTake2.to_string(),
-                GraphStatus::Disprove.to_string(),
-            ])
-            .await?;
-        let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
-        Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
-            instances_overview: InstanceOverview {
-                total_bridge_in_amount: pegin_sum,
-                total_bridge_in_txn: pegin_count,
-                total_bridge_out_amount: pegout_sum,
-                total_bridge_out_txn: pegout_count,
-                online_nodes: alive,
-                total_nodes: total,
-            },
-        })
-    };
-    match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
-        Err(err) => {
-            tracing::warn!("get instances overview err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "INSTANCE_OVERVIEW_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
 /// Get detailed information for a specific graph
 ///
 /// Get detailed information for a single graph based on graph ID, excluding raw data.
@@ -1011,110 +749,6 @@ pub async fn get_graph(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "GET_GRAPH_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-/// Update information for a specific graph
-///
-/// Update information for a specified graph, including status, transaction IDs, and other fields.
-/// The function uses INSERT OR REPLACE, so it can also create new graphs.
-/// All fields in the request body will completely replace the existing graph data.
-///
-/// # Parameters
-///
-/// - `graph_id`: Graph ID (UUID format) - must match the graph_id in the request body
-///
-/// # Request Body
-///
-/// Contains complete graph information wrapped in a GraphUpdateRequest.
-/// All fields will be updated with the provided values. Missing fields will be set to null/empty.
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully updated/created graph
-/// - `400 Bad Request`: Graph ID in path doesn't match the one in request body
-/// - `500 Internal Server Error`: Server internal error or database operation failed
-///
-/// # Example
-///
-/// ```http
-/// PUT /v1/graphs/123e4567-e89b-12d3-a456-426614174000
-/// Content-Type: application/json
-///
-/// {
-///   "graph": {
-///     "graph_id": "123e4567-e89b-12d3-a456-426614174000",
-///     "instance_id": "456e7890-e89b-12d3-a456-426614174000",
-///     "graph_ipfs_base_url": "ipfs://...",
-///     "pegin_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-///     "amount": 1000,
-///     "status": "OperatorPresigned",
-///     "pre_kickoff_txid": null,
-///     "kickoff_txid": null,
-///     "challenge_txid": null,
-///     "take1_txid": null,
-///     "assert_init_txid": null,
-///     "assert_commit_txids": null,
-///     "assert_final_txid": null,
-///     "take2_txid": null,
-///     "disprove_txid": null,
-///     "operator": "0x...",
-///     "raw_data": null,
-///     "bridge_out_start_at": 0,
-///     "bridge_out_from_addr": "",
-///     "bridge_out_to_addr": "",
-///     "init_withdraw_txid": null,
-///     "zkm_version": "v1.0.0",
-///     "created_at": 1640995200,
-///     "updated_at": 1640995200
-///   }
-/// }
-/// ```
-///
-/// Response example:
-/// ```json
-/// {}
-/// ```
-#[axum::debug_handler]
-pub async fn update_graph(
-    Path(graph_id): Path<String>,
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<GraphUpdateRequest>,
-) -> ApiResult<GraphUpdateResponse> {
-    // Validate graph_id format in path
-    let _path_graph_id = InputValidator::validate_uuid(&graph_id, "graph_id")?;
-
-    // Validate graph_id format in request body
-    let _body_graph_id =
-        InputValidator::validate_uuid(&payload.graph.graph_id.to_string(), "graph.graph_id")?;
-
-    if graph_id != payload.graph.graph_id.to_string() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "MISMATCHED_GRAPH_ID".to_string(),
-                message: "Graph ID in path does not match the one in request body".to_string(),
-            }),
-        ));
-    }
-
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let _ = storage_process.upsert_graph(payload.graph).await?;
-        Ok::<(), Box<dyn std::error::Error>>(())
-    };
-    match async_fn().await {
-        Ok(_) => Ok((StatusCode::OK, Json(GraphUpdateResponse {}))),
-        Err(err) => {
-            tracing::warn!("graph update err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GRAPH_UPDATE_ERROR".to_string(),
                     message: err.to_string(),
                 }),
             ))

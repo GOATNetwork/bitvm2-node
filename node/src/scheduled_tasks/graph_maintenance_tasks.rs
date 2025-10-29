@@ -575,7 +575,7 @@ pub async fn detect_take1_or_challenge(
     };
     let current_height = btc_client.get_height().await? as i64;
     info!(
-        "start tick action: detect_take1_or_challenge, graphs: {current_height}, current_height: {}",
+        "start tick action: detect_take1_or_challenge, graphs: {}, current_height: {current_height}",
         graphs.len()
     );
     let lock_blocks = get_take1_timelock_config();

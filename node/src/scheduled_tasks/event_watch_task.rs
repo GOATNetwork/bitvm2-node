@@ -336,8 +336,6 @@ async fn handle_committee_response_events<'a>(
                             instance_id,
                             &event.committee_address,
                             pubkey.to_vec(),
-                            vec![],
-                            vec![],
                         )
                         .await?;
                 } else {

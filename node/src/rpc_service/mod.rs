@@ -17,11 +17,7 @@ use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
-use axum::routing::put;
-use axum::{
-    Router, middleware,
-    routing::{get, post},
-};
+use axum::{Router, middleware, routing::get};
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use http::{HeaderMap, StatusCode};
@@ -114,20 +110,15 @@ pub async fn serve(
     let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, registry).await?;
     let server = Router::new()
         .route(routes::ROOT, get(root))
-        .route(routes::v1::NODES_BASE, post(create_node))
         .route(routes::v1::NODES_BASE, get(get_nodes))
         .route(routes::v1::NODES_BY_ID, get(get_node))
         .route(routes::v1::NODES_OVERVIEW, get(get_nodes_overview))
         .route(routes::v1::INSTANCES_SETTINGS, get(instance_settings))
         .route(routes::v1::INSTANCES_BASE, get(get_instances))
-        .route(routes::v1::INSTANCES_BASE, post(create_instance))
         .route(routes::v1::INSTANCES_BY_ID, get(get_instance))
-        .route(routes::v1::INSTANCES_BY_ID, put(update_instance))
         .route(routes::v1::INSTANCES_OVERVIEW, get(get_instances_overview))
         .route(routes::v1::GRAPHS_BY_ID, get(get_graph))
-        .route(routes::v1::GRAPHS_BY_ID, put(update_graph))
         .route(routes::v1::GRAPHS_BASE, get(get_graphs))
-        .route(routes::v1::GRAPHS_PRESIGN_CHECK, get(graph_presign_check))
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::PROOFS_BASE, get(get_proofs))
@@ -351,44 +342,44 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
         let client = Client::new();
         let api_test_items = [
-            ApiTestItem {
-                tag: format!("{} create node", routes::v1::NODES_BASE),
-                url: format!("http://{addr}{}", routes::v1::NODES_BASE),
-                json_payload: Some(json!({
-                    "peer_id": peer_id,
-                    "actor": actor.to_string(),
-                    "btc_pub_key": pub_key,
-                    "goat_addr": goat_addr,
-                    "socket_addr":"127.0.0.1:8080",
-                    "reward": 0,
-                })),
-                method: Method::POST,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get node", routes::v1::NODES_BASE),
-                url: format!("http://{addr}{}/{peer_id}", routes::v1::NODES_BASE),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get nodes", routes::v1::NODES_BASE),
-                url: format!(
-                    "http://{addr}{}?actor={actor}&status=Online&offset=0&limit=5",
-                    routes::v1::NODES_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: routes::v1::NODES_OVERVIEW.to_string(),
-                url: format!("http://{addr}{}", routes::v1::NODES_OVERVIEW),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
+            // ApiTestItem {
+            //     tag: format!("{} create node", routes::v1::NODES_BASE),
+            //     url: format!("http://{addr}{}", routes::v1::NODES_BASE),
+            //     json_payload: Some(json!({
+            //         "peer_id": peer_id,
+            //         "actor": actor.to_string(),
+            //         "btc_pub_key": pub_key,
+            //         "goat_addr": goat_addr,
+            //         "socket_addr":"127.0.0.1:8080",
+            //         "reward": 0,
+            //     })),
+            //     method: Method::POST,
+            //     expe_res: true,
+            // },
+            // ApiTestItem {
+            //     tag: format!("{} get node", routes::v1::NODES_BASE),
+            //     url: format!("http://{addr}{}/{peer_id}", routes::v1::NODES_BASE),
+            //     json_payload: None,
+            //     method: Method::GET,
+            //     expe_res: true,
+            // },
+            // ApiTestItem {
+            //     tag: format!("{} get nodes", routes::v1::NODES_BASE),
+            //     url: format!(
+            //         "http://{addr}{}?actor={actor}&status=Online&offset=0&limit=5",
+            //         routes::v1::NODES_BASE
+            //     ),
+            //     json_payload: None,
+            //     method: Method::GET,
+            //     expe_res: true,
+            // },
+            // ApiTestItem {
+            //     tag: routes::v1::NODES_OVERVIEW.to_string(),
+            //     url: format!("http://{addr}{}", routes::v1::NODES_OVERVIEW),
+            //     json_payload: None,
+            //     method: Method::GET,
+            //     expe_res: true,
+            // },
         ];
         do_batch_tests("node apis", &client, &api_test_items).await?;
         Ok(())

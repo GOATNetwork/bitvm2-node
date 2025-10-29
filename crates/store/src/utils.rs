@@ -8,6 +8,7 @@ pub struct QueryBuilder {
 
 #[derive(Clone)]
 pub enum QueryParam {
+    Bool(bool),
     Text(String),
     Int(i64),
     BTCTxid(SerializableTxid),
@@ -143,12 +144,14 @@ impl QueryBuilder {
         for<'a> &'a str: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> String: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> i64: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
+        for<'a> bool: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> SerializableTxid: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> u32: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
     {
         // Bind parameters for query
         for param in self.params {
             query = match param {
+                QueryParam::Bool(v) => query.bind(v),
                 QueryParam::Text(s) => query.bind(s),
                 QueryParam::Int(i) => query.bind(i),
                 QueryParam::BTCTxid(btc_txid) => query.bind(btc_txid),
@@ -167,12 +170,14 @@ impl QueryBuilder {
         for<'a> &'a str: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> String: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> i64: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
+        for<'a> bool: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> SerializableTxid: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
         for<'a> u32: sqlx::Encode<'a, DB> + sqlx::Type<DB>,
     {
         // Bind parameters for query
         for param in self.params {
             query = match param {
+                QueryParam::Bool(v) => query.bind(v),
                 QueryParam::Text(s) => query.bind(s),
                 QueryParam::Int(i) => query.bind(i),
                 QueryParam::BTCTxid(btc_txid) => query.bind(btc_txid),
@@ -186,5 +191,5 @@ impl QueryBuilder {
 ///
 /// Creates a string of placeholders like "$1,$2,$3" for use in SQL IN clauses
 pub fn create_place_holders<T>(inputs: &[T]) -> String {
-    inputs.iter().enumerate().map(|(i, _)| format!("${}", i + 1)).collect::<Vec<_>>().join(",")
+    vec!["?"; inputs.len()].join(",")
 }

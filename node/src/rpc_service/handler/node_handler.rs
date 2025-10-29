@@ -1,6 +1,5 @@
 use crate::rpc_service::node::{
     ALIVE_TIME_JUDGE_THRESHOLD, NodeDesc, NodeListResponse, NodeOverViewResponse, NodeQueryParams,
-    UpdateOrInsertNodeRequest,
 };
 use crate::rpc_service::response::{ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
@@ -11,143 +10,16 @@ use axum::extract::{Path, Query, State};
 use bitvm2_lib::actors::Actor;
 use http::StatusCode;
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
+
 use store::localdb::NodeQuery;
 use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 
-/// Create or update node information
-///
-/// Create a new node record or update existing node information. Node information includes peer_id, role, addresses, etc.
-/// The function uses INSERT OR REPLACE, so it can also update existing nodes.
-///
-/// # Request Body
-///
-/// Contains complete node information including peer_id, role, addresses, etc.
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully created or updated node
-/// - `500 Internal Server Error`: Server internal error
-///
-/// # Example
-///
-/// ```http
-/// POST /v1/nodes
-/// Content-Type: application/json
-///
-/// {
-///   "peer_id": "QmPeerId...",
-///   "actor": "Operator",
-///   "btc_pub_key": "02...",
-///   "goat_addr": "0x...",
-///   "socket_addr": "127.0.0.1:8080",
-///   "reward": 0
-/// }
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "peer_id": "QmPeerId...",
-///   "actor": "Operator",
-///   "btc_pub_key": "02...",
-///   "goat_addr": "0x...",
-///   "socket_addr": "127.0.0.1:8080",
-///   "reward": 0,
-///   "updated_at": 1640995200,
-///   "created_at": 1640995200
-/// }
-/// ```
-#[axum::debug_handler]
-pub async fn create_node(
-    State(app_state): State<Arc<AppState>>,
-    Json(payload): Json<UpdateOrInsertNodeRequest>,
-) -> ApiResult<Node> {
-    // Validate input parameters
-    InputValidator::validate_peer_id(&payload.peer_id, "peer_id")?;
-    let goat_addr = InputValidator::validata_goat_address(&payload.goat_addr, "goat_addr")?;
-    InputValidator::validate_btc_pub_key(&payload.btc_pub_key, "btc_pub_key")?;
-    InputValidator::validate_string_length(&payload.socket_addr, "socket_addr", 7, 100)?;
-    // Validate actor field
-    InputValidator::validate_actor(&payload.actor.to_string(), "actor")?;
-    let async_fn = || async move {
-        let node = Node {
-            peer_id: payload.peer_id.clone(),
-            actor: payload.actor.to_string(),
-            goat_addr,
-            btc_pub_key: payload.btc_pub_key.clone(),
-            socket_addr: payload.socket_addr.clone(),
-            reward: 0,
-            updated_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-                as i64,
-            created_at: std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-                as i64,
-        };
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let _ = storage_process.upsert_node(node.clone()).await?;
-        Ok::<Node, Box<dyn std::error::Error>>(node)
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("create node err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "CREAT_NODE_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-/// Get node list
-///
-/// Get node list based on query parameters, supports filtering by role, address, status and pagination.
-///
-/// # Query Parameters
-///
-/// - `actor`: Node role filter (optional, supports: Operator, Challenger, Relayer, All)
-/// - `goat_addr`: GOAT address filter (optional)
-/// - `status`: Node status filter (optional, supports: Online, Offline)
-/// - `offset`: Pagination offset (default: 0)
-/// - `limit`: Items per page (default: 10)
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns node list
-/// - `500 Internal Server Error`: Server internal error
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/nodes?actor=Operator&status=Online&offset=0&limit=10
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "nodes": [
-///     {
-///       "peer_id": "QmPeerId...",
-///       "actor": "Operator",
-///       "status": "Online",
-///       "goat_addr": "0x...",
-///       "btc_pub_key": "02...",
-///       "socket_addr": "127.0.0.1:8080",
-///       "reward": 0,
-///       "updated_at": 1640995200
-///     }
-///   ],
-///   "total": 1
-/// }
-/// ```
 #[axum::debug_handler]
 pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<NodeListResponse> {
+    // todo update node filed
     // Validate pagination parameters
     let (offset, limit) =
         InputValidator::validate_pagination(query_params.offset, query_params.limit)?;
@@ -196,12 +68,16 @@ pub async fn get_nodes(
                 NodeDesc {
                     peer_id: v.peer_id,
                     actor: v.actor,
+                    name: "zkm".to_string(),
+                    service_fee: 0,
+                    available_btc: 0,
                     updated_at: v.updated_at,
                     status,
                     goat_addr: v.goat_addr,
                     btc_pub_key: v.btc_pub_key,
                     socket_addr: v.socket_addr,
                     reward: v.reward,
+                    available_peg_btc: 0,
                 }
             })
             .collect();
@@ -226,36 +102,6 @@ pub async fn get_nodes(
     }
 }
 
-/// Get node overview statistics
-///
-/// Returns overall statistics for nodes in the network, including node counts by role and online status.
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns node overview information
-/// - `500 Internal Server Error`: Server internal error
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/nodes/overview
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "nodes_overview": {
-///     "total_nodes": 8,
-///     "online_nodes": 5,
-///     "operator_count": 2,
-///     "challenger_count": 3,
-///     "relayer_count": 3,
-///     "online_operator_count": 1,
-///     "online_challenger_count": 2,
-///     "online_relayer_count": 2
-///   }
-/// }
-/// ```
 #[axum::debug_handler]
 pub async fn get_nodes_overview(
     State(app_state): State<Arc<AppState>>,

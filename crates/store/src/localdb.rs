@@ -2,10 +2,10 @@ use crate::schema::NODE_STATUS_OFFLINE;
 use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    CommitChainProof, CommitInfo, CommitteeSignatures, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
-    GraphRawData, HeaderChainProof, Instance, Message, MessageBroadcast, Node, NodesOverview,
-    OperatorProof, PeginGraphProcessData, PeginInstanceProcessData, ProofInfo, ProofType,
-    SerializableTxid, WatchContract, WatchtowerProof,
+    CommitChainProof, CommitInfo, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData,
+    HeaderChainProof, Instance, Message, MessageBroadcast, Node, NodesOverview, OperatorProof,
+    PeginGraphProcessData, PeginInstanceProcessData, ProofInfo, ProofType, SerializableTxid,
+    WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -87,6 +87,7 @@ impl LocalDB {
 
 #[derive(Clone, Debug, Default)]
 pub struct InstanceQuery {
+    pub is_bridge_in: bool,
     pub from_addr: Option<String>,
     pub statuses: Vec<String>,
     pub earliest_updated: Option<i64>,
@@ -97,6 +98,11 @@ pub struct InstanceQuery {
 }
 
 impl InstanceQuery {
+    pub fn with_is_bridge_in(mut self, is_bridge_in: bool) -> Self {
+        self.is_bridge_in = is_bridge_in;
+        self
+    }
+
     pub fn with_from_addr(mut self, from_addr: String) -> Self {
         self.from_addr = Some(from_addr);
         self
@@ -145,6 +151,8 @@ impl InstanceQuery {
 
     pub fn get_query_builder(&self, base_sql: &str) -> QueryBuilder {
         let mut query_builder = QueryBuilder::new(base_sql);
+        query_builder.and_where("is_bridge_in = ?", Some(QueryParam::Bool(self.is_bridge_in)));
+
         if let Some(from_addr) = &self.from_addr {
             query_builder.and_where("from_addr = ?", Some(QueryParam::Text(from_addr.clone())));
         }
@@ -156,7 +164,7 @@ impl InstanceQuery {
         }
         if let Some(pegin_request_height_threshold) = self.pegin_request_height_threshold {
             query_builder.and_where(
-                "pegin_request_height < ?",
+                "goat_tx_height < ?",
                 Some(QueryParam::Int(pegin_request_height_threshold)),
             );
         }
@@ -176,8 +184,8 @@ pub struct InstanceUpdate {
     pub instance_id: Uuid,
     pub status: Option<String>,
     pub pegin_confirm_txid: Option<String>,
-    pub pegin_data_txid: Option<String>,
-    pub pegin_prepare_height: Option<i64>,
+    pub btc_height: Option<i64>,
+    pub committees_answers: Option<HashMap<String, Vec<u8>>>,
 }
 
 impl InstanceUpdate {
@@ -187,8 +195,8 @@ impl InstanceUpdate {
             instance_id,
             status: None,
             pegin_confirm_txid: None,
-            pegin_data_txid: None,
-            pegin_prepare_height: None,
+            btc_height: None,
+            committees_answers: None,
         }
     }
 
@@ -204,22 +212,22 @@ impl InstanceUpdate {
         self
     }
 
-    /// Set pegin data transaction ID
-    pub fn with_pegin_data_txid(mut self, txid: String) -> Self {
-        self.pegin_data_txid = Some(txid);
+    /// Set committees answers
+    pub fn with_committees_answers(mut self, committees_answers: HashMap<String, Vec<u8>>) -> Self {
+        self.committees_answers = Some(committees_answers);
         self
     }
 
-    pub fn with_pegin_prepare_height(mut self, timeout: i64) -> Self {
-        self.pegin_prepare_height = Some(timeout);
+    pub fn with_btc_height(mut self, timeout: i64) -> Self {
+        self.btc_height = Some(timeout);
         self
     }
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
         self.status.is_some()
             || self.pegin_confirm_txid.is_some()
-            || self.pegin_data_txid.is_some()
-            || self.pegin_prepare_height.is_some()
+            || self.committees_answers.is_some()
+            || self.btc_height.is_some()
     }
 
     pub fn get_query_builder(&self, base_sql: &str) -> QueryBuilder {
@@ -233,12 +241,8 @@ impl InstanceUpdate {
             query_builder.set_field("pegin_confirm_txid", QueryParam::Text(txid.clone()));
         }
 
-        if let Some(ref txid) = self.pegin_data_txid {
-            query_builder.set_field("pegin_data_txid", QueryParam::Text(txid.clone()));
-        }
-
-        if let Some(pegin_prepare_height) = self.pegin_prepare_height {
-            query_builder.set_field("pegin_prepare_height", QueryParam::Int(pegin_prepare_height));
+        if let Some(pegin_prepare_height) = self.btc_height {
+            query_builder.set_field("btc_height", QueryParam::Int(pegin_prepare_height));
         }
 
         // Add update time
@@ -622,11 +626,12 @@ impl<'a> StorageProcessor<'a> {
         let committees_answers_json = serde_json::to_string(&instance.committees_answers)?;
         let res = sqlx::query!(
             "INSERT OR
-            REPLACE INTO instance (instance_id, network, from_addr, to_addr, amount, fees, input_utxos, status, pegin_request_tx_hash, pegin_request_height,
-                        user_xonly_pubkey, user_change_addr, user_refund_addr, pegin_prepare_txid, pegin_confirm_txid, pegin_cancel_txid, unsign_pegin_confirm_tx, committees_answers,
-                       pegin_data_tx_hash, pegin_prepare_height, parameters, created_at, updated_at)
+            REPLACE INTO instance (instance_id, is_bridge_in,  network, from_addr, to_addr, amount, fees, input_utxos, status, goat_tx_hash, goat_tx_height,
+                        user_xonly_pubkey, user_change_addr, user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers,
+                       pegin_data_tx_hash, btc_height, parameters, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
+            instance.is_bridge_in,
             instance.network,
             instance.from_addr,
             instance.to_addr,
@@ -634,18 +639,17 @@ impl<'a> StorageProcessor<'a> {
             instance.fees,
             instance.input_utxos,
             instance.status,
-            instance.pegin_request_tx_hash,
-            instance.pegin_request_height,
+            instance.goat_tx_hash,
+            instance.goat_tx_height,
             instance.user_xonly_pubkey,
             instance.user_change_addr,
             instance.user_refund_addr,
-            instance.pegin_prepare_txid,
+            instance.btc_txid,
             instance.pegin_confirm_txid,
             instance.pegin_cancel_txid,
-            instance.unsign_pegin_confirm_tx,
             committees_answers_json,
             instance.pegin_data_tx_hash,
-            instance.pegin_prepare_height,
+            instance.btc_height,
             instance.parameters,
             instance.created_at,
             instance.updated_at
@@ -833,6 +837,7 @@ impl<'a> StorageProcessor<'a> {
             return Ok(false);
         }
         let query_builder = params.get_query_builder("instance");
+        // Get SQL and parameters
         let update_sql = query_builder.get_sql();
         // Execute query
         let mut query = sqlx::query(&update_sql);
@@ -872,8 +877,6 @@ impl<'a> StorageProcessor<'a> {
         instance_id: &Uuid,
         committee_addr: &str,
         pubkey: Vec<u8>,
-        l1_sig: Vec<u8>,
-        l2_sig: Vec<u8>,
     ) -> anyhow::Result<bool> {
         // First, get the current committees_answers
         let current_instance = self.find_instance(instance_id).await?;
@@ -885,15 +888,9 @@ impl<'a> StorageProcessor<'a> {
         committees_answers
             .entry(committee_addr.to_string())
             .and_modify(|existing| {
-                existing.pubkey = pubkey.clone();
-                if !l1_sig.is_empty() {
-                    existing.l1_sig = l1_sig.clone();
-                }
-                if !l2_sig.is_empty() {
-                    existing.l2_sig = l2_sig.clone();
-                }
+                *existing = pubkey.clone();
             })
-            .or_insert_with(|| CommitteeSignatures { pubkey, l1_sig, l2_sig });
+            .or_insert_with(|| pubkey);
         self.update_instance_committees_answers_map(instance_id, &committees_answers).await
     }
 
@@ -923,7 +920,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn get_instance_committees_answers(
         &mut self,
         instance_id: &Uuid,
-    ) -> anyhow::Result<Option<IndexMap<String, CommitteeSignatures>>> {
+    ) -> anyhow::Result<Option<IndexMap<String, Vec<u8>>>> {
         let current_instance = self.find_instance(instance_id).await?;
         if let Some(instance) = current_instance {
             Ok(Some(instance.committees_answers))
@@ -939,7 +936,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_instance_committees_answers_map(
         &mut self,
         instance_id: &Uuid,
-        committees_answers: &IndexMap<String, CommitteeSignatures>,
+        committees_answers: &IndexMap<String, Vec<u8>>,
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let committees_answers_json = serde_json::to_string(&committees_answers)?;
@@ -1458,7 +1455,8 @@ impl<'a> StorageProcessor<'a> {
                     (res.offline_committee, res.online_committee) = (record.offline, record.online);
                 }
                 "Relayer" => {
-                    (res.offline_relayer, res.online_relayer) = (record.offline, record.online);
+                    (res.offline_watchtower, res.online_watchtower) =
+                        (record.offline, record.online);
                 }
                 _ => {}
             };
@@ -1554,7 +1552,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let query_str = format!(
-            "Update  message Set state = \'{state}\', updated_at = {current_time} WHERE id IN ({})",
+            "Update  message Set state = \'{state}\', updated_at = {current_time} WHERE message_id IN ({})",
             create_place_holders(ids)
         );
         let mut query = sqlx::query(&query_str);
