@@ -68,7 +68,7 @@ RUST_LOG=debug cargo run --package watchtower-proof --bin watchtower-proof -r --
 After calling the [`initWithdraw`](https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L509), we generate the operator proof with corresponding `graph_id` and transaction id. 
 
 ```
-RUST_BACKTRACE=1 cargo run --package operator-proof --bin operator-proof -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof data/header-chain/560100-1.bin --commit-chain-input-proof data/commit-chain/commit-proof2.bin --output "data/operator-proof/output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./operator-proof/host/watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --graph-id 0x00112233445566778899aabbccddeeff
+RUST_BACKTRACE=1 cargo run --package operator-proof --bin operator-proof -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof data/header-chain/560100-1.bin --commit-chain-input-proof data/commit-chain/commit-proof2.bin --output "data/operator-proof/output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./operator-proof/host/watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --graph-id 0x00112233445566778899aabbccddeeff --consensus-layer-block-number 5756785
 ```
 
 * latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id

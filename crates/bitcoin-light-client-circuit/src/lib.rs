@@ -1,11 +1,15 @@
 mod utils;
+use std::sync::Arc;
+
+use alloy_primitives::B256;
+use guest_executor::executor::EthClientExecutor;
 pub use utils::*;
 mod rollup_chain;
 pub use rollup_chain::*;
 
 use alloy_primitives::Address;
+use alloy_primitives::U256;
 use alloy_primitives::utils::keccak256;
-use alloy_primitives::{B256, U128, U256};
 use bitcoin::Block;
 use bitcoin::Transaction;
 use commit_chain::{CommitChainCircuitInput, commit_chain_circuit, extract_op_return_data};
@@ -13,7 +17,6 @@ use header_chain::{
     BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, MMRHost,
     SPV, header_chain_circuit, verify_merkle_proof,
 };
-use revm::DatabaseRef;
 use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
@@ -25,24 +28,35 @@ pub const PUBLIC_INPUTS_SIZE: usize = 64;
 pub const VK_HASH_SIZE: usize = 66;
 
 // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L150
-fn verify_el_withdraw_tx(
+// Get base slot:  forge inspect src/GatewayDebug.sol:GatewayDebug storage-layout
+pub fn verify_el_withdraw_tx(
     l2_contract_address: Address,
-    base_slot: U256,
-    key: U128,
-    input: &EthClientExecutorInput,
-) -> U256 {
-    let mut data = [0u8; 32 * 2 + 16];
-    let base: [u8; 32] = base_slot.to_be_bytes();
-    data[..32].copy_from_slice(&base);
-    let k: [u8; 16] = key.to_be_bytes();
-    data[32..48].copy_from_slice(&k);
-    let offset: U256 = U256::ZERO;
-    let k: [u8; 32] = offset.to_be_bytes();
-    data[48..].copy_from_slice(&k);
+    withdraw_data_map_slot: &[u8; 32],
+    graph_id: &[u8; 16],
+    input: EthClientExecutorInput,
+    //    next_block_hash: [u8; 32],
+) {
+    // verify the state transition and withdraw status
+    let executor = EthClientExecutor::eth(
+        Arc::new((&input.genesis).try_into().unwrap()),
+        input.custom_beneficiary,
+    );
+
+    let mut data = [0u8; 32 * 2];
+    data[0..16].copy_from_slice(graph_id);
+    data[32..].copy_from_slice(withdraw_data_map_slot);
     let slot_id = B256::from(keccak256(data));
 
-    let triedb = input.witness_db().unwrap();
-    triedb.storage_ref(l2_contract_address, slot_id.into()).unwrap()
+    let (header, _) = executor
+        .execute(
+            input,
+            Some(l2_contract_address),
+            Some(vec![(slot_id.into(), U256::from(1).into())]),
+        )
+        .expect("failed to execute client");
+    let block_hash = header.hash_slow();
+    println!("block_hash: {:?}", block_hash);
+    // assert_eq!(block_hash, next_block_hash);
 }
 
 pub fn generate_watchtower_proof(
@@ -107,7 +121,7 @@ pub fn generate_operator_proof(
     commit_chain: CommitChainCircuitInput,
     spv: SPV,
     l2_contract_address: Address,
-    base_slot: U256,
+    base_slot: [u8; 32],
 ) -> [u8; 32] {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -214,15 +228,13 @@ pub fn generate_operator_proof(
     println!("verify el withdraw tx");
     // latest_goat_block.get_graph_status(graph_status_storage_proof, graph_id) == GraphStatus.Proceeded
     // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L101
-    assert_eq!(
-        verify_el_withdraw_tx(
-            l2_contract_address,
-            base_slot,
-            U128::from_le_bytes(graph_id), // NOTE: follow up the endian in the watchtower-challenge txn
-            &eth_client_execution_input,
-        ),
-        1
-    ); // 1 == Processing 
+    // 1 == Processing
+    verify_el_withdraw_tx(
+        l2_contract_address,
+        &base_slot,
+        &graph_id, // NOTE: follow up the endian in the watchtower-challenge txn
+        eth_client_execution_input,
+    );
     operator_total_work
 }
 

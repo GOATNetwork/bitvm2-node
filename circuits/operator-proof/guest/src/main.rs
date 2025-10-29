@@ -35,9 +35,8 @@ pub fn main() {
     let operator_commit_chain: CommitChainCircuitInput = zkm_zkvm::io::read();
     let spv: SPV = zkm_zkvm::io::read();
 
-    // FIXME: pass from host 
-    let l2_contract_address: Address = Address::from_str("0x99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6").unwrap();
-    let base_slot: U256 = U256::from(11);
+    let l2_contract_address: Address = zkm_zkvm::io::read();
+    let base_slot: [u8; 32] = zkm_zkvm::io::read();
 
     let operator_total_work = bitcoin_light_client_circuit::generate_operator_proof(
         included_watchertowers,

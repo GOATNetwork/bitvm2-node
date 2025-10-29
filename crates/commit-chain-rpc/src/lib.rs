@@ -27,7 +27,7 @@ pub fn get_cosmos_rpc_url() -> String {
 
 pub async fn fetch_cosmos_validator_info(
     goat_block_height: u64,
-) -> Result<(Option<[u8; 32]>, Option<[u8; 32]>), Box<dyn std::error::Error>> {
+) -> Result<(Option<[u8; 32]>, Option<[u8; 32]>, u64), Box<dyn std::error::Error>> {
     let cosmos_rpc_url = get_cosmos_rpc_url();
     // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
     // 1. fetch the latest cosmos block height
@@ -70,7 +70,7 @@ pub async fn fetch_cosmos_validator_info(
     }
     println!("cosmos block height: {block_height}");
 
-    Ok((sequencer_hash, next_sequencer_hash))
+    Ok((sequencer_hash, next_sequencer_hash, block_height))
 }
 
 pub async fn fetch_commit_chain_proof_input(

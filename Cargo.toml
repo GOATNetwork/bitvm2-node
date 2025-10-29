@@ -111,11 +111,11 @@ serde_cbor = "0.11.2"
 # workspace
 
 # Reth
-guest-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
-host-executor = { git = "https://github.com/ProjectZKM/reth-processor" }
-rpc-db = { git = "https://github.com/ProjectZKM/reth-processor" }
-primitives = { git = "https://github.com/ProjectZKM/reth-processor" }
-provider = { git = "https://github.com/ProjectZKM/reth-processor"}
+guest-executor = { git = "https://github.com/eigmax/reth-processor" }
+host-executor = { git = "https://github.com/eigmax/reth-processor" }
+rpc-db = { git = "https://github.com/eigmax/reth-processor" }
+primitives = { git = "https://github.com/eigmax/reth-processor" }
+provider = { git = "https://github.com/eigmax/reth-processor"}
 
 reth-chainspec = { git = "https://github.com/ziren-patches/reth", branch = "patch-1.3.10", default-features = false }
 

@@ -1,23 +1,21 @@
 //! Generate operator proof
-//! Example:
-//! ```
-//! RUST_BACKTRACE=1 cargo run -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof ../../header-chain-proof/host/26700-100.bin --commit-chain-input-proof ../../commit-chain-proof/host/commit-proof2.bin --output "output.bin" --included-watchtowers 1 --execution-layer-block-number 5756299 --watchtower-challenge-info ./watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c
-//! ```
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use alloy_provider::{RootProvider, network::Ethereum};
 use ark_serialize::CanonicalSerialize;
 use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
-use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv};
+use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv, verify_el_withdraw_tx};
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
+use commit_chain_rpc::fetch_cosmos_validator_info;
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
+use hex::FromHex;
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
 use reth_chainspec::ChainSpec;
@@ -35,14 +33,6 @@ const OPERATOR: &[u8] = include_elf!("guest");
 
 use clap::Parser;
 use std::fs;
-
-fn str_to_16_bytes_exact(s: &str) -> Result<[u8; 16], String> {
-    let bytes = s.as_bytes();
-    assert_eq!(bytes.len(), 16, "string must be exactly 16 bytes");
-    let mut arr = [0u8; 16];
-    arr.copy_from_slice(bytes);
-    Ok(arr)
-}
 
 // https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
 async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
@@ -74,6 +64,15 @@ async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
     client_input
 }
 
+pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
+    let mut s = s;
+    if s.starts_with("0x") {
+        s = &s[2..];
+    }
+    let b = Vec::from_hex(s).map_err(|e| e.to_string())?;
+    b.try_into().map_err(|_| "len must be 16".to_string())
+}
+
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -83,7 +82,7 @@ pub struct Args {
     #[clap(long, env)]
     included_watchtowers: String,
 
-    #[clap(long, env, value_parser = str_to_16_bytes_exact, default_value = "123456789ABCDEAA")]
+    #[clap(long, env, value_parser = hex_parse)]
     graph_id: [u8; 16],
 
     #[clap(long, env)]
@@ -94,9 +93,6 @@ pub struct Args {
 
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
-
-    #[clap(long, env, short)]
-    consensus_layer_block_number: u64,
 
     #[clap(long, env, short, default_value = "https://rpc.testnet3.goat.network")]
     execution_layer_rpc: String,
@@ -114,18 +110,34 @@ pub struct Args {
     #[clap(long, env, default_value = "commit-proof.bin")]
     output: String,
 
-    #[clap(long, env, default_value = "../../header-chain-proof/host/block_headers.bin")]
+    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
     block_headers: String,
+
+    #[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
+    l2_contract_address: String,
 }
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
 
     //let out = fetch_exection_layer_block(&args).await;
     //println!("output: {:?}", out);
+
+    let addr = if args.l2_contract_address.starts_with("0x") {
+        args.l2_contract_address[2..].to_string()
+    } else {
+        args.l2_contract_address.clone()
+    };
+    let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
+    let l2_contract_address = Address::from(bytes);
+    let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
+
+    let input = fetch_exection_layer_block(&args).await;
+    verify_el_withdraw_tx(l2_contract_address, &base_slot, &args.graph_id, input);
 
     // Initialize the proving client.
     let client = ProverClient::new();
@@ -249,11 +261,14 @@ async fn main() {
         };
         watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
     }
-    let (actual_seqeuncer_set_hash, actual_data_hash, txns) =
-        commit_chain_rpc::fetch_commit_chain_proof_input(args.consensus_layer_block_number)
+    let (sequencer_set_hash, _, consensus_layer_block_number) =
+        fetch_cosmos_validator_info(args.execution_layer_block_number).await.unwrap();
+    let (actual_sequencer_set_hash, actual_data_hash, txns) =
+        commit_chain_rpc::fetch_commit_chain_proof_input(consensus_layer_block_number)
             .await
             .unwrap();
-    // Generate the proofs.
+    assert_eq!(sequencer_set_hash.unwrap(), actual_sequencer_set_hash);
+    // Generate the proofs
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
 
@@ -264,7 +279,7 @@ async fn main() {
 
         stdin.write(&operator_latest_sequencer_commit_txn);
 
-        stdin.write(&actual_seqeuncer_set_hash);
+        stdin.write(&actual_sequencer_set_hash);
         stdin.write(&actual_data_hash);
         stdin.write(&txns);
 
@@ -279,6 +294,8 @@ async fn main() {
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
         stdin.write(&spv);
+        stdin.write(&l2_contract_address);
+        stdin.write(&base_slot);
 
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);

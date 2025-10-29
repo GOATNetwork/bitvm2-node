@@ -266,7 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
         }
         Commands::SignSeq { owner_btc_key_wif, goat_block_number, next_publishers, clean_sigs } => {
-            let (_, next_sequencer_set_hash) =
+            let (_, next_sequencer_set_hash, _) =
                 fetch_cosmos_validator_info(goat_block_number).await?;
 
             let (fee_txid, fee_tx_vout) =
@@ -295,7 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
         }
         Commands::PushSeq { owner_btc_key_wif, goat_block_number, next_publishers } => {
-            let (_, next_sequencer_set_hash) =
+            let (_, next_sequencer_set_hash, _) =
                 fetch_cosmos_validator_info(goat_block_number).await?;
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
@@ -321,7 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::UpdateSeqSet { next_publishers, goat_block_number } => {
             // fetch validator set from cosmos
-            let (sequence_set_hash, next_sequencer_set_hash) =
+            let (sequence_set_hash, next_sequencer_set_hash, _) =
                 fetch_cosmos_validator_info(goat_block_number).await?;
 
             action_update_sequencer_set_on_goat(
