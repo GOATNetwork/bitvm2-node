@@ -50,10 +50,10 @@ pub fn verify_el_withdraw_tx(
     let slot_id = B256::from(keccak256(data));
 
     let (header, _) = executor
-        .execute(input, Some(vec![(l2_contract_address, slot_id.into(), U256::from(1).into())]))
+        .execute(input, Some(vec![(l2_contract_address, slot_id.into(), U256::from(1))]))
         .expect("failed to execute client");
     let block_hash = header.hash_slow();
-    println!("block_hash: {:?}", block_hash);
+    println!("block_hash: {block_hash:?}");
     // assert_eq!(block_hash, next_block_hash);
 }
 
