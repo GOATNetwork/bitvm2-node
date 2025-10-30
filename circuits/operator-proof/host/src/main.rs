@@ -119,7 +119,7 @@ pub struct Args {
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok();
+    //dotenv::dotenv().ok();
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
@@ -213,7 +213,6 @@ async fn main() {
 
     let eth_client_execution_input: EthClientExecutorInput =
         fetch_exection_layer_block(&args).await;
-    println!("Block: {:?}", eth_client_execution_input);
     println!(
         "el block hash: {}",
         eth_client_execution_input.current_block.header.hash_slow().to_string()

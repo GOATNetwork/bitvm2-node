@@ -875,12 +875,12 @@ mod tests {
         };
 
         const PROOF: &[u8] =
-            include_bytes!("../../bitcoin-light-client-circuit/samples/output.bin.proof.bin");
+            include_bytes!("../../../circuits/data/watchtower/output3.bin.proof.bin");
         const PUBLIC_INPUTS: &[u8] = include_bytes!(
-            "../../bitcoin-light-client-circuit/samples/output.bin.public_inputs.bin"
+            "../../../circuits/data/watchtower/output3.bin.public_inputs.bin"
         );
         const VK_HASH: &str =
-            include_str!("../../bitcoin-light-client-circuit/samples/output.bin.vk_hash.bin");
+            include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
 
         let graph_id = graph.parameters.graph_id.to_bytes_le();
         let total_work = 100;
