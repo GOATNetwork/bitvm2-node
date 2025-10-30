@@ -85,18 +85,18 @@ ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS=0x...
 ```
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].txid)
-export HEADER_CHAIN_PROOF="data/header-chain/0-2240.bin"
-export COMMIT_CHAIN_PROOF="data/commit-chain/commit-proof.bin"
+export HEADER_CHAIN_INPUT_PROOF="data/header-chain/2240-10.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
 
-RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid $GENESIS_SEQUENCER_COMMIT_TXID --latest-sequencer-commit-txid $LATEST_SEQUENCER_COMMIT_TXID --header-chain-input-proof $HEADER_CHAIN_PROOF --commit-chain-input-proof $COMMIT_CHAIN_PROOF --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
+RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info2.json | jq -r .[0].txid)
-export COMMIT_CHAIN_PROOF="data/commit-chain/commit-proof2.bin"
-RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid $GENESIS_SEQUENCER_COMMIT_TXID --latest-sequencer-commit-txid $LATEST_SEQUENCER_COMMIT_TXID --header-chain-input-proof $HEADER_CHAIN_PROOF --commit-chain-input-proof $COMMIT_CHAIN_PROOF --output "data/watchtower/output2.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof2.bin"
+RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output2.bin"
 
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info3.json | jq -r .[0].txid)
-export COMMIT_CHAIN_PROOF="data/commit-chain/commit-proof3.bin"
-RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --genesis-sequencer-commit-txid $GENESIS_SEQUENCER_COMMIT_TXID --latest-sequencer-commit-txid $LATEST_SEQUENCER_COMMIT_TXID --header-chain-input-proof $HEADER_CHAIN_PROOF --commit-chain-input-proof $COMMIT_CHAIN_PROOF --output "data/watchtower/output3.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof3.bin"
+RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output3.bin"
 ```
 
 * latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id
@@ -117,31 +117,31 @@ Make sure the operator has enough balance, if not, run this command to fund the 
 bitcoin-cli -regtest -rpcuser=$... -rpcpassword=$... sendtoaddress bcrt1qhnmlpxyxdntekge4u24m4a7yk6elc3zs4v89e7fqja8vagfnrs8sq28cwd 50
 ```
 
-Get the withdraw-challenge-init-txid and graph-id for next steps.
-
+Get the withdraw-challenge-init-txid , graph-id, and update `watchtower_info.json` with watchtower's challenge transaction id and compressed public key.
 
 * Generate proofs
 
 After calling the [`initWithdraw`](https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L509), we generate the operator proof with corresponding `graph_id` and transaction id. 
 
 ```
-RUST_BACKTRACE=1 cargo run --package operator-proof --bin operator-proof -r -- --latest-sequencer-commit-txid dee4f6e15f40f7efdbf3f6cd5292b02d69a12d7ab7dd476ad71f7bfc1d187584 --header-chain-input-proof data/header-chain/601500-100.bin --commit-chain-input-proof data/commit-chain/commit-proof2.bin --output "data/operator-proof/output.bin" --included-watchtowers 1 --execution-layer-block-number 8447360 --watchtower-challenge-info ./operator-proof/host/watchtower_info.json --watchtower-challenge-init-txid 315edf0312d541f7a27cd342ae632e9419397e3328f61b1dd391dbf3a9ecf19c --graph-id 0x00112233445566778899aabbccddeeff
+export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].genesis_txid)
+export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info3.json | jq -r .[0].txid)
+export HEADER_CHAIN_INPUT_PROOF="data/header-chain/2240-10.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof3.bin"
+export WATCHTOWER_CHALLENGE_INIT_TXID="079135284b505444cd6a544bb9c9788c132a35ea755517faedcb6f6979f7d3fd"
+export GRAPH_ID="0x00112233445566778899aabbccddeeff"
+export EXECUTION_LAYER_BLOCK_NUMBER=8447360
+export WATCHTOWER_CHALLENGE_INFO="data/watchtower/watchtower_info.json"
+export INCLUDED_WATCHTOWERS=1
+
+
+RUST_LOG=info cargo run --package operator-proof --bin operator-proof -r -- --output "data/operator-proof/output.bin"
 ```
 
 * latest-sequencer-commit-txid: the latest publisher's commitment Bitcoin transaction id
 * header-chain-input-proof: the header chain's proof, input and vk.
 * commit-chain-input-proof: the commit chain's proof, input and vk.
 * included-watchtower: a 256-bit bitmask; each bit flags a valid watchtower.
-* execution-layer-block-number: the block number that including `processWithdraw`(Peg-out) transaction of GOAT Network's execution layer(Geth).
-* watchtower-challenge-info: list of watchtower's challenge transaction id and compressed public key.
+* execution-layer-block-number: the block number that including `initWithdraw`(Peg-out) transaction of GOAT Network's execution layer(Geth).
+* watchtower-challenge-info: list of watchtower's challenge transaction id and compressed public key, i.e: [wachtower_info.json](./data/watchtower/watchtower_info.json).
 * watchtower-challenge-init-txid: the watchtower challenge init transaction id in GOAT's BitVM2 graph.
-
-For example.
-```
-[
-    [
-        "207012fff4c9fddcbd659db3d36de84a867acb22d163c07ff0f49d699c6d7602",
-        "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651"
-    ] 
-]
-```

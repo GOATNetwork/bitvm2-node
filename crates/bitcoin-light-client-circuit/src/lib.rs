@@ -12,7 +12,9 @@ use alloy_primitives::U256;
 use alloy_primitives::utils::keccak256;
 use bitcoin::Block;
 use bitcoin::Transaction;
-use commit_chain::{CommitChainCircuitInput, commit_chain_circuit, extract_op_return_data};
+use commit_chain::{
+    CommitChainCircuitInput, commit_chain_circuit, extract_data_from_commitment_outputs,
+};
 use header_chain::{
     BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, MMRHost,
     SPV, header_chain_circuit, verify_merkle_proof,
@@ -48,10 +50,7 @@ pub fn verify_el_withdraw_tx(
     let slot_id = B256::from(keccak256(data));
 
     let (header, _) = executor
-        .execute(
-            input,
-            Some(vec![(l2_contract_address, slot_id.into(), U256::from(1).into())]),
-        )
+        .execute(input, Some(vec![(l2_contract_address, slot_id.into(), U256::from(1).into())]))
         .expect("failed to execute client");
     let block_hash = header.hash_slow();
     println!("block_hash: {:?}", block_hash);
@@ -102,6 +101,7 @@ fn u256_to_bits(u: U256) -> [bool; 256] {
 pub fn generate_operator_proof(
     included_watchtowers: U256,
     graph_id: [u8; 16],
+    operator_genesis_sequencer_commit_txid: [u8; 32],
     operator_latest_sequencer_commit_txn: CircuitTransaction,
 
     actual_sequencer_set_hash: [u8; 32],
@@ -129,6 +129,10 @@ pub fn generate_operator_proof(
         commit_header_chain_output.chain_state.commit_txn.compute_txid(),
         operator_latest_sequencer_commit_txn.compute_txid()
     );
+    assert_eq!(
+        operator_genesis_sequencer_commit_txid,
+        commit_header_chain_output.chain_state.genesis_txid
+    );
 
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     // verify operator_header_chain is valid
@@ -151,6 +155,7 @@ pub fn generate_operator_proof(
     for i in 0..watchtower_challenge_txns.len() {
         if included_watchertowers_bits[i] {
             let tx = &watchtower_challenge_txns[i];
+            println!("Verify watchtower[{i}] tx: {}, {:?}", tx.0.compute_txid(), tx.0);
             let prev_out = &watchtower_challenge_txn_prev_outs[i];
             let prev_index = watchtower_challenge_txn_prev_indices[i];
             let pubkey = &watchtower_challenge_txn_pubkey[i];
@@ -172,13 +177,8 @@ pub fn generate_operator_proof(
                 }
             };
 
-            // check the output contains commitment, and the commitment contains graph_id and header_chain proof
-            if !is_valid_commitment_outputs(&tx.output) {
-                println!("Watchtower[{i}] invalid txoutput format");
-                continue;
-            }
-
-            let commitment = &extract_op_return_data(tx)[..];
+            let commitment = &extract_data_from_commitment_outputs(&tx.output)[..];
+            println!("commitment: {commitment:?}");
             let (parsed_graph_id, _, _, _, watchtower_total_work, watchtower_block_height) =
                 match parse_watchtower_commitment(commitment) {
                     Ok(c) => c,
@@ -189,7 +189,11 @@ pub fn generate_operator_proof(
                 };
 
             if parsed_graph_id != graph_id {
-                println!("Watchtower[{i}] invalid commitment: graph id");
+                println!(
+                    "Watchtower[{i}] invalid commitment: graph id: parsed = {}, expected = {}",
+                    hex::encode(parsed_graph_id),
+                    hex::encode(graph_id)
+                );
                 continue;
             }
 
@@ -235,26 +239,6 @@ pub fn generate_operator_proof(
         eth_client_execution_input,
     );
     operator_total_work
-}
-
-pub fn is_valid_commitment_outputs(txouts: &[TxOut]) -> bool {
-    if txouts.is_empty() {
-        return false;
-    }
-    // the last one is change output
-    println!("tx output: {:?}", txouts);
-    let last_txout = &txouts[txouts.len() - 1];
-    if !last_txout.script_pubkey.is_op_return() {
-        println!("last txout is not op_return");
-        return false;
-    }
-    for txout in &txouts[..txouts.len() - 2] {
-        if !txout.script_pubkey.is_p2wsh() {
-            println!("txout is not p2wsg");
-            return false;
-        }
-    }
-    true
 }
 
 /// Utility method for converting u32 words to bytes in big endian.
@@ -393,7 +377,8 @@ mod tests {
     use super::*;
     use bitcoin::{Amount, Transaction};
     const PROOF: &[u8] = include_bytes!("../../../circuits/data/watchtower/output2.bin.proof.bin");
-    const PUBLIC_INPUTS: &[u8] = include_bytes!("../../../circuits/data/watchtower/output2.bin.public_inputs.bin");
+    const PUBLIC_INPUTS: &[u8] =
+        include_bytes!("../../../circuits/data/watchtower/output2.bin.public_inputs.bin");
     const VK_HASH: &str = include_str!("../../../circuits/data/watchtower/output2.bin.vk_hash.bin");
 
     #[test]
@@ -444,7 +429,7 @@ mod tests {
             output: vec![bitcoin::TxOut { value: Amount::ZERO, script_pubkey: script }],
         };
 
-        let op_return_data = crate::extract_op_return_data(&tx);
+        let op_return_data = crate::extract_op_return_data(&tx.output);
         assert_eq!(expected_op_data.to_vec(), op_return_data);
     }
 }

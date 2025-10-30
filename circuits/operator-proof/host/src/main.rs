@@ -4,6 +4,7 @@ use alloy_provider::{RootProvider, network::Ethereum};
 use ark_serialize::CanonicalSerialize;
 use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
+    hashes::Hash,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
 use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv, verify_el_withdraw_tx};
@@ -88,6 +89,9 @@ pub struct Args {
     #[clap(long, env)]
     latest_sequencer_commit_txid: String,
 
+    #[clap(long, env)]
+    genesis_sequencer_commit_txid: String,
+
     #[clap(long, env, short)]
     header_chain_input_proof: String,
 
@@ -119,7 +123,7 @@ pub struct Args {
 
 #[tokio::main]
 async fn main() {
-    //dotenv::dotenv().ok();
+    dotenv::dotenv().ok();
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
@@ -186,7 +190,10 @@ async fn main() {
 
     let operator_latest_sequencer_commit_txn =
         btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
-    println!("operator_latest_seqeuncer_commit_txn: {:?}", operator_latest_sequencer_commit_txn);
+    //println!("operator_latest_seqeuncer_commit_txn: {:?}", operator_latest_sequencer_commit_txn);
+
+    let operator_genesis_sequencer_commit_txid =
+        Txid::from_str(&args.genesis_sequencer_commit_txid).unwrap();
 
     // TODO: replace it by `get_raw_transaction_info`
     let tx_merkle_proof =
@@ -276,6 +283,7 @@ async fn main() {
 
         stdin.write(&args.graph_id);
 
+        stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
         stdin.write(&operator_latest_sequencer_commit_txn);
 
         stdin.write(&actual_sequencer_set_hash);

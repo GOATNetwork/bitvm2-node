@@ -14,6 +14,7 @@ pub fn main() {
     let included_watchertowers: U256 = zkm_zkvm::io::read::<U256>();
     let graph_id: [u8; 16] = zkm_zkvm::io::read::<[u8; 16]>();
     //latest_sequencer_commit_tx: &CircuitTransaction,
+    let operator_genesis_sequencer_commit_txid: [u8; 32] = zkm_zkvm::io::read(); 
     println!("read operator commit txn");
     let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
     let latest_sequencer_commit_txid = operator_latest_sequencer_commit_txn.0.compute_txid(); // public input
@@ -41,6 +42,7 @@ pub fn main() {
     let operator_total_work = bitcoin_light_client_circuit::generate_operator_proof(
         included_watchertowers,
         graph_id,
+        operator_genesis_sequencer_commit_txid,
         operator_latest_sequencer_commit_txn,
         consensus_block_actual_sequencer_set_hash,
         consensus_block_actual_data_hash,

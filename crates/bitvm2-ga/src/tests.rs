@@ -862,7 +862,7 @@ mod tests {
 
         // watchtower[0] challenge
         let watchtower_0_keypair = watchtower_master_key()[0].master_keypair();
-        let watchtower_challenge_payer_amount = Amount::from_sat(3000);
+        let watchtower_challenge_payer_amount = Amount::from_sat(30000);
         let watchtower_0_challenge_payer_input = Input {
             outpoint: fund_address(
                 &esplora,
@@ -876,13 +876,12 @@ mod tests {
 
         const PROOF: &[u8] =
             include_bytes!("../../../circuits/data/watchtower/output3.bin.proof.bin");
-        const PUBLIC_INPUTS: &[u8] = include_bytes!(
-            "../../../circuits/data/watchtower/output3.bin.public_inputs.bin"
-        );
+        const PUBLIC_INPUTS: &[u8] =
+            include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
         const VK_HASH: &str =
             include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
 
-        let graph_id = graph.parameters.graph_id.to_bytes_le();
+        let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap(); //graph.parameters.graph_id.to_bytes_le();
         let total_work = 100;
         let block_height = 100;
         let comm = bitcoin_light_client_circuit::build_watchtower_commitment(

@@ -5,7 +5,7 @@ pub use tendermint_light_client_verifier::{
     types::{LightBlock, ValidatorSet},
 };
 
-use bitcoin::{Transaction, Witness, secp256k1::PublicKey};
+use bitcoin::{Transaction, TxOut, Witness, secp256k1::PublicKey};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct CommitInfo {
@@ -104,12 +104,13 @@ impl CommitChainState {
             let prev_commit_txid = prev_commit_txn.compute_txid();
             println!("prev commit txid: {prev_commit_txid}, {prev_commit_txn:?}");
             // calculate the commitment of prev sequencer set and check the equivalent
-            let expected_prev_commit = extract_op_return_data(&prev_commit_txn);
+            let expected_prev_commit = extract_op_return_data(&prev_commit_txn.output);
             println!("expected prev commit: {expected_prev_commit:?}\n{prev_sequencer_set_hash:?}");
             assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit);
 
             // calculate the commitment of latest sequencer set and check the equivalent
-            let expected_latest_commit = extract_op_return_data(latest_commit_txn_with_wtns);
+            let expected_latest_commit =
+                extract_op_return_data(&latest_commit_txn_with_wtns.output);
             assert_eq!(latest_sequencer_set_hash[..], expected_latest_commit);
 
             // check the latest txn's prev out is equals to the output of prev_txn
@@ -154,9 +155,21 @@ impl CommitChainState {
     }
 }
 
-pub fn extract_op_return_data(tx: &Transaction) -> Vec<u8> {
+pub fn extract_data_from_commitment_outputs(txouts: &[TxOut]) -> Vec<u8> {
+    let mut data = vec![];
+    for txout in txouts {
+        let script = &txout.script_pubkey;
+        let instructions = script.instructions_minimal().collect::<Result<Vec<_>, _>>().unwrap();
+        if let bitcoin::blockdata::script::Instruction::PushBytes(bytes) = &instructions[1] {
+            data.extend_from_slice(bytes.as_bytes());
+        }
+    }
+    data
+}
+
+pub fn extract_op_return_data(tx_output: &[TxOut]) -> Vec<u8> {
     let mut results = Vec::new();
-    for output in &tx.output {
+    for output in tx_output {
         let script = &output.script_pubkey;
         // Parse instructions from the script
         let mut instructions = script.instructions();
