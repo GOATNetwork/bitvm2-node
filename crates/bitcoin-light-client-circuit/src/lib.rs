@@ -376,10 +376,10 @@ pub fn parse_watchtower_commitment(
 mod tests {
     use super::*;
     use bitcoin::{Amount, Transaction};
-    const PROOF: &[u8] = include_bytes!("../../../circuits/data/watchtower/output2.bin.proof.bin");
+    const PROOF: &[u8] = include_bytes!("../../../circuits/data/watchtower/output3.bin.proof.bin");
     const PUBLIC_INPUTS: &[u8] =
-        include_bytes!("../../../circuits/data/watchtower/output2.bin.public_inputs.bin");
-    const VK_HASH: &str = include_str!("../../../circuits/data/watchtower/output2.bin.vk_hash.bin");
+        include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
+    const VK_HASH: &str = include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
 
     #[test]
     fn test_build_watchtower_commitment() {
