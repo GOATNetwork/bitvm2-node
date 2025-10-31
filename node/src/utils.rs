@@ -2215,14 +2215,18 @@ pub async fn get_instance_parameters(
     }
 }
 
-pub async fn store_graph(local_db: &LocalDB, graph: &SimplifiedBitvm2Graph) -> Result<()> {
+pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Graph) -> Result<()> {
     let mut tx = local_db.start_transaction().await?;
-    let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(graph)?;
+    let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(simple_graph)?;
     let (graph_id, instance_id, graph_nonce) = (
-        graph.parameters.graph_id,
-        graph.parameters.instance_parameters.instance_id,
-        graph.parameters.graph_nonce,
+        simple_graph.parameters.graph_id,
+        simple_graph.parameters.instance_parameters.instance_id,
+        simple_graph.parameters.graph_nonce,
     );
+    let mut status = GraphStatus::OperatorPresigned.to_string();
+    if simple_graph.committee_pre_signed() {
+        status = GraphStatus::CommitteePresigned.to_string();
+    }
     let current_time = current_time_secs();
     let mut graph = Graph {
         graph_id,
@@ -2233,7 +2237,7 @@ pub async fn store_graph(local_db: &LocalDB, graph: &SimplifiedBitvm2Graph) -> R
         graph_ipfs_base_url: "".to_string(),
         amount: bitvm2_graph.parameters.instance_parameters.pegin_amount.to_sat() as i64,
         challenge_amount: bitvm2_graph.parameters.challenge_amount.to_sat() as i64,
-        status: GraphStatus::CommitteePresigned.to_string(),
+        status,
         sub_status: "".to_string(),
         operator_pubkey: bitvm2_graph.parameters.operator_pubkey.to_string(),
         cur_prekickoff_txid: Some(bitvm2_graph.cur_prekickoff.finalize().compute_txid().into()),
@@ -2289,10 +2293,13 @@ pub async fn store_graph(local_db: &LocalDB, graph: &SimplifiedBitvm2Graph) -> R
     }
 
     tx.upsert_graph(graph).await?;
-    tx.update_instance(
-        &InstanceUpdate::new(instance_id).with_status(InstanceStatus::Presigned.to_string()),
-    )
-    .await?;
+    if simple_graph.committee_pre_signed() {
+        tx.update_instance(
+            &InstanceUpdate::new(instance_id).with_status(InstanceStatus::Presigned.to_string()),
+        )
+        .await?;
+    }
+
     tx.upsert_graph_raw_data(GraphRawData {
         graph_id,
         raw_data: serde_json::to_string(&bitvm2_graph).unwrap_or_default(),
@@ -2738,12 +2745,21 @@ pub async fn graph_exists(local_db: &LocalDB, instance_id: Uuid, graph_id: Uuid)
 
 pub async fn update_graph_status(
     local_db: &LocalDB,
-    _instance_id: Uuid,
+    instance_id: Uuid,
     graph_id: Uuid,
     new_status: GraphStatus,
     sub_status: Option<ChallengeSubStatus>,
 ) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
+    if new_status == GraphStatus::CommitteePresigned {
+        storage_processor
+            .update_instance(
+                &InstanceUpdate::new(instance_id)
+                    .with_status(InstanceStatus::Presigned.to_string()),
+            )
+            .await?;
+    }
+
     let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());
     if let Some(sub_status) = sub_status {
         graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
