@@ -133,7 +133,7 @@ impl Bitvm2InstanceParameters {
         let pegin_deposit = PegInDepositTransaction::new_unsigned(
             &connector_z,
             self.user_info.inputs.clone(),
-            self.pegin_amount,
+            self.pegin_amount + Amount::from_sat(self.user_info.txn_fees[1]),
             Amount::from_sat(self.user_info.txn_fees[0]),
             self.user_info.user_change_address.clone(),
         )
