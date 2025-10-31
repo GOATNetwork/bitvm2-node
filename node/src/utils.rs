@@ -2224,7 +2224,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
         simple_graph.parameters.graph_nonce,
     );
     let mut status = GraphStatus::OperatorPresigned.to_string();
-    if simple_graph.committee_pre_signed() {
+    if bitvm2_graph.committee_pre_signed() {
         status = GraphStatus::CommitteePresigned.to_string();
     }
     let current_time = current_time_secs();
@@ -2293,7 +2293,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
     }
 
     tx.upsert_graph(graph).await?;
-    if simple_graph.committee_pre_signed() {
+    if bitvm2_graph.committee_pre_signed() {
         tx.update_instance(
             &InstanceUpdate::new(instance_id).with_status(InstanceStatus::Presigned.to_string()),
         )
