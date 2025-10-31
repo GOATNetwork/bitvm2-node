@@ -105,7 +105,7 @@ pub mod todo_funcs {
         todo!("get vk for operator proof")
     }
     pub async fn get_guest_constant_value(instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
-        todo!("get guest constant value")
+        Ok([0u8; 32])
     }
 
     // other operations
