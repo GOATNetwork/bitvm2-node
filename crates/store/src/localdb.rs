@@ -250,8 +250,11 @@ impl InstanceUpdate {
         query_builder.set_field("updated_at", QueryParam::Int(current_time));
 
         // Add WHERE clause
-        query_builder
-            .and_where("instance_id = ?", Some(QueryParam::Text(self.instance_id.to_string())));
+        query_builder.and_where(
+            "hex(instance_id) = ? COLLATE NOCASE ",
+            Some(QueryParam::Text(hex::encode(self.instance_id))),
+        );
+
         query_builder
     }
 }
