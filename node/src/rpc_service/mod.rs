@@ -328,8 +328,8 @@ mod tests {
         let peer_id = local_key.public().to_peer_id().to_string();
 
         let (_, public_key) = Secp256k1::new().generate_keypair(&mut rand::thread_rng());
-        let pub_key = public_key.to_string();
-        let goat_addr = format!("0x{}", hex::encode(generate_random_bytes(20)));
+        let _pub_key = public_key.to_string();
+        let _goat_addr = format!("0x{}", hex::encode(generate_random_bytes(20)));
         let local_db = create_local_db(&temp_file()).await;
         tokio::spawn(rpc_service::serve(
             addr.clone(),
