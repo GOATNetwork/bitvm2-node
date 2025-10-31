@@ -132,7 +132,7 @@ pub mod todo_funcs {
         // todo!("check graph parameters & operator stake")
         Ok(())
     }
-    pub fn validate_finalized_graph(
+    pub async fn validate_finalized_graph(
         goat_client: &GOATClient,
         graph: &SimplifiedBitvm2Graph,
         endorse_sigs: &[(PublicKey, EvmAddress, Vec<u8>)],
