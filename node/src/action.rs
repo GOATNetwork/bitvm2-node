@@ -627,19 +627,6 @@ pub async fn recv_and_dispatch(
             let pub_nonces_unchecked =
                 get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
             if pub_nonces_unchecked.len() == committee_pubkeys.len() {
-                let graph = match get_graph_or_defer(
-                    swarm,
-                    local_db,
-                    goat_client,
-                    instance_id,
-                    graph_id,
-                    &message,
-                )
-                .await?
-                {
-                    Some(g) => g,
-                    None => return Ok(()),
-                };
                 let mut graph = Bitvm2Graph::from_simplified(&graph)?;
                 let watchtower_num = graph.parameters.watchtower_pubkeys.len();
                 let assert_commit_num = graph.assert_commit_timeout_txns.len();
@@ -897,18 +884,15 @@ pub async fn recv_and_dispatch(
                 );
                 return Ok(());
             }
-            let graph = match get_graph_or_defer(
-                swarm,
-                local_db,
-                goat_client,
-                instance_id,
-                graph_id,
-                &message,
-            )
-            .await?
-            {
+            let graph = match get_graph(local_db, instance_id, graph_id).await? {
                 Some(g) => g,
-                None => return Ok(()),
+                None => {
+                    tracing::info!(
+                        "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: graph not found, maybe belongs to another Operator",
+                        received_committee_pubkey.to_string()
+                    );
+                    return Ok(());
+                }
             };
             let watchtower_num = graph.parameters.watchtower_pubkeys.len();
             let assert_commit_num = graph.assert_commit_num;
@@ -1150,18 +1134,15 @@ pub async fn recv_and_dispatch(
                 received_committee_pubkey.to_string()
             );
             // 1. check endorsement signature
-            let graph = match get_graph_or_defer(
-                swarm,
-                local_db,
-                goat_client,
-                instance_id,
-                graph_id,
-                &message,
-            )
-            .await?
-            {
+            let graph = match get_graph(local_db, instance_id, graph_id).await? {
                 Some(g) => g,
-                None => return Ok(()),
+                None => {
+                    tracing::info!(
+                        "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: graph not found, maybe belongs to another Operator",
+                        received_committee_pubkey.to_string()
+                    );
+                    return Ok(());
+                }
             };
             let full_graph = Bitvm2Graph::from_simplified(&graph)?;
             if let Err(e) = verify_graph_endorsement(
