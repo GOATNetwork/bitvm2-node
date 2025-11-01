@@ -250,6 +250,39 @@ impl WTInitTxVoutMonitorData {
         )
     }
 
+    pub fn get_challenge_timeout_process_desc(&self) -> (usize, usize) {
+        if self.is_challenge_timeout_sent {
+            (
+                self.data_map.len()
+                    - self
+                        .data_map
+                        .iter()
+                        .filter(|(_, v)| {
+                            **v == WatchtowerChallengeItemStatus::Challenge
+                                || **v == WatchtowerChallengeItemStatus::OperatorACK
+                        })
+                        .count(),
+                self.data_map.len(),
+            )
+        } else {
+            (0, self.data_map.len())
+        }
+    }
+
+    pub fn get_commit_block_hash_desc(&self) -> (usize, usize) {
+        match self.commit_blockhash_status {
+            CommitBlockHashStatus::OperatorCommit => (1, 1),
+            _ => (0, 1),
+        }
+    }
+
+    pub fn get_commit_block_hash_timeout_desc(&self) -> (usize, usize) {
+        match self.commit_blockhash_status {
+            CommitBlockHashStatus::OperatorCommitTimeout => (1, 1),
+            _ => (0, 1),
+        }
+    }
+
     pub fn get_ack_process_desc(&self) -> (usize, usize) {
         (
             self.data_map
@@ -265,6 +298,7 @@ impl WTInitTxVoutMonitorData {
                 .count(),
         )
     }
+
     #[allow(dead_code)]
     pub fn is_challenged(&self) -> bool {
         !self.require_disproved_indexes.is_empty()

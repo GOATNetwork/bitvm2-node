@@ -119,6 +119,7 @@ pub async fn serve(
         .route(routes::v1::INSTANCES_OVERVIEW, get(get_instances_overview))
         .route(routes::v1::GRAPHS_BY_ID, get(get_graph))
         .route(routes::v1::GRAPHS_BASE, get(get_graphs))
+        .route(routes::v1::GRAPHS_READY_TO_KICKOFF, get(get_ready_to_kickoff_graph))
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::PROOFS_BASE, get(get_proofs))
