@@ -188,7 +188,7 @@ impl BitvmNetworkManager {
                     _ticker = interval.tick() => {
                         match msg_handler.handle_tick_message(&mut self.swarm, self.peer_id, actor.clone(), TickMessageType::RegularlyAction).await {
                                 Ok(_) => {}
-                                Err(e) => { tracing::error!("{e:?}") }
+                                Err(e) => { tracing::error!("Fail to handle tick message {e:?}") }
                             }
 
                     },
@@ -210,7 +210,7 @@ impl BitvmNetworkManager {
                                                                   })) => {
                             match msg_handler.recv_and_dispatch(&mut self.swarm, actor.clone(),
                                 message.source.expect("empty message source"), id, &message.data).await {
-                                Ok(_) => {},Err(e) => { tracing::error!("{e:?}") }
+                                Ok(_) => {},Err(e) => { tracing::error!("Fail to handle p2p message, error: {e:?}") }
                             }
                         }
                         SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic})) => {
