@@ -366,7 +366,7 @@ mod tests {
         let bank_address = node_p2wsh_address(network(), &bank_keypair().public_key().into());
         let user_xonly_pubkey = XOnlyPublicKey::from(user_master_key().public_key());
         let user_address = node_p2wsh_address(network(), &user_master_key().public_key().into());
-        let pegin_deposit_input_amount = pegin_amount + default_fee_amount;
+        let pegin_deposit_input_amount = pegin_amount + default_fee_amount * 2;
         let pegin_deposit_inputs = vec![Input {
             outpoint: fund_address(
                 esplora,
