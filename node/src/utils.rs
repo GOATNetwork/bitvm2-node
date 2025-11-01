@@ -2302,7 +2302,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
 
     tx.upsert_graph_raw_data(GraphRawData {
         graph_id,
-        raw_data: serde_json::to_string(&bitvm2_graph).unwrap_or_default(),
+        raw_data: serde_json::to_string(&simple_graph).unwrap_or_default(),
         created_at: current_time,
         updated_at: current_time,
     })
