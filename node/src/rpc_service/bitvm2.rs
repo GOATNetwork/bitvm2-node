@@ -52,8 +52,8 @@ pub struct InstanceExtended {
     pub instance: Instance,
     pub utxo: Vec<Utxo>,
     pub waiting_time_in_mins: i64,
-    pub confirmations: u32,
-    pub target_confirmations: u32,
+    // pub confirmations: u32,
+    // pub target_confirmations: u32,
     pub status_extra: StatusExtra,
 }
 
@@ -217,10 +217,9 @@ pub struct GraphListResponse {
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphExtended {
     pub graph: Graph,
-    pub confirmations: u32,
-    pub target_confirmations: u32,
-    pub proof_height: Option<i64>,
-    pub proof_query_url: Option<String>,
+    pub waiting_time_in_mins: i64,
+    // pub proof_height: Option<i64>,
+    // pub proof_query_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

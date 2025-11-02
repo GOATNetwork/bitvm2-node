@@ -18,14 +18,12 @@ use client::Utxo;
 use client::btc_chain::BTCClient;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
-use std::collections::HashMap;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
 use store::{
-    GoatTxType, Graph, GraphStatus, Instance, InstanceStatus, SerializableTxid, UInt64Array3,
-    modify_graph_status,
+    Graph, GraphStatus, Instance, InstanceStatus, UInt64Array3,
 };
 use uuid::Uuid;
 
@@ -88,9 +86,9 @@ pub async fn instance_settings(
 ///
 /// # Returns
 ///
-/// - `200 OK`: Successfully returns instance list with confirmation information
+/// - `200 OK`: Successfully returns instance list with status information
 /// - `500 Internal Server Error`: Server internal error or database operation failed
-/// - Response includes total count and paginated instance data with UTXO and confirmation details
+/// - Response includes total count and paginated instance data with UTXO details
 ///
 /// # Use Case
 ///
@@ -110,12 +108,42 @@ pub async fn instance_settings(
 ///       "instance": {
 ///         "instance_id": "123e4567-e89b-12d3-a456-426614174000",
 ///         "is_bridge_in": true,
+///         "network": "testnet",
+///         "from_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+///         "to_addr": "0x1234567890abcdef1234567890abcdef12345678",
 ///         "amount": 100000000,
+///         "fees": [10, 20, 30],
+///         "input_utxos": "[{\"txid\":\"abc123...\",\"vout\":0,\"value\":100000000}]",
 ///         "status": "CommitteesAnswered",
-///         ...
+///         "goat_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
+///         "goat_tx_height": 8509060,
+///         "user_xonly_pubkey": "02abc123...",
+///         "user_change_addr": "tb1q...",
+///         "user_refund_addr": "tb1q...",
+///         "btc_txid": "f6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
+///         "btc_height": 2500000,
+///         "pegin_confirm_txid": "a1b2c3d4...",
+///         "pegin_cancel_txid": null,
+///         "committees_answers": {},
+///         "pegin_data_tx_hash": "0x...",
+///         "parameters": null,
+///         "created_at": 1699123456,
+///         "updated_at": 1699123456
 ///       },
-///       "confirmations": 3,
-///       "target_confirmations": 6
+///       "utxo": [
+///         {
+///           "txid": "abc123...",
+///           "vout": 0,
+///           "value": 100000000,
+///           "script_pubkey": "0014..."
+///         }
+///       ],
+///       "waiting_time_in_mins": 60,
+///       "status_extra": {
+///         "user_action": "Submit",
+///         "is_failed": false,
+///         "error": null
+///       }
 ///     }
 ///   ],
 ///   "total": 1
@@ -172,8 +200,6 @@ pub async fn get_instances(
                     },
                     utxo: vec![],
                     waiting_time_in_mins: 60,
-                    confirmations: 0,
-                    target_confirmations: 6,
                     status_extra: StatusExtra{
                         user_action: StatusUserAction::Submit,
                         is_failed: false,
@@ -204,23 +230,13 @@ pub async fn get_instances(
                 InstanceListResponse::default(),
             );
         }
-        let current_height = app_state.btc_client.get_height().await?;
         let mut items = vec![];
         for instance in instances {
-            let (confirmations, target_confirmations) = get_btc_tx_confirmation_info(
-                &app_state.btc_client,
-                instance.pegin_confirm_txid.clone(),
-                current_height,
-                6,
-            )
-            .await?;
             let utxo: Vec<Utxo> =
                 serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
             items.push(InstanceExtended {
                 utxo,
                 instance,
-                confirmations,
-                target_confirmations,
                 waiting_time_in_mins: 0,
                 status_extra: Default::default(),
             })
@@ -248,8 +264,8 @@ pub async fn get_instances(
 
 /// Get instance by ID
 ///
-/// Returns detailed information for a specific bridge instance including UTXO details,
-/// confirmation status, and current processing state.
+/// Returns detailed information for a specific bridge instance including UTXO details
+/// and current processing state.
 ///
 /// # Path Parameters
 ///
@@ -257,14 +273,14 @@ pub async fn get_instances(
 ///
 /// # Returns
 ///
-/// - `200 OK`: Successfully returns instance details with UTXO and confirmation information
+/// - `200 OK`: Successfully returns instance details with UTXO and status information
 /// - `500 Internal Server Error`: Server internal error or database operation failed
 /// - Returns empty instance wrap if instance_id not found in database
 ///
 /// # Use Case
 ///
 /// Frontend applications use this to display detailed information about a specific bridge transaction,
-/// including its current status, confirmations, and associated UTXOs.
+/// including its current status and associated UTXOs.
 ///
 /// # Example
 ///
@@ -279,13 +295,42 @@ pub async fn get_instances(
 ///     "instance": {
 ///       "instance_id": "123e4567-e89b-12d3-a456-426614174000",
 ///       "is_bridge_in": true,
+///       "network": "testnet",
+///       "from_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+///       "to_addr": "0x1234567890abcdef1234567890abcdef12345678",
 ///       "amount": 100000000,
+///       "fees": [10, 20, 30],
+///       "input_utxos": "[{\"txid\":\"abc123...\",\"vout\":0,\"value\":100000000}]",
 ///       "status": "CommitteesAnswered",
-///       ...
+///       "goat_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
+///       "goat_tx_height": 8509060,
+///       "user_xonly_pubkey": "02abc123...",
+///       "user_change_addr": "tb1q...",
+///       "user_refund_addr": "tb1q...",
+///       "btc_txid": "f6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
+///       "btc_height": 2500000,
+///       "pegin_confirm_txid": "a1b2c3d4...",
+///       "pegin_cancel_txid": null,
+///       "committees_answers": {},
+///       "pegin_data_tx_hash": "0x...",
+///       "parameters": null,
+///       "created_at": 1699123456,
+///       "updated_at": 1699123456
 ///     },
-///     "utxo": [...],
-///     "confirmations": 3,
-///     "target_confirmations": 6
+///     "utxo": [
+///       {
+///         "txid": "abc123...",
+///         "vout": 0,
+///         "value": 100000000,
+///         "script_pubkey": "0014..."
+///       }
+///     ],
+///     "waiting_time_in_mins": 60,
+///     "status_extra": {
+///       "user_action": "Submit",
+///       "is_failed": false,
+///       "error": null
+///     }
 ///   }
 /// }
 /// ```
@@ -330,8 +375,6 @@ pub async fn get_instance(
                     },
                     utxo: vec![],
                     waiting_time_in_mins: 60,
-                    confirmations: 0,
-                    target_confirmations: 6,
                     status_extra: StatusExtra{
                         user_action: StatusUserAction::Submit,
                         is_failed: false,
@@ -345,23 +388,12 @@ pub async fn get_instance(
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(instance) = storage_process.find_instance(&instance_id_uuid).await? {
-            let current_height = app_state.btc_client.get_height().await?;
-            let (confirmations, target_confirmations) = get_btc_tx_confirmation_info(
-                &app_state.btc_client,
-                instance.pegin_confirm_txid.clone(),
-                current_height,
-                6,
-            )
-            .await?;
-
             let utxo: Vec<Utxo> =
                 serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
             Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
                 instance_wrap: InstanceExtended {
                     utxo,
                     instance,
-                    confirmations,
-                    target_confirmations,
                     waiting_time_in_mins: 0,
                     status_extra: Default::default(),
                 },
@@ -490,104 +522,29 @@ pub async fn get_instances_overview(
     }
 }
 
-/// Get Bitcoin transaction confirmation information
-///
-/// Helper function to retrieve confirmation status for Bitcoin transactions.
-///
-/// # Parameters
-///
-/// - `btc_client`: Bitcoin client instance
-/// - `btc_tx_id`: Optional Bitcoin transaction ID
-/// - `current_height`: Current blockchain height
-/// - `target_confirm_num`: Required number of confirmations
-///
-/// # Returns
-///
-/// - `Ok((blocks_passed, target_confirmations))`: Tuple of blocks passed and target confirmations
-/// - `Err`: Error if transaction lookup fails
-///
-/// Get Bitcoin transaction confirmation information
-///
-/// Helper function to retrieve confirmation status for Bitcoin transactions.
-/// Calculates how many blocks have passed since a transaction was included in a block.
-///
-/// # Parameters
-///
-/// - `btc_client`: Bitcoin client instance for blockchain queries
-/// - `btc_tx_id`: Optional Bitcoin transaction ID (SerializableTxid format)
-/// - `current_height`: Current blockchain height
-/// - `target_confirm_num`: Required number of confirmations
-///
-/// # Returns
-///
-/// - `Ok((blocks_passed, target_confirmations))`: Tuple of blocks passed and target confirmations
-/// - `Err`: Error if transaction lookup fails
-///
-/// # Note
-///
-/// Returns (0, target_confirmations) if no transaction ID is provided.
-async fn get_btc_tx_confirmation_info(
-    btc_client: &BTCClient,
-    btc_tx_id: Option<SerializableTxid>,
-    current_height: u32,
-    target_confirm_num: u32,
-) -> anyhow::Result<(u32, u32)> {
-    if btc_tx_id.is_none() {
-        return Ok((0, target_confirm_num));
-    }
-    let status = btc_client.get_tx_status(&btc_tx_id.unwrap().0).await?;
-    let blocks_pass = if let Some(block_height) = status.block_height {
-        current_height - block_height
-    } else {
-        0
-    };
-    Ok((blocks_pass, target_confirm_num))
-}
-
-/// Get transaction confirmation information (legacy function)
-///
-/// TODO: This function will be removed after graph update.
-/// Helper function to retrieve confirmation status for transactions using string transaction IDs.
-///
-/// # Parameters
-///
-/// - `btc_client`: Bitcoin client instance
-/// - `btc_tx_id`: Optional transaction ID as string
-/// - `current_height`: Current blockchain height
-/// - `target_confirm_num`: Required number of confirmations
-///
-/// # Returns
-///
-/// - `Ok((blocks_passed, target_confirmations))`: Tuple of blocks passed and target confirmations
-/// - `Err`: Error if transaction lookup fails
-///
-/// # Note
-///
-/// Returns (0, target_confirmations) if no transaction ID is provided.
-/// This function will be deprecated in favor of get_btc_tx_confirmation_info.
-async fn get_tx_confirmation_info(
-    btc_client: &BTCClient,
-    btc_tx_id: Option<String>,
-    current_height: u32,
-    target_confirm_num: u32,
-) -> anyhow::Result<(u32, u32)> {
-    if btc_tx_id.is_none() {
-        return Ok((0, target_confirm_num));
-    }
-    let tx_id = btc_tx_id.unwrap();
-    let status = btc_client.get_tx_status(&Txid::from_str(&tx_id)?).await?;
-    let blocks_pass = if let Some(block_height) = status.block_height {
-        current_height - block_height
-    } else {
-        0
-    };
-    Ok((blocks_pass, target_confirm_num))
-}
+// async fn get_tx_confirmation_info(
+//     btc_client: &BTCClient,
+//     btc_tx_id: Option<String>,
+//     current_height: u32,
+//     target_confirm_num: u32,
+// ) -> anyhow::Result<(u32, u32)> {
+//     if btc_tx_id.is_none() {
+//         return Ok((0, target_confirm_num));
+//     }
+//     let tx_id = btc_tx_id.unwrap();
+//     let status = btc_client.get_tx_status(&Txid::from_str(&tx_id)?).await?;
+//     let blocks_pass = if let Some(block_height) = status.block_height {
+//         current_height - block_height
+//     } else {
+//         0
+//     };
+//     Ok((blocks_pass, target_confirm_num))
+// }
 
 /// Get graph by ID
 ///
-/// Returns detailed information for a specific BitVM2 graph including transaction status,
-/// confirmation information, and proof data.
+/// Returns detailed information for a specific BitVM2 graph including transaction status
+/// and waiting time information.
 ///
 /// # Path Parameters
 ///
@@ -602,7 +559,7 @@ async fn get_tx_confirmation_info(
 /// # Use Case
 ///
 /// Applications use this to retrieve detailed information about a specific BitVM2 graph,
-/// including its current status, transaction confirmations, and proof query information.
+/// including its current status and estimated waiting time.
 ///
 /// # Example
 ///
@@ -616,14 +573,40 @@ async fn get_tx_confirmation_info(
 ///   "graph": {
 ///     "graph": {
 ///       "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///       "instance_id": "987e6543-e89b-12d3-a456-426614174000",
+///       "kickoff_index": 10,
+///       "from_addr": "0x1234567890abcdef1234567890abcdef12345678",
+///       "to_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+///       "graph_ipfs_base_url": "https://ipfs.io/ipfs/Qm...",
+///       "amount": 2000000,
+///       "challenge_amount": 1000000,
 ///       "status": "OperatorPresigned",
-///       "amount": 1000000,
-///       ...
+///       "sub_status": "",
+///       "operator_pubkey": "03abc123...",
+///       "next_prekickoff": null,
+///       "cur_prekickoff_txid": "a1b2c3d4...",
+///       "force_skip_kickoff_txid": null,
+///       "quick_challenge_txid": null,
+///       "challenge_incomplete_kickoff_txid": null,
+///       "pegin_txid": null,
+///       "kickoff_txid": null,
+///       "take1_txid": null,
+///       "challenge_txid": null,
+///       "take2_txid": null,
+///       "disprove_txid": null,
+///       "watchtower_challenge_init_txid": null,
+///       "watchtower_challenge_timeout_txids": [],
+///       "nack_txids": [],
+///       "blockhash_commit_timeout_txid": null,
+///       "assert_init_txid": null,
+///       "assert_commit_timeout_txids": [],
+///       "init_withdraw_tx_hash": null,
+///       "bridge_out_start_at": 1699123456,
+///       "zkm_version": "zkm1.0.0",
+///       "created_at": 1699123456,
+///       "updated_at": 1699123456
 ///     },
-///     "confirmations": 3,
-///     "target_confirmations": 6,
-///     "proof_height": 12345,
-///     "proof_query_url": "http://..."
+///     "waiting_time_in_mins": 1000
 ///   }
 /// }
 /// ```
@@ -671,7 +654,7 @@ pub async fn get_graph(
 /// Get graph list
 ///
 /// Get graph list based on query parameters, supports various filtering conditions and pagination.
-/// Each graph includes confirmation status and proof information.
+/// Each graph includes status and waiting time information.
 ///
 /// # Query Parameters
 ///
@@ -682,7 +665,7 @@ pub async fn get_graph(
 ///
 /// # Returns
 ///
-/// - `200 OK`: Successfully returns graph list with confirmation status
+/// - `200 OK`: Successfully returns graph list with status and waiting time
 /// - `500 Internal Server Error`: Server internal error or database operation failed
 /// - Response includes total count and paginated graph data
 ///
@@ -699,12 +682,40 @@ pub async fn get_graph(
 ///     {
 ///       "graph": {
 ///         "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///         "instance_id": "987e6543-e89b-12d3-a456-426614174000",
+///         "kickoff_index": 10,
+///         "from_addr": "0x1234567890abcdef1234567890abcdef12345678",
+///         "to_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+///         "graph_ipfs_base_url": "https://ipfs.io/ipfs/Qm...",
+///         "amount": 2000000,
+///         "challenge_amount": 1000000,
 ///         "status": "OperatorPresigned",
-///         "amount": 1000,
-///         ...
+///         "sub_status": "",
+///         "operator_pubkey": "03abc123...",
+///         "next_prekickoff": null,
+///         "cur_prekickoff_txid": "a1b2c3d4...",
+///         "force_skip_kickoff_txid": null,
+///         "quick_challenge_txid": null,
+///         "challenge_incomplete_kickoff_txid": null,
+///         "pegin_txid": null,
+///         "kickoff_txid": null,
+///         "take1_txid": null,
+///         "challenge_txid": null,
+///         "take2_txid": null,
+///         "disprove_txid": null,
+///         "watchtower_challenge_init_txid": null,
+///         "watchtower_challenge_timeout_txids": [],
+///         "nack_txids": [],
+///         "blockhash_commit_timeout_txid": null,
+///         "assert_init_txid": null,
+///         "assert_commit_timeout_txids": [],
+///         "init_withdraw_tx_hash": null,
+///         "bridge_out_start_at": 1699123456,
+///         "zkm_version": "zkm1.0.0",
+///         "created_at": 1699123456,
+///         "updated_at": 1699123456
 ///       },
-///       "confirmations": 3,
-///       "target_confirmations": 6
+///       "waiting_time_in_mins": 1000
 ///     }
 ///   ],
 ///   "total": 1
@@ -776,9 +787,38 @@ pub async fn get_graphs(
 /// {
 ///   "graph": {
 ///     "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "instance_id": "987e6543-e89b-12d3-a456-426614174000",
+///     "kickoff_index": 10,
+///     "from_addr": "0x1234567890abcdef1234567890abcdef12345678",
+///     "to_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+///     "graph_ipfs_base_url": "",
+///     "amount": 2000000,
+///     "challenge_amount": 1000000,
 ///     "status": "OperatorDataPushed",
+///     "sub_status": "",
 ///     "operator_pubkey": "03abc...",
-///     ...
+///     "next_prekickoff": null,
+///     "cur_prekickoff_txid": null,
+///     "force_skip_kickoff_txid": null,
+///     "quick_challenge_txid": null,
+///     "challenge_incomplete_kickoff_txid": null,
+///     "pegin_txid": null,
+///     "kickoff_txid": null,
+///     "take1_txid": null,
+///     "challenge_txid": null,
+///     "take2_txid": null,
+///     "disprove_txid": null,
+///     "watchtower_challenge_init_txid": null,
+///     "watchtower_challenge_timeout_txids": [],
+///     "nack_txids": [],
+///     "blockhash_commit_timeout_txid": null,
+///     "assert_init_txid": null,
+///     "assert_commit_timeout_txids": [],
+///     "init_withdraw_tx_hash": null,
+///     "bridge_out_start_at": 0,
+///     "zkm_version": "zkm1.0.0",
+///     "created_at": 1699123456,
+///     "updated_at": 1699123456
 ///   },
 ///   "no_ready_reason": null
 /// }
@@ -912,48 +952,15 @@ pub async fn get_ready_to_kickoff_graph(
 /// # Note
 ///
 /// This function modifies the input graphs in-place and returns enhanced versions.
-pub async fn add_extend_data_to_graphs<'a>(
-    storage_processor: &mut StorageProcessor<'a>,
-    btc_client: &BTCClient,
+async fn add_extend_data_to_graphs<'a>(
+    _storage_processor: &mut StorageProcessor<'a>,
+    _btc_client: &BTCClient,
     graphs: Vec<Graph>,
 ) -> Result<Vec<GraphExtended>, Box<dyn std::error::Error>> {
-    let current_height = btc_client.get_height().await?;
-    let mut graph_vec = vec![];
-    let mut graph_ids = vec![];
-
-    for mut graph in graphs {
-        graph.reverse_btc_txid();
-        let (confirmations, target_confirmations) = match graph.get_check_tx_param() {
-            Ok((tx_id, confirm_num)) => {
-                get_tx_confirmation_info(btc_client, tx_id, current_height, confirm_num).await?
-            }
-            Err(_) => (0, 0),
-        };
-        graph.status = modify_graph_status(&graph.status, graph.init_withdraw_tx_hash.is_some());
-        graph_ids.push(graph.graph_id);
-        graph_vec.push(GraphExtended {
-            graph,
-            confirmations,
-            target_confirmations,
-            proof_height: None,
-            proof_query_url: None,
-        });
-    }
-
-    let socket_info_map: HashMap<Uuid, (String, i64)> = storage_processor
-        .get_socket_addr_for_graph_query_proof(&graph_ids, &GoatTxType::ProceedWithdraw.to_string())
-        .await?;
-    Ok(graph_vec
+    // todo update waiting in time
+    Ok(graphs
         .into_iter()
-        .map(|mut v| {
-            if let Some((socket_addr, height)) = socket_info_map.get(&v.graph.graph_id)
-                && *height > 0
-            {
-                v.proof_height = Some(*height);
-                v.proof_query_url = Some(format!("http://{socket_addr}/v1/proofs/{}", *height));
-            }
-            v
-        })
+        .map(|graph| GraphExtended { graph, waiting_time_in_mins: 1000 })
         .collect())
 }
 
@@ -1092,15 +1099,46 @@ pub async fn get_graph_btc_tx_process_data<'a>(
 /// # Example
 ///
 /// ```http
-/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/tx?tx_name=kickoff
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/tx?tx_name=watchtower-challenge-init.hex
 /// ```
 ///
-/// Response example:
+/// Response example (for WatchtowerChallengeInit transaction):
 /// ```json
 /// {
 ///   "btc_tx_data": {
 ///     "raw_data": "020000000001...",
-///     "progresses": [],
+///     "progresses": [
+///       {
+///         "name": "Watchtower Challenge init",
+///         "current": 1,
+///         "total": 1
+///       },
+///       {
+///         "name": "Watchtower Challenge",
+///         "current": 3,
+///         "total": 5
+///       },
+///       {
+///         "name": "Watchtower Challenge Timeout",
+///         "current": 0,
+///         "total": 2
+///       },
+///       {
+///         "name": "Operator Challenge NACK",
+///         "current": 2,
+///         "total": 3
+///       },
+///       {
+///         "name": "Operator Commit BlockHash",
+///         "current": 1,
+///         "total": 4
+///       },
+///       {
+///         "name": "Operator Commit BlockHash Timeout",
+///         "current": 0,
+///         "total": 1
+///       }
+///     ],
 ///     "fail_reason": null
 ///   }
 /// }
@@ -1212,16 +1250,80 @@ pub async fn get_graph_tx(
 /// {
 ///   "assert_init": {
 ///     "raw_data": "020000000001...",
-///     "progresses": [...],
+///     "progresses": [],
 ///     "fail_reason": null
 ///   },
 ///   "watchtower_challenge_init": {
 ///     "raw_data": "020000000001...",
-///     "progresses": [...],
+///     "progresses": [
+///       {
+///         "name": "Watchtower Challenge init",
+///         "current": 1,
+///         "total": 1
+///       },
+///       {
+///         "name": "Watchtower Challenge",
+///         "current": 3,
+///         "total": 5
+///       },
+///       {
+///         "name": "Watchtower Challenge Timeout",
+///         "current": 0,
+///         "total": 2
+///       },
+///       {
+///         "name": "Operator Challenge NACK",
+///         "current": 2,
+///         "total": 3
+///       },
+///       {
+///         "name": "Operator Commit BlockHash",
+///         "current": 1,
+///         "total": 4
+///       },
+///       {
+///         "name": "Operator Commit BlockHash Timeout",
+///         "current": 0,
+///         "total": 1
+///       }
+///     ],
 ///     "fail_reason": null
 ///   },
-///   "kickoff": {...},
-///   ...
+///   "pre_kickoff": {
+///     "raw_data": "020000000001...",
+///     "progresses": [],
+///     "fail_reason": null
+///   },
+///   "challenge": {
+///     "raw_data": "020000000001...",
+///     "progresses": [],
+///     "fail_reason": null
+///   },
+///   "disprove": {
+///     "raw_data": "",
+///     "progresses": [],
+///     "fail_reason": null
+///   },
+///   "kickoff": {
+///     "raw_data": "020000000001...",
+///     "progresses": [],
+///     "fail_reason": null
+///   },
+///   "pegin": {
+///     "raw_data": "020000000001...",
+///     "progresses": [],
+///     "fail_reason": null
+///   },
+///   "take1": {
+///     "raw_data": "020000000001...",
+///     "progresses": [],
+///     "fail_reason": null
+///   },
+///   "take2": {
+///     "raw_data": "020000000001...",
+///     "progresses": [],
+///     "fail_reason": null
+///   }
 /// }
 /// ```
 #[axum::debug_handler]

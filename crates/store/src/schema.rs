@@ -331,15 +331,6 @@ pub struct Graph {
     pub updated_at: i64,
 }
 
-impl Graph {
-    pub fn get_check_tx_param(&self) -> Result<(Option<String>, u32), String> {
-        // todo update
-        Err("Graph status is wrong".to_string())
-    }
-
-    pub fn reverse_btc_txid(&mut self) {}
-}
-
 pub fn modify_graph_status(ori_status: &str, is_kickoffing: bool) -> String {
     // TODO update
     match ori_status {

@@ -49,15 +49,18 @@ use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 /// {
 ///   "nodes": [
 ///     {
-///       "peer_id": "QmPeerId...",
+///       "peer_id": "QmPeerId123abc...",
 ///       "actor": "Operator",
 ///       "name": "zkm",
+///       "service_fee": 0,
+///       "available_btc": 0,
+///       "updated_at": 1699123456,
 ///       "status": "online",
-///       "goat_addr": "0x123...",
-///       "btc_pub_key": "02abc...",
+///       "goat_addr": "0x1234567890abcdef1234567890abcdef12345678",
+///       "btc_pub_key": "02abc123def456...",
 ///       "socket_addr": "127.0.0.1:8080",
-///       "reward": 1000,
-///       ...
+///       "reward": 1000000,
+///       "available_peg_btc": 0
 ///     }
 ///   ],
 ///   "total": 1
