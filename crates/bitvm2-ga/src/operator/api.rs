@@ -367,7 +367,7 @@ pub(crate) fn generate_bitvm_graph_inner(
                 WatchtowerChallengeConnector::new(
                     network,
                     &operator_taproot_public_key,
-                    &XOnlyPublicKey::from(params.watchtower_pubkeys[i]),
+                    &params.watchtower_pubkeys[i],
                 ),
                 AckConnector::new(network, &n_of_n_taproot_public_key, &params.hashlocks[i]),
             )
@@ -745,7 +745,7 @@ pub fn operator_sign_watchtower_challenge_timeout(
     let watchtower_challenge_connector = WatchtowerChallengeConnector::new(
         operator_context.network,
         &operator_context.operator_taproot_public_key,
-        &XOnlyPublicKey::from(graph.parameters.watchtower_pubkeys[watchtower_index]),
+        &graph.parameters.watchtower_pubkeys[watchtower_index],
     );
     let ack_connector = AckConnector::new(
         operator_context.network,
@@ -774,7 +774,7 @@ pub fn operator_sign_ack(
     let watchtower_challenge_connector = WatchtowerChallengeConnector::new(
         operator_context.network,
         &operator_context.operator_taproot_public_key,
-        &XOnlyPublicKey::from(graph.parameters.watchtower_pubkeys[watchtower_index]),
+        &graph.parameters.watchtower_pubkeys[watchtower_index],
     );
     let ack_connector = AckConnector::new(
         operator_context.network,

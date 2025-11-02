@@ -479,7 +479,7 @@ mod tests {
             operator_receive_address: bank_address.clone(),
             watchtower_pubkeys: watchtower_master_key()
                 .iter()
-                .map(|k| k.master_keypair().public_key().into())
+                .map(|k| k.master_keypair().public_key().x_only_public_key().0)
                 .collect(),
             hashlocks: hashlocks().1.to_vec(),
             guest_constant_value: [0u8; 32], // all zero for test

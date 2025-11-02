@@ -31,8 +31,7 @@ pub fn build_watchtower_challenge_tx(
     let n_of_n_taproot_public_key =
         XOnlyPublicKey::from(graph.parameters.instance_parameters.committee_agg_pubkey);
     let operator_taproot_public_key = XOnlyPublicKey::from(graph.parameters.operator_pubkey);
-    let watchtower_taproot_public_key =
-        XOnlyPublicKey::from(graph.parameters.watchtower_pubkeys[watchtower_index]);
+    let watchtower_taproot_public_key = graph.parameters.watchtower_pubkeys[watchtower_index];
     let hashlock = graph.parameters.hashlocks[watchtower_index];
     let watchtower_connectors = (
         WatchtowerChallengeConnector::new(

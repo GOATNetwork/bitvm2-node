@@ -5,7 +5,7 @@ use alloy::primitives::{Address, B256, Bytes, FixedBytes, Signature, U256};
 use alloy::rpc::types::TransactionReceipt;
 use anyhow::bail;
 use bitcoin::hashes::Hash;
-use bitcoin::{PublicKey, Transaction, Txid};
+use bitcoin::{PublicKey, Transaction, Txid, XOnlyPublicKey};
 use uuid::Uuid;
 pub mod utils;
 use crate::btc_chain::{BTCClient, MerkleProofExtend};
@@ -719,12 +719,12 @@ impl GOATClient {
         self.chain_service.committee_mana_is_validate_peer_id(peer_id).await
     }
 
-    pub async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<PublicKey>> {
+    pub async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<XOnlyPublicKey>> {
         let watchtowers = self.chain_service.committee_mana_get_watchtowers().await?;
         Ok(watchtowers
             .iter()
-            .filter_map(|v| PublicKey::from_slice(v).ok())
-            .collect::<Vec<PublicKey>>())
+            .filter_map(|v| XOnlyPublicKey::from_slice(v).ok())
+            .collect::<Vec<XOnlyPublicKey>>())
     }
     pub async fn committee_mana_add_watchtower(
         &self,

@@ -469,7 +469,7 @@ pub fn push_committee_pre_signatures(
                 WatchtowerChallengeConnector::new(
                     network,
                     &operator_taproot_public_key,
-                    &XOnlyPublicKey::from(graph.parameters.watchtower_pubkeys[i]),
+                    &graph.parameters.watchtower_pubkeys[i],
                 ),
                 AckConnector::new(
                     network,

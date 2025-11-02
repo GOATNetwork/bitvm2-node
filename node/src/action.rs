@@ -2012,7 +2012,7 @@ pub async fn recv_and_dispatch(
                 .parameters
                 .watchtower_pubkeys
                 .iter()
-                .position(|pk| *pk == watchtower_keypair.public_key().into())
+                .position(|pk| *pk == watchtower_keypair.public_key().x_only_public_key().0)
             {
                 Some(index) => index,
                 None => {
