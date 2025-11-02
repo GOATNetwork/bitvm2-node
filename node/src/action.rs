@@ -528,6 +528,7 @@ pub async fn recv_and_dispatch(
             let disprove_scripts = get_disprove_scripts(local_db, &graph_params).await?;
             let mut graph = generate_bitvm_graph(graph_params, disprove_scripts)?;
             operator_pre_sign(operator_master_key.master_keypair(), &mut graph)?;
+            store_graph(local_db, &graph.to_simplified()?).await?;
             // 4. broadcast CreateGraph
             let message_content = GOATMessageContent::CreateGraph(CreateGraph {
                 instance_id,
@@ -887,7 +888,7 @@ pub async fn recv_and_dispatch(
             let graph = match get_graph(local_db, instance_id, graph_id).await? {
                 Some(g) => g,
                 None => {
-                    tracing::info!(
+                    tracing::warn!(
                         "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: graph not found, maybe belongs to another Operator",
                         received_committee_pubkey.to_string()
                     );
@@ -1137,7 +1138,7 @@ pub async fn recv_and_dispatch(
             let graph = match get_graph(local_db, instance_id, graph_id).await? {
                 Some(g) => g,
                 None => {
-                    tracing::info!(
+                    tracing::warn!(
                         "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: graph not found, maybe belongs to another Operator",
                         received_committee_pubkey.to_string()
                     );
