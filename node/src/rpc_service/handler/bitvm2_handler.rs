@@ -74,6 +74,53 @@ pub async fn instance_settings(
     ))
 }
 
+/// Get instance list
+///
+/// Returns a paginated list of bridge instances based on query parameters. Supports filtering by
+/// source address and bridge direction (bridge-in or bridge-out).
+///
+/// # Query Parameters
+///
+/// - `from_addr`: Source address filter (optional) - filters instances by source Bitcoin address
+/// - `is_bridge_in`: Bridge direction filter (required) - true for bridge-in, false for bridge-out
+/// - `offset`: Pagination offset (default: 0) - number of items to skip
+/// - `limit`: Items per page (default: 10) - maximum number of items to return
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns instance list with confirmation information
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Response includes total count and paginated instance data with UTXO and confirmation details
+///
+/// # Use Case
+///
+/// Frontend applications use this to display user's bridge transaction history and current status.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances?is_bridge_in=true&offset=0&limit=10
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "instance_wraps": [
+///     {
+///       "instance": {
+///         "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///         "is_bridge_in": true,
+///         "amount": 100000000,
+///         "status": "CommitteesAnswered",
+///         ...
+///       },
+///       "confirmations": 3,
+///       "target_confirmations": 6
+///     }
+///   ],
+///   "total": 1
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_instances(
     Query(params): Query<InstanceListRequest>,
@@ -199,6 +246,49 @@ pub async fn get_instances(
     }
 }
 
+/// Get instance by ID
+///
+/// Returns detailed information for a specific bridge instance including UTXO details,
+/// confirmation status, and current processing state.
+///
+/// # Path Parameters
+///
+/// - `instance_id`: UUID of the bridge instance to retrieve
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns instance details with UTXO and confirmation information
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Returns empty instance wrap if instance_id not found in database
+///
+/// # Use Case
+///
+/// Frontend applications use this to display detailed information about a specific bridge transaction,
+/// including its current status, confirmations, and associated UTXOs.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances/123e4567-e89b-12d3-a456-426614174000
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "instance_wrap": {
+///     "instance": {
+///       "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///       "is_bridge_in": true,
+///       "amount": 100000000,
+///       "status": "CommitteesAnswered",
+///       ...
+///     },
+///     "utxo": [...],
+///     "confirmations": 3,
+///     "target_confirmations": 6
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_instance(
     Path(instance_id): Path<String>,
@@ -298,6 +388,43 @@ pub async fn get_instance(
     }
 }
 
+/// Get instances overview statistics
+///
+/// Returns statistical overview of all bridge instances including total bridge-in/bridge-out amounts,
+/// transaction counts, and node status information.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns overview statistics
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Response includes aggregated statistics for bridge operations and node status
+///
+/// # Use Case
+///
+/// Frontend applications use this to display dashboard statistics showing overall system activity,
+/// including total bridged amounts, transaction counts, and network health.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances/overview
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "instances_overview": {
+///     "total_bridge_in_amount": 3000000,
+///     "total_bridge_in_txn": 1,
+///     "total_bridge_out_amount": 2000000,
+///     "total_bridge_out_txn": 2,
+///     "total_peg_out_amount": 1000000,
+///     "total_peg_out_txn": 1,
+///     "online_nodes": 3,
+///     "total_nodes": 4
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_instances_overview(
     State(app_state): State<Arc<AppState>>,
@@ -457,6 +584,49 @@ async fn get_tx_confirmation_info(
     Ok((blocks_pass, target_confirm_num))
 }
 
+/// Get graph by ID
+///
+/// Returns detailed information for a specific BitVM2 graph including transaction status,
+/// confirmation information, and proof data.
+///
+/// # Path Parameters
+///
+/// - `graph_id`: UUID of the BitVM2 graph to retrieve
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns graph details with extended information
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Returns None graph if graph_id not found in database
+///
+/// # Use Case
+///
+/// Applications use this to retrieve detailed information about a specific BitVM2 graph,
+/// including its current status, transaction confirmations, and proof query information.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "graph": {
+///     "graph": {
+///       "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///       "status": "OperatorPresigned",
+///       "amount": 1000000,
+///       ...
+///     },
+///     "confirmations": 3,
+///     "target_confirmations": 6,
+///     "proof_height": 12345,
+///     "proof_query_url": "http://..."
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_graph(
     Path(graph_id): Path<String>,
@@ -573,6 +743,46 @@ pub async fn get_graphs(
     }
 }
 
+/// Get ready to kickoff graph
+///
+/// Returns a BitVM2 graph that is ready for the operator to kickoff. This endpoint is used by
+/// operators to query available graphs that need kickoff processing.
+///
+/// # Query Parameters
+///
+/// - `btc_pub_key`: Operator's Bitcoin public key (required) - identifies the operator
+/// - `goat_addr`: GOAT address filter (optional) - filters by source address
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns ready graph or reason why no graph is ready
+/// - `500 Internal Server Error`: Server internal error or missing required parameters
+/// - Response includes graph data if available, or reason why no graph is ready
+///
+/// # Use Case
+///
+/// Operators use this endpoint to poll for graphs that are in OperatorDataPushed status
+/// and ready for kickoff processing. The operator can start the kickoff process once a
+/// suitable graph is found.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/ready-to-kickoff?btc_pub_key=03abc...&goat_addr=0x123...
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "graph": {
+///     "graph_id": "123e4567-e89b-12d3-a456-426614174000",
+///     "status": "OperatorDataPushed",
+///     "operator_pubkey": "03abc...",
+///     ...
+///   },
+///   "no_ready_reason": null
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_ready_to_kickoff_graph(
     Query(params): Query<GraphReadyToKickoffRequest>,
@@ -747,6 +957,32 @@ pub async fn add_extend_data_to_graphs<'a>(
         .collect())
 }
 
+/// Get graph Bitcoin transaction progress data
+///
+/// Helper function to retrieve progress tracking data for specific BitVM2 graph transactions.
+/// This function monitors transaction vout status and extracts progress information for
+/// watchtower challenges and assert operations.
+///
+/// # Parameters
+///
+/// - `storage_processor`: Database storage processor for querying transaction monitoring data
+/// - `btc_tx_name`: The type of Bitcoin transaction to query (WatchtowerChallengeInit or AssertInit)
+/// - `graph`: The graph instance containing transaction IDs
+///
+/// # Returns
+///
+/// - `Ok((progress_data_vec, fail_reason))`: Tuple of progress data steps and optional failure reason
+/// - `Err`: Error if database query or JSON deserialization fails
+///
+/// # Features
+///
+/// - For WatchtowerChallengeInit: Tracks init, challenge, challenge timeout, NACK, commit blockhash, and timeout steps
+/// - For AssertInit: Tracks init and commit steps
+/// - Returns empty progress data for other transaction types
+///
+/// # Note
+///
+/// Progress data includes current/total counts for each step in multi-stage transaction processes.
 pub async fn get_graph_btc_tx_process_data<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     btc_tx_name: GraphBtcTxName,
@@ -828,6 +1064,47 @@ pub async fn get_graph_btc_tx_process_data<'a>(
     Ok((progress_datas, fail_reason))
 }
 
+/// Get graph transaction by name
+///
+/// Returns raw Bitcoin transaction data and progress information for a specific transaction
+/// within a BitVM2 graph. Supports querying various transaction types including kickoff,
+/// challenge, and take transactions.
+///
+/// # Path Parameters
+///
+/// - `graph_id`: UUID of the BitVM2 graph
+///
+/// # Query Parameters
+///
+/// - `tx_name`: Name of the transaction to retrieve (e.g., "kickoff", "challenge", "take1", etc.)
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns transaction raw data and progress information
+/// - `500 Internal Server Error`: Server internal error or invalid parameters
+/// - Returns serialized transaction hex and progress tracking data
+///
+/// # Use Case
+///
+/// Applications use this to retrieve specific transaction details from a graph, including
+/// the raw transaction data for broadcasting and progress information for multi-step processes.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/tx?tx_name=kickoff
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "btc_tx_data": {
+///     "raw_data": "020000000001...",
+///     "progresses": [],
+///     "fail_reason": null
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_graph_tx(
     Query(params): Query<GraphTxGetParams>,
@@ -899,6 +1176,54 @@ pub async fn get_graph_tx(
     }
 }
 
+/// Get all graph transactions
+///
+/// Returns raw Bitcoin transaction data and progress information for all transactions
+/// in a BitVM2 graph. This includes all transaction types: assert_init, watchtower_challenge_init,
+/// pre_kickoff, challenge, disprove, kickoff, pegin, take1, and take2.
+///
+/// # Path Parameters
+///
+/// - `graph_id`: UUID of the BitVM2 graph
+///
+/// # Query Parameters
+///
+/// - Currently no query parameters are required
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns all transaction raw data with progress information
+/// - `500 Internal Server Error`: Server internal error or graph not found
+/// - Response includes serialized hex data for all graph transactions and their progress tracking
+///
+/// # Use Case
+///
+/// Applications use this to retrieve all transaction details from a graph in a single request,
+/// which is useful for displaying the complete transaction flow and status of a BitVM2 graph.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/txn
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "assert_init": {
+///     "raw_data": "020000000001...",
+///     "progresses": [...],
+///     "fail_reason": null
+///   },
+///   "watchtower_challenge_init": {
+///     "raw_data": "020000000001...",
+///     "progresses": [...],
+///     "fail_reason": null
+///   },
+///   "kickoff": {...},
+///   ...
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_graph_txn(
     Path(graph_id): Path<String>,

@@ -14,6 +14,55 @@ use std::sync::Arc;
 use store::localdb::NodeQuery;
 use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 
+/// Get node list
+///
+/// Returns a paginated list of BitVM2 network nodes based on query parameters. Supports filtering by
+/// GOAT address, actor type, and online status. Automatically updates the current node's timestamp.
+///
+/// # Query Parameters
+///
+/// - `goat_addr`: GOAT address filter (optional) - filters nodes by their GOAT address
+/// - `actor`: Actor type filter (optional) - filters by actor role (Operator, Watchtower, Verifier, All)
+/// - `status`: Status filter (optional) - filters by online/offline status
+/// - `offset`: Pagination offset (default: 0) - number of items to skip
+/// - `limit`: Items per page (default: 10) - maximum number of items to return
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns node list with status information
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Response includes total count and paginated node data with online status
+///
+/// # Use Case
+///
+/// Frontend applications use this to display the list of active nodes in the BitVM2 network,
+/// showing their roles, availability, and connection information.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/nodes?actor=Operator&status=online&offset=0&limit=10
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "nodes": [
+///     {
+///       "peer_id": "QmPeerId...",
+///       "actor": "Operator",
+///       "name": "zkm",
+///       "status": "online",
+///       "goat_addr": "0x123...",
+///       "btc_pub_key": "02abc...",
+///       "socket_addr": "127.0.0.1:8080",
+///       "reward": 1000,
+///       ...
+///     }
+///   ],
+///   "total": 1
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
@@ -102,6 +151,43 @@ pub async fn get_nodes(
     }
 }
 
+/// Get nodes overview statistics
+///
+/// Returns statistical overview of all nodes in the BitVM2 network, including counts by actor type
+/// and online/offline status. Automatically updates the current node's timestamp.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns nodes overview statistics
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Response includes aggregated statistics for all node types and their status
+///
+/// # Use Case
+///
+/// Frontend applications use this to display dashboard statistics showing network health,
+/// including total node counts by role and availability status.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/nodes/overview
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "nodes_overview": {
+///     "total_operators": 10,
+///     "online_operators": 8,
+///     "total_watchtowers": 5,
+///     "online_watchtowers": 4,
+///     "total_verifiers": 3,
+///     "online_verifiers": 2,
+///     "total_nodes": 18,
+///     "online_nodes": 14
+///   }
+/// }
+/// ```
 #[axum::debug_handler]
 pub async fn get_nodes_overview(
     State(app_state): State<Arc<AppState>>,
@@ -130,18 +216,25 @@ pub async fn get_nodes_overview(
     }
 }
 
-/// Get detailed information for a specific node
+/// Get node by peer ID
 ///
-/// Get detailed information for a single node based on peer_id.
+/// Returns detailed information for a specific node based on its peer_id. If the requested
+/// node is the current node, automatically updates its timestamp.
 ///
-/// # Parameters
+/// # Path Parameters
 ///
-/// - `peer_id`: Node's peer_id
+/// - `peer_id`: The unique peer identifier of the node (IPFS-style peer ID)
 ///
 /// # Returns
 ///
-/// - `200 OK`: Successfully returns node details
-/// - `500 Internal Server Error`: Server internal error
+/// - `200 OK`: Successfully returns node details (or None if not found)
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Returns complete node information including actor type, addresses, and reward data
+///
+/// # Use Case
+///
+/// Applications use this to retrieve detailed information about a specific node in the network,
+/// including its configuration, role, reward balance, and last active timestamp.
 ///
 /// # Example
 ///
@@ -154,10 +247,10 @@ pub async fn get_nodes_overview(
 /// {
 ///   "peer_id": "QmPeerId...",
 ///   "actor": "Operator",
-///   "btc_pub_key": "02...",
-///   "goat_addr": "0x...",
+///   "btc_pub_key": "02abc...",
+///   "goat_addr": "0x123...",
 ///   "socket_addr": "127.0.0.1:8080",
-///   "reward": 0,
+///   "reward": 1000000,
 ///   "updated_at": 1640995200,
 ///   "created_at": 1640995200
 /// }
