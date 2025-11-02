@@ -1,115 +1,142 @@
-use crate::env::{get_proof_server_url, is_relayer};
 use crate::rpc_service::AppState;
 use crate::rpc_service::proof::{
-    BlockProofs, Groth16ProofValue, ProofItem, Proofs, ProofsOverview, ProofsOverviewQueryParams,
-    ProofsQueryParams,
+    BtcBlockDescListResponse, BtcBlockDescQueryParams, ProofResponse, ProofsQueryParams,
 };
 use crate::rpc_service::response::{ApiResult, ErrorResponse};
-use anyhow::bail;
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Query, State};
 use http::{StatusCode, Uri};
-use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
-use store::localdb::LocalDB;
-use store::{GoatTxType, ProofInfo, ProofType};
-use uuid::Uuid;
 
-/// Get proof information for a specific block
+/// Get Bitcoin blocks description list
 ///
-/// Get proof information for a specific block based on block number, including block proof, aggregation proof, and Groth16 proof.
-/// If the current node is a Relayer role, it will forward the request to an Operator node.
+/// Returns a list of Bitcoin block descriptions with fee information and statistics. Supports
+/// pagination and querying from a specific starting height in descending order.
 ///
-/// # Parameters
+/// # Query Parameters
 ///
-/// - `block_number`: Block number
+/// - `start_height`: Starting block height (optional) - query blocks from this height in descending order
+/// - `offset`: Pagination offset (optional) - number of items to skip
+/// - `limit`: Items per page (default: 6) - maximum number of items to return
 ///
 /// # Returns
 ///
-/// - `200 OK`: Successfully returns proof information
-/// - `500 Internal Server Error`: Server internal error
+/// - `200 OK`: Successfully returns blocks description list
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Response includes block statistics such as median fee, fee range, total fees, and transaction count
+///
+/// # Use Case
+///
+/// Frontend applications use this to display Bitcoin block statistics, including fee market data
+/// for users to understand network congestion and optimal transaction fee rates.
 ///
 /// # Example
 ///
 /// ```http
-/// GET /v1/proofs/100
+/// GET /v1/proofs/blocks?start_height=800000&offset=0&limit=6
 /// ```
 ///
 /// Response example:
 /// ```json
 /// {
-///   "block_proofs": [
+///   "blocks_desc": [
 ///     {
-///       "block_number": 100,
-///       "block_proof": {
-///         "proof": "base64_encoded_proof",
-///         "public_values": "base64_encoded_public_values",
-///         "verifier_id": "verifier_1",
-///         "zkm_version": "v1.0.0",
-///         "proving_time": 5000,
-///         "proof_size": 1024
-///       },
-///       "aggregation_proof": {
-///         "proof": "base64_encoded_aggregation_proof",
-///         "public_values": "base64_encoded_public_values",
-///         "verifier_id": "verifier_1",
-///         "zkm_version": "v1.0.0",
-///         "proving_time": 3000,
-///         "proof_size": 512
-///       },
-///       "groth16_proof": {
-///         "proof": "base64_encoded_groth16_proof",
-///         "public_values": "base64_encoded_public_values",
-///         "verifier_id": "verifier_1",
-///         "zkm_version": "v1.0.0",
-///         "groth16_vk": "base64_encoded_verifier_key"
-///       }
+///       "height": 800000,
+///       "median_fee": 15.5,
+///       "fee_range": [5.0, 10.0, 15.0, 20.0, 30.0],
+///       "total_fees": 0.5,
+///       "tx_count": 2500,
+///       "timestamp": 1640995200
 ///     }
-///   ]
+///   ],
+///   "start": 800000,
+///   "range": 6
+/// }
+/// ```
+#[axum::debug_handler]
+pub async fn get_blocks_desc(
+    _uri: Uri,
+    Query(_params): Query<BtcBlockDescQueryParams>,
+    State(_app_state): State<Arc<AppState>>,
+) -> ApiResult<BtcBlockDescListResponse> {
+    // todo update
+    let async_fn = || async move {
+        Ok::<BtcBlockDescListResponse, Box<dyn std::error::Error>>(BtcBlockDescListResponse {
+            blocks_desc: vec![],
+            start: 0,
+            range: 0,
+        })
+    };
+    match async_fn().await {
+        Ok(res) => Ok((StatusCode::OK, Json(res))),
+        Err(err) => {
+            tracing::warn!("get blocks desc err:{:?}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "BLOCKS_DEC_ERROR".to_string(),
+                    message: err.to_string(),
+                }),
+            ))
+        }
+    }
+}
+
+/// Get proof by block height and type
+///
+/// Returns detailed proof information for a specific block height and proof type.
+/// Supports both header chain proofs and commit chain proofs.
+///
+/// # Query Parameters
+///
+/// - `height`: Block number/height (required) - the block number for which to retrieve the proof
+/// - `proof_type`: Type of proof (required) - either "header_chain" or "commit_chain"
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns proof details (or None if not found)
+/// - `500 Internal Server Error`: Server internal error or database operation failed
+/// - Response includes proof metadata, proving metrics, and verification data
+///
+/// # Use Case
+///
+/// Applications use this to retrieve zero-knowledge proofs for specific Bitcoin blocks,
+/// including proving time, cycles, proof size, and public inputs for verification purposes.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/proofs/proof?height=800000&proof_type=header_chain
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "proof": {
+///     "block_number": 800000,
+///     "proof_type": "header_chain",
+///     "state": "completed",
+///     "proving_cycles": 1000000,
+///     "proving_time": 120,
+///     "contain_blocks": "799990-800000",
+///     "total_time_to_proof": 180,
+///     "proof_size": 2048.5,
+///     "zkm_version": "v1.0.0",
+///     "pub_inputs": "0x1234...",
+///     "started_at": 1640995200,
+///     "updated_at": 1640995380
+///   }
 /// }
 /// ```
 #[axum::debug_handler]
 pub async fn get_proof(
-    uri: Uri,
-    Path(block_number): Path<i64>,
-    State(app_state): State<Arc<AppState>>,
-) -> ApiResult<Proofs> {
+    _uri: Uri,
+    Query(_params): Query<ProofsQueryParams>,
+    State(_app_state): State<Arc<AppState>>,
+) -> ApiResult<ProofResponse> {
+    // todo update
     let async_fn = || async move {
-        if is_relayer() {
-            let operator_url = get_online_operator_url(&app_state.local_db).await?;
-            let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
-            if !resp.status().is_success() {
-                return Err(format!("fail to get response from {operator_url}").into());
-            }
-            let res = resp.json::<Proofs>().await?;
-            return Ok::<Proofs, Box<dyn std::error::Error>>(res);
-        }
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let block_proofs_map = convert_to_proof_items(
-            storage_process
-                .get_range_proofs(ProofType::BlockProof, block_number, block_number)
-                .await?,
-        );
-
-        let aggregation_proofs_map = convert_to_proof_items(
-            storage_process
-                .get_range_proofs(ProofType::AggregationProof, block_number, block_number)
-                .await?,
-        );
-
-        let groth16_proof = storage_process
-            .get_groth16_proof_info(block_number)
-            .await?
-            .map(|groth16_proof_info| groth16_proof_info.into());
-        Ok::<Proofs, Box<dyn std::error::Error>>(Proofs {
-            block_proofs: vec![BlockProofs {
-                block_number,
-                block_proof: block_proofs_map.get(&block_number).cloned(),
-                aggregation_proof: aggregation_proofs_map.get(&block_number).cloned(),
-                groth16_proof,
-            }],
-        })
+        Ok::<ProofResponse, Box<dyn std::error::Error>>(ProofResponse { proof: None })
     };
     match async_fn().await {
         Ok(res) => Ok((StatusCode::OK, Json(res))),
@@ -117,407 +144,8 @@ pub async fn get_proof(
             tracing::warn!("get proof err:{:?}", err);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GRAPH_CHECK_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
+                Json(ErrorResponse { error: "PROOF_ERROR".to_string(), message: err.to_string() }),
             ))
         }
-    }
-}
-
-/// Get proof list
-///
-/// Get proof list based on query parameters, supports querying by block number or graph ID, and can specify block range.
-/// If the current node is a Relayer role, it will forward the request to an Operator node.
-///
-/// # Query Parameters
-///
-/// - `block_number`: Block number (mutually exclusive with graph_id)
-/// - `graph_id`: Graph ID (mutually exclusive with block_number)
-/// - `block_range`: Block range for getting consecutive block proofs (default: 1)
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns proof list
-/// - `500 Internal Server Error`: Server internal error
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/proofs?block_number=100&block_range=5
-/// ```
-///
-/// Or query by graph ID:
-/// ```http
-/// GET /v1/proofs?graph_id=123e4567-e89b-12d3-a456-426614174000&block_range=3
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "block_proofs": [
-///     {
-///       "block_number": 96,
-///       "block_proof": {...},
-///       "aggregation_proof": {...},
-///       "groth16_proof": {...}
-///     },
-///     {
-///       "block_number": 97,
-///       "block_proof": {...},
-///       "aggregation_proof": {...},
-///       "groth16_proof": {...}
-///     }
-///   ]
-/// }
-/// ```
-#[axum::debug_handler]
-pub async fn get_proofs(
-    uri: Uri,
-    Query(params): Query<ProofsQueryParams>,
-    State(app_state): State<Arc<AppState>>,
-) -> ApiResult<Proofs> {
-    let async_fn = || async move {
-        if is_relayer() {
-            let operator_url = get_online_operator_url(&app_state.local_db).await?;
-            let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
-            if !resp.status().is_success() {
-                return Err(format!("fail to get response from {operator_url}").into());
-            }
-            let res = resp.json::<Proofs>().await?;
-            return Ok::<Proofs, Box<dyn std::error::Error>>(res);
-        }
-
-        if params.block_number.is_none() && params.graph_id.is_none() {
-            return Err("block number and graph id all is none".into());
-        }
-
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let block_number = if let Some(block_number) = params.block_number {
-            block_number
-        } else {
-            let graph_id = params.graph_id.unwrap();
-            let tx_record = storage_process
-                .get_graph_goat_tx_record(
-                    &Uuid::from_str(&graph_id)?,
-                    &GoatTxType::ProceedWithdraw.to_string(),
-                )
-                .await?;
-            if tx_record.is_none() {
-                return Err(format!("get tx record is none for graph id {graph_id}").into());
-            }
-            tx_record.unwrap().height
-        };
-
-        let block_proofs_map = convert_to_proof_items(
-            storage_process
-                .get_range_proofs(
-                    ProofType::BlockProof,
-                    block_number - params.block_range + 1,
-                    block_number,
-                )
-                .await?,
-        );
-
-        let aggregation_proofs_map = convert_to_proof_items(
-            storage_process
-                .get_range_proofs(
-                    ProofType::AggregationProof,
-                    block_number - params.block_range + 1,
-                    block_number,
-                )
-                .await?,
-        );
-        let groth16_proofs_map = convert_to_proof_items(
-            storage_process
-                .get_range_proofs(
-                    ProofType::Groth16Proof,
-                    block_number - params.block_range + 1,
-                    block_number,
-                )
-                .await?,
-        );
-        let mut block_proofs = vec![];
-        for block_number in block_number - params.block_range + 1..block_number + 1 {
-            block_proofs.push(BlockProofs {
-                block_number,
-                block_proof: block_proofs_map.get(&block_number).cloned(),
-                aggregation_proof: aggregation_proofs_map.get(&block_number).cloned(),
-                groth16_proof: groth16_proofs_map.get(&block_number).cloned(),
-            })
-        }
-
-        Ok::<Proofs, Box<dyn std::error::Error>>(Proofs { block_proofs })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get proofs err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_PROOFS_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-/// Get proof overview statistics
-///
-/// Returns overall statistics for the proof system, including average times and counts for various types of proofs.
-/// If the current node is a Relayer role, it will forward the request to an Operator node.
-///
-/// # Query Parameters
-///
-/// - `block_proof_count`: Number of block proofs for calculating average time (default: 10)
-/// - `agg_proof_count`: Number of aggregation proofs for calculating average time (default: 10)
-/// - `groth16_proof_count`: Number of Groth16 proofs for calculating average time (default: 10)
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns proof overview information
-/// - `500 Internal Server Error`: Server internal error
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/proofs/overview?block_proof_count=20&agg_proof_count=15&groth16_proof_count=10
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "total_blocks": 1000,
-///   "avg_block_proof": 2500.5,
-///   "avg_aggregation_proof": 1500.2,
-///   "avg_groth16_proof": 8000.0,
-///   "block_proof_count": 950,
-///   "aggregation_proof_count": 900,
-///   "groth16_proof_count": 50
-/// }
-/// ```
-#[axum::debug_handler]
-pub async fn get_proofs_overview(
-    uri: Uri,
-    Query(params): Query<ProofsOverviewQueryParams>,
-    State(app_state): State<Arc<AppState>>,
-) -> ApiResult<ProofsOverview> {
-    let async_fn = || async move {
-        if is_relayer() {
-            let operator_url = get_online_operator_url(&app_state.local_db).await?;
-            let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
-            if !resp.status().is_success() {
-                return Err(format!("fail to get response from {operator_url}").into());
-            }
-            let res = resp.json::<ProofsOverview>().await?;
-            return Ok::<ProofsOverview, Box<dyn std::error::Error>>(res);
-        }
-
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let (total_blocks, sum_block_proof_time, block_proof_count) = storage_process
-            .get_proof_overview(ProofType::BlockProof, params.block_proof_count)
-            .await?;
-        let (_, sum_aggregation_proof_time, aggregation_proof_count) = storage_process
-            .get_proof_overview(ProofType::AggregationProof, params.agg_proof_count)
-            .await?;
-        let (_, sum_groth16_proof_times, groth16_proof_count) = storage_process
-            .get_proof_overview(ProofType::Groth16Proof, params.groth16_proof_count)
-            .await?;
-        let (block_proof_conc, agg_proof_conc, groth16_proof_conc) =
-            get_proof_config(&app_state.local_db).await?;
-        Ok::<ProofsOverview, Box<dyn std::error::Error>>(ProofsOverview {
-            total_blocks,
-            avg_block_proof: calculate_proof_avg_proof_time(
-                sum_block_proof_time,
-                block_proof_count,
-                block_proof_conc,
-            ),
-            avg_aggregation_proof: calculate_proof_avg_proof_time(
-                sum_aggregation_proof_time,
-                aggregation_proof_count,
-                agg_proof_conc,
-            ),
-            avg_groth16_proof: calculate_proof_avg_proof_time(
-                sum_groth16_proof_times,
-                groth16_proof_count,
-                groth16_proof_conc,
-            ),
-            block_proof_count,
-            aggregation_proof_count,
-            groth16_proof_count,
-        })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get proofs overview err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_PROOFS_OVERVIEW_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-fn convert_to_proof_items(input: Vec<ProofInfo>) -> HashMap<i64, ProofItem> {
-    input.into_iter().map(|proof_info| (proof_info.block_number, proof_info.into())).collect()
-}
-
-/// Get detailed Groth16 proof information for a specific block
-///
-/// Get detailed Groth16 proof information for a specific block based on block number, including proof data, public values, verifier ID, etc.
-/// If the current node is a Relayer role, it will forward the request to an Operator node.
-///
-/// # Parameters
-///
-/// - `block_number`: Block number
-///
-/// # Returns
-///
-/// - `200 OK`: Successfully returns Groth16 proof information
-/// - `500 Internal Server Error`: Server internal error or proof not found
-///
-/// # Example
-///
-/// ```http
-/// GET /v1/proofs/groth16/100
-/// ```
-///
-/// Response example:
-/// ```json
-/// {
-///   "proof": "base64_encoded_groth16_proof",
-///   "public_values": "base64_encoded_public_values",
-///   "verifier_id": "verifier_1",
-///   "zkm_version": "v1.0.0",
-///   "groth16_vk": "base64_encoded_verifier_key"
-/// }
-/// ```
-#[axum::debug_handler]
-pub async fn get_groth16_proof(
-    uri: Uri,
-    Path(block_number): Path<i64>,
-    State(app_state): State<Arc<AppState>>,
-) -> ApiResult<Groth16ProofValue> {
-    let async_fn = || async move {
-        if is_relayer() {
-            let operator_url = get_online_operator_url(&app_state.local_db).await?;
-            let resp = app_state.client.get(format!("http://{operator_url}{uri}")).send().await?;
-            if !resp.status().is_success() {
-                return Err(format!("fail to get response from {operator_url}").into());
-            }
-            let res = resp.json::<Groth16ProofValue>().await?;
-            return Ok::<Groth16ProofValue, Box<dyn std::error::Error>>(res);
-        }
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let (proof, public_values, verifier_id, zkm_version) =
-            storage_process.get_groth16_proof(block_number).await?;
-
-        if proof.is_empty() {
-            return Err(format!("Groth16 proof is not ready at {block_number}").into());
-        }
-        let groth16_vk = storage_process.get_groth16_vk(&zkm_version).await?;
-        Ok::<Groth16ProofValue, Box<dyn std::error::Error>>(Groth16ProofValue {
-            proof,
-            public_values,
-            verifier_id,
-            zkm_version,
-            groth16_vk,
-        })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get groth16 proof err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_GROTH16_PROOF_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
-}
-
-async fn get_online_operator_url(local_db: &LocalDB) -> anyhow::Result<String> {
-    let env_set_url = get_proof_server_url();
-    if let Some(url) = env_set_url {
-        return Ok(url);
-    }
-    let mut storage_processor = local_db.acquire().await?;
-    if let Some(node) = storage_processor.get_proof_server_node().await? {
-        Ok(node.socket_addr.clone())
-    } else {
-        bail!("no operator is online")
-    }
-}
-
-fn calculate_proof_avg_proof_time(sum_time: i64, proof_counts: i64, concurrency: i64) -> f64 {
-    if proof_counts * concurrency == 0 {
-        return 0.0;
-    }
-    sum_time as f64 / (concurrency as f64 * proof_counts as f64)
-}
-
-async fn get_proof_config(local_db: &LocalDB) -> anyhow::Result<(i64, i64, i64)> {
-    let (block_concurrency, aggregated_block_count, _) = proofs::get_proof_config(local_db).await?;
-    Ok((block_concurrency, aggregated_block_count, 1))
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::env::ENV_PROOF_SEVER_URL;
-    use crate::rpc_service::handler::proof_handler::{
-        calculate_proof_avg_proof_time, get_online_operator_url,
-    };
-    use crate::utils::temp_file;
-    use bitvm2_lib::actors::Actor;
-    use store::Node;
-    use store::create_local_db;
-
-    #[tokio::test]
-    async fn test_get_online_operator_url_with_env() {
-        let remote_proof_server = "123.12.11.1:1234";
-        unsafe {
-            std::env::set_var(ENV_PROOF_SEVER_URL, remote_proof_server);
-        }
-        let local_db = create_local_db(&temp_file()).await;
-        let proof_server =
-            get_online_operator_url(&local_db).await.expect("Failed to get online operator url");
-        assert_eq!(proof_server, remote_proof_server);
-    }
-    #[tokio::test]
-    async fn test_get_online_operator_url_without_env() {
-        let remote_proof_server = "123.12.11.1:1234";
-        let local_db = create_local_db(&temp_file()).await;
-        let mut storage_processor =
-            local_db.acquire().await.expect("Failed to get online operator url");
-        storage_processor
-            .upsert_node(Node {
-                peer_id: "peerId".to_string(),
-                actor: Actor::Operator.to_string(),
-                socket_addr: remote_proof_server.to_string(),
-                ..Default::default()
-            })
-            .await
-            .expect("Failed to update node");
-        let proof_server =
-            get_online_operator_url(&local_db).await.expect("Failed to get online operator url");
-        assert_eq!(proof_server, remote_proof_server);
-    }
-
-    #[test]
-    fn test_calculate_proof_avg_proof_time() {
-        assert_eq!(calculate_proof_avg_proof_time(100, 5, 0), 0.0);
-        assert_eq!(calculate_proof_avg_proof_time(100, 0, 1), 0.0);
-        assert_eq!(calculate_proof_avg_proof_time(0, 1, 1), 0.0);
-        assert_eq!(calculate_proof_avg_proof_time(100, 5, 2), 10.0);
     }
 }

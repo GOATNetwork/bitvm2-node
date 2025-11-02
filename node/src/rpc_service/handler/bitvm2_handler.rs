@@ -22,9 +22,7 @@ use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
-use store::{
-    Graph, GraphStatus, Instance, InstanceStatus, UInt64Array3,
-};
+use store::{Graph, GraphStatus, Instance, InstanceStatus, UInt64Array3};
 use uuid::Uuid;
 
 const WATCHTOWER_CHALLENGE_STEP_INIT: &str = "Watchtower Challenge init";
@@ -990,7 +988,7 @@ async fn add_extend_data_to_graphs<'a>(
 /// # Note
 ///
 /// Progress data includes current/total counts for each step in multi-stage transaction processes.
-pub async fn get_graph_btc_tx_process_data<'a>(
+pub(crate) async fn get_graph_btc_tx_process_data<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     btc_tx_name: GraphBtcTxName,
     graph: &Graph,

@@ -16,8 +16,5 @@ pub(crate) mod v1 {
     pub const GRAPHS_TXN_BY_ID: &str = "/v1/graphs/{:id}/txn";
     pub const GRAPHS_TX_BY_ID: &str = "/v1/graphs/{:id}/tx";
     pub const PROOFS_BASE: &str = "/v1/proofs";
-    pub const PROOFS_BY_BLOCK_NUMBER: &str = "/v1/proofs/{:block_number}";
-    pub const PROOFS_GROTH16_BASE: &str = "/v1/proofs/groth16";
-    pub const PROOFS_GROTH16_BY_BLOCK_NUMBER: &str = "/v1/proofs/groth16/{:block_number}";
-    pub const PROOFS_OVERVIEW: &str = "/v1/proofs/overview";
+    pub const PROOFS_BLOCKS_DESC: &str = "/v1/proofs/blocks-desc";
 }

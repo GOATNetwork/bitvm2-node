@@ -10,9 +10,6 @@ pub mod validation;
 use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
-use crate::rpc_service::handler::proof_handler::{
-    get_groth16_proof, get_proof, get_proofs, get_proofs_overview,
-};
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
@@ -34,9 +31,11 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
 
-// Re-export all handler functions for documentation
-pub use crate::rpc_service::handler::bitvm2_handler::*;
-pub use crate::rpc_service::handler::node_handler::*;
+use crate::rpc_service::handler::{
+    get_blocks_desc, get_graph, get_graph_tx, get_graph_txn, get_graphs, get_instance,
+    get_instances, get_instances_overview, get_node, get_nodes, get_nodes_overview, get_proof,
+    get_ready_to_kickoff_graph, instance_settings,
+};
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -122,10 +121,8 @@ pub async fn serve(
         .route(routes::v1::GRAPHS_READY_TO_KICKOFF, get(get_ready_to_kickoff_graph))
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
-        .route(routes::v1::PROOFS_BASE, get(get_proofs))
-        .route(routes::v1::PROOFS_BY_BLOCK_NUMBER, get(get_proof))
-        .route(routes::v1::PROOFS_GROTH16_BY_BLOCK_NUMBER, get(get_groth16_proof))
-        .route(routes::v1::PROOFS_OVERVIEW, get(get_proofs_overview))
+        .route(routes::v1::PROOFS_BLOCKS_DESC, get(get_blocks_desc))
+        .route(routes::v1::PROOFS_BASE, get(get_proof))
         .route(routes::METRICS, get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(create_secure_cors_layer())
@@ -895,116 +892,7 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
         let client = reqwest::Client::new();
 
-        let api_test_items = [
-            ApiTestItem {
-                tag: format!("{} through operator", routes::v1::PROOFS_OVERVIEW),
-                url: format!("http://{addr_operator}{}", routes::v1::PROOFS_OVERVIEW),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} through relayer", routes::v1::PROOFS_OVERVIEW),
-                url: format!("http://{addr_relayer}{}", routes::v1::PROOFS_OVERVIEW),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!(
-                    "{} get proof by block_number through operator",
-                    routes::v1::PROOFS_BASE
-                ),
-                url: format!(
-                    "http://{addr_operator}{}/{groth16_block_number}",
-                    routes::v1::PROOFS_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!(
-                    "{} get proof by block_number through relayer",
-                    routes::v1::PROOFS_BASE
-                ),
-                url: format!(
-                    "http://{addr_relayer}{}/{groth16_block_number}",
-                    routes::v1::PROOFS_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get proofs  through operator", routes::v1::PROOFS_BASE),
-                url: format!(
-                    "http://{addr_operator}{}?block_number={groth16_block_number}",
-                    routes::v1::PROOFS_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get proofs through relayer", routes::v1::PROOFS_BASE),
-                url: format!(
-                    "http://{addr_relayer}{}?block_number={groth16_block_number}",
-                    routes::v1::PROOFS_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get proofs by graph_id", routes::v1::PROOFS_BASE),
-                url: format!(
-                    "http://{addr_operator}{}?graph_id={graph_id}",
-                    routes::v1::PROOFS_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get proofs fail as wrong input", routes::v1::PROOFS_BASE),
-                url: format!("http://{addr_relayer}{}?block_range=6", routes::v1::PROOFS_BASE),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: false,
-            },
-            ApiTestItem {
-                tag: format!("{} get proofs fail  as wrong input", routes::v1::PROOFS_BASE),
-                url: format!(
-                    "http://{addr_relayer}{}?graph_id={}",
-                    routes::v1::PROOFS_BASE,
-                    Uuid::new_v4()
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: false,
-            },
-            ApiTestItem {
-                tag: format!("{} get groth16 proof through operator", routes::v1::PROOFS_BASE),
-                url: format!(
-                    "http://{addr_operator}{}/{groth16_block_number}",
-                    routes::v1::PROOFS_GROTH16_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get groth16 proof through relayer", routes::v1::PROOFS_BASE),
-                url: format!(
-                    "http://{addr_relayer}{}/{groth16_block_number}",
-                    routes::v1::PROOFS_GROTH16_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-        ];
+        let api_test_items = [];
         do_batch_tests("node apis", &client, &api_test_items).await?;
         Ok(())
     }

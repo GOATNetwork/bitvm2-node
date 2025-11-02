@@ -1,13 +1,11 @@
-use crate::action::{ChallengeSent, GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
+use crate::action::{GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
 use crate::env::*;
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
-use crate::rpc_service::proof::Groth16ProofValue;
-use crate::rpc_service::{current_time_secs, routes};
+use crate::rpc_service::current_time_secs;
 use alloy::primitives::{Address as EvmAddress, Signature as EvmSignature};
 use alloy::signers::Signer;
 use alloy::signers::local::PrivateKeySigner;
-use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::key::Keypair;
 use bitcoin::{
     Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
@@ -2113,20 +2111,20 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
 
 pub async fn pop_batch_local_unhandle_msg(
     local_db: &LocalDB,
-    actor: Actor,
+    _actor: Actor,
     lock_time_until: i64,
     offset: i64,
     limit: i64,
 ) -> Result<Vec<Message>> {
     // todo mv to single function
-    if actor == Actor::Operator {
-        operator_scan_ready_proof(
-            local_db,
-            get_proof_server_url(),
-            routes::v1::PROOFS_GROTH16_BASE,
-        )
-        .await?;
-    }
+    // if actor == Actor::Operator {
+    //     operator_scan_ready_proof(
+    //         local_db,
+    //         get_proof_server_url(),
+    //         routes::v1::PROOFS_GROTH16_BASE,
+    //     )
+    //     .await?;
+    // }
     let mut tx = local_db.start_transaction().await?;
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     tx.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;
@@ -2146,108 +2144,12 @@ pub async fn pop_batch_local_unhandle_msg(
 }
 
 pub async fn operator_scan_ready_proof(
-    local_db: &LocalDB,
-    remote_proof_server_socket: Option<String>,
-    uri: &str,
+    _local_db: &LocalDB,
+    _remote_proof_server_socket: Option<String>,
+    _uri: &str,
 ) -> Result<()> {
     tracing::info!("start operator_scan_ready_proof");
-    let client = reqwest::Client::new();
-    let check_txs: Vec<GoatTxRecord> = {
-        let mut storage_processor = local_db.acquire().await?;
-        storage_processor
-            .get_goat_tx_record_by_processing_status(
-                &GoatTxType::ProceedWithdraw.to_string(),
-                &GoatTxProcessingStatus::Pending.to_string(),
-            )
-            .await?
-    };
-
-    let parse_challenge_txid_fn = |extra_data: Option<String>| -> Result<Txid> {
-        if extra_data.is_none() {
-            return Err(anyhow!("extra data is none"));
-        }
-        let extra: GoatTxProceedWithdrawExtra = serde_json::from_str(&extra_data.unwrap())?;
-        Ok(deserialize_hex(&extra.challenge_txid)?)
-    };
-
-    for tx in check_txs {
-        if tx.height == 0 {
-            tracing::info!("Graph id :{} proceed withdraw tx online just waiting", tx.graph_id);
-            continue;
-        }
-        let challenge_txid_res = parse_challenge_txid_fn(tx.extra.clone());
-        if let Ok(challenge_txid) = challenge_txid_res {
-            let mut db_tx = local_db.start_transaction().await?;
-            if let Some(socket) = remote_proof_server_socket.clone() {
-                let resp = client.get(format!("http://{socket}{uri}/{}", tx.height)).send().await?;
-                if resp.status().is_success()
-                    && let Some(proof_value) = resp.json::<Option<Groth16ProofValue>>().await?
-                {
-                    if !proof_value.verify()? {
-                        warn!(
-                            "fail to get detail proof  from {socket} for height {}, verify failed",
-                            tx.height
-                        );
-                        continue;
-                    }
-                    db_tx
-                        .create_verifier_key(&proof_value.zkm_version, &proof_value.groth16_vk)
-                        .await?;
-                    db_tx
-                        .add_groth16_proof(
-                            tx.height,
-                            tx.height,
-                            &format!("{}", tx.height),
-                            &proof_value.proof,
-                            &proof_value.public_values,
-                            &proof_value.verifier_id,
-                            &proof_value.zkm_version,
-                            &GoatTxProcessingStatus::Processed.to_string(),
-                        )
-                        .await?;
-                } else {
-                    warn!(
-                        "fail to get detail proof  from {socket} for height {}, will try later",
-                        tx.height
-                    );
-                    continue;
-                }
-            } else {
-                let (proof, _, _, _) = db_tx.get_groth16_proof(tx.height).await?;
-                if proof.is_empty() {
-                    tracing::info!("Graph id :{} proof is empty just waiting", tx.graph_id);
-                    continue;
-                }
-            }
-
-            tracing::info!("Graph id :{} proof is ready", tx.graph_id);
-            db_tx
-                .update_goat_tx_record_processing_status(
-                    &tx.graph_id,
-                    &tx.instance_id,
-                    &tx.tx_type,
-                    &GoatTxProcessingStatus::Processed.to_string(),
-                )
-                .await?;
-
-            create_message(
-                &mut db_tx,
-                tx.graph_id,
-                None,
-                "self".to_string(),
-                Actor::Operator,
-                GOATMessageContent::ChallengeSent(ChallengeSent {
-                    instance_id: tx.instance_id,
-                    graph_id: tx.graph_id,
-                    challenge_txid,
-                }),
-                0,
-                0,
-            )
-            .await?;
-            db_tx.commit().await?;
-        }
-    }
+    // todo
     Ok(())
 }
 

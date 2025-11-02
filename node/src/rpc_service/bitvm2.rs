@@ -18,12 +18,11 @@ pub struct InstanceSettingResponse {
 #[derive(Debug, Deserialize)]
 pub struct GraphTxGetParams {
     pub tx_name: String,
-    pub cursor: i32, //  -1 pre graph tx : 0: current graph tx; 1 next graph tx
 }
 
 #[derive(Debug, Deserialize)]
 pub struct GraphTxnGetParams {
-    pub cursor: i32, //  -1 pre graph tx : 0: current graph tx; 1 next graph tx
+    pub _cursor: i32, //  -1 pre graph tx : 0: current graph tx; 1 next graph tx
 }
 /// get tx detail
 #[derive(Debug, Deserialize)]
