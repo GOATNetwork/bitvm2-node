@@ -1,4 +1,4 @@
-use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest};
+use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
 use crate::utils::create_message;
@@ -340,6 +340,21 @@ pub async fn instance_btc_tx_monitor(
                     0,
                 )
                 .await?;
+            }
+            if next_status == InstanceStatus::RelayerL1Broadcasted {
+                create_message(
+                    &mut tx,
+                    instance.instance_id,
+                    None,
+                    "self".to_string(),
+                    Actor::All,
+                    GOATMessageContent::PostReady(PostReady {
+                        instance_id: instance.instance_id,
+                    }),
+                    0,
+                    0,
+                )
+                    .await?;
             }
 
             update_instance(&mut tx, &instance_update).await?;

@@ -340,7 +340,8 @@ pub async fn handle_self_p2p_msg(
                 let mut storage_processor = local_db.acquire().await?;
                 storage_processor
                     .update_messages_state(
-                        &[message.message_id],
+                        &message.message_id,
+                        message.message_version,
                         MessageState::Processed.to_string(),
                     )
                     .await?;

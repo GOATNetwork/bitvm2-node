@@ -1808,7 +1808,7 @@ pub async fn create_message(
     let msg_type = get_goat_message_content_type(&message_content).to_string();
     let message_id = generate_message_id(business_id, msg_type.clone(), sub_type);
     storage_processor
-        .create_message(Message {
+        .upsert_message(Message {
             message_id,
             business_id,
             actor: actor.to_string(),
@@ -1818,6 +1818,7 @@ pub async fn create_message(
             weight,
             lock_time_until: current_time_secs() + lock_time,
             state: MessageState::Pending.to_string(),
+            message_version: 0,
         })
         .await?;
     Ok(())

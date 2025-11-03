@@ -390,6 +390,7 @@ pub struct Message {
     pub msg_type: String,
     pub content: Vec<u8>,
     pub state: String,
+    pub message_version: i64,
     pub weight: i64,
     pub lock_time_until: i64,
 }

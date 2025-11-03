@@ -1550,20 +1550,20 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn update_messages_state(
         &mut self,
-        ids: &[String],
+        message_id: &str,
+        message_version: i64,
         state: String,
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
-        let query_str = format!(
-            "Update  message Set state = \'{state}\', updated_at = {current_time} WHERE message_id IN ({})",
-            create_place_holders(ids)
-        );
-        let mut query = sqlx::query(&query_str);
-        for id in ids {
-            query = query.bind(id);
-        }
+        let res = sqlx::query!(
+            "Update  message Set state = ?, updated_at = ? WHERE message_id = ? AND  message_version = ?",
+           state,
+          current_time,
+          message_id,
+          message_version
 
-        let res = query.execute(self.conn()).await?;
+        ).execute(self.conn()).await?;
+
         Ok(res.rows_affected() > 0)
     }
 
@@ -1604,6 +1604,7 @@ impl<'a> StorageProcessor<'a> {
                     actor,
                     msg_type,
                     content,
+                    message_version,
                     state,
                     weight,
                     lock_time_until
@@ -1626,11 +1627,21 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn create_message(&mut self, msg: Message) -> anyhow::Result<bool> {
+    pub async fn upsert_message(&mut self, msg: Message) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let res = sqlx::query!(
-            r#"INSERT OR IGNORE INTO message (message_id, business_id, from_peer, actor, msg_type, content, state, lock_time_until, weight, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            r#"INSERT INTO message (message_id, business_id, from_peer, actor, msg_type, content, state, message_version,  lock_time_until, weight, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(message_id)  DO UPDATE SET business_id = excluded.business_id,
+                                                    from_peer = excluded.from_peer,
+                                                    actor = excluded.actor,
+                                                    msg_type = excluded.msg_type,
+                                                    content = excluded.content,
+                                                    state = excluded.state,
+                                                    message_version = message.message_version + 1,
+                                                    lock_time_until = excluded.lock_time_until,
+                                                    weight = excluded.weight,
+                                                    updated_at = excluded.updated_at"#,
             msg.message_id,
             msg.business_id,
             msg.from_peer,
@@ -1638,6 +1649,7 @@ impl<'a> StorageProcessor<'a> {
             msg.msg_type,
             msg.content,
             msg.state,
+            msg.message_version,
             msg.lock_time_until,
             msg.weight,
             current_time,
@@ -3297,8 +3309,8 @@ impl<'a> StorageProcessor<'a> {
             header_chain_proof.created_at,
             header_chain_proof.updated_at
         )
-        .execute(self.conn())
-        .await?;
+            .execute(self.conn())
+            .await?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -3352,8 +3364,8 @@ impl<'a> StorageProcessor<'a> {
             watchtower_proof.created_at,
             watchtower_proof.updated_at
         )
-        .execute(self.conn())
-        .await?;
+            .execute(self.conn())
+            .await?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -3424,8 +3436,8 @@ impl<'a> StorageProcessor<'a> {
             operator_proof.created_at,
             operator_proof.updated_at
         )
-        .execute(self.conn())
-        .await?;
+            .execute(self.conn())
+            .await?;
         Ok(res.rows_affected() > 0)
     }
 
