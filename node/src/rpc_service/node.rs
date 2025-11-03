@@ -34,12 +34,10 @@ pub struct NodeOverViewResponse {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct NodeDesc {
-    // TODO remove me, use node instead
     pub peer_id: String,
     pub actor: String,
     pub name: String,
-    pub service_fee: i64,
-    pub available_btc: i64,
+    pub service_fee_rate: f64,
     pub available_peg_btc: i64,
     pub goat_addr: String,
     pub btc_pub_key: String,

@@ -162,10 +162,13 @@ define_numeric_array!(UInt64Array3, 3, u64);
 pub struct Node {
     pub peer_id: String,
     pub actor: String,
+    pub node_name: String,
     pub goat_addr: String,
     pub btc_pub_key: String,
     pub socket_addr: String,
     pub reward: i64,
+    pub service_fee_rate: f64,
+    pub available_peg_btc: i64,
     pub updated_at: i64,
     pub created_at: i64,
 }

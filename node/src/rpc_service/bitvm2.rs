@@ -51,8 +51,8 @@ pub struct InstanceExtended {
     pub instance: Instance,
     pub utxo: Vec<Utxo>,
     pub waiting_time_in_mins: i64,
-    // pub confirmations: u32,
-    // pub target_confirmations: u32,
+    pub confirmations: u32,
+    pub target_confirmations: u32,
     pub status_extra: StatusExtra,
 }
 

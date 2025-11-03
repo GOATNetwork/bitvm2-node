@@ -9,6 +9,7 @@ sol!(
 #[allow(missing_docs)]
 #[sol(rpc)]
 interface IGateway {
+        address public  pegBTC;
         address public  committeeManagement;
         address public  stakeManagement;
         address public  bitcoinSPV;
@@ -87,16 +88,28 @@ pub async fn get_btc_spv_contract(
     Ok(gateway.bitcoinSPV().call().await?)
 }
 
+pub async fn get_peg_btc_contract(
+    provider: &FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+    gateway_address: Address,
+) -> anyhow::Result<Address> {
+    let gateway = IGateway::new(gateway_address, provider);
+    Ok(gateway.pegBTC().call().await?)
+}
+
 pub async fn get_gateway_relay_contracts(
     provider: &FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
     >,
     gateway_address: Address,
-) -> anyhow::Result<(Address, Address, Address)> {
+) -> anyhow::Result<(Address, Address, Address, Address)> {
     Ok((
         get_committee_management_contract(provider, gateway_address).await?,
         get_stake_management_contract(provider, gateway_address).await?,
         get_btc_spv_contract(provider, gateway_address).await?,
+        get_peg_btc_contract(provider, gateway_address).await?,
     ))
 }

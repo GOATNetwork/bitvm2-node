@@ -136,6 +136,8 @@ pub async fn instance_settings(
 ///           "script_pubkey": "0014..."
 ///         }
 ///       ],
+///       "confirmations": 0,
+///       "target_confirmations": 6,
 ///       "waiting_time_in_mins": 60,
 ///       "status_extra": {
 ///         "user_action": "Submit",
@@ -198,6 +200,8 @@ pub async fn get_instances(
                     },
                     utxo: vec![],
                     waiting_time_in_mins: 60,
+                    confirmations: 0,
+                    target_confirmations: 0,
                     status_extra: StatusExtra{
                         user_action: StatusUserAction::Submit,
                         is_failed: false,
@@ -236,6 +240,8 @@ pub async fn get_instances(
                 utxo,
                 instance,
                 waiting_time_in_mins: 0,
+                confirmations: 0,
+                target_confirmations: 0,
                 status_extra: Default::default(),
             })
         }
@@ -323,6 +329,8 @@ pub async fn get_instances(
 ///         "script_pubkey": "0014..."
 ///       }
 ///     ],
+///     "confirmations": 0,
+///     "target_confirmations": 6,
 ///     "waiting_time_in_mins": 60,
 ///     "status_extra": {
 ///       "user_action": "Submit",
@@ -373,6 +381,8 @@ pub async fn get_instance(
                     },
                     utxo: vec![],
                     waiting_time_in_mins: 60,
+                    confirmations: 0,
+                    target_confirmations: 0,
                     status_extra: StatusExtra{
                         user_action: StatusUserAction::Submit,
                         is_failed: false,
@@ -393,6 +403,8 @@ pub async fn get_instance(
                     utxo,
                     instance,
                     waiting_time_in_mins: 0,
+                    confirmations: 0,
+                    target_confirmations: 0,
                     status_extra: Default::default(),
                 },
             })

@@ -260,6 +260,9 @@ pub struct NodeInfo {
     pub goat_addr: String,
     pub btc_pub_key: String,
     pub socket_addr: String,
+    pub node_name: String,
+    pub service_fee_rate: f64,
+    pub available_peg_btc: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

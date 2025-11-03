@@ -453,6 +453,10 @@ impl ChainAdaptor for MockAdaptor {
     ) -> anyhow::Result<String> {
         Ok("".to_string())
     }
+
+    async fn peg_btc_balance(&self, _address: &[u8; 20]) -> anyhow::Result<u64> {
+        Ok(0)
+    }
 }
 
 impl Default for MockAdaptor {

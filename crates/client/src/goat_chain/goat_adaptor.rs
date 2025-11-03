@@ -6,6 +6,7 @@ use crate::goat_chain::goat_adaptor::IBitcoinSPV::IBitcoinSPVInstance;
 use crate::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
 use crate::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
 use crate::goat_chain::goat_adaptor::IMultiSigVerifier::IMultiSigVerifierInstance;
+use crate::goat_chain::goat_adaptor::IPegBtc::IPegBtcInstance;
 use crate::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
 use crate::goat_chain::goat_adaptor::IStakeManagement::IStakeManagementInstance;
 use alloy::eips::BlockNumberOrTag;
@@ -187,6 +188,15 @@ sol!(
     #[derive(Debug)]
     #[allow(missing_docs)]
     #[sol(rpc)]
+    interface IPegBtc{
+       function balanceOf(address account) external view returns (uint256);
+    }
+);
+
+sol!(
+    #[derive(Debug)]
+    #[allow(missing_docs)]
+    #[sol(rpc)]
     interface ISequencerSetPublisher {
         struct SequencerSet {
             bytes32 sequencerSetHash; // validator_hash
@@ -251,6 +261,7 @@ pub struct GoatInitConfig {
     pub stake_management_address: Option<Address>,
     pub multi_sig_verifier_address: Option<Address>,
     pub btc_spv_address: Option<Address>,
+    pub peg_btc_address: Option<Address>,
 }
 
 impl GoatInitConfig {
@@ -269,6 +280,7 @@ impl GoatInitConfig {
             stake_management_address: None,
             multi_sig_verifier_address: None,
             btc_spv_address: None,
+            peg_btc_address: None,
         }
     }
 }
@@ -280,6 +292,13 @@ type GatewayInstance = IGatewayInstance<
 >;
 
 type BitcoinSPVInstance = IBitcoinSPVInstance<
+    FillProvider<
+        JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
+        RootProvider,
+    >,
+>;
+
+type PegBtcInstance = IPegBtcInstance<
     FillProvider<
         JoinFill<Identity, <Ethereum as RecommendedFillers>::RecommendedFillers>,
         RootProvider,
@@ -320,6 +339,7 @@ pub struct GoatAdaptor {
     >,
     gateway: Option<GatewayInstance>,
     btc_spv: Option<BitcoinSPVInstance>,
+    peg_btc: Option<PegBtcInstance>,
     sequencer_set_publisher: Option<SequencerSetPublisherInstance>,
     committee_management: Option<CommitteeManagementInstance>,
     stake_management: Option<StakeManagementInstance>,
@@ -337,7 +357,11 @@ impl GoatAdaptor {
     }
 
     fn get_btc_spv(&self) -> anyhow::Result<&BitcoinSPVInstance> {
-        self.btc_spv.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway not initialized"))
+        self.btc_spv.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway.bitcoinSPV not initialized"))
+    }
+
+    fn get_peg_btc(&self) -> anyhow::Result<&PegBtcInstance> {
+        self.peg_btc.as_ref().ok_or_else(|| anyhow::anyhow!("Gateway.pegBtc not initialized"))
     }
 
     fn get_sequencer_set_publisher(&self) -> anyhow::Result<&SequencerSetPublisherInstance> {
@@ -1276,6 +1300,16 @@ impl ChainAdaptor for GoatAdaptor {
         let tx_hash = self.handle_transaction_request(tx_request).await?;
         Ok(tx_hash.to_string())
     }
+
+    async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64> {
+        let peg_btc = self.get_peg_btc()?;
+        Ok(peg_btc
+            .balanceOf(Address::from_slice(address))
+            .call()
+            .await?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("balanceOf error :{e:?}"))?)
+    }
 }
 
 impl GoatAdaptor {
@@ -1311,6 +1345,7 @@ impl GoatAdaptor {
                 .multi_sig_verifier_address
                 .map(|addr| IMultiSigVerifier::new(addr, provider.clone())),
             btc_spv: config.btc_spv_address.map(|addr| IBitcoinSPV::new(addr, provider.clone())),
+            peg_btc: config.peg_btc_address.map(|addr| IPegBtc::new(addr, provider.clone())),
         }
     }
 }

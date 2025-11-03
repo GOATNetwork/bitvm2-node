@@ -2044,10 +2044,13 @@ pub async fn save_node_info(local_db: &LocalDB, node_info: &NodeInfo) -> Result<
         .upsert_node(Node {
             peer_id: node_info.peer_id.clone(),
             actor: node_info.actor.clone(),
+            node_name: node_info.node_name.clone(),
             goat_addr: node_info.goat_addr.clone(),
             btc_pub_key: node_info.btc_pub_key.clone(),
             socket_addr: node_info.socket_addr.clone(),
             reward: 0,
+            service_fee_rate: node_info.service_fee_rate,
+            available_peg_btc: node_info.available_peg_btc,
             updated_at: current_time,
             created_at: current_time,
         })

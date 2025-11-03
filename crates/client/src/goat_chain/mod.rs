@@ -743,6 +743,10 @@ impl GOATClient {
     ) -> anyhow::Result<String> {
         self.chain_service.committee_mana_remove_watchtower(watchtower, nonce, auth_signs).await
     }
+
+    pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64> {
+        self.chain_service.peg_btc_balance(address).await
+    }
 }
 
 pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {

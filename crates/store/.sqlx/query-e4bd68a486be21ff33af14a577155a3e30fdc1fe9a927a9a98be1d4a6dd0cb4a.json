@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT peer_id,\n                    actor,\n                    goat_addr,\n                    btc_pub_key,\n                    socket_addr,\n                    reward,\n                    created_at,\n                    updated_at\n             FROM node\n             WHERE peer_id = ?",
+  "query": "SELECT * FROM node WHERE peer_id = ?",
   "describe": {
     "columns": [
       {
@@ -24,23 +24,38 @@
         "type_info": "Text"
       },
       {
-        "name": "socket_addr",
-        "ordinal": 4,
-        "type_info": "Text"
-      },
-      {
-        "name": "reward",
-        "ordinal": 5,
-        "type_info": "Integer"
-      },
-      {
         "name": "created_at",
-        "ordinal": 6,
+        "ordinal": 4,
         "type_info": "Integer"
       },
       {
         "name": "updated_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "socket_addr",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "reward",
         "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "node_name",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "service_fee_rate",
+        "ordinal": 9,
+        "type_info": "Float"
+      },
+      {
+        "name": "available_peg_btc",
+        "ordinal": 10,
         "type_info": "Integer"
       }
     ],
@@ -55,8 +70,11 @@
       false,
       false,
       false,
+      false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "9984b7bd37153fbc7f004ff9f3d0d28eee494715b84670651ba5fc21201aea97"
+  "hash": "e4bd68a486be21ff33af14a577155a3e30fdc1fe9a927a9a98be1d4a6dd0cb4a"
 }

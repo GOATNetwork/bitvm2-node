@@ -351,7 +351,7 @@ async fn build_goat_client(
         .await
         .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}")) as u32;
 
-    let (committee_management_address, stake_management_address, btc_spv_address) =
+    let (committee_management_address, stake_management_address, btc_spv_address, peg_btc_address) =
         get_gateway_relay_contracts(&provider, gateway_address)
             .await
             .expect("fail to get committee and stake management contract online addresses");
@@ -366,6 +366,7 @@ async fn build_goat_client(
         stake_management_address: Some(stake_management_address),
         multi_sig_verifier_address: None,
         btc_spv_address: Some(btc_spv_address),
+        peg_btc_address: Some(peg_btc_address),
     };
 
     GOATClient::new(cfg, goat_network)

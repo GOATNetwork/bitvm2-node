@@ -203,6 +203,8 @@ pub trait ChainAdaptor: Send + Sync {
         nonce: U256,
         auth_signs: &[Vec<u8>],
     ) -> anyhow::Result<String>;
+
+    async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64>;
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {

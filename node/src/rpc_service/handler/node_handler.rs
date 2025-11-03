@@ -52,8 +52,7 @@ use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 ///       "peer_id": "QmPeerId123abc...",
 ///       "actor": "Operator",
 ///       "name": "zkm",
-///       "service_fee": 0,
-///       "available_btc": 0,
+///       "service_fee_rate": 0.001,
 ///       "updated_at": 1699123456,
 ///       "status": "online",
 ///       "goat_addr": "0x1234567890abcdef1234567890abcdef12345678",
@@ -120,16 +119,15 @@ pub async fn get_nodes(
                 NodeDesc {
                     peer_id: v.peer_id,
                     actor: v.actor,
-                    name: "zkm".to_string(),
-                    service_fee: 0,
-                    available_btc: 0,
+                    name: v.node_name,
+                    service_fee_rate: v.service_fee_rate,
                     updated_at: v.updated_at,
                     status,
                     goat_addr: v.goat_addr,
                     btc_pub_key: v.btc_pub_key,
                     socket_addr: v.socket_addr,
                     reward: v.reward,
-                    available_peg_btc: 0,
+                    available_peg_btc: v.available_peg_btc,
                 }
             })
             .collect();

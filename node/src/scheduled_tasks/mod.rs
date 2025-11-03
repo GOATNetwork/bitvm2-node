@@ -1,8 +1,10 @@
 mod event_watch_task;
 pub mod graph_maintenance_tasks;
 pub mod instance_maintenance_tasks;
+mod node_maintenance_tasks;
 
 use crate::action::GOATMessageContent;
+use crate::env::is_relayer;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
     scan_obsolete_sibling_graphs,
@@ -11,6 +13,7 @@ use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
     instance_window_expiration_monitor,
 };
+use crate::scheduled_tasks::node_maintenance_tasks::node_available_pbtc_update_monitor;
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
@@ -39,13 +42,19 @@ async fn fetch_on_turn_graph_by_status<'a>(
     Ok(graphs)
 }
 async fn run(
-    _actor: Actor,
+    actor: Actor,
     local_db: &LocalDB,
     btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
 ) -> anyhow::Result<()> {
     let btc_client = btc_client.as_ref();
     let goat_client = goat_client.as_ref();
+
+    if (actor == Actor::Operator || is_relayer())
+        && let Err(err) = node_available_pbtc_update_monitor(local_db, goat_client).await
+    {
+        warn!("node_available_pbtc_update_monitor, err {:?}", err)
+    }
 
     if is_processing_history_events(local_db, goat_client).await? {
         warn!("Still in history events processing");

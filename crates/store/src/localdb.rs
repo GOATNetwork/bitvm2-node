@@ -1329,20 +1329,26 @@ impl<'a> StorageProcessor<'a> {
     pub async fn upsert_node(&mut self, node: Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             r#"
-            INSERT INTO node (peer_id, actor, goat_addr, btc_pub_key, socket_addr, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (peer_id) DO UPDATE SET
-                actor = excluded.actor,
-                goat_addr = excluded.goat_addr,
-                btc_pub_key = excluded.btc_pub_key,
-                socket_addr = excluded.socket_addr,
-                updated_at = excluded.updated_at
+            INSERT INTO node (peer_id, node_name, actor, goat_addr, btc_pub_key, socket_addr, service_fee_rate, available_peg_btc,
+                              created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (peer_id) DO UPDATE SET actor             = excluded.actor,
+                                                node_name         = excluded.node_name,
+                                                goat_addr         = excluded.goat_addr,
+                                                btc_pub_key       = excluded.btc_pub_key,
+                                                service_fee_rate       = excluded.service_fee_rate,
+                                                available_peg_btc = excluded.available_peg_btc,
+                                                socket_addr       = excluded.socket_addr,
+                                                updated_at        = excluded.updated_at
             "#,
             node.peer_id,
+            node.node_name,
             node.actor,
             node.goat_addr,
             node.btc_pub_key,
             node.socket_addr,
+            node.service_fee_rate,
+            node.available_peg_btc,
             node.created_at,
             node.updated_at,
         )
@@ -1368,26 +1374,28 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    pub async fn add_node_peg_btc_by_addr(
+        &mut self,
+        goat_addr: &str,
+        peg_btc: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query!(
+            r#"UPDATE node SET available_peg_btc = ? WHERE goat_addr = ?"#,
+            peg_btc,
+            goat_addr
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_node_by_btc_pub_key(
         &mut self,
         btc_pub_key: &str,
     ) -> anyhow::Result<Option<Node>> {
-        Ok(sqlx::query_as!(
-            Node,
-            "SELECT peer_id,
-                    actor,
-                    goat_addr,
-                    btc_pub_key,
-                    socket_addr,
-                    reward,
-                    created_at,
-                    updated_at
-             FROM node
-             WHERE btc_pub_key = ?",
-            btc_pub_key
-        )
-        .fetch_optional(self.conn())
-        .await?)
+        Ok(sqlx::query_as!(Node, r#"SELECT *  FROM node WHERE btc_pub_key = ?"#, btc_pub_key)
+            .fetch_optional(self.conn())
+            .await?)
     }
 
     pub async fn find_nodes(&mut self, params: &NodeQuery) -> anyhow::Result<(Vec<Node>, i64)> {
@@ -1409,26 +1417,6 @@ impl<'a> StorageProcessor<'a> {
             nodes_query.fetch_all(self.conn()).await?,
             count_query.fetch_one(self.conn()).await?.get::<i64, &str>("total_nodes"),
         ))
-    }
-
-    pub async fn get_proof_server_node(&mut self) -> anyhow::Result<Option<Node>> {
-        Ok(sqlx::query_as!(
-            Node,
-            "SELECT peer_id,
-                    actor,
-                    goat_addr,
-                    btc_pub_key,
-                    socket_addr,
-                    reward,
-                    created_at,
-                    updated_at
-             FROM node
-             WHERE socket_addr != ''
-             ORDER BY updated_at DESC
-             LIMIT 1",
-        )
-        .fetch_optional(self.conn())
-        .await?)
     }
 
     pub async fn node_overview(&mut self, time_threshold: i64) -> anyhow::Result<NodesOverview> {
@@ -1470,22 +1458,9 @@ impl<'a> StorageProcessor<'a> {
     }
 
     pub async fn node_by_id(&mut self, peer_id: &str) -> anyhow::Result<Option<Node>> {
-        let res = sqlx::query_as!(
-            Node,
-            r#"SELECT peer_id,
-                    actor,
-                    goat_addr,
-                    btc_pub_key,
-                    socket_addr,
-                    reward,
-                    created_at,
-                    updated_at
-             FROM node
-             WHERE peer_id = ?"#,
-            peer_id
-        )
-        .fetch_optional(self.conn())
-        .await?;
+        let res = sqlx::query_as!(Node, r#"SELECT * FROM node WHERE peer_id = ?"#, peer_id)
+            .fetch_optional(self.conn())
+            .await?;
         Ok(res)
     }
 
