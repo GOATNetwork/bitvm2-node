@@ -8,6 +8,10 @@ name = "bitvm2-noded"
 path = "src/main.rs"
 
 [[bin]]
+name = "pegin-request"
+path = "src/bin/send_pegin_request.rs"
+
+[[bin]]
 name = "sequencer-set-publish"
 path = "src/bin/sequencer-set-publish.rs"
 
