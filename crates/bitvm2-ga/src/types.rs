@@ -359,6 +359,7 @@ impl Bitvm2Graph {
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing operator pre signatures"))?;
             push_operator_pre_signature(&mut graph, operator_pre_sigs)?;
+            graph.operator_pre_signed = true;
         }
         if simplified.committee_pre_signed {
             let committee_pre_sigs = simplified
@@ -366,6 +367,7 @@ impl Bitvm2Graph {
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing committee pre signatures"))?;
             push_committee_pre_signatures(&mut graph, committee_pre_sigs)?;
+            graph.committee_pre_signed = true;
         }
         Ok(graph)
     }
