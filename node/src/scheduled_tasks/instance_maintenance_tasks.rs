@@ -1,9 +1,7 @@
-#![allow(clippy::needless_borrows_for_generic_args)]
-
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest};
-use crate::env::{INSTANCE_PRESIGNED_TIME_EXPIRED, get_network};
+use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{create_message, strip_hex_prefix_owned};
+use crate::utils::create_message;
 use alloy::primitives::Address as EvmAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -150,42 +148,6 @@ pub async fn instance_window_expiration_monitor(
     }
 
     Ok(())
-}
-
-#[allow(dead_code)]
-fn generate_user_info_from_event(event: &BridgeInRequestEvent) -> anyhow::Result<UserInfo> {
-    let user_xonly_pubkey_bytes = hex::decode(strip_hex_prefix_owned(&event.user_xonly_pubkey))?;
-    let user_xonly_pubkey_array: [u8; 32] = user_xonly_pubkey_bytes
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("user_x_only_pubkey must be exactly 32 bytes"))?;
-
-    let input_utxos: Vec<Utxo> = event
-        .user_inputs
-        .iter()
-        .map(|v| {
-            let txid_bytes = hex::decode(&strip_hex_prefix_owned(&v.txid))
-                .map_err(|_| anyhow::anyhow!("Invalid txid hex format"))?;
-            let txid_array: [u8; 32] = txid_bytes
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("txid must be exactly 32 bytes"))?;
-            Ok(Utxo {
-                txid: txid_array,
-                vout: v.vout,
-                amount_stats: v.amount_sats.parse::<u64>().unwrap_or_default(),
-            })
-        })
-        .collect::<anyhow::Result<Vec<Utxo>>>()?;
-
-    let txn_fees = event.txn_fees.clone().map(|v| v.parse::<u64>().unwrap_or_default());
-    gen_user_info(
-        get_network(),
-        &event.depositor_address,
-        &strip_hex_prefix_owned(&event.user_change_address),
-        &strip_hex_prefix_owned(&event.user_refund_address),
-        input_utxos,
-        txn_fees,
-        &user_xonly_pubkey_array,
-    )
 }
 
 fn gen_user_info(
