@@ -180,7 +180,7 @@ pub mod todo_funcs {
             use std::collections::HashSet;
             let mut seen = HashSet::new();
             for pk in &graph.parameters.watchtower_pubkeys {
-                if !seen.insert(pk.clone()) {
+                if !seen.insert(*pk) {
                     bail!(SpecialError::InvalidGraph(
                         "duplicate watchtower pubkey in graph".to_string()
                     ));

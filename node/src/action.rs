@@ -676,36 +676,35 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if !is_self_peer {
-                if let Err(e) = validate_committee(
+            if !is_self_peer
+                && let Err(e) = validate_committee(
                     goat_client,
                     &from_peer_id,
                     instance_id,
                     &received_committee_pubkey,
                 )
                 .await
-                {
-                    if let Some(msg) = e.downcast_ref::<SpecialError>() {
-                        match msg {
-                            SpecialError::InvalidCommittee(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            SpecialError::EvmReverted(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            _ => {}
+            {
+                if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                    match msg {
+                        SpecialError::InvalidCommittee(err_msg) => {
+                            tracing::warn!(
+                                "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
                         }
-                    };
-                    bail!(e)
-                }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                };
+                bail!(e);
             }
             tracing::info!(
                 "Handle NonceGeneration for {instance_id}:{graph_id} from {}",
@@ -835,36 +834,35 @@ pub async fn recv_and_dispatch(
             Actor::Operator,
         ) => {
             // received from Committee members
-            if !is_self_peer {
-                if let Err(e) = validate_committee(
+            if !is_self_peer
+                && let Err(e) = validate_committee(
                     goat_client,
                     &from_peer_id,
                     instance_id,
                     &received_committee_pubkey,
                 )
                 .await
-                {
-                    if let Some(msg) = e.downcast_ref::<SpecialError>() {
-                        match msg {
-                            SpecialError::InvalidCommittee(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            SpecialError::EvmReverted(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            _ => {}
+            {
+                if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                    match msg {
+                        SpecialError::InvalidCommittee(err_msg) => {
+                            tracing::warn!(
+                                "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
                         }
-                    };
-                    bail!(e)
-                }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore NonceGeneration for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                };
+                bail!(e);
             }
             tracing::info!(
                 "Handle NonceGeneration for {instance_id}:{graph_id} from {}",
@@ -939,36 +937,35 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if !is_self_peer {
-                if let Err(e) = validate_committee(
+            if !is_self_peer
+                && let Err(e) = validate_committee(
                     goat_client,
                     &from_peer_id,
                     instance_id,
                     &received_committee_pubkey,
                 )
                 .await
-                {
-                    if let Some(msg) = e.downcast_ref::<SpecialError>() {
-                        match msg {
-                            SpecialError::InvalidCommittee(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            SpecialError::EvmReverted(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            _ => {}
+            {
+                if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                    match msg {
+                        SpecialError::InvalidCommittee(err_msg) => {
+                            tracing::warn!(
+                                "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
                         }
-                    };
-                    bail!(e)
-                }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                };
+                bail!(e);
             }
             tracing::info!(
                 "Handle CommitteePresign for {instance_id}:{graph_id} from {}",
@@ -1036,36 +1033,35 @@ pub async fn recv_and_dispatch(
             Actor::Operator,
         ) => {
             // received from Committee members
-            if !is_self_peer {
-                if let Err(e) = validate_committee(
+            if !is_self_peer
+                && let Err(e) = validate_committee(
                     goat_client,
                     &from_peer_id,
                     instance_id,
                     &received_committee_pubkey,
                 )
                 .await
-                {
-                    if let Some(msg) = e.downcast_ref::<SpecialError>() {
-                        match msg {
-                            SpecialError::InvalidCommittee(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            SpecialError::EvmReverted(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            _ => {}
+            {
+                if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                    match msg {
+                        SpecialError::InvalidCommittee(err_msg) => {
+                            tracing::warn!(
+                                "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
                         }
-                    };
-                    bail!(e)
-                }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore CommitteePresign for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                };
+                bail!(e);
             }
             tracing::info!(
                 "Handle CommitteePresign for {instance_id}:{graph_id} from {}",
@@ -1098,8 +1094,8 @@ pub async fn recv_and_dispatch(
             Actor::Operator,
         ) => {
             // received from Committee members
-            if !is_self_peer {
-                if let Err(e) = validate_committee_with_evm_address(
+            if !is_self_peer
+                && let Err(e) = validate_committee_with_evm_address(
                     goat_client,
                     &from_peer_id,
                     instance_id,
@@ -1107,28 +1103,27 @@ pub async fn recv_and_dispatch(
                     &committee_evm_address,
                 )
                 .await
-                {
-                    if let Some(msg) = e.downcast_ref::<SpecialError>() {
-                        match msg {
-                            SpecialError::InvalidCommittee(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            SpecialError::EvmReverted(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            _ => {}
+            {
+                if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                    match msg {
+                        SpecialError::InvalidCommittee(err_msg) => {
+                            tracing::warn!(
+                                "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
                         }
-                    };
-                    bail!(e)
-                }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: fail to validate committee info on chain: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                };
+                bail!(e);
             }
             tracing::info!(
                 "Handle EndorseGraph for {instance_id}:{graph_id} from {}",
@@ -1331,36 +1326,35 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if !is_self_peer {
-                if let Err(e) = validate_committee(
+            if !is_self_peer
+                && let Err(e) = validate_committee(
                     goat_client,
                     &from_peer_id,
                     instance_id,
                     &received_committee_pubkey,
                 )
                 .await
-                {
-                    if let Some(msg) = e.downcast_ref::<SpecialError>() {
-                        match msg {
-                            SpecialError::InvalidCommittee(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore PeginConfirmNonce for {instance_id} from {}: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            SpecialError::EvmReverted(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore PeginConfirmNonce for {instance_id} from {}: fail to validate committee info on chain: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            _ => {}
+            {
+                if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                    match msg {
+                        SpecialError::InvalidCommittee(err_msg) => {
+                            tracing::warn!(
+                                "Ignore PeginConfirmNonce for {instance_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
                         }
-                    };
-                    bail!(e)
-                }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore PeginConfirmNonce for {instance_id} from {}: fail to validate committee info on chain: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                };
+                bail!(e);
             }
             tracing::info!(
                 "Handle PeginConfirmNonce for {instance_id} from {}",
@@ -1462,36 +1456,35 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // received from Committee members
-            if !is_self_peer {
-                if let Err(e) = validate_committee(
+            if !is_self_peer
+                && let Err(e) = validate_committee(
                     goat_client,
                     &from_peer_id,
                     instance_id,
                     &received_committee_pubkey,
                 )
                 .await
-                {
-                    if let Some(msg) = e.downcast_ref::<SpecialError>() {
-                        match msg {
-                            SpecialError::InvalidCommittee(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore PeginConfirmPartialSig for {instance_id} from {}: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            SpecialError::EvmReverted(err_msg) => {
-                                tracing::warn!(
-                                    "Ignore PeginConfirmPartialSig for {instance_id} from {}: fail to validate committee info on chain: {err_msg}",
-                                    from_peer_id.to_string()
-                                );
-                                return Ok(());
-                            }
-                            _ => {}
+            {
+                if let Some(msg) = e.downcast_ref::<SpecialError>() {
+                    match msg {
+                        SpecialError::InvalidCommittee(err_msg) => {
+                            tracing::warn!(
+                                "Ignore PeginConfirmPartialSig for {instance_id} from {}: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
                         }
-                    };
-                    bail!(e)
-                }
+                        SpecialError::EvmReverted(err_msg) => {
+                            tracing::warn!(
+                                "Ignore PeginConfirmPartialSig for {instance_id} from {}: fail to validate committee info on chain: {err_msg}",
+                                from_peer_id.to_string()
+                            );
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                };
+                bail!(e);
             }
             tracing::info!(
                 "Handle PeginConfirmPartialSig for {instance_id} from {}",
