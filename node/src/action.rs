@@ -1222,6 +1222,13 @@ pub async fn recv_and_dispatch(
                 endorse_sigs.clone(),
             )
             .await?;
+            // After storing, if we have enough endorsements locally, mark the graph as endorsed
+            let endorsements =
+                get_committee_endorsements_for_graph(local_db, instance_id, graph_id).await?;
+            let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
+            if endorsements.len() == committee_pubkeys.len() {
+                mark_graph_as_endorsed(local_db, instance_id, graph_id).await?;
+            }
             // 3. if endorsed graph count >= threshold, generate & broadcast PeginConfirmNonce
             if get_endorsed_graph_count(local_db, instance_id).await?
                 >= todo_funcs::min_required_operator()
