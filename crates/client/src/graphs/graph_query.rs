@@ -87,6 +87,7 @@ impl GatewayEventEntity {
                 builder = builder
                     .add_field(&tag, "id")
                     .add_field(&tag, "instanceId")
+                    .add_field(&tag, "transactionHash")
                     .add_field(&tag, "depositorAddress")
                     .add_field(&tag, "peginAmountSats")
                     .add_field(&tag, "txnFees")
