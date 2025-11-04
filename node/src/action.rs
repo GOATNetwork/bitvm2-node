@@ -1421,6 +1421,13 @@ pub async fn recv_and_dispatch(
                     partial_sig,
                 )
                 .await?;
+                store_committee_endorse_sig_for_pegin(
+                    local_db,
+                    instance_id,
+                    local_committee_pubkey,
+                    endorse_sig.as_bytes().to_vec(),
+                )
+                .await?;
                 // 4. (Relayer) if received enough partial signatures, aggregate the sigs
                 if is_relayer() {
                     let partial_sigs =
