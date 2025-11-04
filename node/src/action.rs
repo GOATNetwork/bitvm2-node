@@ -3299,9 +3299,9 @@ pub async fn try_finalize_graph(
         let agg_nonces = nonces_aggregation(&pub_nonces)?;
         let partial_sigs = partial_sigs.into_iter().map(|(_, ps)| ps).collect::<Vec<_>>();
         let committee_sig_for_graph = signature_aggregation(&partial_sigs, &agg_nonces, &graph)?;
+        push_committee_pre_signatures(&mut graph, &committee_sig_for_graph)?;
         let simplified_graph = graph.to_simplified()?;
         store_graph(local_db, &simplified_graph).await?;
-        push_committee_pre_signatures(&mut graph, &committee_sig_for_graph)?;
         if broadcast_graph_finalize {
             let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
                 instance_id,

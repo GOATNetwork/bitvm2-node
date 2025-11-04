@@ -24,7 +24,6 @@ use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::pre_signed::{PreSignedTransaction, pre_sign_taproot_input_default};
 use hex;
 use reqwest::Url;
-use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
