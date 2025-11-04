@@ -1607,7 +1607,7 @@ pub async fn recv_and_dispatch(
                         return Ok(());
                     }
                 };
-                let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+                let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
                 if goat_confirmed_height < pegin_height {
                     let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
                         * (pegin_height - goat_confirmed_height);
@@ -1819,8 +1819,7 @@ pub async fn recv_and_dispatch(
             }
             // 2. check withdraw status, if it's invalid, sign & broadcast challenge txn
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
-            let goat_confirmed_btc_height =
-                goat_client.btc_spv_latest_confirmed_height().await? as u32;
+            let goat_confirmed_btc_height = goat_client.btc_spv_latest_height().await? as u32;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
                 if kickoff_height >= goat_confirmed_btc_height {
                     let delay_secs = (kickoff_height + 1 - goat_confirmed_btc_height)
@@ -2948,7 +2947,7 @@ pub async fn recv_and_dispatch(
                         return Ok(());
                     }
                 };
-            let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+            let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_height < challenge_finish_height {
                 let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
                     * (challenge_finish_height - goat_confirmed_height);
@@ -3062,7 +3061,7 @@ pub async fn recv_and_dispatch(
                     return Ok(());
                 }
             };
-            let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+            let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_height < take1_height {
                 let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
                     * (take1_height - goat_confirmed_height);
@@ -3199,7 +3198,7 @@ pub async fn recv_and_dispatch(
                     return Ok(());
                 }
             };
-            let goat_confirmed_height = goat_client.btc_spv_latest_confirmed_height().await?;
+            let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_height < take2_height {
                 let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
                     * (take2_height - goat_confirmed_height);

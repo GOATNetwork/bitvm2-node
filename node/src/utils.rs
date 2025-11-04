@@ -2882,16 +2882,3 @@ pub async fn get_graph_ids_for_instance(
     let graphs = storage_processor.get_graphs_by_instance_id(&instance_id).await?;
     Ok(graphs.into_iter().map(|v| v.graph_id).collect())
 }
-
-#[cfg(test)]
-mod tests {
-    use store::localdb::LocalDB;
-
-    #[tokio::test]
-    async fn show_d() {
-        const DB_URL: &str = "/Users/binlv/person/work_space/test/bitvm2-node.db";
-        let db: LocalDB = LocalDB::new(&format!("sqlite:{DB_URL}"), true).await;
-        let mut storage_processor = db.acquire().await.unwrap();
-        storage_processor.get
-    }
-}

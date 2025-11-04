@@ -179,7 +179,7 @@ sol!(
     #[sol(rpc)]
     interface IBitcoinSPV {
         function blockHash(uint256 height) external view returns (bytes32);
-        function latestConfirmedHeight() external view returns (uint256);
+        function latestHeight() external view returns (uint256);
     }
 );
 
@@ -1019,10 +1019,10 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(btc_spv.blockHash(U256::from(height)).call().await?.0)
     }
 
-    async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
+    async fn btc_spv_latest_height(&self) -> anyhow::Result<u64> {
         let btc_spv = self.get_btc_spv()?;
         Ok(btc_spv
-            .latestConfirmedHeight()
+            .latestHeight()
             .call()
             .await?
             .try_into()

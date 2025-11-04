@@ -290,8 +290,8 @@ impl EvmChain {
         self.adaptor.btc_spv_blockhash(height).await
     }
 
-    pub async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
-        self.adaptor.btc_spv_latest_confirmed_height().await
+    pub async fn btc_spv_latest_height(&self) -> anyhow::Result<u64> {
+        self.adaptor.btc_spv_latest_height().await
     }
     pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
         self.adaptor.seq_set_pub_get_last_block_height().await

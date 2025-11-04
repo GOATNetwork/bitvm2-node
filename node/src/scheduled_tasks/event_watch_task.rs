@@ -467,7 +467,7 @@ pub async fn monitor_events(
         );
         return Ok(());
     }
-    
+
     if watch_contract.from_height + watch_contract.gap < current_finalized {
         if watch_contract.status == WatchContractStatus::Syncing.to_string()
             && watch_contract.updated_at + LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS

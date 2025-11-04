@@ -132,7 +132,7 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<Vec<[u8; 16]>>;
 
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
-    async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64>;
+    async fn btc_spv_latest_height(&self) -> anyhow::Result<u64>;
 
     async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
     async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>>;

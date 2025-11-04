@@ -317,7 +317,7 @@ impl ChainAdaptor for MockAdaptor {
         Ok([0; 32])
     }
 
-    async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
+    async fn btc_spv_latest_height(&self) -> anyhow::Result<u64> {
         Ok(0)
     }
 

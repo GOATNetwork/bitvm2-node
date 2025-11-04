@@ -348,13 +348,11 @@ pub async fn instance_btc_tx_monitor(
                     None,
                     "self".to_string(),
                     Actor::All,
-                    GOATMessageContent::PostReady(PostReady {
-                        instance_id: instance.instance_id,
-                    }),
+                    GOATMessageContent::PostReady(PostReady { instance_id: instance.instance_id }),
                     0,
                     0,
                 )
-                    .await?;
+                .await?;
             }
 
             update_instance(&mut tx, &instance_update).await?;

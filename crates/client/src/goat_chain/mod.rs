@@ -572,8 +572,8 @@ impl GOATClient {
         self.chain_service.btc_spv_blockhash(height).await
     }
 
-    pub async fn btc_spv_latest_confirmed_height(&self) -> anyhow::Result<u64> {
-        self.chain_service.btc_spv_latest_confirmed_height().await
+    pub async fn btc_spv_latest_height(&self) -> anyhow::Result<u64> {
+        self.chain_service.btc_spv_latest_height().await
     }
 
     pub async fn seq_set_pub_calc_commitment(
