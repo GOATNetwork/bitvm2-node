@@ -22,7 +22,6 @@ use dotenv::dotenv;
 use goat::connectors::base::TaprootConnector;
 use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::pre_signed::{PreSignedTransaction, pre_sign_taproot_input_default};
-use hex;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
@@ -160,6 +159,7 @@ async fn main() -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn action_request(
     network: Network,
     btc_client: &BTCClient,
@@ -173,9 +173,7 @@ async fn action_request(
     receiver_evm_address: Option<&str>,
 ) -> Result<()> {
     let instance_id = match instance_id_str {
-        Some(s) => {
-            uuid::Uuid::from_str(s).map_err(|e| anyhow!("invalid instance_id {}: {}", s, e))?
-        }
+        Some(s) => uuid::Uuid::from_str(s).map_err(|e| anyhow!("invalid instance_id {s}: {e}"))?,
         None => uuid::Uuid::new_v4(),
     };
 
@@ -186,7 +184,7 @@ async fn action_request(
         let sk = secp256k1::SecretKey::from_slice(&hashed).expect("valid secret key");
         &hex::encode(sk.secret_bytes()).to_string()
     };
-    let user_keypair = Keypair::from_seckey_str_global(&user_btc_secret)?;
+    let user_keypair = Keypair::from_seckey_str_global(user_btc_secret)?;
     let user_xonly = user_keypair.public_key().x_only_public_key().0;
     let user_address = node_p2wsh_address(network, &user_keypair.public_key().into());
 
@@ -217,7 +215,7 @@ async fn action_request(
         fee_rate,
     )
     .await?
-    .ok_or_else(|| anyhow!("insufficient funds in address {}", user_address))?;
+    .ok_or_else(|| anyhow!("insufficient funds in address {user_address}"))?;
     let fees = [pegin_prepare_fee.to_sat(), pegin_confirm_fee, pegin_refund_fee];
 
     // Convert to client Utxo
@@ -234,12 +232,12 @@ async fn action_request(
     let receiver_evm_address = match receiver_evm_address {
         Some(s) => {
             let parsed = alloy::primitives::Address::from_str(s)
-                .map_err(|_| anyhow!("invalid EVM receiver address: {}", s))?;
+                .map_err(|_| anyhow!("invalid EVM receiver address: {s}"))?;
             parsed.into_array()
         }
         None => get_node_goat_address()
             .ok_or_else(|| {
-                anyhow!("EVM receiver address not provided and {} not set", ENV_GOAT_ADDRESS)
+                anyhow!("EVM receiver address not provided and {ENV_GOAT_ADDRESS} not set")
             })?
             .into_array(),
     };
@@ -257,7 +255,7 @@ async fn action_request(
         )
         .await?;
 
-    println!("Pegin request posted. instance_id: {}, goat tx: {}", instance_id, tx_hash);
+    println!("Pegin request posted. instance_id: {instance_id}, goat tx: {tx_hash}");
     Ok(())
 }
 
@@ -269,7 +267,7 @@ async fn action_prepare(
     user_btc_secret: &str,
 ) -> Result<()> {
     let instance_id = uuid::Uuid::from_str(instance_id_str)
-        .map_err(|e| anyhow!("invalid instance_id {}: {}", instance_id_str, e))?;
+        .map_err(|e| anyhow!("invalid instance_id {instance_id_str}: {e}"))?;
 
     let user_btc_secret = if !user_btc_secret.starts_with("seed:") {
         user_btc_secret
@@ -278,7 +276,7 @@ async fn action_prepare(
         let sk = secp256k1::SecretKey::from_slice(&hashed).expect("valid secret key");
         &hex::encode(sk.secret_bytes()).to_string()
     };
-    let user_keypair = Keypair::from_seckey_str_global(&user_btc_secret)?;
+    let user_keypair = Keypair::from_seckey_str_global(user_btc_secret)?;
 
     let instance_params: Bitvm2InstanceParameters =
         bitvm2_noded::utils::read_instance_info_from_goat(goat_client, instance_id).await?;
@@ -293,7 +291,7 @@ async fn action_prepare(
 
     // Broadcast deposit
     broadcast_tx(btc_client, pegin_deposit.tx()).await?;
-    println!("Broadcasted pegin prepare tx: {}", pegin_deposit.tx().compute_txid().to_string());
+    println!("Broadcasted pegin prepare tx: {}", pegin_deposit.tx().compute_txid());
     Ok(())
 }
 
@@ -305,7 +303,7 @@ async fn action_cancel(
     user_btc_secret: &str,
 ) -> Result<()> {
     let instance_id = uuid::Uuid::from_str(instance_id_str)
-        .map_err(|e| anyhow!("invalid instance_id {}: {}", instance_id_str, e))?;
+        .map_err(|e| anyhow!("invalid instance_id {instance_id_str}: {e}"))?;
 
     let user_btc_secret = if !user_btc_secret.starts_with("seed:") {
         user_btc_secret
@@ -314,7 +312,7 @@ async fn action_cancel(
         let sk = secp256k1::SecretKey::from_slice(&hashed).expect("valid secret key");
         &hex::encode(sk.secret_bytes()).to_string()
     };
-    let user_keypair = Keypair::from_seckey_str_global(&user_btc_secret)?;
+    let user_keypair = Keypair::from_seckey_str_global(user_btc_secret)?;
     let user_taproot_public_key = user_keypair.public_key().x_only_public_key().0;
 
     let instance_params: Bitvm2InstanceParameters =
@@ -336,10 +334,7 @@ async fn action_cancel(
 
     // Broadcast refund (cancel)
     broadcast_tx(btc_client, pegin_refund.tx()).await?;
-    println!(
-        "Broadcasted pegin cancel/refund tx: {}",
-        pegin_refund.tx().compute_txid().to_string()
-    );
+    println!("Broadcasted pegin cancel/refund tx: {}", pegin_refund.tx().compute_txid());
     Ok(())
 }
 
