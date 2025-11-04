@@ -7,9 +7,9 @@ use client::goat_chain::GOATClient;
 use client::graphs::GraphQueryClient;
 use client::graphs::graph_query::{
     BlockRange, BridgeInEvent, BridgeInRequestEvent, CancelWithdrawEvent, CommitteeResponseEvent,
-    GatewayEventEntity, InitWithdrawEvent, ProceedWithdrawEvent, UserGraphWithdrawEvent,
-    WithdrawDisprovedEvent, WithdrawHappyEvent, WithdrawPathsEvent, WithdrawUnhappyEvent,
-    get_gateway_events_query,
+    GatewayEventEntity, InitWithdrawEvent, PostGraphDataEvent, ProceedWithdrawEvent,
+    UserGraphWithdrawEvent, WithdrawDisprovedEvent, WithdrawHappyEvent, WithdrawPathsEvent,
+    WithdrawUnhappyEvent, get_gateway_events_query,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
-    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, InstanceStatus, WatchContract,
+    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, InstanceStatus, WatchContract,
     WatchContractStatus,
 };
 use tokio::time::sleep;
@@ -48,6 +48,7 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     let mut bridge_in_request_events: Vec<BridgeInRequestEvent> = vec![];
     let mut committee_response_events: Vec<CommitteeResponseEvent> = vec![];
     let mut bridge_in_events: Vec<BridgeInEvent> = vec![];
+    let mut post_graph_data_events: Vec<PostGraphDataEvent> = vec![];
     for event_entity in event_entities {
         let entity = event_entity.clone();
         if let Some(value_vec) = query_res[entity.to_string()].as_array() {
@@ -94,13 +95,17 @@ pub async fn fetch_and_handle_block_range_events<'a>(
                     bridge_in_events =
                         serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
                 }
+                GatewayEventEntity::PostGraphDatas => {
+                    post_graph_data_events =
+                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                }
             };
         }
     }
     info!(
         "get user init withdraw events: {}, cancel withdraw events: {}, proceed_withdraw_events: {}, \
          withdraw_paths_events: {},  withdraw_disproved_events: {}, bridge_in_request_events: {}  \
-         committee_response_events: {}, bridge_in_events: {} block range {from_height}:{to_height}",
+         committee_response_events: {}, bridge_in_events: {}  post_graph_data_events: {} block range {from_height}:{to_height}",
         init_withdraw_events.len(),
         cancel_withdraw_events.len(),
         proceed_withdraw_events.len(),
@@ -108,7 +113,8 @@ pub async fn fetch_and_handle_block_range_events<'a>(
         withdraw_disproved_events.len(),
         bridge_in_request_events.len(),
         committee_response_events.len(),
-        bridge_in_events.len()
+        bridge_in_events.len(),
+        post_graph_data_events.len(),
     );
     handle_user_withdraw_events(storage_processor, init_withdraw_events, cancel_withdraw_events)
         .await?;
@@ -119,6 +125,7 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     handle_bridge_in_request_events(storage_processor, bridge_in_request_events).await?;
     handle_committee_response_events(storage_processor, committee_response_events).await?;
     handle_bridge_in_events(storage_processor, bridge_in_events).await?;
+    handle_post_graph_data_events(storage_processor, post_graph_data_events).await?;
     Ok(())
 }
 
@@ -301,8 +308,15 @@ async fn handle_bridge_in_request_events<'a>(
     bridge_in_request_events: Vec<BridgeInRequestEvent>,
 ) -> anyhow::Result<()> {
     for event in bridge_in_request_events {
-        // let instance = generate_instance_from_event(btc_client, &event).await?;
-        // storage_processor.upsert_instance(&instance).await?;
+        let current_time_secs = current_time_secs();
+        let processing_status = if let Ok(block_timestamp) = event.block_timestamp.parse::<i64>()
+            && (current_time_secs - 60 * 10) <= block_timestamp
+        {
+            GoatTxProcessingStatus::Pending.to_string()
+        } else {
+            GoatTxProcessingStatus::Skipped.to_string()
+        };
+
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
@@ -311,11 +325,11 @@ async fn handle_bridge_in_request_events<'a>(
                 tx_hash: event.transaction_hash.clone(),
                 height: event.block_number.parse::<i64>()?,
                 is_local: false,
-                processing_status: GoatTxProcessingStatus::Pending.to_string(),
+                processing_status,
                 extra: Some(serde_json::to_string(&event)?),
-                created_at: current_time_secs(),
+                created_at: current_time_secs,
             })
-            .await?
+            .await?;
     }
     Ok(())
 }
@@ -359,6 +373,24 @@ async fn handle_bridge_in_events<'a>(
         if let Ok(instance_id) = &Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id)) {
             storage_processor
                 .update_instance_status(instance_id, &InstanceStatus::RelayerL2Minted.to_string())
+                .await?;
+        } else {
+            warn!("failed to parse instance id:{event:?}");
+        }
+    }
+    Ok(())
+}
+async fn handle_post_graph_data_events<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    post_graph_data_events: Vec<PostGraphDataEvent>,
+) -> anyhow::Result<()> {
+    for event in post_graph_data_events {
+        if let Ok(graph_id) = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id)) {
+            storage_processor
+                .update_graph_fields(
+                    GraphUpdate::new(graph_id)
+                        .with_status(GraphStatus::OperatorDataPushed.to_string()),
+                )
                 .await?;
         } else {
             warn!("failed to parse instance id:{event:?}");
@@ -468,15 +500,14 @@ pub async fn monitor_events(
         return Ok(());
     }
 
-    if watch_contract.from_height + watch_contract.gap < current_finalized {
-        if watch_contract.status == WatchContractStatus::Syncing.to_string()
-            && watch_contract.updated_at + LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS
-                > current_time_secs()
-        {
-            info!("Still in handle local event! will check later");
-            return Ok(());
-        }
+    if watch_contract.status == WatchContractStatus::Syncing.to_string()
+        && watch_contract.updated_at + LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS > current_time_secs()
+    {
+        info!("Event sync not finished ");
+        return Ok(());
+    }
 
+    if watch_contract.from_height + watch_contract.gap < current_finalized {
         let watch_contract_clone = watch_contract.clone();
         let local_db_clone = local_db.clone();
         let query_client_clone = query_client.clone();
@@ -495,10 +526,6 @@ pub async fn monitor_events(
         return Ok(());
     }
 
-    if watch_contract.status != WatchContractStatus::Synced.to_string() {
-        info!("Event sync not finished ");
-        return Ok(());
-    }
     let to_height = current_finalized.min(watch_contract.from_height + watch_contract.gap);
     let mut tx = local_db.start_transaction().await?;
     fetch_and_handle_block_range_events(
@@ -512,6 +539,7 @@ pub async fn monitor_events(
     .await?;
     info!("finish monitor event from: {}, to: {to_height}", watch_contract.from_height);
     watch_contract.from_height = to_height + 1;
+    watch_contract.status = WatchContractStatus::Synced.to_string();
     watch_contract.updated_at = current_time_secs();
     tx.upsert_watch_contract(&watch_contract).await?;
     tx.commit().await?;
@@ -536,11 +564,23 @@ pub async fn run_watch_event_task(
                 GatewayEventEntity::WithdrawUnhappyPaths,
                 GatewayEventEntity::WithdrawDisproveds,
                 GatewayEventEntity::BridgeInRequests,
+                GatewayEventEntity::BridgeIns,
+                GatewayEventEntity::PostGraphDatas,
             ],
         ),
         (
             Actor::Operator,
-            vec![GatewayEventEntity::ProceedWithdraws, GatewayEventEntity::BridgeInRequests],
+            vec![
+                GatewayEventEntity::InitWithdraws,
+                GatewayEventEntity::CancelWithdraws,
+                GatewayEventEntity::ProceedWithdraws,
+                GatewayEventEntity::WithdrawHappyPaths,
+                GatewayEventEntity::WithdrawUnhappyPaths,
+                GatewayEventEntity::WithdrawDisproveds,
+                GatewayEventEntity::BridgeInRequests,
+                GatewayEventEntity::BridgeIns,
+                GatewayEventEntity::PostGraphDatas,
+            ],
         ),
     ]);
     loop {

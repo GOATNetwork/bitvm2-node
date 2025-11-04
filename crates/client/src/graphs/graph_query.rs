@@ -21,6 +21,8 @@ pub enum GatewayEventEntity {
     CommitteeResponses,
     #[strum(serialize = "bridgeIns")]
     BridgeIns,
+    #[strum(serialize = "postGraphDatas")]
+    PostGraphDatas,
 }
 
 impl GatewayEventEntity {
@@ -33,7 +35,9 @@ impl GatewayEventEntity {
         let tag = self.to_string();
         builder = builder.add_query(&tag);
         match self {
-            GatewayEventEntity::InitWithdraws | GatewayEventEntity::CancelWithdraws => {
+            GatewayEventEntity::PostGraphDatas
+            | GatewayEventEntity::InitWithdraws
+            | GatewayEventEntity::CancelWithdraws => {
                 builder = builder
                     .add_field(&tag, "id")
                     .add_field(&tag, "instanceId")
@@ -95,6 +99,7 @@ impl GatewayEventEntity {
                     .add_field(&tag, "userChangeAddress")
                     .add_field(&tag, "userRefundAddress")
                     .add_field(&tag, "blockNumber")
+                    .add_field(&tag, "blockTimestamp")
                     .set_order_by(&tag, "blockNumber", "asc");
             }
             GatewayEventEntity::CommitteeResponses => {
@@ -307,6 +312,8 @@ pub struct BridgeInRequestEvent {
     pub transaction_hash: String,
     #[serde(rename = "blockNumber")]
     pub block_number: String,
+    #[serde(rename = "blockTimestamp")]
+    pub block_timestamp: String,
     #[serde(rename = "instanceId")]
     pub instance_id: String,
     #[serde(rename = "depositorAddress")]
@@ -353,6 +360,19 @@ pub struct BridgeInEvent {
     pub pegin_amount_sats: String,
     #[serde(rename = "feeAmountSats")]
     pub fee_amount_sats: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PostGraphDataEvent {
+    pub id: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "instanceId")]
+    pub instance_id: String,
+    #[serde(rename = "graphId")]
+    pub graph_id: String,
 }
 
 #[derive(Debug, Clone)]

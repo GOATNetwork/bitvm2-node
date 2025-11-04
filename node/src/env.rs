@@ -91,7 +91,7 @@ pub const SYNC_GRAPH_INTERVAL: u64 = 3;
 pub const SYNC_GRAPH_MAX_WAIT_SECS: u64 = 30;
 
 // use to judge load history event thread is dead
-pub const LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS: i64 = 3600;
+pub const LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS: i64 = 600;
 
 pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 
@@ -325,7 +325,7 @@ pub fn get_goat_event_filter_from_from_env() -> i64 {
 
 pub fn get_goat_event_filter_gap_from_env() -> i64 {
     let event_filter_gap_str =
-        std::env::var(ENV_GOAT_EVENT_FILTER_GAP).unwrap_or("300".to_string());
+        std::env::var(ENV_GOAT_EVENT_FILTER_GAP).unwrap_or("1000".to_string());
     event_filter_gap_str
         .parse::<i64>()
         .unwrap_or_else(|_| panic!("Failed to parse {event_filter_gap_str} to address"))
