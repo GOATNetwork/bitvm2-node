@@ -325,7 +325,7 @@ pub fn get_goat_event_filter_from_from_env() -> i64 {
 
 pub fn get_goat_event_filter_gap_from_env() -> i64 {
     let event_filter_gap_str =
-        std::env::var(ENV_GOAT_EVENT_FILTER_GAP).unwrap_or("1000".to_string());
+        std::env::var(ENV_GOAT_EVENT_FILTER_GAP).unwrap_or("300".to_string());
     event_filter_gap_str
         .parse::<i64>()
         .unwrap_or_else(|_| panic!("Failed to parse {event_filter_gap_str} to address"))
