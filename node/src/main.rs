@@ -187,28 +187,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }));
-    if actor == Actor::Committee || actor == Actor::Operator {
-        let cancel_token_clone = cancellation_token.clone();
-        task_handles.push(tokio::spawn(async move {
-            let goat_client =
-                Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
-            match run_watch_event_task(
-                actor_clone2,
-                local_db_clone2,
-                goat_client,
-                5,
-                cancel_token_clone,
-            )
-            .await
-            {
-                Ok(tag) => Ok(tag),
-                Err(e) => {
-                    tracing::error!("Watch event task error: {}", e);
-                    Err("watch_error".to_string())
-                }
+    // if actor == Actor::Committee || actor == Actor::Operator {
+    let cancel_token_clone = cancellation_token.clone();
+    task_handles.push(tokio::spawn(async move {
+        let goat_client =
+            Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
+        match run_watch_event_task(
+            actor_clone2,
+            local_db_clone2,
+            goat_client,
+            5,
+            cancel_token_clone,
+        )
+        .await
+        {
+            Ok(tag) => Ok(tag),
+            Err(e) => {
+                tracing::error!("Watch event task error: {}", e);
+                Err("watch_error".to_string())
             }
-        }));
-    }
+        }
+    }));
+    // }
 
     let cancel_token_clone = cancellation_token.clone();
     task_handles.push(tokio::spawn(async move {

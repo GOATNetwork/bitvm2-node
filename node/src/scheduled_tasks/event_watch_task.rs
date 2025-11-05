@@ -582,6 +582,34 @@ pub async fn run_watch_event_task(
                 GatewayEventEntity::PostGraphDatas,
             ],
         ),
+        (
+            Actor::Challenger,
+            vec![
+                GatewayEventEntity::InitWithdraws,
+                GatewayEventEntity::CancelWithdraws,
+                GatewayEventEntity::ProceedWithdraws,
+                GatewayEventEntity::WithdrawHappyPaths,
+                GatewayEventEntity::WithdrawUnhappyPaths,
+                GatewayEventEntity::WithdrawDisproveds,
+                GatewayEventEntity::BridgeInRequests,
+                GatewayEventEntity::BridgeIns,
+                GatewayEventEntity::PostGraphDatas,
+            ],
+        ),
+        (
+            Actor::Watchtower,
+            vec![
+                GatewayEventEntity::InitWithdraws,
+                GatewayEventEntity::CancelWithdraws,
+                GatewayEventEntity::ProceedWithdraws,
+                GatewayEventEntity::WithdrawHappyPaths,
+                GatewayEventEntity::WithdrawUnhappyPaths,
+                GatewayEventEntity::WithdrawDisproveds,
+                GatewayEventEntity::BridgeInRequests,
+                GatewayEventEntity::BridgeIns,
+                GatewayEventEntity::PostGraphDatas,
+            ],
+        ),
     ]);
     loop {
         tokio::select! {
