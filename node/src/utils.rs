@@ -31,7 +31,7 @@ use goat::connectors::{
 };
 use goat::contexts::base::generate_n_of_n_public_key;
 use goat::disprove_scripts::hash160;
-use goat::scripts::{generate_burn_script_address, generate_opreturn_script};
+use goat::scripts::generate_opreturn_script;
 use goat::transactions::base::Input;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::signing::populate_p2wsh_witness;
@@ -374,7 +374,13 @@ pub mod todo_funcs {
         Ok(operator_master_key.preimage_for_graph(graph_id, index))
     }
     pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
-        todo!("broadcast non-standard tx")
+        match broadcast_tx(btc_client, tx).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                tracing::warn!("broadcast_nonstandard_tx not implemented yet: {} , Skipped", e);
+                Ok(())
+            }
+        }
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -2125,13 +2131,6 @@ pub async fn set_node_external_socket_addr_env(rpc_addr: &str) -> Result<()> {
         }
     }
     Ok(())
-}
-// TODO
-pub fn get_fixed_disprove_output() -> Result<TxOut> {
-    Ok(TxOut {
-        script_pubkey: generate_burn_script_address(get_network()).script_pubkey(),
-        value: Amount::from_sat(DUST_AMOUNT),
-    })
 }
 
 pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
