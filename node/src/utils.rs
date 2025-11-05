@@ -2437,7 +2437,8 @@ pub async fn get_latest_pegout_finalized_graph(
     operator_pubkey: &PublicKey,
 ) -> Result<Option<(u64, Uuid)>> {
     // get latest pegout finalized graph nonce & id from local db
-    let statuses: Vec<String> = vec![];
+    let statuses: Vec<String> =
+        GraphStatus::get_closed_status().iter().map(|status| status.to_string()).collect();
     let mut storage_processor = local_db.acquire().await?;
     let graphs = storage_processor
         .get_operator_graphs(

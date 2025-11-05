@@ -2101,6 +2101,8 @@ async fn check_pre_kickoff_sent(
                 check_graphs.push((graph_id, instance_id, cur_pre_kickoff.into()));
                 pre_kickoff = next_pre_kickoff;
                 check_level -= 1;
+            } else {
+                break;
             }
         }
         check_graphs

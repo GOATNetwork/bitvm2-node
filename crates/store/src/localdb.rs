@@ -1191,7 +1191,7 @@ impl<'a> StorageProcessor<'a> {
             pub next_prekickoff: SerializableTxid,
         }
         let res = sqlx::query_as::<_, NextPrekickoffRow>(
-            "SELECT next_prekickoff FROM graph WHERE cur_prekickoff_txid  = ?",
+            "SELECT graph_id,  instance_id,  cur_prekickoff_txid, next_prekickoff FROM graph WHERE cur_prekickoff_txid  = ?",
         )
         .bind(current_pre_kickoff)
         .fetch_optional(self.conn())
