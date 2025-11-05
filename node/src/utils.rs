@@ -85,25 +85,41 @@ pub mod todo_funcs {
     // db operations
     // proof network
     pub async fn get_watchtower_proof(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<u8>> {
-        todo!("get watchtower proof from proof network")
+        Ok(b"watchtower_proof".to_vec())
     }
     pub async fn get_operator_proof_blockhash(
         instance_id: Uuid,
         graph_id: Uuid,
     ) -> Result<[u8; 32]> {
-        todo!("get blockhash used for operator proof")
+        Ok([0xbbu8; 32])
     }
     pub async fn get_operator_proof(
         instance_id: Uuid,
         graph_id: Uuid,
     ) -> Result<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)> {
-        todo!("get operator proof from proof network")
+        let proof = hex::decode(
+            "b6ef2c5aa48a2f599a13bc4d8010e4d0190aeb05ff79e21266aff8dde6353d1756191f0959c787f6dedfc0c47751aed2648775101285b9da2d6c4e912e74891f884bd672f94f4d78528fb10b5410a94b53bcef07f99952ef72b68c72a5c4ff2a3de7c314ffbf17df018a753f070448c2f698706d4c2b99bdb06f928cffe1bea0",
+        )?;
+        let pis = hex::decode(
+            "02000000000000002000000000000000721db33a295a3b29a61c7360486e6d8346288822dc5cab652722e34d4b423d002000000000000000cfdc2f035c3699c6d17563570ea05a3d6d08302487937dd079a6b1671d484c0d",
+        )?;
+        let proof = goat::proof::deserialize_proof(proof);
+        let pis = goat::proof::deserialize_pubin(pis);
+        let pk = get_operator_proof_vk(instance_id, graph_id).await?;
+        let guest_inputs = [
+            get_guest_constant_value(instance_id, graph_id).await?,
+            [0xffu8; 32], // use [0u8; 32] to test non-inclusion challenge
+        ];
+        Ok((guest_inputs, proof, pis, pk))
     }
     pub async fn get_operator_proof_vk(instance_id: Uuid, graph_id: Uuid) -> Result<VerifyingKey> {
-        todo!("get vk for operator proof")
+        let zkm_v1_vk_bytes = hex::decode(
+            "e2f26dbea299f5223b646cb1fb33eadb059d9407559d7441dfd902e3a79a4d2dabb73dc17fbc13021e2471e0c08bd67d8401f52b73d6d07483794cad4778180e0c06f33bbc4c79a9cadef253a68084d382f17788f885c9afd176f7cb2f036789edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19ffdb10cf9f7e2b08673477187c33a695a397702cf22005900724518b57f92f2ce08f8dfe36ca3eff63b1743d64812936d8cab0d74c063d260e20a9a3339b2a8c0300000000000000d17e1efc51d15eef04bde8dc794edc9e5788eb7539171d3a49d970ab9215b89c9ab6c5ab119ca81927393ef29332a1d15ac5f197b878ea89a1f8f686b747011eaad636dcb52cdfd674d155ddd67d21186fbdd1c0a62ebd74dcd6ddc6784b819e",
+        )?;
+        Ok(goat::proof::deserialize_vk(zkm_v1_vk_bytes))
     }
     pub async fn get_guest_constant_value(instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
-        Ok([0u8; 32])
+        Ok([0xccu8; 32])
     }
 
     // other operations
