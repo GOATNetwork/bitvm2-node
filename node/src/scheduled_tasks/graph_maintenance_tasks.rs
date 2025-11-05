@@ -1823,6 +1823,7 @@ async fn process_graph_watchtower_assert_disproved(
     graph: &Graph,
     sub_status: &mut ChallengeSubStatus,
 ) -> anyhow::Result<()> {
+    info!("process_graph_watchtower_assert_disproved for graph:{}", graph.graph_id);
     let mut tx = local_db.start_transaction().await?;
     match detect_disproved_txids(btc_client, &mut tx, graph, sub_status).await? {
         Some((disprove_type, start_txid, finish_txid, tx_index)) => {
@@ -1835,6 +1836,12 @@ async fn process_graph_watchtower_assert_disproved(
                 )
                 .await?;
             }
+
+            info!(
+                "process_graph_watchtower_assert_disproved: graph:{} disprove_type:{}, start_txid:{}. finsh_txid{}. tx_index:{} ",
+                graph.graph_id, disprove_type, start_txid, finish_txid, tx_index
+            );
+
             create_message(
                 &mut tx,
                 graph.graph_id,
