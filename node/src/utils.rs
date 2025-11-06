@@ -40,6 +40,7 @@ use rand::Rng;
 use secp256k1::Secp256k1;
 
 use anyhow::{Result, anyhow, bail};
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use goat::transactions::prekickoff::PrekickoffTransaction;
 use indexmap::IndexMap;
@@ -2330,8 +2331,12 @@ pub async fn get_instance_parameters(
     instance_id: Uuid,
 ) -> Result<Option<Bitvm2InstanceParameters>> {
     let mut storage_processor = local_db.acquire().await?;
-    if let Some(data_str) = storage_processor.get_instance_parameters_by_id(&instance_id).await? {
-        Ok(Some(serde_json::from_str(&data_str)?))
+    if let Some(instance) = storage_processor.find_instance(&instance_id).await? {
+        Ok(if let Some(parameters) = instance.parameters {
+            Some(serde_json::from_str(&parameters)?)
+        } else {
+            gen_instance_parameters_local(&instance).ok()
+        })
     } else {
         Ok(None)
     }
@@ -2897,4 +2902,62 @@ pub async fn get_graph_ids_for_instance(
     let mut storage_processor = local_db.acquire().await?;
     let graphs = storage_processor.get_graphs_by_instance_id(&instance_id).await?;
     Ok(graphs.into_iter().map(|v| v.graph_id).collect())
+}
+
+pub fn gen_instance_parameters_local(
+    instance: &Instance,
+) -> anyhow::Result<Bitvm2InstanceParameters> {
+    let network = Network::from_str(&instance.network)?;
+    let committee_pubkeys: Vec<PublicKey> = instance
+        .committees_answers
+        .iter()
+        .map(|(_k, v)| PublicKey::from_slice(v).unwrap())
+        .collect();
+
+    let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
+    let utxos: Vec<client::Utxo> = serde_json::from_str(&instance.input_utxos)?;
+    Ok(Bitvm2InstanceParameters {
+        network,
+        instance_id: instance.instance_id,
+        user_info: gen_user_info(
+            network,
+            &instance.to_addr,
+            &instance.user_change_addr.clone(),
+            &instance.user_refund_addr.clone(),
+            utxos,
+            instance.fees.0,
+            &instance.user_xonly_pubkey.0,
+        )?,
+        pegin_amount: Amount::from_sat(instance.amount as u64),
+        committee_pubkeys,
+        committee_agg_pubkey,
+    })
+}
+
+fn gen_user_info(
+    network: Network,
+    depositor_evm_address: &str,
+    user_change_addr: &str,
+    user_refund_addr: &str,
+    utxos: Vec<client::Utxo>,
+    txn_fees: [u64; 3],
+    user_xonly_pubkey: &[u8; 32],
+) -> anyhow::Result<UserInfo> {
+    let user_change_address: Address<NetworkUnchecked> = Address::from_str(user_change_addr)?;
+    let user_refund_addr: Address<NetworkUnchecked> = Address::from_str(user_refund_addr)?;
+    let inputs = utxos
+        .into_iter()
+        .map(|utxo| Input {
+            outpoint: OutPoint { txid: Txid::from_slice(&utxo.txid).unwrap(), vout: utxo.vout },
+            amount: Amount::from_sat(utxo.amount_stats),
+        })
+        .collect();
+    Ok(UserInfo {
+        depositor_evm_address: EvmAddress::from_str(depositor_evm_address)?.into_array(),
+        txn_fees,
+        inputs,
+        user_xonly_pubkey: XOnlyPublicKey::from_slice(user_xonly_pubkey)?,
+        user_change_address: user_change_address.require_network(network)?,
+        user_refund_address: user_refund_addr.require_network(network)?,
+    })
 }

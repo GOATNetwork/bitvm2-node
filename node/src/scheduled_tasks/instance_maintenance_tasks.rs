@@ -1,21 +1,13 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
-use crate::utils::create_message;
-use alloy::primitives::Address as EvmAddress;
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::hashes::Hash;
-use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, Txid};
+use crate::utils::{create_message, gen_instance_parameters_local};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
-use bitvm2_lib::contexts::base::generate_n_of_n_public_key;
-use bitvm2_lib::transactions::base::{BaseTransaction, Input};
-use bitvm2_lib::types::{Bitvm2InstanceParameters, UserInfo};
-use client::Utxo;
+use bitvm2_lib::transactions::base::BaseTransaction;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::graph_query::BridgeInRequestEvent;
-use secp256k1::XOnlyPublicKey;
 use std::str::FromStr;
 use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{GoatTxProcessingStatus, GoatTxType, Instance, InstanceStatus};
@@ -150,64 +142,9 @@ pub async fn instance_window_expiration_monitor(
     Ok(())
 }
 
-fn gen_user_info(
-    network: Network,
-    depositor_evm_address: &str,
-    user_change_addr: &str,
-    user_refund_addr: &str,
-    utxos: Vec<Utxo>,
-    txn_fees: [u64; 3],
-    user_xonly_pubkey: &[u8; 32],
-) -> anyhow::Result<UserInfo> {
-    let user_change_address: Address<NetworkUnchecked> = Address::from_str(user_change_addr)?;
-    let user_refund_addr: Address<NetworkUnchecked> = Address::from_str(user_refund_addr)?;
-    let inputs = utxos
-        .into_iter()
-        .map(|utxo| Input {
-            outpoint: OutPoint { txid: Txid::from_slice(&utxo.txid).unwrap(), vout: utxo.vout },
-            amount: Amount::from_sat(utxo.amount_stats),
-        })
-        .collect();
-    Ok(UserInfo {
-        depositor_evm_address: EvmAddress::from_str(depositor_evm_address)?.into_array(),
-        txn_fees,
-        inputs,
-        user_xonly_pubkey: XOnlyPublicKey::from_slice(user_xonly_pubkey)?,
-        user_change_address: user_change_address.require_network(network)?,
-        user_refund_address: user_refund_addr.require_network(network)?,
-    })
-}
-
-fn get_instance_params(instance: &Instance) -> anyhow::Result<Bitvm2InstanceParameters> {
-    let network = Network::from_str(&instance.network)?;
-    let committee_pubkeys: Vec<PublicKey> = instance
-        .committees_answers
-        .iter()
-        .map(|(_k, v)| PublicKey::from_slice(v).unwrap())
-        .collect();
-
-    let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
-    let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)?;
-    Ok(Bitvm2InstanceParameters {
-        network,
-        instance_id: instance.instance_id,
-        user_info: gen_user_info(
-            network,
-            &instance.to_addr,
-            &instance.user_change_addr.clone(),
-            &instance.user_refund_addr.clone(),
-            utxos,
-            instance.fees.0,
-            &instance.user_xonly_pubkey.0,
-        )?,
-        pegin_amount: Amount::from_sat(instance.amount as u64),
-        committee_pubkeys,
-        committee_agg_pubkey,
-    })
-}
 fn update_pegin_txids(instance: &mut Instance) -> anyhow::Result<()> {
     let (pegin_deposit_tx, pegin_confirm_tx, pegin_refund_tx) =
-        get_instance_params(instance)?.build_pegin_tx()?;
+        gen_instance_parameters_local(instance)?.build_pegin_tx()?;
     instance.btc_txid = Some(pegin_deposit_tx.tx().compute_txid().into());
     instance.pegin_confirm_txid = Some(pegin_confirm_tx.finalize().compute_txid().into());
     instance.pegin_cancel_txid = Some(pegin_refund_tx.finalize().compute_txid().into());
