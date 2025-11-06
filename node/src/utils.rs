@@ -127,9 +127,9 @@ pub mod todo_funcs {
     pub fn avg_block_time_secs(network: Network) -> u64 {
         match network {
             Network::Bitcoin => 600, // 10 minutes
-            Network::Testnet => 300, // 5 minutes
+            Network::Testnet => 60,  // 1 minute
             Network::Regtest => 60,  // 1 minute
-            Network::Signet => 300,  // 5 minutes
+            Network::Signet => 60,   // 1 minute
             _ => 600,                // default to 10 minutes
         }
     }
