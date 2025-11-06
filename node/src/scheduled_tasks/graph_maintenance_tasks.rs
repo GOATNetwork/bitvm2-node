@@ -458,7 +458,6 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
                 &GoatTxProcessingStatus::Processed.to_string(),
             )
             .await?;
-
             create_message(
                 &mut tx,
                 graph_id,
@@ -470,6 +469,7 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
                 0,
             )
             .await?;
+            tx.commit().await?;
         } else {
             warn!(
                 "instance_id: {instance_id} graph_id: {graph_id} fail to get graph from db or kickoff txid is none"
@@ -2009,7 +2009,7 @@ async fn detect_take2(
         }
     };
 
-    let mut tx = local_db.start_transaction().await?;
+    let mut storage_processor = local_db.acquire().await?;
     let spent_txid = match outpoint_spent_txid(btc_client, &kickoff_txid, 3).await? {
         Some(txid) => txid,
         None => {
@@ -2017,7 +2017,7 @@ async fn detect_take2(
                 "detecting detect_take2 graph_id {} take2 or disprove is not on chain",
                 graph.graph_id
             );
-            let watchtower_init_height = tx
+            let watchtower_init_height = storage_processor
                 .get_graph_btc_tx_vout_monitor(
                     &graph.graph_id,
                     &watchtower_challenge_init_txid.into(),
@@ -2026,7 +2026,7 @@ async fn detect_take2(
                 .unwrap_or_default()
                 .height;
 
-            let assert_init_height = tx
+            let assert_init_height = storage_processor
                 .get_graph_btc_tx_vout_monitor(&graph.graph_id, &assert_init_txid.into())
                 .await?
                 .unwrap_or_default()
