@@ -641,14 +641,28 @@ async fn get_watch_contract<'a>(
     storage_processor: &mut StorageProcessor<'a>,
 ) -> anyhow::Result<WatchContract> {
     let addr = env::get_goat_gateway_contract_from_env().to_string();
-    if let Some(watch_contract) = storage_processor.get_watch_contract(&addr).await? {
+    let from_height = env::get_goat_event_filter_from_from_env();
+    let the_graph_url = env::get_goat_event_the_graph_url_from_env();
+    let gap = env::get_goat_event_filter_gap_from_env();
+
+    if let Some(mut watch_contract) = storage_processor.get_watch_contract(&addr).await? {
+        if from_height > watch_contract.from_height {
+            watch_contract.from_height = from_height;
+        }
+        if the_graph_url != watch_contract.the_graph_url {
+            watch_contract.the_graph_url = the_graph_url;
+        }
+
+        if gap != watch_contract.gap {
+            watch_contract.gap = gap
+        }
         Ok(watch_contract)
     } else {
         Ok(WatchContract {
             addr,
-            the_graph_url: env::get_goat_event_the_graph_url_from_env(),
-            gap: env::get_goat_event_filter_gap_from_env(),
-            from_height: env::get_goat_event_filter_from_from_env(),
+            the_graph_url,
+            gap,
+            from_height,
             status: WatchContractStatus::UnSync.to_string(),
             extra: None,
             updated_at: current_time_secs(),
