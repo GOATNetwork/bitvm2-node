@@ -15,7 +15,7 @@ use bitvm2_lib::constants::{
     CONNECTOR_F_TIMELOCK, CONNECTOR_G_TIMELOCK, WATCHTOWER_CHALLENGE_TIMELOCK,
 };
 use client::btc_chain::BTCClient;
-use client::goat_chain::{DisproveTxType, GOATClient, WithdrawStatus};
+use client::goat_chain::{DisproveTxType, GOATClient};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
@@ -479,74 +479,6 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
     Ok(())
 }
 
-#[allow(dead_code)]
-async fn process_operator_data_pushed_graph(
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
-    local_db: &LocalDB,
-    graph_id: &Uuid,
-    instance_id: &Uuid,
-    kickoff_txid: &Txid,
-) -> anyhow::Result<bool> {
-    trace!("start tick action: process_operator_data_pushed_graph");
-    if outpoint_spent_txid(btc_client, kickoff_txid, 0).await?.is_some() {
-        trace!(
-            "graph_id:{graph_id} kickoff: {} output has been spend, no need to send kickoffSent message",
-            kickoff_txid.to_string()
-        );
-        return Ok(false);
-    }
-    let tx_info = btc_client
-        .get_tx_info(kickoff_txid)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("kickoff {kickoff_txid} not found"))?;
-    if !tx_info.status.confirmed {
-        warn!("graph_id:{graph_id} kickoff:{kickoff_txid:?} is not onchain ");
-        return Ok(false);
-    }
-    let withdraw_data = goat_client.gateway_get_withdraw_data(graph_id).await?;
-    if withdraw_data.status != WithdrawStatus::Initialized {
-        info!("graph_id:{graph_id} kickoff:{kickoff_txid:?} in evil way");
-        return Ok(true);
-    }
-
-    let kickoff_tx = tx_info.to_tx();
-    match goat_client.gateway_process_withdraw(btc_client, graph_id, &kickoff_tx).await {
-        Ok(tx_hash) => {
-            info!(
-                "instance_id: {instance_id}, graph_id:{graph_id} finish withdraw, tx hash: {tx_hash}"
-            );
-
-            let block_height = match goat_client.get_tx_receipt(&tx_hash).await? {
-                Some(receipt) => receipt.block_number.unwrap_or(0),
-                None => 0,
-            };
-            let mut tx = local_db.start_transaction().await?;
-            tx.upsert_goat_tx_record(&GoatTxRecord {
-                instance_id: *instance_id,
-                graph_id: *graph_id,
-                tx_type: GoatTxType::ProceedWithdraw.to_string(),
-                tx_hash,
-                height: block_height as i64,
-                is_local: true,
-                processing_status: GoatTxProcessingStatus::Skipped.to_string(),
-                extra: None,
-                created_at: current_time_secs(),
-            })
-            .await?;
-            tx.update_graph_fields(
-                GraphUpdate::new(*graph_id).with_status(GraphStatus::OperatorKickOff.to_string()),
-            )
-            .await?;
-            tx.commit().await?;
-            Ok(true)
-        }
-        Err(err) => {
-            warn!("process_operator_data_pushed_graph: err:{err:?}");
-            Ok(false)
-        }
-    }
-}
 pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyhow::Result<()> {
     trace!("start tick action: detect_kickoff");
     let graphs = {
@@ -566,29 +498,29 @@ pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyho
                 continue;
             }
         };
-        let tx_info = btc_client
-            .get_tx_info(&kickoff_txid)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("kickoff {kickoff_txid} not found"))?;
-        if !tx_info.status.confirmed {
+
+        if let Ok(tx_status) = btc_client.get_tx_status(&kickoff_txid).await
+            && tx_status.confirmed
+        {
+            let mut storage_processor = local_db.acquire().await?;
+            create_message(
+                &mut storage_processor,
+                graph.graph_id,
+                None,
+                "self".to_string(),
+                Actor::All,
+                GOATMessageContent::KickoffSent(KickoffSent {
+                    instance_id: graph.instance_id,
+                    graph_id: graph.graph_id,
+                }),
+                0,
+                0,
+            )
+            .await?;
+        } else {
             warn!("graph_id:{} kickoff:{kickoff_txid:?} is not onchain", graph.graph_id);
             continue;
         }
-        let mut storage_processor = local_db.acquire().await?;
-        create_message(
-            &mut storage_processor,
-            graph.graph_id,
-            None,
-            "self".to_string(),
-            Actor::All,
-            GOATMessageContent::KickoffSent(KickoffSent {
-                instance_id: graph.instance_id,
-                graph_id: graph.graph_id,
-            }),
-            0,
-            0,
-        )
-        .await?;
     }
     Ok(())
 }
@@ -1319,66 +1251,69 @@ async fn process_watchtower_challenge_monitoring(
                 graph.graph_id,
                 watchtower_challenge_init_txid.to_string()
             );
-            sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
+            if let Ok(Some(watchtower_challenge_init_tx)) =
+                btc_client.get_tx_info(&watchtower_challenge_init_txid).await
+            {
+                sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
+                let mut tx = local_db.start_transaction().await?;
+                tx.update_graph_fields(
+                    GraphUpdate::new(graph.graph_id)
+                        .with_sub_status(serde_json::to_string(sub_status).unwrap()),
+                )
+                .await?;
 
-            let watchtower_challenge_init_tx = btc_client
-                .get_tx_info(&watchtower_challenge_init_txid)
-                .await?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "watchtower_challenge_init_txid {watchtower_challenge_init_txid} not found"
-                    )
-                })?;
-            let mut tx = local_db.start_transaction().await?;
-            tx.update_graph_fields(
-                GraphUpdate::new(graph.graph_id)
-                    .with_sub_status(serde_json::to_string(sub_status).unwrap()),
-            )
-            .await?;
-
-            tx.upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
-                graph_id: graph.graph_id,
-                txid: watchtower_challenge_init_txid.into(),
-                height: watchtower_challenge_init_tx.status.block_height.unwrap_or_default() as i64,
-                vout_len: watchtower_challenge_init_tx.vout.len() as i64,
-                monitor_data: serde_json::to_string(&WTInitTxVoutMonitorData::new(
-                    watchtower_challenge_init_tx.vout.len() as i32,
-                ))?,
-                created_at: current_time_secs(),
-                updated_at: current_time_secs(),
-            })
-            .await?;
-            create_message(
-                &mut tx,
-                graph.graph_id,
-                None,
-                "self".to_string(),
-                Actor::Watchtower,
-                GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
-                    instance_id: graph.instance_id,
+                tx.upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
                     graph_id: graph.graph_id,
-                }),
-                0,
-                0,
-            )
-            .await?;
+                    txid: watchtower_challenge_init_txid.into(),
+                    height: watchtower_challenge_init_tx.status.block_height.unwrap_or_default()
+                        as i64,
+                    vout_len: watchtower_challenge_init_tx.vout.len() as i64,
+                    monitor_data: serde_json::to_string(&WTInitTxVoutMonitorData::new(
+                        watchtower_challenge_init_tx.vout.len() as i32,
+                    ))?,
+                    created_at: current_time_secs(),
+                    updated_at: current_time_secs(),
+                })
+                .await?;
+                create_message(
+                    &mut tx,
+                    graph.graph_id,
+                    None,
+                    "self".to_string(),
+                    Actor::Watchtower,
+                    GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
+                        instance_id: graph.instance_id,
+                        graph_id: graph.graph_id,
+                    }),
+                    0,
+                    0,
+                )
+                .await?;
 
-            create_message(
-                &mut tx,
-                graph.graph_id,
-                None,
-                "self".to_string(),
-                Actor::Operator,
-                GOATMessageContent::OperatorCommitBlockHashReady(OperatorCommitBlockHashReady {
-                    instance_id: graph.instance_id,
-                    graph_id: graph.graph_id,
-                }),
-                0,
-                0,
-            )
-            .await?;
+                create_message(
+                    &mut tx,
+                    graph.graph_id,
+                    None,
+                    "self".to_string(),
+                    Actor::Operator,
+                    GOATMessageContent::OperatorCommitBlockHashReady(
+                        OperatorCommitBlockHashReady {
+                            instance_id: graph.instance_id,
+                            graph_id: graph.graph_id,
+                        },
+                    ),
+                    0,
+                    0,
+                )
+                .await?;
 
-            tx.commit().await?;
+                tx.commit().await?;
+            } else {
+                warn!(
+                    "process_assert_commit_monitoring graph_id: {}, watchtower_challenge_init_txid {watchtower_challenge_init_txid} not found on chain",
+                    graph.graph_id
+                );
+            }
         }
     }
 
@@ -1516,30 +1451,33 @@ async fn process_assert_commit_monitoring(
                 assert_init_txid.to_string()
             );
 
-            let assert_init_tx = btc_client
-                .get_tx_info(&assert_init_txid)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("assert_init_txid {assert_init_txid} not found"))?;
-            sub_status.assert_commit_status = AssertCommitStatus::OperatorInit;
-            let mut tx = local_db.start_transaction().await?;
-            tx.update_graph_fields(
-                GraphUpdate::new(graph.graph_id)
-                    .with_sub_status(serde_json::to_string(sub_status).unwrap()),
-            )
-            .await?;
-            tx.upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
-                graph_id: graph.graph_id,
-                txid: assert_init_txid.into(),
-                height: assert_init_tx.status.block_height.unwrap_or_default() as i64,
-                vout_len: assert_init_tx.vout.len() as i64,
-                monitor_data: serde_json::to_string(&AssertInitTxVoutMonitorData::new(
-                    assert_init_tx.vout.len() as i32,
-                ))?,
-                created_at: current_time_secs(),
-                updated_at: current_time_secs(),
-            })
-            .await?;
-            tx.commit().await?;
+            if let Ok(Some(assert_init_tx)) = btc_client.get_tx_info(&assert_init_txid).await {
+                sub_status.assert_commit_status = AssertCommitStatus::OperatorInit;
+                let mut tx = local_db.start_transaction().await?;
+                tx.update_graph_fields(
+                    GraphUpdate::new(graph.graph_id)
+                        .with_sub_status(serde_json::to_string(sub_status).unwrap()),
+                )
+                .await?;
+                tx.upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
+                    graph_id: graph.graph_id,
+                    txid: assert_init_txid.into(),
+                    height: assert_init_tx.status.block_height.unwrap_or_default() as i64,
+                    vout_len: assert_init_tx.vout.len() as i64,
+                    monitor_data: serde_json::to_string(&AssertInitTxVoutMonitorData::new(
+                        assert_init_tx.vout.len() as i32,
+                    ))?,
+                    created_at: current_time_secs(),
+                    updated_at: current_time_secs(),
+                })
+                .await?;
+                tx.commit().await?;
+            } else {
+                warn!(
+                    "process_assert_commit_monitoring graph_id: {}, assert_init_txid {assert_init_txid} not found on chain",
+                    graph.graph_id
+                );
+            }
         } else {
             let mut storage_processor = local_db.acquire().await?;
             create_message(
