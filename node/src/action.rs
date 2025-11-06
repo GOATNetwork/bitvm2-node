@@ -1772,6 +1772,57 @@ pub async fn recv_and_dispatch(
         }
         (
             GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id }),
+            Actor::Committee,
+        ) => {
+            // triggered by Kickoff tx
+            if !is_relayer() {
+                tracing::warn!(
+                    "Ignore KickoffSent for {instance_id}:{graph_id}: not a relayer node"
+                );
+                return Ok(());
+            }
+            tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
+            // 1. (Relayer) try to call Gateway.proceedWithdraw
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let kickoff_txid = graph.kickoff.tx().compute_txid();
+            let kickoff_tx = match btc_client.get_tx(&kickoff_txid).await? {
+                Some(tx) => tx,
+                None => {
+                    tracing::warn!(
+                        "Ignore KickoffSent for {instance_id}:{graph_id}: kickoff tx not found on Bitcoin chain: {kickoff_txid}"
+                    );
+                    return Ok(());
+                }
+            };
+            let kickoff_height = match btc_client.get_tx_status(&kickoff_txid).await?.block_height {
+                Some(height) => height as u64,
+                None => {
+                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
+                    push_local_unhandled_messages(
+                        local_db,
+                        graph_id,
+                        &message,
+                        delay_secs as usize,
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            };
+            let goat_confirmed_btc_height = goat_client.btc_spv_latest_height().await? as u64;
+            if goat_confirmed_btc_height < kickoff_height {
+                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
+                    * (kickoff_height - goat_confirmed_btc_height);
+                push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
+                    .await?;
+                return Ok(());
+            }
+            goat_client.gateway_process_withdraw(btc_client, &graph_id, &kickoff_tx).await?;
+        }
+        (
+            GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id }),
             Actor::Challenger,
         ) => {
             // triggered by Kickoff tx
