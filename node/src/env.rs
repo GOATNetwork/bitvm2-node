@@ -62,10 +62,10 @@ pub const CHEKSIG_P2TR_INPUT_VBYTES: u64 = 100;
 pub const P2WSH_OUTPUT_VBYTES: u64 = 50;
 pub const P2TR_OUTPUT_VBYTES: u64 = 50;
 pub const P2A_OUTPUT_VBYTES: u64 = 50;
-pub const PRE_KICKOFF_BASE_VBYTES: u64 = 200;
-pub const PEGIN_BASE_VBYTES: u64 = 200;
-pub const CHALLENGE_BASE_VBYTES: u64 = 200;
-pub const ANCHOR_CHILD_BASE_VBYTES: u64 = 100;
+pub const PRE_KICKOFF_BASE_VBYTES: u64 = 300;
+pub const PEGIN_BASE_VBYTES: u64 = 300;
+pub const CHALLENGE_BASE_VBYTES: u64 = 300;
+pub const ANCHOR_CHILD_BASE_VBYTES: u64 = 200;
 
 // reduce costs to facilitate testing
 pub const MIN_SATKE_AMOUNT: u64 = 4_000_000; // 0.04 BTC

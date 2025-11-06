@@ -1007,7 +1007,7 @@ pub async fn get_disprove_scripts(
 pub async fn get_fee_rate(client: &BTCClient) -> Result<f64> {
     match client.network() {
         //TODO mempool api /fee-estimates failed, fix it latter
-        Network::Testnet | Network::Regtest => Ok(10.0),
+        Network::Testnet | Network::Regtest => Ok(2.0),
         _ => {
             let res = client.get_fee_estimates().await?;
             Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(anyhow!(
