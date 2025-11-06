@@ -1847,6 +1847,10 @@ pub async fn recv_and_dispatch(
                         bail!(e)
                     }
                 }
+            } else {
+                tracing::info!(
+                    "No action needed for KickoffSent for {instance_id}:{graph_id}: withdraw status is {withdraw_status:?}"
+                );
             }
         }
         (

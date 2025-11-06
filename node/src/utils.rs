@@ -1582,18 +1582,37 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
         build_cpfp_txns(btc_client, &kickoff_tx, anchor_vout, kickoff_tx_total_input_amount)
             .await?;
 
-    broadcast_package(btc_client, &[prekickoff_tx, kickoff_tx]).await?;
+    // If a tx is already on-chain, skip rebroadcasting and move to the next one.
+    let mut kickoff_child_broadcasted = false;
+    if !tx_on_chain(btc_client, &prekickoff_txid).await? {
+        // Parent not on-chain yet: broadcast parent and kickoff together as a package.
+        broadcast_package(btc_client, &[prekickoff_tx, kickoff_tx]).await?;
+    } else if !tx_on_chain(btc_client, &kickoff_txid).await? {
+        // Parent is on-chain, but kickoff isn't: try kickoff (and its CPFP child if present).
+        if let Some(child) = kickoff_child_tx.as_ref() {
+            broadcast_package(btc_client, &[kickoff_tx, child.clone()]).await?;
+            kickoff_child_broadcasted = true;
+        } else {
+            broadcast_tx(btc_client, &kickoff_tx).await?;
+        }
+    }
+
+    // Ensure both transactions are seen on-chain and then handle CPFP children.
     if !tx_on_chain(btc_client, &prekickoff_txid).await? {
         bail!("prekickoff tx not on chain after broadcasting");
     }
     if let Some(prekickoff_child_tx) = prekickoff_child_tx {
-        broadcast_tx(btc_client, &prekickoff_child_tx).await?;
+        if let Err(e) = broadcast_tx(btc_client, &prekickoff_child_tx).await {
+            tracing::warn!("failed to broadcast prekickoff child tx: {e}");
+        }
     }
     if !tx_on_chain(btc_client, &kickoff_txid).await? {
         bail!("kickoff tx not on chain after broadcasting");
     }
-    if let Some(kickoff_child_tx) = kickoff_child_tx {
-        broadcast_tx(btc_client, &kickoff_child_tx).await?;
+    if !kickoff_child_broadcasted && let Some(kickoff_child_tx) = kickoff_child_tx {
+        if let Err(e) = broadcast_tx(btc_client, &kickoff_child_tx).await {
+            tracing::warn!("failed to broadcast kickoff child tx: {e}");
+        }
     }
     Ok(())
 }
