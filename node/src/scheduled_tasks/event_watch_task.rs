@@ -149,7 +149,7 @@ async fn handle_user_withdraw_events<'a>(
                     .update_graph_fields(
                         GraphUpdate::new(graph_id)
                             .with_bridge_out_start_at(current_time_secs())
-                            .with_init_withdraw_txid(init_event.transaction_hash.clone()),
+                            .with_init_withdraw_tx_hash(init_event.transaction_hash.clone()),
                     )
                     .await?;
                 storage_processor
@@ -174,7 +174,7 @@ async fn handle_user_withdraw_events<'a>(
                     .update_graph_fields(
                         GraphUpdate::new(graph_id)
                             .with_bridge_out_start_at(0)
-                            .with_init_withdraw_txid("".to_string()),
+                            .with_init_withdraw_tx_hash("".to_string()),
                     )
                     .await?;
                 storage_processor

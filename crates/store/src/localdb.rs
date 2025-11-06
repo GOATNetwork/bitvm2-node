@@ -391,7 +391,7 @@ pub struct GraphUpdate {
     pub challenge_txid: Option<SerializableTxid>,
     pub disprove_txid: Option<SerializableTxid>,
     pub bridge_out_start_at: Option<i64>,
-    pub init_withdraw_txid: Option<String>,
+    pub init_withdraw_tx_hash: Option<String>,
 }
 
 impl GraphUpdate {
@@ -405,7 +405,7 @@ impl GraphUpdate {
             challenge_txid: None,
             disprove_txid: None,
             bridge_out_start_at: None,
-            init_withdraw_txid: None,
+            init_withdraw_tx_hash: None,
         }
     }
 
@@ -445,8 +445,8 @@ impl GraphUpdate {
     }
 
     /// Set init withdraw transaction ID
-    pub fn with_init_withdraw_txid(mut self, init_withdraw_txid: String) -> Self {
-        self.init_withdraw_txid = Some(init_withdraw_txid);
+    pub fn with_init_withdraw_tx_hash(mut self, init_withdraw_tx_hash: String) -> Self {
+        self.init_withdraw_tx_hash = Some(init_withdraw_tx_hash);
         self
     }
 
@@ -457,7 +457,7 @@ impl GraphUpdate {
             || self.ipfs_base_url.is_some()
             || self.challenge_txid.is_some()
             || self.bridge_out_start_at.is_some()
-            || self.init_withdraw_txid.is_some()
+            || self.init_withdraw_tx_hash.is_some()
             || self.disprove_txid.is_some()
     }
 
@@ -482,13 +482,15 @@ impl GraphUpdate {
         if let Some(bridge_out_start_at) = self.bridge_out_start_at {
             query_builder.set_field("bridge_out_start_at", QueryParam::Int(bridge_out_start_at));
         }
-        if let Some(ref init_withdraw_txid) = self.init_withdraw_txid {
-            if init_withdraw_txid.is_empty() {
+        if let Some(ref init_withdraw_tx_hash) = self.init_withdraw_tx_hash {
+            if init_withdraw_tx_hash.is_empty() {
                 // Set NULL value
-                query_builder.set_field_null("init_withdraw_txid");
+                query_builder.set_field_null("init_withdraw_tx_hash");
             } else {
-                query_builder
-                    .set_field("init_withdraw_txid", QueryParam::Text(init_withdraw_txid.clone()));
+                query_builder.set_field(
+                    "init_withdraw_tx_hash",
+                    QueryParam::Text(init_withdraw_tx_hash.clone()),
+                );
             }
         }
         // Add update time
