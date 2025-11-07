@@ -1775,24 +1775,44 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // triggered by Kickoff tx
-            if !is_relayer() {
-                tracing::warn!(
-                    "Ignore KickoffSent for {instance_id}:{graph_id}: not a relayer node"
-                );
-                return Ok(());
-            }
+            // 1. update status
             tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
-            // 1. (Relayer) try to call Gateway.proceedWithdraw
             let graph = get_graph(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            if !is_relayer() {
+                return Ok(());
+            }
+            // 2. (Relayer) try to call Gateway.proceedWithdraw
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
+            if withdraw_status != WithdrawStatus::Initialized {
+                tracing::warn!(
+                    "Relayer Ignore proceedWithdraw for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status:?}"
+                );
+                return Ok(());
+            }
             let kickoff_txid = graph.kickoff.tx().compute_txid();
             let kickoff_tx = match btc_client.get_tx(&kickoff_txid).await? {
                 Some(tx) => tx,
                 None => {
                     tracing::warn!(
-                        "Ignore KickoffSent for {instance_id}:{graph_id}: kickoff tx not found on Bitcoin chain: {kickoff_txid}"
+                        "Relayer Ignore proceedWithdraw for {instance_id}:{graph_id}: kickoff tx not found on Bitcoin chain: {kickoff_txid}"
                     );
                     return Ok(());
                 }
@@ -1827,7 +1847,6 @@ pub async fn recv_and_dispatch(
         ) => {
             // triggered by Kickoff tx
             tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
-            // 1. check kickoff tx status on Bitcoin chain
             let graph = match get_graph_or_defer(
                 swarm,
                 local_db,
@@ -1842,6 +1861,22 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            // 1. check kickoff tx status on Bitcoin chain
             let kickoff_txid = graph.kickoff.tx().compute_txid();
             let kickoff_height = match btc_client.get_tx_status(&kickoff_txid).await?.block_height {
                 Some(height) => height,
@@ -1904,6 +1939,39 @@ pub async fn recv_and_dispatch(
                 );
             }
         }
+        (GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id }), _) => {
+            // triggered by Kickoff tx
+            tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
+            let graph = match get_graph_or_defer(
+                swarm,
+                local_db,
+                goat_client,
+                instance_id,
+                graph_id,
+                &message,
+            )
+            .await?
+            {
+                Some(g) => g,
+                None => return Ok(()),
+            };
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+        }
         (
             GOATMessageContent::PreKickoffSent(PreKickoffSent { instance_id, graph_id }),
             Actor::Challenger,
@@ -1923,11 +1991,23 @@ pub async fn recv_and_dispatch(
                 Some(g) => g,
                 None => return Ok(()),
             };
-            let graph_nonce = graph.parameters.graph_nonce;
-            if graph_nonce == 0 {
-                return Ok(());
-            }
             let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            // 1. check the previous graph status
             if !tx_on_chain(
                 btc_client,
                 &graph.parameters.prekickoff_parameters.cur_prekickoff_txn.tx().compute_txid(),
@@ -1939,8 +2019,10 @@ pub async fn recv_and_dispatch(
                 );
                 return Ok(());
             }
-            tracing::info!("Handle PreKickoffSent for {instance_id}:{graph_id}");
-            // 1. check the previous graph status
+            let graph_nonce = graph.parameters.graph_nonce;
+            if graph_nonce == 0 {
+                return Ok(());
+            }
             let (prev_instance_id, prev_graph_id) =
                 get_graph_id_by_nonce(local_db, graph_nonce - 1, &graph.parameters.operator_pubkey)
                     .await?
@@ -1984,6 +2066,29 @@ pub async fn recv_and_dispatch(
                 challenger_quick_challenge(btc_client, &prev_graph).await?;
             }
         }
+        (GOATMessageContent::PreKickoffSent(PreKickoffSent { instance_id, graph_id }), _) => {
+            // triggered by PreKickoff tx
+            tracing::info!("Handle PreKickoffSent for {instance_id}:{graph_id}");
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+        }
         (
             GOATMessageContent::ChallengeSent(ChallengeSent {
                 instance_id,
@@ -1994,7 +2099,6 @@ pub async fn recv_and_dispatch(
         ) => {
             // triggered by Challenge tx
             tracing::info!("Handle ChallengeSent for {instance_id}:{graph_id}");
-            // 1. check the challenge tx status on Bitcoin chain
             let graph = match get_graph_or_defer(
                 swarm,
                 local_db,
@@ -2009,6 +2113,22 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            // 1. check the challenge tx status on Bitcoin chain
             let watchtower_challenge_init_txid =
                 graph.watchtower_challenge_init.tx().compute_txid();
             if tx_on_chain(btc_client, &watchtower_challenge_init_txid).await? {
@@ -2054,6 +2174,29 @@ pub async fn recv_and_dispatch(
                 }
                 None => broadcast_tx(btc_client, &watchtower_challenge_init_tx).await?,
             };
+        }
+        (GOATMessageContent::ChallengeSent(ChallengeSent { instance_id, graph_id, .. }), _) => {
+            // triggered by Challenge tx
+            tracing::info!("Handle ChallengeSent for {instance_id}:{graph_id}");
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
         }
         (
             GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
@@ -2880,18 +3023,38 @@ pub async fn recv_and_dispatch(
             Actor::Committee,
         ) => {
             // triggered by Disprove tx
-            if !is_relayer() {
-                tracing::warn!(
-                    "Ignore DisproveSent for {instance_id}:{graph_id}: not a relayer node"
-                );
-                return Ok(());
-            }
+            // 1. update graph status
             tracing::info!("Handle DisproveSent for {instance_id}:{graph_id}");
-            // 1. (Relayer) call finalizeWithdrawDisprove on GoatChain
             let graph = get_graph(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            if !is_relayer() {
+                return Ok(());
+            }
+            // 2. (Relayer) call finalizeWithdrawDisprove on GoatChain
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
+            if withdraw_status == WithdrawStatus::Disproved {
+                tracing::warn!(
+                    "Relayer Ignore finishWithdrawDisproved for {instance_id}:{graph_id}: already posted"
+                );
+                return Ok(());
+            }
             let kickoff_txid = graph.kickoff.tx().compute_txid();
             let take1_txid = graph.take1.tx().compute_txid();
             let connector_a_vout = 0;
@@ -3021,6 +3184,29 @@ pub async fn recv_and_dispatch(
                 )
                 .await?;
         }
+        (GOATMessageContent::DisproveSent(DisproveSent { instance_id, graph_id, .. }), _) => {
+            // triggered by Disprove tx
+            tracing::info!("Handle DisproveSent for {instance_id}:{graph_id}");
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+        }
         (GOATMessageContent::Take1Ready(Take1Ready { instance_id, graph_id }), Actor::Operator) => {
             // triggered by timeout task
             let graph = match get_graph_or_defer(
@@ -3082,16 +3268,38 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::Take1Sent(Take1Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take1 tx
-            if !is_relayer() {
-                tracing::warn!("Ignore Take1Sent for {instance_id}:{graph_id}: not a relayer node");
-                return Ok(());
-            }
+            // 1. update graph status
             tracing::info!("Handle Take1Sent for {instance_id}:{graph_id}");
-            // 1. (Relayer) call finalizeWithdrawHappyPath on GoatChain
             let graph = get_graph(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            if !is_relayer() {
+                return Ok(());
+            }
+            // 2. (Relayer) call finalizeWithdrawHappyPath on GoatChain
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
+            if withdraw_status != WithdrawStatus::Processing {
+                tracing::warn!(
+                    "Relayer Ignore finishWithdrawHappyPath for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status}"
+                );
+                return Ok(());
+            }
             let take1_txid = graph.take1.tx().compute_txid();
             let take1_tx = match btc_client.get_tx(&take1_txid).await? {
                 Some(tx) => tx,
@@ -3127,6 +3335,30 @@ pub async fn recv_and_dispatch(
             goat_client
                 .gateway_finish_withdraw_happy_path(btc_client, &graph_id, &take1_tx)
                 .await?;
+        }
+        (GOATMessageContent::Take1Sent(Take1Sent { instance_id, graph_id }), _) => {
+            // triggered by Take1 tx
+            // 1. update graph status
+            tracing::info!("Handle Take1Sent for {instance_id}:{graph_id}");
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
         }
         (GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id }), Actor::Operator) => {
             // triggered by timeout task
@@ -3219,16 +3451,38 @@ pub async fn recv_and_dispatch(
         }
         (GOATMessageContent::Take2Sent(Take2Sent { instance_id, graph_id }), Actor::Committee) => {
             // triggered by Take2 tx
-            if !is_relayer() {
-                tracing::warn!("Ignore Take2Sent for {instance_id}:{graph_id}: not a relayer node");
-                return Ok(());
-            }
+            // 1. update graph status
             tracing::info!("Handle Take2Sent for {instance_id}:{graph_id}");
-            // 1. (Relayer) call finalizeWithdrawUnhappyPath on GoatChain
             let graph = get_graph(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            if !is_relayer() {
+                return Ok(());
+            }
+            // 2. (Relayer) call finalizeWithdrawUnhappyPath on GoatChain
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
+            if withdraw_status != WithdrawStatus::Processing {
+                tracing::warn!(
+                    "Relayer Ignore finishWithdrawUnhappyPath for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status}"
+                );
+                return Ok(());
+            }
             let take2_txid = graph.take2.tx().compute_txid();
             let take2_tx = match btc_client.get_tx(&take2_txid).await? {
                 Some(tx) => tx,
@@ -3264,6 +3518,30 @@ pub async fn recv_and_dispatch(
             goat_client
                 .gateway_finish_withdraw_unhappy_path(btc_client, &graph_id, &take2_tx)
                 .await?;
+        }
+        (GOATMessageContent::Take2Sent(Take2Sent { instance_id, graph_id }), _) => {
+            // triggered by Take2 tx
+            // 1. update graph status
+            tracing::info!("Handle Take2Sent for {instance_id}:{graph_id}");
+            let graph = get_graph(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
         }
         (
             GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id }),
