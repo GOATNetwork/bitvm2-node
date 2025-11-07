@@ -240,22 +240,25 @@ async fn handle_withdraw_paths_events<'a>(
             continue;
         }
         storage_processor.add_node_reward_by_addr(&goat_addr.unwrap(), reward_add).await?;
-        let (graph_id, instance_id, tx_type) = match event.clone() {
+        let (graph_id, instance_id, tx_type, status) = match event.clone() {
             WithdrawPathsEvent::WithdrawHappyEvent(v) => (
                 v.graph_id.clone(),
                 v.instance_id.clone(),
                 GoatTxType::WithdrawHappyPath.to_string(),
+                GraphStatus::OperatorTake1.to_string(),
             ),
             WithdrawPathsEvent::WithdrawUnhappyEvent(v) => (
                 v.graph_id.clone(),
                 v.instance_id.clone(),
                 GoatTxType::WithdrawUnhappyPath.to_string(),
+                GraphStatus::OperatorTake2.to_string(),
             ),
         };
+        let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&graph_id))?;
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id: Uuid::from_str(&strip_hex_prefix_owned(&instance_id))?,
-                graph_id: Uuid::from_str(&strip_hex_prefix_owned(&graph_id))?,
+                graph_id,
                 tx_type,
                 tx_hash: event.tx_hash(),
                 height: event.get_block_number(),
@@ -264,6 +267,9 @@ async fn handle_withdraw_paths_events<'a>(
                 extra: None,
                 created_at: current_time_secs(),
             })
+            .await?;
+        storage_processor
+            .update_graph_fields(GraphUpdate::new(graph_id).with_status(status))
             .await?;
     }
     Ok(())
@@ -274,6 +280,7 @@ async fn handle_withdraw_disproved_events<'a>(
     withdraw_disproved_events: Vec<WithdrawDisprovedEvent>,
 ) -> anyhow::Result<()> {
     for event in withdraw_disproved_events {
+        let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id))?;
         let challenger_reward_add: i64 = event.challenger_amount_sats.parse::<i64>()?;
         let disprover_reward_add: i64 = event.disprover_amount_sats.parse::<i64>()?;
         let (flag, challenger_addr) = reflect_goat_address(Some(event.challenger_addr.clone()));
@@ -298,6 +305,11 @@ async fn handle_withdraw_disproved_events<'a>(
             .await?;
         storage_processor
             .add_node_reward_by_addr(&disprover_addr.unwrap(), disprover_reward_add)
+            .await?;
+        storage_processor
+            .update_graph_fields(
+                GraphUpdate::new(graph_id).with_status(GraphStatus::Disprove.to_string()),
+            )
             .await?;
     }
     Ok(())
