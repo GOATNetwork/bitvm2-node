@@ -1575,7 +1575,7 @@ async fn detect_kickoff_ref_disprove_tx(
         SerializableTxid,
     ) = match (
         graph.kickoff_txid.clone(),
-        graph.assert_init_txid.clone(),
+        graph.take1_txid.clone(),
         graph.take2_txid.clone(),
         graph.next_prekickoff.clone(),
     ) {
@@ -1620,6 +1620,11 @@ async fn detect_kickoff_ref_disprove_tx(
         } else {
             DisproveTxType::ChallengeIncompleteKickoff
         };
+
+        info!(
+            "graph_id:{} is disproved, spent txid:{}, disprove_type:{}",
+            graph.graph_id, spend_txid, disprove_type
+        );
         let challenge_start_txid: Option<Txid> = graph.challenge_txid.clone().map(|v| v.into());
         let mut storage_processor = local_db.acquire().await?;
         create_message(
