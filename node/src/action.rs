@@ -1831,7 +1831,7 @@ pub async fn recv_and_dispatch(
                     return Ok(());
                 }
             };
-            let goat_confirmed_btc_height = goat_client.btc_spv_latest_height().await? as u64;
+            let goat_confirmed_btc_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_btc_height < kickoff_height {
                 let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
                     * (kickoff_height - goat_confirmed_btc_height);

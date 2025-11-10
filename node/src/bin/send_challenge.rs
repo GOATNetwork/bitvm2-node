@@ -74,6 +74,6 @@ async fn main() -> Result<()> {
         .context("failed to rebuild full graph from simplified data in DB")?;
 
     let txid = send_challenge_tx(&btc_client, &graph).await?;
-    println!("Challenge tx broadcasted: {}", txid);
+    println!("Challenge tx broadcasted: {txid}");
     Ok(())
 }

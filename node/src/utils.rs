@@ -1601,18 +1601,19 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
     if !tx_on_chain(btc_client, &prekickoff_txid).await? {
         bail!("prekickoff tx not on chain after broadcasting");
     }
-    if let Some(prekickoff_child_tx) = prekickoff_child_tx {
-        if let Err(e) = broadcast_tx(btc_client, &prekickoff_child_tx).await {
-            tracing::warn!("failed to broadcast prekickoff child tx: {e}");
-        }
+    if let Some(prekickoff_child_tx) = prekickoff_child_tx
+        && let Err(e) = broadcast_tx(btc_client, &prekickoff_child_tx).await
+    {
+        tracing::warn!("failed to broadcast prekickoff child tx: {e}");
     }
     if !tx_on_chain(btc_client, &kickoff_txid).await? {
         bail!("kickoff tx not on chain after broadcasting");
     }
-    if !kickoff_child_broadcasted && let Some(kickoff_child_tx) = kickoff_child_tx {
-        if let Err(e) = broadcast_tx(btc_client, &kickoff_child_tx).await {
-            tracing::warn!("failed to broadcast kickoff child tx: {e}");
-        }
+    if !kickoff_child_broadcasted
+        && let Some(kickoff_child_tx) = kickoff_child_tx
+        && let Err(e) = broadcast_tx(btc_client, &kickoff_child_tx).await
+    {
+        tracing::warn!("failed to broadcast kickoff child tx: {e}");
     }
     Ok(())
 }
