@@ -1,6 +1,5 @@
 use crate::env::{GraphBtcTxName, get_network};
 use crate::rpc_service::bitvm2::*;
-use crate::rpc_service::handler::is_use_mock_data;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::response::{ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
@@ -12,17 +11,15 @@ use crate::utils::{get_rand_btc_address_p2wpkh, get_rand_goat_address};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
-use bitcoin::{Network, Txid};
 use bitvm2_lib::types::Bitvm2Graph;
-use client::Utxo;
 use client::btc_chain::BTCClient;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::default::Default;
-use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
-use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, UInt64Array3};
+use store::{Graph, GraphStatus, InstanceBridgeInStatus};
+use tracing::warn;
 use uuid::Uuid;
 
 const WATCHTOWER_CHALLENGE_STEP_INIT: &str = "Watchtower Challenge init";
@@ -34,6 +31,7 @@ const WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH_TIMEOUT: &str =
     "Operator Commit BlockHash Timeout";
 const ASSERT_STEP_INIT: &str = "Assert init";
 const ASSERT_STEP_COMMIT: &str = "Assert Commit";
+
 /// Get instance settings
 ///
 /// Returns bridge-in amount configuration information for frontend display of available bridge amount options.
@@ -138,7 +136,7 @@ pub async fn instance_settings(
 ///       ],
 ///       "confirmations": 0,
 ///       "target_confirmations": 6,
-///       "waiting_time_in_mins": 60,
+///       "waiting_time_in_secs": 60,
 ///       "status_extra": {
 ///         "user_action": "Submit",
 ///         "is_failed": false,
@@ -154,65 +152,12 @@ pub async fn get_instances(
     Query(params): Query<InstanceListRequest>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceListResponse> {
-    // todo update statusExtra
     // Validate pagination parameters
     let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
-
     // Validate from_addr format (if provided)
     if let Some(ref from_addr) = params.from_addr {
         InputValidator::validate_btc_address(from_addr, "from_addr")?;
     }
-
-    if is_use_mock_data() {
-        let (from_addr, to_addr) = if params.is_bridge_in {
-            (get_rand_btc_address_p2wpkh(Network::Testnet), get_rand_goat_address())
-        } else {
-            (get_rand_goat_address(), get_rand_btc_address_p2wpkh(Network::Testnet))
-        };
-        return Ok((
-            StatusCode::OK,
-            Json(InstanceListResponse {
-                instance_wraps: vec![InstanceExtended {
-                    instance: Instance {
-                        instance_id: Uuid::new_v4(),
-                        is_bridge_in: params.is_bridge_in,
-                        network: "testnet".to_string(),
-                        from_addr,
-                        to_addr,
-                        amount: 100000000,
-                        fees: UInt64Array3([10, 20, 30]),
-                        input_utxos: "".to_string(),
-                        status: InstanceBridgeInStatus::CommitteesAnswered.to_string(),
-                        goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
-                        goat_tx_height: 8509060,
-                        user_xonly_pubkey: Default::default(),
-                        user_change_addr: "".to_string(),
-                        user_refund_addr: "".to_string(),
-                        btc_txid: Some(Txid::from_str("0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e").expect("fail to decode btc txid").into()),
-                        btc_height: 0,
-                        pegin_confirm_txid: None,
-                        pegin_cancel_txid: None,
-                        committees_answers: Default::default(),
-                        pegin_data_tx_hash: "".to_string(),
-                        parameters: None,
-                        created_at: 0,
-                        updated_at: 0,
-                    },
-                    utxo: vec![],
-                    waiting_time_in_mins: 60,
-                    confirmations: 0,
-                    target_confirmations: 0,
-                    status_extra: StatusExtra{
-                        user_action: StatusUserAction::Submit,
-                        is_failed: false,
-                        error: None,
-                    },
-                }],
-                total: 1,
-            }),
-        ));
-    }
-
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let mut query = InstanceQuery::default();
@@ -227,23 +172,22 @@ pub async fn get_instances(
         let (instances, total) = storage_process.find_instances(query).await?;
 
         if instances.is_empty() {
-            tracing::warn!("get_instances instance is empty: total {}", total);
+            warn!("get_instances instance is empty: total {}", total);
             return Ok::<InstanceListResponse, Box<dyn std::error::Error>>(
                 InstanceListResponse::default(),
             );
         }
         let mut items = vec![];
+        let current_height = app_state.btc_client.get_height().await?;
         for instance in instances {
-            let utxo: Vec<Utxo> =
-                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
-            items.push(InstanceExtended {
-                utxo,
-                instance,
-                waiting_time_in_mins: 0,
-                confirmations: 0,
-                target_confirmations: 0,
-                status_extra: Default::default(),
-            })
+            items.push(
+                InstanceExtended::convert_from_instance(
+                    &app_state.btc_client,
+                    current_height,
+                    instance,
+                )
+                .await?,
+            );
         }
 
         Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
@@ -331,7 +275,7 @@ pub async fn get_instances(
 ///     ],
 ///     "confirmations": 0,
 ///     "target_confirmations": 6,
-///     "waiting_time_in_mins": 60,
+///     "waiting_time_in_secs": 60,
 ///     "status_extra": {
 ///       "user_action": "Submit",
 ///       "is_failed": false,
@@ -345,68 +289,19 @@ pub async fn get_instance(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceGetResponse> {
-    // todo update statusExtra
     // Validate instance_id format
     let instance_id_uuid = InputValidator::validate_uuid(&instance_id, "instance_id")?;
-
-    if is_use_mock_data() {
-        return Ok((
-            StatusCode::OK,
-            Json(InstanceGetResponse {
-                instance_wrap: InstanceExtended {
-                    instance: Instance {
-                        instance_id: Uuid::new_v4(),
-                        is_bridge_in: true,
-                        network: "testnet".to_string(),
-                        from_addr:get_rand_btc_address_p2wpkh(Network::Testnet),
-                        to_addr:get_rand_goat_address(),
-                        amount: 100000000,
-                        fees: UInt64Array3([10, 20, 30]),
-                        input_utxos: "".to_string(),
-                        status: InstanceBridgeInStatus::CommitteesAnswered.to_string(),
-                        goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
-                        goat_tx_height: 8509060,
-                        user_xonly_pubkey: Default::default(),
-                        user_change_addr: "".to_string(),
-                        user_refund_addr: "".to_string(),
-                        btc_txid: Some(Txid::from_str("0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e").expect("fail to decode btc txid").into()),
-                        btc_height: 0,
-                        pegin_confirm_txid: None,
-                        pegin_cancel_txid: None,
-                        committees_answers: Default::default(),
-                        pegin_data_tx_hash: "".to_string(),
-                        parameters: None,
-                        created_at: 0,
-                        updated_at: 0,
-                    },
-                    utxo: vec![],
-                    waiting_time_in_mins: 60,
-                    confirmations: 0,
-                    target_confirmations: 0,
-                    status_extra: StatusExtra{
-                        user_action: StatusUserAction::Submit,
-                        is_failed: false,
-                        error: None,
-                    },
-                }
-            }),
-        ));
-    }
-
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(instance) = storage_process.find_instance(&instance_id_uuid).await? {
-            let utxo: Vec<Utxo> =
-                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
+            let current_height = app_state.btc_client.get_height().await?;
             Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
-                instance_wrap: InstanceExtended {
-                    utxo,
+                instance_wrap: InstanceExtended::convert_from_instance(
+                    &app_state.btc_client,
+                    current_height,
                     instance,
-                    waiting_time_in_mins: 0,
-                    confirmations: 0,
-                    target_confirmations: 0,
-                    status_extra: Default::default(),
-                },
+                )
+                .await?,
             })
         } else {
             tracing::info!("instance_id {} has no record in database", instance_id);
@@ -471,33 +366,14 @@ pub async fn get_instance(
 pub async fn get_instances_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceOverviewResponse> {
-    if is_use_mock_data() {
-        return Ok((
-            StatusCode::OK,
-            Json(InstanceOverviewResponse {
-                instances_overview: InstanceOverview {
-                    total_bridge_in_amount: 3000000,
-                    total_bridge_in_txn: 1,
-                    total_bridge_out_amount: 2000000,
-                    total_bridge_out_txn: 2,
-                    total_peg_out_amount: 1000000,
-                    total_peg_out_txn: 1,
-                    online_nodes: 3,
-                    total_nodes: 4,
-                },
-            }),
-        ));
-    }
+    // todo update bridge out calc
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         let (pegin_sum, pegin_count) = storage_process
-            .get_sum_bridge_in(&[
-                InstanceBridgeInStatus::RelayerL1Broadcasted.to_string(),
-                InstanceBridgeInStatus::RelayerL2Minted.to_string(),
-            ])
+            .get_sum_bridge_in(&[InstanceBridgeInStatus::RelayerL2Minted.to_string()])
             .await?;
         let (pegout_sum, pegout_count) = storage_process
-            .get_sum_bridge_out(&[
+            .get_sum_peg_out(&[
                 GraphStatus::OperatorTake1.to_string(),
                 GraphStatus::OperatorTake2.to_string(),
                 GraphStatus::Disprove.to_string(),
@@ -531,25 +407,6 @@ pub async fn get_instances_overview(
         }
     }
 }
-
-// async fn get_tx_confirmation_info(
-//     btc_client: &BTCClient,
-//     btc_tx_id: Option<String>,
-//     current_height: u32,
-//     target_confirm_num: u32,
-// ) -> anyhow::Result<(u32, u32)> {
-//     if btc_tx_id.is_none() {
-//         return Ok((0, target_confirm_num));
-//     }
-//     let tx_id = btc_tx_id.unwrap();
-//     let status = btc_client.get_tx_status(&Txid::from_str(&tx_id)?).await?;
-//     let blocks_pass = if let Some(block_height) = status.block_height {
-//         current_height - block_height
-//     } else {
-//         0
-//     };
-//     Ok((blocks_pass, target_confirm_num))
-// }
 
 /// Get graph by ID
 ///
@@ -616,7 +473,7 @@ pub async fn get_instances_overview(
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
 ///     },
-///     "waiting_time_in_mins": 1000
+///     "waiting_time_in_secs": 1000
 ///   }
 /// }
 /// ```
@@ -725,7 +582,7 @@ pub async fn get_graph(
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
 ///       },
-///       "waiting_time_in_mins": 1000
+///       "waiting_time_in_secs": 1000
 ///     }
 ///   ],
 ///   "total": 1
@@ -970,7 +827,7 @@ async fn add_extend_data_to_graphs<'a>(
     // todo update waiting in time
     Ok(graphs
         .into_iter()
-        .map(|graph| GraphExtended { graph, waiting_time_in_mins: 1000 })
+        .map(|graph| GraphExtended { graph, waiting_time_in_secs: 1000 })
         .collect())
 }
 

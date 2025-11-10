@@ -1485,7 +1485,7 @@ impl<'a> StorageProcessor<'a> {
         Ok((record.total, record.tx_count))
     }
 
-    pub async fn get_sum_bridge_out(&mut self, statuses: &[String]) -> anyhow::Result<(i64, i64)> {
+    pub async fn get_sum_peg_out(&mut self, statuses: &[String]) -> anyhow::Result<(i64, i64)> {
         #[derive(sqlx::FromRow)]
         struct BridgeOutRow {
             pub total: i64,

@@ -216,6 +216,7 @@ pub enum InstanceBridgeOutStatus {
     #[default]
     UserL2Locked,
     OperatorL1Locked,
+    OperatorToL1LockedTimeout,
     UserL1Unlocked,
     OperatorL2Unlocked,    // success
     UserL2LockTimeout,     // L2Locked -> L2 timeout (operator is offline)

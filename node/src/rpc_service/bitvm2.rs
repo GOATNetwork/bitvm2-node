@@ -1,14 +1,33 @@
+use crate::rpc_service::current_time_secs;
 use crate::utils::reflect_goat_address;
 use alloy::hex::ToHexExt;
 use bitcoin::Txid;
+use bitcoin::hashes::Hash;
 use client::Utxo;
+use client::btc_chain::BTCClient;
 use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::str::FromStr;
 use store::localdb::GraphQuery;
-use store::{Graph, GraphStatus, Instance, SerializableTxid, convert_to_step_state};
+use store::{
+    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
+    SerializableTxid, convert_to_step_state,
+};
 use strum::{Display, EnumString};
+use tracing::warn;
 use uuid::Uuid;
+
+const BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT: &str = "Your UTXO has already been spent.";
+const BRIDGE_IN_FAIL_AS_NO_ENOUGH_COMMITTEES: &str = "Unfortunately, no enough committee answered.";
+const BRIDGE_IN_FAIL_AS_PRESIGNED_FAILED: &str = "Unfortunately, the verification failed.";
+
+const BRIDGE_IN_FAIL_AS_L2_MINTED_FAILED: &str = "Unfortunately, PegBTC minted failed.";
+
+const BRIDGE_IN_FAIL_AS_TIMEOUT: &str = "Unfortunately timeout.";
+const _BRIDGE_OUT_FAIL_AS_CLAIM_TIMEOUT: &str =
+    "Claim timed out. Please initiate a new transaction.";
+const _BRIDGE_IN_FAIL_AS_L1_LOCK_TIMEOUT: &str =
+    "The operator timed out and failed to lock BTC. Please cancel the transaction.";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InstanceSettingResponse {
@@ -37,8 +56,9 @@ pub struct InstanceListRequest {
 pub enum StatusUserAction {
     #[default]
     None,
-    Submit,
     Cancel,
+    BroadcastPreparePegin,
+    BroadcastCancelPegin,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct StatusExtra {
@@ -50,10 +70,161 @@ pub struct StatusExtra {
 pub struct InstanceExtended {
     pub instance: Instance,
     pub utxo: Vec<Utxo>,
-    pub waiting_time_in_mins: i64,
+    pub waiting_time_in_secs: i64,
     pub confirmations: u32,
     pub target_confirmations: u32,
     pub status_extra: StatusExtra,
+}
+
+impl InstanceExtended {
+    pub async fn convert_from_instance(
+        btc_client: &BTCClient,
+        current_height: u32,
+        instance: Instance,
+    ) -> anyhow::Result<Self> {
+        let utxo: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)
+            .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let (confirmations, target_confirmations) = get_instance_block_confirm_progress(
+            &btc_client,
+            current_height,
+            instance.is_bridge_in,
+            instance.btc_txid.clone(),
+        )
+        .await?;
+        Ok(Self {
+            waiting_time_in_secs: get_instance_waiting_time_in_mins(&instance),
+            confirmations,
+            target_confirmations,
+            status_extra: get_instance_status_extra(
+                &btc_client,
+                instance.instance_id,
+                instance.is_bridge_in,
+                instance.status.clone(),
+                &utxo,
+            )
+            .await?,
+            utxo,
+            instance,
+        })
+    }
+}
+
+async fn check_bridge_in_uxto_avaliable(
+    btc_client: &BTCClient,
+    utxos: &[Utxo],
+) -> anyhow::Result<bool> {
+    for utxo in utxos {
+        if let Ok(txid) = Txid::from_slice(&utxo.txid)
+            && let Ok(Some(status)) = btc_client.get_output_status(&txid, utxo.vout as u64).await
+            && status.spent
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+async fn get_instance_status_extra(
+    btc_client: &BTCClient,
+    instance_id: Uuid,
+    is_bridge_in: bool,
+    status: String,
+    utxos: &[Utxo],
+) -> anyhow::Result<StatusExtra> {
+    let mut status_extra = StatusExtra::default();
+    if is_bridge_in && let Ok(bridge_in_status) = InstanceBridgeInStatus::from_str(&status) {
+        match bridge_in_status {
+            InstanceBridgeInStatus::UserInited => {
+                if !check_bridge_in_uxto_avaliable(btc_client, utxos).await? {
+                    status_extra.is_failed = true;
+                    status_extra.error = Some(BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT.to_string());
+                    status_extra.user_action = StatusUserAction::Cancel;
+                }
+            }
+            InstanceBridgeInStatus::CommitteesAnswered => {
+                status_extra.is_failed = false;
+                status_extra.error = None;
+                status_extra.user_action = StatusUserAction::BroadcastPreparePegin;
+            }
+            InstanceBridgeInStatus::NoEnoughCommitteesAnswered => {
+                status_extra.is_failed = true;
+                status_extra.error = Some(BRIDGE_IN_FAIL_AS_NO_ENOUGH_COMMITTEES.to_string());
+                status_extra.user_action = StatusUserAction::Cancel;
+            }
+
+            InstanceBridgeInStatus::PresignedFailed => {
+                status_extra.is_failed = true;
+                status_extra.error = Some(BRIDGE_IN_FAIL_AS_PRESIGNED_FAILED.to_string());
+                status_extra.user_action = StatusUserAction::None;
+            }
+            InstanceBridgeInStatus::RelayerL2MintedFailed => {
+                status_extra.is_failed = true;
+                status_extra.error = Some(BRIDGE_IN_FAIL_AS_L2_MINTED_FAILED.to_string());
+                status_extra.user_action = StatusUserAction::None;
+            }
+            InstanceBridgeInStatus::Timeout => {
+                status_extra.is_failed = true;
+                status_extra.error = Some(BRIDGE_IN_FAIL_AS_TIMEOUT.to_string());
+                status_extra.user_action = StatusUserAction::BroadcastCancelPegin;
+            }
+            _ => {}
+        }
+    } else if !is_bridge_in
+        && let Ok(_bridge_out_status) = InstanceBridgeOutStatus::from_str(&status)
+    {
+    } else {
+        warn!("instance:with {instance_id}, is_bridge_in:{is_bridge_in} has wrong status:{status}");
+    }
+    Ok(status_extra)
+}
+
+async fn get_instance_block_confirm_progress(
+    btc_client: &BTCClient,
+    current_height: u32,
+    is_bridge_in: bool,
+    txid: Option<SerializableTxid>,
+) -> anyhow::Result<(u32, u32)> {
+    if !is_bridge_in {
+        if let Some(txid) = txid
+            && let Ok(tx_status) = btc_client.get_tx_status(&txid.into()).await
+            && let Some(height) = tx_status.block_height
+        {
+            Ok((current_height + 1_u32 - height, 6_u32))
+        } else {
+            Ok((0, 6))
+        }
+    } else {
+        Ok((0, 0))
+    }
+}
+
+fn get_bridge_in_status_time_window_secs(status: &str) -> i64 {
+    if let Ok(status) = InstanceBridgeInStatus::from_str(status) {
+        match status {
+            InstanceBridgeInStatus::UserInited => 120,
+            _ => 0,
+        }
+    } else {
+        0
+    }
+}
+
+fn get_bridge_out_status_time_window_secs(status: &str) -> i64 {
+    if let Ok(status) = InstanceBridgeOutStatus::from_str(status) {
+        match status {
+            _ => 0,
+        }
+    } else {
+        0
+    }
+}
+
+fn get_instance_waiting_time_in_mins(instance: &Instance) -> i64 {
+    let time_left = if instance.is_bridge_in {
+        get_bridge_in_status_time_window_secs(&instance.status) - current_time_secs()
+    } else {
+        get_bridge_out_status_time_window_secs(&instance.status) - current_time_secs()
+    };
+    time_left.max(0)
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -216,7 +387,7 @@ pub struct GraphListResponse {
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphExtended {
     pub graph: Graph,
-    pub waiting_time_in_mins: i64,
+    pub waiting_time_in_secs: i64,
     // pub proof_height: Option<i64>,
     // pub proof_query_url: Option<String>,
 }
