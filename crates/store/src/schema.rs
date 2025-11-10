@@ -211,6 +211,19 @@ pub enum InstanceBridgeInStatus {
     NoEnoughCommitteesAnswered, // no enough committee responsed & window expired
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
+pub enum InstanceBridgeOutStatus {
+    #[default]
+    UserL2Locked,
+    OperatorL1Locked,
+    UserL1Unlocked,
+    OperatorL2Unlocked,    // success
+    UserL2LockTimeout,     // L2Locked -> L2 timeout (operator is offline)
+    OperatorL1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
+    OperatorL1Refunded,
+    UserL2Refunded,
+}
+
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Instance {
     pub instance_id: Uuid,
@@ -221,7 +234,7 @@ pub struct Instance {
     pub amount: i64,
     pub fees: UInt64Array3,
     pub input_utxos: String,
-    pub status: String,
+    pub status: String,       // InstanceBridgeInStatus | InstanceBridgeOutStatus
     pub goat_tx_hash: String, // bridgeIn:pegin Request tx || bridgeOut goat tx
     pub goat_tx_height: i64,
     pub user_xonly_pubkey: ByteArray32,
