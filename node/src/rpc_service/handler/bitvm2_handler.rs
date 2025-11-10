@@ -22,7 +22,7 @@ use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
-use store::{Graph, GraphStatus, Instance, InstanceStatus, UInt64Array3};
+use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, UInt64Array3};
 use uuid::Uuid;
 
 const WATCHTOWER_CHALLENGE_STEP_INIT: &str = "Watchtower Challenge init";
@@ -182,7 +182,7 @@ pub async fn get_instances(
                         amount: 100000000,
                         fees: UInt64Array3([10, 20, 30]),
                         input_utxos: "".to_string(),
-                        status: InstanceStatus::CommitteesAnswered.to_string(),
+                        status: InstanceBridgeInStatus::CommitteesAnswered.to_string(),
                         goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
                         goat_tx_height: 8509060,
                         user_xonly_pubkey: Default::default(),
@@ -363,7 +363,7 @@ pub async fn get_instance(
                         amount: 100000000,
                         fees: UInt64Array3([10, 20, 30]),
                         input_utxos: "".to_string(),
-                        status: InstanceStatus::CommitteesAnswered.to_string(),
+                        status: InstanceBridgeInStatus::CommitteesAnswered.to_string(),
                         goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
                         goat_tx_height: 8509060,
                         user_xonly_pubkey: Default::default(),
@@ -492,8 +492,8 @@ pub async fn get_instances_overview(
         let mut storage_process = app_state.local_db.acquire().await?;
         let (pegin_sum, pegin_count) = storage_process
             .get_sum_bridge_in(&[
-                InstanceStatus::RelayerL1Broadcasted.to_string(),
-                InstanceStatus::RelayerL2Minted.to_string(),
+                InstanceBridgeInStatus::RelayerL1Broadcasted.to_string(),
+                InstanceBridgeInStatus::RelayerL2Minted.to_string(),
             ])
             .await?;
         let (pegout_sum, pegout_count) = storage_process

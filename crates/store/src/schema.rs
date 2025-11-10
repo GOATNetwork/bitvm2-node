@@ -195,7 +195,7 @@ pub struct CommitteeSignatures {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
-pub enum InstanceStatus {
+pub enum InstanceBridgeInStatus {
     #[default]
     UserInited, // from contract event request
     // committee won't answer if userRequest is invalid(e.g. insufficient fee)
@@ -813,10 +813,10 @@ mod tests {
     #[test]
     fn test_bridge_in_status_from_str() {
         assert_eq!(
-            InstanceStatus::from_str("RelayerL2Minted").unwrap(),
-            InstanceStatus::RelayerL2Minted
+            InstanceBridgeInStatus::from_str("RelayerL2Minted").unwrap(),
+            InstanceBridgeInStatus::RelayerL2Minted
         );
-        assert!(InstanceStatus::from_str("Invalid").is_err());
+        assert!(InstanceBridgeInStatus::from_str("Invalid").is_err());
     }
 
     #[test]

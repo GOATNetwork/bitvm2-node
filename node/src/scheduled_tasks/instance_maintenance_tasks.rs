@@ -10,7 +10,7 @@ use client::goat_chain::GOATClient;
 use client::graphs::graph_query::BridgeInRequestEvent;
 use std::str::FromStr;
 use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
-use store::{GoatTxProcessingStatus, GoatTxType, Instance, InstanceStatus};
+use store::{GoatTxProcessingStatus, GoatTxType, Instance, InstanceBridgeInStatus};
 use tracing::{info, warn};
 
 const MAX_INSTANCE: u32 = 50;
@@ -89,7 +89,7 @@ pub async fn instance_window_expiration_monitor(
             .find_instances(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
-                    .with_status(InstanceStatus::UserInited.to_string())
+                    .with_status(InstanceBridgeInStatus::UserInited.to_string())
                     .with_pegin_request_height_threshold(current_height - window_blocks)
                     .with_order("created_at DESC".to_string())
                     .with_offset(0)
@@ -115,9 +115,10 @@ pub async fn instance_window_expiration_monitor(
                 }
 
                 if committee_quorum_size <= instance.committees_answers.len() as u64 {
-                    instance.status = InstanceStatus::CommitteesAnswered.to_string();
+                    instance.status = InstanceBridgeInStatus::CommitteesAnswered.to_string();
                 } else {
-                    instance.status = InstanceStatus::NoEnoughCommitteesAnswered.to_string();
+                    instance.status =
+                        InstanceBridgeInStatus::NoEnoughCommitteesAnswered.to_string();
                 }
 
                 let _ = update_pegin_txids(&mut instance);
@@ -162,8 +163,8 @@ pub async fn instance_expiration_monitor(
         let mut storage_processor = local_db.acquire().await?;
         let expired_num = storage_processor
             .update_expired_instance(
-                &InstanceStatus::CommitteesAnswered.to_string(),
-                &InstanceStatus::PresignedFailed.to_string(),
+                &InstanceBridgeInStatus::CommitteesAnswered.to_string(),
+                &InstanceBridgeInStatus::PresignedFailed.to_string(),
                 current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
             )
             .await?;
@@ -172,7 +173,7 @@ pub async fn instance_expiration_monitor(
             .find_instances(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
-                    .with_status(InstanceStatus::PresignedFailed.to_string())
+                    .with_status(InstanceBridgeInStatus::PresignedFailed.to_string())
                     .with_order("created_at DESC".to_string())
                     .with_offset(0)
                     .with_limit(MAX_INSTANCE),
@@ -187,7 +188,7 @@ pub async fn instance_expiration_monitor(
             update_instance(
                 &mut storage_processor,
                 &InstanceUpdate::new(instance.instance_id)
-                    .with_status(InstanceStatus::Timeout.to_string()),
+                    .with_status(InstanceBridgeInStatus::Timeout.to_string()),
             )
             .await?;
         } else {
@@ -211,9 +212,9 @@ pub async fn instance_btc_tx_monitor(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
                     .with_statuses(vec![
-                        InstanceStatus::CommitteesAnswered.to_string(),
-                        InstanceStatus::Presigned.to_string(),
-                        InstanceStatus::Timeout.to_string(),
+                        InstanceBridgeInStatus::CommitteesAnswered.to_string(),
+                        InstanceBridgeInStatus::Presigned.to_string(),
+                        InstanceBridgeInStatus::Timeout.to_string(),
                     ])
                     .with_offset(0)
                     .with_order("created_at DESC".to_string())
@@ -222,16 +223,17 @@ pub async fn instance_btc_tx_monitor(
             .await?
     };
     for instance in instances {
-        let (tx_id_op, next_status) = match InstanceStatus::from_str(&instance.status) {
+        let (tx_id_op, next_status) = match InstanceBridgeInStatus::from_str(&instance.status) {
             Ok(status) => match status {
-                InstanceStatus::CommitteesAnswered => {
-                    (instance.btc_txid.clone(), InstanceStatus::UserBroadcastPeginPrepare)
+                InstanceBridgeInStatus::CommitteesAnswered => {
+                    (instance.btc_txid.clone(), InstanceBridgeInStatus::UserBroadcastPeginPrepare)
                 }
-                InstanceStatus::Presigned => {
-                    (instance.pegin_confirm_txid.clone(), InstanceStatus::RelayerL1Broadcasted)
-                }
-                InstanceStatus::Timeout => {
-                    (instance.pegin_cancel_txid.clone(), InstanceStatus::UserCanceled)
+                InstanceBridgeInStatus::Presigned => (
+                    instance.pegin_confirm_txid.clone(),
+                    InstanceBridgeInStatus::RelayerL1Broadcasted,
+                ),
+                InstanceBridgeInStatus::Timeout => {
+                    (instance.pegin_cancel_txid.clone(), InstanceBridgeInStatus::UserCanceled)
                 }
                 _ => (None, status),
             },
@@ -261,7 +263,7 @@ pub async fn instance_btc_tx_monitor(
             let mut tx = local_db.start_transaction().await?;
             let mut instance_update =
                 InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
-            if next_status == InstanceStatus::UserBroadcastPeginPrepare {
+            if next_status == InstanceBridgeInStatus::UserBroadcastPeginPrepare {
                 instance_update =
                     instance_update.with_btc_height(status.block_height.unwrap_or_default() as i64);
 
@@ -280,7 +282,7 @@ pub async fn instance_btc_tx_monitor(
                 )
                 .await?;
             }
-            if next_status == InstanceStatus::RelayerL1Broadcasted {
+            if next_status == InstanceBridgeInStatus::RelayerL1Broadcasted {
                 upsert_message(
                     &mut tx,
                     false,

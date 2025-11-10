@@ -56,8 +56,8 @@ use store::ipfs::IPFS;
 use store::localdb::{GraphQuery, GraphUpdate, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
-    Graph, GraphRawData, GraphStatus, Instance, InstanceStatus, Message, MessageState, Node,
-    PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
+    Graph, GraphRawData, GraphStatus, Instance, InstanceBridgeInStatus, Message, MessageState,
+    Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 
@@ -2588,7 +2588,7 @@ pub async fn store_pegin_request(
             amount: pegin_amount.to_sat() as i64,
             fees: UInt64Array3(user_info.txn_fees),
             input_utxos: serde_json::to_string(&input_utxos)?,
-            status: InstanceStatus::UserInited.to_string(),
+            status: InstanceBridgeInStatus::UserInited.to_string(),
             goat_tx_hash: pegin_request_tx_hash,
             goat_tx_height: pegin_request_height,
             user_xonly_pubkey: ByteArray32(user_info.user_xonly_pubkey.clone().serialize()),
@@ -2717,7 +2717,8 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
     tx.upsert_graph(graph).await?;
     if bitvm2_graph.committee_pre_signed() {
         tx.update_instance(
-            &InstanceUpdate::new(instance_id).with_status(InstanceStatus::Presigned.to_string()),
+            &InstanceUpdate::new(instance_id)
+                .with_status(InstanceBridgeInStatus::Presigned.to_string()),
         )
         .await?;
     }
@@ -3178,7 +3179,7 @@ pub async fn update_graph_status(
         storage_processor
             .update_instance(
                 &InstanceUpdate::new(instance_id)
-                    .with_status(InstanceStatus::Presigned.to_string()),
+                    .with_status(InstanceBridgeInStatus::Presigned.to_string()),
             )
             .await?;
     }

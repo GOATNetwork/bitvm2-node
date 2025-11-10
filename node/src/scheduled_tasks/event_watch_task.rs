@@ -17,8 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
-    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, InstanceStatus, WatchContract,
-    WatchContractStatus,
+    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, InstanceBridgeInStatus,
+    WatchContract, WatchContractStatus,
 };
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
@@ -384,7 +384,10 @@ async fn handle_bridge_in_events<'a>(
     for event in bridge_in_events {
         if let Ok(instance_id) = &Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id)) {
             storage_processor
-                .update_instance_status(instance_id, &InstanceStatus::RelayerL2Minted.to_string())
+                .update_instance_status(
+                    instance_id,
+                    &InstanceBridgeInStatus::RelayerL2Minted.to_string(),
+                )
                 .await?;
         } else {
             warn!("failed to parse instance id:{event:?}");
