@@ -5,7 +5,7 @@
 
 set -e
 
-echo "🚀 BitVM2 Documentation Deployment Script"
+echo "BitVM2 Documentation Deployment Script"
 echo ""
 
 # Configuration variables
@@ -54,7 +54,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "❌ Unknown argument: $1"
+            echo "Unknown argument: $1"
             show_usage
             exit 1
             ;;
@@ -63,18 +63,18 @@ done
 
 # Check if documentation exists
 if [ ! -d "$DOCS_SOURCE_DIR" ]; then
-    echo "❌ Error: Documentation directory does not exist: $DOCS_SOURCE_DIR"
+    echo "Error: Documentation directory does not exist: $DOCS_SOURCE_DIR"
     echo "Please run first: ./scripts/generate_api_docs.sh"
     exit 1
 fi
 
 # Deploy with Docker
 deploy_with_docker() {
-    echo "🐳 Deploying documentation with Docker..."
+    echo "Deploying documentation with Docker..."
     
     # Check if Dockerfile exists
     if [ ! -f "scripts/DocServer_Dockerfile" ]; then
-        echo "📝 Creating DocServer_Dockerfile..."
+        echo "Creating DocServer_Dockerfile..."
         cat > scripts/DocServer_Dockerfile <<'EOF'
 FROM ubuntu:latest
 
@@ -100,25 +100,25 @@ EOF
     
     # Stop and remove existing container if it exists
     if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-        echo "🛑 Stopping existing container: ${CONTAINER_NAME}..."
+        echo "Stopping existing container: ${CONTAINER_NAME}..."
         docker stop ${CONTAINER_NAME} > /dev/null 2>&1 || true
-        echo "🗑️  Removing existing container: ${CONTAINER_NAME}..."
+        echo "Removing existing container: ${CONTAINER_NAME}..."
         docker rm ${CONTAINER_NAME} > /dev/null 2>&1 || true
     fi
     
     # Build Docker image
-    echo "🔨 Building Docker image..."
+    echo "Building Docker image..."
     docker build -f scripts/DocServer_Dockerfile -t bitvm2-docs:latest .
     
     if [ $? -ne 0 ]; then
-        echo "❌ Docker image build failed!"
+        echo "Docker image build failed!"
         exit 1
     fi
     
-    echo "✅ Docker image built successfully!"
+    echo "Docker image built successfully!"
     
     # Start container
-    echo "🚀 Starting container: ${CONTAINER_NAME}..."
+    echo "Starting container: ${CONTAINER_NAME}..."
     docker run -d \
         -p ${CONTAINER_PORT}:80 \
         --name ${CONTAINER_NAME} \
@@ -127,30 +127,30 @@ EOF
     
     if [ $? -eq 0 ]; then
         echo ""
-        echo "✅ Container started successfully!"
+        echo "Container started successfully!"
         echo ""
-        echo "📖 Access documentation at:"
-        echo "   http://localhost:${CONTAINER_PORT}"
+        echo "Access documentation at:"
+        echo " http://localhost:${CONTAINER_PORT}"
         echo ""
-        echo "🔧 Useful commands:"
-        echo "   View logs:        docker logs ${CONTAINER_NAME}"
-        echo "   Stop container:   docker stop ${CONTAINER_NAME}"
-        echo "   Start container:  docker start ${CONTAINER_NAME}"
-        echo "   Remove container: docker rm -f ${CONTAINER_NAME}"
+        echo "Useful commands:"
+        echo " View logs:        docker logs ${CONTAINER_NAME}"
+        echo " Stop container:   docker stop ${CONTAINER_NAME}"
+        echo " Start container:  docker start ${CONTAINER_NAME}"
+        echo " Remove container: docker rm -f ${CONTAINER_NAME}"
     else
-        echo "❌ Failed to start container!"
+        echo "Failed to start container!"
         exit 1
     fi
 }
 
 # Execute deployment
 echo "Deployment Configuration:"
-echo "  Source Directory: $DOCS_SOURCE_DIR"
-echo "  Container Name:   $CONTAINER_NAME"
-echo "  Container Port:   $CONTAINER_PORT"
+echo " Source Directory: $DOCS_SOURCE_DIR"
+echo " Container Name:   $CONTAINER_NAME"
+echo " Container Port:   $CONTAINER_PORT"
 echo ""
 
 deploy_with_docker
 
 echo ""
-echo "🎉 Deployment complete!"
+echo "Deployment complete!"

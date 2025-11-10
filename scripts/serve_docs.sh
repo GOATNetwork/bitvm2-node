@@ -53,34 +53,34 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "❌ Unknown argument: $1"
+            echo "Unknown argument: $1"
             show_usage
             exit 1
             ;;
     esac
 done
 
-echo "🚀 Starting BitVM2 API Documentation Server..."
+echo "Starting BitVM2 API Documentation Server..."
 echo ""
 
 # Check if documentation exists
 if [ ! -d "$DOCS_DIR" ]; then
-    echo "❌ Error: Documentation directory does not exist: $DOCS_DIR"
+    echo "Error: Documentation directory does not exist: $DOCS_DIR"
     echo "Please run first: ./scripts/generate_api_docs.sh"
     exit 1
 fi
 
-echo "📁 Documentation Directory: $DOCS_DIR"
-echo "🌐 Server Host: $HOST"
-echo "🌐 Server Port: $PORT"
+echo "Documentation Directory: $DOCS_DIR"
+echo "Server Host: $HOST"
+echo "Server Port: $PORT"
 echo ""
-echo "📖 Access Documentation:"
+echo "Access Documentation:"
 if [ "$HOST" = "0.0.0.0" ]; then
-    echo "   http://localhost:$PORT"
-    echo "   http://127.0.0.1:$PORT"
-    echo "   Or use your machine's IP address"
+    echo "  http://localhost:$PORT"
+    echo "  http://127.0.0.1:$PORT"
+    echo "  Or use your machine's IP address"
 else
-    echo "   http://$HOST:$PORT"
+    echo "  http://$HOST:$PORT"
 fi
 echo ""
 echo "Press Ctrl+C to stop server"
@@ -99,14 +99,14 @@ elif command -v python &> /dev/null; then
         echo "Starting server with Python..."
         python -m http.server $PORT --bind $HOST
     else
-        echo "⚠️  Warning: Python 2 does not support --bind parameter"
+        echo " Warning: Python 2 does not support --bind parameter"
         echo "Starting server with Python 2 (binds to 0.0.0.0)..."
         python -m SimpleHTTPServer $PORT
     fi
 else
-    echo "❌ Error: Python not found"
+    echo "Error: Python not found"
     echo ""
     echo "Please install Python or use Docker deployment:"
-    echo "  ./scripts/deploy_docs.sh"
+    echo " ./scripts/deploy_docs.sh"
     exit 1
 fi
