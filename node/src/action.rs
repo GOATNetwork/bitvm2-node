@@ -1764,7 +1764,8 @@ pub async fn recv_and_dispatch(
                     .await?;
                     return Ok(());
                 } else {
-                    let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
+                    let graph_data_on_goat =
+                        goat_client.gateway_get_graph_data(&current_graph_id).await?;
                     if graph_data_on_goat.operator_pubkey != [0u8; 32] {
                         tracing::warn!(
                             "Ignore KickoffReady for {instance_id}:{graph_id}: previous available graph exists for Operator {operator_pubkey}: {current_instance_id}:{current_graph_id}, please withdraw it first"
