@@ -12,7 +12,6 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
 use bitvm2_lib::types::Bitvm2Graph;
-use client::btc_chain::BTCClient;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::default::Default;
@@ -487,17 +486,9 @@ pub async fn get_graph(
     let async_fn = || async move {
         let mut storage_process = app_state.local_db.acquire().await?;
         if let Some(graph) = storage_process.find_graph(&graph_id_uuid).await? {
-            let graphs =
-                add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, vec![graph])
-                    .await?;
-            if graphs.is_empty() {
-                tracing::warn!("graph:{} is convert failed", graph_id);
-                Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: None })
-            } else {
-                Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse {
-                    graph: Some(graphs[0].clone()),
-                })
-            }
+            Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse {
+                graph: Some(GraphExtended::convert_from_graph(&app_state.btc_client, graph).await?),
+            })
         } else {
             tracing::warn!("graph:{} is not record in db", graph_id);
             Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: None })
@@ -602,8 +593,12 @@ pub async fn get_graphs(
         if graphs.is_empty() {
             return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp);
         }
-        resp.graphs =
-            add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, graphs).await?;
+        let mut converted_graphs = Vec::new();
+        for graph in graphs {
+            converted_graphs
+                .push(GraphExtended::convert_from_graph(&app_state.btc_client, graph).await?);
+        }
+        resp.graphs = converted_graphs;
         Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp)
     };
     match async_fn().await {
@@ -693,9 +688,13 @@ pub async fn get_graphs(
 #[axum::debug_handler]
 pub async fn get_ready_to_kickoff_graph(
     Query(params): Query<GraphReadyToKickoffRequest>,
-    State(_app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<GraphReadyToKickoffResponse> {
-    if params.btc_pub_key.is_none() || params.btc_pub_key.is_none() {
+    let mut graph_query = GraphQuery::default()
+        .with_status(GraphStatus::OperatorDataPushed.to_string())
+        .with_order("kickoff_index DESC".to_string())
+        .with_limit(1);
+    if params.btc_pub_key.is_none() || params.goat_addr.is_none() {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -704,49 +703,51 @@ pub async fn get_ready_to_kickoff_graph(
                     .to_string(),
             }),
         ));
+    } else {
+        if let Some(ref goat_addr) = params.goat_addr {
+            graph_query = graph_query
+                .with_from_addr(InputValidator::validate_goat_address(goat_addr, "goat_addr")?);
+        }
+        if let Some(ref btc_pub_key) = params.btc_pub_key {
+            graph_query = graph_query.with_operator_pubkey(InputValidator::validate_btc_pubkey(
+                btc_pub_key,
+                "btc_pub_key",
+            )?);
+        }
     }
 
     let async_fn = || async move {
-        let mut graph = Graph {
-            graph_id: Uuid::new_v4(),
-            instance_id: Uuid::new_v4(),
-            kickoff_index: 10,
-            from_addr: get_rand_goat_address(),
-            to_addr: get_rand_btc_address_p2wpkh(get_network()),
-            graph_ipfs_base_url: "".to_string(),
-            amount: 2000000,
-            challenge_amount: 1000000,
-            status: GraphStatus::OperatorDataPushed.to_string(),
-            sub_status: "".to_string(),
-            operator_pubkey: "btc_pub_key".to_string(),
-            next_prekickoff: None,
-            cur_prekickoff_txid: None,
-            force_skip_kickoff_txid: None,
-            quick_challenge_txid: None,
-            challenge_incomplete_kickoff_txid: None,
-            pegin_txid: None,
-            kickoff_txid: None,
-            take1_txid: None,
-            challenge_txid: None,
-            take2_txid: None,
-            disprove_txid: None,
-            watchtower_challenge_init_txid: None,
-            watchtower_challenge_timeout_txids: vec![],
-            nack_txids: vec![],
-            blockhash_commit_timeout_txid: None,
-            assert_init_txid: None,
-            assert_commit_timeout_txids: vec![],
-            init_withdraw_tx_hash: None,
-            bridge_out_start_at: 0,
-            zkm_version: "zkm1.0.0".to_string(),
-            created_at: current_time_secs(),
-            updated_at: current_time_secs(),
-        };
-        if let Some(goat_addr) = params.goat_addr {
-            graph.from_addr = goat_addr;
+        let mut storage_processor = app_state.local_db.acquire().await?;
+        let graphs = storage_processor.get_operator_graphs(graph_query).await?;
+        if graphs.is_empty() {
+            return Ok::<GraphReadyToKickoffResponse, Box<dyn std::error::Error>>(
+                GraphReadyToKickoffResponse {
+                    graph: None,
+                    no_ready_reason: Some("No graph is ready".to_string()),
+                },
+            );
         }
-        if let Some(btc_pub_key) = params.btc_pub_key {
-            graph.operator_pubkey = btc_pub_key;
+        let graph = graphs[0].clone();
+        if graph.kickoff_index > 0 {
+            let pre_graphs = storage_processor
+                .get_operator_graphs(
+                    GraphQuery::default()
+                        .with_operator_pubkey(graph.operator_pubkey.clone())
+                        .with_kickoff_index(graph.kickoff_index - 1),
+                )
+                .await?;
+
+            if !pre_graphs.is_empty()
+                && [GraphStatus::OperatorKickOff.to_string(), GraphStatus::Challenge.to_string()]
+                    .contains(&graph.status)
+            {
+                return Ok::<GraphReadyToKickoffResponse, Box<dyn std::error::Error>>(
+                    GraphReadyToKickoffResponse {
+                        graph: None,
+                        no_ready_reason: Some("Pre graph not finish Pegout".to_string()),
+                    },
+                );
+            }
         }
 
         Ok::<GraphReadyToKickoffResponse, Box<dyn std::error::Error>>(GraphReadyToKickoffResponse {
@@ -767,68 +768,6 @@ pub async fn get_ready_to_kickoff_graph(
             ))
         }
     }
-}
-
-/// Add extended data to graphs
-///
-/// Helper function to enrich graph data with confirmation status and proof information.
-/// This function processes a list of graphs and adds confirmation counts, target confirmations,
-/// and proof-related metadata.
-///
-/// # Parameters
-///
-/// - `storage_processor`: Database storage processor for querying additional data
-/// - `btc_client`: Bitcoin client for getting current blockchain height
-/// - `graphs`: Vector of graphs to process
-///
-/// # Returns
-///
-/// - `Ok(Vec<GraphExtended>)`: Vector of graphs with extended data
-/// - `Err`: Error if processing fails
-///
-/// # Features
-///
-/// - Calculates transaction confirmation status
-/// - Modifies graph status based on withdrawal transaction presence
-/// - Adds proof height and query URL information
-///
-/// Add extended data to graphs
-///
-/// Helper function to enrich graph data with confirmation status and proof information.
-/// This function processes a list of graphs and adds confirmation counts, target confirmations,
-/// and proof-related metadata.
-///
-/// # Parameters
-///
-/// - `storage_processor`: Database storage processor for querying additional data
-/// - `btc_client`: Bitcoin client for getting current blockchain height
-/// - `graphs`: Vector of graphs to process
-///
-/// # Returns
-///
-/// - `Ok(Vec<GraphExtended>)`: Vector of graphs with extended data
-/// - `Err`: Error if processing fails
-///
-/// # Features
-///
-/// - Calculates transaction confirmation status
-/// - Modifies graph status based on withdrawal transaction presence
-/// - Adds proof height and query URL information
-/// - Reverses Bitcoin transaction IDs for proper display
-///
-/// # Note
-///
-/// This function modifies the input graphs in-place and returns enhanced versions.
-async fn add_extend_data_to_graphs<'a>(
-    _storage_processor: &mut StorageProcessor<'a>,
-    _btc_client: &BTCClient,
-    graphs: Vec<Graph>,
-) -> Result<Vec<GraphExtended>, Box<dyn std::error::Error>> {
-    // todo update waiting in time
-    Ok(graphs
-        .into_iter()
-        .map(|graph| GraphExtended { graph, waiting_time_in_secs: 1000 })
-        .collect())
 }
 
 /// Get graph Bitcoin transaction progress data

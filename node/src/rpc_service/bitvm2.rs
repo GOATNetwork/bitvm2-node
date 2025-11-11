@@ -92,7 +92,11 @@ impl InstanceExtended {
         )
         .await?;
         Ok(Self {
-            waiting_time_in_secs: get_instance_waiting_time_in_mins(&instance),
+            waiting_time_in_secs: get_instance_waiting_time_in_secs(
+                instance.is_bridge_in,
+                &instance.status,
+                instance.updated_at,
+            ),
             confirmations,
             target_confirmations,
             status_extra: get_instance_status_extra(
@@ -218,12 +222,14 @@ fn get_bridge_out_status_time_window_secs(status: &str) -> i64 {
     }
 }
 
-fn get_instance_waiting_time_in_mins(instance: &Instance) -> i64 {
-    let time_left = if instance.is_bridge_in {
-        get_bridge_in_status_time_window_secs(&instance.status) - current_time_secs()
+fn get_instance_waiting_time_in_secs(is_bridge_in: bool, status: &str, last_updated: i64) -> i64 {
+    let time_past = current_time_secs() - last_updated;
+    let time_left = if is_bridge_in {
+        get_bridge_in_status_time_window_secs(status) - time_past
     } else {
-        get_bridge_out_status_time_window_secs(&instance.status) - current_time_secs()
+        get_bridge_out_status_time_window_secs(status) - time_past
     };
+
     time_left.max(0)
 }
 
@@ -390,6 +396,27 @@ pub struct GraphExtended {
     pub waiting_time_in_secs: i64,
     // pub proof_height: Option<i64>,
     // pub proof_query_url: Option<String>,
+}
+
+impl GraphExtended {
+    pub async fn convert_from_graph(_btc_client: &BTCClient, graph: Graph) -> anyhow::Result<Self> {
+        Ok(GraphExtended {
+            waiting_time_in_secs: get_graph_waiting_time_in_secs(graph.updated_at, &graph.status),
+            graph,
+        })
+    }
+}
+
+fn get_graph_waiting_time_in_secs(last_updated: i64, status: &str) -> i64 {
+    let time_window = if let Ok(status) = GraphStatus::from_str(status) {
+        match status {
+            _ => 0,
+        }
+    } else {
+        0
+    };
+    let time_left = time_window - (current_time_secs() - last_updated);
+    time_left.max(0)
 }
 
 #[derive(Debug, Deserialize)]

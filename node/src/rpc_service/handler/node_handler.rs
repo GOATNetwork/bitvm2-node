@@ -77,7 +77,7 @@ pub async fn get_nodes(
 
     // Validate goat_addr format (if provided)
     if let Some(ref goat_addr) = query_params.goat_addr {
-        InputValidator::validata_goat_address(goat_addr, "goat_addr")?;
+        InputValidator::validate_goat_address(goat_addr, "goat_addr")?;
     }
 
     // Validate actor field (if provided)
