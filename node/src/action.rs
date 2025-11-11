@@ -1731,6 +1731,12 @@ pub async fn recv_and_dispatch(
                     None => return Ok(()),
                 };
                 let mut current_graph = Bitvm2Graph::from_simplified(&current_graph)?;
+                let current_graph_status =
+                    get_graph_status(local_db, current_instance_id, current_graph_id)
+                        .await?
+                        .ok_or_else(|| {
+                            anyhow!("Graph status not found for {instance_id}:{graph_id}")
+                        })?;
                 let (current_graph_status, _) = refresh_graph(
                     local_db,
                     btc_client,
@@ -1738,7 +1744,7 @@ pub async fn recv_and_dispatch(
                     current_instance_id,
                     current_graph_id,
                     Some(&current_graph),
-                    None,
+                    Some(current_graph_status),
                     None,
                 )
                 .await?;

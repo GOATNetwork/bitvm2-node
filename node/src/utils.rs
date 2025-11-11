@@ -430,17 +430,7 @@ pub(crate) async fn refresh_graph(
     // check if Graph has been posted on GoatChain
     if current_status == GraphStatus::CommitteePresigned {
         let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
-        if graph_data_on_goat.operator_pubkey == [0u8; 32] {
-            update_graph_status(
-                local_db,
-                instance_id,
-                graph_id,
-                GraphStatus::CommitteePresigned,
-                None,
-            )
-            .await?;
-            return Ok((GraphStatus::CommitteePresigned, None));
-        } else {
+        if graph_data_on_goat.operator_pubkey != [0u8; 32] {
             current_status = GraphStatus::OperatorDataPushed;
         }
     }
@@ -457,15 +447,24 @@ pub(crate) async fn refresh_graph(
     }
     // check Prekickoff
     let prekickoff_txid = graph.cur_prekickoff.tx().compute_txid();
-    if matches!(current_status, GraphStatus::OperatorDataPushed | GraphStatus::Obsoleted) {
+    if matches!(
+        current_status,
+        GraphStatus::CommitteePresigned | GraphStatus::OperatorDataPushed | GraphStatus::Obsoleted
+    ) {
         if !tx_on_chain(btc_client, &prekickoff_txid).await? {
             update_graph_status(local_db, instance_id, graph_id, current_status.clone(), None)
                 .await?;
             return Ok((current_status, None));
         } else {
-            current_status = if current_status != GraphStatus::Obsoleted {
+            current_status = if current_status == GraphStatus::OperatorDataPushed {
                 GraphStatus::PreKickoff
             } else {
+                // for GraphStatus::CommitteePresigned: if prekickoff is on-chain while graph data not yet posted,
+                // it means this graph will never be posted and operator is going to skip it,
+                // mark it as Obsoleted so that it can be skipped later
+                //
+                // for GraphStatus::Obsoleted: if the graph is obsoleted,
+                // keep it as Obsoleted so that it can be skipped later
                 GraphStatus::Obsoleted
             };
         }
