@@ -1764,9 +1764,25 @@ pub async fn recv_and_dispatch(
                     .await?;
                     return Ok(());
                 } else {
-                    tracing::warn!(
-                        "Ignore KickoffReady for {instance_id}:{graph_id}: previous available graph exists for Operator {operator_pubkey}: {current_instance_id}:{current_graph_id}, please withdraw it first"
+                    let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
+                    if graph_data_on_goat.operator_pubkey != [0u8; 32] {
+                        tracing::warn!(
+                            "Ignore KickoffReady for {instance_id}:{graph_id}: previous available graph exists for Operator {operator_pubkey}: {current_instance_id}:{current_graph_id}, please withdraw it first"
+                        );
+                        return Ok(());
+                    }
+                    operator_skip_graph(btc_client, &mut current_graph).await?;
+                    tracing::info!(
+                        "Operator {operator_pubkey} skipped non-posted graph {current_instance_id}:{current_graph_id}"
                     );
+                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
+                    push_local_unhandled_messages(
+                        local_db,
+                        current_graph_id,
+                        &message,
+                        delay_secs as usize,
+                    )
+                    .await?;
                     return Ok(());
                 }
             }
