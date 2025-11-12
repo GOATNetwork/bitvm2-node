@@ -1653,7 +1653,7 @@ async fn detect_kickoff_ref_disprove_tx(
             "self".to_string(),
             Actor::Committee,
             GOATMessageContent::DisproveSent(DisproveSent {
-                instance_id: graph.graph_id,
+                instance_id: graph.instance_id,
                 graph_id: graph.graph_id,
                 disprove_type,
                 index: 0,
@@ -1812,7 +1812,7 @@ async fn process_graph_watchtower_assert_disproved(
                 "self".to_string(),
                 Actor::Committee,
                 GOATMessageContent::DisproveSent(DisproveSent {
-                    instance_id: graph.graph_id,
+                    instance_id: graph.instance_id,
                     graph_id: graph.graph_id,
                     disprove_type,
                     index: tx_index as usize,
