@@ -591,13 +591,13 @@ pub async fn process_graph_challenge(
     };
     let current_height = btc_client.get_height().await? as i64;
     for graph in graphs {
-        if detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await? {
-            warn!(
-                "process_graph_challenge detect_kickoff_ref_disprove_tx happened at graph:{}",
-                graph.graph_id
-            );
-            continue;
-        }
+        // if detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await? {
+        //     warn!(
+        //         "process_graph_challenge detect_kickoff_ref_disprove_tx happened at graph:{}",
+        //         graph.graph_id
+        //     );
+        //     continue;
+        // }
         let mut sub_status: ChallengeSubStatus = match serde_json::from_str(&graph.sub_status) {
             Ok(sub_status) => sub_status,
             Err(_) => {
@@ -1296,7 +1296,9 @@ async fn process_watchtower_challenge_monitoring(
                         as i64,
                     vout_len: watchtower_challenge_init_tx.vout.len() as i64,
                     monitor_data: serde_json::to_string(&WTInitTxVoutMonitorData::new(
-                        (watchtower_challenge_init_tx.vout.len() as i32 - 3) / 2,
+                        (watchtower_challenge_init_tx.vout.len() as i32
+                            - CONNECTOR_G_MARGIN as i32)
+                            / 2,
                     ))?,
                     created_at: current_time_secs(),
                     updated_at: current_time_secs(),
@@ -1521,6 +1523,7 @@ async fn find_challenge_nack_tx(
     graph_id: &Uuid,
     watchtower_challenge_init_txid: &SerializableTxid,
 ) -> anyhow::Result<Option<(Txid, i32)>> {
+    info!("find_challenge_nack_tx for graph_id: {graph_id}");
     let out_monitor = storage_processor
         .get_graph_btc_tx_vout_monitor(graph_id, watchtower_challenge_init_txid)
         .await?;
@@ -1555,6 +1558,7 @@ async fn find_assert_timeout_tx(
     graph_id: &Uuid,
     assert_init_txid: &SerializableTxid,
 ) -> anyhow::Result<Option<(Txid, i32)>> {
+    info!("find_assert_timeout_tx for graph_id: {graph_id}");
     let out_monitor =
         storage_processor.get_graph_btc_tx_vout_monitor(graph_id, assert_init_txid).await?;
 

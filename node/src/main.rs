@@ -220,7 +220,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             local_db_clone3,
             btc_client,
             goat_client,
-            3,
+            10,
             cancel_token_clone,
         )
         .await
