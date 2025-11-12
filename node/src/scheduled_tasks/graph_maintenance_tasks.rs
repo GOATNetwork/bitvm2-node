@@ -5,14 +5,17 @@ use crate::action::{
     Take1Sent, Take2Ready, Take2Sent, WatchtowerChallengeInitSent, WatchtowerChallengeSent,
     WatchtowerChallengeTimeout,
 };
+use crate::env::get_network;
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
 use crate::utils::{outpoint_spent_txid, upsert_message};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
-use bitvm2_lib::constants::{
-    ACK_TIMELOCK, ASSERT_COMMIT_TIMELOCK, CONNECTOR_A_TIMELOCK, CONNECTOR_D_TIMELOCK,
-    CONNECTOR_F_TIMELOCK, CONNECTOR_G_TIMELOCK, WATCHTOWER_CHALLENGE_TIMELOCK,
+use bitvm2_lib::challenger::{
+    assert_commit_timeout_timelock, commit_blockhash_timeout_timelock, nack_timelock,
+};
+use bitvm2_lib::operator::{
+    take1_timelock, take2_timelocks, watchtower_challenge_timeout_timelock,
 };
 use client::btc_chain::BTCClient;
 use client::goat_chain::{DisproveTxType, GOATClient};
@@ -45,15 +48,16 @@ pub struct ChallengeTimeLockConfig {
 
 fn get_challenge_timelock_config() -> ChallengeTimeLockConfig {
     ChallengeTimeLockConfig {
-        watchtower_challenge_timelock: WATCHTOWER_CHALLENGE_TIMELOCK as i64,
-        watchtower_ack_timelock: ACK_TIMELOCK as i64,
-        watchtower_blockhash_commit_timelock: CONNECTOR_G_TIMELOCK as i64,
-        assert_commit_timelock: ASSERT_COMMIT_TIMELOCK as i64,
+        watchtower_challenge_timelock: watchtower_challenge_timeout_timelock(get_network()) as i64,
+        watchtower_ack_timelock: nack_timelock(get_network()) as i64,
+        watchtower_blockhash_commit_timelock: commit_blockhash_timeout_timelock(get_network())
+            as i64,
+        assert_commit_timelock: assert_commit_timeout_timelock(get_network()) as i64,
     }
 }
 
 fn get_take1_timelock_config() -> i64 {
-    CONNECTOR_A_TIMELOCK as i64
+    take1_timelock(get_network()) as i64
 }
 
 pub struct Take2TimeLockConfig {
@@ -61,9 +65,11 @@ pub struct Take2TimeLockConfig {
     pub watchtower_challenge_init_out_timelock: i64,
 }
 fn get_take2_timelock_config() -> Take2TimeLockConfig {
+    let (watchtower_challenge_init_out_timelock, assert_init_out_timelock) =
+        take2_timelocks(get_network());
     Take2TimeLockConfig {
-        assert_init_out_timelock: CONNECTOR_D_TIMELOCK as i64,
-        watchtower_challenge_init_out_timelock: CONNECTOR_F_TIMELOCK as i64,
+        assert_init_out_timelock: assert_init_out_timelock as i64,
+        watchtower_challenge_init_out_timelock: watchtower_challenge_init_out_timelock as i64,
     }
 }
 #[derive(Clone, Debug, Eq, PartialEq, Display, EnumString)]
