@@ -3709,8 +3709,9 @@ pub async fn push_local_unhandled_messages(
     let mut storage_processor = local_db.acquire().await?;
     let actor = message.actor.clone();
     let content: GOATMessageContent = message.to_typed()?;
-    create_message(
+    upsert_message(
         &mut storage_processor,
+        true,
         business_id,
         None,
         "Self".to_string(),

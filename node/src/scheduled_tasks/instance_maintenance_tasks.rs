@@ -1,7 +1,7 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{create_message, gen_instance_parameters_local};
+use crate::utils::{gen_instance_parameters_local, upsert_message};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::transactions::base::BaseTransaction;
@@ -47,8 +47,9 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
         let mut tx = local_db.start_transaction().await?;
         if let Some(event) = tx_record.extra {
             let _event: BridgeInRequestEvent = serde_json::from_str(&event)?;
-            create_message(
+            upsert_message(
                 &mut tx,
+                false,
                 tx_record.instance_id,
                 None,
                 "self".to_string(),
@@ -264,8 +265,9 @@ pub async fn instance_btc_tx_monitor(
                 instance_update =
                     instance_update.with_btc_height(status.block_height.unwrap_or_default() as i64);
 
-                create_message(
+                upsert_message(
                     &mut tx,
+                    false,
                     instance.instance_id,
                     None,
                     "self".to_string(),
@@ -279,8 +281,9 @@ pub async fn instance_btc_tx_monitor(
                 .await?;
             }
             if next_status == InstanceStatus::RelayerL1Broadcasted {
-                create_message(
+                upsert_message(
                     &mut tx,
+                    false,
                     instance.instance_id,
                     None,
                     "self".to_string(),

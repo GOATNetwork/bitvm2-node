@@ -68,7 +68,7 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 pub mod todo_funcs {
@@ -1853,9 +1853,11 @@ fn generate_message_id(business_id: Uuid, msg_type: String, sub_type: Option<Str
         None => format!("{business_id}_{msg_type}"),
     }
 }
+
 #[allow(clippy::too_many_arguments)]
-pub async fn create_message(
+pub async fn upsert_message(
     storage_processor: &mut StorageProcessor<'_>,
+    is_update: bool,
     business_id: Uuid,
     sub_type: Option<String>,
     from_peer: String,
@@ -1867,20 +1869,25 @@ pub async fn create_message(
     let message = GOATMessage::from_typed(actor.clone(), &message_content)?;
     let msg_type = get_goat_message_content_type(&message_content).to_string();
     let message_id = generate_message_id(business_id, msg_type.clone(), sub_type);
-    storage_processor
-        .upsert_message(Message {
-            message_id,
-            business_id,
-            actor: actor.to_string(),
-            from_peer,
-            msg_type,
-            content: serde_json::to_vec(&message)?,
-            weight,
-            lock_time_until: current_time_secs() + lock_time,
-            state: MessageState::Pending.to_string(),
-            message_version: 0,
-        })
-        .await?;
+    if is_update || storage_processor.find_messages_by_id(&message_id).await?.is_none() {
+        storage_processor
+            .upsert_message(Message {
+                message_id,
+                business_id,
+                actor: actor.to_string(),
+                from_peer,
+                msg_type,
+                content: serde_json::to_vec(&message)?,
+                weight,
+                lock_time_until: current_time_secs() + lock_time,
+                state: MessageState::Pending.to_string(),
+                message_version: 0,
+            })
+            .await?;
+    } else {
+        info!("{message_id} is already created for create action");
+    }
+
     Ok(())
 }
 

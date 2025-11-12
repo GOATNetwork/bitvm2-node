@@ -1564,6 +1564,31 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    pub async fn find_messages_by_id(
+        &mut self,
+        message_id: &str,
+    ) -> anyhow::Result<Option<Message>> {
+        let res = sqlx::query_as!(
+            Message,
+            "SELECT message_id,
+                    business_id AS \"business_id:Uuid\",
+                    from_peer,
+                    actor,
+                    msg_type,
+                    content,
+                    message_version,
+                    state,
+                    weight,
+                    lock_time_until
+             FROM message
+             WHERE message_id = ?",
+            message_id,
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
     pub async fn filter_messages(
         &mut self,
         state: String,
