@@ -623,21 +623,19 @@ pub async fn process_graph_challenge(
                     current_height,
                 )
                 .await?;
-            } else {
-                if !sub_status.is_assert_commit_normal_finished() {
-                    info!(
-                        "process_graph_challenge graph:{} assert commit is processing",
-                        graph.graph_id
-                    );
-                    process_assert_commit_monitoring(
-                        btc_client,
-                        local_db,
-                        &graph,
-                        &mut sub_status,
-                        current_height,
-                    )
-                    .await?;
-                }
+            } else if !sub_status.is_assert_commit_normal_finished() {
+                info!(
+                    "process_graph_challenge graph:{} assert commit is processing",
+                    graph.graph_id
+                );
+                process_assert_commit_monitoring(
+                    btc_client,
+                    local_db,
+                    &graph,
+                    &mut sub_status,
+                    current_height,
+                )
+                .await?;
             }
         } else if sub_status.is_normal_finished() {
             let mut storage_processor = local_db.acquire().await?;
