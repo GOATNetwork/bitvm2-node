@@ -1045,12 +1045,12 @@ async fn process_watchtower_challenge_monitoring(
             }
         };
         let is_challenge_timeout =
-            out_monitor.height + timelock_config.watchtower_challenge_timelock > current_height;
+            out_monitor.height + timelock_config.watchtower_challenge_timelock < current_height;
         let is_ack_timeout =
-            out_monitor.height + timelock_config.watchtower_ack_timelock > current_height;
+            out_monitor.height + timelock_config.watchtower_ack_timelock < current_height;
         let is_blockhash_commit_timeout = out_monitor.height
             + timelock_config.watchtower_blockhash_commit_timelock
-            > current_height;
+            < current_height;
         let mut data_change = false;
         let mut is_commit_block_hash_ready = false;
         let mut p2p_message_contents: Vec<(Actor, GOATMessageContent, Option<String>)> = vec![];
@@ -1380,7 +1380,7 @@ async fn process_assert_commit_monitoring(
                 }
             };
         let is_assert_commit_timeout =
-            out_monitor.height + timelock_config.assert_commit_timelock > current_height;
+            out_monitor.height + timelock_config.assert_commit_timelock < current_height;
         let mut data_change = false;
         let mut message_content: Option<(Actor, GOATMessageContent)> = None;
         if !is_assert_commit_timeout {
