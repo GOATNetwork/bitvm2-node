@@ -237,11 +237,13 @@ pub fn build_challenge_incomplete_kickoff_tx(
 // Just wait for their timelocks to expire, then broadcast them and cover fees via CPFP.
 
 pub fn nack_timelock(network: Network) -> u32 {
-    num_blocks_per_network(network, ACK_TIMELOCK)
+    num_blocks_per_network(network, ACK_TIMELOCK) // actual delay on bitcoin network
+        + if network == Network::Testnet { 6 } else { 0 } // Testnet extra delay
 }
 
 pub fn commit_blockhash_timeout_timelock(network: Network) -> u32 {
     num_blocks_per_network(network, CONNECTOR_G_TIMELOCK)
+        + if network == Network::Testnet { 6 } else { 0 } // Testnet extra delay
 }
 
 pub fn assert_commit_timeout_timelock(network: Network) -> u32 {
