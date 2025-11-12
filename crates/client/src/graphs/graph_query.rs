@@ -280,7 +280,7 @@ pub struct WithdrawDisprovedEvent {
     #[serde(rename = "graphId")]
     pub graph_id: String,
     #[serde(rename = "disproveTxType")]
-    pub disprove_tx_type: String,
+    pub disprove_tx_type: i64,
     #[serde(rename = "txnIndex")]
     pub tx_index: String,
     #[serde(rename = "challengeStartTxid")]

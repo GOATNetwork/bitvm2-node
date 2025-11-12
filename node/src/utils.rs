@@ -2180,15 +2180,6 @@ pub async fn pop_batch_local_unhandle_msg(
     offset: i64,
     limit: i64,
 ) -> Result<Vec<Message>> {
-    // todo mv to single function
-    // if actor == Actor::Operator {
-    //     operator_scan_ready_proof(
-    //         local_db,
-    //         get_proof_server_url(),
-    //         routes::v1::PROOFS_GROTH16_BASE,
-    //     )
-    //     .await?;
-    // }
     let mut tx = local_db.start_transaction().await?;
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     tx.set_messages_expired(current_time - MESSAGE_EXPIRE_TIME).await?;

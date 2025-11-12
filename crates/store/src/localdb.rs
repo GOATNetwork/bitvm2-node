@@ -1544,6 +1544,25 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected() > 0)
     }
 
+    pub async fn update_messages_lock_time_until(
+        &mut self,
+        message_id: &str,
+        message_version: i64,
+        lock_time_until: i64,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "Update  message Set lock_time_until = ?, updated_at = ? WHERE message_id = ? AND  message_version = ?",
+            lock_time_until,
+            current_time,
+            message_id,
+            message_version
+
+        ).execute(self.conn()).await?;
+
+        Ok(res.rows_affected() > 0)
+    }
+
     pub async fn set_messages_expired(&mut self, expired: i64) -> anyhow::Result<()> {
         sqlx::query!(
             r#"UPDATE message
