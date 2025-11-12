@@ -610,25 +610,9 @@ pub async fn process_graph_challenge(
         };
         if !sub_status.is_disproved() {
             trace!("process_graph_challenge graph:{} is not disproved", graph.graph_id);
-
-            if !sub_status.is_assert_commit_finished() {
-                trace!(
-                    "process_graph_challenge graph:{} is assert commit is processing",
-                    graph.graph_id
-                );
-                process_assert_commit_monitoring(
-                    btc_client,
-                    local_db,
-                    &graph,
-                    &mut sub_status,
-                    current_height,
-                )
-                .await?;
-            }
-
             if !sub_status.is_watchtower_challenge_finished() {
-                trace!(
-                    "process_graph_challenge graph:{} is not watchtower challenge is processing",
+                info!(
+                    "process_graph_challenge graph:{} watchtower challenge is processing",
                     graph.graph_id
                 );
                 process_watchtower_challenge_monitoring(
@@ -639,11 +623,26 @@ pub async fn process_graph_challenge(
                     current_height,
                 )
                 .await?;
+            } else {
+                if !sub_status.is_assert_commit_finished() {
+                    info!(
+                        "process_graph_challenge graph:{} assert commit is processing",
+                        graph.graph_id
+                    );
+                    process_assert_commit_monitoring(
+                        btc_client,
+                        local_db,
+                        &graph,
+                        &mut sub_status,
+                        current_height,
+                    )
+                    .await?;
+                }
             }
 
             if sub_status.is_normal_finished() {
-                trace!(
-                    "process_graph_challenge graph:{} is not watchtower challenge and assert commit is finished",
+                info!(
+                    "process_graph_challenge graph:{} watchtower challenge and assert commit is finished",
                     graph.graph_id
                 );
                 if let Some((actor, message_content)) =
