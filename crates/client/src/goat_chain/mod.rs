@@ -313,7 +313,7 @@ impl GOATClient {
                         graph_id,
                         &challenge_start_tx.compute_txid(),
                         &challenge_start_tx.compute_txid(),
-                        Some(WithdrawStatus::Disproved),
+                        None,
                     )
                     .await?;
                 let raw_challenge_start_tx = tx_reconstruct(challenge_start_tx);
