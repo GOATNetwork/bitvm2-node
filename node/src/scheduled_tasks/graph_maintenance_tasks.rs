@@ -1296,7 +1296,7 @@ async fn process_watchtower_challenge_monitoring(
                         as i64,
                     vout_len: watchtower_challenge_init_tx.vout.len() as i64,
                     monitor_data: serde_json::to_string(&WTInitTxVoutMonitorData::new(
-                        watchtower_challenge_init_tx.vout.len() as i32,
+                        (watchtower_challenge_init_tx.vout.len() as i32 - 3) / 2,
                     ))?,
                     created_at: current_time_secs(),
                     updated_at: current_time_secs(),
@@ -1478,7 +1478,7 @@ async fn process_assert_commit_monitoring(
                     height: assert_init_tx.status.block_height.unwrap_or_default() as i64,
                     vout_len: assert_init_tx.vout.len() as i64,
                     monitor_data: serde_json::to_string(&AssertInitTxVoutMonitorData::new(
-                        assert_init_tx.vout.len() as i32,
+                        assert_init_tx.vout.len() as i32 - 2,
                     ))?,
                     created_at: current_time_secs(),
                     updated_at: current_time_secs(),
