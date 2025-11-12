@@ -645,7 +645,7 @@ pub async fn process_graph_challenge(
                     .await?;
                 }
             }
-        } else {
+        } else if sub_status.is_normal_finished() {
             let mut storage_processor = local_db.acquire().await?;
             upsert_message(
                 &mut storage_processor,
