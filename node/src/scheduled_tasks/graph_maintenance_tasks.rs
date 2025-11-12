@@ -119,34 +119,22 @@ pub struct ChallengeSubStatus {
 }
 
 impl ChallengeSubStatus {
-    pub fn is_watchtower_challenge_finished(&self) -> bool {
-        [
-            WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished,
-            WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished,
-        ]
-        .contains(&self.watchtower_challenge_status)
-            || [CommitBlockHashStatus::OperatorCommit, CommitBlockHashStatus::OperatorCommitTimeout]
-                .contains(&self.commit_blockhash_status)
+    pub fn is_watchtower_challenge_normal_finished(&self) -> bool {
+        self.watchtower_challenge_status
+            == WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished
+            && self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommit
     }
 
     pub fn is_disproved(&self) -> bool {
         self.disprove_type.is_some()
     }
 
-    pub fn is_finished(&self) -> bool {
-        self.is_watchtower_challenge_finished() && self.is_assert_commit_finished()
-    }
-
     pub fn is_normal_finished(&self) -> bool {
-        self.watchtower_challenge_status
-            == WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished
-            && self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommit
-            && self.assert_commit_status == AssertCommitStatus::OperatorCommit
+        self.is_watchtower_challenge_normal_finished() && self.is_assert_commit_normal_finished()
     }
 
-    pub fn is_assert_commit_finished(&self) -> bool {
-        [AssertCommitStatus::OperatorCommitTimeout, AssertCommitStatus::OperatorCommit]
-            .contains(&self.assert_commit_status)
+    pub fn is_assert_commit_normal_finished(&self) -> bool {
+        self.assert_commit_status == AssertCommitStatus::OperatorCommit
     }
 }
 
@@ -620,9 +608,9 @@ pub async fn process_graph_challenge(
                 continue;
             }
         };
-        if !sub_status.is_finished() {
+        if !sub_status.is_disproved() && !sub_status.is_normal_finished() {
             trace!("process_graph_challenge graph:{} is not disproved", graph.graph_id);
-            if !sub_status.is_watchtower_challenge_finished() {
+            if !sub_status.is_watchtower_challenge_normal_finished() {
                 info!(
                     "process_graph_challenge graph:{} watchtower challenge is processing",
                     graph.graph_id
@@ -636,7 +624,7 @@ pub async fn process_graph_challenge(
                 )
                 .await?;
             } else {
-                if !sub_status.is_assert_commit_finished() {
+                if !sub_status.is_assert_commit_normal_finished() {
                     info!(
                         "process_graph_challenge graph:{} assert commit is processing",
                         graph.graph_id
@@ -689,11 +677,12 @@ pub async fn process_graph_challenge(
                 )
                 .await?;
             }
+        } else {
+            info!(
+                "process_graph_challenge graph:{} is disproved, waiting dispove tx sent",
+                graph.graph_id
+            )
         }
-        trace!(
-            "process_graph_challenge graph:{} do checking disprove action until status change to disprove or take2",
-            graph.graph_id
-        );
         process_graph_watchtower_assert_disproved(btc_client, local_db, &graph, &mut sub_status)
             .await?;
     }
