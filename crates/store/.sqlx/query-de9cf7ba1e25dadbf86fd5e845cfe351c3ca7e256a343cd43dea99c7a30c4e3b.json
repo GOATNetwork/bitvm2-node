@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO graph_btc_tx_vout_monitor\n            (graph_id, tx_name, txid, height, vout_len, monitor_data, created_at, updated_at)\n            VALUES (?, ?, ?, ?, ?, ?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "de9cf7ba1e25dadbf86fd5e845cfe351c3ca7e256a343cd43dea99c7a30c4e3b"
+}

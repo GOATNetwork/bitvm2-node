@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT\n                graph_id AS \"graph_id: Uuid\",\n                txid AS \"txid: SerializableTxid\",\n                height,\n                vout_len,\n                monitor_data,\n                created_at,\n                updated_at\n            FROM graph_btc_tx_vout_monitor\n            WHERE graph_id = ? AND txid = ?\n            ",
+  "query": "\n            SELECT\n                graph_id AS \"graph_id: Uuid\",\n                tx_name,\n                txid AS \"txid: SerializableTxid\",\n                height,\n                vout_len,\n                monitor_data,\n                created_at,\n                updated_at\n            FROM graph_btc_tx_vout_monitor\n            WHERE graph_id = ? AND txid = ?\n            ",
   "describe": {
     "columns": [
       {
@@ -9,33 +9,38 @@
         "type_info": "Text"
       },
       {
-        "name": "txid: SerializableTxid",
+        "name": "tx_name",
         "ordinal": 1,
         "type_info": "Text"
       },
       {
-        "name": "height",
+        "name": "txid: SerializableTxid",
         "ordinal": 2,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "vout_len",
+        "name": "height",
         "ordinal": 3,
         "type_info": "Integer"
       },
       {
-        "name": "monitor_data",
+        "name": "vout_len",
         "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "monitor_data",
+        "ordinal": 5,
         "type_info": "Text"
       },
       {
         "name": "created_at",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Integer"
       },
       {
         "name": "updated_at",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Integer"
       }
     ],
@@ -49,8 +54,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "1d7fd36db34139b6549f80dfd5fd6c0187d6128dc604b4b696f14894bd7d9b6c"
+  "hash": "dc0c57ceee0d2528fd0454df47f9073338ffaf7d2b319108053a975ebab83eb3"
 }

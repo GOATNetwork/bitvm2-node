@@ -3100,10 +3100,11 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             r#"
             INSERT OR REPLACE INTO graph_btc_tx_vout_monitor
-            (graph_id, txid, height, vout_len, monitor_data, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (graph_id, tx_name, txid, height, vout_len, monitor_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             monitor.graph_id,
+            monitor.tx_name,
             monitor.txid,
             monitor.height,
             monitor.vout_len,
@@ -3127,6 +3128,7 @@ impl<'a> StorageProcessor<'a> {
             r#"
             SELECT
                 graph_id AS "graph_id: Uuid",
+                tx_name,
                 txid AS "txid: SerializableTxid",
                 height,
                 vout_len,
@@ -3148,6 +3150,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_graph_btc_tx_vout_monitor_data(
         &mut self,
         graph_id: &Uuid,
+        txid: &SerializableTxid,
         monitor_data: String,
     ) -> anyhow::Result<u64> {
         let current_time = get_current_timestamp_secs();
@@ -3155,10 +3158,11 @@ impl<'a> StorageProcessor<'a> {
             "UPDATE graph_btc_tx_vout_monitor
              SET monitor_data = ?,
                  updated_at   = ?
-             WHERE graph_id = ?",
+             WHERE graph_id = ? AND txid = ?",
             monitor_data,
             current_time,
             graph_id,
+            txid
         )
         .execute(self.conn())
         .await?;

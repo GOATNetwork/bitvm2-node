@@ -32,6 +32,10 @@ const CONNECTOR_D_MARGIN: u64 = 2;
 const CONNECTOR_F_MARGIN: u64 = 2;
 const CONNECTOR_GUARDIAN_MARGIN: u64 = 2;
 
+const MONITE_BTC_TX_NAME_KICKOFF: &str = "kickoff";
+const MONITE_BTC_TX_NAME_WATCHTOWER_INIT: &str = "watchtower_init";
+const MONITE_BTC_TX_NAME_ASSERT_INIT: &str = "assert_init";
+
 pub struct ChallengeTimeLockConfig {
     pub watchtower_challenge_timelock: i64,
     pub watchtower_ack_timelock: i64,
@@ -797,15 +801,15 @@ async fn check_operator_withdraw_ready_condition(
     btc_client: &BTCClient,
     local_db: &LocalDB,
     graph_id: Uuid,
-    check_tx_items: Vec<(Txid, OperatorWithdrawType, i64, i64)>, // (txid, tag,  height, lock_blocks)
+    check_tx_items: Vec<(Txid, String, OperatorWithdrawType, i64, i64)>, // (txid, tag,  height, lock_blocks)
     current_height: i64,
 ) -> anyhow::Result<bool> {
     info!(
-        "check_operator_withdraw_ready_condition for graph_id: {graph_id}, check tx size: {}",
+        "check_operator_withdraw_ready_condition for graph_id: {graph_id}, check tx size: {}, detail:{check_tx_items:?}",
         check_tx_items.len()
     );
     let mut ready = true;
-    for (txid, operator_withdraw_type, height, lock_blocks) in check_tx_items {
+    for (txid, tx_name, operator_withdraw_type, height, lock_blocks) in check_tx_items {
         let height = if height <= 0 {
             let current_times = current_time_secs();
             let (height, vout_len) = match btc_client.get_tx_info(&txid).await? {
@@ -814,10 +818,7 @@ async fn check_operator_withdraw_ready_condition(
                     tx_info.vout.len() as i64,
                 ),
                 None => {
-                    info!(
-                        "graph_id:{graph_id}, {operator_withdraw_type} txid {} not on chain",
-                        txid.to_string()
-                    );
+                    info!("graph_id:{graph_id}, {operator_withdraw_type} txid {txid} not on chain",);
                     return Ok(false);
                 }
             };
@@ -825,6 +826,7 @@ async fn check_operator_withdraw_ready_condition(
             storage_processor
                 .upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
                     graph_id,
+                    tx_name,
                     txid: txid.into(),
                     height,
                     vout_len,
@@ -837,6 +839,10 @@ async fn check_operator_withdraw_ready_condition(
         } else {
             height
         };
+
+        info!(
+            "graph_id:{graph_id}, {operator_withdraw_type} txid {txid}  at height {height} lock_blocks {lock_blocks}, current height: {current_height}  ",
+        );
 
         if height == 0 || height > 0 && height + lock_blocks > current_height {
             ready = false;
@@ -879,7 +885,13 @@ async fn process_kickoff_graph(
                 btc_client,
                 local_db,
                 graph.graph_id,
-                vec![(kickoff_txid, OperatorWithdrawType::Take1, height, lock_blocks)],
+                vec![(
+                    kickoff_txid,
+                    MONITE_BTC_TX_NAME_KICKOFF.to_string(),
+                    OperatorWithdrawType::Take1,
+                    height,
+                    lock_blocks,
+                )],
                 current_height,
             )
             .await?
@@ -1219,6 +1231,7 @@ async fn process_watchtower_challenge_monitoring(
             .await?;
             tx.update_graph_btc_tx_vout_monitor_data(
                 &graph.graph_id,
+                &watchtower_challenge_init_txid.into(),
                 serde_json::to_string(&vout_monitor_data)?,
             )
             .await?;
@@ -1264,6 +1277,7 @@ async fn process_watchtower_challenge_monitoring(
 
                 tx.upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
                     graph_id: graph.graph_id,
+                    tx_name: MONITE_BTC_TX_NAME_WATCHTOWER_INIT.to_string(),
                     txid: watchtower_challenge_init_txid.into(),
                     height: watchtower_challenge_init_tx.status.block_height.unwrap_or_default()
                         as i64,
@@ -1416,6 +1430,7 @@ async fn process_assert_commit_monitoring(
             .await?;
             tx.update_graph_btc_tx_vout_monitor_data(
                 &graph.graph_id,
+                &assert_init_txid.into(),
                 serde_json::to_string(&vout_monitor_data)?,
             )
             .await?;
@@ -1461,6 +1476,7 @@ async fn process_assert_commit_monitoring(
                 .await?;
                 tx.upsert_graph_btc_tx_vout_monitor(&GraphBtcTxVoutMonitor {
                     graph_id: graph.graph_id,
+                    tx_name: MONITE_BTC_TX_NAME_ASSERT_INIT.to_string(),
                     txid: assert_init_txid.into(),
                     height: assert_init_tx.status.block_height.unwrap_or_default() as i64,
                     vout_len: assert_init_tx.vout.len() as i64,
@@ -1981,12 +1997,14 @@ async fn detect_take2(
                 vec![
                     (
                         watchtower_challenge_init_txid,
+                        MONITE_BTC_TX_NAME_WATCHTOWER_INIT.to_string(),
                         OperatorWithdrawType::Take2,
                         watchtower_init_height,
                         timelock_config.watchtower_challenge_init_out_timelock,
                     ),
                     (
                         assert_init_txid,
+                        MONITE_BTC_TX_NAME_ASSERT_INIT.to_string(),
                         OperatorWithdrawType::Take2,
                         assert_init_height,
                         timelock_config.assert_init_out_timelock,

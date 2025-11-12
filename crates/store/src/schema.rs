@@ -381,6 +381,7 @@ pub fn convert_to_step_state(ori_status: &str) -> String {
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct GraphBtcTxVoutMonitor {
     pub graph_id: Uuid,
+    pub tx_name: String,
     pub txid: SerializableTxid,
     pub height: i64,
     pub vout_len: i64,
