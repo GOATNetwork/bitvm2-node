@@ -1075,8 +1075,9 @@ pub async fn challenger_force_skip_kickoff(
         )
         .await?;
         match child_tx {
-            Some(tx) => broadcast_package(client, &[force_skip_kickoff_tx.clone(), tx], true)
-                .await?,
+            Some(tx) => {
+                broadcast_package(client, &[force_skip_kickoff_tx.clone(), tx], true).await?
+            }
             None => broadcast_tx(client, &force_skip_kickoff_tx).await?,
         }
     } else {
@@ -1105,8 +1106,7 @@ pub async fn challenger_quick_challenge(client: &BTCClient, graph: &Bitvm2Graph)
         )
         .await?;
         match child_tx {
-            Some(tx) =>
-                broadcast_package(client, &[quick_challenge_tx.clone(), tx], true).await?,
+            Some(tx) => broadcast_package(client, &[quick_challenge_tx.clone(), tx], true).await?,
             None => broadcast_tx(client, &quick_challenge_tx).await?,
         }
     } else {
@@ -1607,7 +1607,7 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
     let mut kickoff_child_broadcasted = false;
     if !tx_on_chain(btc_client, &prekickoff_txid).await? {
         // Parent not on-chain yet: broadcast parent and kickoff together as a package.
-    broadcast_package(btc_client, &[prekickoff_tx, kickoff_tx], true).await?;
+        broadcast_package(btc_client, &[prekickoff_tx, kickoff_tx], true).await?;
     } else if !tx_on_chain(btc_client, &kickoff_txid).await? {
         // Parent is on-chain, but kickoff isn't: try kickoff (and its CPFP child if present).
         if let Some(child) = kickoff_child_tx.as_ref() {

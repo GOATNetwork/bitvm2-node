@@ -1619,6 +1619,9 @@ pub async fn recv_and_dispatch(
                             delay_secs as usize,
                         )
                         .await?;
+                        tracing::info!(
+                            "Retry postPeginData later for {instance_id}: pegin confirm tx not confirmed on btc yet"
+                        );
                         return Ok(());
                     }
                 };
@@ -1633,6 +1636,9 @@ pub async fn recv_and_dispatch(
                         delay_secs as usize,
                     )
                     .await?;
+                    tracing::info!(
+                        "Retry postPeginData later for {instance_id}: pegin confirm tx block not posted to goat spv contract yet"
+                    );
                     return Ok(());
                 }
                 goat_client
@@ -1866,6 +1872,9 @@ pub async fn recv_and_dispatch(
                         delay_secs as usize,
                     )
                     .await?;
+                    tracing::info!(
+                        "Retry proceedWithdraw later for {instance_id}:{graph_id}: kickoff tx not confirmed on btc yet"
+                    );
                     return Ok(());
                 }
             };
@@ -1875,6 +1884,9 @@ pub async fn recv_and_dispatch(
                     * (kickoff_height - goat_confirmed_btc_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
+                tracing::info!(
+                    "Retry proceedWithdraw later for {instance_id}:{graph_id}: kickoff tx block not posted to goat spv contract yet"
+                );
                 return Ok(());
             }
             goat_client.gateway_process_withdraw(btc_client, &graph_id, &kickoff_tx).await?;
@@ -2208,12 +2220,7 @@ pub async fn recv_and_dispatch(
             .await?;
             match child_tx {
                 Some(tx) => {
-                    broadcast_package(
-                        btc_client,
-                        &[watchtower_challenge_init_tx, tx],
-                        true,
-                    )
-                    .await?
+                    broadcast_package(btc_client, &[watchtower_challenge_init_tx, tx], true).await?
                 }
                 None => broadcast_tx(btc_client, &watchtower_challenge_init_tx).await?,
             };
@@ -2481,12 +2488,8 @@ pub async fn recv_and_dispatch(
                 .await?;
                 match child_tx {
                     Some(tx) => {
-                        broadcast_package(
-                            btc_client,
-                            &[watchtower_challenge_timeout_tx, tx],
-                            true,
-                        )
-                        .await?
+                        broadcast_package(btc_client, &[watchtower_challenge_timeout_tx, tx], true)
+                            .await?
                     }
                     None => broadcast_tx(btc_client, &watchtower_challenge_timeout_tx).await?,
                 };
@@ -2731,16 +2734,9 @@ pub async fn recv_and_dispatch(
             .await?;
             match child_tx {
                 Some(tx) => {
-                    broadcast_package(
-                        btc_client,
-                        &[blockhash_commit_timeout_tx, tx],
-                        true,
-                    )
-                    .await?
+                    broadcast_package(btc_client, &[blockhash_commit_timeout_tx, tx], true).await?
                 }
-                None => {
-                    broadcast_package(btc_client, &[blockhash_commit_timeout_tx], true).await?
-                }
+                None => broadcast_package(btc_client, &[blockhash_commit_timeout_tx], true).await?,
             };
         }
         (
@@ -2806,8 +2802,7 @@ pub async fn recv_and_dispatch(
                 )
                 .await?;
                 match child_tx {
-                    Some(tx) =>
-                        broadcast_package(btc_client, &[assert_init_tx, tx], true).await?,
+                    Some(tx) => broadcast_package(btc_client, &[assert_init_tx, tx], true).await?,
                     None => broadcast_tx(btc_client, &assert_init_tx).await?,
                 };
                 // assert-commit should be broadcasted after assert-init is confirmed (wait for 1 block)
@@ -2940,8 +2935,9 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             match child_tx {
-                Some(tx) =>
-                    broadcast_package(btc_client, &[assert_commit_timeout_tx, tx], true).await?,
+                Some(tx) => {
+                    broadcast_package(btc_client, &[assert_commit_timeout_tx, tx], true).await?
+                }
                 None => broadcast_tx(btc_client, &assert_commit_timeout_tx).await?,
             };
         }
@@ -3218,27 +3214,36 @@ pub async fn recv_and_dispatch(
                     }
                 }
             }
-            let challenge_finish_height =
-                match btc_client.get_tx_status(&challenge_finish_txid).await?.block_height {
-                    Some(height) => height as u64,
-                    None => {
-                        let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
-                        push_local_unhandled_messages(
-                            local_db,
-                            graph_id,
-                            &message,
-                            delay_secs as usize,
-                        )
-                        .await?;
-                        return Ok(());
-                    }
-                };
+            let challenge_finish_height = match btc_client
+                .get_tx_status(&challenge_finish_txid)
+                .await?
+                .block_height
+            {
+                Some(height) => height as u64,
+                None => {
+                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
+                    push_local_unhandled_messages(
+                        local_db,
+                        graph_id,
+                        &message,
+                        delay_secs as usize,
+                    )
+                    .await?;
+                    tracing::info!(
+                        "Retry finishWithdrawDisproved later for {instance_id}:{graph_id}: challenge finish tx not confirmed on btc yet"
+                    );
+                    return Ok(());
+                }
+            };
             let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_height < challenge_finish_height {
                 let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
                     * (challenge_finish_height - goat_confirmed_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
+                tracing::info!(
+                    "Retry finishWithdrawDisproved later for {instance_id}:{graph_id}: challenge finish tx block not posted to goat spv contract yet"
+                );
                 return Ok(());
             }
             goat_client
@@ -3361,13 +3366,6 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 2. (Relayer) call finalizeWithdrawHappyPath on GoatChain
-            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
-            if withdraw_status != WithdrawStatus::Processing {
-                tracing::warn!(
-                    "Relayer Ignore finishWithdrawHappyPath for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status}"
-                );
-                return Ok(());
-            }
             let take1_txid = graph.take1.tx().compute_txid();
             let take1_tx = match btc_client.get_tx(&take1_txid).await? {
                 Some(tx) => tx,
@@ -3378,6 +3376,23 @@ pub async fn recv_and_dispatch(
                     return Ok(());
                 }
             };
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
+            if withdraw_status == WithdrawStatus::Initialized {
+                // Kickoff not posted yet, wait for it
+                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 6; // wait for 6 blocks
+                push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
+                    .await?;
+                tracing::info!(
+                    "Retry finishWithdrawHappyPath later for {instance_id}:{graph_id} as kickoff not posted yet"
+                );
+                return Ok(());
+            }
+            if withdraw_status != WithdrawStatus::Processing {
+                tracing::warn!(
+                    "Relayer Ignore finishWithdrawHappyPath for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status}"
+                );
+                return Ok(());
+            }
             let take1_height = match btc_client.get_tx_status(&take1_txid).await?.block_height {
                 Some(height) => height as u64,
                 None => {
@@ -3389,6 +3404,9 @@ pub async fn recv_and_dispatch(
                         delay_secs as usize,
                     )
                     .await?;
+                    tracing::info!(
+                        "Retry finishWithdrawHappyPath later for {instance_id}:{graph_id} as take1 tx not confirmed on btc yet"
+                    );
                     return Ok(());
                 }
             };
@@ -3398,6 +3416,9 @@ pub async fn recv_and_dispatch(
                     * (take1_height - goat_confirmed_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
+                tracing::info!(
+                    "Retry finishWithdrawHappyPath later for {instance_id}:{graph_id} as take1 tx block not posted to goat spv contract yet"
+                );
                 return Ok(());
             }
             goat_client
@@ -3544,13 +3565,6 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             }
             // 2. (Relayer) call finalizeWithdrawUnhappyPath on GoatChain
-            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
-            if withdraw_status != WithdrawStatus::Processing {
-                tracing::warn!(
-                    "Relayer Ignore finishWithdrawUnhappyPath for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status}"
-                );
-                return Ok(());
-            }
             let take2_txid = graph.take2.tx().compute_txid();
             let take2_tx = match btc_client.get_tx(&take2_txid).await? {
                 Some(tx) => tx,
@@ -3561,6 +3575,23 @@ pub async fn recv_and_dispatch(
                     return Ok(());
                 }
             };
+            let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
+            if withdraw_status == WithdrawStatus::Initialized {
+                // Kickoff not posted yet, wait for it
+                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 6; // wait for 6 blocks
+                push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
+                    .await?;
+                tracing::info!(
+                    "Retry finishWithdrawUnhappyPath later for {instance_id}:{graph_id} as kickoff not posted yet"
+                );
+                return Ok(());
+            }
+            if withdraw_status != WithdrawStatus::Processing {
+                tracing::warn!(
+                    "Relayer Ignore finishWithdrawUnhappyPath for {instance_id}:{graph_id}: invalid withdraw status: {withdraw_status}"
+                );
+                return Ok(());
+            }
             let take2_height = match btc_client.get_tx_status(&take2_txid).await?.block_height {
                 Some(height) => height as u64,
                 None => {
@@ -3572,6 +3603,9 @@ pub async fn recv_and_dispatch(
                         delay_secs as usize,
                     )
                     .await?;
+                    tracing::info!(
+                        "Retry finishWithdrawUnhappyPath later for {instance_id}:{graph_id} as take2 tx not confirmed on btc yet"
+                    );
                     return Ok(());
                 }
             };
@@ -3581,6 +3615,9 @@ pub async fn recv_and_dispatch(
                     * (take2_height - goat_confirmed_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
+                tracing::info!(
+                    "Retry finishWithdrawUnhappyPath later for {instance_id}:{graph_id} as take2 tx block not posted to goat spv contract yet"
+                );
                 return Ok(());
             }
             goat_client
