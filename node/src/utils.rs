@@ -1027,8 +1027,28 @@ pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> Result<()> {
     Ok(())
 }
 
-pub async fn broadcast_package(client: &BTCClient, txns: &[Transaction]) -> Result<()> {
-    client.broadcast_package(txns).await?;
+pub async fn broadcast_package(
+    client: &BTCClient,
+    txns: &[Transaction],
+    fallback_on_failure: bool,
+) -> Result<()> {
+    match client.broadcast_package(txns).await {
+        Ok(_) => {}
+        Err(e) => {
+            if fallback_on_failure {
+                tracing::warn!(
+                    "broadcast_package failed: {}, falling back to broadcasting one by one",
+                    e
+                );
+                for tx in txns {
+                    broadcast_tx(client, tx).await?;
+                }
+            } else {
+                // Surface the original error when fallback is disabled
+                return Err(e);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1055,7 +1075,8 @@ pub async fn challenger_force_skip_kickoff(
         )
         .await?;
         match child_tx {
-            Some(tx) => broadcast_package(client, &[force_skip_kickoff_tx.clone(), tx]).await?,
+            Some(tx) => broadcast_package(client, &[force_skip_kickoff_tx.clone(), tx], true)
+                .await?,
             None => broadcast_tx(client, &force_skip_kickoff_tx).await?,
         }
     } else {
@@ -1084,7 +1105,8 @@ pub async fn challenger_quick_challenge(client: &BTCClient, graph: &Bitvm2Graph)
         )
         .await?;
         match child_tx {
-            Some(tx) => broadcast_package(client, &[quick_challenge_tx.clone(), tx]).await?,
+            Some(tx) =>
+                broadcast_package(client, &[quick_challenge_tx.clone(), tx], true).await?,
             None => broadcast_tx(client, &quick_challenge_tx).await?,
         }
     } else {
@@ -1519,13 +1541,13 @@ pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph
         Some(skip_kickoff_tx) => {
             let skip_kickoff_txid = skip_kickoff_tx.compute_txid();
             if !tx_on_chain(btc_client, &prekickoff_txid).await? {
-                broadcast_package(btc_client, &[prekickoff_tx, skip_kickoff_tx]).await?;
+                broadcast_package(btc_client, &[prekickoff_tx, skip_kickoff_tx], true).await?;
                 if let Some(child_tx) = child_tx {
                     broadcast_tx(btc_client, &child_tx).await?;
                 }
             } else if !tx_on_chain(btc_client, &skip_kickoff_txid).await? {
                 if let Some(child_tx) = child_tx {
-                    broadcast_package(btc_client, &[skip_kickoff_tx, child_tx]).await?;
+                    broadcast_package(btc_client, &[skip_kickoff_tx, child_tx], true).await?;
                 } else {
                     broadcast_tx(btc_client, &skip_kickoff_tx).await?;
                 }
@@ -1534,7 +1556,7 @@ pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph
         None => match child_tx {
             Some(tx) => {
                 if !tx_on_chain(btc_client, &prekickoff_txid).await? {
-                    broadcast_package(btc_client, &[prekickoff_tx, tx]).await?;
+                    broadcast_package(btc_client, &[prekickoff_tx, tx], true).await?;
                 }
             }
             None => {
@@ -1585,11 +1607,11 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
     let mut kickoff_child_broadcasted = false;
     if !tx_on_chain(btc_client, &prekickoff_txid).await? {
         // Parent not on-chain yet: broadcast parent and kickoff together as a package.
-        broadcast_package(btc_client, &[prekickoff_tx, kickoff_tx]).await?;
+    broadcast_package(btc_client, &[prekickoff_tx, kickoff_tx], true).await?;
     } else if !tx_on_chain(btc_client, &kickoff_txid).await? {
         // Parent is on-chain, but kickoff isn't: try kickoff (and its CPFP child if present).
         if let Some(child) = kickoff_child_tx.as_ref() {
-            broadcast_package(btc_client, &[kickoff_tx, child.clone()]).await?;
+            broadcast_package(btc_client, &[kickoff_tx, child.clone()], true).await?;
             kickoff_child_broadcasted = true;
         } else {
             broadcast_tx(btc_client, &kickoff_tx).await?;

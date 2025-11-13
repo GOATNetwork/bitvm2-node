@@ -2208,7 +2208,12 @@ pub async fn recv_and_dispatch(
             .await?;
             match child_tx {
                 Some(tx) => {
-                    broadcast_package(btc_client, &[watchtower_challenge_init_tx, tx]).await?
+                    broadcast_package(
+                        btc_client,
+                        &[watchtower_challenge_init_tx, tx],
+                        true,
+                    )
+                    .await?
                 }
                 None => broadcast_tx(btc_client, &watchtower_challenge_init_tx).await?,
             };
@@ -2476,8 +2481,12 @@ pub async fn recv_and_dispatch(
                 .await?;
                 match child_tx {
                     Some(tx) => {
-                        broadcast_package(btc_client, &[watchtower_challenge_timeout_tx, tx])
-                            .await?
+                        broadcast_package(
+                            btc_client,
+                            &[watchtower_challenge_timeout_tx, tx],
+                            true,
+                        )
+                        .await?
                     }
                     None => broadcast_tx(btc_client, &watchtower_challenge_timeout_tx).await?,
                 };
@@ -2570,8 +2579,8 @@ pub async fn recv_and_dispatch(
                 build_cpfp_txns(btc_client, &nack_tx, anchor_vout, nack_tx_total_input_amount)
                     .await?;
             match child_tx {
-                Some(tx) => broadcast_package(btc_client, &[nack_tx, tx]).await?,
-                None => broadcast_package(btc_client, &[nack_tx]).await?,
+                Some(tx) => broadcast_package(btc_client, &[nack_tx, tx], true).await?,
+                None => broadcast_package(btc_client, &[nack_tx], true).await?,
             };
         }
         (
@@ -2722,9 +2731,16 @@ pub async fn recv_and_dispatch(
             .await?;
             match child_tx {
                 Some(tx) => {
-                    broadcast_package(btc_client, &[blockhash_commit_timeout_tx, tx]).await?
+                    broadcast_package(
+                        btc_client,
+                        &[blockhash_commit_timeout_tx, tx],
+                        true,
+                    )
+                    .await?
                 }
-                None => broadcast_package(btc_client, &[blockhash_commit_timeout_tx]).await?,
+                None => {
+                    broadcast_package(btc_client, &[blockhash_commit_timeout_tx], true).await?
+                }
             };
         }
         (
@@ -2790,7 +2806,8 @@ pub async fn recv_and_dispatch(
                 )
                 .await?;
                 match child_tx {
-                    Some(tx) => broadcast_package(btc_client, &[assert_init_tx, tx]).await?,
+                    Some(tx) =>
+                        broadcast_package(btc_client, &[assert_init_tx, tx], true).await?,
                     None => broadcast_tx(btc_client, &assert_init_tx).await?,
                 };
                 // assert-commit should be broadcasted after assert-init is confirmed (wait for 1 block)
@@ -2923,7 +2940,8 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             match child_tx {
-                Some(tx) => broadcast_package(btc_client, &[assert_commit_timeout_tx, tx]).await?,
+                Some(tx) =>
+                    broadcast_package(btc_client, &[assert_commit_timeout_tx, tx], true).await?,
                 None => broadcast_tx(btc_client, &assert_commit_timeout_tx).await?,
             };
         }
@@ -3312,7 +3330,7 @@ pub async fn recv_and_dispatch(
                 build_cpfp_txns(btc_client, &take1_tx, anchor_vout, take1_tx_total_input_amount)
                     .await?;
             match child_tx {
-                Some(tx) => broadcast_package(btc_client, &[take1_tx, tx]).await?,
+                Some(tx) => broadcast_package(btc_client, &[take1_tx, tx], true).await?,
                 None => broadcast_tx(btc_client, &take1_tx).await?,
             };
         }
@@ -3495,7 +3513,7 @@ pub async fn recv_and_dispatch(
                 build_cpfp_txns(btc_client, &take2_tx, anchor_vout, take2_tx_total_input_amount)
                     .await?;
             match child_tx {
-                Some(tx) => broadcast_package(btc_client, &[take2_tx, tx]).await?,
+                Some(tx) => broadcast_package(btc_client, &[take2_tx, tx], true).await?,
                 None => broadcast_tx(btc_client, &take2_tx).await?,
             };
         }
