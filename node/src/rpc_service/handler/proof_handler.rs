@@ -1,10 +1,13 @@
-use crate::rpc_service::AppState;
+use crate::env;
 use crate::rpc_service::proof::{
-    BtcBlockDescListResponse, BtcBlockDescQueryParams, ProofResponse, ProofsQueryParams,
+    BtcBlockDesc, BtcBlockDescListResponse, BtcBlockDescQueryParams, ProofDesc, ProofResponse,
+    ProofType, ProofsQueryParams,
 };
-use crate::rpc_service::response::{ApiResult, ErrorResponse};
+use crate::rpc_service::response::{ApiErrorExt, ApiResult};
+use crate::rpc_service::{AppState, current_time_secs};
 use axum::Json;
 use axum::extract::{Query, State};
+use client::btc_chain::mempool_v1_type::{V1Blocks, get_v1_blocks_url};
 use http::{StatusCode, Uri};
 use std::sync::Arc;
 
@@ -56,30 +59,26 @@ use std::sync::Arc;
 #[axum::debug_handler]
 pub async fn get_blocks_desc(
     _uri: Uri,
-    Query(_params): Query<BtcBlockDescQueryParams>,
-    State(_app_state): State<Arc<AppState>>,
+    Query(params): Query<BtcBlockDescQueryParams>,
+    State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<BtcBlockDescListResponse> {
-    // todo update
-    let async_fn = || async move {
-        Ok::<BtcBlockDescListResponse, Box<dyn std::error::Error>>(BtcBlockDescListResponse {
-            blocks_desc: vec![],
-            start: 0,
-            range: 0,
-        })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get blocks desc err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "BLOCKS_DEC_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
+    let v1_blocks_url = get_v1_blocks_url(env::get_network(), params.start_height);
+    let v1_blocks: V1Blocks = app_state
+        .http_client
+        .get_response_json(&v1_blocks_url)
+        .await
+        .api_error("GET_BLOCKS_DESC")?;
+    let take_count = params.range.min(v1_blocks.len() as u32) as usize;
+    let blocks_desc: Vec<BtcBlockDesc> =
+        v1_blocks.into_iter().take(take_count).map(BtcBlockDesc::from).collect();
+    Ok((
+        StatusCode::OK,
+        Json(BtcBlockDescListResponse {
+            start: blocks_desc[0].height,
+            range: blocks_desc.len() as u64,
+            blocks_desc,
+        }),
+    ))
 }
 
 /// Get proof by block height and type
@@ -115,7 +114,7 @@ pub async fn get_blocks_desc(
 ///   "proof": {
 ///     "block_number": 800000,
 ///     "proof_type": "header_chain",
-///     "state": "completed",
+///     "state": "proved",
 ///     "proving_cycles": 1000000,
 ///     "proving_time": 120,
 ///     "contain_blocks": "799990-800000",
@@ -135,17 +134,23 @@ pub async fn get_proof(
     State(_app_state): State<Arc<AppState>>,
 ) -> ApiResult<ProofResponse> {
     // todo update
-    let async_fn = || async move {
-        Ok::<ProofResponse, Box<dyn std::error::Error>>(ProofResponse { proof: None })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get proof err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: "PROOF_ERROR".to_string(), message: err.to_string() }),
-            ))
-        }
-    }
+    Ok((
+        StatusCode::OK,
+        Json(ProofResponse {
+            proof: Some(ProofDesc {
+                block_number: 800000,
+                proof_type: ProofType::HeaderChain,
+                state: "proved".to_string(),
+                proving_cycles: 1000000,
+                proving_time: 120,
+                contain_blocks: "799990-800000".to_string(),
+                total_time_to_proof: 180,
+                proof_size: 2048.5,
+                zkm_version: "1.0.0".to_string(),
+                pub_inputs: "0x1234".to_string(),
+                started_at: current_time_secs(),
+                updated_at: current_time_secs(),
+            }),
+        }),
+    ))
 }

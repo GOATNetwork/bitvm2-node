@@ -5,9 +5,11 @@ use bitcoin::{Address as BtcAddress, Block, BlockHash, Network, Transaction, Txi
 use esplora_client::{MerkleProof, OutputStatus, Tx, TxStatus, Utxo};
 use std::collections::HashMap;
 use std::str::FromStr;
+
 pub mod bitcoin_adaptor;
 pub mod bitcoin_chain;
 mod esplora_bitcoin_adaptor;
+pub mod mempool_v1_type;
 mod mock_bitcoin_adaptor;
 
 #[derive(Debug)]

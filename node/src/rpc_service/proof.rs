@@ -1,35 +1,45 @@
+use client::btc_chain::mempool_v1_type::V1Block;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
 #[derive(Debug, Deserialize)]
 pub struct BtcBlockDescQueryParams {
-    #[allow(dead_code)]
-    pub start_height: Option<i64>, //desc order
-    #[allow(dead_code)]
-    pub offset: Option<u32>,
-    #[serde(default = "default_block_desc_limit")]
-    #[allow(dead_code)]
-    pub limit: Option<u32>,
+    pub start_height: Option<u64>, //desc order
+    #[serde(default = "default_block_desc_range")]
+    pub range: u32,
 }
-fn default_block_desc_limit() -> Option<u32> {
-    Some(6)
+fn default_block_desc_range() -> u32 {
+    15
 }
 
 #[derive(Debug, Serialize)]
 pub struct BtcBlockDesc {
-    pub height: i64,
-    pub median_fee: f64,
+    pub height: u64,
+    pub median_fee: u64,
     pub fee_range: Vec<f64>,
-    pub total_fees: f64,
-    pub tx_count: i64,
+    pub total_fees: u64,
+    pub tx_count: u64,
     pub timestamp: u64,
+}
+
+impl From<V1Block> for BtcBlockDesc {
+    fn from(value: V1Block) -> Self {
+        BtcBlockDesc {
+            height: value.height,
+            median_fee: value.extras.median_fee,
+            fee_range: value.extras.fee_range,
+            total_fees: value.extras.total_fees,
+            tx_count: value.tx_count,
+            timestamp: value.timestamp,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
 pub struct BtcBlockDescListResponse {
     pub blocks_desc: Vec<BtcBlockDesc>,
-    pub start: i64, // desc order
-    pub range: i64,
+    pub start: u64, // desc order
+    pub range: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Display, EnumString)]

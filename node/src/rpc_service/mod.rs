@@ -10,6 +10,11 @@ pub mod validation;
 use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
+use crate::rpc_service::handler::{
+    get_blocks_desc, get_graph, get_graph_tx, get_graph_txn, get_graphs, get_instance,
+    get_instances, get_instances_overview, get_node, get_nodes, get_nodes_overview, get_proof,
+    get_ready_to_kickoff_graph, instance_settings,
+};
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
@@ -17,10 +22,10 @@ use axum::response::Response;
 use axum::{Router, middleware, routing::get};
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
+use client::http_client::async_client::HttpAsyncClient;
 use http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
-use reqwest::Client;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use store::localdb::LocalDB;
@@ -30,12 +35,6 @@ use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::Level;
-
-use crate::rpc_service::handler::{
-    get_blocks_desc, get_graph, get_graph_tx, get_graph_txn, get_graphs, get_instance,
-    get_instances, get_instances_overview, get_node, get_nodes, get_nodes_overview, get_proof,
-    get_ready_to_kickoff_graph, instance_settings,
-};
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -58,10 +57,10 @@ pub fn create_secure_cors_layer() -> CorsLayer {
 pub struct AppState {
     pub local_db: LocalDB,
     pub btc_client: BTCClient,
+    pub http_client: HttpAsyncClient,
     pub metrics_state: MetricsState,
     pub actor: Actor,
     pub peer_id: String,
-    pub client: Client,
 }
 
 impl AppState {
@@ -73,8 +72,8 @@ impl AppState {
     ) -> anyhow::Result<Arc<AppState>> {
         let btc_client = BTCClient::new(get_network(), None);
         let metrics_state = MetricsState::new(registry);
-        let client = Client::new();
-        Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, client }))
+        let http_client = HttpAsyncClient::new(None);
+        Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, http_client }))
     }
 }
 
@@ -224,14 +223,12 @@ mod tests {
     use prometheus_client::registry::Registry;
     use reqwest::Client;
     use secp256k1::Secp256k1;
-    use serde::Deserialize;
     use serde_json::{Value, json};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use store::create_local_db;
-    use store::{GoatTxProcessingStatus, GoatTxRecord, GoatTxType};
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
     use tracing::{error, info};
@@ -586,179 +583,7 @@ mod tests {
                 method: Method::GET,
                 expe_res: true,
             },
-            // ApiTestItem {
-            //     tag: format!("{} update or insert graph", routes::v1::GRAPHS_BASE),
-            //     url: format!("http://{addr}{}/{graph_id_0}", routes::v1::GRAPHS_BASE),
-            //     json_payload: Some(json!({
-            //       "graph":{
-            //         "graph_id": graph_id_0,
-            //         "instance_id": instance_id_0,
-            //         "graph_ipfs_base_url": "",
-            //         "pegin_txid": hex::encode(generate_random_bytes(32)),
-            //         "amount": 1000,
-            //         "created_at": 1000000,
-            //         "updated_at": 1000000,
-            //         "status": "OperatorPresigned",
-            //         "bridge_out_start_at":1000000,
-            //         "bridge_out_to_addr": "",
-            //         "bridge_out_from_addr":"",
-            //         "zkm_version":"v1.1.0",
-            //         "operator":pub_key.to_string()
-            //     }
-            //     })),
-            //     method: Method::PUT,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!(
-            //         "{} update or insert graph, graph_id not match",
-            //         routes::v1::GRAPHS_BASE
-            //     ),
-            //     url: format!("http://{addr}{}/{}", routes::v1::GRAPHS_BASE, Uuid::new_v4()),
-            //     json_payload: Some(json!({
-            //       "graph":{
-            //         "graph_id": graph_id_0,
-            //         "instance_id": instance_id_0,
-            //         "graph_ipfs_base_url": "",
-            //         "pegin_txid": hex::encode(generate_random_bytes(32)),
-            //         "amount": 1000,
-            //         "created_at": 1000000,
-            //         "updated_at": 1000000,
-            //         "status": "OperatorPresigned",
-            //         "bridge_out_start_at":1000000,
-            //         "bridge_out_to_addr": "",
-            //         "bridge_out_from_addr":"",
-            //         "zkm_version":"v1.1.0",
-            //         "operator":pub_key.to_string()
-            //     }
-            //     })),
-            //     method: Method::PUT,
-            //     expe_res: false,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get graph by id", routes::v1::GRAPHS_BASE),
-            //     url: format!("http://{addr}{}/{graph_id_0}", routes::v1::GRAPHS_BASE),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get graph by id wrong id", routes::v1::GRAPHS_BASE),
-            //     url: format!("http://{addr}{}/{}", routes::v1::GRAPHS_BASE, Uuid::new_v4()),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get graphs", routes::v1::GRAPHS_BASE),
-            //     url: format!("http://{addr}{}?offset=0&limit=10", routes::v1::GRAPHS_BASE),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get graphs", routes::v1::GRAPHS_BASE),
-            //     url: format!(
-            //         "http://{addr}{}?status=Asserting&offset=0&limit=10",
-            //         routes::v1::GRAPHS_BASE
-            //     ),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get graphs check", routes::v1::GRAPHS_PRESIGN_CHECK),
-            //     url: format!(
-            //         "http://{addr}{}?instance_id={instance_id_0}",
-            //         routes::v1::GRAPHS_PRESIGN_CHECK
-            //     ),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!(
-            //         "{} get graphs check wrong instance_id",
-            //         routes::v1::GRAPHS_PRESIGN_CHECK
-            //     ),
-            //     url: format!(
-            //         "http://{addr}{}?instance_id={}",
-            //         routes::v1::GRAPHS_PRESIGN_CHECK,
-            //         Uuid::new_v4()
-            //     ),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get txn", routes::v1::GRAPHS_BASE),
-            //     url: format!("http://{addr}{}/{graph_id_1}/txn", routes::v1::GRAPHS_BASE),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get txn, raw data is null", routes::v1::GRAPHS_BASE),
-            //     url: format!("http://{addr}{}/{graph_id_0}/txn", routes::v1::GRAPHS_BASE),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: false,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get txn, wrong graph_id", routes::v1::GRAPHS_BASE),
-            //     url: format!("http://{addr}{}/{}/txn", routes::v1::GRAPHS_BASE, Uuid::new_v4()),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: false,
-            // },
         ];
-
-        // for tx_name in [
-        //     IpfsTxName::Pegin.as_str(),
-        //     IpfsTxName::Kickoff.as_str(),
-        //     IpfsTxName::AssertCommit0.as_str(),
-        //     IpfsTxName::AssertCommit1.as_str(),
-        //     IpfsTxName::AssertCommit2.as_str(),
-        //     IpfsTxName::AssertCommit3.as_str(),
-        //     IpfsTxName::AssertInit.as_str(),
-        //     IpfsTxName::AssertFinal.as_str(),
-        //     IpfsTxName::Challenge.as_str(),
-        //     IpfsTxName::Take1.as_str(),
-        //     IpfsTxName::Take2.as_str(),
-        //     IpfsTxName::Disprove.as_str(),
-        // ] {
-        //     api_test_items.push(ApiTestItem {
-        //         tag: format!("{} get {tx_name} tx", routes::v1::GRAPHS_BASE),
-        //         url: format!(
-        //             "http://{addr}{}/{graph_id_1}/tx?tx_name={tx_name}",
-        //             routes::v1::GRAPHS_BASE
-        //         ),
-        //         json_payload: None,
-        //         method: Method::GET,
-        //         expe_res: true,
-        //     });
-        // }
-        // api_test_items.push(ApiTestItem {
-        //     tag: format!("{} get tx fail as wrong tx_name ", routes::v1::GRAPHS_BASE),
-        //     url: format!(
-        //         "http://{addr}{}/{graph_id_1}/tx?tx_name=testfor",
-        //         routes::v1::GRAPHS_BASE
-        //     ),
-        //     json_payload: None,
-        //     method: Method::GET,
-        //     expe_res: false,
-        // });
-        // api_test_items.push(ApiTestItem {
-        //     tag: format!("{} get tx fail as wrong graph id", routes::v1::GRAPHS_BASE),
-        //     url: format!(
-        //         "http://{addr}{}/{}/tx?tx_name=assert-commit2.hex",
-        //         routes::v1::GRAPHS_BASE,
-        //         Uuid::new_v4(),
-        //     ),
-        //     json_payload: None,
-        //     method: Method::GET,
-        //     expe_res: false,
-        // });
         do_batch_tests("bitvm2 apis", &client, &api_test_items).await?;
         Ok(())
     }
@@ -775,143 +600,30 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_proof_api() -> Result<(), Box<dyn std::error::Error>> {
-        let addr_operator = available_addr();
-        let addr_relayer = available_addr();
-        init(Some(addr_operator.clone()));
-        info!("Start relayer server");
-        let relayer = Actor::Committee;
-        let relayer_peer_id = generate_local_key().public().to_peer_id().to_string();
-        let relayer_local_db = create_local_db(&temp_file()).await;
+        let addr = available_addr();
+        info!("Start api server");
+        let committee = Actor::Committee;
+        let committee_peer_id = generate_local_key().public().to_peer_id().to_string();
+        let local_db = create_local_db(&temp_file()).await;
         tokio::spawn(rpc_service::serve(
-            addr_relayer.clone(),
-            relayer_local_db,
-            relayer,
-            relayer_peer_id,
+            addr.clone(),
+            local_db,
+            committee,
+            committee_peer_id,
             Arc::new(Mutex::new(Registry::default())),
             CancellationToken::new(),
         ));
-
-        info!("Start operator server");
-        let operator = Actor::Operator;
-        let operator_peer_id = generate_local_key().public().to_peer_id().to_string();
-        let operator_local_db = create_local_db(&temp_file()).await;
-        tokio::spawn(rpc_service::serve(
-            addr_operator.clone(),
-            operator_local_db.clone(),
-            operator,
-            operator_peer_id,
-            Arc::new(Mutex::new(Registry::default())),
-            CancellationToken::new(),
-        ));
-
-        let (mut start_block, end_block) = (100, 106);
-        let proving_time = 200_i64;
-        let groth16_block_number = end_block - 1;
-        let graph_id = Uuid::new_v4();
-        info!("init  proof data");
-        loop {
-            let mut storage_processor = operator_local_db.acquire().await?;
-            storage_processor.create_block_proving_task(start_block, "queued".to_string()).await?;
-            storage_processor.create_aggregation_task(start_block, "queued".to_string()).await?;
-            storage_processor
-                .create_groth16_task(
-                    start_block,
-                    start_block,
-                    format!("{start_block}"),
-                    "queued".to_string(),
-                )
-                .await?;
-            if start_block == end_block {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(proving_time as u64)).await;
-
-            storage_processor
-                .update_block_proved(
-                    start_block,
-                    proving_time,
-                    10000,
-                    &[],
-                    &[],
-                    "verifier_id".to_string(),
-                    "v1.0.0",
-                    "proved".to_string(),
-                )
-                .await?;
-            storage_processor
-                .update_aggregation_succ(
-                    start_block,
-                    proving_time,
-                    10000,
-                    &[],
-                    &[],
-                    "verifier_id".to_string(),
-                    "v1.0.0",
-                    "proved".to_string(),
-                )
-                .await?;
-
-            if start_block == groth16_block_number {
-                let proof_info = get_proof_info();
-                storage_processor
-                    .update_groth16_succ(
-                        start_block,
-                        0,
-                        proving_time,
-                        10000,
-                        &hex::decode(proof_info.proof).unwrap(),
-                        &hex::decode(proof_info.public_value).unwrap(),
-                        proof_info.verifier_id.clone(),
-                        &proof_info.zkm_version,
-                        "proved".to_string(),
-                    )
-                    .await?;
-                storage_processor
-                    .create_verifier_key(
-                        &proof_info.zkm_version,
-                        &hex::decode(proof_info.verifier_key).unwrap(),
-                    )
-                    .await?;
-                storage_processor
-                    .upsert_goat_tx_record(&GoatTxRecord {
-                        instance_id: Uuid::new_v4(),
-                        graph_id,
-                        tx_type: GoatTxType::ProceedWithdraw.to_string(),
-                        tx_hash: "".to_string(),
-                        height: groth16_block_number,
-                        is_local: false,
-                        processing_status: GoatTxProcessingStatus::Processed.to_string(),
-                        extra: None,
-                        created_at: 0,
-                    })
-                    .await?;
-            }
-            start_block += 1;
-        }
-
         sleep(Duration::from_secs(1)).await;
         let client = reqwest::Client::new();
 
-        let api_test_items = [];
+        let api_test_items = [ApiTestItem {
+            tag: format!("{} get proofs desc", routes::v1::PROOFS_BLOCKS_DESC),
+            url: format!("http://{addr}{}", routes::v1::PROOFS_BLOCKS_DESC),
+            json_payload: None,
+            method: Method::GET,
+            expe_res: true,
+        }];
         do_batch_tests("node apis", &client, &api_test_items).await?;
         Ok(())
-    }
-
-    #[derive(Clone, Debug, Deserialize)]
-    struct ProofInfo {
-        pub proof: String,
-        pub public_value: String,
-        pub zkm_version: String,
-        pub verifier_id: String,
-        pub verifier_key: String,
-    }
-
-    fn get_proof_info() -> ProofInfo {
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("tests_data/test_proof_v1.1.0.json");
-        serde_json::from_str(
-            &fs::read_to_string(&path).expect("fail to read test proof_v1.1.0.json"),
-        )
-        .unwrap()
     }
 }
