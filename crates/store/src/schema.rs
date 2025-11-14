@@ -9,9 +9,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::{Display, EnumString};
 use uuid::Uuid;
 
-pub const NODE_STATUS_ONLINE: &str = "Online";
-pub const NODE_STATUS_OFFLINE: &str = "Offline";
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SerializableTxid(pub Txid);
 

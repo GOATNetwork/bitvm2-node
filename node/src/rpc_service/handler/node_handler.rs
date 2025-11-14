@@ -1,5 +1,6 @@
 use crate::rpc_service::node::{
-    ALIVE_TIME_JUDGE_THRESHOLD, NodeDesc, NodeListResponse, NodeOverViewResponse, NodeQueryParams,
+    ALIVE_TIME_JUDGE_THRESHOLD, NODE_STATUS_ONLINE, NodeDesc, NodeListResponse,
+    NodeOverViewResponse, NodeQueryParams, ToNodeDesc,
 };
 use crate::rpc_service::response::{ApiErrorExt, ApiResult};
 use crate::rpc_service::validation::InputValidator;
@@ -11,8 +12,8 @@ use bitvm2_lib::actors::Actor;
 use http::StatusCode;
 use std::sync::Arc;
 
+use store::Node;
 use store::localdb::NodeQuery;
-use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 
 /// Get node list
 ///
@@ -105,8 +106,11 @@ pub async fn get_nodes(
         .find_nodes(&NodeQuery {
             actor,
             goat_addr,
-            time_threshold,
-            status_expect: query_params.status,
+            time_threshold: Some(time_threshold),
+            is_in_time_threshold: query_params
+                .status
+                .map(|status| status == NODE_STATUS_ONLINE)
+                .unwrap_or(false),
             order: None,
             offset: Some(offset),
             limit: Some(limit),
@@ -114,30 +118,8 @@ pub async fn get_nodes(
         .await
         .api_error("GET_NODES_ERROR")?;
 
-    let node_desc_list: Vec<NodeDesc> = nodes
-        .into_iter()
-        .map(|v| {
-            let status: String = if v.updated_at >= time_threshold || v.peer_id == app_state.peer_id
-            {
-                NODE_STATUS_ONLINE.to_string()
-            } else {
-                NODE_STATUS_OFFLINE.to_string()
-            };
-            NodeDesc {
-                peer_id: v.peer_id,
-                actor: v.actor,
-                name: v.node_name,
-                service_fee_rate: v.service_fee_rate,
-                updated_at: v.updated_at,
-                status,
-                goat_addr: v.goat_addr,
-                btc_pub_key: v.btc_pub_key,
-                socket_addr: v.socket_addr,
-                reward: v.reward,
-                available_peg_btc: v.available_peg_btc,
-            }
-        })
-        .collect();
+    let node_desc_list: Vec<NodeDesc> =
+        nodes.into_iter().map(|v| v.to_node_desc(time_threshold, &app_state.peer_id)).collect();
 
     Ok((StatusCode::OK, Json(NodeListResponse { nodes: node_desc_list, total })))
 }
