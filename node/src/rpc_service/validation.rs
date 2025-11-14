@@ -59,10 +59,7 @@ impl InputValidator {
         }
     }
 
-    pub fn validate_btc_pubkey(
-        pubkey_str: &str,
-        field_name: &str,
-    ) -> ValidationResult<String> {
+    pub fn validate_btc_pubkey(pubkey_str: &str, field_name: &str) -> ValidationResult<String> {
         match PublicKey::from_str(pubkey_str) {
             Ok(goat_addr) => Ok(goat_addr.to_string()),
             Err(_) => Err((

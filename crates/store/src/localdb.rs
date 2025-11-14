@@ -1447,7 +1447,7 @@ impl<'a> StorageProcessor<'a> {
                 "Committee" => {
                     (res.offline_committee, res.online_committee) = (record.offline, record.online);
                 }
-                "Relayer" => {
+                "Watchtower" => {
                     (res.offline_watchtower, res.online_watchtower) =
                         (record.offline, record.online);
                 }
