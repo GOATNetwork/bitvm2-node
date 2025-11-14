@@ -1202,7 +1202,7 @@ async fn process_watchtower_challenge_monitoring(
                     WatchtowerChallengeStatus::WatchtowerChallengeDisproveFinished;
                 sub_status.disprove_type = Some(DisproveTxType::OperatorNack);
                 p2p_message_contents.push((
-                    Actor::Operator,
+                    Actor::Challenger,
                     GOATMessageContent::OperatorAckTimeout(OperatorAckTimeout {
                         instance_id: graph.instance_id,
                         graph_id: graph.graph_id,
