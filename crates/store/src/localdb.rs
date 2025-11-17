@@ -987,7 +987,7 @@ impl<'a> StorageProcessor<'a> {
     /// Returns:
     /// - Ok(affected_rows) number of rows affected by the operation
     /// - Err if the operation failed
-    pub async fn upsert_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
+    pub async fn upsert_graph(&mut self, graph: &Graph) -> anyhow::Result<u64> {
         let nack_txids_json = serde_json::to_string(&graph.nack_txids)?;
         let watchtower_challenge_timeout_txids_json =
             serde_json::to_string(&graph.watchtower_challenge_timeout_txids)?;
@@ -1315,7 +1315,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     /// Insert or update node without reward field
-    pub async fn upsert_node(&mut self, node: Node) -> anyhow::Result<u64> {
+    pub async fn upsert_node(&mut self, node: &Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             r#"
             INSERT INTO node (peer_id, node_name, actor, goat_addr, btc_pub_key, socket_addr, service_fee_rate, available_peg_btc,

@@ -21,7 +21,7 @@ pub async fn node_available_pbtc_update_monitor(
             let peg_btc = goat_client.peg_btc_balance(&addr.0).await?;
             node.available_peg_btc = peg_btc as i64;
             let mut storage_processor = local_db.acquire().await?;
-            storage_processor.upsert_node(node).await?;
+            storage_processor.upsert_node(&node).await?;
         }
     }
     Ok(())

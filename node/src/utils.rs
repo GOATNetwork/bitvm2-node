@@ -2318,11 +2318,11 @@ pub mod defer {
 }
 
 pub async fn save_node_info(local_db: &LocalDB, node_info: &NodeInfo) -> Result<()> {
-    tracing::info!("save_node_info for {}", node_info.peer_id);
+    info!("save_node_info for {}", node_info.peer_id);
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     let mut storage_process = local_db.acquire().await?;
     let _ = storage_process
-        .upsert_node(Node {
+        .upsert_node(&Node {
             peer_id: node_info.peer_id.clone(),
             actor: node_info.actor.clone(),
             node_name: node_info.node_name.clone(),
@@ -2714,7 +2714,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
             node_p2wsh_address(get_network(), &bitvm2_graph.parameters.operator_pubkey).to_string();
     }
 
-    tx.upsert_graph(graph).await?;
+    tx.upsert_graph(&graph).await?;
     if bitvm2_graph.committee_pre_signed() {
         tx.update_instance(
             &InstanceUpdate::new(instance_id)

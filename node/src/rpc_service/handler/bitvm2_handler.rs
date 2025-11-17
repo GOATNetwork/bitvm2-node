@@ -61,7 +61,7 @@ pub async fn instance_settings(
 ) -> ApiResult<InstanceSettingResponse> {
     Ok((
         StatusCode::OK,
-        Json(InstanceSettingResponse { bridge_in_amount: vec![0.1, 0.05, 0.02, 0.01] }),
+        Json(InstanceSettingResponse { bridge_in_amount: BRIDGE_IN_AMOUNTS.to_vec() }),
     ))
 }
 

@@ -211,24 +211,32 @@ async fn print_req_and_resp_detail(
 
 #[cfg(test)]
 mod tests {
-    use crate::env::{ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_PROOF_SEVER_URL};
-    use crate::rpc_service::{self, Actor, routes};
+    use crate::env::{
+        ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_PROOF_SEVER_URL, get_network,
+    };
+    use crate::rpc_service::bitvm2::{
+        BRIDGE_IN_AMOUNTS, GraphGetResponse, GraphListResponse, InstanceGetResponse,
+        InstanceListResponse, InstanceOverviewResponse, InstanceSettingResponse,
+    };
+    use crate::rpc_service::node::{NodeListResponse, NodeOverViewResponse};
+    use crate::rpc_service::{self, Actor, current_time_secs, routes};
     use crate::utils::{
         generate_local_key, generate_random_bytes, get_rand_btc_address_p2wpkh,
         get_rand_goat_address, temp_file,
     };
-    use bitcoin::Network;
     use bitvm2_lib::types::Bitvm2Graph;
+    use client::Utxo;
     use http::Method;
     use prometheus_client::registry::Registry;
     use reqwest::Client;
     use secp256k1::Secp256k1;
-    use serde_json::{Value, json};
+    use serde_json::Value;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use store::create_local_db;
+    use std::time::Duration;
+    use store::localdb::LocalDB;
+    use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, create_local_db};
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
     use tracing::{error, info};
@@ -241,6 +249,7 @@ mod tests {
         pub json_payload: Option<Value>,
         pub method: Method,
         pub expe_res: bool,
+        pub resp_validation: Option<Box<dyn Fn(String) -> bool>>,
     }
 
     impl ApiTestItem {
@@ -278,6 +287,16 @@ mod tests {
                     actual_status
                 ));
             }
+
+            if let Some(validate_fn) = &self.resp_validation {
+                let text = resp.text().await?;
+                if !validate_fn(text) {
+                    eprintln!("Test api '{}' fail validate_fn", self.tag);
+                    error!("Test api '{}' fail validate_fn", self.tag);
+                    return Err(anyhow::anyhow!("Test api '{}' fail validate_fn", self.tag));
+                }
+            }
+
             Ok(())
         }
     }
@@ -314,69 +333,108 @@ mod tests {
         listener.local_addr().unwrap().to_string()
     }
 
+    async fn init_nodes_data(local_db: &LocalDB, nodes: &[Node]) -> anyhow::Result<()> {
+        let mut tx = local_db.start_transaction().await?;
+        for node in nodes {
+            tx.upsert_node(node).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn init_instance_graph_data(
+        local_db: &LocalDB,
+        instances: &[Instance],
+        graphs: &[Graph],
+    ) -> anyhow::Result<()> {
+        let mut tx = local_db.start_transaction().await?;
+        for instance in instances {
+            tx.upsert_instance(instance).await?;
+        }
+        for graph in graphs {
+            tx.upsert_graph(graph).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_nodes_api() -> Result<(), Box<dyn std::error::Error>> {
         init(None);
         let addr = available_addr();
-        let actor = Actor::Challenger;
-        let local_key = generate_local_key();
-        let peer_id = local_key.public().to_peer_id().to_string();
-
+        let mut nodes = Vec::<Node>::new();
         let (_, public_key) = Secp256k1::new().generate_keypair(&mut rand::thread_rng());
-        let _pub_key = public_key.to_string();
-        let _goat_addr = format!("0x{}", hex::encode(generate_random_bytes(20)));
+        let pub_key = public_key.to_string();
+        let actor = Actor::Challenger;
+        nodes.push(Node {
+            peer_id: generate_local_key().public().to_peer_id().to_string(),
+            actor: actor.to_string(),
+            node_name: "ZKM".to_string(),
+            goat_addr: get_rand_goat_address(),
+            btc_pub_key: pub_key.clone(),
+            socket_addr: "".to_string(),
+            reward: 0,
+            service_fee_rate: 0.0,
+            available_peg_btc: 0,
+            updated_at: current_time_secs(),
+            created_at: current_time_secs(),
+        });
+        let goat_addr = get_rand_goat_address();
+        nodes.push(Node {
+            peer_id: generate_local_key().public().to_peer_id().to_string(),
+            actor: Actor::Committee.to_string(),
+            node_name: "ZKM".to_string(),
+            goat_addr: goat_addr.clone(),
+            btc_pub_key: pub_key.clone(),
+            socket_addr: "".to_string(),
+            reward: 0,
+            service_fee_rate: 0.0,
+            available_peg_btc: 0,
+            updated_at: current_time_secs(),
+            created_at: current_time_secs(),
+        });
+
         let local_db = create_local_db(&temp_file()).await;
+        init_nodes_data(&local_db, &nodes).await?;
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             local_db,
-            actor.clone(),
-            peer_id.clone(),
+            Actor::Challenger,
+            generate_local_key().public().to_peer_id().to_string(),
             Arc::new(Mutex::new(Registry::default())),
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(1)).await;
-        let client = Client::new();
         let api_test_items = [
-            // ApiTestItem {
-            //     tag: format!("{} create node", routes::v1::NODES_BASE),
-            //     url: format!("http://{addr}{}", routes::v1::NODES_BASE),
-            //     json_payload: Some(json!({
-            //         "peer_id": peer_id,
-            //         "actor": actor.to_string(),
-            //         "btc_pub_key": pub_key,
-            //         "goat_addr": goat_addr,
-            //         "socket_addr":"127.0.0.1:8080",
-            //         "reward": 0,
-            //     })),
-            //     method: Method::POST,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get node", routes::v1::NODES_BASE),
-            //     url: format!("http://{addr}{}/{peer_id}", routes::v1::NODES_BASE),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: format!("{} get nodes", routes::v1::NODES_BASE),
-            //     url: format!(
-            //         "http://{addr}{}?actor={actor}&status=Online&offset=0&limit=5",
-            //         routes::v1::NODES_BASE
-            //     ),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
-            // ApiTestItem {
-            //     tag: routes::v1::NODES_OVERVIEW.to_string(),
-            //     url: format!("http://{addr}{}", routes::v1::NODES_OVERVIEW),
-            //     json_payload: None,
-            //     method: Method::GET,
-            //     expe_res: true,
-            // },
+            ApiTestItem {
+                tag: format!("{} get node", routes::v1::NODES_BASE),
+                url: format!("http://{addr}{}?actor={}", routes::v1::NODES_BASE, actor.to_string()),
+                json_payload: None,
+                method: Method::GET,
+                expe_res: true,
+                resp_validation: Some(Box::new(|text| -> bool {
+                    matches!(
+                        serde_json::from_str::<NodeListResponse>(&text),
+                        Ok(node_resp) if node_resp.nodes.len() == 1
+                    )
+                })),
+            },
+            ApiTestItem {
+                tag: format!("{} get node overview", routes::v1::NODES_OVERVIEW),
+                url: format!("http://{addr}{}", routes::v1::NODES_OVERVIEW),
+                json_payload: None,
+                method: Method::GET,
+                expe_res: true,
+                resp_validation: Some(Box::new(|text| -> bool {
+                    matches!(
+                        serde_json::from_str::<NodeOverViewResponse>(&text),
+                        Ok(node_overview) if node_overview.nodes_overview.online_challenger == 1 &&
+                        node_overview.nodes_overview.online_committee == 1
+                    )
+                })),
+            },
         ];
-        do_batch_tests("node apis", &client, &api_test_items).await?;
+        do_batch_tests("node apis", &Client::new(), &api_test_items).await?;
         Ok(())
     }
 
@@ -388,6 +446,146 @@ mod tests {
         let local_key = generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
         let local_db = create_local_db(&temp_file()).await;
+        let bridge_in_instance_id = Uuid::new_v4();
+        let bridge_in_from = get_rand_btc_address_p2wpkh(get_network());
+        let bridge_in_to = get_rand_goat_address();
+        let bridge_in_amount = 20000000;
+        let utxo: Vec<Utxo> = vec![Utxo {
+            txid: generate_random_bytes(32).try_into().unwrap(),
+            vout: 1,
+            amount_stats: bridge_in_amount as u64,
+        }];
+        let mut instances = Vec::<Instance>::new();
+        let mut graphs = Vec::<Graph>::new();
+        instances.push(Instance {
+            instance_id: bridge_in_instance_id,
+            is_bridge_in: true,
+            network: get_network().to_string(),
+            from_addr: bridge_in_from.clone(),
+            to_addr: bridge_in_to.clone(),
+            amount: bridge_in_amount,
+            fees: Default::default(),
+            input_utxos: serde_json::to_string(&utxo).unwrap(),
+            status: InstanceBridgeInStatus::RelayerL2Minted.to_string(),
+            goat_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            goat_tx_height: 1000,
+            user_xonly_pubkey: Default::default(),
+            user_change_addr: get_rand_btc_address_p2wpkh(get_network()),
+            user_refund_addr: get_rand_btc_address_p2wpkh(get_network()),
+            btc_txid: None,
+            btc_height: 0,
+            pegin_confirm_txid: None,
+            pegin_cancel_txid: None,
+            committees_answers: Default::default(),
+            pegin_data_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            parameters: None,
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+        });
+
+        instances.push(Instance {
+            instance_id: Uuid::new_v4(),
+            is_bridge_in: true,
+            network: get_network().to_string(),
+            from_addr: bridge_in_from.clone(),
+            to_addr: bridge_in_to.clone(),
+            amount: bridge_in_amount,
+            fees: Default::default(),
+            input_utxos: serde_json::to_string(&utxo).unwrap(),
+            status: InstanceBridgeInStatus::RelayerL1Broadcasted.to_string(),
+            goat_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            goat_tx_height: 1000,
+            user_xonly_pubkey: Default::default(),
+            user_change_addr: get_rand_btc_address_p2wpkh(get_network()),
+            user_refund_addr: get_rand_btc_address_p2wpkh(get_network()),
+            btc_txid: None,
+            btc_height: 0,
+            pegin_confirm_txid: None,
+            pegin_cancel_txid: None,
+            committees_answers: Default::default(),
+            pegin_data_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            parameters: None,
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+        });
+        let graph_id = Uuid::new_v4();
+        let graph_status = GraphStatus::OperatorTake1.to_string();
+        let graph_to = get_rand_btc_address_p2wpkh(get_network());
+        let graph_from = get_rand_goat_address();
+
+        graphs.push(Graph {
+            graph_id,
+            instance_id: bridge_in_instance_id,
+            kickoff_index: 0,
+            from_addr: graph_from.clone(),
+            to_addr: graph_to.clone(),
+            graph_ipfs_base_url: "".to_string(),
+            amount: bridge_in_amount,
+            challenge_amount: bridge_in_amount,
+            status: graph_status.clone(),
+            sub_status: "".to_string(),
+            operator_pubkey: "".to_string(),
+            next_prekickoff: None,
+            cur_prekickoff_txid: None,
+            force_skip_kickoff_txid: None,
+            quick_challenge_txid: None,
+            challenge_incomplete_kickoff_txid: None,
+            pegin_txid: None,
+            kickoff_txid: None,
+            take1_txid: None,
+            challenge_txid: None,
+            take2_txid: None,
+            disprove_txid: None,
+            watchtower_challenge_init_txid: None,
+            watchtower_challenge_timeout_txids: vec![],
+            nack_txids: vec![],
+            blockhash_commit_timeout_txid: None,
+            assert_init_txid: None,
+            assert_commit_timeout_txids: vec![],
+            init_withdraw_tx_hash: None,
+            bridge_out_start_at: 0,
+            zkm_version: "zkm_0.1.0".to_string(),
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+        });
+        graphs.push(Graph {
+            graph_id: Uuid::new_v4(),
+            instance_id: bridge_in_instance_id,
+            kickoff_index: 0,
+            from_addr: graph_from.clone(),
+            to_addr: graph_to.clone(),
+            graph_ipfs_base_url: "".to_string(),
+            amount: bridge_in_amount,
+            challenge_amount: bridge_in_amount,
+            status: GraphStatus::CommitteePresigned.to_string(),
+            sub_status: "".to_string(),
+            operator_pubkey: "".to_string(),
+            next_prekickoff: None,
+            cur_prekickoff_txid: None,
+            force_skip_kickoff_txid: None,
+            quick_challenge_txid: None,
+            challenge_incomplete_kickoff_txid: None,
+            pegin_txid: None,
+            kickoff_txid: None,
+            take1_txid: None,
+            challenge_txid: None,
+            take2_txid: None,
+            disprove_txid: None,
+            watchtower_challenge_init_txid: None,
+            watchtower_challenge_timeout_txids: vec![],
+            nack_txids: vec![],
+            blockhash_commit_timeout_txid: None,
+            assert_init_txid: None,
+            assert_commit_timeout_txids: vec![],
+            init_withdraw_tx_hash: None,
+            bridge_out_start_at: 0,
+            zkm_version: "zkm_0.1.0".to_string(),
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+        });
+
+        init_instance_graph_data(&local_db, &instances, &graphs).await?;
+
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             local_db.clone(),
@@ -397,194 +595,108 @@ mod tests {
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(1)).await;
-        // let instance_id_0 = Uuid::new_v4().to_string();
-        let instance_id_1 = Uuid::new_v4().to_string();
-        // let graph_id_0 = Uuid::new_v4().to_string();
-        // let graph_id_1 = Uuid::new_v4();
-        let from_addr = get_rand_btc_address_p2wpkh(Network::Testnet);
-        let client = reqwest::Client::new();
-        // info!("load_test_graph");
-        // let bitvm2_graph: Bitvm2Graph = load_test_bitvm2_graph();
-        // store_graph(
-        //     &local_db,
-        //     Uuid::from_str(&instance_id_0)?,
-        //     graph_id_1,
-        //     &bitvm2_graph,
-        //     Some(GraphStatus::Disprove.to_string()),
-        // )
-        // .await?;
-        // let graph = get_graph(&local_db, Some(Uuid::from_str(&instance_id_0)?), graph_id_1).await?;
-        // update_graph_fields(&local_db, graph_id_1, None, None, graph.kickoff_txid, None, None)
-        //     .await?;
-        // let pub_key = bitvm2_graph.parameters.operator_pubkey.to_string();
+
+        let target_instance_id = bridge_in_instance_id;
         let api_test_items = vec![
-            // ApiTestItem {
-            //     tag: routes::v1::NODES_BASE.to_string(),
-            //     url: format!("http://{addr}{}", routes::v1::NODES_BASE),
-            //     json_payload: Some(json!({
-            //         "peer_id": peer_id,
-            //         "actor": actor.to_string(),
-            //         "btc_pub_key": pub_key,
-            //         "goat_addr": get_rand_goat_address(),
-            //         "socket_addr":"127.0.0.1:8080",
-            //         "reward": 0,
-            //     })),
-            //     method: Method::POST,
-            //     expe_res: true,
-            // },
             ApiTestItem {
                 tag: routes::v1::INSTANCES_SETTINGS.to_string(),
                 url: format!("http://{addr}{}", routes::v1::INSTANCES_SETTINGS),
                 json_payload: None,
                 method: Method::GET,
                 expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} create instance", routes::v1::INSTANCES_BASE),
-                url: format!("http://{addr}{}", routes::v1::INSTANCES_BASE),
-                json_payload: Some(json!({
-                   "instance":{
-                    "instance_id": instance_id_1,
-                    "network": "testnet",
-                    "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
-                    "to_addr": get_rand_goat_address(),
-                    "amount": 20000,
-                    "fees": [1000, 1000, 1000],
-                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
-                    "status": "UserInited",
-                    "pegin_request_tx_hash": "",
-                    "pegin_request_height":10000,
-                    "user_xonly_pubkey":[241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
-                    "user_change_addr":"",
-                    "user_refund_addr":"",
-                    "pegin_prepare_txid": null,
-                    "pegin_confirm_txid": null,
-                    "pegin_cancel_txid": null,
-                    "unsign_pegin_confirm_tx": "",
-                    "committees_answers": {},
-                    "pegin_data_tx_hash": "",
-                    "pegin_prepare_height":10,
-                    "timeout":10000,
-                    "created_at":  SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                    "updated_at":  SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                }
+                resp_validation: Some(Box::new(|text| -> bool {
+                    matches!(
+                        serde_json::from_str::<InstanceSettingResponse>(&text),
+                        Ok(instances_setting) if instances_setting.bridge_in_amount == BRIDGE_IN_AMOUNTS.to_vec()
+                    )
                 })),
-                method: Method::POST,
-                expe_res: true,
             },
             ApiTestItem {
-                tag: format!("{} update instance", routes::v1::INSTANCES_BASE),
-                url: format!("http://{addr}{}/{instance_id_1}", routes::v1::INSTANCES_BASE),
-                json_payload: Some(json!({
-                   "instance":{
-                    "instance_id": instance_id_1,
-                    "network": "testnet",
-                    "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
-                    "to_addr": get_rand_goat_address(),
-                    "amount": 80000,
-                    "fees": [1000, 1000, 1000],
-                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
-                    "status": "Presigned",
-                    "pegin_request_tx_hash": hex::encode(generate_random_bytes(32)),
-                    "pegin_request_height":10000,
-                    "user_xonly_pubkey":[241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
-                    "user_change_addr":"",
-                    "user_refund_addr":"",
-                    "pegin_prepare_txid": "a297d7f1036d94fbd99980149dfb92cab91d83de506889b5338ef639f0f65c07",
-                    "pegin_confirm_txid": "e34c1a34ee9001e56fcc8dfaa1cc552d4250765d8a4a99106dc1928fb2557de5",
-                    "pegin_cancel_txid": "bf7cb02e7cc1d7282190b0087cf9bd3f3b460795d4d3c03ab68533ff751f628f",
-                    "unsign_pegin_confirm_tx": hex::encode(generate_random_bytes(50)),
-                    "committees_answers": {},
-                    "pegin_data_tx_hash": hex::encode(generate_random_bytes(50)),
-                    "pegin_prepare_height":10,
-                    "timeout":10000,
-                    "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                    "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                }
-                })),
-                method: Method::PUT,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!(
-                    "{} update instance: wrong instance_id not match",
-                    routes::v1::INSTANCES_BASE
+                tag: routes::v1::INSTANCES_BY_ID.to_string(),
+                url: format!(
+                    "http://{addr}{}/{}",
+                    routes::v1::INSTANCES_BASE,
+                    bridge_in_instance_id
                 ),
-                url: format!("http://{addr}{}/{instance_id_1}", routes::v1::INSTANCES_BASE),
-                json_payload: Some(json!({
-                   "instance":{
-                    "instance_id": Uuid::new_v4(),
-                    "network": "testnet",
-                    "from_addr": get_rand_btc_address_p2wpkh(Network::Testnet),
-                    "to_addr": get_rand_goat_address(),
-                    "fees": [1000, 1000, 1000],
-                    "amount": 80000,
-                    "input_utxos":"{\"txid\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],\"vout\":0,\"amount_stats\":110}",
-                    "status": "Presigned",
-                    "pegin_request_tx_hash": hex::encode(generate_random_bytes(32)),
-                    "pegin_request_height":10000,
-                    "user_xonly_pubkey":[241,77,222,197,156,70,127,106,169,155,155,10,242,194,183,203,19,29,8,122,11,205,201,232,191,12,70,128,82,184,61,74],
-                    "user_change_addr":"",
-                    "user_refund_addr":"",
-                    "pegin_prepare_txid": hex::encode(generate_random_bytes(32)),
-                    "pegin_confirm_txid": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-                    "pegin_cancel_txid": hex::encode(generate_random_bytes(32)),
-                    "unsign_pegin_confirm_tx": hex::encode(generate_random_bytes(50)),
-                    "committees_answers": {},
-                    "pegin_data_tx_hash": "18f553006e17b0adc291a75f48e77687cdd58e0049bb4a976d69e5358ba3f59b",
-                    "pegin_prepare_height":10,
-                    "timeout":10000,
-                    "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                    "updated_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                }
+                json_payload: None,
+                method: Method::GET,
+                expe_res: true,
+                resp_validation: Some(Box::new(move |text| -> bool {
+                    matches!(
+                        serde_json::from_str::<InstanceGetResponse>(&text),
+                        Ok(instanes_res) if instanes_res.instance_wrap.instance.instance_id.eq(&target_instance_id)
+                    )
                 })),
-                method: Method::PUT,
-                expe_res: false,
-            },
-            ApiTestItem {
-                tag: format!("{} get instance", routes::v1::INSTANCES_BASE),
-                url: format!("http://{addr}{}/{instance_id_1}", routes::v1::INSTANCES_BASE),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get instance: wrong instance_id", routes::v1::INSTANCES_BASE),
-                url: format!("http://{addr}{}/{}", routes::v1::INSTANCES_BASE, Uuid::new_v4()),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
             },
             ApiTestItem {
                 tag: format!("{} get instances", routes::v1::INSTANCES_BASE),
                 url: format!(
-                    "http://{addr}{}?from_addr={from_addr}&offset=0&limit=5",
-                    routes::v1::INSTANCES_BASE
-                ),
-                json_payload: None,
-                method: Method::GET,
-                expe_res: true,
-            },
-            ApiTestItem {
-                tag: format!("{} get instances: wrong from addr", routes::v1::INSTANCES_BASE),
-                url: format!(
-                    "http://{addr}{}?from_addr={}&offset=0&limit=5",
+                    "http://{addr}{}?is_bridge_in=true&from_addr={}",
                     routes::v1::INSTANCES_BASE,
-                    get_rand_btc_address_p2wpkh(Network::Testnet),
+                    bridge_in_from,
                 ),
                 json_payload: None,
                 method: Method::GET,
                 expe_res: true,
+                resp_validation: Some(Box::new(|text| -> bool {
+                    matches!(
+                        serde_json::from_str::<InstanceListResponse>(&text),
+                        Ok(instance_list) if instance_list.total == 2
+                    )
+                })),
             },
             ApiTestItem {
-                tag: routes::v1::INSTANCES_OVERVIEW.to_string(),
-                url: format!("http://{addr}{}", routes::v1::INSTANCES_OVERVIEW),
+                tag: format!("{} info", routes::v1::INSTANCES_OVERVIEW),
+                url: format!("http://{addr}{}", routes::v1::INSTANCES_OVERVIEW,),
                 json_payload: None,
                 method: Method::GET,
                 expe_res: true,
+                resp_validation: Some(Box::new(move |text| -> bool {
+                    matches!(
+                        serde_json::from_str::<InstanceOverviewResponse>(&text),
+                        Ok(instance_overview) if instance_overview.instances_overview.total_bridge_in_amount == bridge_in_amount
+                    )
+                })),
+            },
+            ApiTestItem {
+                tag: format!("{} info", routes::v1::GRAPHS_BY_ID),
+                url: format!("http://{addr}{}/{}", routes::v1::GRAPHS_BASE, graph_id),
+                json_payload: None,
+                method: Method::GET,
+                expe_res: true,
+                resp_validation: Some(Box::new(move |text| -> bool {
+                    if let Ok(graph_res) = serde_json::from_str::<GraphGetResponse>(&text)
+                        && let Some(graph) = graph_res.graph
+                        && graph.graph.graph_id == graph_id
+                    {
+                        true
+                    } else {
+                        false
+                    }
+                })),
+            },
+            ApiTestItem {
+                tag: format!("{} get graphs info", routes::v1::GRAPHS_BASE),
+                url: format!(
+                    "http://{addr}{}?status={}&from_addr={}&graph_id={}",
+                    routes::v1::GRAPHS_BASE,
+                    graph_status,
+                    graph_from,
+                    graph_id
+                ),
+                json_payload: None,
+                method: Method::GET,
+                expe_res: true,
+                resp_validation: Some(Box::new(move |text| -> bool {
+                    println!("{}", text);
+                    matches!(
+                        serde_json::from_str::<GraphListResponse>(&text),
+                        Ok(graph_list) if graph_list.total == 1
+                    )
+                })),
             },
         ];
-        do_batch_tests("bitvm2 apis", &client, &api_test_items).await?;
+        do_batch_tests("bitvm2 apis", &Client::new(), &api_test_items).await?;
         Ok(())
     }
 
@@ -622,6 +734,7 @@ mod tests {
             json_payload: None,
             method: Method::GET,
             expe_res: true,
+            resp_validation: None,
         }];
         do_batch_tests("node apis", &client, &api_test_items).await?;
         Ok(())

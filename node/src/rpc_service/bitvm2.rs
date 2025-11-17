@@ -28,7 +28,7 @@ const _BRIDGE_OUT_FAIL_AS_CLAIM_TIMEOUT: &str =
     "Claim timed out. Please initiate a new transaction.";
 const _BRIDGE_IN_FAIL_AS_L1_LOCK_TIMEOUT: &str =
     "The operator timed out and failed to lock BTC. Please cancel the transaction.";
-
+pub const BRIDGE_IN_AMOUNTS: [f32; 4] = [0.1, 0.05, 0.02, 0.01];
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InstanceSettingResponse {
     pub bridge_in_amount: Vec<f32>,
@@ -325,13 +325,13 @@ pub struct GraphQueryParams {
 impl From<GraphQueryParams> for GraphQuery {
     fn from(value: GraphQueryParams) -> Self {
         let mut pegin_txid_op: Option<SerializableTxid> = None;
-        let mut graph_ip_op: Option<String> = None;
+        let mut graph_id_op: Option<String> = None;
         if let Some(filed) = value.graph_field {
             if let Ok(pegin_txid) = Txid::from_str(&filed) {
                 pegin_txid_op = Some(pegin_txid.into());
             }
             if let Ok(uuid) = Uuid::from_str(&filed) {
-                graph_ip_op = Some(uuid.encode_hex());
+                graph_id_op = Some(uuid.encode_hex());
             }
         }
         let (is_bridge_out, from_addr) = reflect_goat_address(value.from_addr.clone());
@@ -363,7 +363,7 @@ impl From<GraphQueryParams> for GraphQuery {
             operator_pubkey: value.operator,
             kickoff_index: None,
             from_addr,
-            graph_id: graph_ip_op,
+            graph_id: graph_id_op,
             pegin_txid: pegin_txid_op,
             raw_conditions,
             order: Some(
