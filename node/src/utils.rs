@@ -2935,7 +2935,9 @@ pub async fn update_graph_status(
     }
 
     let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());
-    if let Some(sub_status) = sub_status {
+    if let Some(sub_status) = sub_status
+        && sub_status != ChallengeSubStatus::default()
+    {
         graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
     }
     storage_processor.update_graph_fields(graph_update).await?;

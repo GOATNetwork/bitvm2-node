@@ -110,7 +110,7 @@ pub enum WatchtowerChallengeStatus {
     WatchtowerChallengeDisproveFinished, // Disproved Finished
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct ChallengeSubStatus {
     pub watchtower_challenge_status: WatchtowerChallengeStatus,
     pub commit_blockhash_status: CommitBlockHashStatus,
