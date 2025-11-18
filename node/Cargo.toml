@@ -96,8 +96,6 @@ strum = { version = "0.26", features = ["derive"] }
 borsh = {version = "1.5.3", features = ["derive"] }
 commit-chain-rpc = { workspace = true }
 
-bs58 = "0.5"
-
 # bin
 tempfile = "3.19.1"
 proofs = { path = "../crates/proofs" }

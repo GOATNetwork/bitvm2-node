@@ -449,7 +449,10 @@ pub(crate) async fn refresh_graph(
     let prekickoff_txid = graph.cur_prekickoff.tx().compute_txid();
     if matches!(
         current_status,
-        GraphStatus::CommitteePresigned | GraphStatus::OperatorDataPushed | GraphStatus::Obsoleted
+        GraphStatus::OperatorPresigned
+            | GraphStatus::CommitteePresigned
+            | GraphStatus::OperatorDataPushed
+            | GraphStatus::Obsoleted
     ) {
         if !tx_on_chain(btc_client, &prekickoff_txid).await? {
             update_graph_status(local_db, instance_id, graph_id, current_status.clone(), None)
@@ -459,7 +462,8 @@ pub(crate) async fn refresh_graph(
             current_status = if current_status == GraphStatus::OperatorDataPushed {
                 GraphStatus::PreKickoff
             } else {
-                // for GraphStatus::CommitteePresigned: if prekickoff is on-chain while graph data not yet posted,
+                // for GraphStatus::OperatorPresigned/CommitteePresigned:
+                // if prekickoff is on-chain while graph data not yet posted,
                 // it means this graph will never be posted and operator is going to skip it,
                 // mark it as Obsoleted so that it can be skipped later
                 //
