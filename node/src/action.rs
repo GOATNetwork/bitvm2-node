@@ -2835,7 +2835,7 @@ pub async fn recv_and_dispatch(
                 for (i, (txin, txin_amount)) in assert_commit_inputs.into_iter().enumerate() {
                     if outpoint_spent_txid(btc_client, &assert_init_txid, i as u64).await?.is_none()
                     {
-                        build_sign_and_broadcast_tx(
+                        let assert_commit_txid = build_sign_and_broadcast_tx(
                             btc_client,
                             operator_master_keypair,
                             vec![txin],
@@ -2843,6 +2843,7 @@ pub async fn recv_and_dispatch(
                             vec![],
                         )
                         .await?;
+                        wait_tx_appear(btc_client, &assert_commit_txid, 5, 60).await?;
                     }
                 }
             }
