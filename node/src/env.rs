@@ -82,7 +82,7 @@ const COMMITTEE_MEMBER_NUMBER: usize = 2;
 
 pub const MESSAGE_BROADCAST_MAX_TIMES: i64 = 3;
 pub const MESSAGE_RESEND_INTERVAL_SECOND: i64 = 60 * 5;
-pub const MESSAGE_EXPIRE_TIME: i64 = 3600 * 24; // 1 days
+pub const MESSAGE_EXPIRE_TIME: i64 = 3600 * 24 * 15; // 15 days for test
 
 pub const MESSAGE_SAVE_INTERVAL_SECOND: i64 = 3600 * 24 * 3;
 

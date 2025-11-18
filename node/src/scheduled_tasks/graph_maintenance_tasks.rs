@@ -39,6 +39,7 @@ const MONITE_BTC_TX_NAME_KICKOFF: &str = "kickoff";
 const MONITE_BTC_TX_NAME_WATCHTOWER_INIT: &str = "watchtower_init";
 const MONITE_BTC_TX_NAME_ASSERT_INIT: &str = "assert_init";
 
+#[derive(Clone, Debug)]
 pub struct ChallengeTimeLockConfig {
     pub watchtower_challenge_timelock: i64,
     pub watchtower_ack_timelock: i64,
@@ -990,6 +991,7 @@ async fn process_watchtower_challenge_monitoring(
 ) -> anyhow::Result<()> {
     trace!("process_watchtower_challenge_monitoring start");
     let timelock_config = get_challenge_timelock_config();
+    info!("process_watchtower_challenge_monitoring timelock_config: {timelock_config:?}");
     let (kickoff_txid, watchtower_challenge_init_txid, blockhash_commit_timeout_txid): (
         Txid,
         Txid,
@@ -1047,6 +1049,11 @@ async fn process_watchtower_challenge_monitoring(
         let mut data_change = false;
         let mut is_commit_block_hash_ready = false;
         let mut p2p_message_contents: Vec<(Actor, GOATMessageContent, Option<String>)> = vec![];
+        info!(
+            "is_ack_timeout_{is_ack_timeout}, is_challenge_timeout_{is_challenge_timeout}, \
+            is_blockhash_commit_timeout_{is_blockhash_commit_timeout}, out_monitor.height:{}, current_height:{current_height} ",
+            out_monitor.height
+        );
         if !is_ack_timeout {
             if vout_monitor_data.commit_blockhash_status == CommitBlockHashStatus::OperatorInit {
                 if !is_blockhash_commit_timeout {
@@ -1092,8 +1099,8 @@ async fn process_watchtower_challenge_monitoring(
 
             if is_challenge_timeout {
                 info!(
-                    "process_watchtower_challenge_monitoring watchtower challenge timeout for graph id :{}",
-                    graph.graph_id
+                    "process_watchtower_challenge_monitoring watchtower challenge timeout for graph id :{}, vout_monitor_data:{:?}",
+                    graph.graph_id, vout_monitor_data
                 );
                 let watchtower_indexes: Vec<usize> = vout_monitor_data
                     .data_map
@@ -1181,7 +1188,7 @@ async fn process_watchtower_challenge_monitoring(
                 ));
             }
         } else {
-            trace!(
+            info!(
                 "process_watchtower_challenge_monitoring graph id :{} ack timeout",
                 graph.graph_id
             );
