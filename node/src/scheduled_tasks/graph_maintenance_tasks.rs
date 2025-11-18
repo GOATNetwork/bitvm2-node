@@ -178,10 +178,11 @@ impl WTInitTxVoutMonitorData {
         &mut self,
         btc_client: &BTCClient,
         txid: &Txid,
-        challenge_timeout_txids: &[SerializableTxid],
+        input_challenge_timeout_txids: &[SerializableTxid],
         nack_txids: &[SerializableTxid],
-    ) -> anyhow::Result<(Vec<(usize, Txid)>, Vec<(usize, Txid)>)> {
+    ) -> anyhow::Result<(Vec<(usize, Txid)>, Vec<(usize, Txid)>, Vec<(usize, Txid)>)> {
         let mut challenge_txids: Vec<(usize, Txid)> = Vec::new();
+        let mut challenge_timeout_txids: Vec<(usize, Txid)> = Vec::new();
         let mut ack_txids: Vec<(usize, Txid)> = Vec::new();
         for (k, status) in self.data_map.iter_mut() {
             let index = *k;
@@ -189,8 +190,9 @@ impl WTInitTxVoutMonitorData {
                 && let Some(spend_txid) =
                     outpoint_spent_txid(btc_client, txid, (index * 2) as u64).await?
             {
-                if challenge_timeout_txids.iter().any(|v| v.0 == spend_txid) {
+                if input_challenge_timeout_txids.iter().any(|v| v.0 == spend_txid) {
                     *status = WatchtowerChallengeItemStatus::ChallengeTimeout;
+                    challenge_timeout_txids.push((index as usize, spend_txid));
                 } else {
                     *status = WatchtowerChallengeItemStatus::Challenge;
                     challenge_txids.push((index as usize, spend_txid));
@@ -215,7 +217,7 @@ impl WTInitTxVoutMonitorData {
                 .values()
                 .all(|status| *status == WatchtowerChallengeItemStatus::OperatorACK);
         }
-        Ok((challenge_txids, ack_txids))
+        Ok((challenge_txids, challenge_timeout_txids, ack_txids))
     }
 
     fn update_disprove_indexes(&mut self) {
@@ -1134,13 +1136,14 @@ async fn process_watchtower_challenge_monitoring(
                         Some(sub_type),
                     ));
                     vout_monitor_data.is_challenge_timeout_sent = true;
+                    is_commit_block_hash_ready = true;
                     sub_status.watchtower_challenge_status =
                         WatchtowerChallengeStatus::WatchtowerChallengeTimeout;
                     data_change = true;
                 }
             }
 
-            let (challenge_txids, ack_txids) = vout_monitor_data
+            let (challenge_txids, challenge_timeout_txids, ack_txids) = vout_monitor_data
                 .monitor_vout(
                     btc_client,
                     &watchtower_challenge_init_txid,
@@ -1149,7 +1152,10 @@ async fn process_watchtower_challenge_monitoring(
                 )
                 .await?;
 
-            if !challenge_txids.is_empty() || !ack_txids.is_empty() {
+            if !challenge_txids.is_empty()
+                || !challenge_timeout_txids.is_empty()
+                || !ack_txids.is_empty()
+            {
                 data_change = true;
             }
             if !challenge_txids.is_empty() {
