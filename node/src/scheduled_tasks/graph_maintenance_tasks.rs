@@ -1284,6 +1284,7 @@ async fn process_watchtower_challenge_monitoring(
             );
             if let Ok(Some(watchtower_challenge_init_tx)) =
                 btc_client.get_tx_info(&watchtower_challenge_init_txid).await
+                && watchtower_challenge_init_tx.status.block_height.unwrap_or_default() > 0
             {
                 sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
                 let mut tx = local_db.start_transaction().await?;
@@ -1470,7 +1471,9 @@ async fn process_assert_commit_monitoring(
                 assert_init_txid.to_string()
             );
 
-            if let Ok(Some(assert_init_tx)) = btc_client.get_tx_info(&assert_init_txid).await {
+            if let Ok(Some(assert_init_tx)) = btc_client.get_tx_info(&assert_init_txid).await
+                && assert_init_tx.status.block_height.unwrap_or_default() > 0
+            {
                 sub_status.assert_commit_status = AssertCommitStatus::OperatorInit;
                 let mut tx = local_db.start_transaction().await?;
                 tx.update_graph_fields(
