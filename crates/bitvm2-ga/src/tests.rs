@@ -26,7 +26,11 @@ mod tests {
         disprove_scripts::{NUM_GUEST_PUBS_ASSERT, hash160},
         scripts::generate_opreturn_script,
         transactions::{
-            base::{BaseTransaction, DUST_AMOUNT, Input}, pegin::PegInRefundTransaction, pre_signed::{PreSignedTransaction, pre_sign_taproot_input_default}, prekickoff::PrekickoffTransaction, signing::populate_p2wsh_witness
+            base::{BaseTransaction, DUST_AMOUNT, Input},
+            pegin::PegInRefundTransaction,
+            pre_signed::{PreSignedTransaction, pre_sign_taproot_input_default},
+            prekickoff::PrekickoffTransaction,
+            signing::populate_p2wsh_witness,
         },
         utils::num_blocks_per_network,
     };
@@ -1415,8 +1419,8 @@ mod tests {
             Ok(b58)
         }
 
-        use std::str::FromStr;
         use client::btc_chain::BTCClient;
+        use std::str::FromStr;
         let user_xonly = "8bc0a6e6b046ffdbd84aee9aea83d177c9f26f66d5f373949a78f6e774ca7f11";
         let user_xonly = XOnlyPublicKey::from_str(user_xonly).unwrap();
         let network = Network::Testnet;
@@ -1436,27 +1440,27 @@ mod tests {
             .into_iter()
             .find(|u| u.value >= test_amount)
         {
-            Some(u) => Input {
-                outpoint: OutPoint { txid: u.txid, vout: u.vout },
-                amount: u.value,
-            },
+            Some(u) => Input { outpoint: OutPoint { txid: u.txid, vout: u.vout }, amount: u.value },
             None => {
-                let outpoint = fund_address(&eslora, network, test_address.clone(), test_amount).await;
+                let outpoint =
+                    fund_address(&eslora, network, test_address.clone(), test_amount).await;
                 Input { outpoint, amount: test_amount }
-            },
+            }
         };
         let pegin_refund = PegInRefundTransaction::new_for_validation(
             &connector_z,
             input,
             &bank_address,
             default_fee_amount,
-        ).unwrap();
+        )
+        .unwrap();
 
         let psbt_b58 = build_psbt_base58(
             &pegin_refund.tx(),
             &pegin_refund.prev_outs(),
             Some(&pegin_refund.prev_scripts()),
-        ).unwrap();
+        )
+        .unwrap();
         println!("\ntest address: {}", test_address);
         println!("\nPegin cancel txid: {}", pegin_refund.tx().compute_txid());
         println!("\nPegin cancel PSBT (base58):\n{}", psbt_b58);
