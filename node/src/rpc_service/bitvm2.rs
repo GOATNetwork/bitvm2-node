@@ -85,7 +85,7 @@ impl InstanceExtended {
         let utxo: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)
             .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         let (confirmations, target_confirmations) = get_instance_block_confirm_progress(
-            &btc_client,
+            btc_client,
             current_height,
             instance.is_bridge_in,
             instance.btc_txid.clone(),
@@ -100,7 +100,7 @@ impl InstanceExtended {
             confirmations,
             target_confirmations,
             status_extra: get_instance_status_extra(
-                &btc_client,
+                btc_client,
                 instance.instance_id,
                 instance.is_bridge_in,
                 instance.status.clone(),
@@ -202,24 +202,15 @@ async fn get_instance_block_confirm_progress(
 }
 
 fn get_bridge_in_status_time_window_secs(status: &str) -> i64 {
-    if let Ok(status) = InstanceBridgeInStatus::from_str(status) {
-        match status {
-            InstanceBridgeInStatus::UserInited => 120,
-            _ => 0,
-        }
-    } else {
-        0
+    match InstanceBridgeInStatus::from_str(status) {
+        Ok(InstanceBridgeInStatus::UserInited) => 120,
+        Ok(_) | Err(_) => 0,
     }
 }
 
 fn get_bridge_out_status_time_window_secs(status: &str) -> i64 {
-    if let Ok(status) = InstanceBridgeOutStatus::from_str(status) {
-        match status {
-            _ => 0,
-        }
-    } else {
-        0
-    }
+    let _ = InstanceBridgeOutStatus::from_str(status);
+    0
 }
 
 fn get_instance_waiting_time_in_secs(is_bridge_in: bool, status: &str, last_updated: i64) -> i64 {
@@ -408,13 +399,8 @@ impl GraphExtended {
 }
 
 fn get_graph_waiting_time_in_secs(last_updated: i64, status: &str) -> i64 {
-    let time_window = if let Ok(status) = GraphStatus::from_str(status) {
-        match status {
-            _ => 0,
-        }
-    } else {
-        0
-    };
+    let _ = GraphStatus::from_str(status);
+    let time_window = 0;
     let time_left = time_window - (current_time_secs() - last_updated);
     time_left.max(0)
 }

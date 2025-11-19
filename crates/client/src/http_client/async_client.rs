@@ -25,7 +25,7 @@ impl HttpAsyncClient {
         &self,
         url: &str,
     ) -> anyhow::Result<T> {
-        let response = self.get_with_retry(&url).await?;
+        let response = self.get_with_retry(url).await?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let message = response.text().await?;
@@ -42,10 +42,10 @@ impl HttpAsyncClient {
         match self.get_response_json(url).await {
             Ok(res) => Ok(Some(res)),
             Err(e) => {
-                if let Some(esplora_err) = e.downcast_ref::<Error>() {
-                    if let Error::HttpResponse { status: 404, .. } = esplora_err {
-                        return Ok(None);
-                    }
+                if let Some(esplora_err) = e.downcast_ref::<Error>()
+                    && let Error::HttpResponse { status: 404, .. } = esplora_err
+                {
+                    return Ok(None);
                 }
                 Err(e)
             }

@@ -1144,10 +1144,11 @@ async fn process_watchtower_challenge_monitoring(
 
             if !challenge_timeout_txids.is_empty() {
                 data_change = true;
-                if !vout_monitor_data.data_map.values().all(|status| match status {
-                    WatchtowerChallengeItemStatus::ChallengeTimeout => true,
-                    _ => false,
-                }) {
+                if !vout_monitor_data
+                    .data_map
+                    .values()
+                    .all(|status| matches!(status, WatchtowerChallengeItemStatus::ChallengeTimeout))
+                {
                     is_commit_block_hash_ready = true;
                     sub_status.watchtower_challenge_status =
                         WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
@@ -1195,10 +1196,12 @@ async fn process_watchtower_challenge_monitoring(
 
             if !ack_txids.is_empty() {
                 data_change = true;
-                if !vout_monitor_data.data_map.values().all(|status| match status {
-                    WatchtowerChallengeItemStatus::OperatorACK
-                    | WatchtowerChallengeItemStatus::ChallengeTimeout => true,
-                    _ => false,
+                if !vout_monitor_data.data_map.values().all(|status| {
+                    matches!(
+                        status,
+                        WatchtowerChallengeItemStatus::OperatorACK
+                            | WatchtowerChallengeItemStatus::ChallengeTimeout
+                    )
                 }) {
                     sub_status.watchtower_challenge_status =
                         WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;

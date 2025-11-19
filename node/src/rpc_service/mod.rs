@@ -408,7 +408,7 @@ mod tests {
         let api_test_items = [
             ApiTestItem {
                 tag: format!("{} get node", routes::v1::NODES_BASE),
-                url: format!("http://{addr}{}?actor={}", routes::v1::NODES_BASE, actor.to_string()),
+                url: format!("http://{addr}{}?actor={}", routes::v1::NODES_BASE, actor),
                 json_payload: None,
                 method: Method::GET,
                 expe_res: true,
@@ -467,7 +467,7 @@ mod tests {
             fees: Default::default(),
             input_utxos: serde_json::to_string(&utxo).unwrap(),
             status: InstanceBridgeInStatus::RelayerL2Minted.to_string(),
-            goat_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            goat_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             goat_tx_height: 1000,
             user_xonly_pubkey: Default::default(),
             user_change_addr: get_rand_btc_address_p2wpkh(get_network()),
@@ -477,7 +477,7 @@ mod tests {
             pegin_confirm_txid: None,
             pegin_cancel_txid: None,
             committees_answers: Default::default(),
-            pegin_data_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            pegin_data_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             parameters: None,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
@@ -493,7 +493,7 @@ mod tests {
             fees: Default::default(),
             input_utxos: serde_json::to_string(&utxo).unwrap(),
             status: InstanceBridgeInStatus::RelayerL1Broadcasted.to_string(),
-            goat_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            goat_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             goat_tx_height: 1000,
             user_xonly_pubkey: Default::default(),
             user_change_addr: get_rand_btc_address_p2wpkh(get_network()),
@@ -503,7 +503,7 @@ mod tests {
             pegin_confirm_txid: None,
             pegin_cancel_txid: None,
             committees_answers: Default::default(),
-            pegin_data_tx_hash: format!("0x{}", hex::encode(&generate_random_bytes(32))),
+            pegin_data_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             parameters: None,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
@@ -688,7 +688,6 @@ mod tests {
                 method: Method::GET,
                 expe_res: true,
                 resp_validation: Some(Box::new(move |text| -> bool {
-                    println!("{}", text);
                     matches!(
                         serde_json::from_str::<GraphListResponse>(&text),
                         Ok(graph_list) if graph_list.total == 1
