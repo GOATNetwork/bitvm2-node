@@ -2818,7 +2818,8 @@ pub async fn recv_and_dispatch(
                     .await?;
                 return Ok(());
             } else {
-                if let Some(_split_txid) = operator_send_assert_commit(btc_client, &mut graph).await?
+                if let Some(_split_txid) =
+                    operator_send_assert_commit(btc_client, &mut graph).await?
                 {
                     let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
                     push_local_unhandled_messages(

@@ -5,12 +5,13 @@ use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::response::{ApiErrorExt, ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
-    AssertInitTxVoutMonitorData, WTInitTxVoutMonitorData,
+    AssertInitTxVoutMonitorData, ChallengeSubStatus, WTInitTxVoutMonitorData,
 };
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
-use bitvm2_lib::types::Bitvm2Graph;
+use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
+use client::goat_chain::DisproveTxType;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::default::Default;
@@ -18,16 +19,6 @@ use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
 use store::{Graph, GraphStatus, InstanceBridgeInStatus};
 use tracing::warn;
-
-const WATCHTOWER_CHALLENGE_STEP_INIT: &str = "Watchtower Challenge init";
-const WATCHTOWER_CHALLENGE_STEP_CHALLENGE: &str = "Watchtower Challenge";
-const WATCHTOWER_CHALLENGE_STEP_CHALLENGE_TIMEOUT: &str = "Watchtower Challenge Timeout";
-const WATCHTOWER_CHALLENGE_STEP_ACK: &str = "Operator Challenge NACK";
-const WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH: &str = "Operator Commit BlockHash";
-const WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH_TIMEOUT: &str =
-    "Operator Commit BlockHash Timeout";
-const ASSERT_STEP_INIT: &str = "Assert init";
-const ASSERT_STEP_COMMIT: &str = "Assert Commit";
 
 /// Get instance settings
 ///
@@ -755,7 +746,7 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
 ) -> anyhow::Result<(Vec<ProgressData>, Option<String>)> {
     let mut progress_datas: Vec<ProgressData> = vec![];
     // todo update fail reason
-    let fail_reason: Option<String> = None;
+    let mut fail_reason: Option<String> = None;
 
     match btc_tx_name {
         GraphBtcTxName::WatchtowerChallengeInit => {
@@ -764,36 +755,45 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     storage_processor.get_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
                 && let Ok(monitor_data) =
                     serde_json::from_str::<WTInitTxVoutMonitorData>(&vout_monitor.monitor_data)
+                && let Ok(challenge_status) =
+                    serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status)
             {
                 progress_datas.push(ProgressData {
                     name: WATCHTOWER_CHALLENGE_STEP_INIT.to_string(),
                     current: 1,
                     total: 1,
                 });
-                let (current, total) = monitor_data.get_challenge_process_desc();
+                let (challenge_current, challenge_total) =
+                    monitor_data.get_challenge_process_desc();
                 progress_datas.push(ProgressData {
                     name: WATCHTOWER_CHALLENGE_STEP_CHALLENGE.to_string(),
-                    current,
-                    total,
-                });
-                let (current, total) = monitor_data.get_challenge_timeout_process_desc();
-                progress_datas.push(ProgressData {
-                    name: WATCHTOWER_CHALLENGE_STEP_CHALLENGE_TIMEOUT.to_string(),
-                    current,
-                    total,
-                });
-                let (current, total) = monitor_data.get_ack_process_desc();
-                progress_datas.push(ProgressData {
-                    name: WATCHTOWER_CHALLENGE_STEP_ACK.to_string(),
-                    current,
-                    total,
+                    current: challenge_current,
+                    total: challenge_total,
                 });
 
-                let (current, total) = monitor_data.get_commit_block_hash_desc();
+                let (challenge_timeout_current, challenge_timeout_total) =
+                    monitor_data.get_challenge_timeout_process_desc();
+                progress_datas.push(ProgressData {
+                    name: WATCHTOWER_CHALLENGE_STEP_CHALLENGE_TIMEOUT.to_string(),
+                    current: challenge_timeout_current,
+                    total: challenge_timeout_total,
+                });
+
+                let (ack_current, ack_total) = monitor_data.get_ack_process_desc();
+                if ack_total > 0 {
+                    progress_datas.push(ProgressData {
+                        name: WATCHTOWER_CHALLENGE_STEP_ACK.to_string(),
+                        current: ack_current,
+                        total: ack_total,
+                    });
+                }
+
+                let (block_hash_current, block_hash_total) =
+                    monitor_data.get_commit_block_hash_desc();
                 progress_datas.push(ProgressData {
                     name: WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH.to_string(),
-                    current,
-                    total,
+                    current: block_hash_current,
+                    total: block_hash_total,
                 });
 
                 let (current, total) = monitor_data.get_commit_block_hash_timeout_desc();
@@ -802,6 +802,34 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     current,
                     total,
                 });
+
+                if let Some(disprove_type) = challenge_status.disprove_type {
+                    match disprove_type {
+                        DisproveTxType::OperatorCommitTimeout => {
+                            fail_reason = Some("Operator commit block hash timeout".to_string());
+                        }
+                        DisproveTxType::OperatorNack => {
+                            let (challenge_timeout_num, nack_num) = (
+                                challenge_timeout_total - challenge_timeout_current,
+                                ack_total - ack_current,
+                            );
+
+                            fail_reason = match (challenge_timeout_num > 0, nack_num > 0) {
+                                (true, true) => Some(format!(
+                                    "Operator has {challenge_timeout_num} challenge timeout txn no sent, {nack_num} ack txn no sent"
+                                )),
+                                (false, true) => {
+                                    Some(format!("Operator has {nack_num} ack txn no sent"))
+                                }
+                                (true, false) => Some(format!(
+                                    "Operator has {challenge_timeout_num} challenge timeout txn no sent"
+                                )),
+                                (false, false) => None,
+                            };
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         GraphBtcTxName::AssertInit => {
@@ -810,6 +838,8 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     storage_processor.get_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
                 && let Ok(monitor_data) =
                     serde_json::from_str::<AssertInitTxVoutMonitorData>(&vout_monitor.monitor_data)
+                && let Ok(challenge_status) =
+                    serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status)
             {
                 progress_datas.push(ProgressData {
                     name: ASSERT_STEP_INIT.to_string(),
@@ -822,6 +852,16 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     current,
                     total,
                 });
+
+                if let Some(disprove_type) = challenge_status.disprove_type {
+                    match disprove_type {
+                        DisproveTxType::AssertTimeout => {
+                            fail_reason =
+                                Some(format!("Operator has {} assert no sent", total - current));
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
         _ => {}
@@ -924,7 +964,10 @@ pub async fn get_graph_tx(
                 .await
                 .api_error("GET_GRAPH_TX_ERROR")?;
 
-        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())
+        let simplified_bitvm2_graph: SimplifiedBitvm2Graph =
+            serde_json::from_str(&graph_raw_data.raw_data).api_error("GET_GRAPH_TX_ERROR")?;
+
+        let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(&simplified_bitvm2_graph)
             .api_error("GET_GRAPH_TX_ERROR")?;
 
         let raw_data = match tx_name {
@@ -1090,38 +1133,80 @@ pub async fn get_graph_tx(
 #[axum::debug_handler]
 pub async fn get_graph_txn(
     Path(graph_id): Path<String>,
-    Query(_params): Query<GraphTxnGetParams>,
+    Query(params): Query<GraphTxnGetParams>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<GraphTxnGetResponse> {
     // Validate graph_id format
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
-
-    let mut storage_process =
+    let mut storage_processor =
         app_state.local_db.acquire().await.api_error("GET_GRAPH_TXN_ERROR")?;
+    if let Some(graph) =
+        storage_processor.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TXN_ERROR")?
+    {
+        let kickoff_index = graph.kickoff_index + params.cursor as i64;
+        let graph = if kickoff_index != graph.kickoff_index {
+            let graph_arrays = storage_processor
+                .get_operator_graphs(
+                    GraphQuery::default()
+                        .with_operator_pubkey(graph.operator_pubkey)
+                        .with_kickoff_index(kickoff_index)
+                        .with_limit(1),
+                )
+                .await
+                .api_error("GET_OPERATOR_GRAPHS")?;
+            if graph_arrays.is_empty() {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "GET_GRAPH_TXN_ERROR".to_string(),
+                        message: format!(
+                            "graph:{graph_id} with cursor:{} is not record in db",
+                            params.cursor
+                        ),
+                    }),
+                ));
+            }
+            graph_arrays[0].clone()
+        } else {
+            graph
+        };
 
-    let graph_raw_data = storage_process
-        .get_graph_raw_data(&graph_id_uuid)
-        .await
-        .api_error("GET_GRAPH_TXN_ERROR")?;
-    let graph =
-        storage_process.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TXN_ERROR")?;
-
-    if let (Some(graph_raw_data), Some(graph)) = (graph_raw_data, graph) {
-        let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())
+        let graph_raw_data = storage_processor
+            .get_graph_raw_data(&graph.graph_id)
+            .await
+            .api_error("GET_GRAPH_TXN_ERROR")?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "GET_GRAPH_TXN_ERROR".to_string(),
+                        message: format!(
+                            "graph:{graph_id} with cursor:{} raw data is not record in db",
+                            params.cursor
+                        ),
+                    }),
+                )
+            })?;
+        let simplified_bitvm2_graph: SimplifiedBitvm2Graph =
+            serde_json::from_str(&graph_raw_data.raw_data).api_error("GET_GRAPH_TXN_ERROR")?;
+        let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(&simplified_bitvm2_graph)
             .api_error("GET_GRAPH_TXN_ERROR")?;
 
         let (wt_progresses, wt_fail_reason) = get_graph_btc_tx_process_data(
-            &mut storage_process,
+            &mut storage_processor,
             GraphBtcTxName::WatchtowerChallengeInit,
             &graph,
         )
         .await
         .api_error("GET_GRAPH_TXN_ERROR")?;
 
-        let (assert_progresses, assert_fail_reason) =
-            get_graph_btc_tx_process_data(&mut storage_process, GraphBtcTxName::AssertInit, &graph)
-                .await
-                .api_error("GET_GRAPH_TXN_ERROR")?;
+        let (assert_progresses, assert_fail_reason) = get_graph_btc_tx_process_data(
+            &mut storage_processor,
+            GraphBtcTxName::AssertInit,
+            &graph,
+        )
+        .await
+        .api_error("GET_GRAPH_TXN_ERROR")?;
 
         let mut resp = GraphTxnGetResponse {
             assert_init: BtcTxData::new(serialize_hex(bitvm2_graph.assert_init.tx())),
@@ -1154,12 +1239,15 @@ pub async fn get_graph_txn(
 
         Ok((StatusCode::OK, Json(resp)))
     } else {
-        tracing::warn!("graph:{} is not record in db", graph_id);
+        warn!("graph:{} is not record in db", graph_id);
         Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: "GET_GRAPH_TXN_ERROR".to_string(),
-                message: format!("graph:{graph_id} is not record in db"),
+                message: format!(
+                    "graph:{graph_id} with cursor:{} is not record in db",
+                    params.cursor
+                ),
             }),
         ))
     }

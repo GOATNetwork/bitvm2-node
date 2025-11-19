@@ -17,6 +17,16 @@ use strum::{Display, EnumString};
 use tracing::warn;
 use uuid::Uuid;
 
+pub const WATCHTOWER_CHALLENGE_STEP_INIT: &str = "Watchtower Challenge init";
+pub const WATCHTOWER_CHALLENGE_STEP_CHALLENGE: &str = "Watchtower Challenge";
+pub const WATCHTOWER_CHALLENGE_STEP_CHALLENGE_TIMEOUT: &str = "Watchtower Challenge Timeout";
+pub const WATCHTOWER_CHALLENGE_STEP_ACK: &str = "Operator Challenge ACK";
+pub const WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH: &str = "Operator Commit BlockHash";
+pub const WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH_TIMEOUT: &str =
+    "Operator Commit BlockHash Timeout";
+pub const ASSERT_STEP_INIT: &str = "Assert init";
+pub const ASSERT_STEP_COMMIT: &str = "Assert Commit";
+
 const BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT: &str = "Your UTXO has already been spent.";
 const BRIDGE_IN_FAIL_AS_NO_ENOUGH_COMMITTEES: &str = "Unfortunately, no enough committee answered.";
 const BRIDGE_IN_FAIL_AS_PRESIGNED_FAILED: &str = "Unfortunately, the verification failed.";
@@ -41,7 +51,7 @@ pub struct GraphTxGetParams {
 
 #[derive(Debug, Deserialize)]
 pub struct GraphTxnGetParams {
-    pub _cursor: i32, //  -1 pre graph tx : 0: current graph tx; 1 next graph tx
+    pub cursor: i32, //  -1 pre graph tx : 0: current graph tx; 1 next graph tx
 }
 /// get tx detail
 #[derive(Debug, Deserialize)]
