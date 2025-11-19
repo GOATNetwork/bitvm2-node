@@ -649,14 +649,14 @@ pub async fn get_ready_to_kickoff_graph(
 ) -> ApiResult<GraphReadyToKickoffResponse> {
     let mut graph_query = GraphQuery::default()
         .with_status(GraphStatus::OperatorDataPushed.to_string())
-        .with_order("kickoff_index DESC".to_string())
+        .with_order("kickoff_index ASC".to_string())
         .with_limit(1);
-    if params.btc_pub_key.is_none() || params.goat_addr.is_none() {
+    if params.btc_pub_key.is_none() && params.goat_addr.is_none() {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: "GET READT_KICKOFF_GRAPHS_ERROR".to_string(),
-                message: "Wrong input: btc_pub_key and btc_pub_key should not all been none "
+                message: "Wrong input: btc_pub_key and goat_addr should not all been none "
                     .to_string(),
             }),
         ));
@@ -704,7 +704,7 @@ pub async fn get_ready_to_kickoff_graph(
 
         if !pre_graphs.is_empty()
             && [GraphStatus::OperatorKickOff.to_string(), GraphStatus::Challenge.to_string()]
-                .contains(&graph.status)
+                .contains(&pre_graphs[0].status)
         {
             return Ok((
                 StatusCode::OK,

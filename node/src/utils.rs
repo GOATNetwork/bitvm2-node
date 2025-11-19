@@ -2784,7 +2784,6 @@ pub async fn get_graph_id_by_nonce(
             GraphQuery::default()
                 .with_operator_pubkey(operator_pubkey.to_string())
                 .with_kickoff_index(graph_nonce as i64)
-                .with_order("kickoff_index DESC".to_string())
                 .with_limit(1),
         )
         .await?;
