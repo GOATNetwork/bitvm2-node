@@ -2761,7 +2761,6 @@ pub async fn recv_and_dispatch(
             let mut graph = Bitvm2Graph::from_simplified(&graph)?;
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let operator_graph_keypair = operator_master_key.master_keypair();
-            let operator_master_keypair = operator_master_key.master_keypair();
             let assert_init_txid = graph.assert_init.tx().compute_txid();
             // 1. sign & broadcast assert-init txn
             if !tx_on_chain(btc_client, &assert_init_txid).await? {
@@ -2819,32 +2818,16 @@ pub async fn recv_and_dispatch(
                     .await?;
                 return Ok(());
             } else {
-                let wots_secret_keys =
-                    operator_master_key.wots_keypair_for_graph(graph.parameters.graph_id).0;
-                let (guest_inputs, proof, groth16_pubin, vk) =
-                    todo_funcs::get_operator_proof(instance_id, graph_id).await?;
-                let assert_commit_inputs = operator_sign_assert_commit(
-                    operator_graph_keypair,
-                    &mut graph,
-                    &wots_secret_keys,
-                    guest_inputs,
-                    proof,
-                    groth16_pubin,
-                    &vk,
-                )?;
-                for (i, (txin, txin_amount)) in assert_commit_inputs.into_iter().enumerate() {
-                    if outpoint_spent_txid(btc_client, &assert_init_txid, i as u64).await?.is_none()
-                    {
-                        let assert_commit_txid = build_sign_and_broadcast_tx(
-                            btc_client,
-                            operator_master_keypair,
-                            vec![txin],
-                            txin_amount,
-                            vec![],
-                        )
-                        .await?;
-                        wait_tx_appear(btc_client, &assert_commit_txid, 5, 60).await?;
-                    }
+                if let Some(_split_txid) = operator_send_assert_commit(btc_client, &mut graph).await?
+                {
+                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    push_local_unhandled_messages(
+                        local_db,
+                        graph_id,
+                        &message,
+                        delay_secs as usize,
+                    )
+                    .await?;
                 }
             }
         }

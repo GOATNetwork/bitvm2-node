@@ -1345,6 +1345,112 @@ pub async fn get_proper_utxo_set(
     Ok(None)
 }
 
+/// Returns:
+/// - `Ok((Empty, None))` if given address does not have enough btc,
+/// - `Ok((Empty, Some((SplitTx, Vec<TxinAmount>))))` if UTXO cannot be properly grouped, and a split transaction is needed, needing user to sign and broadcast
+/// - `Ok(Vec<Vec<Inputs>>, None))`
+pub async fn get_proper_utxo_sets(
+    client: &BTCClient,
+    address: Address,
+    mut target_amounts: Vec<Amount>,
+    fee_rate: f64,
+) -> Result<(Vec<Vec<Input>>, Option<(Transaction, Vec<Amount>)>)> {
+    let mut utxos = client.get_address_utxo(address.clone()).await?;
+
+    let total_available_sat: u64 = utxos.iter().map(|u| u.value.to_sat()).sum();
+
+    let total_target_sat: u64 = target_amounts.iter().map(|a| a.to_sat()).sum();
+
+    if total_available_sat <= total_target_sat {
+        return Ok((Vec::new(), None));
+    }
+
+    let mut targets_with_idx: Vec<(usize, Amount)> = target_amounts.drain(..).enumerate().collect();
+    targets_with_idx.sort_by(|a, b| b.1.to_sat().cmp(&a.1.to_sat()));
+
+    utxos.sort_by(|a, b| b.value.to_sat().cmp(&a.value.to_sat()));
+
+    let mut available_indices: Vec<usize> = (0..utxos.len()).collect();
+
+    use std::collections::HashMap;
+    let mut temp_groups: HashMap<usize, Vec<Input>> = HashMap::new();
+
+    for (original_idx, target) in targets_with_idx {
+        let mut group: Vec<Input> = Vec::new();
+        let mut sum_sat: u64 = 0;
+
+        let i = 0;
+        while i < available_indices.len() && sum_sat < target.to_sat() {
+            let utxo_idx = available_indices[i];
+            let utxo = utxos[utxo_idx].clone();
+            sum_sat += utxo.value.to_sat();
+            group.push(Input {
+                outpoint: OutPoint { txid: utxo.txid, vout: utxo.vout },
+                amount: utxo.value,
+            });
+            available_indices.remove(i);
+        }
+
+        if sum_sat < target.to_sat() {
+            // if all UTXOs are used but target not met, need to build a split transaction (already checked that total_available > total_target)
+            let script_pubkey = address.script_pubkey();
+            let base_outputs: Vec<TxOut> = target_amounts
+                .iter()
+                .map(|amt| TxOut { value: *amt, script_pubkey: script_pubkey.clone() })
+                .collect();
+            let tx_ins: Vec<TxIn> = utxos
+                .iter()
+                .map(|u| TxIn {
+                    previous_output: OutPoint { txid: u.txid, vout: u.vout },
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: bitcoin::Witness::new(),
+                })
+                .collect();
+            let txin_amounts: Vec<Amount> = utxos.iter().map(|u| u.value).collect();
+
+            let n_inputs = tx_ins.len() as u64;
+            let n_outputs = base_outputs.len() as u64 + 1;
+            let est_vbytes =
+                100u64 + n_inputs * CHEKSIG_P2WSH_INPUT_VBYTES + n_outputs * P2WSH_OUTPUT_VBYTES;
+            let est_fee_sat = (est_vbytes as f64 * fee_rate).ceil() as u64;
+
+            if total_available_sat < total_target_sat + est_fee_sat {
+                return Ok((Vec::new(), None));
+            }
+
+            let change_sat = total_available_sat
+                .checked_sub(total_target_sat + est_fee_sat)
+                .ok_or_else(|| anyhow!("overflow when calculating change"))?;
+
+            let mut tx_outs = base_outputs;
+
+            if change_sat >= DUST_AMOUNT {
+                tx_outs.push(TxOut {
+                    value: Amount::from_sat(change_sat),
+                    script_pubkey: script_pubkey.clone(),
+                });
+            }
+
+            let split_tx = Transaction {
+                version: bitcoin::transaction::Version(2),
+                lock_time: bitcoin::absolute::LockTime::ZERO,
+                input: tx_ins,
+                output: tx_outs,
+            };
+            return Ok((Vec::new(), Some((split_tx, txin_amounts))));
+        }
+
+        temp_groups.insert(original_idx, group);
+    }
+
+    let mut ordered: Vec<(usize, Vec<Input>)> = temp_groups.into_iter().collect();
+    ordered.sort_by_key(|(idx, _)| *idx);
+    let grouped: Vec<Vec<Input>> = ordered.into_iter().map(|(_, g)| g).collect();
+
+    Ok((grouped, None))
+}
+
 pub fn node_p2wsh_script(pubkey: &PublicKey) -> ScriptBuf {
     script! {
         { *pubkey }
@@ -1641,6 +1747,149 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
         tracing::warn!("failed to broadcast kickoff child tx: {e}");
     }
     Ok(())
+}
+
+// return split txid if need to split utxos for fees
+pub async fn operator_send_assert_commit(
+    btc_client: &BTCClient,
+    graph: &mut Bitvm2Graph,
+) -> Result<Option<Txid>> {
+    // Prepare keys and proof materials
+    let instance_id = graph.parameters.instance_parameters.instance_id;
+    let graph_id = graph.parameters.graph_id;
+    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+    let node_keypair = operator_master_key.master_keypair();
+    let node_public_key: PublicKey = node_keypair.public_key().into();
+    let node_address = node_p2wsh_address(get_network(), &node_public_key);
+    let fee_rate = get_fee_rate(btc_client).await?;
+
+    // Ensure assert-init is confirmed before sending commits
+    let assert_init_txid = graph.assert_init.tx().compute_txid();
+    if !tx_confirmed(btc_client, &assert_init_txid).await? {
+        bail!("assert-init not confirmed yet, skip assert-commit broadcast");
+    }
+
+    // Build signed inputs for each assert-commit connector
+    let wots_secret_keys = operator_master_key.wots_keypair_for_graph(graph_id).0;
+    let (guest_inputs, proof, groth16_pubin, vk) =
+        todo_funcs::get_operator_proof(instance_id, graph_id).await?;
+    let assert_commit_inputs = operator_sign_assert_commit(
+        node_keypair,
+        graph,
+        &wots_secret_keys,
+        guest_inputs,
+        proof,
+        groth16_pubin,
+        &vk,
+    )?;
+
+    fn estimate_fee_funding_amount(txin: &TxIn, fee_rate: f64) -> Amount {
+        let sample_tx = Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![txin.clone()],
+            output: vec![TxOut {
+                value: Amount::ZERO,
+                script_pubkey: generate_opreturn_script(vec![]),
+            }],
+        };
+        let base_vbytes = sample_tx.weight().to_vbytes_ceil();
+        let est_vbytes = base_vbytes + CHEKSIG_P2WSH_INPUT_VBYTES + P2WSH_OUTPUT_VBYTES;
+        let est_fee = (est_vbytes as f64 * fee_rate).ceil() as u64;
+        Amount::from_sat(est_fee + DUST_AMOUNT + 1_000)
+    }
+
+    // filter out already-spent assert-commit connectors
+    let mut pending_assert_commit_txins: Vec<(usize, TxIn, Amount)> = vec![];
+    let mut required_fees: Vec<Amount> = vec![];
+    for (i, (txin, amount)) in assert_commit_inputs.into_iter().enumerate() {
+        if outpoint_spent_txid(btc_client, &assert_init_txid, i as u64).await?.is_none() {
+            let est_fee = estimate_fee_funding_amount(&txin, fee_rate);
+            pending_assert_commit_txins.push((i, txin, amount));
+            required_fees.push(est_fee);
+        }
+    }
+    if pending_assert_commit_txins.is_empty() {
+        tracing::info!("no assert-commit inputs to send (all spent)");
+        return Ok(None);
+    }
+
+    // get available fee UTXOs from node address
+    let (utxo_sets, split_tx) =
+        get_proper_utxo_sets(btc_client, node_address.clone(), required_fees.clone(), fee_rate)
+            .await?;
+
+    // broadcast split tx if needed
+    if let Some((mut split_tx, txin_amounts)) = split_tx {
+        for i in 0..split_tx.input.len() {
+            node_sign(&mut split_tx, i, txin_amounts[i], EcdsaSighashType::All, &node_keypair)?;
+        }
+        let split_txid = split_tx.compute_txid();
+        broadcast_tx(btc_client, &split_tx).await?;
+        return Ok(Some(split_txid));
+    } else if utxo_sets.is_empty() {
+        let current_balance = btc_client
+            .get_address_utxo(node_address)
+            .await?
+            .iter()
+            .map(|u| u.value)
+            .sum::<Amount>();
+        let required_total_fee: Amount = required_fees.into_iter().sum();
+        bail!(SpecialError::InsufficientBalance(format!(
+            "Not enough balance to complete the transaction, current_balance: {current_balance}, required: {required_total_fee}"
+        )));
+    };
+
+    // build, sign and broadcast assert-commit txns
+    for (i, (origin_index, assert_commit_txin, _assert_commit_input_amount)) in
+        pending_assert_commit_txins.into_iter().enumerate()
+    {
+        let fee_inputs = &utxo_sets[i];
+        let fee_inputs_total = fee_inputs.iter().map(|input| input.amount).sum::<Amount>();
+
+        let mut tx = Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        tx.input.push(assert_commit_txin);
+        for input in fee_inputs {
+            tx.input.push(TxIn {
+                previous_output: input.outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            });
+        }
+
+        let fee = required_fees[i];
+        let change_value = fee_inputs_total - fee;
+        if change_value > Amount::from_sat(DUST_AMOUNT) {
+            tx.output
+                .push(TxOut { value: change_value, script_pubkey: node_address.script_pubkey() });
+        } else {
+            let op_return_script = generate_opreturn_script(
+                format!("assert-commit-{}", origin_index).as_bytes().to_vec(),
+            );
+            tx.output.push(TxOut { value: Amount::ZERO, script_pubkey: op_return_script });
+        }
+
+        for (fee_index, fee_input) in fee_inputs.iter().enumerate() {
+            let input_index = 1 + fee_index;
+            node_sign(
+                &mut tx,
+                input_index,
+                fee_input.amount,
+                EcdsaSighashType::All,
+                &node_keypair,
+            )?;
+        }
+
+        broadcast_tx(btc_client, &tx).await?;
+    }
+
+    Ok(None)
 }
 
 pub async fn send_challenge_tx(btc_client: &BTCClient, graph: &Bitvm2Graph) -> Result<Txid> {
