@@ -7,6 +7,7 @@ use crate::rpc_service::validation::InputValidator;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertInitTxVoutMonitorData, ChallengeSubStatus, WTInitTxVoutMonitorData,
 };
+use crate::utils::parse_graph_raw_data;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
@@ -959,7 +960,9 @@ pub async fn get_graph_tx(
                 .api_error("GET_GRAPH_TX_ERROR")?;
 
         let simplified_bitvm2_graph: SimplifiedBitvm2Graph =
-            serde_json::from_str(&graph_raw_data.raw_data).api_error("GET_GRAPH_TX_ERROR")?;
+            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph_id_uuid)
+                .await
+                .api_error("GET_GRAPH_TXN_ERROR")?;
 
         let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(&simplified_bitvm2_graph)
             .api_error("GET_GRAPH_TX_ERROR")?;
@@ -1182,7 +1185,9 @@ pub async fn get_graph_txn(
                 )
             })?;
         let simplified_bitvm2_graph: SimplifiedBitvm2Graph =
-            serde_json::from_str(&graph_raw_data.raw_data).api_error("GET_GRAPH_TXN_ERROR")?;
+            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph_id_uuid)
+                .await
+                .api_error("GET_GRAPH_TXN_ERROR")?;
         let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(&simplified_bitvm2_graph)
             .api_error("GET_GRAPH_TXN_ERROR")?;
 

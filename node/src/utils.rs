@@ -2740,7 +2740,10 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
 
 /// Parse raw graph data JSON string to SimplifiedBitvm2Graph using spawn_blocking
 /// to handle large data and potential stack overflow issues
-async fn parse_graph_raw_data(raw_data: String, graph_id: Uuid) -> Result<SimplifiedBitvm2Graph> {
+pub async fn parse_graph_raw_data(
+    raw_data: String,
+    graph_id: Uuid,
+) -> Result<SimplifiedBitvm2Graph> {
     let raw_data_len = raw_data.len();
     let raw_data_clone = raw_data.clone();
     let parse_result = tokio::task::spawn_blocking(move || {
@@ -2776,7 +2779,10 @@ async fn parse_graph_raw_data(raw_data: String, graph_id: Uuid) -> Result<Simpli
 
 /// Serialize SimplifiedBitvm2Graph to JSON string using spawn_blocking
 /// to handle large data and potential stack overflow issues
-async fn serialize_graph_raw_data(graph: &SimplifiedBitvm2Graph, graph_id: Uuid) -> Result<String> {
+pub async fn serialize_graph_raw_data(
+    graph: &SimplifiedBitvm2Graph,
+    graph_id: Uuid,
+) -> Result<String> {
     let graph_clone = graph.clone();
     let serialize_result =
         tokio::task::spawn_blocking(move || serde_json::to_string(&graph_clone)).await;
