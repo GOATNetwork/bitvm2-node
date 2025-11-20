@@ -853,14 +853,8 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     total,
                 });
 
-                if let Some(disprove_type) = challenge_status.disprove_type {
-                    match disprove_type {
-                        DisproveTxType::AssertTimeout => {
-                            fail_reason =
-                                Some(format!("Operator has {} assert no sent", total - current));
-                        }
-                        _ => {}
-                    }
+                if let Some(DisproveTxType::AssertTimeout) = challenge_status.disprove_type {
+                    fail_reason = Some(format!("Operator has {} assert no sent", total - current));
                 }
             }
         }

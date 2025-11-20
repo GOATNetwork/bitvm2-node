@@ -1821,8 +1821,8 @@ pub async fn operator_send_assert_commit(
 
     // broadcast split tx if needed
     if let Some((mut split_tx, txin_amounts)) = split_tx {
-        for i in 0..split_tx.input.len() {
-            node_sign(&mut split_tx, i, txin_amounts[i], EcdsaSighashType::All, &node_keypair)?;
+        for (i, amount) in txin_amounts.iter().enumerate().take(split_tx.input.len()) {
+            node_sign(&mut split_tx, i, *amount, EcdsaSighashType::All, &node_keypair)?;
         }
         let split_txid = split_tx.compute_txid();
         broadcast_tx(btc_client, &split_tx).await?;
@@ -1870,7 +1870,7 @@ pub async fn operator_send_assert_commit(
                 .push(TxOut { value: change_value, script_pubkey: node_address.script_pubkey() });
         } else {
             let op_return_script = generate_opreturn_script(
-                format!("assert-commit-{}", origin_index).as_bytes().to_vec(),
+                format!("assert-commit-{origin_index}").as_bytes().to_vec(),
             );
             tx.output.push(TxOut { value: Amount::ZERO, script_pubkey: op_return_script });
         }
