@@ -68,7 +68,7 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 pub mod todo_funcs {
@@ -2532,10 +2532,12 @@ pub async fn get_current_prekickoff_tx(
         && let Some(graph_raw_data) =
             storage_processor.get_graph_raw_data(&graphs[0].graph_id).await?
     {
+        let simplified_graph =
+            parse_graph_raw_data(graph_raw_data.raw_data, graphs[0].graph_id).await?;
+
         Ok(Some((
             (graphs[0].kickoff_index + 1) as u64,
-            Bitvm2Graph::from_simplified(&serde_json::from_str(&graph_raw_data.raw_data)?)?
-                .next_prekickoff,
+            Bitvm2Graph::from_simplified(&simplified_graph)?.next_prekickoff,
         )))
     } else {
         Ok(None)
@@ -2723,9 +2725,10 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
         .await?;
     }
 
+    let raw_data = serialize_graph_raw_data(simple_graph, graph_id).await?;
     tx.upsert_graph_raw_data(GraphRawData {
         graph_id,
-        raw_data: serde_json::to_string(&simple_graph).unwrap_or_default(),
+        raw_data,
         created_at: current_time,
         updated_at: current_time,
     })
@@ -2735,14 +2738,83 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
     Ok(())
 }
 
+/// Parse raw graph data JSON string to SimplifiedBitvm2Graph using spawn_blocking
+/// to handle large data and potential stack overflow issues
+async fn parse_graph_raw_data(raw_data: String, graph_id: Uuid) -> Result<SimplifiedBitvm2Graph> {
+    let raw_data_len = raw_data.len();
+    let raw_data_clone = raw_data.clone();
+    let parse_result = tokio::task::spawn_blocking(move || {
+        serde_json::from_str::<SimplifiedBitvm2Graph>(&raw_data_clone)
+    })
+    .await;
+
+    match parse_result {
+        Ok(Ok(data)) => Ok(data),
+        Ok(Err(e)) => {
+            // Normal JSON parsing error
+            error!("Failed to parse graph data for graph_id {graph_id}: {e}");
+            error!("Raw data length: {raw_data_len} bytes");
+            Err(e.into())
+        }
+        Err(join_err) => {
+            // spawn_blocking task failed (thread panic or task cancelled)
+            let msg = if join_err.is_panic() {
+                format!("Thread panic while parsing graph data for graph_id {graph_id}")
+            } else if join_err.is_cancelled() {
+                format!("Task cancelled while parsing graph data for graph_id {graph_id}")
+            } else {
+                format!(
+                    "Task join error while parsing graph data for graph_id {graph_id}: {join_err}"
+                )
+            };
+            error!("{msg}");
+            error!("Raw data length: {raw_data_len} bytes");
+            Err(anyhow::anyhow!("{msg}"))
+        }
+    }
+}
+
+/// Serialize SimplifiedBitvm2Graph to JSON string using spawn_blocking
+/// to handle large data and potential stack overflow issues
+async fn serialize_graph_raw_data(graph: &SimplifiedBitvm2Graph, graph_id: Uuid) -> Result<String> {
+    let graph_clone = graph.clone();
+    let serialize_result =
+        tokio::task::spawn_blocking(move || serde_json::to_string(&graph_clone)).await;
+
+    match serialize_result {
+        Ok(Ok(data)) => Ok(data),
+        Ok(Err(e)) => {
+            // Normal JSON serialization error
+            error!("Failed to serialize graph data for graph_id {graph_id}: {e}");
+            Err(e.into())
+        }
+        Err(join_err) => {
+            // spawn_blocking task failed (thread panic or task cancelled)
+            let msg = if join_err.is_panic() {
+                format!("Thread panic while serializing graph data for graph_id {graph_id}")
+            } else if join_err.is_cancelled() {
+                format!("Task cancelled while serializing graph data for graph_id {graph_id}")
+            } else {
+                format!(
+                    "Task join error while serializing graph data for graph_id {graph_id}: {join_err}",
+                )
+            };
+            error!("{msg}");
+            Err(anyhow::anyhow!("{graph_id}"))
+        }
+    }
+}
+
 pub async fn get_graph(
     local_db: &LocalDB,
     _instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<Option<SimplifiedBitvm2Graph>> {
     let mut storage_process = local_db.acquire().await?;
-    if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id).await? {
-        Ok(Some(serde_json::from_str(&graph_raw_data.raw_data)?))
+    if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id).await?
+        && let Ok(simplified_graph) = parse_graph_raw_data(graph_raw_data.raw_data, graph_id).await
+    {
+        Ok(Some(simplified_graph))
     } else {
         Ok(None)
     }
@@ -3189,6 +3261,7 @@ pub async fn update_graph_status(
     {
         graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
     }
+
     storage_processor.update_graph_fields(graph_update).await?;
     Ok(())
 }
