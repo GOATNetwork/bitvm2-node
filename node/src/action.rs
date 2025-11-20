@@ -30,9 +30,9 @@ use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
-use store::MessageState;
 use store::ipfs::IPFS;
 use store::localdb::LocalDB;
+use store::{GraphStatus, MessageState};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -1987,6 +1987,56 @@ pub async fn recv_and_dispatch(
                 tracing::info!(
                     "No action needed for KickoffSent for {instance_id}:{graph_id}: withdraw status is {withdraw_status:?}"
                 );
+            }
+        }
+        (
+            GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id }),
+            Actor::Operator,
+        ) => {
+            // triggered by Kickoff tx
+            tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
+            let graph = match get_graph_or_defer(
+                swarm,
+                local_db,
+                goat_client,
+                instance_id,
+                graph_id,
+                &message,
+            )
+            .await?
+            {
+                Some(g) => g,
+                None => return Ok(()),
+            };
+            let graph = Bitvm2Graph::from_simplified(&graph)?;
+            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+                .await?
+                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
+            let (graph_status, _) = refresh_graph(
+                local_db,
+                btc_client,
+                goat_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_status),
+                None,
+            )
+            .await?;
+            tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            if graph_status == GraphStatus::Challenge {
+                let kickoff_txid = graph.kickoff.tx().compute_txid();
+                let take1_txid = graph.take1.tx().compute_txid();
+                if let Some(challenge_txid) =
+                    outpoint_spent_txid(btc_client, &kickoff_txid, 0).await?
+                    && challenge_txid != take1_txid
+                {
+                    let challenge_sent = ChallengeSent { instance_id, graph_id, challenge_txid };
+                    let challenge_sent_msg =
+                        GOATMessage::from_typed(Actor::Operator, &challenge_sent)?;
+                    push_local_unhandled_messages(local_db, graph_id, &challenge_sent_msg, 0)
+                        .await?;
+                }
             }
         }
         (GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id }), _) => {
