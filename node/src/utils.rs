@@ -1352,7 +1352,7 @@ pub async fn get_proper_utxo_set(
 pub async fn get_proper_utxo_sets(
     client: &BTCClient,
     address: Address,
-    mut target_amounts: Vec<Amount>,
+    target_amounts: Vec<Amount>,
     fee_rate: f64,
 ) -> Result<(Vec<Vec<Input>>, Option<(Transaction, Vec<Amount>)>)> {
     let mut utxos = client.get_address_utxo(address.clone()).await?;
@@ -1365,7 +1365,8 @@ pub async fn get_proper_utxo_sets(
         return Ok((Vec::new(), None));
     }
 
-    let mut targets_with_idx: Vec<(usize, Amount)> = target_amounts.drain(..).enumerate().collect();
+    let mut targets_with_idx: Vec<(usize, Amount)> =
+        target_amounts.clone().into_iter().enumerate().collect();
     targets_with_idx.sort_by(|a, b| b.1.to_sat().cmp(&a.1.to_sat()));
 
     utxos.sort_by(|a, b| b.value.to_sat().cmp(&a.value.to_sat()));
@@ -1753,7 +1754,7 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
 pub async fn operator_send_assert_commit(
     btc_client: &BTCClient,
     graph: &mut Bitvm2Graph,
-) -> Result<Option<Txid>> {
+) -> Result<(Option<Txid>, bool)> {
     // Prepare keys and proof materials
     let instance_id = graph.parameters.instance_parameters.instance_id;
     let graph_id = graph.parameters.graph_id;
@@ -1811,7 +1812,7 @@ pub async fn operator_send_assert_commit(
     }
     if pending_assert_commit_txins.is_empty() {
         tracing::info!("no assert-commit inputs to send (all spent)");
-        return Ok(None);
+        return Ok((None, false));
     }
 
     // get available fee UTXOs from node address
@@ -1826,7 +1827,7 @@ pub async fn operator_send_assert_commit(
         }
         let split_txid = split_tx.compute_txid();
         broadcast_tx(btc_client, &split_tx).await?;
-        return Ok(Some(split_txid));
+        return Ok((Some(split_txid), false));
     } else if utxo_sets.is_empty() {
         let current_balance = btc_client
             .get_address_utxo(node_address)
@@ -1841,11 +1842,23 @@ pub async fn operator_send_assert_commit(
     };
 
     // build, sign and broadcast assert-commit txns
+    let mut has_pending_fee_input = false;
     for (i, (origin_index, assert_commit_txin, _assert_commit_input_amount)) in
         pending_assert_commit_txins.into_iter().enumerate()
     {
         let fee_inputs = &utxo_sets[i];
         let fee_inputs_total = fee_inputs.iter().map(|input| input.amount).sum::<Amount>();
+        let mut current_has_pending_fee_input = false;
+        for inputs in fee_inputs.iter() {
+            if tx_confirmed(btc_client, &inputs.outpoint.txid).await? == false {
+                current_has_pending_fee_input = true;
+                break;
+            }
+        }
+        if current_has_pending_fee_input {
+            has_pending_fee_input = true;
+            continue;
+        }
 
         let mut tx = Transaction {
             version: bitcoin::transaction::Version(2),
@@ -1889,7 +1902,7 @@ pub async fn operator_send_assert_commit(
         broadcast_tx(btc_client, &tx).await?;
     }
 
-    Ok(None)
+    Ok((None, has_pending_fee_input))
 }
 
 pub async fn send_challenge_tx(btc_client: &BTCClient, graph: &Bitvm2Graph) -> Result<Txid> {

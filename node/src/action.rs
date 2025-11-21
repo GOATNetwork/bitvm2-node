@@ -2868,9 +2868,18 @@ pub async fn recv_and_dispatch(
                     .await?;
                 return Ok(());
             } else {
-                if let Some(_split_txid) =
-                    operator_send_assert_commit(btc_client, &mut graph).await?
-                {
+                let (split_txid_opt, has_pending_fee_input) =
+                    operator_send_assert_commit(btc_client, &mut graph).await?;
+                if let Some(_split_txid) = split_txid_opt {
+                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    push_local_unhandled_messages(
+                        local_db,
+                        graph_id,
+                        &message,
+                        delay_secs as usize,
+                    )
+                    .await?;
+                } else if has_pending_fee_input {
                     let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
                     push_local_unhandled_messages(
                         local_db,
