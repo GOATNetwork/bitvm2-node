@@ -1405,6 +1405,11 @@ async fn process_assert_commit_monitoring(
             };
         let is_assert_commit_timeout =
             out_monitor.height + timelock_config.assert_commit_timelock < current_height;
+        info!(
+            "process_assert_commit_monitoring: graph id :{} is_assert_commit_timeout:{is_assert_commit_timeout},\
+         out_monitor.height:{}, timelock_config.assert_commit_timelock:{}, current_height:{current_height}",
+            graph.graph_id, out_monitor.height, timelock_config.assert_commit_timelock
+        );
         let mut data_change = false;
         let mut message_content: Option<(Actor, GOATMessageContent)> = None;
         if !is_assert_commit_timeout {
@@ -1420,6 +1425,10 @@ async fn process_assert_commit_monitoring(
                 sub_status.assert_commit_status = AssertCommitStatus::OperatorCommit;
             }
 
+            info!(
+                "process_assert_commit_monitoring graph id :{} vout_spent_len:{vout_spent_len}",
+                graph.graph_id
+            );
             data_change = data_change || vout_spent_len > 0;
         } else {
             info!(
