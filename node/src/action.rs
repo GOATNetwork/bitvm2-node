@@ -1749,21 +1749,33 @@ pub async fn recv_and_dispatch(
                     None => return Ok(()),
                 };
                 let mut current_graph = Bitvm2Graph::from_simplified(&current_graph)?;
-                let current_graph_status =
+                let current_graph_start_status =
                     get_graph_status(local_db, current_instance_id, current_graph_id)
                         .await?
                         .ok_or_else(|| {
                             anyhow!("Graph status not found for {instance_id}:{graph_id}")
                         })?;
-                let (current_graph_status, _) = refresh_graph(
+                let (current_graph_status, current_graph_sub_status) = refresh_graph(
                     local_db,
                     btc_client,
                     goat_client,
                     current_instance_id,
                     current_graph_id,
                     Some(&current_graph),
-                    Some(current_graph_status),
+                    Some(current_graph_start_status),
                     None,
+                )
+                .await?;
+                compensate_graph_events(
+                    local_db,
+                    btc_client,
+                    current_instance_id,
+                    current_graph_id,
+                    Some(&current_graph),
+                    Some(current_graph_start_status),
+                    current_graph_start_status,
+                    current_graph_status,
+                    current_graph_sub_status,
                 )
                 .await?;
                 if current_graph_status.is_closed() {
@@ -1825,21 +1837,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::OperatorKickOff,
+                graph_status,
+                sub_status,
+            )
+            .await?;
             if !is_relayer() {
                 return Ok(());
             }
@@ -1911,21 +1935,33 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::OperatorKickOff,
+                graph_status,
+                sub_status,
+            )
+            .await?;
             // 1. check kickoff tx status on Bitcoin chain
             let kickoff_txid = graph.kickoff.tx().compute_txid();
             let kickoff_height = match btc_client.get_tx_status(&kickoff_txid).await?.block_height {
@@ -1989,56 +2025,6 @@ pub async fn recv_and_dispatch(
                 );
             }
         }
-        (
-            GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id }),
-            Actor::Operator,
-        ) => {
-            // triggered by Kickoff tx
-            tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
-            let graph = match get_graph_or_defer(
-                swarm,
-                local_db,
-                goat_client,
-                instance_id,
-                graph_id,
-                &message,
-            )
-            .await?
-            {
-                Some(g) => g,
-                None => return Ok(()),
-            };
-            let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
-                .await?
-                .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
-                local_db,
-                btc_client,
-                goat_client,
-                instance_id,
-                graph_id,
-                Some(&graph),
-                Some(graph_status),
-                None,
-            )
-            .await?;
-            tracing::info!("Graph {graph_id} latest status: {graph_status}");
-            if graph_status == GraphStatus::Challenge {
-                let kickoff_txid = graph.kickoff.tx().compute_txid();
-                let take1_txid = graph.take1.tx().compute_txid();
-                if let Some(challenge_txid) =
-                    outpoint_spent_txid(btc_client, &kickoff_txid, 0).await?
-                    && challenge_txid != take1_txid
-                {
-                    let challenge_sent = ChallengeSent { instance_id, graph_id, challenge_txid };
-                    let challenge_sent_msg =
-                        GOATMessage::from_typed(Actor::Operator, &challenge_sent)?;
-                    push_local_unhandled_messages(local_db, graph_id, &challenge_sent_msg, 0)
-                        .await?;
-                }
-            }
-        }
         (GOATMessageContent::KickoffSent(KickoffSent { instance_id, graph_id }), _) => {
             // triggered by Kickoff tx
             tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
@@ -2056,21 +2042,33 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::OperatorKickOff,
+                graph_status,
+                sub_status,
+            )
+            .await?;
         }
         (
             GOATMessageContent::PreKickoffSent(PreKickoffSent { instance_id, graph_id }),
@@ -2092,21 +2090,33 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::PreKickoff,
+                graph_status,
+                sub_status,
+            )
+            .await?;
             // 1. check the previous graph status
             if !tx_on_chain(
                 btc_client,
@@ -2147,15 +2157,35 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let prev_graph = Bitvm2Graph::from_simplified(&prev_graph)?;
-            let (prev_graph_status, _) = refresh_graph(
+            let prev_graph_start_status =
+                get_graph_status(local_db, prev_instance_id, prev_graph_id).await?.ok_or_else(
+                    || {
+                        anyhow!(
+                            "Previous graph status not found for {prev_instance_id}:{prev_graph_id}"
+                        )
+                    },
+                )?;
+            let (prev_graph_status, prev_graph_sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 prev_instance_id,
                 prev_graph_id,
                 Some(&prev_graph),
+                Some(prev_graph_start_status),
                 None,
-                None,
+            )
+            .await?;
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                prev_instance_id,
+                prev_graph_id,
+                Some(&prev_graph),
+                Some(prev_graph_start_status),
+                prev_graph_start_status,
+                prev_graph_status,
+                prev_graph_sub_status,
             )
             .await?;
             if !tx_on_chain(btc_client, &prev_graph.kickoff.tx().compute_txid()).await? {
@@ -2173,21 +2203,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::PreKickoff,
+                graph_status,
+                sub_status,
+            )
+            .await?;
         }
         (
             GOATMessageContent::ChallengeSent(ChallengeSent {
@@ -2213,21 +2255,33 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let mut graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::Challenge,
+                graph_status,
+                sub_status,
+            )
+            .await?;
             // 1. check the challenge tx status on Bitcoin chain
             let watchtower_challenge_init_txid =
                 graph.watchtower_challenge_init.tx().compute_txid();
@@ -2282,21 +2336,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::Challenge,
+                graph_status,
+                sub_status,
+            )
+            .await?;
         }
         (
             GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
@@ -3137,21 +3203,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::Disprove,
+                graph_status,
+                sub_status,
+            )
+            .await?;
             if !is_relayer() {
                 return Ok(());
             }
@@ -3308,21 +3386,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::Disprove,
+                graph_status,
+                sub_status,
+            )
+            .await?;
         }
         (GOATMessageContent::Take1Ready(Take1Ready { instance_id, graph_id }), Actor::Operator) => {
             // triggered by timeout task
@@ -3391,21 +3481,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::OperatorTake1,
+                graph_status,
+                sub_status,
+            )
+            .await?;
             if !is_relayer() {
                 return Ok(());
             }
@@ -3477,21 +3579,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::OperatorTake1,
+                graph_status,
+                sub_status,
+            )
+            .await?;
         }
         (GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id }), Actor::Operator) => {
             // triggered by timeout task
@@ -3590,21 +3704,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::OperatorTake2,
+                graph_status,
+                sub_status,
+            )
+            .await?;
             if !is_relayer() {
                 return Ok(());
             }
@@ -3676,21 +3802,33 @@ pub async fn recv_and_dispatch(
                 .await?
                 .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            let graph_status = get_graph_status(local_db, instance_id, graph_id)
+            let graph_start_status = get_graph_status(local_db, instance_id, graph_id)
                 .await?
                 .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-            let (graph_status, _) = refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
                 instance_id,
                 graph_id,
                 Some(&graph),
-                Some(graph_status),
+                Some(graph_start_status),
                 None,
             )
             .await?;
             tracing::info!("Graph {graph_id} latest status: {graph_status}");
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                Some(graph_start_status),
+                GraphStatus::OperatorTake2,
+                graph_status,
+                sub_status,
+            )
+            .await?;
         }
         (
             GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id }),
@@ -3729,7 +3867,7 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle SyncGraph for {instance_id}:{graph_id}");
             store_graph(local_db, &graph).await?;
             let graph = Bitvm2Graph::from_simplified(&graph)?;
-            refresh_graph(
+            let (graph_status, sub_status) = refresh_graph(
                 local_db,
                 btc_client,
                 goat_client,
@@ -3738,6 +3876,18 @@ pub async fn recv_and_dispatch(
                 Some(&graph),
                 None,
                 None,
+            )
+            .await?;
+            compensate_graph_events(
+                local_db,
+                btc_client,
+                instance_id,
+                graph_id,
+                Some(&graph),
+                None,
+                GraphStatus::OperatorPresigned,
+                graph_status,
+                sub_status,
             )
             .await?;
         }

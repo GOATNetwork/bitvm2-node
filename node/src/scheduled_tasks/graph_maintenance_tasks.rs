@@ -80,7 +80,9 @@ enum OperatorWithdrawType {
 }
 
 /// Watchtower init tx vout item status
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+#[derive(
+    Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString,
+)]
 pub enum CommitBlockHashStatus {
     #[default]
     None,
@@ -89,7 +91,9 @@ pub enum CommitBlockHashStatus {
     OperatorCommitTimeout,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+#[derive(
+    Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString,
+)]
 pub enum AssertCommitStatus {
     #[default]
     None,
@@ -98,7 +102,9 @@ pub enum AssertCommitStatus {
     OperatorCommitTimeout,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+#[derive(
+    Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString,
+)]
 pub enum WatchtowerChallengeStatus {
     #[default]
     None,
@@ -110,7 +116,7 @@ pub enum WatchtowerChallengeStatus {
     WatchtowerChallengeDisproveFinished, // Disproved Finished
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ChallengeSubStatus {
     pub watchtower_challenge_status: WatchtowerChallengeStatus,
     pub commit_blockhash_status: CommitBlockHashStatus,

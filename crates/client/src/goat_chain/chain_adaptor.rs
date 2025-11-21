@@ -214,7 +214,7 @@ pub enum GoatNetwork {
     Local,
 }
 
-#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display, EnumString)]
+#[derive(Copy, Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display, EnumString)]
 pub enum DisproveTxType {
     AssertTimeout,
     OperatorCommitTimeout,

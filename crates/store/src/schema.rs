@@ -251,7 +251,7 @@ pub struct Instance {
 }
 
 /// graph status
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
 pub enum GraphStatus {
     #[default]
     OperatorPresigned,
@@ -303,6 +303,48 @@ impl GraphStatus {
     }
     pub fn is_obsoleted(&self) -> bool {
         self.eq(&GraphStatus::Obsoleted)
+    }
+    pub fn get_previous_status(&self) -> Option<GraphStatus> {
+        match self {
+            GraphStatus::OperatorPresigned => None,
+            GraphStatus::CommitteePresigned => Some(GraphStatus::OperatorPresigned),
+            GraphStatus::OperatorDataPushed => Some(GraphStatus::CommitteePresigned),
+            GraphStatus::PreKickoff => Some(GraphStatus::OperatorDataPushed),
+            GraphStatus::Skipped => Some(GraphStatus::OperatorDataPushed),
+            GraphStatus::Obsoleted => Some(GraphStatus::OperatorDataPushed),
+            GraphStatus::OperatorKickOff => Some(GraphStatus::PreKickoff),
+            GraphStatus::OperatorTake1 => Some(GraphStatus::OperatorKickOff),
+            GraphStatus::Challenge => Some(GraphStatus::OperatorKickOff),
+            GraphStatus::Disprove => Some(GraphStatus::Challenge),
+            GraphStatus::OperatorTake2 => Some(GraphStatus::Challenge),
+            // frontend use only
+            GraphStatus::Created => None,
+            GraphStatus::Presigned => Some(GraphStatus::Created),
+            GraphStatus::L2Recorded => Some(GraphStatus::Presigned),
+            GraphStatus::KickOffing => Some(GraphStatus::L2Recorded),
+            GraphStatus::Challenging => Some(GraphStatus::KickOffing),
+            GraphStatus::Disproving => Some(GraphStatus::Challenging),
+        }
+    }
+    pub fn is_before(&self, other: &GraphStatus) -> bool {
+        let mut current = other.clone();
+        while let Some(prev) = current.get_previous_status() {
+            if &prev == self {
+                return true;
+            }
+            current = prev;
+        }
+        false
+    }
+    pub fn is_after(&self, other: &GraphStatus) -> bool {
+        let mut current = self.clone();
+        while let Some(prev) = current.get_previous_status() {
+            if &prev == other {
+                return true;
+            }
+            current = prev;
+        }
+        false
     }
 }
 
