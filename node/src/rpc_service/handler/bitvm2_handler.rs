@@ -438,6 +438,7 @@ pub async fn get_instances_overview(
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
 ///     },
+///     "challenge_sub_status": "Assert",
 ///     "waiting_time_in_secs": 1000
 ///   }
 /// }
@@ -530,6 +531,7 @@ pub async fn get_graph(
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
 ///       },
+///       "challenge_sub_status": "Assert",
 ///       "waiting_time_in_secs": 1000
 ///     }
 ///   ],

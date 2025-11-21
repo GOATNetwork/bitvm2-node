@@ -1,4 +1,7 @@
 use crate::rpc_service::current_time_secs;
+use crate::scheduled_tasks::graph_maintenance_tasks::{
+    AssertCommitStatus, ChallengeSubStatus, WatchtowerChallengeStatus,
+};
 use crate::utils::reflect_goat_address;
 use alloy::hex::ToHexExt;
 use bitcoin::Txid;
@@ -10,8 +13,7 @@ use std::default::Default;
 use std::str::FromStr;
 use store::localdb::GraphQuery;
 use store::{
-    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
-    SerializableTxid, convert_to_step_state,
+    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, SerializableTxid,
 };
 use strum::{Display, EnumString};
 use tracing::warn;
@@ -318,6 +320,7 @@ pub struct GraphQueryParams {
     pub status: Option<String>,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
+    pub is_pegout_started: bool,
     pub graph_field: Option<String>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
@@ -335,21 +338,23 @@ impl From<GraphQueryParams> for GraphQuery {
                 graph_id_op = Some(uuid.encode_hex());
             }
         }
-        let (is_bridge_out, from_addr) = reflect_goat_address(value.from_addr.clone());
-        let is_init_withdraw_not_null = if let Some(status) = value.status.clone()
-            && status == GraphStatus::KickOffing.to_string()
-        {
-            true
-        } else {
-            false
-        };
+        let (_, from_addr) = reflect_goat_address(value.from_addr.clone());
 
-        let statuses = match value.status.map(|status| convert_to_step_state(&status)) {
-            Some(v) => vec![v],
-            None => vec![],
-        };
+        let mut is_init_withdraw_not_null = value
+            .status
+            .as_ref()
+            .map(|status| status == &GraphStatus::OperatorKickOffing.to_string())
+            .unwrap_or(false);
+        is_init_withdraw_not_null = is_init_withdraw_not_null || value.is_pegout_started;
+        let mut statuses = vec![];
+        if let Some(status) = value.status
+            && let Ok(v) = Graph::parse_display_status(&status)
+        {
+            statuses.push(v)
+        }
+
         let mut raw_conditions = vec![];
-        if is_bridge_out && statuses.is_empty() {
+        if is_init_withdraw_not_null && statuses.is_empty() {
             raw_conditions.push(
                 "( status NOT IN ('OperatorPresigned','CommitteePresigned', 'OperatorDataPushed') OR \
                  (status = 'OperatorDataPushed'  AND init_withdraw_tx_hash IS NOT NULL ) )".to_string()
@@ -358,7 +363,6 @@ impl From<GraphQueryParams> for GraphQuery {
         if is_init_withdraw_not_null {
             raw_conditions.push("init_withdraw_tx_hash IS NOT NULL".to_string());
         }
-
         GraphQuery {
             statuses,
             operator_pubkey: value.operator,
@@ -391,20 +395,51 @@ pub struct GraphListResponse {
     pub total: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Display, EnumString, Default)]
+pub enum SimpleChallengeSubStatus {
+    #[default]
+    None,
+    WatchtowerChallenge,
+    Assert,
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphExtended {
     pub graph: Graph,
+    pub challenge_sub_status: SimpleChallengeSubStatus,
     pub waiting_time_in_secs: i64,
     // pub proof_height: Option<i64>,
     // pub proof_query_url: Option<String>,
 }
 
 impl GraphExtended {
-    pub async fn convert_from_graph(_btc_client: &BTCClient, graph: Graph) -> anyhow::Result<Self> {
-        Ok(GraphExtended {
-            waiting_time_in_secs: get_graph_waiting_time_in_secs(graph.updated_at, &graph.status),
-            graph,
-        })
+    pub async fn convert_from_graph(
+        _btc_client: &BTCClient,
+        mut graph: Graph,
+    ) -> anyhow::Result<Self> {
+        let waiting_time_in_secs = get_graph_waiting_time_in_secs(graph.updated_at, &graph.status);
+        graph.status = graph.convert_to_display_status();
+        let challenge_sub_status =
+            match serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status) {
+                Ok(v) => {
+                    if v.assert_commit_status != AssertCommitStatus::None {
+                        SimpleChallengeSubStatus::Assert
+                    } else if v.watchtower_challenge_status != WatchtowerChallengeStatus::None {
+                        SimpleChallengeSubStatus::WatchtowerChallenge
+                    } else {
+                        SimpleChallengeSubStatus::None
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "fail to covert graph {} sub_status:{}",
+                        graph.graph_id, graph.sub_status
+                    );
+                    SimpleChallengeSubStatus::None
+                }
+            };
+
+        Ok(GraphExtended { challenge_sub_status, waiting_time_in_secs, graph })
     }
 }
 
@@ -425,4 +460,37 @@ pub struct GraphReadyToKickoffRequest {
 pub struct GraphReadyToKickoffResponse {
     pub graph: Option<Graph>,
     pub no_ready_reason: Option<String>,
+}
+trait DisplayStatusConvert {
+    fn convert_to_display_status(&self) -> String;
+
+    fn parse_display_status(ori_status: &str) -> anyhow::Result<String>;
+}
+
+impl DisplayStatusConvert for Graph {
+    fn convert_to_display_status(&self) -> String {
+        match GraphStatus::from_str(&self.status) {
+            Ok(GraphStatus::OperatorPresigned) => GraphStatus::Created.to_string(),
+            Ok(GraphStatus::CommitteePresigned) => GraphStatus::Presigned.to_string(),
+            Ok(GraphStatus::OperatorDataPushed) => {
+                if self.init_withdraw_tx_hash.is_some() {
+                    GraphStatus::OperatorKickOffing.to_string()
+                } else {
+                    GraphStatus::L2Recorded.to_string()
+                }
+            }
+            Ok(_) => self.status.clone(),
+            Err(_) => GraphStatus::L2Recorded.to_string(),
+        }
+    }
+    fn parse_display_status(ori_status: &str) -> anyhow::Result<String> {
+        match GraphStatus::from_str(ori_status) {
+            Ok(GraphStatus::Created) => Ok(GraphStatus::OperatorPresigned.to_string()),
+            Ok(GraphStatus::Presigned) => Ok(GraphStatus::CommitteePresigned.to_string()),
+            Ok(GraphStatus::L2Recorded) => Ok(GraphStatus::OperatorDataPushed.to_string()),
+            Ok(GraphStatus::OperatorKickOffing) => Ok(GraphStatus::OperatorDataPushed.to_string()),
+            Ok(v) => Ok(v.to_string()),
+            Err(e) => Err(anyhow::anyhow!(e)),
+        }
+    }
 }

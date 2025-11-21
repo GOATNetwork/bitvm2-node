@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::localdb::GraphQuery;
 use bitcoin::Txid;
 use bitcoin::hashes::Hash;
 use indexmap::IndexMap;
@@ -270,7 +271,7 @@ pub enum GraphStatus {
     Created,
     Presigned,
     L2Recorded,
-    KickOffing,
+    OperatorKickOffing,
     Challenging,
     Disproving,
 }
@@ -358,35 +359,6 @@ pub struct Graph {
     pub zkm_version: String,
     pub created_at: i64,
     pub updated_at: i64,
-}
-
-pub fn modify_graph_status(ori_status: &str, is_kickoffing: bool) -> String {
-    // TODO update
-    match ori_status {
-        "OperatorPresigned" => "Created".to_string(),
-        "CommitteePresigned" => "Presigned".to_string(),
-        "OperatorDataPushed" => {
-            if is_kickoffing {
-                "OperatorKickOffing".to_string()
-            } else {
-                "L2Recorded".to_string()
-            }
-        }
-        "OperatorKickOff" => "Challenging".to_string(),
-        _ => ori_status.to_string(),
-    }
-}
-
-pub fn convert_to_step_state(ori_status: &str) -> String {
-    // TODO update
-    match ori_status {
-        "Created" => "OperatorPresigned".to_string(),
-        "Presigned" => "CommitteePresigned".to_string(),
-        "L2Recorded" => "OperatorDataPushed".to_string(),
-        "KickOffing" => "OperatorDataPushed".to_string(),
-        "Challenging" => "OperatorKickOff".to_string(),
-        _ => ori_status.to_string(),
-    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]

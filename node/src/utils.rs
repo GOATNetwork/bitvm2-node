@@ -2444,7 +2444,6 @@ pub fn reflect_goat_address(addr_op: Option<String>) -> (bool, Option<String>) {
     {
         return (true, Some(addr.to_string()));
     }
-
     (false, None)
 }
 
