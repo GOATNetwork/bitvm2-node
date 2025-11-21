@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-use crate::localdb::GraphQuery;
 use bitcoin::Txid;
 use bitcoin::hashes::Hash;
 use indexmap::IndexMap;

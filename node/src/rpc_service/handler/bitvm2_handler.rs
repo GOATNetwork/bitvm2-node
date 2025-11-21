@@ -402,7 +402,6 @@ pub async fn get_instances_overview(
 /// Response example:
 /// ```json
 /// {
-///   "graph": {
 ///     "graph": {
 ///       "graph_id": "123e4567-e89b-12d3-a456-426614174000",
 ///       "instance_id": "987e6543-e89b-12d3-a456-426614174000",
@@ -440,7 +439,6 @@ pub async fn get_instances_overview(
 ///     },
 ///     "challenge_sub_status": "Assert",
 ///     "waiting_time_in_secs": 1000
-///   }
 /// }
 /// ```
 #[axum::debug_handler]
@@ -460,10 +458,10 @@ pub async fn get_graph(
             .await
             .api_error("GET_GRAPH_ERROR")?;
 
-        Ok((StatusCode::OK, Json(GraphGetResponse { graph: Some(graph_extended) })))
+        Ok((StatusCode::OK, Json(graph_extended)))
     } else {
         tracing::warn!("graph:{} is not record in db", graph_id);
-        Ok((StatusCode::OK, Json(GraphGetResponse { graph: None })))
+        Ok((StatusCode::OK, Json(GraphExtended::default())))
     }
 }
 

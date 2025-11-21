@@ -264,10 +264,8 @@ pub struct InstanceOverview {
     pub total_nodes: i64,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct GraphGetResponse {
-    pub graph: Option<GraphExtended>,
-}
+pub type GraphGetResponse = GraphExtended;
+
 #[derive(Deserialize, Serialize, Default)]
 pub struct GraphTxnGetResponse {
     #[serde(rename = "assert-init")]
@@ -320,10 +318,14 @@ pub struct GraphQueryParams {
     pub status: Option<String>,
     pub operator: Option<String>,
     pub from_addr: Option<String>,
+    #[serde(default = "default_is_peg_out")]
     pub is_pegout_started: bool,
     pub graph_field: Option<String>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
+}
+fn default_is_peg_out() -> bool {
+    true
 }
 
 impl From<GraphQueryParams> for GraphQuery {
@@ -405,7 +407,7 @@ pub enum SimpleChallengeSubStatus {
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct GraphExtended {
-    pub graph: Graph,
+    pub graph: Option<Graph>,
     pub challenge_sub_status: SimpleChallengeSubStatus,
     pub waiting_time_in_secs: i64,
     // pub proof_height: Option<i64>,
@@ -432,14 +434,14 @@ impl GraphExtended {
                 }
                 Err(e) => {
                     warn!(
-                        "fail to covert graph {} sub_status:{}",
+                        "fail to covert graph {} sub_status:{}, error:{e}",
                         graph.graph_id, graph.sub_status
                     );
                     SimpleChallengeSubStatus::None
                 }
             };
 
-        Ok(GraphExtended { challenge_sub_status, waiting_time_in_secs, graph })
+        Ok(GraphExtended { challenge_sub_status, waiting_time_in_secs, graph: Some(graph) })
     }
 }
 

@@ -542,8 +542,8 @@ mod tests {
             blockhash_commit_timeout_txid: None,
             assert_init_txid: None,
             assert_commit_timeout_txids: vec![],
-            init_withdraw_tx_hash: None,
-            bridge_out_start_at: 0,
+            init_withdraw_tx_hash: Some(format!("0x{}", hex::encode(generate_random_bytes(32)))),
+            bridge_out_start_at: current_time_secs() + 100,
             zkm_version: "zkm_0.1.0".to_string(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
@@ -667,7 +667,7 @@ mod tests {
                 resp_validation: Some(Box::new(move |text| -> bool {
                     if let Ok(graph_res) = serde_json::from_str::<GraphGetResponse>(&text)
                         && let Some(graph) = graph_res.graph
-                        && graph.graph.graph_id == graph_id
+                        && graph.graph_id == graph_id
                     {
                         true
                     } else {
