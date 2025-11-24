@@ -3509,6 +3509,24 @@ pub async fn update_graph_status(
     sub_status: Option<ChallengeSubStatus>,
 ) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
+    match storage_processor.find_graph(&graph_id).await? {
+        Some(graph) => {
+            if graph.status == new_status.to_string()
+                && let Some(sub_status) = sub_status
+                && sub_status != ChallengeSubStatus::default()
+            {
+                warn!(
+                    "graph: {graph_id}, new_status: {new_status} is equal old status and ChallengeSubStatus is None, so not update"
+                );
+                return Ok(());
+            }
+        }
+        None => {
+            warn!("graph: {graph_id} is not update, so not update");
+            return Ok(());
+        }
+    }
+
     if new_status == GraphStatus::CommitteePresigned {
         storage_processor
             .update_instance(
@@ -3519,9 +3537,7 @@ pub async fn update_graph_status(
     }
 
     let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());
-    if let Some(sub_status) = sub_status
-        && sub_status != ChallengeSubStatus::default()
-    {
+    if let Some(sub_status) = sub_status {
         graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
     }
 
