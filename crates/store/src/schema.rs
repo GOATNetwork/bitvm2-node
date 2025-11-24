@@ -338,7 +338,7 @@ impl GraphStatus {
         }
     }
     pub fn is_before(&self, other: &GraphStatus) -> bool {
-        let mut current = other.clone();
+        let mut current = *other;
         while let Some(prev) = current.get_previous_status() {
             if &prev == self {
                 return true;
@@ -348,7 +348,7 @@ impl GraphStatus {
         false
     }
     pub fn is_after(&self, other: &GraphStatus) -> bool {
-        let mut current = self.clone();
+        let mut current = *self;
         while let Some(prev) = current.get_previous_status() {
             if &prev == other {
                 return true;

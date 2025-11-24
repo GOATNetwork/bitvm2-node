@@ -1732,7 +1732,7 @@ async fn detect_disproved_txids(
         }
     };
 
-    if let Some(disprove_type) = sub_status.disprove_type.clone()
+    if let Some(disprove_type) = sub_status.disprove_type
         && let Some(disprove_txid) = graph.disprove_txid.clone()
     {
         return Ok(Some((

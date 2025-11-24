@@ -707,6 +707,7 @@ pub(crate) async fn refresh_graph(
     Ok((current_status, Some(sub_status)))
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy)]
 enum GraphCompensateEventKind {
     PreKickoffSent, // OperatorDataPushed -> PreKickoff
@@ -718,15 +719,14 @@ enum GraphCompensateEventKind {
 }
 
 fn map_transition_to_event(from: GraphStatus, to: GraphStatus) -> Option<GraphCompensateEventKind> {
-    use GraphCompensateEventKind::*;
     use GraphStatus::*;
     match (from, to) {
-        (OperatorDataPushed, PreKickoff) => Some(PreKickoffSent),
-        (PreKickoff, OperatorKickOff) => Some(KickoffSent),
-        (OperatorKickOff, OperatorTake1) => Some(Take1Sent),
-        (OperatorKickOff, Challenge) => Some(ChallengeSent),
-        (Challenge, Disprove) => Some(DisproveSent),
-        (Challenge, OperatorTake2) => Some(Take2Sent),
+        (OperatorDataPushed, PreKickoff) => Some(GraphCompensateEventKind::PreKickoffSent),
+        (PreKickoff, OperatorKickOff) => Some(GraphCompensateEventKind::KickoffSent),
+        (OperatorKickOff, OperatorTake1) => Some(GraphCompensateEventKind::Take1Sent),
+        (OperatorKickOff, Challenge) => Some(GraphCompensateEventKind::ChallengeSent),
+        (Challenge, Disprove) => Some(GraphCompensateEventKind::DisproveSent),
+        (Challenge, OperatorTake2) => Some(GraphCompensateEventKind::Take2Sent),
         _ => None,
     }
 }
@@ -780,8 +780,8 @@ pub(crate) async fn compensate_graph_events(
     rev_path.reverse();
 
     for window in rev_path.windows(2) {
-        let s_from = window[0].clone();
-        let s_to = window[1].clone();
+        let s_from = window[0];
+        let s_to = window[1];
 
         if let Some(kind) = map_transition_to_event(s_from, s_to) {
             match kind {
@@ -2095,7 +2095,7 @@ pub async fn operator_send_assert_commit(
         let fee_inputs_total = fee_inputs.iter().map(|input| input.amount).sum::<Amount>();
         let mut current_has_pending_fee_input = false;
         for inputs in fee_inputs.iter() {
-            if tx_confirmed(btc_client, &inputs.outpoint.txid).await? == false {
+            if !tx_confirmed(btc_client, &inputs.outpoint.txid).await? {
                 current_has_pending_fee_input = true;
                 break;
             }

@@ -530,7 +530,7 @@ impl DisplayStatusConvert for Instance {
     }
 
     fn parse_display_status(ori_status: &str) -> Vec<String> {
-        match InstanceBridgeInStatus::from_str(&ori_status) {
+        match InstanceBridgeInStatus::from_str(ori_status) {
             Ok(InstanceBridgeInStatus::Initiated) => {
                 vec![InstanceBridgeInStatus::UserInited.to_string()]
             }
