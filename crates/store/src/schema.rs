@@ -251,7 +251,9 @@ pub struct Instance {
 }
 
 /// graph status
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString)]
+#[derive(
+    Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString,
+)]
 pub enum GraphStatus {
     #[default]
     OperatorPresigned,
@@ -321,8 +323,8 @@ impl GraphStatus {
             GraphStatus::Created => None,
             GraphStatus::Presigned => Some(GraphStatus::Created),
             GraphStatus::L2Recorded => Some(GraphStatus::Presigned),
-            GraphStatus::KickOffing => Some(GraphStatus::L2Recorded),
-            GraphStatus::Challenging => Some(GraphStatus::KickOffing),
+            GraphStatus::OperatorKickOffing => Some(GraphStatus::L2Recorded),
+            GraphStatus::Challenging => Some(GraphStatus::OperatorKickOffing),
             GraphStatus::Disproving => Some(GraphStatus::Challenging),
         }
     }
