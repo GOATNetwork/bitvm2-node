@@ -206,6 +206,15 @@ pub enum InstanceBridgeInStatus {
     Timeout,                    // time to cancle bridgein
     UserCanceled,               // user broadcast Pegin-cancel tx
     NoEnoughCommitteesAnswered, // no enough committee responsed & window expired
+
+    // for front end display
+    Initiated,  // UserInited
+    Verified,   // CommitteesAnswered
+    Submitted,  // UserBroadcastPeginPrepare
+    Failed,     // PresignedFailed, RelayerL2MintedFailed, NoEnoughCommitteesAnswered
+    Processing, // RelayerL1Broadcasted
+    Success,    // RelayerL2Minted
+    Canceled,   // UserCanceled
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
