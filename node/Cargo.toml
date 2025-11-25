@@ -19,6 +19,10 @@ path = "src/bin/send_challenge.rs"
 name = "sequencer-set-publish"
 path = "src/bin/sequencer-set-publish.rs"
 
+[[bin]]
+name = "send-rbf"
+path = "src/bin/send_rbf.rs"
+
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",

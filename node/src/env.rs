@@ -49,6 +49,7 @@ pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
 pub const ENV_EXTERNAL_SOCKET_ADDR: &str = "EXTERNAL_SOCKET_ADDR";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
+pub const ASSERT_COMMITS_CACHE_DIR: &str = "cache/assert_commits_cache/";
 pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
 pub const MAX_CUSTOM_INPUTS: usize = 100;

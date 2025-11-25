@@ -43,6 +43,7 @@ use secp256k1::Secp256k1;
 
 use anyhow::{Result, anyhow, bail};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::consensus::encode::{deserialize, serialize};
 use bitcoin::hashes::Hash;
 use goat::transactions::prekickoff::PrekickoffTransaction;
 use indexmap::IndexMap;
@@ -51,7 +52,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
@@ -129,7 +130,7 @@ pub mod todo_funcs {
     pub fn avg_block_time_secs(network: Network) -> u64 {
         match network {
             Network::Bitcoin => 600, // 10 minutes
-            Network::Testnet => 60,  // 1 minute
+            Network::Testnet => 300, // 5 minutes
             Network::Regtest => 60,  // 1 minute
             Network::Signet => 60,   // 1 minute
             _ => 600,                // default to 10 minutes
@@ -1301,6 +1302,91 @@ pub async fn broadcast_package(
     Ok(())
 }
 
+const ASSERT_COMMIT_CACHE_VERSION: u32 = 1;
+
+#[derive(Serialize, Deserialize)]
+struct CachedAssertCommitInput {
+    txin: Vec<u8>,
+    amount_sat: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CachedAssertCommitInputs {
+    version: u32,
+    inputs: Vec<CachedAssertCommitInput>,
+}
+
+fn assert_commit_cache_path(graph_id: Uuid) -> PathBuf {
+    Path::new(ASSERT_COMMITS_CACHE_DIR).join(format!("{graph_id}.json"))
+}
+
+fn load_assert_commit_inputs_from_cache(graph_id: Uuid) -> Option<Vec<(TxIn, Amount)>> {
+    let path = assert_commit_cache_path(graph_id);
+    if !path.exists() {
+        return None;
+    }
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(err) => {
+            warn!("failed to open assert-commit cache {path:?}: {err:?}");
+            return None;
+        }
+    };
+    let reader = BufReader::new(file);
+    let cached: CachedAssertCommitInputs = match serde_json::from_reader(reader) {
+        Ok(data) => data,
+        Err(err) => {
+            warn!("failed to deserialize assert-commit cache {path:?}: {err:?}");
+            return None;
+        }
+    };
+    if cached.version != ASSERT_COMMIT_CACHE_VERSION {
+        warn!(
+            "assert-commit cache version mismatch for {path:?}, expecting {ASSERT_COMMIT_CACHE_VERSION}, got {}",
+            cached.version
+        );
+        return None;
+    }
+    let mut inputs = Vec::with_capacity(cached.inputs.len());
+    for item in cached.inputs {
+        match deserialize::<TxIn>(&item.txin) {
+            Ok(txin) => inputs.push((txin, Amount::from_sat(item.amount_sat))),
+            Err(err) => {
+                warn!("failed to decode txin from cache {path:?}: {err:?}");
+                return None;
+            }
+        }
+    }
+    Some(inputs)
+}
+
+fn store_assert_commit_inputs_in_cache(graph_id: Uuid, inputs: &[(TxIn, Amount)]) -> Result<()> {
+    fs::create_dir_all(ASSERT_COMMITS_CACHE_DIR)?;
+    let path = assert_commit_cache_path(graph_id);
+    let file = File::create(&path)?;
+    let writer = BufWriter::new(file);
+    let payload = CachedAssertCommitInputs {
+        version: ASSERT_COMMIT_CACHE_VERSION,
+        inputs: inputs
+            .iter()
+            .map(|(txin, amount)| CachedAssertCommitInput {
+                txin: serialize(txin),
+                amount_sat: amount.to_sat(),
+            })
+            .collect(),
+    };
+    serde_json::to_writer(writer, &payload)?;
+    Ok(())
+}
+
+fn cleanup_assert_commit_cache(graph_id: Uuid) -> Result<()> {
+    let path = assert_commit_cache_path(graph_id);
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
 pub async fn challenger_force_skip_kickoff(
     client: &BTCClient,
     graph: &Bitvm2Graph,
@@ -2020,19 +2106,29 @@ pub async fn operator_send_assert_commit(
         bail!("assert-init not confirmed yet, skip assert-commit broadcast");
     }
 
-    // Build signed inputs for each assert-commit connector
-    let wots_secret_keys = operator_master_key.wots_keypair_for_graph(graph_id).0;
-    let (guest_inputs, proof, groth16_pubin, vk) =
-        todo_funcs::get_operator_proof(instance_id, graph_id).await?;
-    let assert_commit_inputs = operator_sign_assert_commit(
-        node_keypair,
-        graph,
-        &wots_secret_keys,
-        guest_inputs,
-        proof,
-        groth16_pubin,
-        &vk,
-    )?;
+    // Build or load signed inputs for each assert-commit connector
+    let assert_commit_inputs = if let Some(inputs) = load_assert_commit_inputs_from_cache(graph_id)
+    {
+        tracing::info!("loaded assert-commit inputs from cache for graph_id:{graph_id}");
+        inputs
+    } else {
+        let wots_secret_keys = operator_master_key.wots_keypair_for_graph(graph_id).0;
+        let (guest_inputs, proof, groth16_pubin, vk) =
+            todo_funcs::get_operator_proof(instance_id, graph_id).await?;
+        let inputs = operator_sign_assert_commit(
+            node_keypair,
+            graph,
+            &wots_secret_keys,
+            guest_inputs,
+            proof,
+            groth16_pubin,
+            &vk,
+        )?;
+        if let Err(err) = store_assert_commit_inputs_in_cache(graph_id, &inputs) {
+            tracing::warn!("failed to write assert-commit cache for graph_id:{graph_id}: {err:?}");
+        }
+        inputs
+    };
 
     fn estimate_fee_funding_amount(txin: &TxIn, fee_rate: f64) -> Amount {
         let sample_tx = Transaction {
@@ -2062,6 +2158,11 @@ pub async fn operator_send_assert_commit(
     }
     if pending_assert_commit_txins.is_empty() {
         tracing::info!("no assert-commit inputs to send (all spent)");
+        if let Err(err) = cleanup_assert_commit_cache(graph_id) {
+            tracing::warn!(
+                "failed to cleanup assert-commit cache for graph_id:{graph_id}: {err:?}"
+            );
+        }
         return Ok((None, false));
     }
 
@@ -2150,6 +2251,14 @@ pub async fn operator_send_assert_commit(
         }
 
         broadcast_tx(btc_client, &tx).await?;
+    }
+
+    if !has_pending_fee_input {
+        if let Err(err) = cleanup_assert_commit_cache(graph_id) {
+            tracing::warn!(
+                "failed to cleanup assert-commit cache for graph_id:{graph_id}: {err:?}"
+            );
+        }
     }
 
     Ok((None, has_pending_fee_input))
