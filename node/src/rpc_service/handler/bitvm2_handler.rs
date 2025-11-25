@@ -1208,15 +1208,15 @@ pub async fn get_graph_txn(
         .api_error("GET_GRAPH_TXN_ERROR")?;
 
         let mut resp = GraphTxnGetResponse {
-            assert_init: BtcTxData::new(serialize_hex(bitvm2_graph.assert_init.tx())),
+            assert_init: BtcTxData::new(serialize_hex(bitvm2_graph.assert_init.tx()))
+                .with_progresses(assert_progresses)
+                .with_fail_reason(assert_fail_reason),
             watchtower_challenge_init: BtcTxData::new(serialize_hex(
                 bitvm2_graph.watchtower_challenge_init.tx(),
             ))
             .with_progresses(wt_progresses)
             .with_fail_reason(wt_fail_reason),
-            pre_kickoff: BtcTxData::new(serialize_hex(bitvm2_graph.cur_prekickoff.tx()))
-                .with_progresses(assert_progresses)
-                .with_fail_reason(assert_fail_reason),
+            pre_kickoff: BtcTxData::new(serialize_hex(bitvm2_graph.cur_prekickoff.tx())),
             challenge: BtcTxData::new(serialize_hex(bitvm2_graph.challenge.tx())),
             disprove: Default::default(),
             kickoff: BtcTxData::new(serialize_hex(bitvm2_graph.kickoff.tx())),
