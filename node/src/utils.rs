@@ -1458,8 +1458,13 @@ pub async fn build_cpfp_txns(
     anchor_vout: u64,
     parent_tx_total_input_amount: Amount,
 ) -> Result<Option<Transaction>> {
+    let network = get_network();
+    if network == Network::Regtest || network == Network::Testnet {
+        // skip cpfp in test network for testing convenience
+        return Ok(None);
+    }
     let node_master_keypair = get_bitvm_key()?;
-    let node_address = node_p2wsh_address(get_network(), &node_master_keypair.public_key().into());
+    let node_address = node_p2wsh_address(network, &node_master_keypair.public_key().into());
     let total_output_amount: Amount = parent_tx.output.iter().map(|o| o.value).sum();
     let fee_rate = get_fee_rate(btc_client).await?;
     let fee_amount =
