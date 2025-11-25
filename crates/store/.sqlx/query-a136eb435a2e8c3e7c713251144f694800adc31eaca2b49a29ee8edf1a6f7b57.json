@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT graph_id AS \"graph_id:Uuid\", kickoff_index\n                 FROM graph\n                 WHERE operator_pubkey = ?\n                   AND kickoff_index >= ?\n                   AND kickoff_index <= ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "kickoff_index",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a136eb435a2e8c3e7c713251144f694800adc31eaca2b49a29ee8edf1a6f7b57"
+}

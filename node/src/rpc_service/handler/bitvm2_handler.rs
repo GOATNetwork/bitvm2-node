@@ -1252,6 +1252,63 @@ pub async fn get_graph_txn(
     }
 }
 
+/// Get neighboring graph IDs
+///
+/// Returns the previous and next graphs (by kickoff index) for the same operator,
+/// which allows the UI to implement previous/next navigation when browsing graph details.
+///
+/// # Path Parameters
+///
+/// - `graph_id`: UUID of the current BitVM2 graph
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns the current graph ID plus its previous and next neighbors
+/// - `500 Internal Server Error`: Parameter validation failed or database query failed
+///
+/// # Use Case
+///
+/// Frontend can call this endpoint when showing a graph detail page to quickly fetch
+/// the `previous_id` and `next_id` for navigation controls.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/neighbor-ids
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "current_id": "123e4567-e89b-12d3-a456-426614174000",
+///   "previous_id": "123e4567-e89b-12d3-a456-426614173999",
+///   "next_id": "123e4567-e89b-12d3-a456-426614174001"
+/// }
+/// ```
+#[axum::debug_handler]
+pub async fn get_graph_neighbor_ids(
+    Path(graph_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<GraphNeighborIdsResponse> {
+    let current_id = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+    let mut storage_processor =
+        app_state.local_db.acquire().await.api_error("GET_GRAPH_NEIGHBOR_ERROR")?;
+    let id_with_kickoff_indexes = storage_processor
+        .find_graph_neighbor_ids(current_id, 1)
+        .await
+        .api_error("GET_GRAPH_NEIGHBOR_ERROR")?;
+    let mut res = GraphNeighborIdsResponse { current_id, previous_id: None, next_id: None };
+    for (i, (_kickoff_index, graph_id)) in id_with_kickoff_indexes.iter().enumerate() {
+        if i == 0 && *graph_id != current_id {
+            res.previous_id = Some(*graph_id);
+        }
+        if i > 0 && *graph_id != current_id {
+            res.next_id = Some(*graph_id);
+        }
+    }
+    Ok((StatusCode::OK, Json(res)))
+}
+
 // fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {
 //     let addr: Address<NetworkUnchecked> = Address::from_str(address)?;
 //     let addr = addr.require_network(Network::from_str(network)?)?;

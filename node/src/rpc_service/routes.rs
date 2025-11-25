@@ -14,6 +14,7 @@ pub(crate) mod v1 {
     pub const GRAPHS_BY_ID: &str = "/v1/graphs/{:id}";
     pub const GRAPHS_READY_TO_KICKOFF: &str = "/v1/graphs/ready-to-kickoff";
     pub const GRAPHS_TXN_BY_ID: &str = "/v1/graphs/{:id}/txn";
+    pub const GRAPHS_NEIGHBOR_IDS: &str = "/v1/graphs/{:id}/neighbor-ids";
     pub const GRAPHS_TX_BY_ID: &str = "/v1/graphs/{:id}/tx";
     pub const PROOFS_BASE: &str = "/v1/proofs";
     pub const PROOFS_BLOCKS_DESC: &str = "/v1/proofs/blocks-desc";

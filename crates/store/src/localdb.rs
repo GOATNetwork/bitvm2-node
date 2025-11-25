@@ -1184,9 +1184,9 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query_as::<_, NextPrekickoffRow>(
             "SELECT graph_id,  instance_id,  cur_prekickoff_txid, next_prekickoff FROM graph WHERE cur_prekickoff_txid  = ?",
         )
-        .bind(current_pre_kickoff)
-        .fetch_optional(self.conn())
-        .await?;
+            .bind(current_pre_kickoff)
+            .fetch_optional(self.conn())
+            .await?;
         Ok(res.map(|v| (v.graph_id, v.instance_id, v.cur_prekickoff_txid, v.next_prekickoff)))
     }
 
@@ -1314,6 +1314,38 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    pub async fn find_graph_neighbor_ids(
+        &mut self,
+        graph_id: Uuid,
+        range: i64,
+    ) -> anyhow::Result<Vec<(i64, Uuid)>> {
+        #[derive(sqlx::FromRow)]
+        struct GraphIds {
+            pub graph_id: Uuid,
+            pub kickoff_index: i64,
+        }
+        if let Some(graph) = self.find_graph(&graph_id).await? {
+            let start = 0.max(graph.kickoff_index - range);
+            let end = graph.kickoff_index + range;
+            let res = sqlx::query_as!(
+                GraphIds,
+                "SELECT graph_id AS \"graph_id:Uuid\", kickoff_index
+                 FROM graph
+                 WHERE operator_pubkey = ?
+                   AND kickoff_index >= ?
+                   AND kickoff_index <= ?",
+                graph.operator_pubkey,
+                start,
+                end
+            )
+            .fetch_all(self.conn())
+            .await?;
+
+            Ok(res.into_iter().map(|g| (g.kickoff_index, g.graph_id)).collect())
+        } else {
+            Ok(vec![])
+        }
+    }
     /// Insert or update node without reward field
     pub async fn upsert_node(&mut self, node: &Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(

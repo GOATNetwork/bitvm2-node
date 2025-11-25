@@ -289,6 +289,13 @@ pub struct GraphTxGetResponse {
 }
 
 #[derive(Deserialize, Serialize, Default)]
+pub struct GraphNeighborIdsResponse {
+    pub current_id: Uuid,
+    pub previous_id: Option<Uuid>,
+    pub next_id: Option<Uuid>,
+}
+
+#[derive(Deserialize, Serialize, Default)]
 pub struct ProgressData {
     pub name: String,
     pub current: usize,
