@@ -1717,6 +1717,39 @@ async fn detect_kickoff_ref_disprove_tx(
     Ok(detected)
 }
 
+async fn fetch_challenge_txid(
+    btc_client: &BTCClient,
+    storage_processor: &mut StorageProcessor<'_>,
+    graph_id: Uuid,
+    kickoff_txid: &Option<SerializableTxid>,
+    take1_txid: &Option<SerializableTxid>,
+) -> anyhow::Result<Option<SerializableTxid>> {
+    info!("fetch_challenge_txid for graph_id:{}", graph_id);
+    let (kickoff_txid, take1_txid): (Txid, Txid) = match (kickoff_txid, take1_txid) {
+        (Some(kickoff_txid), Some(take1_txid)) => (kickoff_txid.0, take1_txid.0),
+        _ => {
+            warn!("graph:{graph_id} kickoff_txid or take1_txid none");
+            return Ok(None);
+        }
+    };
+
+    if let Ok(Some(txid)) = outpoint_spent_txid(btc_client, &kickoff_txid, 0).await {
+        if txid == take1_txid {
+            warn!("graph:{graph_id} take1 has been sent!");
+            Ok(None)
+        } else {
+            info!("graph:{graph_id} detected challenge txid :{txid}");
+            storage_processor
+                .update_graph_fields(GraphUpdate::new(graph_id).with_challenge_txid(txid.into()))
+                .await?;
+            Ok(Some(txid.into()))
+        }
+    } else {
+        warn!("graph:{graph_id} fail to detect challenge txid  will try later");
+        Ok(None)
+    }
+}
+
 async fn detect_disproved_txids(
     btc_client: &BTCClient,
     storage_processor: &mut StorageProcessor<'_>,
@@ -1728,7 +1761,19 @@ async fn detect_disproved_txids(
         Some(challenge_txid) => challenge_txid.into(),
         None => {
             warn!("graph:{} challenge_txid is none", graph.graph_id);
-            return Ok(None);
+            if let Ok(Some(txid)) = fetch_challenge_txid(
+                btc_client,
+                storage_processor,
+                graph.graph_id,
+                &graph.kickoff_txid,
+                &graph.take1_txid,
+            )
+            .await
+            {
+                txid.into()
+            } else {
+                return Ok(None);
+            }
         }
     };
 
