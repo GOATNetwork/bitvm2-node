@@ -733,6 +733,14 @@ pub enum ProofType {
     Groth16Proof,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
+pub enum ProofStatus {
+    #[default]
+    Pending,
+    Readying,
+    Proved,
+    Failed,
+}
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct CommitInfo {
     pub txid: SerializableTxid,

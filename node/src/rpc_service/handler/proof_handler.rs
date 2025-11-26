@@ -11,31 +11,33 @@ use client::btc_chain::mempool_v1_type::{V1Blocks, get_v1_blocks_url};
 use http::{StatusCode, Uri};
 use std::sync::Arc;
 
-/// Get Bitcoin block descriptions
+/// Fetch a descending list of Bitcoin block descriptors
 ///
-/// Returns detailed block information for a range of Bitcoin blocks starting from a specified height.
-/// The blocks are returned in descending order (newest first).
+/// Queries the mempool.space V1 Blocks endpoint, takes the requested number of records from the newest block
+/// downward, and enriches each block with the local proof status.
 ///
 /// # Query Parameters
 ///
-/// - `start_height`: Starting block height (optional) - the block number to start from (descending order)
-/// - `range`: Number of blocks to retrieve (optional, default: 15) - maximum number of blocks to return
+/// - `proof_type`: Required. Indicates whether to track header-chain or commit-chain proof status.
+/// - `start_height`: Optional. Starting block height in descending order. Defaults to the latest height when omitted.
+/// - `range`: Optional. Number of blocks to return (default 15). The actual length never exceeds the remote payload.
 ///
 /// # Returns
 ///
-/// - `200 OK`: Successfully returns block descriptions list
-/// - `500 Internal Server Error`: Server internal error or failed to fetch from mempool API
-/// - Response includes block metadata: height, median fee, fee range, total fees, size, transaction count, and timestamp
+/// - `200 OK`: Successfully returns a list of block descriptors.
+/// - `500 Internal Server Error`: Failed to call or parse the mempool API.
+/// - The payload includes `start`, `range`, and a `blocks_desc` array containing fee stats, size, tx count,
+///   timestamp, and the derived `proof_status` for each block.
 ///
 /// # Use Case
 ///
-/// Applications use this to retrieve detailed information about recent Bitcoin blocks,
-/// including fee statistics, transaction counts, and block sizes for analysis and monitoring purposes.
+/// Wallet dashboards, monitoring services, or explorers use this endpoint to correlate block fee dynamics with
+/// the current proof progress for header/commit chains.
 ///
 /// # Example
 ///
 /// ```http
-/// GET /v1/proofs/blocks-desc?start_height=800000&range=10
+/// GET /v1/proofs/blocks-desc?proof_type=header_chain&start_height=800000&range=10
 /// ```
 ///
 /// Response example:
@@ -51,7 +53,8 @@ use std::sync::Arc;
 ///       "total_fees": 5000000,
 ///       "size": 1500000,
 ///       "tx_count": 2500,
-///       "timestamp": 1640995200
+///       "timestamp": 1640995200,
+///       "proof_status": "pending"
 ///     }
 ///   ]
 /// }

@@ -730,7 +730,7 @@ mod tests {
 
         let api_test_items = [ApiTestItem {
             tag: format!("{} get proofs desc", routes::v1::PROOFS_BLOCKS_DESC),
-            url: format!("http://{addr}{}", routes::v1::PROOFS_BLOCKS_DESC),
+            url: format!("http://{addr}{}?proof_type=header_chain", routes::v1::PROOFS_BLOCKS_DESC),
             json_payload: None,
             method: Method::GET,
             expe_res: true,

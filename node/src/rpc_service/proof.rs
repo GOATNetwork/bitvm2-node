@@ -1,9 +1,12 @@
 use client::btc_chain::mempool_v1_type::V1Block;
 use serde::{Deserialize, Serialize};
+use store::ProofStatus;
 use strum::{Display, EnumString};
 
 #[derive(Debug, Deserialize)]
 pub struct BtcBlockDescQueryParams {
+    #[allow(dead_code)]
+    pub proof_type: ProofType,
     pub start_height: Option<u64>, //desc order
     #[serde(default = "default_block_desc_range")]
     pub range: u32,
@@ -21,6 +24,7 @@ pub struct BtcBlockDesc {
     pub size: u64,
     pub tx_count: u64,
     pub timestamp: u64,
+    pub proof_status: ProofStatus,
 }
 
 impl From<V1Block> for BtcBlockDesc {
@@ -33,6 +37,7 @@ impl From<V1Block> for BtcBlockDesc {
             size: value.size,
             tx_count: value.tx_count,
             timestamp: value.timestamp,
+            proof_status: ProofStatus::Pending,
         }
     }
 }
@@ -45,6 +50,7 @@ pub struct BtcBlockDescListResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Display, EnumString)]
+#[serde(rename_all = "snake_case")]
 pub enum ProofType {
     #[strum(serialize = "header_chain")]
     HeaderChain,
