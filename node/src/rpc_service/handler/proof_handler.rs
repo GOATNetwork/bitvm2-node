@@ -11,50 +11,49 @@ use client::btc_chain::mempool_v1_type::{V1Blocks, get_v1_blocks_url};
 use http::{StatusCode, Uri};
 use std::sync::Arc;
 
-/// Get Bitcoin blocks description list
+/// Get Bitcoin block descriptions
 ///
-/// Returns a list of Bitcoin block descriptions with fee information and statistics. Supports
-/// pagination and querying from a specific starting height in descending order.
+/// Returns detailed block information for a range of Bitcoin blocks starting from a specified height.
+/// The blocks are returned in descending order (newest first).
 ///
 /// # Query Parameters
 ///
-/// - `start_height`: Starting block height (optional) - query blocks from this height in descending order
-/// - `offset`: Pagination offset (optional) - number of items to skip
-/// - `limit`: Items per page (default: 6) - maximum number of items to return
+/// - `start_height`: Starting block height (optional) - the block number to start from (descending order)
+/// - `range`: Number of blocks to retrieve (optional, default: 15) - maximum number of blocks to return
 ///
 /// # Returns
 ///
-/// - `200 OK`: Successfully returns blocks description list
-/// - `500 Internal Server Error`: Server internal error or database operation failed
-/// - Response includes block statistics such as median fee, fee range, total fees, and transaction count
+/// - `200 OK`: Successfully returns block descriptions list
+/// - `500 Internal Server Error`: Server internal error or failed to fetch from mempool API
+/// - Response includes block metadata: height, median fee, fee range, total fees, size, transaction count, and timestamp
 ///
 /// # Use Case
 ///
-/// Frontend applications use this to display Bitcoin block statistics, including fee market data
-/// for users to understand network congestion and optimal transaction fee rates.
+/// Applications use this to retrieve detailed information about recent Bitcoin blocks,
+/// including fee statistics, transaction counts, and block sizes for analysis and monitoring purposes.
 ///
 /// # Example
 ///
 /// ```http
-/// GET /v1/proofs/blocks?start_height=800000&offset=0&limit=6
+/// GET /v1/proofs/blocks-desc?start_height=800000&range=10
 /// ```
 ///
 /// Response example:
 /// ```json
 /// {
+///   "start": 800000,
+///   "range": 10,
 ///   "blocks_desc": [
 ///     {
 ///       "height": 800000,
-///       "median_fee": 15.5,
-///       "fee_range": [5.0, 10.0, 15.0, 20.0, 30.0],
-///       "total_fees": 0.5,
-///       "size": 1.5,
+///       "median_fee": 50000,
+///       "fee_range": [10000.0, 20000.0, 50000.0, 100000.0, 200000.0],
+///       "total_fees": 5000000,
+///       "size": 1500000,
 ///       "tx_count": 2500,
 ///       "timestamp": 1640995200
 ///     }
-///   ],
-///   "start": 800000,
-///   "range": 6
+///   ]
 /// }
 /// ```
 #[axum::debug_handler]
