@@ -162,7 +162,6 @@ pub struct WTInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, WatchtowerChallengeItemStatus>,
     pub require_disproved_indexes: Vec<usize>,
     pub commit_blockhash_status: CommitBlockHashStatus,
-    pub is_complete_in_time: bool,
     pub is_challenge_timeout_sent: bool,
 }
 
@@ -176,7 +175,6 @@ impl WTInitTxVoutMonitorData {
             data_map,
             require_disproved_indexes: vec![],
             commit_blockhash_status: CommitBlockHashStatus::None,
-            is_complete_in_time: false,
             is_challenge_timeout_sent: false,
         }
     }
@@ -310,7 +308,7 @@ impl WTInitTxVoutMonitorData {
             || self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommitTimeout
     }
 
-    pub fn check_finished_in_time(&self) -> bool {
+    pub fn check_watchtower_challenge_normal_finished(&self) -> bool {
         self.data_map.values().all(|status| {
             matches!(
                 status,
@@ -346,7 +344,6 @@ pub enum AssertCommitItemStatus {
 pub struct AssertInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, AssertCommitItemStatus>,
     pub require_disproved_indexes: Vec<usize>,
-    pub is_complete_in_time: bool,
 }
 
 impl AssertInitTxVoutMonitorData {
@@ -355,7 +352,7 @@ impl AssertInitTxVoutMonitorData {
         for i in 0..index_size {
             data_map.insert(i, AssertCommitItemStatus::OperatorInit);
         }
-        Self { data_map, require_disproved_indexes: vec![], is_complete_in_time: false }
+        Self { data_map, require_disproved_indexes: vec![] }
     }
     pub async fn monitor_vout(
         &mut self,
@@ -376,14 +373,11 @@ impl AssertInitTxVoutMonitorData {
                 vout_spent_detect += 1
             }
         }
-        if vout_spent_detect > 0 {
-            self.is_complete_in_time = self
-                .data_map
-                .values()
-                .all(|status| *status == AssertCommitItemStatus::OperatorCommit);
-        }
-
         Ok(vout_spent_detect)
+    }
+
+    pub fn check_normal_finished(&self) -> bool {
+        self.data_map.values().all(|status| *status == AssertCommitItemStatus::OperatorCommit)
     }
 
     pub fn get_commit_process_desc(&self) -> (usize, usize) {
@@ -403,29 +397,6 @@ impl AssertInitTxVoutMonitorData {
                 self.require_disproved_indexes.push(*index as usize);
             }
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn is_challenged(&self) -> bool {
-        !self.require_disproved_indexes.is_empty()
-    }
-
-    #[allow(dead_code)]
-    pub fn get_disprove_type(&self) -> Option<DisproveTxType> {
-        if !self.require_disproved_indexes.is_empty() {
-            return Some(DisproveTxType::AssertTimeout);
-        }
-        None
-    }
-
-    #[allow(dead_code)]
-    pub fn is_complete_in_time(&self) -> bool {
-        self.is_complete_in_time
-    }
-
-    #[allow(dead_code)]
-    pub fn is_finished(&self) -> bool {
-        self.is_complete_in_time || self.is_challenged()
     }
 }
 
@@ -1220,11 +1191,10 @@ async fn process_watchtower_challenge_monitoring(
                 is_commit_block_hash_ready = true;
             }
 
-            if vout_monitor_data.check_finished_in_time() {
+            if vout_monitor_data.check_watchtower_challenge_normal_finished() {
                 data_change = true;
                 sub_status.watchtower_challenge_status =
                     WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
-                vout_monitor_data.is_complete_in_time = true;
             }
         } else {
             info!(
@@ -1439,7 +1409,7 @@ async fn process_assert_commit_monitoring(
                 .monitor_vout(btc_client, &assert_init_txid, &graph.assert_commit_timeout_txids)
                 .await?;
 
-            if vout_monitor_data.is_complete_in_time {
+            if vout_monitor_data.check_normal_finished() {
                 sub_status.assert_commit_status = AssertCommitStatus::OperatorCommit;
             }
 
