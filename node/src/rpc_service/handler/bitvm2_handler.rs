@@ -831,6 +831,12 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                         _ => {}
                     }
                 }
+            } else {
+                progress_datas.push(ProgressData {
+                    name: WATCHTOWER_CHALLENGE_STEP_INIT.to_string(),
+                    current: 0,
+                    total: 1,
+                });
             }
         }
         GraphBtcTxName::AssertInit => {
@@ -857,6 +863,12 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                 if let Some(DisproveTxType::AssertTimeout) = challenge_status.disprove_type {
                     fail_reason = Some(format!("Operator has {} assert no sent", total - current));
                 }
+            } else {
+                progress_datas.push(ProgressData {
+                    name: ASSERT_STEP_INIT.to_string(),
+                    current: 1,
+                    total: 1,
+                });
             }
         }
         _ => {}
