@@ -26,8 +26,14 @@ serde_json.workspace = true
 
 borsh = { workspace = true }
 consensus-chain = { workspace = true }
-bitcoin = { workspace = true }
-client = { workspace = true }
+bitcoin-light-client-circuit = { workspace = true }
+primitives.workspace = true
+reth-chainspec.workspace = true
+rpc-db.workspace = true
+url.workspace = true
+host-executor.workspace = true
+alloy-provider.workspace = true
+cbft-rpc.workspace = true
 
 # Ziren
 zkm-sdk.workspace = true

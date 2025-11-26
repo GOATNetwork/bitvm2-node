@@ -33,7 +33,7 @@ pub enum ConsensusChainPrevProofType {
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CiruitConsensusBlock {
     pub consensus_txns: Vec<String>,
-    pub consessus_data_hash: [u8; 32],
+    pub consensus_data_hash: [u8; 32],
     pub evm_input: EthClientExecutorInput,
 }
 
@@ -67,36 +67,36 @@ impl Default for ConsensusChainState {
 
 impl ConsensusChainState {
     pub fn new() -> Self {
+        // FIXME: testnet only
         ConsensusChainState {
-            block_height: u64::MAX,
+            block_height: 1,
             genesis_block_hash: hex::decode("30f474514d6cd219f459b2d481b2d4376a6637e881b982ffa8d63610932b33f6").unwrap().try_into().unwrap(),
             latest_block_hash: hex::decode("30f474514d6cd219f459b2d481b2d4376a6637e881b982ffa8d63610932b33f6").unwrap().try_into().unwrap(),
         }
     }
 
     pub fn apply_block(&mut self, blocks: Vec<CiruitConsensusBlock>) {
-        let sz = (1..blocks.len());
-        for i in sz.into_iter() {
-            let prev_block = &blocks[i - 1];
-            let block = &blocks[i];
+        for block in blocks {
             // check evm state transition 
-            let evm_header = execute_el_block_and_check_withdraw_tx(None, None, None, prev_block.evm_input.clone());
-            assert_eq!(evm_header.number, prev_block.evm_input.current_block.number);
+            let evm_header = execute_el_block_and_check_withdraw_tx(None, None, None, block.evm_input.clone());
+            assert_eq!(evm_header.number, block.evm_input.current_block.number);
+            assert_eq!(evm_header.number, self.block_height);
 
             let block_hash = evm_header.hash_slow();
             let current_block_hash: [u8; 32] = block_hash.try_into().unwrap();
             // check the evm block is committed in the consensus txns
             let parent_block_hash = self.latest_block_hash; 
+            assert_eq!(self.latest_block_hash, parent_block_hash);
             check_el_block_from_payload(
-                prev_block.evm_input.current_block.number,
+                block.evm_input.current_block.number,
                 &current_block_hash,
                 &parent_block_hash,
-                &prev_block.consensus_txns,
-                prev_block.consessus_data_hash.clone(),
+                &block.consensus_txns,
+                block.consensus_data_hash.clone(),
                 //light_block_2.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
             );
 
-            self.block_height = block.evm_input.current_block.number;
+            self.block_height += 1; 
             self.latest_block_hash = current_block_hash; 
         }
     }

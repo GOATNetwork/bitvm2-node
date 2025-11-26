@@ -1,9 +1,16 @@
 use cbft_rpc::{fetch_cosmos_tx_data, fetch_cosmos_validator_info};
 use consensus_chain::*;
-use std::{io::Seek, str::FromStr};
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
+use alloy_provider::{RootProvider, network::Ethereum};
+use primitives::genesis::Genesis;
+use reth_chainspec::ChainSpec;
+use rpc_db::RpcDb;
+use std::sync::Arc;
+use url::Url;
+use bitcoin_light_client_circuit::EthClientExecutorInput;
+use host_executor::EthHostExecutor;
 
 /// A program that aggregates the proofs of the simple program.
 const CONSENSUS_CHAIN: &[u8] = include_elf!("guest");
@@ -40,7 +47,7 @@ pub struct Args {
 }
 
 // https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
-async fn fetch_exection_layer_block(execute_layer_rpc: &str, exection_layer_block_number: u64) -> EthClientExecutorInput {
+async fn fetch_exection_layer_block(execution_layer_rpc: &str, execution_layer_block_number: u64) -> EthClientExecutorInput {
     // Setup the provider.
     let rpc_url = Url::parse(&execution_layer_rpc).expect("invalid rpc url");
 
@@ -69,57 +76,56 @@ async fn fetch_exection_layer_block(execute_layer_rpc: &str, exection_layer_bloc
     client_input
 }
 
-async fn fetch_consensus_chain(args: &Args) {
-    let mut writer = std::fs::OpenOptions::new()
-        .read(true)
-        .create(true)
-        .open(&args.blocks)
-        .unwrap();
+async fn fetch_consensus_chain(args: &Args) -> Vec<CiruitConsensusBlock> {
+   use std::io::Read;
+   let mut reader = std::fs::OpenOptions::new()
+       .read(true)
+       .write(true)
+       .create(true)
+       .open(&args.blocks)
+       .unwrap();
 
-    let mut blocks: Vec<u8> = Vec::new();
-    writer.read_to_end(&mut blockss).unwrap();
-
-    let blocks: Vec<CiruitConsensusBlock> = serde_json::from_slice(&blocks).unwrap(); 
+   let mut blocks: Vec<u8> = Vec::new();
+   reader.read_to_end(&mut blocks).unwrap();
+   let mut blocks: Vec<CiruitConsensusBlock> = if blocks.is_empty() { Vec::new()} else { serde_json::from_slice(&blocks).unwrap() }; 
 
     if args.force_fetch {
-        blocks.truncate(args.start - 1);
+        blocks.truncate(args.start as usize - 1);
     }
-    assert!(blocks.len() + 1 == args.start, "Invalid starting block number");
+    assert!(blocks.len() as u64 + 1 == args.start, "Invalid starting block number");
 
     for i in args.start..(args.start + args.batch_size) {
-        let (_, _, cl_block_number) = fetch_cosmos_validator_info(i).await;
+        let (_, _, cl_block_number) = fetch_cosmos_validator_info(i).await.unwrap();
         let (_, consensus_data_hash, consensus_txns) = fetch_cosmos_tx_data(cl_block_number).await.unwrap(); 
-        let evm_input = fetch_exection_layer_block(&args.execute_layer_rpc, i).await.unwrap(); 
-        println!("block_id {i}: {}", block.block_hash().to_string());
+        let evm_input = fetch_exection_layer_block(&args.execution_layer_rpc, i).await; 
         blocks.push(CiruitConsensusBlock {
             consensus_txns,
-            consessus_data_hash,
+            consensus_data_hash,
             evm_input,
         });
     }
-    let blocks= serde_json::to_vec(&blocks).unwrap();
-    std::fs::write(&args.blocks, blocks)
+    let block_bytes= serde_json::to_vec(&blocks).unwrap();
+    std::fs::write(&args.blocks, block_bytes).unwrap();
+    blocks.split_off(args.start as usize - 1)
 }
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok();
+    //dotenv::dotenv().ok();
     let args = Args::parse();
     println!("args: {:?}", args);
-    fetch_consensus_chain(&args).await;
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+    let blocks = fetch_consensus_chain(&args).await;
 
     // Initialize the proving client.
     let client = ProverClient::new();
 
     // Setup the proving and verifying keys.
-    let (commit_chain_proof_pk, commit_chain_proof_vk) = client.setup(CONSENSUS_CHAIN);
+    let (consensus_chain_proof_pk, consensus_chain_proof_vk) = client.setup(CONSENSUS_CHAIN);
 
-    let vk_hash = commit_chain_proof_vk.hash_u32();
+    let vk_hash = consensus_chain_proof_vk.hash_u32();
 
-    let cb = std::fs::read(&args.commits).unwrap();
-    let commits: Vec<CircuitCommit> = serde_json::from_slice(&cb).unwrap();
     // Set the previous proof type based on input_proof argument
     let prev_receipt = if args.init_input {
         None
@@ -133,30 +139,30 @@ async fn main() {
         Some(mut receipt) => {
             let prev_output = receipt.public_values.read();
             let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
-            (CommitChainPrevProofType::PrevProof(prev_output), pv_hash)
+            (ConsensusChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
-        None => (CommitChainPrevProofType::GenesisBlock, [0u8; 32]),
+        None => (ConsensusChainPrevProofType::GenesisBlock, [0u8; 32]),
     };
 
-    let input: CommitChainCircuitInput =
-        CommitChainCircuitInput { vk_hash, pv_hash, prev_proof, commits };
+    let input: ConsensusChainCircuitInput =
+        ConsensusChainCircuitInput { vk_hash, pv_hash, prev_proof, blocks };
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
         stdin.write(&input);
         if let Some(proof) = prev_receipt {
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
-            stdin.write_proof(*compressed_proof, commit_chain_proof_vk.vk.clone());
+            stdin.write_proof(*compressed_proof, consensus_chain_proof_vk.vk.clone());
         } else {
-            println!("Skip writing proof for genesis commit");
+            println!("Skip writing proof for genesis evm block");
         }
-        client.prove(&commit_chain_proof_pk, stdin).compressed().run().expect("proving failed")
+        client.prove(&consensus_chain_proof_pk, stdin).compressed().run().expect("proving failed")
     });
 
     fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
     fs::write(
         &format!("{}.vk", args.output_proof),
-        bincode::serialize(&commit_chain_proof_vk).unwrap(),
+        bincode::serialize(&consensus_chain_proof_vk).unwrap(),
     )
     .unwrap();
     fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();

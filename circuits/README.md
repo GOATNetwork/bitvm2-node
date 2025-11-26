@@ -62,7 +62,8 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 ## Cosmos Chain
 
 ```
-cargo run --package consensus-chain-proof --bin consensus-chain-proof -r -- --init-input --start 1 --batch 10 --force-fetch
+RUST_LOG=info cargo run --package consensus-chain-proof --bin consensus-chain-proof -r -- --init-input --start 1 --batch-size 9 --force-fetch --output-proof data/consensus-chain/1-10.proof.bin --blocks data/consensus-chain/blocks.bin
+RUST_LOG=info cargo run --package consensus-chain-proof --bin consensus-chain-proof -r -- --start 10 --batch-size 10 --force-fetch --input-proof data/consensus-chain/1-10.proof.bin --output-proof data/consensus-chain/11-20.proof.bin --blocks data/consensus-chain/blocks.bin
 ```
 
 
