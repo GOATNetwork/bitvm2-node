@@ -48,6 +48,7 @@ use std::sync::Arc;
 ///       "median_fee": 15.5,
 ///       "fee_range": [5.0, 10.0, 15.0, 20.0, 30.0],
 ///       "total_fees": 0.5,
+///       "size":1.97,
 ///       "tx_count": 2500,
 ///       "timestamp": 1640995200
 ///     }
