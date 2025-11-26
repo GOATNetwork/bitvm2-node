@@ -18,6 +18,7 @@ pub struct BtcBlockDesc {
     pub median_fee: u64,
     pub fee_range: Vec<f64>,
     pub total_fees: u64,
+    pub size: u64,
     pub tx_count: u64,
     pub timestamp: u64,
 }
@@ -29,6 +30,7 @@ impl From<V1Block> for BtcBlockDesc {
             median_fee: value.extras.median_fee,
             fee_range: value.extras.fee_range,
             total_fees: value.extras.total_fees,
+            size: value.size,
             tx_count: value.tx_count,
             timestamp: value.timestamp,
         }
