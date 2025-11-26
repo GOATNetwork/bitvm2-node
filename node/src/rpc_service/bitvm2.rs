@@ -111,6 +111,7 @@ impl InstanceExtended {
             &utxo,
         )
         .await?;
+        instance.status = instance.convert_to_display_status();
         Ok(Self {
             waiting_time_in_secs: get_instance_waiting_time_in_secs(
                 instance.is_bridge_in,
