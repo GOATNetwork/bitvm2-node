@@ -212,7 +212,7 @@ pub enum InstanceBridgeInStatus {
     Verified,   // CommitteesAnswered
     Submitted,  // UserBroadcastPeginPrepare
     Failed,     // PresignedFailed, RelayerL2MintedFailed, NoEnoughCommitteesAnswered
-    Processing, // RelayerL1Broadcasted
+    Processing, // Presigned, RelayerL1Broadcasted
     Success,    // RelayerL2Minted
     Canceled,   // UserCanceled
 }

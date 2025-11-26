@@ -111,7 +111,6 @@ impl InstanceExtended {
             &utxo,
         )
         .await?;
-        instance.status = instance.convert_to_display_status();
         Ok(Self {
             waiting_time_in_secs: get_instance_waiting_time_in_secs(
                 instance.is_bridge_in,
@@ -217,7 +216,9 @@ async fn get_instance_block_confirm_progress(
 
 fn get_bridge_in_status_time_window_secs(status: &str) -> i64 {
     match InstanceBridgeInStatus::from_str(status) {
-        Ok(InstanceBridgeInStatus::UserInited) => 120,
+        Ok(InstanceBridgeInStatus::Initiated) => 120,
+        Ok(InstanceBridgeInStatus::Submitted) => 3600 * 24,
+        Ok(InstanceBridgeInStatus::Processing) => 3600 * 3,
         Ok(_) | Err(_) => 0,
     }
 }
@@ -518,6 +519,7 @@ impl DisplayStatusConvert for Instance {
             Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => {
                 InstanceBridgeInStatus::Submitted.to_string()
             }
+            Ok(InstanceBridgeInStatus::Presigned) => InstanceBridgeInStatus::Processing.to_string(),
             Ok(InstanceBridgeInStatus::RelayerL1Broadcasted) => {
                 InstanceBridgeInStatus::Processing.to_string()
             }
@@ -548,7 +550,10 @@ impl DisplayStatusConvert for Instance {
                 vec![InstanceBridgeInStatus::UserBroadcastPeginPrepare.to_string()]
             }
             Ok(InstanceBridgeInStatus::Processing) => {
-                vec![InstanceBridgeInStatus::RelayerL1Broadcasted.to_string()]
+                vec![
+                    InstanceBridgeInStatus::RelayerL1Broadcasted.to_string(),
+                    InstanceBridgeInStatus::Presigned.to_string(),
+                ]
             }
             Ok(InstanceBridgeInStatus::Success) => {
                 vec![InstanceBridgeInStatus::RelayerL2Minted.to_string()]
