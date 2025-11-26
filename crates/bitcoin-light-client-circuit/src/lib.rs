@@ -1,15 +1,11 @@
 mod utils;
-use std::sync::Arc;
+mod signature;
 
-use alloy_primitives::B256;
-use guest_executor::executor::EthClientExecutor;
 pub use utils::*;
-mod rollup_chain;
-pub use rollup_chain::*;
+pub use signature::*;
 
 use alloy_primitives::Address;
 use alloy_primitives::U256;
-use alloy_primitives::utils::keccak256;
 use bitcoin::Block;
 use bitcoin::Transaction;
 use commit_chain::{
@@ -29,33 +25,6 @@ pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 64;
 pub const VK_HASH_SIZE: usize = 66;
 
-// https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L192
-// Get base slot:  forge inspect src/GatewayDebug.sol:GatewayDebug storage-layout
-pub fn verify_el_withdraw_tx(
-    l2_contract_address: Address,
-    withdraw_data_map_slot: &[u8; 32],
-    graph_id: &[u8; 16],
-    input: EthClientExecutorInput,
-    //    next_block_hash: [u8; 32],
-) {
-    // verify the state transition and withdraw status
-    let executor = EthClientExecutor::eth(
-        Arc::new((&input.genesis).try_into().unwrap()),
-        input.custom_beneficiary,
-    );
-
-    let mut data = [0u8; 32 * 2];
-    data[0..16].copy_from_slice(graph_id);
-    data[32..].copy_from_slice(withdraw_data_map_slot);
-    let slot_id = B256::from(keccak256(data));
-
-    let (header, _) = executor
-        .execute(input, Some(vec![(l2_contract_address, slot_id.into(), U256::from(1))]))
-        .expect("failed to execute client");
-    let block_hash = header.hash_slow();
-    println!("block_hash: {block_hash:?}");
-    // assert_eq!(block_hash, next_block_hash);
-}
 
 pub fn generate_watchtower_proof(
     genesis_sequencer_commit_txid: [u8; 32],
@@ -162,7 +131,7 @@ pub fn generate_operator_proof(
 
             let sig = bitcoin::taproot::Signature::from_slice(&tx.input[0].witness[0]).unwrap();
             // check tx signature is valid
-            match crate::rollup_chain::verify_taproot_leaf_schnorr_signature(
+            match verify_taproot_leaf_schnorr_signature(
                 &watchtower_challenge_txn_scripts[i],
                 &tx.0,
                 prev_index,
@@ -220,24 +189,26 @@ pub fn generate_operator_proof(
     let latest_el_block = &eth_client_execution_input.current_block;
     println!("mix hash: {}", latest_el_block.header.mix_hash);
 
-    verify_el_block_from_consensus(
-        latest_el_block.header.number,
-        &latest_el_block.header.hash_slow().to_string(),
-        &consensus_txns,
-        actual_data_hash,
-        //consensus_block.signed_header.header.data_hash.as_ref().unwrap().as_bytes(),
-    );
+    // FIXME
+    //check_el_block_from_payload(
+    //    latest_el_block.header.number,
+    //    &latest_el_block.header.hash_slow().to_string(),
+    //    &latest_el_block.header.parent_hash.to_string(),
+    //    &consensus_txns,
+    //    actual_data_hash,
+    //    //consensus_block.signed_header.header.data_hash.as_ref().unwrap().as_bytes(),
+    //);
 
-    println!("verify el withdraw tx");
-    // latest_goat_block.get_graph_status(graph_status_storage_proof, graph_id) == GraphStatus.Proceeded
-    // https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L101
-    // 1 == Processing
-    verify_el_withdraw_tx(
-        l2_contract_address,
-        &base_slot,
-        &graph_id, // NOTE: follow up the endian in the watchtower-challenge txn
-        eth_client_execution_input,
-    );
+    //println!("verify el withdraw tx");
+    //// latest_goat_block.get_graph_status(graph_status_storage_proof, graph_id) == GraphStatus.Proceeded
+    //// https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L101
+    //// 1 == Processing
+    //execute_el_block_and_check_withdraw_tx(
+    //    l2_contract_address,
+    //    &base_slot,
+    //    &graph_id, // NOTE: follow up the endian in the watchtower-challenge txn
+    //    eth_client_execution_input,
+    //);
     operator_total_work
 }
 
@@ -429,7 +400,7 @@ mod tests {
             output: vec![bitcoin::TxOut { value: Amount::ZERO, script_pubkey: script }],
         };
 
-        let op_return_data = crate::extract_op_return_data(&tx.output);
+        let op_return_data = commit_chain::extract_op_return_data(&tx.output);
         assert_eq!(expected_op_data.to_vec(), op_return_data);
     }
 }

@@ -23,7 +23,7 @@ docker compose up -d
 bash cron-header-chain-proof.sh $start $batch
 ```
 
-## Cosmos Commit Chain
+## Sequencer Set Commit Chain
 
 Prepare the `commit_info.json`, the input data is formated as below.
 
@@ -58,6 +58,14 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 
 RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof2.bin" --output-proof "data/commit-chain/commit-proof3.bin" --commit-info ../node/tests_data/commit_info3.json --commits data/commit-chain/commits.bin
 ```
+
+## Cosmos Chain
+
+```
+cargo run --package consensus-chain-proof --bin consensus-chain-proof -r -- --init-input --start 1 --batch 10 --force-fetch
+```
+
+
 
 ## Watchtower proof
 

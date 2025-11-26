@@ -32,7 +32,7 @@ use client::goat_chain::GoatInitConfig;
 use dotenv::dotenv;
 use tracing_subscriber::EnvFilter;
 
-use commit_chain_rpc::fetch_cosmos_validator_info;
+use cbft_rpc::fetch_cosmos_validator_info;
 
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};

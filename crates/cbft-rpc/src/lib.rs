@@ -1,10 +1,12 @@
-use bitcoin_light_client_circuit::{Header, parse_cosmos_payload};
+use bitcoin_light_client_circuit::Header;
+use consensus_chain::{parse_cosmos_payload};
 use serde_json::Value;
 
 fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn std::error::Error>> {
     let block_data_json: Value = serde_json::from_str(block_data)?;
     let block = block_data_json.get("result").and_then(|result| result.get("block"));
 
+    println!("blocks: {block:?}");
     let header = block.and_then(|block| block.get("header")).ok_or("Unable to extract header")?;
     let header: Header = serde_json::from_value(header.clone())?;
 
@@ -12,7 +14,10 @@ fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn s
     let txs = block
         .and_then(|block| block.get("data"))
         .and_then(|data| data.get("txs"))
-        .and_then(|txs| txs.as_array())
+        .and_then(|txs| { 
+            println!("txs: {txs:?}");
+            txs.as_array() 
+        })
         .ok_or("Unable to extract txs array")?;
 
     // Decode each base64-encoded transaction
@@ -32,14 +37,14 @@ pub async fn fetch_cosmos_validator_info(
     // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
     // 1. fetch the latest cosmos block height
     // 2. binary search cosmos block height between goat block height and latest cosmos block height
-    // > 2.1. fetch the block info and parse the first transction: // curl "http://127.0.0.1:26657/block?height=5756784" | jq .result.block.data
-
+    // > 2.1. fetch the block info and parse the first transction: // curl "https://cosmos.testnet3.goat.network/block?height=5756784" | jq .result.block.data
     let mut block_height = goat_block_height;
     let mut sequencer_hash = None;
     let mut next_sequencer_hash = None;
 
     let mut max_retries = 100;
     while max_retries > 0 {
+        println!("block_height: {block_height}");
         let block_data = reqwest::get(format!("{cosmos_rpc_url}/block?height={block_height}"))
             .await?
             .text()
@@ -73,7 +78,7 @@ pub async fn fetch_cosmos_validator_info(
     Ok((sequencer_hash, next_sequencer_hash, block_height))
 }
 
-pub async fn fetch_commit_chain_proof_input(
+pub async fn fetch_cosmos_tx_data(
     block_number: u64,
 ) -> Result<([u8; 32], [u8; 32], Vec<String>), Box<dyn std::error::Error>> {
     let cosmos_rpc_url = get_cosmos_rpc_url();
@@ -94,7 +99,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_cosmos_light_client() {
         let block_number = 10000;
-        let result = fetch_commit_chain_proof_input(block_number).await;
+        let result = fetch_cosmos_tx_data(block_number).await;
         assert!(result.is_ok());
     }
 }

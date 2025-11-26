@@ -2,7 +2,7 @@ use alloy_primitives::hex;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as b64;
 use core::time::Duration;
-use cosmos_sdk_proto::cosmos::tx::v1beta1::{TxBody, TxRaw};
+use cosmos_sdk_proto::{cosmos::tx::v1beta1::{TxBody, TxRaw, Tx}};
 use prost::Message;
 use sha2::{Digest, Sha256};
 pub use tendermint_light_client_verifier::{
@@ -23,66 +23,9 @@ use crate::proto::ExecutionPayload;
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.rs"));
+    include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.serde.rs"));
 }
 
-/// Generate Taproot script-path's Schnorr signature
-#[allow(dead_code)]
-fn generate_taproot_leaf_schnorr_signature(
-    tx: &mut Transaction,
-    prev_outs: &[TxOut],
-    input_index: usize,
-    sighash_type: TapSighashType,
-    script: &Script,
-    keypair: &Keypair,
-) -> TaprootSignature {
-    let leaf_hash = TapLeafHash::from_script(script, LeafVersion::TapScript);
-    let secp = Secp256k1::new();
-
-    let sighash = SighashCache::new(tx)
-        .taproot_script_spend_signature_hash(
-            input_index,
-            &Prevouts::All(prev_outs),
-            leaf_hash,
-            sighash_type,
-        )
-        .expect("Failed to construct sighash");
-
-    let msg = EcdsaMessage::from(sighash);
-    let sig = secp.sign_schnorr_no_aux_rand(&msg, keypair);
-
-    TaprootSignature { signature: sig, sighash_type }
-}
-
-/// Verify Schnorr signature
-///
-pub fn verify_taproot_leaf_schnorr_signature(
-    script: &ScriptBuf,
-    spending_tx: &Transaction,
-    prev_index: usize,
-    prev_out: &TxOut,
-    pubkey: &PublicKey,
-    sig: &TaprootSignature,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if sig.sighash_type != TapSighashType::AllPlusAnyoneCanPay {
-        return Err("Invalid sig type".into());
-    }
-    let secp = Secp256k1::verification_only();
-    let leaf_hash = TapLeafHash::from_script(script, LeafVersion::TapScript);
-    let internal_xonly: XOnlyPublicKey = (*pubkey).into();
-    let sighash = match SighashCache::new(spending_tx).taproot_script_spend_signature_hash(
-        0,
-        //&Prevouts::All(&[prev_out.clone()]),
-        &Prevouts::One(prev_index, prev_out.clone()),
-        leaf_hash,
-        TapSighashType::AllPlusAnyoneCanPay,
-    ) {
-        Ok(sighash) => sighash,
-        _ => return Err("Invalid sig hash".into()),
-    };
-    let msg = EcdsaMessage::from(sighash);
-
-    Ok(secp.verify_schnorr(&sig.signature, &msg, &internal_xonly)?)
-}
 
 fn merkle_leaf_hash(leaf: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
@@ -196,42 +139,37 @@ pub fn verify_validator_set_hash(commitment: [u8; 32], block: LightBlock) {
     assert_eq!(commitment.to_vec(), expected_hash.to_vec());
 }
 
-// we can not move it to commit-chain-rpc since it'll get non-std involved.
+// we can not move it to cbft-rpc since it'll get non-std involved.
 pub fn parse_cosmos_payload(tx_b64: &str) -> Option<ExecutionPayload> {
     let txns_b64 = b64.decode(tx_b64).unwrap();
-    let tx = TxRaw::decode(&*txns_b64).unwrap();
-    let tx_body = TxBody::decode(&tx.body_bytes[..]).unwrap();
+    let tx = Tx::decode(&txns_b64[..]).unwrap();
 
     // check consistance of GOAT block hash
-    if !tx_body.messages.is_empty() {
+    if let Some(tx_body) = tx.body {
         let first_message = &tx_body.messages[0];
         // https://github.com/GOATNetwork/goat/blob/main/proto/goat/goat/v1/tx.proto#L25
         let type_url = first_message.type_url.as_str();
         assert_eq!(type_url, "/goat.goat.v1.MsgNewEthBlock");
         let payload = proto::MsgNewEthBlock::decode(&first_message.value[..]).unwrap();
         let payload = payload.payload.unwrap();
-        // check GOAT block hash and number
-        println!("hash: {}, {}", hex::encode(&payload.block_hash), &payload.block_number);
-        // FIXME: do the hash check
-        // assert_eq!(hex::encode(payload.block_hash), goat_block_hash);
+        println!("payload: {:?}", payload);
         return Some(payload);
     };
     None
 }
 
-pub fn verify_el_block_from_consensus(
-    goat_block_number: u64,
-    _goat_block_hash: &str,
+pub fn check_el_block_from_payload(
+    el_block_number: u64,
+    el_block_hash: &[u8; 32],
+    el_parent_block_hash: &[u8; 32],
     txs: &[String],
     actual_data_hash: [u8; 32],
 ) {
     if let Some(payload) = parse_cosmos_payload(&txs[0]) {
-        assert_eq!(payload.block_number, goat_block_number);
+        assert_eq!(payload.block_number, el_block_number);
+        assert_eq!(payload.block_hash, el_block_hash);
+        assert_eq!(payload.parent_hash, el_parent_block_hash);
     }
-
-    // check data hash
-    //let excepted_data_hash = light_block.signed_header.header.data_hash.unwrap();
-    //println!("excepted data hash: {:?}", excepted_data_hash);
 
     let computed_data_hash = merkle_root_from_base64_txns(txs);
     println!("data hash: {:?}", hex::encode(computed_data_hash));
@@ -242,18 +180,6 @@ pub fn verify_el_block_from_consensus(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use bitcoin::{
-        Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
-        blockdata::script::Builder,
-        consensus::encode::serialize,
-        key::Keypair,
-        secp256k1::{Secp256k1, XOnlyPublicKey},
-        sighash::TapSighashType,
-        taproot::{LeafVersion, TaprootBuilder},
-    };
-    use bitcoin::{ScriptBuf, hashes::Hash};
-    use rand::rngs::OsRng;
 
     pub const LB_1_JSON: &str = include_str!("../samples/light_block_5756784.json");
     pub const LB_2_JSON: &str = include_str!("../samples/light_block_5756785.json");
@@ -276,14 +202,16 @@ mod tests {
 
     #[test]
     pub fn test_verify_goat_block() {
+        // https://explorer.goat.network/block/5756298
         // curl "http://127.0.0.1:26657/block?height=5756784" | jq .result.block.data
         let consensus_txns: Vec<String> = serde_json::from_str(&LB_1_JSON_TXNS).unwrap();
         // loght block 5756784
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
 
-        verify_el_block_from_consensus(
+        check_el_block_from_payload(
             5756298,
-            "f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a",
+            &hex::decode("f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a").unwrap().try_into().unwrap(),
+            &hex::decode("fa13fd897dd9d9dbbdbf8e5d8d77c3411ed7dbbe7e1288686eed2ffd8ec99a91").unwrap().try_into().unwrap(),
             &consensus_txns,
             light_block_1.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
@@ -291,89 +219,14 @@ mod tests {
         //
         let light_block_2 = serde_json::from_str::<LightBlock>(LB_2_JSON).unwrap();
         // curl "http://127.0.0.1:26657/block?height=5756785" | jq .result.block.data
+        // https://explorer.goat.network/block/5756299
         let consensus_txns: Vec<String> = serde_json::from_str(&LB_2_JSON_TXNS).unwrap();
-        verify_el_block_from_consensus(
+        check_el_block_from_payload(
             5756299,
-            "56473094ffd5bc070446fdbaaf2b443b9beffb82dded0e053eb6b25c7d60be0b",
+            &hex::decode("56473094ffd5bc070446fdbaaf2b443b9beffb82dded0e053eb6b25c7d60be0b").unwrap().try_into().unwrap(),
+            &hex::decode("f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a").unwrap().try_into().unwrap(),
             &consensus_txns,
             light_block_2.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
-    }
-
-    #[test]
-    fn test_taproot_script_path_end_to_end_with_verification() {
-        let secp = Secp256k1::new();
-        let keypair = Keypair::new(&secp, &mut OsRng);
-        let (internal_xonly, _) = XOnlyPublicKey::from_keypair(&keypair);
-
-        // 2. Create Tapscript: <pubkey> OP_CHECKSIG
-        let script = Builder::new()
-            .push_x_only_key(&internal_xonly)
-            .push_opcode(bitcoin::blockdata::opcodes::all::OP_CHECKSIG)
-            .into_script();
-
-        // 3. Construct Taproot (script path)
-        let builder = TaprootBuilder::new().add_leaf(0, script.clone()).expect("taproot builder");
-        let taproot_info = builder.finalize(&secp, internal_xonly).expect("finalize taproot");
-        let output_key = taproot_info.output_key();
-
-        // 4. Construct prevout (UTXO)
-        let prev_txid = Txid::from_byte_array([1u8; 32]); // fake txid
-        let prev_vout = 0;
-        let prev_value = Amount::from_sat(50_000);
-
-        let prev_out = TxOut {
-            value: prev_value,
-            script_pubkey: bitcoin::Address::p2tr_tweaked(output_key, bitcoin::Network::Testnet)
-                .script_pubkey(),
-        };
-
-        // 5. Create the spending txn
-        let mut spending_tx = Transaction {
-            version: bitcoin::transaction::Version::TWO,
-            lock_time: bitcoin::absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                previous_output: OutPoint { txid: prev_txid, vout: prev_vout },
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::MAX,
-                witness: Witness::new(),
-            }],
-            output: vec![TxOut {
-                value: Amount::from_sat(49_000),
-                script_pubkey: ScriptBuf::new_op_return(&[0x6a]),
-            }],
-        };
-
-        // 6. Generate Schnorr signature
-        let sig = generate_taproot_leaf_schnorr_signature(
-            &mut spending_tx,
-            &[prev_out.clone()],
-            0,
-            TapSighashType::AllPlusAnyoneCanPay,
-            &script,
-            &keypair,
-        );
-
-        // 7. Verify the signature
-        verify_taproot_leaf_schnorr_signature(
-            &script,
-            &spending_tx,
-            0,
-            &prev_out,
-            &keypair.public_key(),
-            &sig,
-        )
-        .unwrap();
-        println!("Schnorr signature verified successfully!");
-
-        // 8. Construct control block + witness
-        let control_block = taproot_info
-            .control_block(&(script.clone(), LeafVersion::TapScript))
-            .expect("control block");
-
-        spending_tx.input[0].witness =
-            Witness::from(vec![sig.to_vec(), script.into_bytes(), control_block.serialize()]);
-
-        println!("Final spending tx hex = {}", hex::encode(serialize(&spending_tx)));
     }
 }

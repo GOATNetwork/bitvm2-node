@@ -7,12 +7,13 @@ use bitcoin::{
     hashes::Hash,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
-use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv, verify_el_withdraw_tx};
+use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv};
+use consensus_chain::execute_el_block_and_check_withdraw_tx;
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
-use commit_chain_rpc::fetch_cosmos_validator_info;
+use cbft_rpc::fetch_cosmos_validator_info;
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -141,7 +142,7 @@ async fn main() {
     let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
 
     let input = fetch_exection_layer_block(&args).await;
-    verify_el_withdraw_tx(l2_contract_address, &base_slot, &args.graph_id, input);
+    execute_el_block_and_check_withdraw_tx(Some(l2_contract_address), Some(base_slot), Some(args.graph_id), input);
 
     // Initialize the proving client.
     let client = ProverClient::new();
@@ -270,7 +271,7 @@ async fn main() {
     let (sequencer_set_hash, _, consensus_layer_block_number) =
         fetch_cosmos_validator_info(args.execution_layer_block_number).await.unwrap();
     let (actual_sequencer_set_hash, actual_data_hash, txns) =
-        commit_chain_rpc::fetch_commit_chain_proof_input(consensus_layer_block_number)
+        cbft_rpc::fetch_cosmos_tx_data(consensus_layer_block_number)
             .await
             .unwrap();
     assert_eq!(sequencer_set_hash.unwrap(), actual_sequencer_set_hash);

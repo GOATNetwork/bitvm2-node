@@ -11,11 +11,12 @@ members = [
     "crates/client",
     "crates/header-chain",
     "crates/commit-chain",
+    "crates/consensus-chain",
     "crates/bitcoin-light-client-circuit",
     "circuits/header-chain-proof/host",
     "circuits/commit-chain-proof/host",
     "circuits/watchtower-proof/host",
-    "circuits/operator-proof/host", "crates/commit-chain-rpc", "circuits/services",
+    "circuits/operator-proof/host", "crates/cbft-rpc", "circuits/services", "circuits/consensus-chain-proof/host",
 ]
 default-members = ["node"]
 
@@ -87,7 +88,8 @@ client = { path = "crates/client" }
 bitcoin-light-client-circuit = { path = "crates/bitcoin-light-client-circuit" }
 header-chain = { path = "crates/header-chain" }
 commit-chain = { path = "crates/commit-chain" }
-commit-chain-rpc = { path = "crates/commit-chain-rpc" }
+cbft-rpc = { path = "crates/cbft-rpc" }
+consensus-chain = { path = "crates/consensus-chain" }
 
 chrono = "0.4.39"
 tracing = { version = "0.1.40", default-features = false }
