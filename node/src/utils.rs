@@ -550,7 +550,7 @@ pub(crate) async fn refresh_graph(
         let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
         if tx_on_chain(btc_client, &watchtower_challenge_init_txid).await? {
             sub_status.watchtower_challenge_status = WatchtowerChallengeStatus::OperatorInit;
-            sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorInit;
+            sub_status.commit_blockhash_status = CommitBlockHashStatus::None; // set None
             let watchtower_num = graph.parameters.watchtower_pubkeys.len();
             let connector_g_vout = watchtower_num * 2;
             let connector_f_vout = watchtower_num * 2 + 1;

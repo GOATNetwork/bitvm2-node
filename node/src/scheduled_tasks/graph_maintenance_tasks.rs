@@ -79,14 +79,14 @@ enum OperatorWithdrawType {
     Take2,
 }
 
-/// Watchtower init tx vout item status
+/// Watchtower init tx vout item status watchtower processed
 #[derive(
     Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString,
 )]
 pub enum CommitBlockHashStatus {
     #[default]
     None,
-    OperatorInit,
+    WatchtowerChallengeProcessed,
     OperatorCommit,
     OperatorCommitTimeout,
 }
@@ -308,6 +308,27 @@ impl WTInitTxVoutMonitorData {
     pub fn is_challenged(&self) -> bool {
         !self.require_disproved_indexes.is_empty()
             || self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommitTimeout
+    }
+
+    pub fn check_finished_in_time(&self) -> bool {
+        self.data_map.values().all(|status| {
+            matches!(
+                status,
+                WatchtowerChallengeItemStatus::OperatorACK
+                    | WatchtowerChallengeItemStatus::ChallengeTimeout
+            )
+        })
+    }
+
+    pub fn is_commit_blockhash_ready(&self) -> bool {
+        self.data_map.values().all(|status| {
+            matches!(
+                status,
+                WatchtowerChallengeItemStatus::OperatorACK
+                    | WatchtowerChallengeItemStatus::ChallengeTimeout
+                    | WatchtowerChallengeItemStatus::Challenge
+            )
+        })
     }
 }
 
@@ -1058,7 +1079,8 @@ async fn process_watchtower_challenge_monitoring(
         );
 
         if !is_blockhash_commit_timeout
-            && vout_monitor_data.commit_blockhash_status == CommitBlockHashStatus::OperatorInit
+            && vout_monitor_data.commit_blockhash_status
+                == CommitBlockHashStatus::WatchtowerChallengeProcessed
         {
             if let Some(spend_txid) = outpoint_spent_txid(
                 btc_client,
@@ -1148,21 +1170,6 @@ async fn process_watchtower_challenge_monitoring(
                 )
                 .await?;
 
-            if !challenge_timeout_txids.is_empty() {
-                data_change = true;
-                if vout_monitor_data
-                    .data_map
-                    .values()
-                    .all(|status| matches!(status, WatchtowerChallengeItemStatus::ChallengeTimeout))
-                {
-                    is_commit_block_hash_ready = true;
-                    sub_status.watchtower_challenge_status =
-                        WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
-                    vout_monitor_data.is_complete_in_time = true;
-                    vout_monitor_data.commit_blockhash_status = CommitBlockHashStatus::OperatorInit;
-                }
-            }
-
             if !challenge_txids.is_empty() {
                 data_change = true;
                 //  contain the situations:
@@ -1183,11 +1190,9 @@ async fn process_watchtower_challenge_monitoring(
                         "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::Challenge",
                         graph.graph_id
                     );
-                    is_commit_block_hash_ready = true;
                     // all in challenge
                     sub_status.watchtower_challenge_status =
                         WatchtowerChallengeStatus::WatchtowerChallenge;
-                    vout_monitor_data.commit_blockhash_status = CommitBlockHashStatus::OperatorInit;
                 }
                 p2p_message_contents.push((
                     Actor::Operator,
@@ -1200,19 +1205,26 @@ async fn process_watchtower_challenge_monitoring(
                 ));
             }
 
-            if !ack_txids.is_empty() {
+            if !ack_txids.is_empty() || !challenge_timeout_txids.is_empty() {
                 data_change = true;
-                if vout_monitor_data.data_map.values().all(|status| {
-                    matches!(
-                        status,
-                        WatchtowerChallengeItemStatus::OperatorACK
-                            | WatchtowerChallengeItemStatus::ChallengeTimeout
-                    )
-                }) {
-                    sub_status.watchtower_challenge_status =
-                        WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
-                    vout_monitor_data.is_complete_in_time = true;
-                }
+            }
+
+            if vout_monitor_data.commit_blockhash_status == CommitBlockHashStatus::None
+                && vout_monitor_data.is_commit_blockhash_ready()
+            {
+                data_change = true;
+                sub_status.commit_blockhash_status =
+                    CommitBlockHashStatus::WatchtowerChallengeProcessed;
+                vout_monitor_data.commit_blockhash_status =
+                    CommitBlockHashStatus::WatchtowerChallengeProcessed;
+                is_commit_block_hash_ready = true;
+            }
+
+            if vout_monitor_data.check_finished_in_time() {
+                data_change = true;
+                sub_status.watchtower_challenge_status =
+                    WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
+                vout_monitor_data.is_complete_in_time = true;
             }
         } else {
             info!(

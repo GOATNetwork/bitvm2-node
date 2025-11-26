@@ -54,7 +54,7 @@ use std::sync::Arc;
 ///       "size": 1500000,
 ///       "tx_count": 2500,
 ///       "timestamp": 1640995200,
-///       "proof_status": "pending"
+///       "proof_status": "Pending"
 ///     }
 ///   ]
 /// }
