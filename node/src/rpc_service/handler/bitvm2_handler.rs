@@ -866,7 +866,7 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
             } else {
                 progress_datas.push(ProgressData {
                     name: ASSERT_STEP_INIT.to_string(),
-                    current: 1,
+                    current: 0,
                     total: 1,
                 });
             }
