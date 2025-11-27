@@ -2,21 +2,13 @@ use alloy_primitives::hex;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as b64;
 use core::time::Duration;
-use cosmos_sdk_proto::{cosmos::tx::v1beta1::{TxBody, TxRaw, Tx}};
+use cosmos_sdk_proto::cosmos::tx::v1beta1::Tx;
 use prost::Message;
 use sha2::{Digest, Sha256};
 pub use tendermint_light_client_verifier::{
     ProdVerifier, Verdict, Verifier,
     options::Options,
-    types::{Header, LightBlock, ValidatorSet},
-};
-
-use bitcoin::{
-    Script, ScriptBuf, Transaction, TxOut,
-    key::Keypair,
-    secp256k1::{Message as EcdsaMessage, PublicKey, Secp256k1, XOnlyPublicKey},
-    sighash::{Prevouts, SighashCache, TapSighashType},
-    taproot::{LeafVersion, Signature as TaprootSignature, TapLeafHash},
+    types::{Header, LightBlock},
 };
 
 use crate::proto::ExecutionPayload;
@@ -25,7 +17,6 @@ pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.rs"));
     include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.serde.rs"));
 }
-
 
 fn merkle_leaf_hash(leaf: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
@@ -204,15 +195,21 @@ mod tests {
     pub fn test_verify_goat_block() {
         // https://explorer.goat.network/block/5756298
         // curl "http://127.0.0.1:26657/block?height=5756784" | jq .result.block.data
-        let consensus_txns: Vec<String> = serde_json::from_str(&LB_1_JSON_TXNS).unwrap();
+        let state_txns: Vec<String> = serde_json::from_str(&LB_1_JSON_TXNS).unwrap();
         // loght block 5756784
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
 
         check_el_block_from_payload(
             5756298,
-            &hex::decode("f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a").unwrap().try_into().unwrap(),
-            &hex::decode("fa13fd897dd9d9dbbdbf8e5d8d77c3411ed7dbbe7e1288686eed2ffd8ec99a91").unwrap().try_into().unwrap(),
-            &consensus_txns,
+            &hex::decode("f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            &hex::decode("fa13fd897dd9d9dbbdbf8e5d8d77c3411ed7dbbe7e1288686eed2ffd8ec99a91")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            &state_txns,
             light_block_1.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
 
@@ -220,12 +217,18 @@ mod tests {
         let light_block_2 = serde_json::from_str::<LightBlock>(LB_2_JSON).unwrap();
         // curl "http://127.0.0.1:26657/block?height=5756785" | jq .result.block.data
         // https://explorer.goat.network/block/5756299
-        let consensus_txns: Vec<String> = serde_json::from_str(&LB_2_JSON_TXNS).unwrap();
+        let state_txns: Vec<String> = serde_json::from_str(&LB_2_JSON_TXNS).unwrap();
         check_el_block_from_payload(
             5756299,
-            &hex::decode("56473094ffd5bc070446fdbaaf2b443b9beffb82dded0e053eb6b25c7d60be0b").unwrap().try_into().unwrap(),
-            &hex::decode("f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a").unwrap().try_into().unwrap(),
-            &consensus_txns,
+            &hex::decode("56473094ffd5bc070446fdbaaf2b443b9beffb82dded0e053eb6b25c7d60be0b")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            &hex::decode("f51b3d69d25631e34b91c0f043bd30deb00c25eb63b4d45a1433fbcb3e9c494a")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            &state_txns,
             light_block_2.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
     }

@@ -10,6 +10,7 @@ use zkm_sdk::{
 use bitcoin::{Network, Txid, hashes::Hash};
 use bitcoin_light_client_circuit::build_spv;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
+use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
 
 /// A program that aggregates the proofs of the simple program.
@@ -30,11 +31,17 @@ pub struct Args {
     #[clap(long, env)]
     latest_sequencer_commit_txid: String,
 
+    #[clap(long, env)]
+    latest_state_block_hash: String,
+
     #[clap(long, env, short)]
     header_chain_input_proof: String,
 
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
+
+    #[clap(long, env, short)]
+    state_chain_input_proof: String,
 
     #[clap(long, env)]
     output: String,
@@ -90,6 +97,35 @@ async fn main() {
     let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
     //assert_eq!(commit_chain_output.vk_hash, commit_chain_vk.hash_u32());
 
+    // --- state chain --- //
+    let bytes = std::fs::read(&format!("{}.in", args.state_chain_input_proof)).unwrap();
+    let mut state_chain_input: StateChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+
+    // Set the previous proof type based on input_proof argument
+    let proof_bytes =
+        fs::read(&args.state_chain_input_proof).expect("Failed to read input proof file");
+    let proof: ZKMProofWithPublicValues =
+        bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+
+    state_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();
+    let ZKMProof::Compressed(state_compressed_proof) = proof.proof else { panic!() };
+    let bytes = std::fs::read(&format!("{}.vk", args.state_chain_input_proof)).unwrap();
+    let state_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
+    let latest_state_block_hash: [u8; 32] =
+        hex::decode(args.latest_state_block_hash).unwrap().try_into().unwrap();
+
+    let expected_state_block_hash: [u8; 32] = state_chain_input
+        .blocks
+        .last()
+        .unwrap()
+        .evm_input
+        .current_block
+        .header
+        .hash_slow()
+        .try_into()
+        .unwrap();
+    assert_eq!(latest_state_block_hash, expected_state_block_hash);
+
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
@@ -122,8 +158,10 @@ async fn main() {
         let mut stdin = ZKMStdin::new();
         stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
         stdin.write(&latest_sequencer_commit_txid.to_byte_array());
+        stdin.write(&latest_state_block_hash);
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
+        stdin.write(&state_chain_input);
         stdin.write(&spv);
 
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
@@ -136,6 +174,12 @@ async fn main() {
             stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
         } else {
             println!("skip writing header chain proof");
+        }
+
+        if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
+            stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
+        } else {
+            println!("skip writing consensus chain proof");
         }
 
         client.prove(&watchtower_proof_pk, stdin).groth16().run().expect("proving failed")

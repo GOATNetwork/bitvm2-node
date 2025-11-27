@@ -1,6 +1,6 @@
 use bitcoin_light_client_circuit::Header;
-use consensus_chain::{parse_cosmos_payload};
 use serde_json::Value;
+use state_chain::parse_cosmos_payload;
 
 fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn std::error::Error>> {
     let block_data_json: Value = serde_json::from_str(block_data)?;
@@ -14,9 +14,9 @@ fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn s
     let txs = block
         .and_then(|block| block.get("data"))
         .and_then(|data| data.get("txs"))
-        .and_then(|txs| { 
+        .and_then(|txs| {
             println!("txs: {txs:?}");
-            txs.as_array() 
+            txs.as_array()
         })
         .ok_or("Unable to extract txs array")?;
 

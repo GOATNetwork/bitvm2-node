@@ -10,7 +10,7 @@ hex = { workspace = true }
 base64 = { workspace = true }
 
 bitcoin-light-client-circuit = { workspace = true }
-consensus-chain = { workspace = true }
+state-chain = { workspace = true }
 
 
 [dev-dependencies]

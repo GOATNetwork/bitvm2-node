@@ -1,8 +1,7 @@
-use std::path::PathBuf;
 use std::env;
+use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("proto");
     let proto_files = vec![root.join("tx.proto")];
 
@@ -11,9 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed={}", proto_file.display());
     }
 
-    let descriptor_path = PathBuf::from(env::var("OUT_DIR").unwrap())
-        .join("proto_descriptor.bin");
-
+    let descriptor_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("proto_descriptor.bin");
 
     prost_build::Config::new()
         // Save descriptors to file
@@ -23,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".google.protobuf", "::pbjson_types")
         // Generate prost structs
         .compile_protos(&proto_files, &[root])?;
-    
+
     let descriptor_set = std::fs::read(descriptor_path)?;
     pbjson_build::Builder::new()
         .register_descriptors(&descriptor_set)?

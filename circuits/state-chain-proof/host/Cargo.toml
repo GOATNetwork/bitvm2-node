@@ -1,5 +1,5 @@
 [package]
-name = "consensus-chain-proof"
+name = "state-chain-proof"
 version.workspace = true
 edition.workspace = true
 
@@ -25,7 +25,7 @@ lazy_static = "1.5.0"
 serde_json.workspace = true
 
 borsh = { workspace = true }
-consensus-chain = { workspace = true }
+state-chain = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 primitives.workspace = true
 reth-chainspec.workspace = true
@@ -33,6 +33,7 @@ rpc-db.workspace = true
 url.workspace = true
 host-executor.workspace = true
 alloy-provider.workspace = true
+alloy-primitives.workspace = true
 cbft-rpc.workspace = true
 
 # Ziren

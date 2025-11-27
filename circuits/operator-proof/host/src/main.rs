@@ -1,30 +1,23 @@
 //! Generate operator proof
-use alloy_primitives::{Address, U256};
-use alloy_provider::{RootProvider, network::Ethereum};
+use alloy_primitives::U256;
 use ark_serialize::CanonicalSerialize;
 use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
     hashes::Hash,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
-use bitcoin_light_client_circuit::{EthClientExecutorInput, build_spv};
-use consensus_chain::execute_el_block_and_check_withdraw_tx;
+use bitcoin_light_client_circuit::build_spv;
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
+use cbft_rpc::fetch_cosmos_validator_info;
 use client::btc_chain::BTCClient;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
-use cbft_rpc::fetch_cosmos_validator_info;
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use hex::FromHex;
-use host_executor::EthHostExecutor;
-use primitives::genesis::Genesis;
-use reth_chainspec::ChainSpec;
-use rpc_db::RpcDb;
+use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
-use std::sync::Arc;
-use url::Url;
 use zkm_sdk::{
     HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
@@ -36,6 +29,7 @@ const OPERATOR: &[u8] = include_elf!("guest");
 use clap::Parser;
 use std::fs;
 
+/*
 // https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
 async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
     // Setup the provider.
@@ -65,6 +59,7 @@ async fn fetch_exection_layer_block(args: &Args) -> EthClientExecutorInput {
         .expect("failed to execute host");
     client_input
 }
+*/
 
 pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
     let mut s = s;
@@ -99,6 +94,9 @@ pub struct Args {
     #[clap(long, env, short)]
     commit_chain_input_proof: String,
 
+    #[clap(long, env, short)]
+    state_chain_input_proof: String,
+
     #[clap(long, env, short, default_value = "https://rpc.testnet3.goat.network")]
     execution_layer_rpc: String,
 
@@ -117,9 +115,8 @@ pub struct Args {
 
     #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
     block_headers: String,
-
-    #[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
-    l2_contract_address: String,
+    //#[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
+    //l2_contract_address: String,
 }
 
 #[tokio::main]
@@ -132,17 +129,17 @@ async fn main() {
     //let out = fetch_exection_layer_block(&args).await;
     //println!("output: {:?}", out);
 
-    let addr = if args.l2_contract_address.starts_with("0x") {
-        args.l2_contract_address[2..].to_string()
-    } else {
-        args.l2_contract_address.clone()
-    };
-    let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
-    let l2_contract_address = Address::from(bytes);
-    let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
+    //let addr = if args.l2_contract_address.starts_with("0x") {
+    //    args.l2_contract_address[2..].to_string()
+    //} else {
+    //    args.l2_contract_address.clone()
+    //};
+    //let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
+    //let l2_contract_address = Address::from(bytes);
+    //let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
 
-    let input = fetch_exection_layer_block(&args).await;
-    execute_el_block_and_check_withdraw_tx(Some(l2_contract_address), Some(base_slot), Some(args.graph_id), input);
+    //let input = fetch_exection_layer_block(&args).await;
+    //execute_el_block_and_check_withdraw_tx(Some(l2_contract_address), Some(base_slot), Some(args.graph_id), input);
 
     // Initialize the proving client.
     let client = ProverClient::new();
@@ -184,6 +181,34 @@ async fn main() {
     let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
     //assert_eq!(commit_chain_output.vk_hash, commit_chain_vk.hash_u32());
 
+    // --- state chain --- //
+    let bytes = std::fs::read(&format!("{}.in", args.state_chain_input_proof)).unwrap();
+    let mut state_chain_input: StateChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+
+    // Set the previous proof type based on input_proof argument
+    let proof_bytes =
+        fs::read(&args.state_chain_input_proof).expect("Failed to read input proof file");
+    let proof: ZKMProofWithPublicValues =
+        bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+
+    state_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();
+    let ZKMProof::Compressed(state_compressed_proof) = proof.proof else { panic!() };
+    let bytes = std::fs::read(&format!("{}.vk", args.state_chain_input_proof)).unwrap();
+    let state_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
+
+    //let latest_state_block_hash: [u8; 32] = hex::decode(args.latest_state_block_hash).unwrap().try_into().unwrap();
+    let latest_state_block_hash: [u8; 32] = state_chain_input
+        .blocks
+        .last()
+        .unwrap()
+        .evm_input
+        .current_block
+        .header
+        .hash_slow()
+        .try_into()
+        .unwrap();
+    //assert_eq!(latest_state_block_hash, expected_state_block_hash);
+
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
@@ -219,12 +244,12 @@ async fn main() {
         &bitcoin_block_headers,
     );
 
-    let eth_client_execution_input: EthClientExecutorInput =
-        fetch_exection_layer_block(&args).await;
-    println!(
-        "el block hash: {}",
-        eth_client_execution_input.current_block.header.hash_slow().to_string()
-    );
+    //let eth_client_execution_input: EthClientExecutorInput =
+    //    fetch_exection_layer_block(&args).await;
+    //println!(
+    //    "el block hash: {}",
+    //    eth_client_execution_input.current_block.header.hash_slow().to_string()
+    //);
 
     // --- watchtower_challenge_txns --- //
     let bytes = std::fs::read(&args.watchtower_challenge_info).unwrap();
@@ -270,10 +295,8 @@ async fn main() {
     }
     let (sequencer_set_hash, _, consensus_layer_block_number) =
         fetch_cosmos_validator_info(args.execution_layer_block_number).await.unwrap();
-    let (actual_sequencer_set_hash, actual_data_hash, txns) =
-        cbft_rpc::fetch_cosmos_tx_data(consensus_layer_block_number)
-            .await
-            .unwrap();
+    let (actual_sequencer_set_hash, _actual_data_hash, _txns) =
+        cbft_rpc::fetch_cosmos_tx_data(consensus_layer_block_number).await.unwrap();
     assert_eq!(sequencer_set_hash.unwrap(), actual_sequencer_set_hash);
     // Generate the proofs
     let proof = tracing::info_span!("generate proof").in_scope(|| {
@@ -288,10 +311,10 @@ async fn main() {
         stdin.write(&operator_latest_sequencer_commit_txn);
 
         stdin.write(&actual_sequencer_set_hash);
-        stdin.write(&actual_data_hash);
-        stdin.write(&txns);
-
-        stdin.write(&eth_client_execution_input);
+        stdin.write(&latest_state_block_hash);
+        //stdin.write(&actual_data_hash);
+        //stdin.write(&txns);
+        //stdin.write(&eth_client_execution_input);
 
         stdin.write(&watchtower_challenge_txns);
         stdin.write(&watchtower_challenge_txn_pubkeys);
@@ -301,9 +324,10 @@ async fn main() {
 
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
+        stdin.write(&state_chain_input);
         stdin.write(&spv);
-        stdin.write(&l2_contract_address);
-        stdin.write(&base_slot);
+        //stdin.write(&l2_contract_address);
+        //stdin.write(&base_slot);
 
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
@@ -315,6 +339,12 @@ async fn main() {
             stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
         } else {
             println!("Skip writing header chain proof");
+        }
+
+        if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
+            stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
+        } else {
+            println!("Skip writing state chain proof");
         }
 
         client.prove(&proof_pk, stdin).groth16().run().expect("proving failed")

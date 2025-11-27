@@ -1,10 +1,9 @@
-mod utils;
 mod signature;
+mod utils;
 
-pub use utils::*;
 pub use signature::*;
+pub use utils::*;
 
-use alloy_primitives::Address;
 use alloy_primitives::U256;
 use bitcoin::Block;
 use bitcoin::Transaction;
@@ -15,6 +14,7 @@ use header_chain::{
     BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, MMRHost,
     SPV, header_chain_circuit, verify_merkle_proof,
 };
+use state_chain::{StateChainCircuitInput, state_chain_circuit};
 use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, hashes::Hash, secp256k1::PublicKey};
@@ -25,12 +25,13 @@ pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 64;
 pub const VK_HASH_SIZE: usize = 66;
 
-
-pub fn generate_watchtower_proof(
+pub fn check_longest_chain(
     genesis_sequencer_commit_txid: [u8; 32],
     latest_sequencer_commit_txid: [u8; 32],
+    latest_state_block_hash: [u8; 32],
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
+    state_chain: StateChainCircuitInput,
     spv: SPV,
 ) -> ([u8; 32], [u8; 32]) {
     println!("commit header, size: {}", commit_chain.commits.len());
@@ -52,6 +53,10 @@ pub fn generate_watchtower_proof(
     println!("SPV");
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
+    // check latest block is signed by the sequenecers
+    let state_chain_output = state_chain_circuit(state_chain);
+    assert_eq!(state_chain_output.chain_state.latest_block_hash, latest_state_block_hash);
+
     println!("commit public inputs");
     // commit public inputs
     (btc_header_chain_output.chain_state.total_work, latest_sequencer_commit_txid)
@@ -67,17 +72,13 @@ fn u256_to_bits(u: U256) -> [bool; 256] {
 
 // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
 #[allow(clippy::too_many_arguments)]
-pub fn generate_operator_proof(
+pub fn propose_longest_chain(
     included_watchtowers: U256,
     graph_id: [u8; 16],
     operator_genesis_sequencer_commit_txid: [u8; 32],
     operator_latest_sequencer_commit_txn: CircuitTransaction,
-
     actual_sequencer_set_hash: [u8; 32],
-    actual_data_hash: [u8; 32],
-
-    consensus_txns: Vec<String>,
-    eth_client_execution_input: EthClientExecutorInput,
+    operator_latest_state_block_hash: [u8; 32],
 
     watchtower_challenge_txns: Vec<CircuitTransaction>,
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
@@ -87,9 +88,8 @@ pub fn generate_operator_proof(
 
     operator_header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
+    state_chain: StateChainCircuitInput,
     spv: SPV,
-    l2_contract_address: Address,
-    base_slot: [u8; 32],
 ) -> [u8; 32] {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -185,30 +185,19 @@ pub fn generate_operator_proof(
     );
 
     println!("verify el block");
-    // verify the goat block has been included by consensus
-    let latest_el_block = &eth_client_execution_input.current_block;
-    println!("mix hash: {}", latest_el_block.header.mix_hash);
+    let mut is_found = false;
+    for block in &state_chain.blocks {
+        if let Some(withdrawals) = &block.withdrawals {
+            if withdrawals.2.contains(&graph_id) {
+                is_found = true;
+                break;
+            }
+        }
+    }
+    assert!(is_found, "Graph id {:?} is not included in current state chain", graph_id);
+    let state_chain_output = state_chain_circuit(state_chain);
+    assert_eq!(state_chain_output.chain_state.latest_block_hash, operator_latest_state_block_hash);
 
-    // FIXME
-    //check_el_block_from_payload(
-    //    latest_el_block.header.number,
-    //    &latest_el_block.header.hash_slow().to_string(),
-    //    &latest_el_block.header.parent_hash.to_string(),
-    //    &consensus_txns,
-    //    actual_data_hash,
-    //    //consensus_block.signed_header.header.data_hash.as_ref().unwrap().as_bytes(),
-    //);
-
-    //println!("verify el withdraw tx");
-    //// latest_goat_block.get_graph_status(graph_status_storage_proof, graph_id) == GraphStatus.Proceeded
-    //// https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L101
-    //// 1 == Processing
-    //execute_el_block_and_check_withdraw_tx(
-    //    l2_contract_address,
-    //    &base_slot,
-    //    &graph_id, // NOTE: follow up the endian in the watchtower-challenge txn
-    //    eth_client_execution_input,
-    //);
     operator_total_work
 }
 

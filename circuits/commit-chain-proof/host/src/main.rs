@@ -49,7 +49,7 @@ async fn fetch_commit_chain(args: &Args) {
     for ci in &commit_info {
         let tx = btc_client.get_tx(&Txid::from_str(&ci.txid).unwrap()).await.unwrap().unwrap();
 
-        let op_return_data = extract_op_return_data(&tx);
+        let op_return_data = extract_op_return_data(&tx.output);
         let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
         sequencer_set_hash.copy_from_slice(&op_return_data);
 
@@ -72,7 +72,7 @@ async fn fetch_commit_chain(args: &Args) {
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok();
+    //dotenv::dotenv().ok();
     let args = Args::parse();
     println!("args: {:?}", args);
     fetch_commit_chain(&args).await;
