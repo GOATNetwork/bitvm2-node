@@ -2253,12 +2253,8 @@ pub async fn operator_send_assert_commit(
         broadcast_tx(btc_client, &tx).await?;
     }
 
-    if !has_pending_fee_input {
-        if let Err(err) = cleanup_assert_commit_cache(graph_id) {
-            tracing::warn!(
-                "failed to cleanup assert-commit cache for graph_id:{graph_id}: {err:?}"
-            );
-        }
+    if !has_pending_fee_input && let Err(err) = cleanup_assert_commit_cache(graph_id) {
+        warn!("failed to cleanup assert-commit cache for graph_id:{graph_id}: {err:?}");
     }
 
     Ok((None, has_pending_fee_input))
