@@ -194,7 +194,7 @@ pub struct CommitteeSignatures {
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
 pub enum InstanceBridgeInStatus {
     #[default]
-    UserIniting,// front has call contract, but node not get event
+    UserIniting, // front has call contract, but node not get event
     UserInited, // from contract event request
     // committee won't answer if userRequest is invalid(e.g. insufficient fee)
     CommitteesAnswered,        // enough committee responsed & window expired

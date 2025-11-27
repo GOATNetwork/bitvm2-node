@@ -45,14 +45,13 @@ pub const BRIDGE_IN_AMOUNTS: [f32; 4] = [0.1, 0.05, 0.02, 0.01];
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeInPrepareRequest {
     pub instance_id: String,            // UUID
-    pub network: String,                // testnet3 | mainnet
-    pub from_addr: String,                   // BTC /charge
-    pub to_addr: String,                   // BTC /charge
+    pub network: String,                // testnet | mainnet
+    pub from_addr: String,              // BTC /charge
+    pub to_addr: String,                // BTC /charge
     pub bridge_request_tx_hash: String, // goat tx hash
 }
 #[derive(Debug, Deserialize, Serialize)]
-pub struct BridgeInPrepareResponse {
-}
+pub struct BridgeInPrepareResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InstanceSettingResponse {

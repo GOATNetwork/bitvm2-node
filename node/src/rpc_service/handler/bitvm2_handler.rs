@@ -83,7 +83,7 @@ pub async fn instance_settings(
 /// PUT /v1/instances/bridge-in-request-tag
 /// {
 ///   "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///   "network": "testnet3",
+///   "network": "testnet",
 ///   "from_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
 ///   "to_addr": "0x1234567890abcdef1234567890abcdef12345678",
 ///   "bridge_request_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e"
