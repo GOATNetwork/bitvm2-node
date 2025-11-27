@@ -11,7 +11,7 @@ use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    bridge_in_request_prepare, get_blocks_desc, get_graph, get_graph_neighbor_ids, get_graph_tx,
+    bridge_in_request_tag, get_blocks_desc, get_graph, get_graph_neighbor_ids, get_graph_tx,
     get_graph_txn, get_graphs, get_instance, get_instances, get_instances_overview, get_node,
     get_nodes, get_nodes_overview, get_proof, get_ready_to_kickoff_graph, instance_settings,
 };
@@ -113,7 +113,7 @@ pub async fn serve(
         .route(routes::v1::NODES_BY_ID, get(get_node))
         .route(routes::v1::NODES_OVERVIEW, get(get_nodes_overview))
         .route(routes::v1::INSTANCES_SETTINGS, get(instance_settings))
-        .route(routes::v1::INSTANCES_BRIDGE_IN_REQUEST_PREPARE, put(bridge_in_request_prepare))
+        .route(routes::v1::INSTANCES_BRIDGE_IN_REQUEST_TAG, put(bridge_in_request_tag))
         .route(routes::v1::INSTANCES_BASE, get(get_instances))
         .route(routes::v1::INSTANCES_BY_ID, get(get_instance))
         .route(routes::v1::INSTANCES_OVERVIEW, get(get_instances_overview))
@@ -233,7 +233,7 @@ mod tests {
     use prometheus_client::registry::Registry;
     use reqwest::Client;
     use secp256k1::Secp256k1;
-    use serde_json::Value;
+    use serde_json::{Value, json};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -599,6 +599,8 @@ mod tests {
         ));
         sleep(Duration::from_secs(1)).await;
 
+        let bridge_in_request_tag_id = Uuid::new_v4();
+
         let target_instance_id = bridge_in_instance_id;
         let api_test_items = vec![
             ApiTestItem {
@@ -612,6 +614,44 @@ mod tests {
                         serde_json::from_str::<InstanceSettingResponse>(&text),
                         Ok(instances_setting) if instances_setting.bridge_in_amount == BRIDGE_IN_AMOUNTS.to_vec()
                     )
+                })),
+            },
+            ApiTestItem {
+                tag: routes::v1::INSTANCES_BRIDGE_IN_REQUEST_TAG.to_string(),
+                url: format!("http://{addr}{}", routes::v1::INSTANCES_BRIDGE_IN_REQUEST_TAG),
+                json_payload: Some(json!({
+                    "instance_id": bridge_in_request_tag_id,
+                    "network": "testnet",
+                    "bridge_request_tx_hash":  format!("0x{}", hex::encode(generate_random_bytes(32))),
+                    "from_addr": get_rand_btc_address_p2wpkh(get_network()),
+                    "to_addr": format!("0x{}", hex::encode(generate_random_bytes(20)))
+                })),
+                method: Method::PUT,
+                expe_res: true,
+                resp_validation: None,
+            },
+            ApiTestItem {
+                tag: format!(
+                    "{} for bridge in request tag",
+                    routes::v1::INSTANCES_BY_ID.to_string()
+                ),
+                url: format!(
+                    "http://{addr}{}/{}",
+                    routes::v1::INSTANCES_BASE,
+                    bridge_in_request_tag_id
+                ),
+                json_payload: None,
+                method: Method::GET,
+                expe_res: true,
+                resp_validation: Some(Box::new(move |text| -> bool {
+                    if let Ok(instance_res) = serde_json::from_str::<InstanceGetResponse>(&text)
+                        && let Some(instance_wrap) = instance_res.instance_wrap
+                        && instance_wrap.instance.instance_id.eq(&bridge_in_request_tag_id)
+                    {
+                        true
+                    } else {
+                        false
+                    }
                 })),
             },
             ApiTestItem {

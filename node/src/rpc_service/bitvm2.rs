@@ -105,7 +105,7 @@ impl InstanceExtended {
     pub async fn convert_from_instance(
         btc_client: &BTCClient,
         current_height: u32,
-        mut instance: Instance,
+        instance: Instance,
     ) -> anyhow::Result<Self> {
         let utxo: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)
             .map_err(|e| anyhow::Error::msg(e.to_string()))?;

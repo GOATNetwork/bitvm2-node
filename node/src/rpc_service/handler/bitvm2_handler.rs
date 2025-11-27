@@ -18,7 +18,7 @@ use http::StatusCode;
 use std::default::Default;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
-use store::{Graph, GraphStatus, InstanceBridgeInStatus};
+use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus};
 use tracing::warn;
 
 /// Get instance settings
@@ -57,12 +57,76 @@ pub async fn instance_settings(
     ))
 }
 
+/// Prepare bridge-in request
+///
+/// Validates user-provided data against the allowed bridge-in options returned by
+/// [`instance_settings`](routes::v1::INSTANCES_SETTINGS). Clients should first call
+/// `instance_settings` to know the supported `bridge_in_amount` list and then submit a
+/// bridge-in request using one of those amounts.
+///
+/// # Request Body
+///
+/// - `instance_id`: UUID of the bridge-in request created earlier
+/// - `network`: Target Bitcoin network (e.g. `testnet3`, `mainnet`)
+/// - `from_addr`: Funding Bitcoin address selected by the user
+/// - `to_addr`: Destination address that receives bridged assets on L2
+/// - `bridge_request_tx_hash`: Goat chain transaction hash referencing the bridge intent
+///
+/// # Returns
+///
+/// - `200 OK`: Request is valid and can proceed to the next step of bridge-in workflow
+/// - Response body currently acts as an acknowledgment placeholder for future metadata
+///
+/// # Example
+///
+/// ```http
+/// PUT /v1/instances/bridge-in-request-tag
+/// {
+///   "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///   "network": "testnet3",
+///   "from_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+///   "to_addr": "0x1234567890abcdef1234567890abcdef12345678",
+///   "bridge_request_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e"
+/// }
+/// ```
 #[axum::debug_handler]
-pub async fn bridge_in_request_prepare(
+pub async fn bridge_in_request_tag(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeInPrepareRequest>,
 ) -> ApiResult<BridgeInPrepareResponse> {
     InputValidator::validate_btc_address(&payload.from_addr, "from_addr")?;
+    InputValidator::validate_goat_address(&payload.to_addr, "goat_addr")?;
+    let instance_id = InputValidator::validate_uuid(&payload.instance_id, "btc_addr")?;
+    let mut storage_process =
+        app_state.local_db.acquire().await.api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
+    storage_process
+        .upsert_instance(&Instance {
+            instance_id,
+            is_bridge_in: true,
+            network: payload.network,
+            from_addr: payload.from_addr,
+            to_addr: payload.to_addr,
+            amount: 0,
+            fees: Default::default(),
+            input_utxos: "[]".to_string(),
+            status: InstanceBridgeInStatus::UserIniting.to_string(),
+            goat_tx_hash: "".to_string(),
+            goat_tx_height: 0,
+            user_xonly_pubkey: Default::default(),
+            user_change_addr: "".to_string(),
+            user_refund_addr: "".to_string(),
+            btc_txid: None,
+            btc_height: 0,
+            pegin_confirm_txid: None,
+            pegin_cancel_txid: None,
+            committees_answers: Default::default(),
+            pegin_data_tx_hash: "".to_string(),
+            parameters: None,
+            created_at: 0,
+            updated_at: 0,
+        })
+        .await
+        .api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
     Ok((StatusCode::OK, Json(BridgeInPrepareResponse {})))
 }
 
