@@ -11,14 +11,15 @@ use crate::env::get_network;
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    get_blocks_desc, get_graph, get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs,
-    get_instance, get_instances, get_instances_overview, get_node, get_nodes, get_nodes_overview,
-    get_proof, get_ready_to_kickoff_graph, instance_settings,
+    bridge_in_request_prepare, get_blocks_desc, get_graph, get_graph_neighbor_ids, get_graph_tx,
+    get_graph_txn, get_graphs, get_instance, get_instances, get_instances_overview, get_node,
+    get_nodes, get_nodes_overview, get_proof, get_ready_to_kickoff_graph, instance_settings,
 };
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
+use axum::routing::put;
 use axum::{Router, middleware, routing::get};
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
@@ -112,6 +113,7 @@ pub async fn serve(
         .route(routes::v1::NODES_BY_ID, get(get_node))
         .route(routes::v1::NODES_OVERVIEW, get(get_nodes_overview))
         .route(routes::v1::INSTANCES_SETTINGS, get(instance_settings))
+        .route(routes::v1::INSTANCES_BRIDGE_IN_REQUEST_PREPARE, put(bridge_in_request_prepare))
         .route(routes::v1::INSTANCES_BASE, get(get_instances))
         .route(routes::v1::INSTANCES_BY_ID, get(get_instance))
         .route(routes::v1::INSTANCES_OVERVIEW, get(get_instances_overview))

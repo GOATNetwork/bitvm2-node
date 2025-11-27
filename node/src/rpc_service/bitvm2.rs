@@ -41,6 +41,19 @@ const _BRIDGE_OUT_FAIL_AS_CLAIM_TIMEOUT: &str =
 const _BRIDGE_IN_FAIL_AS_L1_LOCK_TIMEOUT: &str =
     "The operator timed out and failed to lock BTC. Please cancel the transaction.";
 pub const BRIDGE_IN_AMOUNTS: [f32; 4] = [0.1, 0.05, 0.02, 0.01];
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BridgeInPrepareRequest {
+    pub instance_id: String,            // UUID
+    pub network: String,                // testnet3 | mainnet
+    pub from_addr: String,                   // BTC /charge
+    pub to_addr: String,                   // BTC /charge
+    pub bridge_request_tx_hash: String, // goat tx hash
+}
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BridgeInPrepareResponse {
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InstanceSettingResponse {
     pub bridge_in_amount: Vec<f32>,

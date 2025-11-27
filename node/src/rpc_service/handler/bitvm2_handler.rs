@@ -57,6 +57,15 @@ pub async fn instance_settings(
     ))
 }
 
+#[axum::debug_handler]
+pub async fn bridge_in_request_prepare(
+    State(app_state): State<Arc<AppState>>,
+    Json(payload): Json<BridgeInPrepareRequest>,
+) -> ApiResult<BridgeInPrepareResponse> {
+    InputValidator::validate_btc_address(&payload.from_addr, "from_addr")?;
+    Ok((StatusCode::OK, Json(BridgeInPrepareResponse {})))
+}
+
 /// Get instance list
 ///
 /// Returns a paginated list of bridge instances based on query parameters. Supports filtering by
