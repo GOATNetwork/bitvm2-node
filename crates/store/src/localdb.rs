@@ -2852,8 +2852,13 @@ impl<'a> StorageProcessor<'a> {
         goat_tx_record: &GoatTxRecord,
     ) -> anyhow::Result<()> {
         let mut update_goat_tx_record = goat_tx_record.clone();
-        if let Some(goat_tx_record_store) =
-            self.get_graph_goat_tx_record(&goat_tx_record.graph_id, &goat_tx_record.tx_type).await?
+        if let Some(goat_tx_record_store) = self
+            .get_graph_goat_tx_record(
+                &goat_tx_record.instance_id,
+                &goat_tx_record.graph_id,
+                &goat_tx_record.tx_type,
+            )
+            .await?
         {
             update_goat_tx_record.created_at = goat_tx_record_store.created_at;
             update_goat_tx_record.is_local = goat_tx_record_store.is_local;
@@ -2898,6 +2903,7 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn get_graph_goat_tx_record(
         &mut self,
+        instance_id: &Uuid,
         graph_id: &Uuid,
         tx_type: &str,
     ) -> anyhow::Result<Option<GoatTxRecord>> {
@@ -2913,8 +2919,10 @@ impl<'a> StorageProcessor<'a> {
                         extra,
                         created_at
             FROM goat_tx_record
-            WHERE graph_id = ?
+            WHERE instance_id = ?
+                AND graph_id = ?
                 AND tx_type = ?",
+            instance_id,
             graph_id,
             tx_type
         )

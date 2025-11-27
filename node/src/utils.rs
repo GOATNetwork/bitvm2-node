@@ -2433,7 +2433,7 @@ pub async fn get_groth16_proof(
 
     let mut storage_processor = local_db.acquire().await?;
     if let Some(tx_record) = storage_processor
-        .get_graph_goat_tx_record(&graph_id, &GoatTxType::ProceedWithdraw.to_string())
+        .get_graph_goat_tx_record(&instance_id, &graph_id, &GoatTxType::ProceedWithdraw.to_string())
         .await?
         && let Ok((proof, pis, vk, version)) =
             proofs::get_groth16_proof(local_db, tx_record.height as u64).await
