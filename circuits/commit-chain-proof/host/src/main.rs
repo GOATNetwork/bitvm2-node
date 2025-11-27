@@ -72,7 +72,7 @@ async fn fetch_commit_chain(args: &Args) {
 
 #[tokio::main]
 async fn main() {
-    //dotenv::dotenv().ok();
+    dotenv::dotenv().ok();
     let args = Args::parse();
     println!("args: {:?}", args);
     fetch_commit_chain(&args).await;

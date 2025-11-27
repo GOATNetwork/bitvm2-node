@@ -146,7 +146,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
 
 #[tokio::main]
 async fn main() {
-    //dotenv::dotenv().ok();
+    dotenv::dotenv().ok();
     let args = Args::parse();
     println!("args: {:?}", args);
     // Setup the logger.

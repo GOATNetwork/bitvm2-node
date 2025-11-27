@@ -59,7 +59,9 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof2.bin" --output-proof "data/commit-chain/commit-proof3.bin" --commit-info ../node/tests_data/commit_info3.json --commits data/commit-chain/commits.bin
 ```
 
-## EVM State Chain
+## State Chain
+
+State Chain represents the L2's state transition, which checks the EVM's execution, withdrawal transaction inclusion and sequencers' aggrement.
 
 ```
 export GRAPH_ID="0x00112233445566778899aabbccddeeff"
@@ -68,7 +70,6 @@ export GRAPH_ID="0x00112233445566778899aabbccddeeff"
 RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --init-input --start 1 --batch-size 9 --force-fetch --output-proof data/state-chain/1-10.proof.bin --blocks data/state-chain/blocks.bin
 RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --start 10 --batch-size 10 --force-fetch --input-proof data/state-chain/1-10.proof.bin --output-proof data/state-chain/11-20.proof.bin --blocks data/state-chain/blocks.bin
 ```
-
 
 
 ## Watchtower proof
@@ -99,13 +100,13 @@ export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json |
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].txid)
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/2240-10.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
+export LATEST_STATE_BLOCK_HASH="0x5a5341cacf9a5a884c6d64fbae2a498a4d16ea7bd813e2f752fbe2c7efa03041" 
+export STATE_CHAIN_INPUT_PROOF="data/state-chain/3-1.proof.bin"
 
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info2.json | jq -r .[0].txid)
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof2.bin"
-export LATEST_STATE_BLOCK_HASH="0xe3b925c4c183f43f7bbb6480cbbbf3c00cb8a86975e10135bbb5f50a91fc2afd" 
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/10-20.proof.bin"
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output2.bin"
 
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info3.json | jq -r .[0].txid)

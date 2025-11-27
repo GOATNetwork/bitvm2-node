@@ -1,3 +1,4 @@
+#![feature(trim_prefix_suffix)]
 //! Generate watchtower proof
 //!
 use borsh::BorshDeserialize;
@@ -112,7 +113,7 @@ async fn main() {
     let bytes = std::fs::read(&format!("{}.vk", args.state_chain_input_proof)).unwrap();
     let state_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
     let latest_state_block_hash: [u8; 32] =
-        hex::decode(args.latest_state_block_hash).unwrap().try_into().unwrap();
+        hex::decode(args.latest_state_block_hash.trim_prefix("0x")).unwrap().try_into().unwrap();
 
     let expected_state_block_hash: [u8; 32] = state_chain_input
         .blocks
