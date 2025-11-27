@@ -320,15 +320,6 @@ async fn handle_bridge_in_request_events<'a>(
     bridge_in_request_events: Vec<BridgeInRequestEvent>,
 ) -> anyhow::Result<()> {
     for event in bridge_in_request_events {
-        let current_time_secs = current_time_secs();
-        let processing_status = if let Ok(block_timestamp) = event.block_timestamp.parse::<i64>()
-            && (current_time_secs - 60 * 10) <= block_timestamp
-        {
-            GoatTxProcessingStatus::Pending.to_string()
-        } else {
-            GoatTxProcessingStatus::Skipped.to_string()
-        };
-
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
@@ -337,9 +328,9 @@ async fn handle_bridge_in_request_events<'a>(
                 tx_hash: event.transaction_hash.clone(),
                 height: event.block_number.parse::<i64>()?,
                 is_local: false,
-                processing_status,
+                processing_status: GoatTxProcessingStatus::Pending.to_string(),
                 extra: Some(serde_json::to_string(&event)?),
-                created_at: current_time_secs,
+                created_at: current_time_secs(),
             })
             .await?;
     }
