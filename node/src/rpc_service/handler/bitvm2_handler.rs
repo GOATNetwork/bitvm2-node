@@ -274,21 +274,20 @@ pub async fn get_instance(
     {
         let current_height =
             app_state.btc_client.get_height().await.api_error("GET_INSTANCE_ERROR")?;
-        let instance_wrap = InstanceExtended::convert_from_instance(
-            &app_state.btc_client,
-            current_height,
-            instance,
-        )
-        .await
-        .api_error("GET_INSTANCE_ERROR")?;
+        let instance_wrap = Some(
+            InstanceExtended::convert_from_instance(
+                &app_state.btc_client,
+                current_height,
+                instance,
+            )
+            .await
+            .api_error("GET_INSTANCE_ERROR")?,
+        );
 
         Ok((StatusCode::OK, Json(InstanceGetResponse { instance_wrap })))
     } else {
         tracing::info!("instance_id {} has no record in database", instance_id);
-        Ok((
-            StatusCode::OK,
-            Json(InstanceGetResponse { instance_wrap: InstanceExtended::default() }),
-        ))
+        Ok((StatusCode::OK, Json(InstanceGetResponse { instance_wrap: None })))
     }
 }
 

@@ -623,10 +623,14 @@ mod tests {
                 method: Method::GET,
                 expe_res: true,
                 resp_validation: Some(Box::new(move |text| -> bool {
-                    matches!(
-                        serde_json::from_str::<InstanceGetResponse>(&text),
-                        Ok(instanes_res) if instanes_res.instance_wrap.instance.instance_id.eq(&target_instance_id)
-                    )
+                    if let Ok(instance_res) = serde_json::from_str::<InstanceGetResponse>(&text)
+                        && let Some(instance_wrap) = instance_res.instance_wrap
+                        && instance_wrap.instance.instance_id.eq(&target_instance_id)
+                    {
+                        true
+                    } else {
+                        false
+                    }
                 })),
             },
             ApiTestItem {
