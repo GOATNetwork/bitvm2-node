@@ -533,15 +533,15 @@ pub(crate) async fn refresh_graph(
         if let Some(spent_txid) =
             outpoint_spent_txid(btc_client, &kickoff_txid, connector_e_vout).await?
         {
-            if spent_txid != take2_txid {
+            let (current_status, sub_status) = if spent_txid != take2_txid {
                 sub_status.disprove_type = Some(DisproveTxType::Disprove);
-                current_status = GraphStatus::Disprove;
+                (GraphStatus::Disprove, Some(sub_status))
             } else {
-                current_status = GraphStatus::OperatorTake2;
-            }
-            update_graph_status(local_db, instance_id, graph_id, current_status, Some(sub_status))
+                (GraphStatus::OperatorTake2, None)
+            };
+            update_graph_status(local_db, instance_id, graph_id, current_status, sub_status)
                 .await?;
-            return Ok((current_status, Some(sub_status)));
+            return Ok((current_status, sub_status));
         }
     }
     // check Watchtower-Challenge & Assert-Commit process
