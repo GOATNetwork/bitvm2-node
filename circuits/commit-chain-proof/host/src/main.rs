@@ -121,6 +121,9 @@ async fn main() {
         }
         client.prove(&commit_chain_proof_pk, stdin).compressed().run().expect("proving failed")
     });
+    if let Err(e) = client.verify(&proof, &commit_chain_proof_vk) {
+        panic!("{}", e);
+    }
 
     fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
     fs::write(

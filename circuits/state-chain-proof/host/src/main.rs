@@ -100,6 +100,7 @@ async fn fetch_exection_layer_block(
 
 async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
     use std::io::Read;
+    assert!(args.start > 0, "Don't get genesis block from the consensus layer.");
     let mut reader =
         std::fs::OpenOptions::new().read(true).write(true).create(true).open(&args.blocks).unwrap();
 
@@ -193,6 +194,9 @@ async fn main() {
         }
         client.prove(&state_chain_proof_pk, stdin).compressed().run().expect("proving failed")
     });
+    if let Err(e) = client.verify(&proof, &state_chain_proof_vk) {
+        panic!("{}", e);
+    }
 
     fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
     fs::write(

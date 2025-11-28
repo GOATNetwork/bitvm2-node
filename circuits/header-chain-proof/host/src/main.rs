@@ -109,6 +109,7 @@ async fn main() {
     let prev_receipt = if args.init_input {
         None
     } else {
+        println!("read previous proof");
         let proof_bytes = fs::read(&args.input_proof).expect("Failed to read input proof file");
         let proof: ZKMProofWithPublicValues =
             bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
@@ -116,7 +117,9 @@ async fn main() {
     };
     let (prev_proof, pv_hash) = match prev_receipt.clone() {
         Some(mut receipt) => {
+            println!("read public values");
             let prev_output: BlockHeaderCircuitOutput = receipt.public_values.read();
+            println!("read public values done");
             start = prev_output.chain_state.block_height as usize + 1;
             let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
             (HeaderChainPrevProofType::PrevProof(prev_output), pv_hash)
@@ -137,7 +140,9 @@ async fn main() {
     // Generate the proofs.
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
+        println!("write inputs");
         stdin.write(&input);
+        println!("write inputs done");
         if let Some(proof) = prev_receipt {
             println!("Generate proof from block {}", start);
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
@@ -145,8 +150,12 @@ async fn main() {
         } else {
             println!("Generate proof from genesis block");
         }
+        println!("begin to prove");
         client.prove(&header_chain_proof_pk, stdin).compressed().run().expect("proving failed")
     });
+    if let Err(e) = client.verify(&proof, &header_chain_proof_vk) {
+        panic!("{}", e);
+    }
 
     fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
     fs::write(

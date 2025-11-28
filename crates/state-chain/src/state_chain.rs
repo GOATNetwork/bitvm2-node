@@ -46,29 +46,12 @@ pub struct StateChainCircuitInput {
     pub blocks: Vec<CircuitStateBlock>,
 }
 
-impl Default for StateChainState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl StateChainState {
-    pub fn new() -> Self {
-        // FIXME: don't hardcode
+    pub fn new(genesis_block_hash: [u8; 32]) -> Self {
         StateChainState {
             block_height: 1,
-            genesis_block_hash: hex::decode(
-                "30f474514d6cd219f459b2d481b2d4376a6637e881b982ffa8d63610932b33f6",
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
-            latest_block_hash: hex::decode(
-                "30f474514d6cd219f459b2d481b2d4376a6637e881b982ffa8d63610932b33f6",
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
+            latest_block_hash: genesis_block_hash.clone(),
+            genesis_block_hash,
         }
     }
 

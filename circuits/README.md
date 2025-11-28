@@ -5,6 +5,7 @@
 ```
 mkdir -p data/header-chain
 mkdir -p data/commit-chain
+mkdir -p data/state-chain
 mkdir -p data/watchtower
 ```
 
@@ -64,11 +65,11 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 State Chain represents the L2's state transition, which checks the EVM's execution, withdrawal transaction inclusion and sequencers' aggrement.
 
 ```
-export GRAPH_ID="0x00112233445566778899aabbccddeeff"
+#export GRAPH_IDS="0x00112233445566778899aabbccddeeff,0x..."
+#export GRAPH_BLOCK_NUMBERS="8447360,123..."
 
-
-RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --init-input --start 1 --batch-size 9 --force-fetch --output-proof data/state-chain/1-10.proof.bin --blocks data/state-chain/blocks.bin
-RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --start 10 --batch-size 10 --force-fetch --input-proof data/state-chain/1-10.proof.bin --output-proof data/state-chain/11-20.proof.bin --blocks data/state-chain/blocks.bin
+RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --init-input --start 1 --batch-size 10 --force-fetch --output-proof data/state-chain/1-10.proof.bin --blocks data/state-chain/blocks.bin
+RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --start 11 --batch-size 10 --force-fetch --input-proof data/state-chain/1-10.proof.bin --output-proof data/state-chain/11-10.proof.bin --blocks data/state-chain/blocks.bin
 ```
 
 
@@ -96,12 +97,13 @@ ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS=0x...
 * Generate proofs
 
 ```
+export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].txid)
-export HEADER_CHAIN_INPUT_PROOF="data/header-chain/2240-10.bin"
+export HEADER_CHAIN_INPUT_PROOF="data/header-chain/0-100000.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
-export LATEST_STATE_BLOCK_HASH="0x5a5341cacf9a5a884c6d64fbae2a498a4d16ea7bd813e2f752fbe2c7efa03041" 
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/3-1.proof.bin"
+export LATEST_STATE_BLOCK_HASH="0x0c718d459436e38506ff3156b6e91f9a153de30df7f50e1c4a012e02dbc63891" 
+export STATE_CHAIN_INPUT_PROOF="data/state-chain/11-10.proof.bin"
 
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 
@@ -139,6 +141,7 @@ Get the withdraw-challenge-init-txid , graph-id, and update `watchtower_info.jso
 After calling the [`initWithdraw`](https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L509), we generate the operator proof with corresponding `graph_id` and transaction id. 
 
 ```
+export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info3.json | jq -r .[0].txid)
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/2240-10.bin"
