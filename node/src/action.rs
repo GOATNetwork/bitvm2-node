@@ -2926,6 +2926,14 @@ pub async fn recv_and_dispatch(
                     .await?;
                 return Ok(());
             }
+            let connector_d_vout = graph.assert_init.tx().output.len() as u64 - 1;
+            if outpoint_spent_txid(btc_client, &assert_init_txid, connector_d_vout).await?.is_some()
+            {
+                tracing::warn!(
+                    "Ignore AssertInitReady for {instance_id}:{graph_id}: connector_D already spent"
+                );
+                return Ok(());
+            }
             // 2. sign & broadcast assert-commit txns
             if !tx_confirmed(btc_client, &assert_init_txid).await? {
                 // assert-commit should be broadcasted after assert-init is confirmed (wait for 1 block)
