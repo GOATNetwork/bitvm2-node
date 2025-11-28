@@ -233,6 +233,8 @@ impl InstanceUpdate {
         // Set field
         if let Some(ref status) = self.status {
             query_builder.set_field("status", QueryParam::Text(status.clone()));
+            query_builder
+                .set_field("status_updated_at", QueryParam::Int(get_current_timestamp_secs()));
         }
 
         if let Some(ref txid) = self.pegin_confirm_txid {
@@ -464,6 +466,8 @@ impl GraphUpdate {
         // Add SET fields
         if let Some(ref status) = self.status {
             query_builder.set_field("status", QueryParam::Text(status.clone()));
+            query_builder
+                .set_field("status_updated_at", QueryParam::Int(get_current_timestamp_secs()));
         }
         if let Some(ref sub_status) = self.sub_status {
             query_builder.set_field("sub_status", QueryParam::Text(sub_status.clone()));
@@ -622,8 +626,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, is_bridge_in,  network, from_addr, to_addr, amount, fees, input_utxos, status, goat_tx_hash, goat_tx_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers,
-                       pegin_data_tx_hash, btc_height, parameters, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       pegin_data_tx_hash, btc_height, parameters, status_updated_at,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.is_bridge_in,
             instance.network,
@@ -645,6 +649,7 @@ impl<'a> StorageProcessor<'a> {
             instance.pegin_data_tx_hash,
             instance.btc_height,
             instance.parameters,
+            instance.status_updated_at,
             instance.created_at,
             instance.updated_at
         )
@@ -748,9 +753,12 @@ impl<'a> StorageProcessor<'a> {
         expired_status: &str,
         time_threshold: i64,
     ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
         let row = sqlx::query!(
-            r#"UPDATE instance SET status = ? WHERE status = ? AND updated_at < ?"#,
+            r#"UPDATE instance SET status = ?, status_updated_at = ?, updated_at = ?  WHERE status = ? AND updated_at < ?"#,
             expired_status,
+            current_time,
+            current_time,
             current_status,
             time_threshold
         )
@@ -769,8 +777,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let result = sqlx::query!(
-            "UPDATE instance SET status = ?, updated_at = ? WHERE instance_id = ?",
+            "UPDATE instance SET status = ?, status_updated_at = ?, updated_at = ? WHERE instance_id = ?",
             new_status,
+            current_time,
             current_time,
             instance_id
         )
@@ -838,28 +847,6 @@ impl<'a> StorageProcessor<'a> {
         query = query_builder.query(query);
         let result = query.execute(self.conn()).await?;
         Ok(result.rows_affected() > 0)
-    }
-
-    pub async fn update_instances_status_batch(
-        &mut self,
-        status: &str,
-        ids: &[Uuid],
-    ) -> anyhow::Result<()> {
-        let current_time = get_current_timestamp_secs();
-        let query_str = format!(
-            "UPDATE instance \
-            SET status = \'{status}\',
-                updated_at = {current_time}
-            WHERE hex(instance_id)
-                 COLLATE NOCASE IN ({})",
-            create_place_holders(ids)
-        );
-        let mut update_query = sqlx::query(&query_str);
-        for id in ids {
-            update_query = update_query.bind(hex::encode(id));
-        }
-        update_query.execute(self.conn()).await?;
-        Ok(())
     }
 
     /// Add or update a single committee answer for an instance
@@ -1000,8 +987,8 @@ impl<'a> StorageProcessor<'a> {
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, disprove_txid,  watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
-                    bridge_out_start_at, zkm_version,created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    bridge_out_start_at, zkm_version, status_updated_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
@@ -1033,6 +1020,7 @@ impl<'a> StorageProcessor<'a> {
             graph.init_withdraw_tx_hash,
             graph.bridge_out_start_at,
             graph.zkm_version,
+            graph.status_updated_at,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -1040,7 +1028,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn update_graph_fields(&mut self, params: GraphUpdate) -> anyhow::Result<()> {
+    pub async fn update_graph(&mut self, params: &GraphUpdate) -> anyhow::Result<()> {
         let query_builder = params.get_query_builder("graph");
         let update_sql = query_builder.get_sql();
         let query = sqlx::query(&update_sql);
@@ -1116,6 +1104,7 @@ impl<'a> StorageProcessor<'a> {
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
+                    status_updated_at,
                     CASE
                         WHEN bridge_out_start_at > 0
                         THEN bridge_out_start_at
@@ -1188,28 +1177,6 @@ impl<'a> StorageProcessor<'a> {
             .fetch_optional(self.conn())
             .await?;
         Ok(res.map(|v| (v.graph_id, v.instance_id, v.cur_prekickoff_txid, v.next_prekickoff)))
-    }
-
-    pub async fn update_graphs_status_by_instance_ids(
-        &mut self,
-        status: &str,
-        ids: &[Uuid],
-    ) -> anyhow::Result<()> {
-        let current_time = get_current_timestamp_secs();
-        let query_str = format!(
-            "UPDATE graph SET \
-                status = \'{status}\',
-                updated_at = {current_time}
-            WHERE hex(instance_id)
-                     COLLATE NOCASE IN ({})",
-            create_place_holders(ids)
-        );
-        let mut update_query = sqlx::query(&query_str);
-        for id in ids {
-            update_query = update_query.bind(hex::encode(id));
-        }
-        update_query.execute(self.conn()).await?;
-        Ok(())
     }
 
     pub async fn get_graphs_ids_and_operator_by_instance_ids(
@@ -1293,10 +1260,18 @@ impl<'a> StorageProcessor<'a> {
         ignore_graph_id: Option<Uuid>,
         status: &str,
     ) -> anyhow::Result<()> {
+        let current_time = get_current_timestamp_secs();
         if let Some(ignore_graph_id) = ignore_graph_id {
             sqlx::query!(
-                "UPDATE graph SET status = ? WHERE instance_id = ? AND graph_id != ? ",
+                "UPDATE graph
+                 SET status            = ?,
+                     status_updated_at = ?,
+                     updated_at        = ?
+                 WHERE instance_id = ?
+                   AND graph_id != ?",
                 status,
+                current_time,
+                current_time,
                 instance_id,
                 ignore_graph_id
             )
@@ -1304,8 +1279,14 @@ impl<'a> StorageProcessor<'a> {
             .await?;
         } else {
             sqlx::query!(
-                "UPDATE graph SET status = ? WHERE instance_id = ?  ",
+                "UPDATE graph
+                 SET status            = ?,
+                     status_updated_at = ?,
+                     updated_at        = ?
+                 WHERE instance_id = ?",
                 status,
+                current_time,
+                current_time,
                 instance_id,
             )
             .execute(self.conn())

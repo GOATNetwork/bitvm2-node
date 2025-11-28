@@ -128,7 +128,7 @@ impl InstanceExtended {
             waiting_time_in_secs: get_instance_waiting_time_in_secs(
                 instance.is_bridge_in,
                 &instance.status,
-                instance.updated_at,
+                instance.status_updated_at,
             ),
             confirmations,
             target_confirmations,
@@ -229,9 +229,12 @@ async fn get_instance_block_confirm_progress(
 
 fn get_bridge_in_status_time_window_secs(status: &str) -> i64 {
     match InstanceBridgeInStatus::from_str(status) {
-        Ok(InstanceBridgeInStatus::Initiated) => 120,
-        Ok(InstanceBridgeInStatus::Submitted) => 3600 * 24,
-        Ok(InstanceBridgeInStatus::Processing) => 3600 * 3,
+        Ok(InstanceBridgeInStatus::Initiated) | Ok(InstanceBridgeInStatus::UserInited) => 120,
+        Ok(InstanceBridgeInStatus::Submitted)
+        | Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => 3600 * 24,
+        Ok(InstanceBridgeInStatus::Processing)
+        | Ok(InstanceBridgeInStatus::Presigned)
+        | Ok(InstanceBridgeInStatus::RelayerL1Broadcasted) => 3600 * 3,
         Ok(_) | Err(_) => 0,
     }
 }
@@ -440,7 +443,8 @@ impl GraphExtended {
         _btc_client: &BTCClient,
         mut graph: Graph,
     ) -> anyhow::Result<Self> {
-        let waiting_time_in_secs = get_graph_waiting_time_in_secs(graph.updated_at, &graph.status);
+        let waiting_time_in_secs =
+            get_graph_waiting_time_in_secs(graph.status_updated_at, &graph.status);
         graph.status = graph.convert_to_display_status();
         let challenge_sub_status =
             match serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status) {

@@ -2574,16 +2574,6 @@ pub async fn get_graph_status(
     ))
 }
 
-pub async fn update_graphs_status_by_instance_ids(
-    local_db: &LocalDB,
-    status: &str,
-    instance_ids: &[Uuid],
-) -> Result<()> {
-    let mut storage_process = local_db.acquire().await?;
-    storage_process.update_graphs_status_by_instance_ids(status, instance_ids).await?;
-    Ok(())
-}
-
 /// Returns:
 /// - `Ok(true)` tx confirmed,
 /// - `Ok(false)` tx not confirmed, exceeds the maximum waiting time
@@ -2946,7 +2936,7 @@ pub async fn store_pegin_request(
             amount_stats: input.amount.to_sat(),
         })
         .collect::<Vec<_>>();
-
+    let current_time = current_time_secs();
     storage_processor
         .upsert_instance(&Instance {
             instance_id,
@@ -2970,8 +2960,9 @@ pub async fn store_pegin_request(
             pegin_data_tx_hash: "".to_string(),
             btc_height: 0,
             parameters: None,
-            created_at: current_time_secs(),
-            updated_at: current_time_secs(),
+            status_updated_at: current_time,
+            created_at: current_time,
+            updated_at: current_time,
         })
         .await?;
     Ok(())
@@ -3071,6 +3062,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
         init_withdraw_tx_hash: None,
         bridge_out_start_at: 0,
         zkm_version: proofs::get_zkm_version(),
+        status_updated_at: current_time,
         created_at: current_time,
         updated_at: current_time,
     };
@@ -3651,7 +3643,7 @@ pub async fn update_graph_status(
         graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
     }
 
-    storage_processor.update_graph_fields(graph_update).await?;
+    storage_processor.update_graph(&graph_update).await?;
     Ok(())
 }
 pub async fn get_graph_ids_for_instance(

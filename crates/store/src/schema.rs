@@ -256,6 +256,7 @@ pub struct Instance {
     pub committees_answers: IndexMap<String, Vec<u8>>,
     pub pegin_data_tx_hash: String,
     pub parameters: Option<String>,
+    pub status_updated_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -410,6 +411,7 @@ pub struct Graph {
     pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
     pub zkm_version: String,
+    pub status_updated_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }

@@ -1,9 +1,9 @@
 use crate::env::GraphBtcTxName;
-use crate::rpc_service::AppState;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::response::{ApiErrorExt, ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
+use crate::rpc_service::{AppState, current_time_secs};
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertInitTxVoutMonitorData, ChallengeSubStatus, WTInitTxVoutMonitorData,
 };
@@ -99,6 +99,7 @@ pub async fn bridge_in_request_tag(
     let instance_id = InputValidator::validate_uuid(&payload.instance_id, "btc_addr")?;
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
+    let current_time = current_time_secs();
     storage_process
         .upsert_instance(&Instance {
             instance_id,
@@ -122,8 +123,9 @@ pub async fn bridge_in_request_tag(
             committees_answers: Default::default(),
             pegin_data_tx_hash: "".to_string(),
             parameters: None,
-            created_at: 0,
-            updated_at: 0,
+            status_updated_at: current_time,
+            created_at: current_time,
+            updated_at: current_time,
         })
         .await
         .api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;

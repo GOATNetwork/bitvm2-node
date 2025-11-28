@@ -146,8 +146,8 @@ async fn handle_user_withdraw_events<'a>(
                 let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(
-                        GraphUpdate::new(graph_id)
+                    .update_graph(
+                        &GraphUpdate::new(graph_id)
                             .with_bridge_out_start_at(current_time_secs())
                             .with_init_withdraw_tx_hash(init_event.transaction_hash.clone()),
                     )
@@ -171,8 +171,8 @@ async fn handle_user_withdraw_events<'a>(
                     Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.graph_id))?;
                 storage_processor
-                    .update_graph_fields(
-                        GraphUpdate::new(graph_id)
+                    .update_graph(
+                        &GraphUpdate::new(graph_id)
                             .with_bridge_out_start_at(0)
                             .with_init_withdraw_tx_hash("".to_string()),
                     )
@@ -268,9 +268,7 @@ async fn handle_withdraw_paths_events<'a>(
                 created_at: current_time_secs(),
             })
             .await?;
-        storage_processor
-            .update_graph_fields(GraphUpdate::new(graph_id).with_status(status))
-            .await?;
+        storage_processor.update_graph(&GraphUpdate::new(graph_id).with_status(status)).await?;
     }
     Ok(())
 }
@@ -307,8 +305,8 @@ async fn handle_withdraw_disproved_events<'a>(
             .add_node_reward_by_addr(&disprover_addr.unwrap(), disprover_reward_add)
             .await?;
         storage_processor
-            .update_graph_fields(
-                GraphUpdate::new(graph_id).with_status(GraphStatus::Disprove.to_string()),
+            .update_graph(
+                &GraphUpdate::new(graph_id).with_status(GraphStatus::Disprove.to_string()),
             )
             .await?;
     }
@@ -393,8 +391,8 @@ async fn handle_post_graph_data_events<'a>(
     for event in post_graph_data_events {
         if let Ok(graph_id) = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id)) {
             storage_processor
-                .update_graph_fields(
-                    GraphUpdate::new(graph_id)
+                .update_graph(
+                    &GraphUpdate::new(graph_id)
                         .with_status(GraphStatus::OperatorDataPushed.to_string()),
                 )
                 .await?;

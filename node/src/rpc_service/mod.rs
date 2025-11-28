@@ -482,6 +482,7 @@ mod tests {
             committees_answers: Default::default(),
             pegin_data_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             parameters: None,
+            status_updated_at: current_time_secs(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });
@@ -508,6 +509,7 @@ mod tests {
             committees_answers: Default::default(),
             pegin_data_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             parameters: None,
+            status_updated_at: current_time_secs(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });
@@ -548,6 +550,7 @@ mod tests {
             init_withdraw_tx_hash: Some(format!("0x{}", hex::encode(generate_random_bytes(32)))),
             bridge_out_start_at: current_time_secs() + 100,
             zkm_version: "zkm_0.1.0".to_string(),
+            status_updated_at: current_time_secs(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });
@@ -583,6 +586,7 @@ mod tests {
             init_withdraw_tx_hash: None,
             bridge_out_start_at: 0,
             zkm_version: "zkm_0.1.0".to_string(),
+            status_updated_at: current_time_secs(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });
