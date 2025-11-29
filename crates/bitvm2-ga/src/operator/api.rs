@@ -813,7 +813,7 @@ pub fn operator_sign_blockhash_commit(
         &operator_context.operator_taproot_public_key,
         &blockhash_wots_pubkey,
     );
-    let connector_g_vout = graph.watchtower_challenge_init.tx().output.len() - 3;
+    let connector_g_vout = 2 * graph.parameters.watchtower_pubkeys.len() as u64;
     let connector_g_input = Input {
         outpoint: OutPoint {
             txid: graph.watchtower_challenge_init.tx().compute_txid(),

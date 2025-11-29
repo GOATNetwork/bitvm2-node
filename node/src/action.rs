@@ -2926,7 +2926,7 @@ pub async fn recv_and_dispatch(
                     .await?;
                 return Ok(());
             }
-            let connector_d_vout = graph.assert_init.tx().output.len() as u64 - 1;
+            let connector_d_vout = graph.assert_commit_timeout_txns.len() as u64;
             if outpoint_spent_txid(btc_client, &assert_init_txid, connector_d_vout).await?.is_some()
             {
                 tracing::warn!(
