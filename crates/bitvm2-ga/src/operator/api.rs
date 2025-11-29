@@ -819,7 +819,7 @@ pub fn operator_sign_blockhash_commit(
             txid: graph.watchtower_challenge_init.tx().compute_txid(),
             vout: connector_g_vout as u32,
         },
-        amount: graph.watchtower_challenge_init.tx().output[connector_g_vout].value,
+        amount: graph.watchtower_challenge_init.tx().output[connector_g_vout as usize].value,
     };
     match operator_commit_blockhash(
         &connector_g,
