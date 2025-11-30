@@ -153,6 +153,7 @@ async fn main() {
         println!("begin to prove");
         client.prove(&header_chain_proof_pk, stdin).compressed().run().expect("proving failed")
     });
+
     if let Err(e) = client.verify(&proof, &header_chain_proof_vk) {
         panic!("{}", e);
     }

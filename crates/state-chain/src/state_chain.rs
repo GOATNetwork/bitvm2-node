@@ -47,9 +47,9 @@ pub struct StateChainCircuitInput {
 }
 
 impl StateChainState {
-    pub fn new(genesis_block_hash: [u8; 32]) -> Self {
+    pub fn new(block_height: u64, genesis_block_hash: [u8; 32]) -> Self {
         StateChainState {
-            block_height: 1,
+            block_height,
             latest_block_hash: genesis_block_hash.clone(),
             genesis_block_hash,
         }
@@ -61,21 +61,19 @@ impl StateChainState {
             let evm_header =
                 execute_el_block_and_check_withdraw_tx(&block.withdrawals, block.evm_input.clone());
             assert_eq!(evm_header.number, block.evm_input.current_block.number);
+            println!("block_height: {}", self.block_height);
             assert_eq!(evm_header.number, self.block_height);
-
-            let block_hash = evm_header.hash_slow();
-            let current_block_hash: [u8; 32] = block_hash.try_into().unwrap();
+            let current_block_hash: [u8; 32] = evm_header.hash_slow().try_into().unwrap();
             // check the evm block is committed in the consensus txns
-            let parent_block_hash = self.latest_block_hash;
-            assert_eq!(self.latest_block_hash, parent_block_hash);
-            check_el_block_from_payload(
-                block.evm_input.current_block.number,
-                &current_block_hash,
-                &parent_block_hash,
-                &block.state_txns,
-                block.state_data_hash.clone(),
-            );
-
+            if current_block_hash != self.genesis_block_hash {
+                check_el_block_from_payload(
+                    block.evm_input.current_block.number,
+                    &current_block_hash,
+                    &self.latest_block_hash,
+                    &block.state_txns,
+                    block.state_data_hash.clone(),
+                );
+            }
             self.block_height += 1;
             self.latest_block_hash = current_block_hash;
         }

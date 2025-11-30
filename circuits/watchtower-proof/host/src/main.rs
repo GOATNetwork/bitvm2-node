@@ -5,7 +5,7 @@ use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
-    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
 
 use bitcoin::{Network, Txid, hashes::Hash};
@@ -125,6 +125,11 @@ async fn main() {
         .hash_slow()
         .try_into()
         .unwrap();
+    println!(
+        "latest: {}, expected: {}",
+        hex::encode(latest_state_block_hash),
+        hex::encode(expected_state_block_hash)
+    );
     assert_eq!(latest_state_block_hash, expected_state_block_hash);
 
     // --- spv --- //

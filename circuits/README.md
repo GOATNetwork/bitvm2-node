@@ -65,11 +65,20 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 State Chain represents the L2's state transition, which checks the EVM's execution, withdrawal transaction inclusion and sequencers' aggrement.
 
 ```
-#export GRAPH_IDS="0x00112233445566778899aabbccddeeff,0x..."
-#export GRAPH_BLOCK_NUMBERS="8447360,123..."
+export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
+export GRAPH_BLOCK_NUMBERS="8447360"
 
-RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --init-input --start 1 --batch-size 10 --force-fetch --output-proof data/state-chain/1-10.proof.bin --blocks data/state-chain/blocks.bin
-RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --start 11 --batch-size 10 --force-fetch --input-proof data/state-chain/1-10.proof.bin --output-proof data/state-chain/11-10.proof.bin --blocks data/state-chain/blocks.bin
+export EL_START_BLOCK_NUMBER=8447350
+export BATCH_SIZE=20
+
+bash cron-state-chain-proof.sh $start $BATCH_SIZE
+
+#export START_BLOCK_NUMBER=8447350
+#export START_BLOCK_NUMBER_NEXT=$(($START_BLOCK_NUMBER + $BATCH_SIZE))
+#export START_BLOCK_NUMBER_NEXT_NEXT=$(($START_BLOCK_NUMBER_NEXT + $BATCH_SIZE))
+#RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --init-input --start $START_BLOCK_NUMBER --batch-size $BATCH_SIZE --force-fetch --output-proof data/state-chain/${START_BLOCK_NUMBER}-${BATCH_SIZE}.proof.bin --blocks data/state-chain/blocks.bin
+#RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --start ${START_BLOCK_NUMBER_NEXT} --batch-size $BATCH_SIZE --force-fetch --input-proof data/state-chain/${START_BLOCK_NUMBER}-${BATCH_SIZE}.proof.bin --output-proof data/state-chain/${START_BLOCK_NUMBER_NEXT}-${BATCH_SIZE}.proof.bin --blocks data/state-chain/blocks.bin
+#RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --start ${START_BLOCK_NUMBER_NEXT_NEXT} --batch-size $BATCH_SIZE --force-fetch --input-proof data/state-chain/${START_BLOCK_NUMBER_NEXT}-${BATCH_SIZE}.proof.bin --output-proof data/state-chain/${START_BLOCK_NUMBER_NEXT_NEXT}-${BATCH_SIZE}.proof.bin --blocks data/state-chain/blocks.bin
 ```
 
 
@@ -100,10 +109,10 @@ ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS=0x...
 export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].txid)
-export HEADER_CHAIN_INPUT_PROOF="data/header-chain/0-100000.bin"
+export HEADER_CHAIN_INPUT_PROOF="data/header-chain/350000-100.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
-export LATEST_STATE_BLOCK_HASH="0x0c718d459436e38506ff3156b6e91f9a153de30df7f50e1c4a012e02dbc63891" 
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/11-10.proof.bin"
+export LATEST_STATE_BLOCK_HASH="0xc0544eea14e024dad0e480dcd5e5c89bdb51653b6aa4a07cfcf34e38ba0d204d" 
+export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447750-20.bin"
 
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 
@@ -144,7 +153,7 @@ After calling the [`initWithdraw`](https://github.com/KSlashh/bitvm2-L2-contract
 export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info3.json | jq -r .[0].txid)
-export HEADER_CHAIN_INPUT_PROOF="data/header-chain/2240-10.bin"
+export HEADER_CHAIN_INPUT_PROOF="data/header-chain/350000-100.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof3.bin"
 export WATCHTOWER_CHALLENGE_INIT_TXID="079135284b505444cd6a544bb9c9788c132a35ea755517faedcb6f6979f7d3fd"
 export GRAPH_ID="0x00112233445566778899aabbccddeeff"
@@ -152,9 +161,8 @@ export EXECUTION_LAYER_BLOCK_NUMBER=8447360
 export WATCHTOWER_CHALLENGE_INFO="data/watchtower/watchtower_info.json"
 export INCLUDED_WATCHTOWERS=1
 
-export LATEST_STATE_BLOCK_HASH="0xe3b925c4c183f43f7bbb6480cbbbf3c00cb8a86975e10135bbb5f50a91fc2afd" 
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/10-20.proof.bin"
-
+export LATEST_STATE_BLOCK_HASH="0xc0544eea14e024dad0e480dcd5e5c89bdb51653b6aa4a07cfcf34e38ba0d204d" 
+export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447750-20.bin"
 
 RUST_LOG=info cargo run --package operator-proof --bin operator-proof -r -- --output "data/operator-proof/output.bin"
 ```

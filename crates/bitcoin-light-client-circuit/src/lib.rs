@@ -152,7 +152,7 @@ pub fn propose_longest_chain(
                 match parse_watchtower_commitment(commitment) {
                     Ok(c) => c,
                     Err(err) => {
-                        println!("parse commitment error {err}");
+                        println!("parse commitment error, {err}");
                         continue;
                     }
                 };
@@ -317,9 +317,11 @@ pub fn parse_watchtower_commitment(
     let watchtower_consensus_block_height = U256::from_le_bytes(bh_bytes);
 
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
-    let result = Groth16Verifier::verify(&proof, &zkm_public_values, &zkm_vk_hash, groth16_vk);
-    if result.is_err() {
-        return Err("Watchtower[{i}] invalid commitment: head chain Groth16 proof".into());
+    match Groth16Verifier::verify(&proof, &zkm_public_values, &zkm_vk_hash, groth16_vk) {
+        Ok(_) => {}
+        Err(err) => {
+            return Err(format!("invalid commitment: head chain Groth16 proof, err: {err:?}").into());
+        }
     }
 
     Ok((

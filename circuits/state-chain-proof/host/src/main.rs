@@ -17,6 +17,7 @@ use zkm_sdk::{
 
 /// A program that aggregates the proofs of the simple program.
 const STATE_CHAIN: &[u8] = include_elf!("guest");
+const EL_START_BLOCK_NUMBER: Option<&str> = option_env!("EL_START_BLOCK_NUMBER");
 
 use clap::Parser;
 use std::fs;
@@ -109,10 +110,21 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
     let mut blocks: Vec<CircuitStateBlock> =
         if blocks.is_empty() { Vec::new() } else { serde_json::from_slice(&blocks).unwrap() };
 
-    if args.force_fetch {
-        blocks.truncate(args.start as usize - 1);
+    if !blocks.is_empty() {
+        if args.force_fetch {
+            let pos = blocks
+                .iter()
+                .position(|block| block.evm_input.current_block.header.number == args.start);
+            println!("start: {pos:?}");
+            if let Some(pos) = pos {
+                blocks.truncate(pos);
+            }
+        }
+    } else {
+        let start_number =
+            EL_START_BLOCK_NUMBER.expect("EL_START_BLOCK_NUMBER not set").parse::<u64>().unwrap();
+        assert_eq!(args.start, start_number);
     }
-    assert!(blocks.len() as u64 + 1 == args.start, "Invalid starting block number");
 
     let addr = args.l2_contract_address.trim_prefix("0x");
     let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
@@ -132,8 +144,13 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
                 .filter(|&(_, &val)| val == i)
                 .map(|(i, _)| i)
                 .collect();
-            let graph_ids = indices.iter().map(|&x| args.graph_ids[x].clone()).collect();
-            Some((l2_contract_address, base_slot, graph_ids))
+            let graph_ids: Vec<_> = indices.iter().map(|&x| args.graph_ids[x].clone()).collect();
+            if graph_ids.len() > 0 {
+                println!("block_id: {i}, check graph_ids: {:?}", graph_ids);
+                Some((l2_contract_address, base_slot, graph_ids))
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -142,7 +159,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
     }
     let block_bytes = serde_json::to_vec(&blocks).unwrap();
     std::fs::write(&args.blocks, block_bytes).unwrap();
-    blocks.split_off(args.start as usize - 1)
+    blocks.split_off(blocks.len() - args.batch_size as usize)
 }
 
 #[tokio::main]
@@ -163,6 +180,7 @@ async fn main() {
     let vk_hash = state_chain_proof_vk.hash_u32();
 
     // Set the previous proof type based on input_proof argument
+    println!("init input: {}", args.init_input);
     let prev_receipt = if args.init_input {
         None
     } else {
@@ -175,6 +193,7 @@ async fn main() {
         Some(mut receipt) => {
             let prev_output = receipt.public_values.read();
             let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
+            println!("prev out: {:?}", prev_output);
             (StateChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
         None => (StateChainPrevProofType::GenesisBlock, [0u8; 32]),
