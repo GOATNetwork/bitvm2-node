@@ -7,7 +7,7 @@ use crate::rpc_service::{AppState, current_time_secs};
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertInitTxVoutMonitorData, ChallengeSubStatus, WTInitTxVoutMonitorData,
 };
-use crate::utils::parse_graph_raw_data;
+use crate::utils::{gen_instance_parameters_local, parse_graph_raw_data};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
@@ -1391,6 +1391,62 @@ pub async fn get_graph_neighbor_ids(
         if i > 0 && *graph_id != current_id {
             res.next_id = Some(*graph_id);
         }
+    }
+    Ok((StatusCode::OK, Json(res)))
+}
+
+/// Get unsigned pegin transactions
+///
+/// Returns the unsigned pegin deposit transaction (prepare) and pegin refund transaction (cancel)
+/// for a given instance, which allows users to sign and broadcast these transactions for pegin operations.
+///
+/// # Path Parameters
+///
+/// - `instance_id`: UUID of the BitVM2 instance
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns the unsigned pegin transactions (if instance exists)
+/// - `500 Internal Server Error`: Parameter validation failed or database query failed
+///
+/// # Use Case
+///
+/// Frontend can call this endpoint to get the unsigned pegin transactions for an instance,
+/// allowing users to sign and broadcast the `pegin_prepare` transaction to deposit funds,
+/// or the `pegin_cancel` transaction to refund if needed.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances/123e4567-e89b-12d3-a456-426614174000/unsigned-pegin-txn
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "pegin_prepare": "0200000001...",
+///   "pegin_cancel": "0200000001..."
+/// }
+/// ```
+#[axum::debug_handler]
+pub async fn get_unsigned_pegin_txn(
+    Path(instance_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<UnsignPeginTxnResponse> {
+    let current_id = InputValidator::validate_uuid(&instance_id, "instance_id")?;
+    let mut storage_processor =
+        app_state.local_db.acquire().await.api_error("GET_UNSIGNED_PEGIN_ERROR")?;
+    let mut res = UnsignPeginTxnResponse::default();
+    if let Some(instance) =
+        storage_processor.find_instance(&current_id).await.api_error("GET_UNSIGNED_PEGIN_ERROR")?
+    {
+        let (pegin_deposit_tx, _, pegin_refund_tx) = gen_instance_parameters_local(&instance)
+            .api_error("GET_UNSIGNED_PEGIN_ERROR")?
+            .build_pegin_tx()
+            .api_error("GET_UNSIGNED_PEGIN_ERROR")?;
+
+        res.pegin_prepare = Some(serialize_hex(pegin_deposit_tx.tx()));
+        res.pegin_cancel = Some(serialize_hex(pegin_refund_tx.tx()));
     }
     Ok((StatusCode::OK, Json(res)))
 }

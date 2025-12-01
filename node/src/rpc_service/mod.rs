@@ -13,7 +13,8 @@ use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
     bridge_in_request_tag, get_blocks_desc, get_graph, get_graph_neighbor_ids, get_graph_tx,
     get_graph_txn, get_graphs, get_instance, get_instances, get_instances_overview, get_node,
-    get_nodes, get_nodes_overview, get_proof, get_ready_to_kickoff_graph, instance_settings,
+    get_nodes, get_nodes_overview, get_proof, get_ready_to_kickoff_graph, get_unsigned_pegin_txn,
+    instance_settings,
 };
 use axum::body::Body;
 use axum::extract::Request;
@@ -117,6 +118,7 @@ pub async fn serve(
         .route(routes::v1::INSTANCES_BASE, get(get_instances))
         .route(routes::v1::INSTANCES_BY_ID, get(get_instance))
         .route(routes::v1::INSTANCES_OVERVIEW, get(get_instances_overview))
+        .route(routes::v1::INSTANCES_UNSIGNED_PEGIN_TXN, get(get_unsigned_pegin_txn))
         .route(routes::v1::GRAPHS_BY_ID, get(get_graph))
         .route(routes::v1::GRAPHS_BASE, get(get_graphs))
         .route(routes::v1::GRAPHS_READY_TO_KICKOFF, get(get_ready_to_kickoff_graph))

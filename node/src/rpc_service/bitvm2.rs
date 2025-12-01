@@ -488,6 +488,12 @@ pub struct GraphReadyToKickoffResponse {
     pub graph: Option<Graph>,
     pub no_ready_reason: Option<String>,
 }
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct UnsignPeginTxnResponse {
+    pub pegin_prepare: Option<String>,
+    pub pegin_cancel: Option<String>,
+}
 trait DisplayStatusConvert {
     fn convert_to_display_status(&self) -> String;
 

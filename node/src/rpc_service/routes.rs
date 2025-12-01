@@ -11,6 +11,7 @@ pub(crate) mod v1 {
     pub const INSTANCES_BRIDGE_IN_REQUEST_TAG: &str = "/v1/instances/bridge-in-request-tag";
     pub const INSTANCES_BY_ID: &str = "/v1/instances/{:id}";
     pub const INSTANCES_OVERVIEW: &str = "/v1/instances/overview";
+    pub const INSTANCES_UNSIGNED_PEGIN_TXN: &str = "/v1/instances/{:id}/unsigned-pegin-txn";
     pub const GRAPHS_BASE: &str = "/v1/graphs";
     pub const GRAPHS_BY_ID: &str = "/v1/graphs/{:id}";
     pub const GRAPHS_READY_TO_KICKOFF: &str = "/v1/graphs/ready-to-kickoff";
