@@ -213,6 +213,7 @@ pub async fn instance_btc_tx_monitor(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
                     .with_statuses(vec![
+                        InstanceBridgeInStatus::UserInited.to_string(),
                         InstanceBridgeInStatus::CommitteesAnswered.to_string(),
                         InstanceBridgeInStatus::Presigned.to_string(),
                         InstanceBridgeInStatus::Timeout.to_string(),
@@ -224,8 +225,11 @@ pub async fn instance_btc_tx_monitor(
             .await?
     };
     for instance in instances {
-        let (tx_id_op, next_status) = match InstanceBridgeInStatus::from_str(&instance.status) {
+        let (txid_op, next_status) = match InstanceBridgeInStatus::from_str(&instance.status) {
             Ok(status) => match status {
+                InstanceBridgeInStatus::UserInited => {
+                    (None, InstanceBridgeInStatus::CommitteesAnswered)
+                }
                 InstanceBridgeInStatus::CommitteesAnswered => {
                     (instance.btc_txid.clone(), InstanceBridgeInStatus::UserBroadcastPeginPrepare)
                 }
@@ -248,17 +252,8 @@ pub async fn instance_btc_tx_monitor(
                 continue;
             }
         };
-
-        if tx_id_op.is_none() {
-            warn!(
-                "instance:{} status:{} get check tx id is none",
-                instance.instance_id,
-                instance.status.clone()
-            );
-            continue;
-        }
-        let tx_id = tx_id_op.unwrap().0;
-        if let Ok(status) = btc_client.get_tx_status(&tx_id).await
+        if let Some(txid) = txid_op.clone()
+            && let Ok(status) = btc_client.get_tx_status(&txid.0).await
             && status.confirmed
         {
             let mut tx = local_db.start_transaction().await?;
@@ -302,12 +297,14 @@ pub async fn instance_btc_tx_monitor(
             tx.commit().await?;
         } else {
             warn!(
-                "instance:{}, status{}, check tx_id:{} is not chain ",
-                instance.instance_id,
-                instance.status,
-                tx_id.to_string()
+                "instance:{}, status{}, check tx_id:{:?} is not chain ",
+                instance.instance_id, instance.status, txid_op
             );
-            if next_status == InstanceBridgeInStatus::UserBroadcastPeginPrepare
+            if [
+                InstanceBridgeInStatus::UserInited,
+                InstanceBridgeInStatus::UserBroadcastPeginPrepare,
+            ]
+            .contains(&next_status)
                 && let utxos = serde_json::from_str::<Vec<Utxo>>(&instance.input_utxos)?
                 && !check_bridge_in_uxto_available(btc_client, &utxos).await?
             {

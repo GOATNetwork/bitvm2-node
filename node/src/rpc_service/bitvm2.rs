@@ -155,17 +155,27 @@ async fn get_instance_status_extra(
                     status_extra.user_action = StatusUserAction::Cancel;
                 }
             }
+            InstanceBridgeInStatus::UserDiscarded => {
+                status_extra.is_failed = true;
+                status_extra.error = Some(BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT.to_string());
+                status_extra.user_action = StatusUserAction::Cancel;
+            }
             InstanceBridgeInStatus::CommitteesAnswered => {
-                status_extra.is_failed = false;
-                status_extra.error = None;
-                status_extra.user_action = StatusUserAction::BroadcastPreparePegin;
+                if !check_bridge_in_uxto_available(btc_client, utxos).await? {
+                    status_extra.is_failed = true;
+                    status_extra.error = Some(BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT.to_string());
+                    status_extra.user_action = StatusUserAction::Cancel;
+                } else {
+                    status_extra.is_failed = false;
+                    status_extra.error = None;
+                    status_extra.user_action = StatusUserAction::BroadcastPreparePegin;
+                }
             }
             InstanceBridgeInStatus::NoEnoughCommitteesAnswered => {
                 status_extra.is_failed = true;
                 status_extra.error = Some(BRIDGE_IN_FAIL_AS_NO_ENOUGH_COMMITTEES.to_string());
                 status_extra.user_action = StatusUserAction::Cancel;
             }
-
             InstanceBridgeInStatus::PresignedFailed => {
                 status_extra.is_failed = true;
                 status_extra.error = Some(BRIDGE_IN_FAIL_AS_PRESIGNED_FAILED.to_string());
