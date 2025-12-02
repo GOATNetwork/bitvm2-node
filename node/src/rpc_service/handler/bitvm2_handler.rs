@@ -1439,6 +1439,7 @@ pub async fn get_unsigned_pegin_txn(
     let mut res = UnsignPeginTxnResponse::default();
     if let Some(instance) =
         storage_processor.find_instance(&current_id).await.api_error("GET_UNSIGNED_PEGIN_ERROR")?
+        && instance.status == InstanceBridgeInStatus::CommitteesAnswered.to_string()
     {
         let (pegin_deposit_tx, _, pegin_refund_tx) = gen_instance_parameters_local(&instance)
             .api_error("GET_UNSIGNED_PEGIN_ERROR")?
@@ -1447,6 +1448,10 @@ pub async fn get_unsigned_pegin_txn(
 
         res.pegin_prepare = Some(serialize_hex(pegin_deposit_tx.tx()));
         res.pegin_cancel = Some(serialize_hex(pegin_refund_tx.tx()));
+    } else {
+        warn!(
+            "instance:{instance_id} is not record in db or instance status neq CommitteesAnswered"
+        );
     }
     Ok((StatusCode::OK, Json(res)))
 }
