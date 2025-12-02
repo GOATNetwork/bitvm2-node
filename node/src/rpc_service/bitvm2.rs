@@ -282,11 +282,8 @@ pub type GraphGetResponse = GraphExtended;
 
 #[derive(Deserialize, Serialize, Default)]
 pub struct GraphTxnGetResponse {
-    #[serde(rename = "assert-init")]
     pub assert_init: BtcTxData,
-    #[serde(rename = "watchtower-challenge-init")]
     pub watchtower_challenge_init: BtcTxData,
-    #[serde(rename = "pre-kickoff")]
     pub pre_kickoff: BtcTxData,
     pub challenge: BtcTxData,
     pub disprove: BtcTxData,

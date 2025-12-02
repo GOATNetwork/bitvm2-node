@@ -1440,17 +1440,17 @@ impl<'a> StorageProcessor<'a> {
             res.total += record.total;
             match record.actor.as_str() {
                 "Challenger" => {
-                    (res.offline_challenger, res.online_challenger) =
+                    (res.offline_challengers, res.online_challengers) =
                         (record.offline, record.online);
                 }
                 "Operator" => {
-                    (res.offline_operator, res.online_operator) = (record.offline, record.online);
+                    (res.offline_operators, res.online_operators) = (record.offline, record.online);
                 }
                 "Committee" => {
-                    (res.offline_committee, res.online_committee) = (record.offline, record.online);
+                    (res.offline_committees, res.online_committees) = (record.offline, record.online);
                 }
                 "Watchtower" => {
-                    (res.offline_watchtower, res.online_watchtower) =
+                    (res.offline_watchtowers, res.online_watchtowers) =
                         (record.offline, record.online);
                 }
                 _ => {}

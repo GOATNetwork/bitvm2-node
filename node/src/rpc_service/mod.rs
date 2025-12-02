@@ -433,8 +433,8 @@ mod tests {
                 resp_validation: Some(Box::new(|text| -> bool {
                     matches!(
                         serde_json::from_str::<NodeOverViewResponse>(&text),
-                        Ok(node_overview) if node_overview.nodes_overview.online_challenger == 1 &&
-                        node_overview.nodes_overview.online_committee == 1
+                        Ok(node_overview) if node_overview.nodes_overview.online_challengers == 1 &&
+                        node_overview.nodes_overview.online_committees == 1
                     )
                 })),
             },

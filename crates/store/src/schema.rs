@@ -174,14 +174,14 @@ pub struct Node {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NodesOverview {
     pub total: i64,
-    pub online_operator: i64,
-    pub offline_operator: i64,
-    pub online_challenger: i64,
-    pub offline_challenger: i64,
-    pub online_committee: i64,
-    pub offline_committee: i64,
-    pub online_watchtower: i64,
-    pub offline_watchtower: i64,
+    pub online_operators: i64,
+    pub offline_operators: i64,
+    pub online_challengers: i64,
+    pub offline_challengers: i64,
+    pub online_committees: i64,
+    pub offline_committees: i64,
+    pub online_watchtowers: i64,
+    pub offline_watchtowers: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

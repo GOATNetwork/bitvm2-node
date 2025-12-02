@@ -89,6 +89,11 @@ pub async fn instance_settings(
 ///   "bridge_request_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e"
 /// }
 /// ```
+///
+/// Response example:
+/// ```json
+/// {}
+/// ```
 #[axum::debug_handler]
 pub async fn bridge_in_request_tag(
     State(app_state): State<Arc<AppState>>,
@@ -177,7 +182,7 @@ pub async fn bridge_in_request_tag(
 ///         "status": "CommitteesAnswered",
 ///         "goat_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
 ///         "goat_tx_height": 8509060,
-///         "user_xonly_pubkey": "02abc123...",
+///         "user_xonly_pubkey": [2, 171, 193, 35, ...],
 ///         "user_change_addr": "tb1q...",
 ///         "user_refund_addr": "tb1q...",
 ///         "btc_txid": "f6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
@@ -187,22 +192,22 @@ pub async fn bridge_in_request_tag(
 ///         "committees_answers": {},
 ///         "pegin_data_tx_hash": "0x...",
 ///         "parameters": null,
+///         "status_updated_at": 1699123456,
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
 ///       },
 ///       "utxo": [
 ///         {
-///           "txid": "abc123...",
+///           "txid": [171, 193, 35, ...],
 ///           "vout": 0,
-///           "amount_sats": 100000000,
-///           "script_pubkey": "0014..."
+///           "amount_sats": 100000000
 ///         }
 ///       ],
 ///       "confirmations": 0,
 ///       "target_confirmations": 6,
 ///       "waiting_time_in_secs": 60,
 ///       "status_extra": {
-///         "user_action": "Submit",
+///         "user_action": "None",
 ///         "is_failed": false,
 ///         "error": null
 ///       }
@@ -302,7 +307,7 @@ pub async fn get_instances(
 ///       "status": "CommitteesAnswered",
 ///       "goat_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
 ///       "goat_tx_height": 8509060,
-///       "user_xonly_pubkey": "02abc123...",
+///       "user_xonly_pubkey": [2, 171, 193, 35, ...],
 ///       "user_change_addr": "tb1q...",
 ///       "user_refund_addr": "tb1q...",
 ///       "btc_txid": "f6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
@@ -312,22 +317,22 @@ pub async fn get_instances(
 ///       "committees_answers": {},
 ///       "pegin_data_tx_hash": "0x...",
 ///       "parameters": null,
+///       "status_updated_at": 1699123456,
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
 ///     },
 ///     "utxo": [
 ///       {
-///         "txid": "abc123...",
+///         "txid": [171, 193, 35, ...],
 ///         "vout": 0,
-///         "amount_sats": 100000000,
-///         "script_pubkey": "0014..."
+///         "amount_sats": 100000000
 ///       }
 ///     ],
 ///     "confirmations": 0,
 ///     "target_confirmations": 6,
 ///     "waiting_time_in_secs": 60,
 ///     "status_extra": {
-///       "user_action": "Submit",
+///       "user_action": "None",
 ///       "is_failed": false,
 ///       "error": null
 ///     }
@@ -508,6 +513,7 @@ pub async fn get_instances_overview(
 ///       "init_withdraw_tx_hash": null,
 ///       "bridge_out_start_at": 1699123456,
 ///       "zkm_version": "zkm1.0.0",
+///       "status_updated_at": 1699123456,
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
 ///     },
@@ -600,6 +606,7 @@ pub async fn get_graph(
 ///         "init_withdraw_tx_hash": null,
 ///         "bridge_out_start_at": 1699123456,
 ///         "zkm_version": "zkm1.0.0",
+///         "status_updated_at": 1699123456,
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
 ///       },
@@ -702,6 +709,7 @@ pub async fn get_graphs(
 ///     "init_withdraw_tx_hash": null,
 ///     "bridge_out_start_at": 0,
 ///     "zkm_version": "zkm1.0.0",
+///     "status_updated_at": 1699123456,
 ///     "created_at": 1699123456,
 ///     "updated_at": 1699123456
 ///   },
