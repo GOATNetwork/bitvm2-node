@@ -8,9 +8,9 @@ use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::reflect_goat_address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use bitvm2_lib::actors::Actor;
 use http::StatusCode;
 use std::sync::Arc;
-
 use store::Node;
 use store::localdb::NodeQuery;
 
@@ -90,17 +90,16 @@ pub async fn get_nodes(
         .update_node_timestamp(&app_state.peer_id, current_time_secs())
         .await
         .api_error("GET_NODES_ERROR")?;
-
     let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
     let (_, goat_addr) = reflect_goat_address(query_params.goat_addr);
     let (nodes, total) = storage_process
         .find_nodes(&NodeQuery {
-            actor: query_params.actor,
+            actor: query_params.actor.filter(|actor| actor != Actor::All.to_string().as_str()),
             goat_addr,
             time_threshold: query_params.status.clone().map(|_| time_threshold),
             is_in_time_threshold: query_params
                 .status
-                .map(|status| status == NODE_STATUS_OFFLINE)
+                .map(|status| status != NODE_STATUS_OFFLINE)
                 .unwrap_or(true),
             order: None,
             offset: Some(offset),
