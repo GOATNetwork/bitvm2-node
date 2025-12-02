@@ -32,7 +32,8 @@ use client::goat_chain::GoatInitConfig;
 use dotenv::dotenv;
 use tracing_subscriber::EnvFilter;
 
-use cbft_rpc::fetch_cosmos_validator_info;
+use cbft_rpc::{fetch_cbft_validator_info, fetch_validators};
+use commit_chain::CommitInfo;
 
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
@@ -41,6 +42,7 @@ use bitcoin_light_client_circuit::{
     decode_eth_address, estimate_tx_vbytes,
 };
 use commit_chain::{create_sequencer_update_script, finalize, sign_partial};
+use tendermint::validator::Info;
 
 use hex::FromHex;
 use serde::{Deserialize, Serialize};
@@ -127,6 +129,37 @@ impl OutputData {
     }
 }
 
+async fn save_commit_info(
+    goat_client: &GOATClient,
+    file_path: &str,
+    genesis_txid: String,
+    publishers: &Vec<EvmAddress>,
+    sequencers: Vec<Info>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let file = std::fs::File::open(file_path)?;
+    let output: OutputData = serde_json::from_reader(file)?;
+    let btc_public_keys = fetch_publishers(goat_client, &publishers).await?;
+
+    let txid = &output.update_connector_txid.unwrap();
+    let genesis_txid = if genesis_txid == "" { txid.clone() } else { genesis_txid };
+
+    let commit_info = CommitInfo {
+        txid: txid.clone(),
+        threshold: if output.sigs.len() > 0 {
+            output.sigs.len()
+        } else {
+            (btc_public_keys.len() * 2 + 2) / 3
+        } as u16,
+        publisher_public_keys: btc_public_keys.iter().map(|pubkey| pubkey.to_string()).collect(),
+        genesis_txid,
+        sequencers,
+    };
+
+    let commit_info = serde_json::to_string(&commit_info).unwrap();
+    let file_path = format!("{file_path}.{txid}.commit_info.json");
+    Ok(std::fs::write(file_path, commit_info)?)
+}
+
 fn save_output(input: OutputData, output_file: &str, clean_sigs: bool) {
     let mut file = std::fs::OpenOptions::new()
         .read(true)
@@ -178,6 +211,9 @@ enum Commands {
         goat_block_number: u64,
         #[arg(long, env = "NEXT_PUBLISHERS", value_delimiter = ',', value_parser = decode_eth_address_object)]
         next_publishers: Vec<EvmAddress>,
+
+        #[arg(long, env = "COMMIT_GENESIS_TXID", default_value = "")]
+        genesis_txid: String,
     },
     Payfee {
         #[arg(long, env = "FUND_BTC_KEY_WIF")]
@@ -266,8 +302,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
         }
         Commands::SignSeq { owner_btc_key_wif, goat_block_number, next_publishers, clean_sigs } => {
-            let (_, next_sequencer_set_hash, _) =
-                fetch_cosmos_validator_info(goat_block_number).await?;
+            let (sequencer_set_hash, _) = fetch_cbft_validator_info(goat_block_number).await?;
 
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
@@ -289,19 +324,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fee_tx_vout,
                 update_connector_txid,
                 update_connector_vout,
-                next_sequencer_set_hash.unwrap(),
+                sequencer_set_hash,
                 output_file,
             )
             .await
         }
-        Commands::PushSeq { owner_btc_key_wif, goat_block_number, next_publishers } => {
-            let (_, next_sequencer_set_hash, _) =
-                fetch_cosmos_validator_info(goat_block_number).await?;
+        Commands::PushSeq {
+            owner_btc_key_wif,
+            goat_block_number,
+            next_publishers,
+            genesis_txid,
+        } => {
+            let (sequencer_set_hash, cosmos_block_number) =
+                fetch_cbft_validator_info(goat_block_number).await?;
+            let sequencers = fetch_validators(cosmos_block_number).await?;
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
             let (update_connector_txid, update_connector_vout) =
                 (cached_output.update_connector_txid.clone(), cached_output.update_connector_vout);
-
             action_push_sequencer_set_update(
                 &btc_client,
                 &goat_client,
@@ -314,15 +354,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 update_connector_txid,
                 update_connector_vout,
                 cached_output.sigs,
-                next_sequencer_set_hash.unwrap(),
+                sequencer_set_hash,
                 output_file,
             )
+            .await?;
+            match save_commit_info(
+                &goat_client,
+                &args.output_file,
+                genesis_txid,
+                &args.publishers,
+                sequencers.validators,
+            )
             .await
+            {
+                Err(e) => {
+                    println!("Failed to save commit info: {}", e);
+                    Ok(())
+                }
+                _ => Ok(()),
+            }
         }
         Commands::UpdateSeqSet { next_publishers, goat_block_number } => {
             // fetch validator set from cosmos
-            let (sequence_set_hash, next_sequencer_set_hash, _) =
-                fetch_cosmos_validator_info(goat_block_number).await?;
+            let (sequence_set_hash, _) = fetch_cbft_validator_info(goat_block_number).await?;
 
             action_update_sequencer_set_on_goat(
                 &btc_client,
@@ -331,7 +385,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.publishers,
                 next_publishers,
                 sequence_set_hash,
-                next_sequencer_set_hash,
                 p2wsh_sig_hash,
                 goat_block_number,
             )
@@ -475,6 +528,7 @@ fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
         get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS);
     config.private_key = args.goat_evm_prvkey.clone();
 
+    println!("config: {:?}", config);
     let goat_client = GOATClient::new(config, client::goat_chain::GoatNetwork::Test);
     Ok((btc_client, goat_client))
 }
@@ -486,8 +540,7 @@ async fn action_update_sequencer_set_on_goat(
     goat_evm_prvkey: Option<String>,
     publishers: Vec<EvmAddress>,
     next_publishers: Vec<EvmAddress>,
-    sequencer_set_hash: Option<[u8; 32]>,
-    next_sequencer_set_hash: Option<[u8; 32]>,
+    sequencer_set_hash: [u8; 32],
     p2wsh_sig_hash: Option<[u8; 32]>,
     goat_block_number: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -500,12 +553,9 @@ async fn action_update_sequencer_set_on_goat(
     let next_publishers_hash = keccak256(&packed);
 
     let sequencer_set = SequencerSet {
-        sequencer_set_hash: *sequencer_set_hash.as_ref().unwrap(),
-        next_sequencer_set_hash: *next_sequencer_set_hash.as_ref().unwrap(),
-
+        sequencer_set_hash: sequencer_set_hash.clone(),
         publishers_hash: *publishers_hash,
         next_publishers_hash: *next_publishers_hash,
-
         p2wsh_sig_hash: *p2wsh_sig_hash.as_ref().unwrap(),
         goat_block_number,
     };
@@ -599,7 +649,7 @@ async fn action_push_sequencer_set_update(
     update_connector_txid: Option<String>,
     update_connector_vout: Option<u32>,
     sigs: Vec<String>,
-    next_sequencer_set_hash: [u8; 32],
+    sequencer_set_hash: [u8; 32],
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let btc_public_keys = fetch_publishers(goat_client, &publishers).await?;
@@ -649,7 +699,7 @@ async fn action_push_sequencer_set_update(
 
     // Skip construction of the genesis tx
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
-        next_sequencer_set_hash,
+        sequencer_set_hash,
         &update_connector,
         &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
         next_update_connector_address.clone(),
@@ -698,7 +748,7 @@ async fn action_sign_sequencer_set_update(
     fee_tx_vout: u32,
     update_connector_txid: Option<String>,
     update_connector_vout: Option<u32>,
-    next_sequencer_set_hash: [u8; 32],
+    sequencer_set_hash: [u8; 32],
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let network = get_network();
@@ -743,7 +793,7 @@ async fn action_sign_sequencer_set_update(
         };
 
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
-        next_sequencer_set_hash,
+        sequencer_set_hash,
         &update_connector,
         &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
         next_update_connector_address.clone(),

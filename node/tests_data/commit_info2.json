@@ -7,6 +7,71 @@
       "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
       "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
       "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337"
-    ]
+    ],
+    "sequencers": [
+    {
+      "address": "8C22E5E593EC78508B903B80CD7AB8816B7F3EAD",
+      "pub_key": {
+        "type": "tendermint/PubKeySecp256k1",
+        "value": "A5B8wYeDPeAMIXRYzBd8qcMUY9p4IlrMxm3U28ovBJor"
+      },
+      "voting_power": "1303060",
+      "proposer_priority": "-3177822"
+    },
+    {
+      "address": "1F1678DE2C9985AFBC3672506BA3F51D6F112FE6",
+      "pub_key": {
+        "type": "tendermint/PubKeySecp256k1",
+        "value": "A/hn+YaHqysaTM/EC4BlJDMwHbojisho+70I+IoQLvdz"
+      },
+      "voting_power": "1250000",
+      "proposer_priority": "426684"
+    },
+    {
+      "address": "5D88D68542F262D52463E962781BC5758FDCDE06",
+      "pub_key": {
+        "type": "tendermint/PubKeySecp256k1",
+        "value": "Atewg/ZQ1mTF0vYpZuLngMNt8A9b/L8jN7AMM+kf2kfa"
+      },
+      "voting_power": "1115240",
+      "proposer_priority": "-1302326"
+    },
+    {
+      "address": "7F3999D28542D995E5CF9E7F412C3B38BDB46178",
+      "pub_key": {
+        "type": "tendermint/PubKeySecp256k1",
+        "value": "A6Vkrhn8SyoNjmxoHUQGkE5TLQsyeP19Z2a4bIh3NYaP"
+      },
+      "voting_power": "1000005",
+      "proposer_priority": "-3730182"
+    },
+    {
+      "address": "70CCE9B7FB446D4CCF793C8CBC12DBEF99A10F83",
+      "pub_key": {
+        "type": "tendermint/PubKeySecp256k1",
+        "value": "A8Rme2ir4WQL27szunG6Dy0Er2QezaZf0F/hods/mVdp"
+      },
+      "voting_power": "1000000",
+      "proposer_priority": "3266738"
+    },
+    {
+      "address": "9104A28CDF6A00A546A1C365007EBF017B0645AF",
+      "pub_key": {
+        "type": "tendermint/PubKeySecp256k1",
+        "value": "AqTVRtDD5KEOiECN41VvOWqGbJnMHOFJFW+04Tb+aKxu"
+      },
+      "voting_power": "1000000",
+      "proposer_priority": "3239128"
+    },
+    {
+      "address": "9F5A293BE75CAB701CD199A4FA97CB12703B1D03",
+      "pub_key": {
+        "type": "tendermint/PubKeySecp256k1",
+        "value": "AjDFLCZB5JGJ+6QYxxCF9K59z100nnqN5kC6Sl7WEhtc"
+      },
+      "voting_power": "1000000",
+      "proposer_priority": "1277782"
+    }
+  ]
   }
 ]

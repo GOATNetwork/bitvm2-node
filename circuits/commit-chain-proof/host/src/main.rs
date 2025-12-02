@@ -53,6 +53,16 @@ async fn fetch_commit_chain(args: &Args) {
         let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
         sequencer_set_hash.copy_from_slice(&op_return_data);
 
+        println!("validators: {:?}", ci.sequencers);
+        let sequencer_set = ValidatorSet::without_proposer(ci.sequencers.clone());
+        if let tendermint::Hash::Sha256(expected_hash) = sequencer_set.hash() {
+            println!("hex sequencer set hash: {}", hex::encode(expected_hash));
+            println!("hex op return hash: {}", hex::encode(sequencer_set_hash));
+            assert_eq!(expected_hash, sequencer_set_hash);
+        } else {
+            panic!("Invalid sequencer set hash");
+        }
+
         let publisher_public_keys = ci
             .publisher_public_keys
             .iter()
@@ -60,7 +70,7 @@ async fn fetch_commit_chain(args: &Args) {
             .collect();
         let commit = CircuitCommit {
             commit_txn: tx,
-            sequencer_set_hash,
+            sequencer_set,
             publisher_public_keys,
             threshold: ci.threshold,
             genesis_txid: Txid::from_str(&ci.genesis_txid).unwrap().as_raw_hash().to_byte_array(),

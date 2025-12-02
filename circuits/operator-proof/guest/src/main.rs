@@ -14,19 +14,10 @@ pub fn main() {
     // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
     let included_watchertowers: U256 = zkm_zkvm::io::read::<U256>();
     let graph_id: [u8; 16] = zkm_zkvm::io::read::<[u8; 16]>();
-    //latest_sequencer_commit_tx: &CircuitTransaction,
     let operator_genesis_sequencer_commit_txid: [u8; 32] = zkm_zkvm::io::read(); 
     println!("read operator commit txn");
     let operator_latest_sequencer_commit_txn: CircuitTransaction = zkm_zkvm::io::read(); // private inputs
     let latest_sequencer_commit_txid = operator_latest_sequencer_commit_txn.0.compute_txid(); // public input
-    // extract consensus block height
-    println!("read cosmos block");
-    let consensus_block_actual_sequencer_set_hash: [u8; 32] = zkm_zkvm::io::read(); // commit the sequencer set
-    let operator_state_block_hash: [u8; 32] = zkm_zkvm::io::read(); // commit the sequencer set
-    //let consensus_block_actual_data_hash: [u8; 32] = zkm_zkvm::io::read(); // commit the sequencer set
-    //let state_txns: Vec<String> = zkm_zkvm::io::read(); 
-    println!("read geth block");
-    //let eth_client_execution_input: EthClientExecutorInput = zkm_zkvm::io::read();
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     let watchtower_challenge_txns: Vec<CircuitTransaction> = zkm_zkvm::io::read();
     let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
@@ -39,16 +30,11 @@ pub fn main() {
     let operator_state_chain: StateChainCircuitInput = zkm_zkvm::io::read();
     let spv: SPV = zkm_zkvm::io::read();
 
-    //let l2_contract_address: Address = zkm_zkvm::io::read();
-    //let base_slot: [u8; 32] = zkm_zkvm::io::read();
-
     let operator_total_work = bitcoin_light_client_circuit::propose_longest_chain(
         included_watchertowers,
         graph_id,
         operator_genesis_sequencer_commit_txid,
         operator_latest_sequencer_commit_txn,
-        consensus_block_actual_sequencer_set_hash,
-        operator_state_block_hash,
         watchtower_challenge_txns,
         watchtower_challenge_txn_pubkey,
         watchtower_challenge_txn_scripts,

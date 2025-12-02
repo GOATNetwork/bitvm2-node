@@ -1,4 +1,3 @@
-use alloy_primitives::hex;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as b64;
 use core::time::Duration;
@@ -66,8 +65,19 @@ fn merkle_root_from_base64_txns(txns_b64: &[String]) -> [u8; 32] {
     compute_merkle_root(&tx_hashes)
 }
 
-/// Verify consensus blocks
-pub fn verify_validator_set(light_block_1: LightBlock, light_block_2: LightBlock) {
+pub fn verify_sequencer_commit(light_block: &LightBlock) {
+    let vp = ProdVerifier::default();
+    let verdict = vp.verify_commit(&light_block.as_untrusted_state());
+    match verdict {
+        Verdict::Success => {
+            println!("success");
+        }
+        v => panic!("expected success, got: {v:?}"),
+    }
+}
+
+/// Verify
+pub fn verify_sequencer_set(light_block_1: LightBlock, light_block_2: LightBlock) {
     // Normally we could just do this to read in the LightBlocks, but bincode doesn't work with
     // LightBlock. This is likely a bug in tendermint-rs.
     // let light_block_1 = zkm_zkvm::io::read::<LightBlock>();
@@ -122,16 +132,8 @@ pub fn verify_validator_set(light_block_1: LightBlock, light_block_2: LightBlock
     }
 }
 
-/// Verify the last block's validator set's commitment
-pub fn verify_validator_set_hash(commitment: [u8; 32], block: LightBlock) {
-    let validators = block.validators;
-    let code = bincode::serialize(&validators).unwrap();
-    let expected_hash = sha2::Sha256::digest(&code);
-    assert_eq!(commitment.to_vec(), expected_hash.to_vec());
-}
-
 // we can not move it to cbft-rpc since it'll get non-std involved.
-pub fn parse_cosmos_payload(tx_b64: &str) -> Option<ExecutionPayload> {
+pub fn parse_cbft_tx_payload(tx_b64: &str) -> Option<ExecutionPayload> {
     let txns_b64 = b64.decode(tx_b64).unwrap();
     let tx = Tx::decode(&txns_b64[..]).unwrap();
 
@@ -143,7 +145,6 @@ pub fn parse_cosmos_payload(tx_b64: &str) -> Option<ExecutionPayload> {
         assert_eq!(type_url, "/goat.goat.v1.MsgNewEthBlock");
         let payload = proto::MsgNewEthBlock::decode(&first_message.value[..]).unwrap();
         let payload = payload.payload.unwrap();
-        println!("payload: {:?}", payload);
         return Some(payload);
     };
     None
@@ -154,18 +155,15 @@ pub fn check_el_block_from_payload(
     el_block_hash: &[u8; 32],
     el_parent_block_hash: &[u8; 32],
     txs: &[String],
-    actual_data_hash: [u8; 32],
+    actual_data_hash: &[u8; 32],
 ) {
-    if let Some(payload) = parse_cosmos_payload(&txs[0]) {
+    if let Some(payload) = parse_cbft_tx_payload(&txs[0]) {
         assert_eq!(payload.block_number, el_block_number);
         assert_eq!(payload.block_hash, el_block_hash);
         assert_eq!(payload.parent_hash, el_parent_block_hash);
     }
-
     let computed_data_hash = merkle_root_from_base64_txns(txs);
-    println!("data hash: {:?}", hex::encode(computed_data_hash));
-
-    assert_eq!(actual_data_hash, computed_data_hash);
+    assert_eq!(*actual_data_hash, computed_data_hash);
 }
 
 #[cfg(test)]
@@ -182,13 +180,7 @@ mod tests {
     pub fn test_verify_validator_set() {
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
         let light_block_2 = serde_json::from_str::<LightBlock>(LB_2_JSON).unwrap();
-        verify_validator_set(light_block_1, light_block_2.clone());
-
-        let hash = [
-            18, 247, 168, 227, 210, 80, 16, 178, 3, 220, 54, 235, 129, 28, 126, 13, 58, 194, 168,
-            218, 165, 61, 79, 106, 31, 128, 1, 8, 181, 199, 39, 44,
-        ];
-        verify_validator_set_hash(hash, light_block_2);
+        verify_sequencer_set(light_block_1, light_block_2.clone());
     }
 
     #[test]

@@ -28,6 +28,11 @@ borsh = { workspace = true }
 commit-chain = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
+cbft-rpc.workspace = true
+tendermint = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = ["secp256k1"] }
+tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = [
+  "rust-crypto",
+] }
 
 # Ziren
 zkm-sdk.workspace = true

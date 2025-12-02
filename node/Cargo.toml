@@ -101,6 +101,8 @@ tempfile = "3.19.1"
 proofs = { path = "../crates/proofs" }
 tokio-util = "0.7.15"
 
+tendermint = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = ["secp256k1"] }
+
 [features]
 default = []
 tests = []

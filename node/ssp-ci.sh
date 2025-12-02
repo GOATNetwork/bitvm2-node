@@ -1,7 +1,8 @@
 set -e
 source .env
 
-GOAT_BLOCK_NUMBER=${1:-2000000}
+GOAT_BLOCK_NUMBER=${1:-9344536}
+GOAT_GENESIS_TXID=""
 
 if [ -f $OUTPUT_FILE ]; then
     mv $OUTPUT_FILE /tmp/ 

@@ -8,10 +8,11 @@ pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOu
     let mut chain_state = match input.prev_proof {
         StateChainPrevProofType::GenesisBlock => {
             let block_hash: [u8; 32] =
-                input.blocks[0].evm_input.current_block.hash_slow().try_into().unwrap();
-            let block_height = input.blocks[0].evm_input.current_block.header.number;
+                input.blocks[0].evm_block.current_block.hash_slow().try_into().unwrap();
+            let block_height = input.blocks[0].evm_block.current_block.header.number;
             println!("state chain genesis: {}, number: {}", hex::encode(block_hash), block_height);
-            StateChainState::new(block_height, block_hash)
+            let cosmos_block = input.blocks[0].cosmos_block.clone();
+            StateChainState::new(block_height, block_hash, cosmos_block)
         }
         StateChainPrevProofType::PrevProof(prev_proof) => {
             println!("verify state chain of prev proof");

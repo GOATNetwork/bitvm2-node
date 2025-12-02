@@ -2,7 +2,7 @@
 use alloy_primitives::{Address, U256};
 use alloy_provider::{RootProvider, network::Ethereum};
 use bitcoin_light_client_circuit::EthClientExecutorInput;
-use cbft_rpc::{fetch_cosmos_tx_data, fetch_cosmos_validator_info};
+use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info};
 use hex::FromHex;
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
@@ -17,7 +17,6 @@ use zkm_sdk::{
 
 /// A program that aggregates the proofs of the simple program.
 const STATE_CHAIN: &[u8] = include_elf!("guest");
-const EL_START_BLOCK_NUMBER: Option<&str> = option_env!("EL_START_BLOCK_NUMBER");
 
 use clap::Parser;
 use std::fs;
@@ -45,9 +44,6 @@ pub struct Args {
 
     #[clap(long, env, default_value_t = 0)]
     start: u64,
-
-    #[clap(long, default_value_t = false)]
-    force_fetch: bool,
 
     #[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
     l2_contract_address: String,
@@ -100,40 +96,16 @@ async fn fetch_exection_layer_block(
 }
 
 async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
-    use std::io::Read;
     assert!(args.start > 0, "Don't get genesis block from the consensus layer.");
-    let mut reader =
-        std::fs::OpenOptions::new().read(true).write(true).create(true).open(&args.blocks).unwrap();
-
-    let mut blocks: Vec<u8> = Vec::new();
-    reader.read_to_end(&mut blocks).unwrap();
-    let mut blocks: Vec<CircuitStateBlock> =
-        if blocks.is_empty() { Vec::new() } else { serde_json::from_slice(&blocks).unwrap() };
-
-    if !blocks.is_empty() {
-        if args.force_fetch {
-            let pos = blocks
-                .iter()
-                .position(|block| block.evm_input.current_block.header.number == args.start);
-            println!("start: {pos:?}");
-            if let Some(pos) = pos {
-                blocks.truncate(pos);
-            }
-        }
-    } else {
-        let start_number =
-            EL_START_BLOCK_NUMBER.expect("EL_START_BLOCK_NUMBER not set").parse::<u64>().unwrap();
-        assert_eq!(args.start, start_number);
-    }
-
+    let mut blocks: Vec<_> = Vec::new();
     let addr = args.l2_contract_address.trim_prefix("0x");
     let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
     let l2_contract_address = Address::from(bytes);
     let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
 
     for i in args.start..(args.start + args.batch_size) {
-        let (_, _, cl_block_number) = fetch_cosmos_validator_info(i).await.unwrap();
-        let (_, state_data_hash, state_txns) = fetch_cosmos_tx_data(cl_block_number).await.unwrap();
+        let (_, cl_block_number) = fetch_cbft_validator_info(i).await.unwrap();
+        let (_, state_data_hash, state_txns) = fetch_cbft_tx_data(cl_block_number).await.unwrap();
         let evm_input = fetch_exection_layer_block(&args.execution_layer_rpc, i).await;
 
         let withdrawals = if !args.graph_block_numbers.is_empty() {
@@ -159,7 +131,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
     }
     let block_bytes = serde_json::to_vec(&blocks).unwrap();
     std::fs::write(&args.blocks, block_bytes).unwrap();
-    blocks.split_off(blocks.len() - args.batch_size as usize)
+    blocks
 }
 
 #[tokio::main]

@@ -347,7 +347,6 @@ impl From<MerkleProofExtend> for BitcoinTxProof {
 #[derive(Clone, Debug)]
 pub struct SequencerSet {
     pub sequencer_set_hash: [u8; 32],
-    pub next_sequencer_set_hash: [u8; 32],
     pub publishers_hash: [u8; 32],
     pub next_publishers_hash: [u8; 32],
     pub p2wsh_sig_hash: [u8; 32],

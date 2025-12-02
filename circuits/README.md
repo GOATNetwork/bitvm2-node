@@ -1,5 +1,16 @@
 # BitVM2 Circuits 
 
+## Verification Path
+
+Trust Setup: choose a snapshot of GOAT Pre Alpha Mainnet, which consists of (Seqeuncer Set, EVM Block Hash)
+
+Verify: 
+
+* BTC Header Chain, check whether the Sequencer Set Commitment transaction is in the longgest chain
+* Sequencer Set Commitment, check whether the publishers have published the correct Sequencer Set
+* State Chain, check the EVM state transition, and check whether the EVM block has been signed by the Sequencer Set
+* Operator's total work >= Watchtowers' largest total work
+
 ## Preparation
 
 ```
@@ -39,7 +50,8 @@ Prepare the `commit_info.json`, the input data is formated as below.
       "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
       "03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
       "0362c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7"
-    ]
+    ],
+    "sequencers": [...]
   }
 ]
 ```
@@ -47,6 +59,7 @@ Prepare the `commit_info.json`, the input data is formated as below.
 * txid: the publisher's commitment transaction of Cosmos sequencer set. 
 * threshold: the number of publisher's signature 
 * publisher_public_keys: the publisher's compressed public keys
+* sequencers: sequencer's public keys, obtained from cosmos's `/validators`.
 
 Generate the proof:
 
@@ -69,7 +82,7 @@ export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
 export GRAPH_BLOCK_NUMBERS="8447360"
 
 export EL_START_BLOCK_NUMBER=8447350
-export BATCH_SIZE=20
+export BATCH_SIZE=30
 
 bash cron-state-chain-proof.sh $start $BATCH_SIZE
 
@@ -111,8 +124,8 @@ export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json |
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | jq -r .[0].txid)
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/350000-100.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
-export LATEST_STATE_BLOCK_HASH="0xc0544eea14e024dad0e480dcd5e5c89bdb51653b6aa4a07cfcf34e38ba0d204d" 
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447750-20.bin"
+export LATEST_STATE_BLOCK_HASH="0x598781ea505c0b801742ace07f408e7b3d0f4fc54f122c97f554dadb563d3814" 
+export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447350-30.bin"
 
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 
@@ -162,7 +175,7 @@ export WATCHTOWER_CHALLENGE_INFO="data/watchtower/watchtower_info.json"
 export INCLUDED_WATCHTOWERS=1
 
 export LATEST_STATE_BLOCK_HASH="0xc0544eea14e024dad0e480dcd5e5c89bdb51653b6aa4a07cfcf34e38ba0d204d" 
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447750-20.bin"
+export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447750-30.bin"
 
 RUST_LOG=info cargo run --package operator-proof --bin operator-proof -r -- --output "data/operator-proof/output.bin"
 ```

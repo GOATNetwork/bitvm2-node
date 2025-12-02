@@ -6,6 +6,7 @@ use guest_executor::executor::EthClientExecutor;
 use guest_executor::io::EthClientExecutorInput;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tendermint_light_client_verifier::types::LightBlock;
 
 /// The input proof of the commit chain circuit.
 /// The proof can be either None (implying the beginning) or a Succinct proof.
@@ -18,8 +19,9 @@ pub enum StateChainPrevProofType {
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CircuitStateBlock {
     pub state_txns: Vec<String>,
-    pub state_data_hash: [u8; 32],
-    pub evm_input: EthClientExecutorInput,
+    //pub state_data_hash: [u8; 32],
+    pub cosmos_block: LightBlock,
+    pub evm_block: EthClientExecutorInput,
     // (gateway contracts, withdraw_data_base_slot, [graph_ids])
     pub withdrawals: Option<(Address, [u8; 32], Vec<[u8; 16]>)>,
 }
@@ -27,9 +29,10 @@ pub struct CircuitStateBlock {
 /// The latest seqeuncer set
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct StateChainState {
-    pub block_height: u64,
-    pub genesis_block_hash: [u8; 32],
-    pub latest_block_hash: [u8; 32],
+    pub evm_block_height: u64,
+    pub genesis_evm_block_hash: [u8; 32],
+    pub latest_evm_block_hash: [u8; 32],
+    pub latest_cosmos_block: LightBlock,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -47,11 +50,16 @@ pub struct StateChainCircuitInput {
 }
 
 impl StateChainState {
-    pub fn new(block_height: u64, genesis_block_hash: [u8; 32]) -> Self {
+    pub fn new(
+        evm_block_height: u64,
+        genesis_evm_block_hash: [u8; 32],
+        latest_cosmos_block: LightBlock,
+    ) -> Self {
         StateChainState {
-            block_height,
-            latest_block_hash: genesis_block_hash.clone(),
-            genesis_block_hash,
+            evm_block_height,
+            latest_evm_block_hash: genesis_evm_block_hash.clone(),
+            genesis_evm_block_hash,
+            latest_cosmos_block,
         }
     }
 
@@ -59,23 +67,33 @@ impl StateChainState {
         for block in blocks {
             // check evm state transition
             let evm_header =
-                execute_el_block_and_check_withdraw_tx(&block.withdrawals, block.evm_input.clone());
-            assert_eq!(evm_header.number, block.evm_input.current_block.number);
-            println!("block_height: {}", self.block_height);
-            assert_eq!(evm_header.number, self.block_height);
+                execute_el_block_and_check_withdraw_tx(&block.withdrawals, block.evm_block.clone());
+            assert_eq!(evm_header.number, block.evm_block.current_block.number);
+            println!("block_height: {}", self.evm_block_height);
+            assert_eq!(evm_header.number, self.evm_block_height);
             let current_block_hash: [u8; 32] = evm_header.hash_slow().try_into().unwrap();
             // check the evm block is committed in the consensus txns
-            if current_block_hash != self.genesis_block_hash {
+            if current_block_hash != self.genesis_evm_block_hash {
+                let data_hash: [u8; 32] = block
+                    .cosmos_block
+                    .signed_header
+                    .header
+                    .data_hash
+                    .unwrap()
+                    .as_bytes()
+                    .try_into()
+                    .unwrap();
                 check_el_block_from_payload(
-                    block.evm_input.current_block.number,
+                    block.evm_block.current_block.number,
                     &current_block_hash,
-                    &self.latest_block_hash,
+                    &self.latest_evm_block_hash,
                     &block.state_txns,
-                    block.state_data_hash.clone(),
+                    &data_hash,
                 );
             }
-            self.block_height += 1;
-            self.latest_block_hash = current_block_hash;
+            self.evm_block_height += 1;
+            self.latest_evm_block_hash = current_block_hash;
+            self.latest_cosmos_block = block.cosmos_block.clone();
         }
     }
 }

@@ -5,7 +5,7 @@ use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
 
 use bitcoin::{Network, Txid, hashes::Hash};
@@ -31,9 +31,6 @@ pub struct Args {
 
     #[clap(long, env)]
     latest_sequencer_commit_txid: String,
-
-    #[clap(long, env)]
-    latest_state_block_hash: String,
 
     #[clap(long, env, short)]
     header_chain_input_proof: String,
@@ -112,26 +109,6 @@ async fn main() {
     let ZKMProof::Compressed(state_compressed_proof) = proof.proof else { panic!() };
     let bytes = std::fs::read(&format!("{}.vk", args.state_chain_input_proof)).unwrap();
     let state_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
-    let latest_state_block_hash: [u8; 32] =
-        hex::decode(args.latest_state_block_hash.trim_prefix("0x")).unwrap().try_into().unwrap();
-
-    let expected_state_block_hash: [u8; 32] = state_chain_input
-        .blocks
-        .last()
-        .unwrap()
-        .evm_input
-        .current_block
-        .header
-        .hash_slow()
-        .try_into()
-        .unwrap();
-    println!(
-        "latest: {}, expected: {}",
-        hex::encode(latest_state_block_hash),
-        hex::encode(expected_state_block_hash)
-    );
-    assert_eq!(latest_state_block_hash, expected_state_block_hash);
-
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
@@ -164,7 +141,6 @@ async fn main() {
         let mut stdin = ZKMStdin::new();
         stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
         stdin.write(&latest_sequencer_commit_txid.to_byte_array());
-        stdin.write(&latest_state_block_hash);
         stdin.write(&header_chain_input);
         stdin.write(&commit_chain_input);
         stdin.write(&state_chain_input);

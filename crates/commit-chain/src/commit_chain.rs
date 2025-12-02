@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use tendermint::validator::Info;
 pub use tendermint_light_client_verifier::{
     ProdVerifier, Verdict, Verifier,
     options::Options,
-    types::{LightBlock, ValidatorSet},
+    types::{Hash, LightBlock, ValidatorSet},
 };
 
 use bitcoin::{Transaction, TxOut, Witness, secp256k1::PublicKey};
@@ -13,6 +14,7 @@ pub struct CommitInfo {
     pub publisher_public_keys: Vec<String>,
     pub txid: String,
     pub genesis_txid: String,
+    pub sequencers: Vec<Info>,
 }
 
 fn build_dummy_tx() -> Transaction {
@@ -36,7 +38,7 @@ pub enum CommitChainPrevProofType {
 pub struct CircuitCommit {
     pub commit_txn: Transaction,
     pub genesis_txid: [u8; 32],
-    pub sequencer_set_hash: [u8; 32],
+    pub sequencer_set: ValidatorSet,
     pub publisher_public_keys: Vec<PublicKey>,
     pub threshold: u16,
 }
@@ -47,7 +49,7 @@ pub struct CommitChainState {
     pub block_height: u64,
     pub commit_txn: Transaction,
     pub genesis_txid: [u8; 32],
-    pub sequencer_set_hash: [u8; 32],
+    pub sequencer_set: ValidatorSet,
     pub publisher_public_keys: Vec<PublicKey>,
     pub threshold: u16,
 }
@@ -78,21 +80,21 @@ impl CommitChainState {
             block_height: u64::MAX,
             commit_txn: build_dummy_tx(),
             genesis_txid: [0u8; 32],
-            sequencer_set_hash: [0u8; 32],
+            sequencer_set: ValidatorSet::new(vec![], None),
             publisher_public_keys: vec![],
             threshold: u16::MAX,
         }
     }
 
     pub fn apply_commit(&mut self, commits: Vec<CircuitCommit>) {
-        let mut prev_sequencer_set_hash = self.sequencer_set_hash;
+        let mut prev_sequencer_set = &self.sequencer_set;
         let mut prev_commit_txn = self.commit_txn.clone();
         let mut prev_publisher_public_keys: Vec<PublicKey> = vec![];
         let mut prev_threshold: u16 = u16::MAX;
         for commit in &commits {
             let latest_commit_txn_with_wtns = &commit.commit_txn;
             println!("commit tx: {:?}", latest_commit_txn_with_wtns.compute_txid());
-            let latest_sequencer_set_hash = &commit.sequencer_set_hash;
+            let latest_sequencer_set = &commit.sequencer_set;
             let publisher_public_keys = &commit.publisher_public_keys;
             let threshold = commit.threshold;
 
@@ -105,13 +107,23 @@ impl CommitChainState {
             println!("prev commit txid: {prev_commit_txid}, {prev_commit_txn:?}");
             // calculate the commitment of prev sequencer set and check the equivalent
             let expected_prev_commit = extract_op_return_data(&prev_commit_txn.output);
-            println!("expected prev commit: {expected_prev_commit:?}\n{prev_sequencer_set_hash:?}");
-            assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit);
+            if let Hash::Sha256(prev_sequencer_set_hash) = prev_sequencer_set.hash() {
+                println!(
+                    "expected prev commit: {expected_prev_commit:?}\n{prev_sequencer_set_hash:?}"
+                );
+                assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit);
+            } else {
+                panic!("Invalid prev sequencer set hash");
+            }
 
             // calculate the commitment of latest sequencer set and check the equivalent
             let expected_latest_commit =
                 extract_op_return_data(&latest_commit_txn_with_wtns.output);
-            assert_eq!(latest_sequencer_set_hash[..], expected_latest_commit);
+            if let Hash::Sha256(latest_sequencer_set_hash) = latest_sequencer_set.hash() {
+                assert_eq!(latest_sequencer_set_hash[..], expected_latest_commit);
+            } else {
+                panic!("Invalid latest sequencer set hash");
+            }
 
             // check the latest txn's prev out is equals to the output of prev_txn
             let update_connector = &latest_commit_txn_with_wtns.input[0];
@@ -137,7 +149,7 @@ impl CommitChainState {
                 )
                 .unwrap();
             }
-            prev_sequencer_set_hash = *latest_sequencer_set_hash;
+            prev_sequencer_set = latest_sequencer_set;
 
             // remove witness
             prev_commit_txn = latest_commit_txn_with_wtns.clone();
@@ -148,7 +160,7 @@ impl CommitChainState {
             prev_publisher_public_keys = publisher_public_keys.clone();
             prev_threshold = threshold;
         }
-        self.sequencer_set_hash = prev_sequencer_set_hash;
+        self.sequencer_set = prev_sequencer_set.clone();
         self.commit_txn = prev_commit_txn;
         self.publisher_public_keys = prev_publisher_public_keys;
         self.threshold = prev_threshold;

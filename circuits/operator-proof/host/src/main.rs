@@ -9,7 +9,6 @@ use bitcoin::{
 use bitcoin_light_client_circuit::build_spv;
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
-use cbft_rpc::fetch_cosmos_validator_info;
 use client::btc_chain::BTCClient;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::{
@@ -195,20 +194,6 @@ async fn main() {
     let ZKMProof::Compressed(state_compressed_proof) = proof.proof else { panic!() };
     let bytes = std::fs::read(&format!("{}.vk", args.state_chain_input_proof)).unwrap();
     let state_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
-
-    //let latest_state_block_hash: [u8; 32] = hex::decode(args.latest_state_block_hash).unwrap().try_into().unwrap();
-    let latest_state_block_hash: [u8; 32] = state_chain_input
-        .blocks
-        .last()
-        .unwrap()
-        .evm_input
-        .current_block
-        .header
-        .hash_slow()
-        .try_into()
-        .unwrap();
-    //assert_eq!(latest_state_block_hash, expected_state_block_hash);
-
     // --- spv --- //
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
@@ -293,11 +278,6 @@ async fn main() {
         };
         watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
     }
-    let (sequencer_set_hash, _, consensus_layer_block_number) =
-        fetch_cosmos_validator_info(args.execution_layer_block_number).await.unwrap();
-    let (actual_sequencer_set_hash, _actual_data_hash, _txns) =
-        cbft_rpc::fetch_cosmos_tx_data(consensus_layer_block_number).await.unwrap();
-    assert_eq!(sequencer_set_hash.unwrap(), actual_sequencer_set_hash);
     // Generate the proofs
     let proof = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
@@ -310,12 +290,6 @@ async fn main() {
         stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
         stdin.write(&operator_latest_sequencer_commit_txn);
 
-        stdin.write(&actual_sequencer_set_hash);
-        stdin.write(&latest_state_block_hash);
-        //stdin.write(&actual_data_hash);
-        //stdin.write(&txns);
-        //stdin.write(&eth_client_execution_input);
-
         stdin.write(&watchtower_challenge_txns);
         stdin.write(&watchtower_challenge_txn_pubkeys);
         stdin.write(&watchtower_challenge_txn_scripts);
@@ -326,8 +300,6 @@ async fn main() {
         stdin.write(&commit_chain_input);
         stdin.write(&state_chain_input);
         stdin.write(&spv);
-        //stdin.write(&l2_contract_address);
-        //stdin.write(&base_slot);
 
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);

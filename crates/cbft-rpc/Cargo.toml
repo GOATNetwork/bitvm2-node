@@ -12,6 +12,11 @@ base64 = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 state-chain = { workspace = true }
 
+tendermint = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = ["secp256k1"] }
+tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = [
+  "rust-crypto",
+] }
+
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

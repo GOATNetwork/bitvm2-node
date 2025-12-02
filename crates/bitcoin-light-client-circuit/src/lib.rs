@@ -2,6 +2,7 @@ mod signature;
 mod utils;
 
 pub use signature::*;
+use state_chain::verify_sequencer_commit;
 pub use utils::*;
 
 use alloy_primitives::U256;
@@ -28,7 +29,6 @@ pub const VK_HASH_SIZE: usize = 66;
 pub fn check_longest_chain(
     genesis_sequencer_commit_txid: [u8; 32],
     latest_sequencer_commit_txid: [u8; 32],
-    latest_state_block_hash: [u8; 32],
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
     state_chain: StateChainCircuitInput,
@@ -38,12 +38,12 @@ pub fn check_longest_chain(
     // verify latest_sequencer_commit is valid:
     //   * Check both latest_sequencer_commit_txid and genesis_sequencer_commit_txid are in all_sequencer_commit_txids (which is a private input)
     //   * Check latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
-    let commit_header_chain_output = commit_chain_circuit(commit_chain);
+    let commit_chain_output = commit_chain_circuit(commit_chain);
     assert_eq!(
-        commit_header_chain_output.chain_state.commit_txn.compute_txid(),
+        commit_chain_output.chain_state.commit_txn.compute_txid(),
         Txid::from_byte_array(latest_sequencer_commit_txid)
     );
-    assert_eq!(genesis_sequencer_commit_txid, commit_header_chain_output.chain_state.genesis_txid);
+    assert_eq!(genesis_sequencer_commit_txid, commit_chain_output.chain_state.genesis_txid);
 
     println!("header chain: applying: {}", header_chain.block_headers.len());
     // verify header_chain is valid
@@ -55,7 +55,16 @@ pub fn check_longest_chain(
 
     // check latest block is signed by the sequenecers
     let state_chain_output = state_chain_circuit(state_chain);
-    assert_eq!(state_chain_output.chain_state.latest_block_hash, latest_state_block_hash);
+    // check the signature.
+    let cosmos_block = &state_chain_output.chain_state.latest_cosmos_block;
+    verify_sequencer_commit(cosmos_block);
+
+    // check the equivalence of sequencer set
+    let commit_sequencer_set_hash = commit_chain_output.chain_state.sequencer_set.hash();
+    let state_seqeuencer_set_hash =
+        state_chain_output.chain_state.latest_cosmos_block.signed_header.header.validators_hash;
+
+    assert_eq!(commit_sequencer_set_hash, state_seqeuencer_set_hash);
 
     println!("commit public inputs");
     // commit public inputs
@@ -77,8 +86,6 @@ pub fn propose_longest_chain(
     graph_id: [u8; 16],
     operator_genesis_sequencer_commit_txid: [u8; 32],
     operator_latest_sequencer_commit_txn: CircuitTransaction,
-    actual_sequencer_set_hash: [u8; 32],
-    operator_latest_state_block_hash: [u8; 32],
 
     watchtower_challenge_txns: Vec<CircuitTransaction>,
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
@@ -93,14 +100,14 @@ pub fn propose_longest_chain(
 ) -> [u8; 32] {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
-    let commit_header_chain_output = commit_chain_circuit(commit_chain.clone());
+    let commit_chain_output = commit_chain_circuit(commit_chain.clone());
     assert_eq!(
-        commit_header_chain_output.chain_state.commit_txn.compute_txid(),
+        commit_chain_output.chain_state.commit_txn.compute_txid(),
         operator_latest_sequencer_commit_txn.compute_txid()
     );
     assert_eq!(
         operator_genesis_sequencer_commit_txid,
-        commit_header_chain_output.chain_state.genesis_txid
+        commit_chain_output.chain_state.genesis_txid
     );
 
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
@@ -176,13 +183,6 @@ pub fn propose_longest_chain(
     }
 
     assert!(number_of_valid_watchtower > 0);
-    // check the consensus block is valid by verifying the block's seqeuncer set hash are equal
-    //let actual_sequencer_set_hash: [u8; 32] =
-    //    consensus_block.signed_header.header.validators_hash.as_bytes().try_into().unwrap();
-    assert_eq!(
-        actual_sequencer_set_hash,
-        commit_header_chain_output.chain_state.sequencer_set_hash
-    );
 
     println!("verify el block");
     let mut is_found = false;
@@ -196,7 +196,15 @@ pub fn propose_longest_chain(
     }
     assert!(is_found, "Graph id {:?} is not included in current state chain", graph_id);
     let state_chain_output = state_chain_circuit(state_chain);
-    assert_eq!(state_chain_output.chain_state.latest_block_hash, operator_latest_state_block_hash);
+    // check the signature.
+    let cosmos_block = &state_chain_output.chain_state.latest_cosmos_block;
+    verify_sequencer_commit(cosmos_block);
+    // check the equivalence of sequencer set
+    let commit_sequencer_set_hash = commit_chain_output.chain_state.sequencer_set.hash();
+    let state_seqeuencer_set_hash =
+        state_chain_output.chain_state.latest_cosmos_block.signed_header.header.validators_hash;
+
+    assert_eq!(commit_sequencer_set_hash, state_seqeuencer_set_hash);
 
     operator_total_work
 }
@@ -320,7 +328,9 @@ pub fn parse_watchtower_commitment(
     match Groth16Verifier::verify(&proof, &zkm_public_values, &zkm_vk_hash, groth16_vk) {
         Ok(_) => {}
         Err(err) => {
-            return Err(format!("invalid commitment: head chain Groth16 proof, err: {err:?}").into());
+            return Err(
+                format!("invalid commitment: head chain Groth16 proof, err: {err:?}").into()
+            );
         }
     }
 

@@ -200,7 +200,6 @@ sol!(
     interface ISequencerSetPublisher {
         struct SequencerSet {
             bytes32 sequencerSetHash; // validator_hash
-            bytes32 nextSequencerSetHash; // next_validator_hash
             bytes32 publishersHash;
             bytes32 nextPublishersHash;
             bytes32 p2wshSigHash;
@@ -251,6 +250,7 @@ sol!(
     }
 );
 
+#[derive(Clone, Debug)]
 pub struct GoatInitConfig {
     pub rpc_url: Url,
     pub private_key: Option<String>,
@@ -619,7 +619,6 @@ impl From<&SequencerSet> for ISequencerSetPublisher::SequencerSet {
     fn from(value: &SequencerSet) -> Self {
         Self {
             sequencerSetHash: FixedBytes::from_slice(&value.sequencer_set_hash),
-            nextSequencerSetHash: FixedBytes::from_slice(&value.next_sequencer_set_hash),
             publishersHash: FixedBytes::from_slice(&value.publishers_hash),
             nextPublishersHash: FixedBytes::from_slice(&value.next_publishers_hash),
             p2wshSigHash: FixedBytes::from_slice(&value.p2wsh_sig_hash),
