@@ -207,12 +207,13 @@ pub enum InstanceBridgeInStatus {
     Timeout,                    // time to cancle bridgein
     UserCanceled,               // user broadcast Pegin-cancel tx
     NoEnoughCommitteesAnswered, // no enough committee responsed & window expired
+    UserDiscarded,              // pegin prepare tx input uxto been spent in other tx
 
     // for front end display
     Initiated,  // UserInited
     Verified,   // CommitteesAnswered
     Submitted,  // UserBroadcastPeginPrepare
-    Failed,     // PresignedFailed, RelayerL2MintedFailed, NoEnoughCommitteesAnswered
+    Failed,     // PresignedFailed, RelayerL2MintedFailed, NoEnoughCommitteesAnswered, UserDiscarded
     Processing, // Presigned, RelayerL1Broadcasted
     Success,    // RelayerL2Minted
     Canceled,   // UserCanceled

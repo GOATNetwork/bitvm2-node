@@ -1,10 +1,11 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{gen_instance_parameters_local, upsert_message};
+use crate::utils::{check_bridge_in_uxto_available, gen_instance_parameters_local, upsert_message};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::transactions::base::BaseTransaction;
+use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::graph_query::BridgeInRequestEvent;
@@ -306,6 +307,22 @@ pub async fn instance_btc_tx_monitor(
                 instance.status,
                 tx_id.to_string()
             );
+            if next_status == InstanceBridgeInStatus::UserBroadcastPeginPrepare
+                && let utxos = serde_json::from_str::<Vec<Utxo>>(&instance.input_utxos)?
+                && !check_bridge_in_uxto_available(btc_client, &utxos).await?
+            {
+                warn!(
+                    "instance:{}, pegin prepare tx input utxos has been spent in other tx",
+                    instance.instance_id
+                );
+                let mut storage_processor = local_db.start_transaction().await?;
+                update_instance(
+                    &mut storage_processor,
+                    &InstanceUpdate::new(instance.instance_id)
+                        .with_status(InstanceBridgeInStatus::UserDiscarded.to_string()),
+                )
+                .await?;
+            }
         }
     }
     Ok(())

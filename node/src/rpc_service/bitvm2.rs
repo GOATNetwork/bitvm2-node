@@ -2,10 +2,9 @@ use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertCommitStatus, ChallengeSubStatus, WatchtowerChallengeStatus,
 };
-use crate::utils::reflect_goat_address;
+use crate::utils::{check_bridge_in_uxto_available, reflect_goat_address};
 use alloy::hex::ToHexExt;
 use bitcoin::Txid;
-use bitcoin::hashes::Hash;
 use client::Utxo;
 use client::btc_chain::BTCClient;
 use serde::{Deserialize, Serialize};
@@ -139,20 +138,6 @@ impl InstanceExtended {
     }
 }
 
-async fn check_bridge_in_uxto_avaliable(
-    btc_client: &BTCClient,
-    utxos: &[Utxo],
-) -> anyhow::Result<bool> {
-    for utxo in utxos {
-        if let Ok(txid) = Txid::from_slice(&utxo.txid)
-            && let Ok(Some(status)) = btc_client.get_output_status(&txid, utxo.vout as u64).await
-            && status.spent
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
 async fn get_instance_status_extra(
     btc_client: &BTCClient,
     instance_id: Uuid,
@@ -164,7 +149,7 @@ async fn get_instance_status_extra(
     if is_bridge_in && let Ok(bridge_in_status) = InstanceBridgeInStatus::from_str(&status) {
         match bridge_in_status {
             InstanceBridgeInStatus::UserInited => {
-                if !check_bridge_in_uxto_avaliable(btc_client, utxos).await? {
+                if !check_bridge_in_uxto_available(btc_client, utxos).await? {
                     status_extra.is_failed = true;
                     status_extra.error = Some(BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT.to_string());
                     status_extra.user_action = StatusUserAction::Cancel;

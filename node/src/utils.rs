@@ -3712,3 +3712,18 @@ fn gen_user_info(
         user_refund_address: user_refund_addr.require_network(network)?,
     })
 }
+
+pub async fn check_bridge_in_uxto_available(
+    btc_client: &BTCClient,
+    utxos: &[client::Utxo],
+) -> Result<bool> {
+    for utxo in utxos {
+        if let Ok(txid) = Txid::from_slice(&utxo.txid)
+            && let Ok(Some(status)) = btc_client.get_output_status(&txid, utxo.vout as u64).await
+            && status.spent
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
