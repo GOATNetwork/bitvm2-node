@@ -521,7 +521,7 @@ impl From<DisproveTxType> for IGateway::DisproveTxType {
 
 impl From<&IGateway::Utxo> for Utxo {
     fn from(value: &IGateway::Utxo) -> Self {
-        Self { txid: value.txid.0, vout: value.vout, amount_stats: value.amountSats }
+        Self { txid: value.txid.0, vout: value.vout, amount_sats: value.amountSats }
     }
 }
 
@@ -530,7 +530,7 @@ impl From<&Utxo> for IGateway::Utxo {
         Self {
             txid: FixedBytes::from_slice(&value.txid),
             vout: value.vout,
-            amountSats: value.amount_stats,
+            amountSats: value.amount_sats,
         }
     }
 }

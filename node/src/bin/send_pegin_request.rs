@@ -287,7 +287,7 @@ async fn action_request(
         .map(|i| ClientUtxo {
             txid: i.outpoint.txid.to_byte_array(),
             vout: i.outpoint.vout,
-            amount_stats: i.amount.to_sat(),
+            amount_sats: i.amount.to_sat(),
         })
         .collect();
 

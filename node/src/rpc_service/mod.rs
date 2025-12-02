@@ -458,7 +458,7 @@ mod tests {
         let utxo: Vec<Utxo> = vec![Utxo {
             txid: generate_random_bytes(32).try_into().unwrap(),
             vout: 1,
-            amount_stats: bridge_in_amount as u64,
+            amount_sats: bridge_in_amount as u64,
         }];
         let mut instances = Vec::<Instance>::new();
         let mut graphs = Vec::<Graph>::new();

@@ -1113,7 +1113,7 @@ pub async fn read_pegin_request(
         .iter()
         .map(|u| Input {
             outpoint: OutPoint { txid: Txid::from_byte_array(u.txid), vout: u.vout },
-            amount: Amount::from_sat(u.amount_stats),
+            amount: Amount::from_sat(u.amount_sats),
         })
         .collect();
     // TODO: we need to run our own bitcoin node in case of downtime or ddos attack.
@@ -1162,7 +1162,7 @@ pub async fn read_instance_info_from_goat(
         .iter()
         .map(|u| Input {
             outpoint: OutPoint { txid: Txid::from_byte_array(u.txid), vout: u.vout },
-            amount: Amount::from_sat(u.amount_stats),
+            amount: Amount::from_sat(u.amount_sats),
         })
         .collect();
     let user_info = UserInfo {
@@ -2933,7 +2933,7 @@ pub async fn store_pegin_request(
         .map(|input| ClientUtxo {
             txid: input.outpoint.txid.to_byte_array(),
             vout: input.outpoint.vout,
-            amount_stats: input.amount.to_sat(),
+            amount_sats: input.amount.to_sat(),
         })
         .collect::<Vec<_>>();
     let current_time = current_time_secs();
@@ -3700,7 +3700,7 @@ fn gen_user_info(
         .into_iter()
         .map(|utxo| Input {
             outpoint: OutPoint { txid: Txid::from_slice(&utxo.txid).unwrap(), vout: utxo.vout },
-            amount: Amount::from_sat(utxo.amount_stats),
+            amount: Amount::from_sat(utxo.amount_sats),
         })
         .collect();
     Ok(UserInfo {

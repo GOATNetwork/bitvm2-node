@@ -194,7 +194,7 @@ pub async fn bridge_in_request_tag(
 ///         {
 ///           "txid": "abc123...",
 ///           "vout": 0,
-///           "value": 100000000,
+///           "amount_sats": 100000000,
 ///           "script_pubkey": "0014..."
 ///         }
 ///       ],
@@ -319,7 +319,7 @@ pub async fn get_instances(
 ///       {
 ///         "txid": "abc123...",
 ///         "vout": 0,
-///         "value": 100000000,
+///         "amount_sats": 100000000,
 ///         "script_pubkey": "0014..."
 ///       }
 ///     ],

@@ -274,7 +274,7 @@ impl From<u8> for WithdrawStatus {
 pub struct Utxo {
     pub txid: [u8; 32],
     pub vout: u32,
-    pub amount_stats: u64,
+    pub amount_sats: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
