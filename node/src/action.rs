@@ -86,6 +86,7 @@ pub struct PeginRequest {
     pub instance_id: Uuid,
     pub pegin_request_tx_hash: String, // goat tx hash
     pub pegin_request_height: i64,
+    pub pegin_timestamp: i64,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ConfirmInstance {
@@ -400,6 +401,7 @@ pub async fn recv_and_dispatch(
                 instance_id,
                 pegin_request_tx_hash,
                 pegin_request_height,
+                pegin_timestamp,
             }),
             Actor::Committee,
         ) => {
@@ -433,6 +435,7 @@ pub async fn recv_and_dispatch(
                 pegin_amount,
                 pegin_request_tx_hash,
                 pegin_request_height,
+                pegin_timestamp,
             )
             .await?;
             // 3. call Gateway.answerPeginRequest
@@ -447,6 +450,7 @@ pub async fn recv_and_dispatch(
                 instance_id,
                 pegin_request_tx_hash,
                 pegin_request_height,
+                pegin_timestamp,
             }),
             _,
         ) => {
@@ -480,6 +484,7 @@ pub async fn recv_and_dispatch(
                 pegin_amount,
                 pegin_request_tx_hash,
                 pegin_request_height,
+                pegin_timestamp,
             )
             .await?;
         }

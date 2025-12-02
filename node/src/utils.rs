@@ -2901,6 +2901,7 @@ pub async fn get_current_prekickoff_tx(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn store_pegin_request(
     btc_client: &BTCClient,
     local_db: &LocalDB,
@@ -2909,6 +2910,7 @@ pub async fn store_pegin_request(
     pegin_amount: Amount,
     pegin_request_tx_hash: String,
     pegin_request_height: i64,
+    pegin_timestamp: i64,
 ) -> Result<()> {
     // store instance info to local db
     let mut storage_processor = local_db.acquire().await?;
@@ -2960,7 +2962,7 @@ pub async fn store_pegin_request(
             pegin_data_tx_hash: "".to_string(),
             btc_height: 0,
             parameters: None,
-            status_updated_at: current_time,
+            status_updated_at: pegin_timestamp,
             created_at: current_time,
             updated_at: current_time,
         })

@@ -47,7 +47,7 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
     for tx_record in tx_records {
         let mut tx = local_db.start_transaction().await?;
         if let Some(event) = tx_record.extra {
-            let _event: BridgeInRequestEvent = serde_json::from_str(&event)?;
+            let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
             upsert_message(
                 &mut tx,
                 false,
@@ -59,6 +59,10 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
                     instance_id: tx_record.instance_id,
                     pegin_request_tx_hash: tx_record.tx_hash,
                     pegin_request_height: tx_record.height,
+                    pegin_timestamp: event
+                        .block_timestamp
+                        .parse::<i64>()
+                        .unwrap_or_else(|_| current_time_secs()),
                 }),
                 0,
                 0,

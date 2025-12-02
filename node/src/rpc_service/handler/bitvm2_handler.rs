@@ -247,14 +247,19 @@ pub async fn get_instances(
         warn!("get_instances instance is empty: total {}", total);
         return Ok((StatusCode::OK, Json(InstanceListResponse::default())));
     }
-
-    let current_height = app_state.btc_client.get_height().await.api_error("GET_INSTANCE_ERROR")?;
-
+    let btc_current_height =
+        app_state.btc_client.get_height().await.api_error("GET_INSTANCE_ERROR")?;
+    let response_window_blocks = app_state
+        .goat_client
+        .gateway_get_response_window_blocks()
+        .await
+        .api_error("GET_INSTANCE_ERROR")?;
     let mut items = vec![];
     for instance in instances {
         let item = InstanceExtended::convert_from_instance(
             &app_state.btc_client,
-            current_height,
+            btc_current_height,
+            response_window_blocks as i64,
             instance,
         )
         .await
@@ -352,12 +357,18 @@ pub async fn get_instance(
     if let Some(instance) =
         storage_process.find_instance(&instance_id_uuid).await.api_error("GET_INSTANCE_ERROR")?
     {
-        let current_height =
+        let btc_current_height =
             app_state.btc_client.get_height().await.api_error("GET_INSTANCE_ERROR")?;
+        let response_window_blocks = app_state
+            .goat_client
+            .gateway_get_response_window_blocks()
+            .await
+            .api_error("GET_INSTANCE_ERROR")?;
         let instance_wrap = Some(
             InstanceExtended::convert_from_instance(
                 &app_state.btc_client,
-                current_height,
+                btc_current_height,
+                response_window_blocks as i64,
                 instance,
             )
             .await
@@ -374,6 +385,7 @@ pub async fn get_instance(
 /// Get instances overview statistics
 ///
 /// Returns statistical overview of all bridge instances including total bridge-in/bridge-out amounts,
+
 /// transaction counts, and node status information.
 ///
 /// # Returns

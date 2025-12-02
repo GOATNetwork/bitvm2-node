@@ -41,6 +41,8 @@ const _BRIDGE_IN_FAIL_AS_L1_LOCK_TIMEOUT: &str =
     "The operator timed out and failed to lock BTC. Please cancel the transaction.";
 pub const BRIDGE_IN_AMOUNTS: [f32; 4] = [0.1, 0.05, 0.02, 0.01];
 
+const GOAT_BLOCK_INTERVAL_SECS: i64 = 3;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeInPrepareRequest {
     pub instance_id: String,            // UUID
@@ -102,14 +104,15 @@ pub struct InstanceExtended {
 impl InstanceExtended {
     pub async fn convert_from_instance(
         btc_client: &BTCClient,
-        current_height: u32,
+        btc_current_height: u32,
+        response_window_blocks: i64,
         instance: Instance,
     ) -> anyhow::Result<Self> {
-        let utxo: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)
+        let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)
             .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         let (confirmations, target_confirmations) = get_instance_block_confirm_progress(
             btc_client,
-            current_height,
+            btc_current_height,
             instance.is_bridge_in,
             instance.btc_txid.clone(),
         )
@@ -119,7 +122,7 @@ impl InstanceExtended {
             instance.instance_id,
             instance.is_bridge_in,
             instance.status.clone(),
-            &utxo,
+            &utxos,
         )
         .await?;
         // instance.status = instance.convert_to_display_status();
@@ -128,11 +131,12 @@ impl InstanceExtended {
                 instance.is_bridge_in,
                 &instance.status,
                 instance.status_updated_at,
+                response_window_blocks,
             ),
             confirmations,
             target_confirmations,
             status_extra,
-            utxo,
+            utxo: utxos,
             instance,
         })
     }
@@ -222,9 +226,11 @@ async fn get_instance_block_confirm_progress(
     }
 }
 
-fn get_bridge_in_status_time_window_secs(status: &str) -> i64 {
+fn get_bridge_in_status_time_window_secs(status: &str, response_window_blocks: i64) -> i64 {
     match InstanceBridgeInStatus::from_str(status) {
-        Ok(InstanceBridgeInStatus::Initiated) | Ok(InstanceBridgeInStatus::UserInited) => 120,
+        Ok(InstanceBridgeInStatus::Initiated) | Ok(InstanceBridgeInStatus::UserInited) => {
+            response_window_blocks * GOAT_BLOCK_INTERVAL_SECS
+        }
         Ok(InstanceBridgeInStatus::Submitted)
         | Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => 3600 * 24,
         Ok(InstanceBridgeInStatus::Processing)
@@ -239,10 +245,15 @@ fn get_bridge_out_status_time_window_secs(status: &str) -> i64 {
     0
 }
 
-fn get_instance_waiting_time_in_secs(is_bridge_in: bool, status: &str, last_updated: i64) -> i64 {
+fn get_instance_waiting_time_in_secs(
+    is_bridge_in: bool,
+    status: &str,
+    last_updated: i64,
+    response_window_blocks: i64,
+) -> i64 {
     let time_past = current_time_secs() - last_updated;
     let time_left = if is_bridge_in {
-        get_bridge_in_status_time_window_secs(status) - time_past
+        get_bridge_in_status_time_window_secs(status, response_window_blocks) - time_past
     } else {
         get_bridge_out_status_time_window_secs(status) - time_past
     };

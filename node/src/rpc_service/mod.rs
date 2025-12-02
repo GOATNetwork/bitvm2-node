@@ -7,7 +7,7 @@ mod response;
 pub mod routes;
 pub mod validation;
 
-use crate::env::get_network;
+use crate::env::{get_goat_network, get_network, goat_config_from_env};
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
@@ -24,6 +24,7 @@ use axum::routing::put;
 use axum::{Router, middleware, routing::get};
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
+use client::goat_chain::GOATClient;
 use client::http_client::async_client::HttpAsyncClient;
 use http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt;
@@ -59,6 +60,7 @@ pub fn create_secure_cors_layer() -> CorsLayer {
 pub struct AppState {
     pub local_db: LocalDB,
     pub btc_client: BTCClient,
+    pub goat_client: GOATClient,
     pub http_client: HttpAsyncClient,
     pub metrics_state: MetricsState,
     pub actor: Actor,
@@ -73,9 +75,18 @@ impl AppState {
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
         let btc_client = BTCClient::new(get_network(), None);
+        let goat_client = GOATClient::new(goat_config_from_env().await, get_goat_network());
         let metrics_state = MetricsState::new(registry);
         let http_client = HttpAsyncClient::new(None);
-        Ok(Arc::new(AppState { local_db, btc_client, metrics_state, actor, peer_id, http_client }))
+        Ok(Arc::new(AppState {
+            local_db,
+            btc_client,
+            goat_client,
+            metrics_state,
+            actor,
+            peer_id,
+            http_client,
+        }))
     }
 }
 
