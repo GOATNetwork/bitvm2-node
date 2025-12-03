@@ -344,9 +344,6 @@ pub fn get_goat_event_the_graph_url_from_env() -> String {
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {
-    if cfg!(feature = "tests") {
-        return GoatInitConfig::from_env_for_test();
-    }
     let rpc_url = get_goat_url_from_env();
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let gateway_address = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS);

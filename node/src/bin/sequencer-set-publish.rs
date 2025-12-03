@@ -43,6 +43,7 @@ use bitcoin_light_client_circuit::{
 use commit_chain::{create_sequencer_update_script, finalize, sign_partial};
 
 use hex::FromHex;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::str::FromStr;
@@ -219,7 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let args = Args::parse();
-    let (btc_client, goat_client) = init_clients(&args)?;
+    let (btc_client, goat_client) = init_clients(&args).await?;
 
     let output_file = &args.output_file;
     let cached_data = std::fs::read(output_file);
@@ -464,17 +465,19 @@ async fn fetch_publishers(
     Ok(pubkeys)
 }
 
-fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
+async fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
     let network = get_network();
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
 
-    let mut config = GoatInitConfig::from_env_for_test();
-    config.sequencer_set_publisher_address =
-        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS);
-    config.multi_sig_verifier_address =
-        get_goat_address_from_env(ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS);
-    config.private_key = args.goat_evm_prvkey.clone();
-
+    let config = GoatInitConfig::new("https://rpc.testnet3.goat.network".parse::<Url>()?)
+        .await?
+        .with_sequencer_set_publisher_address(get_goat_address_from_env(
+            ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS,
+        ))
+        .with_multi_sig_verifier_address(get_goat_address_from_env(
+            ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS,
+        ))
+        .with_private_key(args.goat_evm_prvkey.clone());
     let goat_client = GOATClient::new(config, client::goat_chain::GoatNetwork::Test);
     Ok((btc_client, goat_client))
 }

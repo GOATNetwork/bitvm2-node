@@ -265,23 +265,72 @@ pub struct GoatInitConfig {
 }
 
 impl GoatInitConfig {
-    pub fn from_env_for_test() -> Self {
-        GoatInitConfig {
-            rpc_url: "https://rpc.testnet3.goat.network".parse::<Url>().expect("decode url"),
-            chain_id: 48816_u32,
+    pub async fn new(rpc_url: Url) -> anyhow::Result<GoatInitConfig> {
+        Ok(GoatInitConfig {
             private_key: None,
-            gateway_address: Some(
-                "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df"
-                    .parse()
-                    .expect("parse contract address"),
-            ),
+            chain_id: ProviderBuilder::new().connect_http(rpc_url.clone()).get_chain_id().await?
+                as u32,
+            rpc_url,
+            gateway_address: None,
             sequencer_set_publisher_address: None,
             committee_management_address: None,
             stake_management_address: None,
             multi_sig_verifier_address: None,
             btc_spv_address: None,
             peg_btc_address: None,
-        }
+        })
+    }
+
+    pub fn with_private_key(mut self, private_key: Option<String>) -> GoatInitConfig {
+        self.private_key = private_key;
+        self
+    }
+
+    pub fn with_gateway_address(mut self, gateway_address: Option<Address>) -> GoatInitConfig {
+        self.gateway_address = gateway_address;
+        self
+    }
+
+    pub fn with_sequencer_set_publisher_address(
+        mut self,
+        sequencer_set_publisher_address: Option<Address>,
+    ) -> GoatInitConfig {
+        self.sequencer_set_publisher_address = sequencer_set_publisher_address;
+        self
+    }
+
+    pub fn with_committee_management_address(
+        mut self,
+        committee_management_address: Option<Address>,
+    ) -> GoatInitConfig {
+        self.committee_management_address = committee_management_address;
+        self
+    }
+
+    pub fn with_stake_management_address(
+        mut self,
+        stake_management_address: Option<Address>,
+    ) -> GoatInitConfig {
+        self.stake_management_address = stake_management_address;
+        self
+    }
+
+    pub fn with_multi_sig_verifier_address(
+        mut self,
+        multi_sig_verifier_address: Option<Address>,
+    ) -> GoatInitConfig {
+        self.multi_sig_verifier_address = multi_sig_verifier_address;
+        self
+    }
+
+    pub fn with_btc_spv_address(mut self, btc_spv_address: Option<Address>) -> GoatInitConfig {
+        self.btc_spv_address = btc_spv_address;
+        self
+    }
+
+    pub fn with_peg_btc_address(mut self, peg_btc_address: Option<Address>) -> GoatInitConfig {
+        self.peg_btc_address = peg_btc_address;
+        self
     }
 }
 type GatewayInstance = IGatewayInstance<
