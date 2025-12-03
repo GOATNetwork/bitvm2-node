@@ -738,6 +738,7 @@ pub async fn get_ready_to_kickoff_graph(
     let mut graph_query = GraphQuery::default()
         .with_status(GraphStatus::OperatorDataPushed.to_string())
         .with_order("kickoff_index ASC".to_string())
+        .with_raw_condition("init_withdraw_tx_hash IS NULL".to_string())
         .with_limit(1);
     if params.btc_pub_key.is_none() && params.goat_addr.is_none() {
         return Err((
@@ -791,8 +792,12 @@ pub async fn get_ready_to_kickoff_graph(
             .api_error("GET_READY_KICKOFF_GRAPHS_ERROR")?;
 
         if !pre_graphs.is_empty()
-            && [GraphStatus::OperatorKickOff.to_string(), GraphStatus::Challenge.to_string()]
-                .contains(&pre_graphs[0].status)
+            && [
+                GraphStatus::OperatorDataPushed.to_string(),
+                GraphStatus::OperatorKickOff.to_string(),
+                GraphStatus::Challenge.to_string(),
+            ]
+            .contains(&pre_graphs[0].status)
         {
             return Ok((
                 StatusCode::OK,
