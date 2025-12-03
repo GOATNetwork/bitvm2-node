@@ -10,6 +10,7 @@ fi
 
 #CMD="cargo run -r --bin sequencer-set-publish --"
 cargo build -r
+#export RUST_LOG=debug
 CMD="../target/release/sequencer-set-publish"
 
 $CMD fund  

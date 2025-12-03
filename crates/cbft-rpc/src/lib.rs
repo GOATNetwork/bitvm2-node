@@ -1,11 +1,13 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as b64;
-use bitcoin_light_client_circuit::{Header, ValidatorSet};
 use serde_json::Value;
 use state_chain::parse_cbft_tx_payload;
 use tendermint::PublicKey;
+use tendermint::validator::Info;
 use tendermint::vote::Power;
-use tendermint_light_client_verifier::types::Validator;
+use tendermint_light_client_verifier::types::{
+    Header, LightBlock, PeerId, SignedHeader, Validator, ValidatorSet,
+};
 
 fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn std::error::Error>> {
     let block_data_json: Value = serde_json::from_str(block_data)?;
@@ -25,9 +27,7 @@ fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn s
     Ok((header, decoded_txs))
 }
 
-pub async fn fetch_validators(
-    block_height: u64,
-) -> Result<ValidatorSet, Box<dyn std::error::Error>> {
+pub async fn fetch_validators(block_height: u64) -> Result<Vec<Info>, Box<dyn std::error::Error>> {
     let cosmos_rpc_url = get_cbft_rpc_url();
     // fetch validator set
     let validators_data =
@@ -60,7 +60,7 @@ pub async fn fetch_validators(
             Power::try_from(voting_power).unwrap(),
         ));
     }
-    Ok(ValidatorSet::without_proposer(validator_set))
+    Ok(validator_set)
 }
 
 pub fn get_cbft_rpc_url() -> String {
@@ -112,24 +112,57 @@ pub async fn fetch_cbft_validator_info(
     Ok((sequencer_hash, block_height))
 }
 
-pub async fn fetch_cbft_tx_data(
-    block_number: u64,
-) -> Result<([u8; 32], [u8; 32], Vec<String>), Box<dyn std::error::Error>> {
+pub async fn fetch_cbft_tx_data(height: u64) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let cosmos_rpc_url = get_cbft_rpc_url();
     let block_data =
-        reqwest::get(format!("{cosmos_rpc_url}/block?height={block_number}")).await?.text().await?;
-    let (header, tx_data) = parse_block_data(&block_data)?;
+        reqwest::get(format!("{cosmos_rpc_url}/block?height={height}")).await?.text().await?;
+    let (_, tx_data) = parse_block_data(&block_data)?;
+    Ok(tx_data)
+}
 
-    let sequencer_set_hash = header.validators_hash.as_bytes();
-    let data_hash = header.data_hash.as_ref().unwrap().as_bytes();
+pub async fn fetch_cosmos_block(height: u64) -> Result<LightBlock, Box<dyn std::error::Error>> {
+    let cosmos_rpc_url = get_cbft_rpc_url();
+    // 1. header + commit
+    let commit_resp =
+        reqwest::get(format!("{cosmos_rpc_url}/commit?height={height}")).await?.text().await?;
+    let commit_json: Value = serde_json::from_str(&commit_resp)?;
+    let signed_header: SignedHeader =
+        serde_json::from_value(commit_json["result"]["signed_header"].clone())?;
 
-    Ok((sequencer_set_hash.try_into().unwrap(), data_hash.try_into().unwrap(), tx_data))
+    // 2. validators at H
+    let validators_resp =
+        reqwest::get(format!("{cosmos_rpc_url}/validators?height={height}")).await?.text().await?;
+    let validators_json: Value = serde_json::from_str(&validators_resp)?;
+    let validators: Vec<Info> =
+        serde_json::from_value(validators_json["result"]["validators"].clone())?;
+
+    // 3. next_validators at H+1
+    let next_resp = reqwest::get(format!("{cosmos_rpc_url}/validators?height={}", height + 1))
+        .await?
+        .text()
+        .await?;
+    let next_json: Value = serde_json::from_str(&next_resp)?;
+    let next_validators: Vec<Info> =
+        serde_json::from_value(next_json["result"]["validators"].clone())?;
+
+    let resp = reqwest::get(format!("{cosmos_rpc_url}/status")).await?.text().await?;
+    let json: Value = serde_json::from_str(&resp)?;
+
+    let peer_id: PeerId = json["result"]["node_info"]["id"].as_str().unwrap().parse().unwrap();
+
+    let light_block = LightBlock::new(
+        signed_header,
+        ValidatorSet::without_proposer(validators),
+        ValidatorSet::without_proposer(next_validators),
+        peer_id,
+    );
+
+    Ok(light_block)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[tokio::test]
     async fn test_create_cosmos_light_client() {
         let block_number = 10000;
@@ -147,11 +180,18 @@ mod tests {
         println!("cosmos block number: {}", block_number);
 
         let validators = fetch_validators(block_number).await.unwrap();
+        let validators_info: Vec<commit_chain::SequencerInfo> =
+            validators.iter().cloned().map(|v| v.into()).collect();
 
-        if let tendermint::Hash::Sha256(expected_hash) = validators.hash() {
+        if let tendermint::Hash::Sha256(expected_hash) =
+            commit_chain::sequencer_hash(&validators_info)
+        {
             assert_eq!(expected_hash, sequencer_hash);
         } else {
             panic!("Invalid sequencer set hash");
         }
+
+        let light_block = fetch_cosmos_block(block_number).await.unwrap();
+        assert_eq!(light_block.signed_header.header.validators_hash.as_bytes(), &sequencer_hash);
     }
 }

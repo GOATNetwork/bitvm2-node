@@ -8,6 +8,7 @@ pub use utils::*;
 use alloy_primitives::U256;
 use bitcoin::Block;
 use bitcoin::Transaction;
+use commit_chain::sequencer_hash;
 use commit_chain::{
     CommitChainCircuitInput, commit_chain_circuit, extract_data_from_commitment_outputs,
 };
@@ -56,13 +57,14 @@ pub fn check_longest_chain(
     // check latest block is signed by the sequenecers
     let state_chain_output = state_chain_circuit(state_chain);
     // check the signature.
-    let cosmos_block = &state_chain_output.chain_state.latest_cosmos_block;
-    verify_sequencer_commit(cosmos_block);
+    let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
+    let cosmos_block: LightBlock =
+        serde_json::from_slice(cosmos_block_bytes).expect("failed to deserialize light block");
+    verify_sequencer_commit(&cosmos_block);
 
     // check the equivalence of sequencer set
-    let commit_sequencer_set_hash = commit_chain_output.chain_state.sequencer_set.hash();
-    let state_seqeuencer_set_hash =
-        state_chain_output.chain_state.latest_cosmos_block.signed_header.header.validators_hash;
+    let commit_sequencer_set_hash = sequencer_hash(&commit_chain_output.chain_state.sequencers);
+    let state_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
 
     assert_eq!(commit_sequencer_set_hash, state_seqeuencer_set_hash);
 
@@ -197,12 +199,13 @@ pub fn propose_longest_chain(
     assert!(is_found, "Graph id {:?} is not included in current state chain", graph_id);
     let state_chain_output = state_chain_circuit(state_chain);
     // check the signature.
-    let cosmos_block = &state_chain_output.chain_state.latest_cosmos_block;
-    verify_sequencer_commit(cosmos_block);
+    let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
+    let cosmos_block: LightBlock =
+        serde_json::from_slice(cosmos_block_bytes).expect("failed to deserialize light block");
+    verify_sequencer_commit(&cosmos_block);
     // check the equivalence of sequencer set
-    let commit_sequencer_set_hash = commit_chain_output.chain_state.sequencer_set.hash();
-    let state_seqeuencer_set_hash =
-        state_chain_output.chain_state.latest_cosmos_block.signed_header.header.validators_hash;
+    let commit_sequencer_set_hash = sequencer_hash(&commit_chain_output.chain_state.sequencers);
+    let state_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
 
     assert_eq!(commit_sequencer_set_hash, state_seqeuencer_set_hash);
 

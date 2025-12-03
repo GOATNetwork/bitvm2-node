@@ -2,7 +2,7 @@
 use alloy_primitives::{Address, U256};
 use alloy_provider::{RootProvider, network::Ethereum};
 use bitcoin_light_client_circuit::EthClientExecutorInput;
-use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info};
+use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block};
 use hex::FromHex;
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
@@ -105,8 +105,9 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
 
     for i in args.start..(args.start + args.batch_size) {
         let (_, cl_block_number) = fetch_cbft_validator_info(i).await.unwrap();
-        let (_, state_data_hash, state_txns) = fetch_cbft_tx_data(cl_block_number).await.unwrap();
-        let evm_input = fetch_exection_layer_block(&args.execution_layer_rpc, i).await;
+        let state_txns = fetch_cbft_tx_data(cl_block_number).await.unwrap();
+        let cosmos_block = fetch_cosmos_block(cl_block_number).await.unwrap();
+        let evm_block = fetch_exection_layer_block(&args.execution_layer_rpc, i).await;
 
         let withdrawals = if !args.graph_block_numbers.is_empty() {
             let indices: Vec<usize> = args
@@ -127,7 +128,8 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
             None
         };
 
-        blocks.push(CircuitStateBlock { state_txns, state_data_hash, evm_input, withdrawals });
+        let cosmos_block = serde_json::to_vec(&cosmos_block).unwrap();
+        blocks.push(CircuitStateBlock { state_txns, cosmos_block, evm_block, withdrawals });
     }
     let block_bytes = serde_json::to_vec(&blocks).unwrap();
     std::fs::write(&args.blocks, block_bytes).unwrap();

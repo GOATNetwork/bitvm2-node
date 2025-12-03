@@ -141,6 +141,10 @@ alloy-provider = { git = "https://github.com/ziren-patches/alloy", branch = "pat
     "reqwest-rustls-tls",
 ] }
 
+# tendermint
+tendermint = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = ["secp256k1"] }
+
+
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
 rust.unreachable_pub = "warn"

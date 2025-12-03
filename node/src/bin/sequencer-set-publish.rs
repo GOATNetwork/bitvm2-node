@@ -145,14 +145,10 @@ async fn save_commit_info(
 
     let commit_info = CommitInfo {
         txid: txid.clone(),
-        threshold: if output.sigs.len() > 0 {
-            output.sigs.len()
-        } else {
-            (btc_public_keys.len() * 2 + 2) / 3
-        } as u16,
+        threshold: ((btc_public_keys.len() * 2 + 2) / 3) as u16,
         publisher_public_keys: btc_public_keys.iter().map(|pubkey| pubkey.to_string()).collect(),
         genesis_txid,
-        sequencers,
+        sequencers: sequencers.iter().cloned().map(|v| v.into()).collect(),
     };
 
     let commit_info = serde_json::to_string(&commit_info).unwrap();
@@ -363,7 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &args.output_file,
                 genesis_txid,
                 &args.publishers,
-                sequencers.validators,
+                sequencers,
             )
             .await
             {

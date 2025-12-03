@@ -202,7 +202,7 @@ sol!(
             bytes32 sequencerSetHash; // validator_hash
             bytes32 publishersHash;
             bytes32 nextPublishersHash;
-            bytes32 p2wshSigHash;
+            bytes32 p2wshSigHash; // anchor the BTC txn
             uint256 goatBlockNumber;
         }
         address public multiSigVerifier;
@@ -394,9 +394,12 @@ impl GoatAdaptor {
     ) -> anyhow::Result<TxHash> {
         // update  gas price nonce gas_limit
         tx_request.gas_price = Some(self.provider.clone().get_gas_price().await?);
+        tracing::info!("gas price: {}", tx_request.gas_price.unwrap());
         tx_request.nonce =
             Some(self.provider.clone().get_transaction_count(tx_request.from.unwrap()).await?);
+        tracing::info!("tx: {:?}", tx_request);
         tx_request.gas = Some(self.provider.clone().estimate_gas(tx_request.clone()).await?);
+        tracing::info!("estimated gas: {:?}", tx_request.gas);
 
         // change into unsigned tx
         let unsigned_tx =

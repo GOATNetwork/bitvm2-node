@@ -37,7 +37,26 @@ bash cron-header-chain-proof.sh $start $batch
 
 ## Sequencer Set Commit Chain
 
-Prepare the `commit_info.json`, the input data is formated as below.
+* Publish sequencer set commitment
+
+```bash
+cd node
+export GOAT_BLOCK_NUMBER=9344536
+bash -x ssp-ci.sh $GOAT_BLOCK_NUMBER
+```
+All the initial publishers are hardcoded. In the `ssp-ci.sh`, we simutate 2-round publisher rotations.
+`GOAT_BLOCK_NUMBER` is the GOAT's current block number, which is used as the key to fetch sequencer set commitment.
+
+If it's the first time to publish, we need to deploy [SequencerSetPublisher contract](https://github.com/GOATNetwork/bitvm2-L2-contracts/tree/main/script#deploy).
+
+Make sure you use the correct contract address in below envs.
+
+```
+GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS=0x...
+ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS=0x...
+```
+
+It will generate `commit_info.json`, the format is as below.
 
 ```
 [
@@ -65,7 +84,7 @@ Generate the proof:
 
 ```
 # Genesis
-RUST_LOG=debug cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/commit-proof.bin" --commits data/commit-chain/commits.bin
+RUST_LOG=debug cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/commit-proof.bin" --commits data/commit-chain/commits.bin --commit-info ../node/tests_data/commit_info.json
 
 # Regular proof
 RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof.bin" --output-proof "data/commit-chain/commit-proof2.bin" --commit-info ../node/tests_data/commit_info2.json --commits data/commit-chain/commits.bin
@@ -77,13 +96,34 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 
 State Chain represents the L2's state transition, which checks the EVM's execution, withdrawal transaction inclusion and sequencers' aggrement.
 
-```
-export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
-export GRAPH_BLOCK_NUMBERS="8447360"
+We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optionally, the block may contain a `initWithdraw` transaction.
 
-export EL_START_BLOCK_NUMBER=8447350
+* Simutate a withdraw challenge
+
+```bash
+cd crates/bitvm2-ga
+cargo test -r test_take2
+```
+Make sure the operator has enough balance, if not, run this command to fund the operator.
+
+```
+bitcoin-cli -regtest -rpcuser=$user -rpcpassword=$password sendtoaddress bcrt1qhnmlpxyxdntekge4u24m4a7yk6elc3zs4v89e7fqja8vagfnrs8sq28cwd 50
+```
+
+Get the withdraw-challenge-init-txid , graph-id, and update `watchtower_info.json` with watchtower's challenge transaction id and compressed public key.
+
+* Generate state-chain proof
+
+If there are some `initWithdraw` transactions, configure `GRAPH_IDS` and `GRAPH_BLOCK_NUMBERS` by sparating them by comma. 
+
+```
+#export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
+#export GRAPH_BLOCK_NUMBERS=9344536
+
+export EL_START_BLOCK_NUMBER=9344536
 export BATCH_SIZE=30
 
+export start=$EL_START_BLOCK_NUMBER
 bash cron-state-chain-proof.sh $start $BATCH_SIZE
 
 #export START_BLOCK_NUMBER=8447350
@@ -97,24 +137,19 @@ bash cron-state-chain-proof.sh $start $BATCH_SIZE
 
 ## Watchtower proof
 
-* Publish sequencer set commitment
+* Simutate a withdraw challenge
 
 ```bash
-cd node
-export GOAT_BLOCK_NUMBER=8447360
-bash -x ssp-ci.sh $GOAT_BLOCK_NUMBER
+cd crates/bitvm2-ga
+cargo test -r test_take2
 ```
-All the initial publishers are hardcoded. In the `ssp-ci.sh`, we simutate 2-round publisher rotations.
-`GOAT_BLOCK_NUMBER` is the GOAT's current block number, which is used as the key to fetch sequencer set commitment.
-
-If it's the first time to publish, we need to deploy [SequencerSetPublisher contract](https://github.com/GOATNetwork/bitvm2-L2-contracts/tree/main/script#deploy).
-
-Make sure you use the correct contract address in below envs.
+Make sure the operator has enough balance, if not, run this command to fund the operator.
 
 ```
-GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS=0x...
-ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS=0x...
+bitcoin-cli -regtest -rpcuser=$... -rpcpassword=$... sendtoaddress bcrt1qhnmlpxyxdntekge4u24m4a7yk6elc3zs4v89e7fqja8vagfnrs8sq28cwd 50
 ```
+
+Get the withdraw-challenge-init-txid , graph-id, and update `watchtower_info.json` with watchtower's challenge transaction id and compressed public key.
 
 * Generate proofs
 
@@ -125,7 +160,7 @@ export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json | 
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/350000-100.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
 export LATEST_STATE_BLOCK_HASH="0x598781ea505c0b801742ace07f408e7b3d0f4fc54f122c97f554dadb563d3814" 
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447350-30.bin"
+export STATE_CHAIN_INPUT_PROOF="data/state-chain/9344536-30.bin"
 
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 

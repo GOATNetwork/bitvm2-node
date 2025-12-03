@@ -20,7 +20,7 @@ pub enum StateChainPrevProofType {
 pub struct CircuitStateBlock {
     pub state_txns: Vec<String>,
     //pub state_data_hash: [u8; 32],
-    pub cosmos_block: LightBlock,
+    pub cosmos_block: Vec<u8>,
     pub evm_block: EthClientExecutorInput,
     // (gateway contracts, withdraw_data_base_slot, [graph_ids])
     pub withdrawals: Option<(Address, [u8; 32], Vec<[u8; 16]>)>,
@@ -32,7 +32,7 @@ pub struct StateChainState {
     pub evm_block_height: u64,
     pub genesis_evm_block_hash: [u8; 32],
     pub latest_evm_block_hash: [u8; 32],
-    pub latest_cosmos_block: LightBlock,
+    pub latest_cosmos_block: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -53,7 +53,7 @@ impl StateChainState {
     pub fn new(
         evm_block_height: u64,
         genesis_evm_block_hash: [u8; 32],
-        latest_cosmos_block: LightBlock,
+        latest_cosmos_block: Vec<u8>,
     ) -> Self {
         StateChainState {
             evm_block_height,
@@ -73,9 +73,11 @@ impl StateChainState {
             assert_eq!(evm_header.number, self.evm_block_height);
             let current_block_hash: [u8; 32] = evm_header.hash_slow().try_into().unwrap();
             // check the evm block is committed in the consensus txns
+            // TODO: we carry the data hash in the state chain block for optimization
+            let cosmos_block: LightBlock = serde_json::from_slice(&block.cosmos_block)
+                .expect("failed to deserialize cosmos block");
             if current_block_hash != self.genesis_evm_block_hash {
-                let data_hash: [u8; 32] = block
-                    .cosmos_block
+                let data_hash: [u8; 32] = cosmos_block
                     .signed_header
                     .header
                     .data_hash
