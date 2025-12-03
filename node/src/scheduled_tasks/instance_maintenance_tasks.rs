@@ -1,7 +1,9 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{check_bridge_in_uxto_available, gen_instance_parameters_local, upsert_message};
+use crate::utils::{
+    check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local, upsert_message,
+};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::transactions::base::BaseTransaction;
@@ -310,7 +312,7 @@ pub async fn instance_btc_tx_monitor(
             ]
             .contains(&next_status)
                 && let utxos = serde_json::from_str::<Vec<Utxo>>(&instance.input_utxos)?
-                && !check_bridge_in_uxto_available(btc_client, &utxos).await?
+                && !check_bridge_in_uxto_available_or_self_spent(btc_client, None, &utxos).await?
             {
                 warn!(
                     "instance:{}, pegin prepare tx input utxos has been spent in other tx",

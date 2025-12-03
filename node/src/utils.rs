@@ -3715,8 +3715,9 @@ fn gen_user_info(
     })
 }
 
-pub async fn check_bridge_in_uxto_available(
+pub async fn check_bridge_in_uxto_available_or_self_spent(
     btc_client: &BTCClient,
+    target_txid: Option<String>,
     utxos: &[client::Utxo],
 ) -> Result<bool> {
     for utxo in utxos {
@@ -3724,6 +3725,12 @@ pub async fn check_bridge_in_uxto_available(
             && let Ok(Some(status)) = btc_client.get_output_status(&txid, utxo.vout as u64).await
             && status.spent
         {
+            if let Some(target_txid) = target_txid
+                && let Some(txid) = status.txid
+                && txid.to_string() == target_txid
+            {
+                return Ok(true);
+            }
             return Ok(false);
         }
     }

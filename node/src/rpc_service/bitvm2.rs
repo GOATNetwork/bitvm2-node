@@ -2,7 +2,7 @@ use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertCommitStatus, ChallengeSubStatus, WatchtowerChallengeStatus,
 };
-use crate::utils::{check_bridge_in_uxto_available, reflect_goat_address};
+use crate::utils::{check_bridge_in_uxto_available_or_self_spent, reflect_goat_address};
 use alloy::hex::ToHexExt;
 use bitcoin::Txid;
 use client::Utxo;
@@ -122,6 +122,7 @@ impl InstanceExtended {
             instance.instance_id,
             instance.is_bridge_in,
             instance.status.clone(),
+            instance.btc_txid.clone().map(|v| v.0.to_string()),
             &utxos,
         )
         .await?;
@@ -147,13 +148,16 @@ async fn get_instance_status_extra(
     instance_id: Uuid,
     is_bridge_in: bool,
     status: String,
+    target_txid: Option<String>,
     utxos: &[Utxo],
 ) -> anyhow::Result<StatusExtra> {
     let mut status_extra = StatusExtra::default();
     if is_bridge_in && let Ok(bridge_in_status) = InstanceBridgeInStatus::from_str(&status) {
         match bridge_in_status {
             InstanceBridgeInStatus::UserInited => {
-                if !check_bridge_in_uxto_available(btc_client, utxos).await? {
+                if !check_bridge_in_uxto_available_or_self_spent(btc_client, target_txid, utxos)
+                    .await?
+                {
                     status_extra.is_failed = true;
                     status_extra.error = Some(BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT.to_string());
                     status_extra.user_action = StatusUserAction::Cancel;
@@ -165,7 +169,9 @@ async fn get_instance_status_extra(
                 status_extra.user_action = StatusUserAction::Cancel;
             }
             InstanceBridgeInStatus::CommitteesAnswered => {
-                if !check_bridge_in_uxto_available(btc_client, utxos).await? {
+                if !check_bridge_in_uxto_available_or_self_spent(btc_client, target_txid, utxos)
+                    .await?
+                {
                     status_extra.is_failed = true;
                     status_extra.error = Some(BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT.to_string());
                     status_extra.user_action = StatusUserAction::Cancel;
