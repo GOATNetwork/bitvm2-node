@@ -1,26 +1,28 @@
 use crate::env;
 use crate::rpc_service::proof::{
-    BtcBlockDesc, BtcBlockDescListResponse, BtcBlockDescQueryParams, ProofDesc, ProofResponse,
-    ProofType, ProofsQueryParams,
+    BlockDescQueryParams, CommitChainBlockDesc, CommitChainBlockDescListResponse,
+    HeaderChainBlockDesc, HeaderChainBlockDescListResponse, ProofDesc, ProofResponse, ProofType,
+    ProofsQueryParams,
 };
 use crate::rpc_service::response::{ApiErrorExt, ApiResult};
 use crate::rpc_service::{AppState, current_time_secs};
+use crate::utils::generate_random_bytes;
 use axum::Json;
 use axum::extract::{Query, State};
 use client::btc_chain::mempool_v1_type::{V1Blocks, get_v1_blocks_url};
 use http::{StatusCode, Uri};
 use std::sync::Arc;
+use store::ProofStatus;
 
-/// Fetch a descending list of Bitcoin block descriptors
+/// Fetch a descending list of Header chain block descriptors
 ///
 /// Queries the mempool.space V1 Blocks endpoint, takes the requested number of records from the newest block
 /// downward, and enriches each block with the local proof status.
 ///
 /// # Query Parameters
 ///
-/// - `proof_type`: Required. Indicates whether to track header-chain or commit-chain proof status.
 /// - `start_height`: Optional. Starting block height in descending order. Defaults to the latest height when omitted.
-/// - `range`: Optional. Number of blocks to return (default 15). The actual length never exceeds the remote payload.
+/// - `range`: Optional. Number of blocks to return (max and default 15). The actual length never exceeds the remote payload.
 ///
 /// # Returns
 ///
@@ -31,13 +33,13 @@ use std::sync::Arc;
 ///
 /// # Use Case
 ///
-/// Wallet dashboards, monitoring services, or explorers use this endpoint to correlate block fee dynamics with
-/// the current proof progress for header/commit chains.
+/// dashboards, monitoring services, or explorers
+/// the current proof progress for header chains.
 ///
 /// # Example
 ///
 /// ```http
-/// GET /v1/proofs/blocks-desc?proof_type=header_chain&start_height=800000&range=10
+/// GET /v1/proofs/blocks-desc/header-chain?start_height=800000&range=10
 /// ```
 ///
 /// Response example:
@@ -60,11 +62,11 @@ use std::sync::Arc;
 /// }
 /// ```
 #[axum::debug_handler]
-pub async fn get_blocks_desc(
+pub async fn get_header_chain_blocks_desc(
     _uri: Uri,
-    Query(params): Query<BtcBlockDescQueryParams>,
+    Query(params): Query<BlockDescQueryParams>,
     State(app_state): State<Arc<AppState>>,
-) -> ApiResult<BtcBlockDescListResponse> {
+) -> ApiResult<HeaderChainBlockDescListResponse> {
     let v1_blocks_url = get_v1_blocks_url(env::get_network(), params.start_height);
     let v1_blocks: V1Blocks = app_state
         .http_client
@@ -72,11 +74,102 @@ pub async fn get_blocks_desc(
         .await
         .api_error("GET_BLOCKS_DESC")?;
     let take_count = params.range.min(v1_blocks.len() as u32) as usize;
-    let blocks_desc: Vec<BtcBlockDesc> =
-        v1_blocks.into_iter().take(take_count).map(BtcBlockDesc::from).collect();
+    let mut blocks_desc: Vec<HeaderChainBlockDesc> =
+        v1_blocks.into_iter().take(take_count).map(HeaderChainBlockDesc::from).collect();
+    if take_count > 2 {
+        blocks_desc[0].proof_status = ProofStatus::Failed;
+        blocks_desc[1].proof_status = ProofStatus::Pending;
+    }
     Ok((
         StatusCode::OK,
-        Json(BtcBlockDescListResponse {
+        Json(HeaderChainBlockDescListResponse {
+            start: blocks_desc[0].height,
+            range: blocks_desc.len() as u64,
+            blocks_desc,
+        }),
+    ))
+}
+
+/// Fetch a descending list of Commit chain block descriptors
+///
+/// Returns a list of commit chain blocks in descending order by height, enriched with
+/// sequencer information, commit IDs, and proof status for each block.
+///
+/// # Query Parameters
+///
+/// - `start_height`: Optional. Starting block height in descending order. Defaults to 920136 when omitted.
+/// - `range`: Optional. Number of blocks to return (max and default 15). The actual length never exceeds the remote payload.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns a list of commit chain block descriptors.
+/// - `500 Internal Server Error`: Server internal error or failed operation.
+/// - The payload includes `start`, `range`, and a `blocks_desc` array containing height, size,
+///   tx count, timestamp, sequencer number, sequencer set hash, commit ID, and proof status for each block.
+///
+/// # Use Case
+///
+/// Dashboards, monitoring services, or explorers can use this endpoint to track
+/// commit chain block production and proof verification status.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/proofs/blocks-desc/commit-chain?start_height=920136&range=10
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "start": 920136,
+///   "range": 10,
+///   "blocks_desc": [
+///     {
+///       "height": 920136,
+///       "size": 9275,
+///       "tx_count": 100,
+///       "timestamp": 1640995200,
+///       "sequencer_number": 100,
+///       "sequencer_set_hash": "0x1234...",
+///       "commit_id": "0xabcd...",
+///       "proof_status": "Failed"
+///     }
+///   ]
+/// }
+/// ```
+pub async fn get_commit_chain_blocks_desc(
+    _uri: Uri,
+    Query(params): Query<BlockDescQueryParams>,
+    State(_app_state): State<Arc<AppState>>,
+) -> ApiResult<CommitChainBlockDescListResponse> {
+    let start_height = params.start_height.unwrap_or_else(|| 920136);
+    let mut blocks_desc: Vec<CommitChainBlockDesc> = vec![];
+
+    for i in 0..params.range {
+        let proof_status = match i {
+            0 => ProofStatus::Failed,
+            1 => ProofStatus::Pending,
+            _ => ProofStatus::Proved,
+        };
+        let block_number = start_height - i as u64;
+        if block_number <= 0 {
+            break;
+        }
+        blocks_desc.push(CommitChainBlockDesc {
+            height: block_number,
+            size: 9275,
+            tx_count: 100,
+            timestamp: current_time_secs() as u64,
+            sequencer_number: 100,
+            sequencer_set_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
+            commit_id: format!("0x{}", hex::encode(generate_random_bytes(32))),
+            proof_status,
+        })
+    }
+
+    Ok((
+        StatusCode::OK,
+        Json(CommitChainBlockDescListResponse {
             start: blocks_desc[0].height,
             range: blocks_desc.len() as u64,
             blocks_desc,

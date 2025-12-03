@@ -19,5 +19,7 @@ pub(crate) mod v1 {
     pub const GRAPHS_NEIGHBOR_IDS: &str = "/v1/graphs/{:id}/neighbor-ids";
     pub const GRAPHS_TX_BY_ID: &str = "/v1/graphs/{:id}/tx";
     pub const PROOFS_BASE: &str = "/v1/proofs";
-    pub const PROOFS_BLOCKS_DESC: &str = "/v1/proofs/blocks-desc";
+    pub const PROOFS_BLOCKS_HEADER_CHAIN_DESC: &str = "/v1/proofs/blocks-desc/header-chain";
+    pub const PROOFS_BLOCKS_COMMIT_CHAIN_CHAIN_DESC: &str = "/v1/proofs/blocks-desc/commit-chain";
+    // pub const PROOFS_BLOCKS_GOAT_CHAIN_DESC: &str = "/v1/proofs/blocks-desc/goat-chain";
 }
