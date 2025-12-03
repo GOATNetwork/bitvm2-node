@@ -17,7 +17,7 @@ pub async fn node_available_pbtc_update_monitor(
     };
     info!("node_available_pbtc_update_monitor update {size} operator available peg btc");
     for mut node in nodes {
-        if let Ok(addr) = Address::from_str(&node.actor) {
+        if let Ok(addr) = Address::from_str(&node.goat_addr) {
             let peg_btc = goat_client.peg_btc_balance(&addr.0).await?;
             node.available_peg_btc = peg_btc as i64;
             let mut storage_processor = local_db.acquire().await?;
