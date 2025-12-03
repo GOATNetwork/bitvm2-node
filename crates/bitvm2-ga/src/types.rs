@@ -1,4 +1,7 @@
+use std::collections::BTreeMap;
+
 use anyhow::{Result, bail};
+use bitcoin::taproot::LeafVersion;
 use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, TxOut, XOnlyPublicKey, key::Keypair};
 use bitcoin::{PrivateKey, Witness};
 use bitvm::chunk::api::{
@@ -6,6 +9,7 @@ use bitvm::chunk::api::{
     Signatures as Groth16ProofSignatures,
 };
 use bitvm::signatures::{WinternitzSecret, Wots, Wots32};
+use goat::connectors::base::TaprootConnector;
 use goat::connectors::connector_0::Connector0;
 use goat::connectors::connector_e::ConnectorE;
 use goat::connectors::connector_z::ConnectorZ;
@@ -159,6 +163,60 @@ impl Bitvm2InstanceParameters {
         .map_err(|e| anyhow::anyhow!("fail to build pegin refund txn: {e}"))?;
 
         Ok((pegin_deposit, pegin_confirm, pegin_refund))
+    }
+
+    pub fn build_pegin_cancel_psbt(&self) -> Result<bitcoin::psbt::Psbt> {
+        let network = self.network;
+        let n_of_n_taproot_public_key = XOnlyPublicKey::from(self.committee_agg_pubkey);
+        let user_taproot_public_key = self.user_info.user_xonly_pubkey;
+        let connector_z =
+            ConnectorZ::new(network, &n_of_n_taproot_public_key, &user_taproot_public_key);
+
+        let pegin_deposit = PegInDepositTransaction::new_unsigned(
+            &connector_z,
+            self.user_info.inputs.clone(),
+            self.pegin_amount + Amount::from_sat(self.user_info.txn_fees[1]),
+            Amount::from_sat(self.user_info.txn_fees[0]),
+            self.user_info.user_change_address.clone(),
+        )
+        .map_err(|e| anyhow::anyhow!("fail to build pegin deposit txn: {e}"))?;
+        let deposit_outpoint = Input {
+            outpoint: OutPoint { txid: pegin_deposit.tx().compute_txid(), vout: 0 },
+            amount: pegin_deposit.tx().output[0].value,
+        };
+        let pegin_refund = PegInRefundTransaction::new_for_validation(
+            &connector_z,
+            deposit_outpoint.clone(),
+            &self.user_info.user_refund_address,
+            Amount::from_sat(self.user_info.txn_fees[2]),
+        )
+        .map_err(|e| anyhow::anyhow!("fail to build pegin refund txn: {e}"))?;
+
+        let mut psbt = bitcoin::psbt::Psbt::from_unsigned_tx(pegin_refund.tx().clone()).unwrap();
+        let taproot_spend_info = connector_z.generate_taproot_spend_info();
+        let mut tap_scripts = BTreeMap::new();
+        let tap_script_1 = connector_z.generate_taproot_leaf_script(1);
+        tap_scripts.insert(
+            taproot_spend_info
+                .control_block(&(tap_script_1.clone(), LeafVersion::TapScript))
+                .unwrap(),
+            (tap_script_1, LeafVersion::TapScript),
+        );
+        let psbt_input_0 = bitcoin::psbt::Input {
+            witness_utxo: {
+                Some(TxOut {
+                    value: deposit_outpoint.amount,
+                    script_pubkey: connector_z.generate_taproot_address().script_pubkey(),
+                })
+            },
+            tap_merkle_root: taproot_spend_info.merkle_root(),
+            tap_internal_key: Some(n_of_n_taproot_public_key),
+            tap_scripts,
+            ..Default::default()
+        };
+        psbt.inputs[0] = psbt_input_0;
+
+        Ok(psbt)
     }
 
     pub fn get_verifier_context(

@@ -27,7 +27,6 @@ mod tests {
         scripts::generate_opreturn_script,
         transactions::{
             base::{BaseTransaction, DUST_AMOUNT, Input},
-            pegin::PegInRefundTransaction,
             pre_signed::{PreSignedTransaction, pre_sign_taproot_input_default},
             prekickoff::PrekickoffTransaction,
             signing::populate_p2wsh_witness,
@@ -1379,90 +1378,5 @@ mod tests {
             msg.len(),
             tx.compute_txid()
         );
-    }
-
-    #[tokio::test]
-    async fn test_pegin_cancel_psbt() {
-        fn build_psbt_base58(
-            tx: &Transaction,
-            prev_outs: &[TxOut],
-            witness_scripts: Option<&[ScriptBuf]>,
-        ) -> anyhow::Result<String> {
-            if prev_outs.len() != tx.input.len() {
-                anyhow::bail!(
-                    "prev_outs length {} does not match tx.inputs length {}",
-                    prev_outs.len(),
-                    tx.input.len()
-                );
-            }
-            if let Some(ws) = witness_scripts.as_ref() {
-                if ws.len() != tx.input.len() {
-                    anyhow::bail!(
-                        "witness_scripts length {} does not match tx.inputs length {}",
-                        ws.len(),
-                        tx.input.len()
-                    );
-                }
-            }
-
-            let mut psbt = bitcoin::psbt::Psbt::from_unsigned_tx(tx.clone())?;
-            // Populate per-input metadata needed by signers
-            for i in 0..tx.input.len() {
-                psbt.inputs[i].witness_utxo = Some(prev_outs[i].clone());
-                if let Some(ws) = witness_scripts.as_ref() {
-                    psbt.inputs[i].witness_script = Some(ws[i].clone());
-                }
-            }
-
-            // Serialize PSBT and encode as base58 (as requested)
-            let b58 = bitcoin::base58::encode(&psbt.serialize()).to_string();
-            Ok(b58)
-        }
-
-        use client::btc_chain::BTCClient;
-        use std::str::FromStr;
-        let user_xonly = "8bc0a6e6b046ffdbd84aee9aea83d177c9f26f66d5f373949a78f6e774ca7f11";
-        let user_xonly = XOnlyPublicKey::from_str(user_xonly).unwrap();
-        let network = Network::Testnet;
-        set_network(network);
-        let btc_client = BTCClient::new(network, None);
-        let eslora = get_esplora_client().await;
-        let bank_address = node_p2wsh_address(network, &bank_keypair().public_key().into());
-        let bank_xonly = bank_keypair().public_key().x_only_public_key().0;
-        let connector_z = ConnectorZ::new(network, &bank_xonly, &user_xonly);
-        let test_address = connector_z.generate_taproot_address();
-        let test_amount = Amount::from_sat(10000);
-        let default_fee_amount = Amount::from_sat(500);
-        let input = match btc_client
-            .get_address_utxo(test_address.clone())
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|u| u.value >= test_amount)
-        {
-            Some(u) => Input { outpoint: OutPoint { txid: u.txid, vout: u.vout }, amount: u.value },
-            None => {
-                let outpoint =
-                    fund_address(&eslora, network, test_address.clone(), test_amount).await;
-                Input { outpoint, amount: test_amount }
-            }
-        };
-        let pegin_refund = PegInRefundTransaction::new_for_validation(
-            &connector_z,
-            input,
-            &bank_address,
-            default_fee_amount,
-        )
-        .unwrap();
-
-        let psbt_b58 = build_psbt_base58(
-            &pegin_refund.tx(),
-            &pegin_refund.prev_outs(),
-            Some(&pegin_refund.prev_scripts()),
-        )
-        .unwrap();
-        println!("\ntest address: {}", test_address);
-        println!("\nPegin cancel txid: {}", pegin_refund.tx().compute_txid());
-        println!("\nPegin cancel PSBT (base58):\n{}", psbt_b58);
     }
 }
