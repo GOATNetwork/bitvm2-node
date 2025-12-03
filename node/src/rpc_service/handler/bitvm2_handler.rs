@@ -1452,7 +1452,7 @@ pub async fn get_graph_neighbor_ids(
 /// ```json
 /// {
 ///   "pegin_prepare": "0200000001...",
-///   "pegin_cancel": "0200000001..."
+///   "pegin_cancel_psbt": "0200000001..."
 /// }
 /// ```
 #[axum::debug_handler]
@@ -1468,13 +1468,17 @@ pub async fn get_unsigned_pegin_txn(
         storage_processor.find_instance(&current_id).await.api_error("GET_UNSIGNED_PEGIN_ERROR")?
         && instance.status == InstanceBridgeInStatus::CommitteesAnswered.to_string()
     {
-        let (pegin_deposit_tx, _, pegin_refund_tx) = gen_instance_parameters_local(&instance)
-            .api_error("GET_UNSIGNED_PEGIN_ERROR")?
-            .build_pegin_tx()
-            .api_error("GET_UNSIGNED_PEGIN_ERROR")?;
-
+        let instance_parameters =
+            gen_instance_parameters_local(&instance).api_error("GET_UNSIGNED_PEGIN_ERROR")?;
+        let (pegin_deposit_tx, _, _) =
+            instance_parameters.build_pegin_tx().api_error("GET_UNSIGNED_PEGIN_ERROR")?;
         res.pegin_prepare = Some(serialize_hex(pegin_deposit_tx.tx()));
-        res.pegin_cancel = Some(serialize_hex(pegin_refund_tx.tx()));
+        res.pegin_cancel_psbt = Some(hex::encode(
+            instance_parameters
+                .build_pegin_cancel_psbt()
+                .api_error("GET_UNSIGNED_PEGIN_ERROR")?
+                .serialize(),
+        ));
     } else {
         warn!(
             "instance:{instance_id} is not record in db or instance status neq CommitteesAnswered"
