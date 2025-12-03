@@ -239,7 +239,7 @@ fn get_bridge_in_status_time_window_secs(status: &str, response_window_blocks: i
             response_window_blocks * GOAT_BLOCK_INTERVAL_SECS
         }
         Ok(InstanceBridgeInStatus::Submitted)
-        | Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => 3600 * 24,
+        | Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => 3600 * 3,
         Ok(InstanceBridgeInStatus::Processing)
         | Ok(InstanceBridgeInStatus::Presigned)
         | Ok(InstanceBridgeInStatus::RelayerL1Broadcasted) => 3600 * 3,
@@ -453,8 +453,11 @@ impl GraphExtended {
         _btc_client: &BTCClient,
         mut graph: Graph,
     ) -> anyhow::Result<Self> {
-        let waiting_time_in_secs =
-            get_graph_waiting_time_in_secs(graph.status_updated_at, &graph.status);
+        let waiting_time_in_secs = get_graph_waiting_time_in_secs(
+            graph.status_updated_at,
+            &graph.status,
+            graph.init_withdraw_tx_hash.is_some(),
+        );
         graph.status = graph.convert_to_display_status();
         let challenge_sub_status =
             match serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status) {
@@ -485,9 +488,14 @@ impl GraphExtended {
     }
 }
 
-fn get_graph_waiting_time_in_secs(last_updated: i64, status: &str) -> i64 {
-    let _ = GraphStatus::from_str(status);
-    let time_window = 0;
+fn get_graph_waiting_time_in_secs(last_updated: i64, status: &str, is_start_kickoff: bool) -> i64 {
+    let time_window = match GraphStatus::from_str(status) {
+        Ok(GraphStatus::OperatorDataPushed) if is_start_kickoff => 1800,
+        Ok(GraphStatus::OperatorKickOff) => 3 * 3600,
+        Ok(GraphStatus::Challenge) => 9 * 3600,
+
+        _ => 0,
+    };
     let time_left = time_window - (current_time_secs() - last_updated);
     time_left.max(0)
 }
