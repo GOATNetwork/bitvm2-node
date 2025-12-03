@@ -12,7 +12,8 @@ use std::default::Default;
 use std::str::FromStr;
 use store::localdb::GraphQuery;
 use store::{
-    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, SerializableTxid,
+    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, ProofStatus,
+    SerializableTxid,
 };
 use strum::{Display, EnumString};
 use tracing::warn;
@@ -443,8 +444,8 @@ pub struct GraphExtended {
     pub graph: Option<Graph>,
     pub challenge_sub_status: SimpleChallengeSubStatus,
     pub waiting_time_in_secs: i64,
-    // pub proof_height: Option<i64>,
-    // pub proof_query_url: Option<String>,
+    pub proof_status: ProofStatus, // pub proof_height: Option<i64>,
+                                   // pub proof_query_url: Option<String>,
 }
 
 impl GraphExtended {
@@ -474,8 +475,13 @@ impl GraphExtended {
                     SimpleChallengeSubStatus::None
                 }
             };
-
-        Ok(GraphExtended { challenge_sub_status, waiting_time_in_secs, graph: Some(graph) })
+        // todo update proof status
+        Ok(GraphExtended {
+            challenge_sub_status,
+            waiting_time_in_secs,
+            proof_status: ProofStatus::Pending,
+            graph: Some(graph),
+        })
     }
 }
 

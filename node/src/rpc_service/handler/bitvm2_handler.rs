@@ -530,7 +530,8 @@ pub async fn get_instances_overview(
 ///       "updated_at": 1699123456
 ///     },
 ///     "challenge_sub_status": "Assert",
-///     "waiting_time_in_secs": 1000
+///     "waiting_time_in_secs": 1000,
+///     "proof_status": "Pending"
 /// }
 /// ```
 #[axum::debug_handler]
@@ -623,7 +624,8 @@ pub async fn get_graph(
 ///         "updated_at": 1699123456
 ///       },
 ///       "challenge_sub_status": "Assert",
-///       "waiting_time_in_secs": 1000
+///       "waiting_time_in_secs": 1000,
+///       "proof_status": "Pending"
 ///     }
 ///   ],
 ///   "total": 1
