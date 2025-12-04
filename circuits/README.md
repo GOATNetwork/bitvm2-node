@@ -98,19 +98,7 @@ State Chain represents the L2's state transition, which checks the EVM's executi
 
 We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optionally, the block may contain a `initWithdraw` transaction.
 
-* Simutate a withdraw challenge
-
-```bash
-cd crates/bitvm2-ga
-cargo test -r test_take2
-```
-Make sure the operator has enough balance, if not, run this command to fund the operator.
-
-```
-bitcoin-cli -regtest -rpcuser=$user -rpcpassword=$password sendtoaddress bcrt1qhnmlpxyxdntekge4u24m4a7yk6elc3zs4v89e7fqja8vagfnrs8sq28cwd 50
-```
-
-Get the withdraw-challenge-init-txid , graph-id, and update `watchtower_info.json` with watchtower's challenge transaction id and compressed public key.
+* Kick off a withdrawl on L2.  
 
 * Generate state-chain proof
 
@@ -134,22 +122,7 @@ bash cron-state-chain-proof.sh $start $BATCH_SIZE
 #RUST_LOG=info cargo run --package state-chain-proof --bin state-chain-proof -r -- --start ${START_BLOCK_NUMBER_NEXT_NEXT} --batch-size $BATCH_SIZE --force-fetch --input-proof data/state-chain/${START_BLOCK_NUMBER_NEXT}-${BATCH_SIZE}.proof.bin --output-proof data/state-chain/${START_BLOCK_NUMBER_NEXT_NEXT}-${BATCH_SIZE}.proof.bin --blocks data/state-chain/blocks.bin
 ```
 
-
 ## Watchtower proof
-
-* Simutate a withdraw challenge
-
-```bash
-cd crates/bitvm2-ga
-cargo test -r test_take2
-```
-Make sure the operator has enough balance, if not, run this command to fund the operator.
-
-```
-bitcoin-cli -regtest -rpcuser=$... -rpcpassword=$... sendtoaddress bcrt1qhnmlpxyxdntekge4u24m4a7yk6elc3zs4v89e7fqja8vagfnrs8sq28cwd 50
-```
-
-Get the withdraw-challenge-init-txid , graph-id, and update `watchtower_info.json` with watchtower's challenge transaction id and compressed public key.
 
 * Generate proofs
 
