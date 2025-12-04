@@ -40,7 +40,7 @@ const _BRIDGE_OUT_FAIL_AS_CLAIM_TIMEOUT: &str =
     "Claim timed out. Please initiate a new transaction.";
 const _BRIDGE_IN_FAIL_AS_L1_LOCK_TIMEOUT: &str =
     "The operator timed out and failed to lock BTC. Please cancel the transaction.";
-pub const BRIDGE_IN_AMOUNTS: [f32; 4] = [0.1, 0.05, 0.02, 0.01];
+pub const BRIDGE_IN_AMOUNTS: [f32; 2] = [0.1, 0.01];
 
 const GOAT_BLOCK_INTERVAL_SECS: i64 = 3;
 

@@ -773,10 +773,7 @@ pub async fn get_ready_to_kickoff_graph(
     if graphs.is_empty() {
         return Ok((
             StatusCode::OK,
-            Json(GraphReadyToKickoffResponse {
-                graph: None,
-                no_ready_reason: Some("No graph is ready".to_string()),
-            }),
+            Json(GraphReadyToKickoffResponse { graph: None, no_ready_reason: None }),
         ));
     }
 
@@ -803,7 +800,7 @@ pub async fn get_ready_to_kickoff_graph(
                 StatusCode::OK,
                 Json(GraphReadyToKickoffResponse {
                     graph: None,
-                    no_ready_reason: Some("Pre graph not finish Pegout".to_string()),
+                    no_ready_reason: Some(pre_graphs[0].graph_id.to_string()),
                 }),
             ));
         }
