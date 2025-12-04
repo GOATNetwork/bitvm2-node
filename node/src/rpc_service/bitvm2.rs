@@ -44,6 +44,12 @@ pub const BRIDGE_IN_AMOUNTS: [f32; 2] = [0.1, 0.01];
 
 const GOAT_BLOCK_INTERVAL_SECS: i64 = 3;
 
+const INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS: i64 = 3600 * 3;
+const INSTANCE_RELAYER_L1_BROADCAST_STATUS_DURATION_SECS: i64 = 3600 * 3;
+const GRAPH_OPERATOR_KICKOFFING_STATUS_DURATION_SECS: i64 = 1800;
+const GRAPH_OPERATOR_KICKOFF_STATUS_DURATION_SECS: i64 = 3600 * 3;
+const GRAPH_OPERATOR_CHALLENGE_STATUS_DURATION_SECS: i64 = 3600 * 9;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeInPrepareRequest {
     pub instance_id: String,            // UUID
@@ -97,6 +103,7 @@ pub struct InstanceExtended {
     pub instance: Instance,
     pub utxo: Vec<Utxo>,
     pub waiting_time_in_secs: i64,
+    pub current_status_waiting_time_in_secs: i64,
     pub confirmations: u32,
     pub target_confirmations: u32,
     pub status_extra: StatusExtra,
@@ -127,14 +134,19 @@ impl InstanceExtended {
             &utxos,
         )
         .await?;
-        // instance.status = instance.convert_to_display_status();
-        Ok(Self {
-            waiting_time_in_secs: get_instance_waiting_time_in_secs(
+        let (current_status_waiting_time_in_secs, waiting_time_in_secs) =
+            get_instance_waiting_times(
                 instance.is_bridge_in,
                 &instance.status,
+                instance.created_at,
                 instance.status_updated_at,
                 response_window_blocks,
-            ),
+            );
+
+        // instance.status = instance.convert_to_display_status();
+        Ok(Self {
+            waiting_time_in_secs,
+            current_status_waiting_time_in_secs,
             confirmations,
             target_confirmations,
             status_extra,
@@ -233,39 +245,53 @@ async fn get_instance_block_confirm_progress(
     }
 }
 
-fn get_bridge_in_status_time_window_secs(status: &str, response_window_blocks: i64) -> i64 {
+fn get_bridge_in_status_time_window_secs(status: &str, response_window_blocks: i64) -> (i64, i64) {
+    let total_time = response_window_blocks * GOAT_BLOCK_INTERVAL_SECS
+        + INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS
+        + INSTANCE_RELAYER_L1_BROADCAST_STATUS_DURATION_SECS;
+
     match InstanceBridgeInStatus::from_str(status) {
-        Ok(InstanceBridgeInStatus::Initiated) | Ok(InstanceBridgeInStatus::UserInited) => {
-            response_window_blocks * GOAT_BLOCK_INTERVAL_SECS
+        Ok(InstanceBridgeInStatus::UserIniting)
+        | Ok(InstanceBridgeInStatus::Initiated)
+        | Ok(InstanceBridgeInStatus::UserInited) => {
+            (response_window_blocks * GOAT_BLOCK_INTERVAL_SECS, total_time)
+        }
+        Ok(InstanceBridgeInStatus::CommitteesAnswered) | Ok(InstanceBridgeInStatus::Verified) => {
+            (0, total_time - response_window_blocks * GOAT_BLOCK_INTERVAL_SECS)
         }
         Ok(InstanceBridgeInStatus::Submitted)
-        | Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => 3600 * 3,
+        | Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => (
+            INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS,
+            total_time - response_window_blocks * GOAT_BLOCK_INTERVAL_SECS,
+        ),
         Ok(InstanceBridgeInStatus::Processing)
         | Ok(InstanceBridgeInStatus::Presigned)
-        | Ok(InstanceBridgeInStatus::RelayerL1Broadcasted) => 3600 * 3,
-        Ok(_) | Err(_) => 0,
+        | Ok(InstanceBridgeInStatus::RelayerL1Broadcasted) => (
+            INSTANCE_RELAYER_L1_BROADCAST_STATUS_DURATION_SECS,
+            total_time
+                - response_window_blocks * GOAT_BLOCK_INTERVAL_SECS
+                - INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS,
+        ),
+        Ok(_) | Err(_) => (0, 0),
     }
 }
 
-fn get_bridge_out_status_time_window_secs(status: &str) -> i64 {
-    let _ = InstanceBridgeOutStatus::from_str(status);
-    0
-}
-
-fn get_instance_waiting_time_in_secs(
+fn get_instance_waiting_times(
     is_bridge_in: bool,
     status: &str,
+    created_at: i64,
     last_updated: i64,
     response_window_blocks: i64,
-) -> i64 {
-    let time_past = current_time_secs() - last_updated;
-    let time_left = if is_bridge_in {
-        get_bridge_in_status_time_window_secs(status, response_window_blocks) - time_past
+) -> (i64, i64) {
+    let current_state_past = current_time_secs() - last_updated;
+    let total_past = current_time_secs() - created_at;
+    if is_bridge_in {
+        let (current_status_window, total_window) =
+            get_bridge_in_status_time_window_secs(status, response_window_blocks);
+        ((current_status_window - current_state_past).max(0), (total_window - total_past).max(0))
     } else {
-        get_bridge_out_status_time_window_secs(status) - time_past
-    };
-
-    time_left.max(0)
+        (0, 0)
+    }
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -444,8 +470,8 @@ pub struct GraphExtended {
     pub graph: Option<Graph>,
     pub challenge_sub_status: SimpleChallengeSubStatus,
     pub waiting_time_in_secs: i64,
-    pub proof_status: ProofStatus, // pub proof_height: Option<i64>,
-                                   // pub proof_query_url: Option<String>,
+    pub current_status_waiting_time_in_secs: i64,
+    pub proof_status: ProofStatus,
 }
 
 impl GraphExtended {
@@ -453,7 +479,8 @@ impl GraphExtended {
         _btc_client: &BTCClient,
         mut graph: Graph,
     ) -> anyhow::Result<Self> {
-        let waiting_time_in_secs = get_graph_waiting_time_in_secs(
+        let (current_status_waiting_time_in_secs, waiting_time_in_secs) = get_graph_waiting_times(
+            graph.created_at,
             graph.status_updated_at,
             &graph.status,
             graph.init_withdraw_tx_hash.is_some(),
@@ -480,6 +507,7 @@ impl GraphExtended {
             };
         // todo update proof status
         Ok(GraphExtended {
+            current_status_waiting_time_in_secs,
             challenge_sub_status,
             waiting_time_in_secs,
             proof_status: ProofStatus::Pending,
@@ -488,16 +516,35 @@ impl GraphExtended {
     }
 }
 
-fn get_graph_waiting_time_in_secs(last_updated: i64, status: &str, is_start_kickoff: bool) -> i64 {
-    let time_window = match GraphStatus::from_str(status) {
-        Ok(GraphStatus::OperatorDataPushed) if is_start_kickoff => 1800,
-        Ok(GraphStatus::OperatorKickOff) => 3 * 3600,
-        Ok(GraphStatus::Challenge) => 9 * 3600,
+fn get_graph_waiting_times(
+    created_at: i64,
+    last_updated: i64,
+    status: &str,
+    is_start_kickoff: bool,
+) -> (i64, i64) {
+    let total_time = GRAPH_OPERATOR_KICKOFFING_STATUS_DURATION_SECS
+        + GRAPH_OPERATOR_KICKOFF_STATUS_DURATION_SECS
+        + GRAPH_OPERATOR_CHALLENGE_STATUS_DURATION_SECS;
+    let (current_status_window, total_window) = match GraphStatus::from_str(status) {
+        Ok(GraphStatus::OperatorDataPushed) if is_start_kickoff => {
+            (GRAPH_OPERATOR_KICKOFFING_STATUS_DURATION_SECS, total_time)
+        }
+        Ok(GraphStatus::OperatorKickOff) => (
+            GRAPH_OPERATOR_KICKOFF_STATUS_DURATION_SECS,
+            total_time - GRAPH_OPERATOR_KICKOFFING_STATUS_DURATION_SECS,
+        ),
+        Ok(GraphStatus::Challenge) => (
+            GRAPH_OPERATOR_CHALLENGE_STATUS_DURATION_SECS,
+            total_time
+                - GRAPH_OPERATOR_KICKOFFING_STATUS_DURATION_SECS
+                - GRAPH_OPERATOR_KICKOFF_STATUS_DURATION_SECS,
+        ),
 
-        _ => 0,
+        _ => (0, 0),
     };
-    let time_left = time_window - (current_time_secs() - last_updated);
-    time_left.max(0)
+    let current_state_past = current_time_secs() - last_updated;
+    let total_past = current_time_secs() - created_at;
+    ((current_status_window - current_state_past).max(0), (total_window - total_past).max(0))
 }
 
 #[derive(Debug, Deserialize)]

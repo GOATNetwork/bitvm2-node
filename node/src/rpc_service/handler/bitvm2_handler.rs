@@ -206,6 +206,7 @@ pub async fn bridge_in_request_tag(
 ///       "confirmations": 0,
 ///       "target_confirmations": 6,
 ///       "waiting_time_in_secs": 60,
+///       "current_status_waiting_time_in_secs": 30,
 ///       "status_extra": {
 ///         "user_action": "None",
 ///         "is_failed": false,
@@ -336,6 +337,7 @@ pub async fn get_instances(
 ///     "confirmations": 0,
 ///     "target_confirmations": 6,
 ///     "waiting_time_in_secs": 60,
+///     "current_status_waiting_time_in_secs": 30,
 ///     "status_extra": {
 ///       "user_action": "None",
 ///       "is_failed": false,
