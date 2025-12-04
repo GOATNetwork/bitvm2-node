@@ -123,12 +123,16 @@ pub async fn instance_window_expiration_monitor(
 
                 if committee_quorum_size <= instance.committees_answers.len() as u64 {
                     instance.status = InstanceBridgeInStatus::CommitteesAnswered.to_string();
+                    if let Err(err) = update_pegin_txids(&mut instance) {
+                        warn!(
+                            "instance_window_expiration_monitor fail to update_pegin_txids for instance {}, err: {:?}",
+                            instance.instance_id, err
+                        );
+                    }
                 } else {
                     instance.status =
                         InstanceBridgeInStatus::NoEnoughCommitteesAnswered.to_string();
                 }
-
-                let _ = update_pegin_txids(&mut instance);
                 let mut storage_processor = local_db.acquire().await?;
                 if let Err(err) = storage_processor.upsert_instance(&instance).await {
                     warn!(
