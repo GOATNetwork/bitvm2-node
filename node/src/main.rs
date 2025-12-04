@@ -192,9 +192,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     task_handles.push(tokio::spawn(async move {
         let goat_client =
             Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
+        let btc_client = Arc::new(BTCClient::new(get_network(), None));
         match run_watch_event_task(
             actor_clone2,
             local_db_clone2,
+            btc_client,
             goat_client,
             5,
             cancel_token_clone,

@@ -387,7 +387,6 @@ pub async fn get_instance(
 /// Get instances overview statistics
 ///
 /// Returns statistical overview of all bridge instances including total bridge-in/bridge-out amounts,
-
 /// transaction counts, and node status information.
 ///
 /// # Returns

@@ -1,6 +1,7 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
+use crate::scheduled_tasks::event_watch_task::generate_instance_from_bridge_in_request_event;
 use crate::utils::{
     check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local, upsert_message,
 };
@@ -35,7 +36,11 @@ async fn update_instance<'a>(
 }
 
 /// for committee
-pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> {
+pub async fn instance_answers_monitor(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+) -> anyhow::Result<()> {
     let tx_records = {
         let mut storage_processor = local_db.acquire().await?;
         storage_processor
@@ -45,31 +50,59 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
             )
             .await?
     };
-
+    let current_height = goat_client.get_finalized_block_number().await?;
+    let response_window_blocks = goat_client.gateway_get_response_window_blocks().await? as i64;
     for tx_record in tx_records {
         let mut tx = local_db.start_transaction().await?;
         if let Some(event) = tx_record.extra {
             let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
-            upsert_message(
-                &mut tx,
-                false,
-                tx_record.instance_id,
-                None,
-                "self".to_string(),
-                Actor::All,
-                GOATMessageContent::PeginRequest(PeginRequest {
-                    instance_id: tx_record.instance_id,
-                    pegin_request_tx_hash: tx_record.tx_hash,
-                    pegin_request_height: tx_record.height,
-                    pegin_timestamp: event
-                        .block_timestamp
-                        .parse::<i64>()
-                        .unwrap_or_else(|_| current_time_secs()),
-                }),
-                0,
-                0,
-            )
-            .await?;
+            if tx_record.height + response_window_blocks < current_height {
+                info!(
+                    "instance_answers_monitor: instance_id:{} BridgeInRequest is outside the response window",
+                    tx_record.instance_id
+                );
+
+                if let Ok((mut instance, input_utxo_available)) =
+                    generate_instance_from_bridge_in_request_event(
+                        btc_client,
+                        goat_client,
+                        &event,
+                        true,
+                    )
+                    .await
+                    && !input_utxo_available
+                {
+                    info!(
+                        "instance_answers_monitor: instance_id:{} BridgeInRequest is outside the response window and input utxos not available",
+                        tx_record.instance_id
+                    );
+                    // for the case: if bridgeIn confirm is broadcast,but L2 not minted,
+                    // instance status will been updated to L2Minted when normal finished
+                    instance.status = InstanceBridgeInStatus::UserDiscarded.to_string();
+                    tx.upsert_instance(&instance).await?;
+                }
+            } else {
+                upsert_message(
+                    &mut tx,
+                    false,
+                    tx_record.instance_id,
+                    None,
+                    "self".to_string(),
+                    Actor::All,
+                    GOATMessageContent::PeginRequest(PeginRequest {
+                        instance_id: tx_record.instance_id,
+                        pegin_request_tx_hash: tx_record.tx_hash,
+                        pegin_request_height: tx_record.height,
+                        pegin_timestamp: event
+                            .block_timestamp
+                            .parse::<i64>()
+                            .unwrap_or_else(|_| current_time_secs()),
+                    }),
+                    0,
+                    0,
+                )
+                .await?;
+            }
         }
 
         tx.update_goat_tx_record_processing_status(

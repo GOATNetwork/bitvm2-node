@@ -142,7 +142,7 @@ pub async fn get_commit_chain_blocks_desc(
     Query(params): Query<BlockDescQueryParams>,
     State(_app_state): State<Arc<AppState>>,
 ) -> ApiResult<CommitChainBlockDescListResponse> {
-    let start_height = params.start_height.unwrap_or_else(|| 920136);
+    let start_height = params.start_height.unwrap_or(920136);
     let mut blocks_desc: Vec<CommitChainBlockDesc> = vec![];
 
     for i in 0..params.range {
@@ -152,7 +152,7 @@ pub async fn get_commit_chain_blocks_desc(
             _ => ProofStatus::Proved,
         };
         let block_number = start_height - i as u64;
-        if block_number <= 0 {
+        if block_number == 0 {
             break;
         }
         blocks_desc.push(CommitChainBlockDesc {

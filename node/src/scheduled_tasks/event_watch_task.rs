@@ -1,8 +1,17 @@
 use crate::env;
-use crate::env::LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS;
+use crate::env::{LOAD_HISTORY_EVENT_NO_WOKING_MAX_SECS, get_network};
 use crate::rpc_service::current_time_secs;
-use crate::utils::{reflect_goat_address, strip_hex_prefix_owned};
+use crate::utils::{
+    GenerateInstanceParams, generate_instance, outpoint_available, reflect_goat_address,
+    strip_hex_prefix_owned,
+};
+use alloy::primitives::Address as EvmAddress;
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::hashes::Hash;
+use bitcoin::{Address, Amount, OutPoint, Txid};
 use bitvm2_lib::actors::Actor;
+use bitvm2_lib::types::UserInfo;
+use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::GraphQueryClient;
 use client::graphs::graph_query::{
@@ -11,22 +20,27 @@ use client::graphs::graph_query::{
     UserGraphWithdrawEvent, WithdrawDisprovedEvent, WithdrawHappyEvent, WithdrawPathsEvent,
     WithdrawUnhappyEvent, get_gateway_events_query,
 };
+use goat::transactions::base::Input;
+use secp256k1::XOnlyPublicKey;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
-    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, InstanceBridgeInStatus,
-    WatchContract, WatchContractStatus,
+    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, Instance,
+    InstanceBridgeInStatus, WatchContract, WatchContractStatus,
 };
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_and_handle_block_range_events<'a>(
     actor: Actor,
+    btc_client: Arc<BTCClient>,
+    goat_client: Arc<GOATClient>,
     client: &GraphQueryClient,
     storage_processor: &mut StorageProcessor<'a>,
     event_entities: &[GatewayEventEntity],
@@ -124,7 +138,13 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     handle_withdraw_disproved_events(storage_processor, withdraw_disproved_events).await?;
     handle_bridge_in_request_events(storage_processor, bridge_in_request_events).await?;
     handle_committee_response_events(storage_processor, committee_response_events).await?;
-    handle_bridge_in_events(storage_processor, bridge_in_events).await?;
+    handle_bridge_in_events(
+        storage_processor,
+        btc_client.clone(),
+        goat_client.clone(),
+        bridge_in_events,
+    )
+    .await?;
     handle_post_graph_data_events(storage_processor, post_graph_data_events).await?;
     Ok(())
 }
@@ -207,10 +227,12 @@ async fn handle_proceed_withdraw_events<'a>(
         GoatTxProcessingStatus::Skipped.to_string()
     };
     for event in proceed_withdraw_events {
+        let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id))?;
+        let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?;
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
-                instance_id: Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?,
-                graph_id: Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id))?,
+                instance_id,
+                graph_id,
                 tx_type: GoatTxType::ProceedWithdraw.to_string(),
                 tx_hash: event.transaction_hash,
                 height: event.block_number.parse::<i64>()?,
@@ -219,7 +241,16 @@ async fn handle_proceed_withdraw_events<'a>(
                 extra: None,
                 created_at: current_time_secs(),
             })
-            .await?
+            .await?;
+        // for history events
+        storage_processor
+            .update_goat_tx_record_processing_status(
+                &graph_id,
+                &instance_id,
+                &GoatTxType::InitWithdraw.to_string(),
+                &GoatTxProcessingStatus::Processed.to_string(),
+            )
+            .await?;
     }
     Ok(())
 }
@@ -255,9 +286,10 @@ async fn handle_withdraw_paths_events<'a>(
             ),
         };
         let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&graph_id))?;
+        let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&instance_id))?;
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
-                instance_id: Uuid::from_str(&strip_hex_prefix_owned(&instance_id))?,
+                instance_id,
                 graph_id,
                 tx_type,
                 tx_hash: event.tx_hash(),
@@ -368,21 +400,121 @@ async fn handle_committee_response_events<'a>(
 
 async fn handle_bridge_in_events<'a>(
     storage_processor: &mut StorageProcessor<'a>,
+    btc_client: Arc<BTCClient>,
+    goat_client: Arc<GOATClient>,
     bridge_in_events: Vec<BridgeInEvent>,
 ) -> anyhow::Result<()> {
     for event in bridge_in_events {
         if let Ok(instance_id) = &Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id)) {
-            storage_processor
+            if !storage_processor
                 .update_instance_status(
                     instance_id,
                     &InstanceBridgeInStatus::RelayerL2Minted.to_string(),
                 )
-                .await?;
+                .await?
+                && let Some(tx_record) = storage_processor
+                    .get_graph_goat_tx_record(
+                        instance_id,
+                        &Uuid::nil(),
+                        &GoatTxType::BridgeInRequest.to_string(),
+                    )
+                    .await?
+            {
+                // it will happened when handle history events
+                warn!("Instance {instance_id} is finished but not find in db. we will create it");
+                if let Some(extra) = tx_record.extra.as_ref()
+                    && let Ok(bridge_event) = serde_json::from_str::<BridgeInRequestEvent>(extra)
+                    && let Ok((mut instance, _)) = generate_instance_from_bridge_in_request_event(
+                        btc_client.as_ref(),
+                        goat_client.as_ref(),
+                        &bridge_event,
+                        false,
+                    )
+                    .await
+                {
+                    info!("Instance {instance_id} is created and set status to RelayerL2Minted");
+                    instance.status = InstanceBridgeInStatus::RelayerL2Minted.to_string();
+                    storage_processor.upsert_instance(&instance).await?;
+                }
+
+                if tx_record.processing_status == GoatTxProcessingStatus::Pending.to_string() {
+                    info!(
+                        "Instance {instance_id} related goat tx BridgeInRequest set event processing status skipped"
+                    );
+                    storage_processor
+                        .update_goat_tx_record_processing_status(
+                            &Uuid::nil(),
+                            instance_id,
+                            &GoatTxType::BridgeInRequest.to_string(),
+                            &GoatTxProcessingStatus::Skipped.to_string(),
+                        )
+                        .await?;
+                }
+            }
         } else {
             warn!("failed to parse instance id:{event:?}");
         }
     }
     Ok(())
+}
+
+pub(super) async fn generate_instance_from_bridge_in_request_event(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    event: &BridgeInRequestEvent,
+    is_check_utxos: bool,
+) -> anyhow::Result<(Instance, bool)> {
+    let mut input_utxo_available = true;
+    let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?;
+    let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
+    let inputs: Vec<Input> = pegin_data
+        .user_inputs
+        .iter()
+        .map(|u| Input {
+            outpoint: OutPoint { txid: Txid::from_byte_array(u.txid), vout: u.vout },
+            amount: Amount::from_sat(u.amount_sats),
+        })
+        .collect();
+
+    if is_check_utxos {
+        for input in &inputs {
+            if !outpoint_available(btc_client, &input.outpoint.txid, input.outpoint.vout.into())
+                .await?
+            {
+                input_utxo_available = false;
+                break;
+            }
+        }
+    }
+
+    let user_change_address: Address<NetworkUnchecked> =
+        Address::from_str(&event.user_change_address)?;
+    let user_refund_addr: Address<NetworkUnchecked> =
+        Address::from_str(&event.user_refund_address)?;
+    let network = get_network();
+    let user_info = UserInfo {
+        depositor_evm_address: EvmAddress::from_str(&event.depositor_address)?.into_array(),
+        txn_fees: event.txn_fees.clone().map(|s| s.parse::<u64>().unwrap_or(0)),
+        inputs,
+        user_xonly_pubkey: XOnlyPublicKey::from_str(&strip_hex_prefix_owned(
+            &event.user_xonly_pubkey,
+        ))?,
+        user_change_address: user_change_address.require_network(network)?,
+        user_refund_address: user_refund_addr.require_network(network)?,
+    };
+    let instance = generate_instance(
+        btc_client,
+        GenerateInstanceParams {
+            instance_id,
+            user_info,
+            pegin_amount: Amount::from_sat(event.pegin_amount_sats.parse::<u64>().unwrap_or(0)),
+            pegin_request_tx_hash: event.transaction_hash.clone(),
+            pegin_request_height: event.block_number.parse::<i64>().unwrap_or(0),
+            pegin_timestamp: event.block_timestamp.parse::<i64>().unwrap_or(current_time_secs()),
+        },
+    )
+    .await?;
+    Ok((instance, input_utxo_available))
 }
 async fn handle_post_graph_data_events<'a>(
     storage_processor: &mut StorageProcessor<'a>,
@@ -405,6 +537,7 @@ async fn handle_post_graph_data_events<'a>(
 
 pub async fn fetch_history_events(
     actor: Actor,
+    btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
     local_db: &LocalDB,
     query_client: &GraphQueryClient,
@@ -438,6 +571,8 @@ pub async fn fetch_history_events(
 
             fetch_and_handle_block_range_events(
                 actor.clone(),
+                btc_client.clone(),
+                goat_client.clone(),
                 query_client,
                 &mut tx,
                 &event_entities,
@@ -487,6 +622,7 @@ pub async fn fetch_history_events(
 
 pub async fn monitor_events(
     actor: Actor,
+    btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
     local_db: &LocalDB,
     event_entities: Vec<GatewayEventEntity>,
@@ -519,6 +655,7 @@ pub async fn monitor_events(
         tokio::spawn(async move {
             let _ = fetch_history_events(
                 actor.clone(),
+                btc_client.clone(),
                 goat_client,
                 &local_db_clone,
                 &query_client_clone,
@@ -534,6 +671,8 @@ pub async fn monitor_events(
     let mut tx = local_db.start_transaction().await?;
     fetch_and_handle_block_range_events(
         actor.clone(),
+        btc_client,
+        goat_client,
         &query_client,
         &mut tx,
         &event_entities,
@@ -553,6 +692,7 @@ pub async fn monitor_events(
 pub async fn run_watch_event_task(
     actor: Actor,
     local_db: LocalDB,
+    btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
     interval: u64,
     cancellation_token: CancellationToken,
@@ -621,6 +761,7 @@ pub async fn run_watch_event_task(
                 // Execute the normal monitoring logic
                 match monitor_events(
                         actor.clone(),
+                        btc_client.clone(),
                         goat_client.clone(),
                         &local_db,
                         events_map.get(&actor).cloned().unwrap_or_default()

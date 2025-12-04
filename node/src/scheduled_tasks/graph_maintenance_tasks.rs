@@ -446,15 +446,6 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
                 );
                 continue;
             }
-
-            trace!("{graph_id} on need to send KickoffReady");
-            tx.update_goat_tx_record_processing_status(
-                &graph_id,
-                &instance_id,
-                &GoatTxType::InitWithdraw.to_string(),
-                &GoatTxProcessingStatus::Processed.to_string(),
-            )
-            .await?;
             upsert_message(
                 &mut tx,
                 false,
@@ -467,12 +458,19 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
                 0,
             )
             .await?;
-            tx.commit().await?;
         } else {
             warn!(
                 "instance_id: {instance_id} graph_id: {graph_id} fail to get graph from db or kickoff txid is none"
             );
         }
+        tx.update_goat_tx_record_processing_status(
+            &graph_id,
+            &instance_id,
+            &GoatTxType::InitWithdraw.to_string(),
+            &GoatTxProcessingStatus::Processed.to_string(),
+        )
+        .await?;
+        tx.commit().await?;
     }
     Ok(())
 }

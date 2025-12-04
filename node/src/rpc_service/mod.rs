@@ -649,10 +649,7 @@ mod tests {
                 resp_validation: None,
             },
             ApiTestItem {
-                tag: format!(
-                    "{} for bridge in request tag",
-                    routes::v1::INSTANCES_BY_ID.to_string()
-                ),
+                tag: format!("{} for bridge in request tag", routes::v1::INSTANCES_BY_ID),
                 url: format!(
                     "http://{addr}{}/{}",
                     routes::v1::INSTANCES_BASE,

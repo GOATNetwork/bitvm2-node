@@ -430,12 +430,14 @@ pub async fn recv_and_dispatch(
             store_pegin_request(
                 btc_client,
                 local_db,
-                instance_id,
-                user_info,
-                pegin_amount,
-                pegin_request_tx_hash,
-                pegin_request_height,
-                pegin_timestamp,
+                GenerateInstanceParams {
+                    instance_id,
+                    user_info,
+                    pegin_amount,
+                    pegin_request_tx_hash,
+                    pegin_request_height,
+                    pegin_timestamp,
+                },
             )
             .await?;
             // 3. call Gateway.answerPeginRequest
@@ -479,12 +481,14 @@ pub async fn recv_and_dispatch(
             store_pegin_request(
                 btc_client,
                 local_db,
-                instance_id,
-                user_info,
-                pegin_amount,
-                pegin_request_tx_hash,
-                pegin_request_height,
-                pegin_timestamp,
+                GenerateInstanceParams {
+                    instance_id,
+                    user_info,
+                    pegin_amount,
+                    pegin_request_tx_hash,
+                    pegin_request_height,
+                    pegin_timestamp,
+                },
             )
             .await?;
         }
