@@ -18,8 +18,8 @@ pub enum StateChainPrevProofType {
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CircuitStateBlock {
-    pub state_txns: Vec<String>,
-    //pub state_data_hash: [u8; 32],
+    pub cosmos_txns: Vec<String>,
+    // Cosmos light block
     pub cosmos_block: Vec<u8>,
     pub evm_block: EthClientExecutorInput,
     // (gateway contracts, withdraw_data_base_slot, [graph_ids])
@@ -57,7 +57,7 @@ impl StateChainState {
     ) -> Self {
         StateChainState {
             evm_block_height,
-            latest_evm_block_hash: genesis_evm_block_hash.clone(),
+            latest_evm_block_hash: genesis_evm_block_hash,
             genesis_evm_block_hash,
             latest_cosmos_block,
         }
@@ -71,7 +71,7 @@ impl StateChainState {
             assert_eq!(evm_header.number, block.evm_block.current_block.number);
             println!("block_height: {}", self.evm_block_height);
             assert_eq!(evm_header.number, self.evm_block_height);
-            let current_block_hash: [u8; 32] = evm_header.hash_slow().try_into().unwrap();
+            let current_block_hash: [u8; 32] = evm_header.hash_slow().into();
             // check the evm block is committed in the consensus txns
             // TODO: we carry the data hash in the state chain block for optimization
             let cosmos_block: LightBlock = serde_json::from_slice(&block.cosmos_block)
@@ -89,7 +89,7 @@ impl StateChainState {
                     block.evm_block.current_block.number,
                     &current_block_hash,
                     &self.latest_evm_block_hash,
-                    &block.state_txns,
+                    &block.cosmos_txns,
                     &data_hash,
                 );
             }
@@ -104,9 +104,6 @@ impl StateChainState {
 // Get base slot:  forge inspect src/GatewayDebug.sol:GatewayDebug storage-layout
 pub fn execute_el_block_and_check_withdraw_tx(
     withdrawals: &Option<(Address, [u8; 32], Vec<[u8; 16]>)>,
-    //l2_contract_address: &Option<Address>,
-    //withdraw_data_map_slot: &Option<[u8; 32]>,
-    //graph_id: &Option<[u8; 16]>,
     input: EthClientExecutorInput,
 ) -> Header {
     // verify the state transition and withdraw status
@@ -116,7 +113,6 @@ pub fn execute_el_block_and_check_withdraw_tx(
     );
 
     let mut storage_info = None;
-
     if withdrawals.is_some() {
         let mut tuple = vec![];
         for graph_id in &withdrawals.as_ref().unwrap().2 {
@@ -124,10 +120,9 @@ pub fn execute_el_block_and_check_withdraw_tx(
             data[0..16].copy_from_slice(graph_id);
             data[32..].copy_from_slice(&withdrawals.as_ref().unwrap().1);
             let slot_id = B256::from(keccak256(data));
-            tuple.push((withdrawals.as_ref().unwrap().0.clone(), slot_id.into(), U256::ONE));
+            // FIXME: hardcode the value to 1 for now
+            tuple.push((withdrawals.as_ref().unwrap().0, slot_id.into(), U256::ONE));
         }
-
-        //storage_info = Some(vec![(l2_contract_address.unwrap(), slot_id.into(), U256::from(1))]);
         storage_info = Some(tuple);
     }
 

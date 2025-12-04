@@ -42,6 +42,7 @@ pub struct CircuitCommit {
     pub publisher_public_keys: Vec<PublicKey>,
     pub threshold: u16,
     pub sequencers: Vec<SequencerInfo>,
+    pub block_height: u64, // Bitcoin block height of current commitment
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -49,7 +50,6 @@ pub struct SequencerInfo {
     /// Validator account address
     pub address: String,
     /// Validator public key
-    //pub pub_key: TPublicKey,
     pub pub_key: Vec<u8>,
     pub power: u64,
     /// Validator name
@@ -104,7 +104,7 @@ pub struct CommitChainCircuitInput {
     pub commits: Vec<CircuitCommit>,
 }
 
-pub fn sequencer_hash(sequencers: &Vec<SequencerInfo>) -> Hash {
+pub fn sequencer_hash(sequencers: &[SequencerInfo]) -> Hash {
     let sequencer_set =
         ValidatorSet::without_proposer(sequencers.iter().cloned().map(|s| s.into()).collect());
     sequencer_set.hash()
@@ -127,6 +127,7 @@ impl CommitChainState {
         let mut prev_commit_txn = self.commit_txn.clone();
         let mut prev_publisher_public_keys: Vec<PublicKey> = vec![];
         let mut prev_threshold: u16 = u16::MAX;
+        let mut commit_block_height: u64 = self.block_height;
         for commit in &commits {
             let latest_commit_txn_with_wtns = &commit.commit_txn;
             println!("commit tx: {:?}", latest_commit_txn_with_wtns.compute_txid());
@@ -141,7 +142,7 @@ impl CommitChainState {
             // calculate the commitment of prev sequencer set and check the equivalent
             if !prev_sequencers.is_empty() {
                 let expected_prev_commit = extract_op_return_data(&prev_commit_txn.output);
-                if let Hash::Sha256(prev_sequencer_set_hash) = sequencer_hash(&prev_sequencers) {
+                if let Hash::Sha256(prev_sequencer_set_hash) = sequencer_hash(prev_sequencers) {
                     println!(
                         "expected prev commit: {expected_prev_commit:?}, {prev_sequencer_set_hash:?}"
                     );
@@ -154,7 +155,7 @@ impl CommitChainState {
             // calculate the commitment of latest sequencer set and check the equivalent
             let expected_latest_commit =
                 extract_op_return_data(&latest_commit_txn_with_wtns.output);
-            if let Hash::Sha256(latest_sequencer_set_hash) = sequencer_hash(&latest_sequencers) {
+            if let Hash::Sha256(latest_sequencer_set_hash) = sequencer_hash(latest_sequencers) {
                 assert_eq!(latest_sequencer_set_hash[..], expected_latest_commit);
             } else {
                 panic!("Invalid latest sequencer set hash");
@@ -191,11 +192,13 @@ impl CommitChainState {
 
             prev_publisher_public_keys = publisher_public_keys.clone();
             prev_threshold = threshold;
+            commit_block_height = commit.block_height;
         }
         self.sequencers = prev_sequencers.clone();
         self.commit_txn = prev_commit_txn;
         self.publisher_public_keys = prev_publisher_public_keys;
         self.threshold = prev_threshold;
+        self.block_height = commit_block_height;
     }
 }
 

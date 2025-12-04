@@ -7,8 +7,7 @@ pub use state_chain::*;
 pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOutput {
     let mut chain_state = match input.prev_proof {
         StateChainPrevProofType::GenesisBlock => {
-            let block_hash: [u8; 32] =
-                input.blocks[0].evm_block.current_block.hash_slow().try_into().unwrap();
+            let block_hash: [u8; 32] = input.blocks[0].evm_block.current_block.hash_slow().into();
             let block_height = input.blocks[0].evm_block.current_block.header.number;
             println!("state chain genesis: {}, number: {}", hex::encode(block_hash), block_height);
             let cosmos_block = input.blocks[0].cosmos_block.clone();

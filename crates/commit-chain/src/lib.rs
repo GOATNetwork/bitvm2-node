@@ -6,7 +6,7 @@ pub use commit_chain::*;
 pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircuitOutput {
     let mut chain_state = match input.prev_proof {
         CommitChainPrevProofType::GenesisBlock => {
-            CommitChainState::new(input.commits[0].genesis_txid.clone(), build_dummy_tx())
+            CommitChainState::new(input.commits[0].genesis_txid, build_dummy_tx())
         }
         CommitChainPrevProofType::PrevProof(prev_proof) => {
             println!("verify commit chain of prev proof");

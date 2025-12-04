@@ -105,7 +105,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
 
     for i in args.start..(args.start + args.batch_size) {
         let (_, cl_block_number) = fetch_cbft_validator_info(i).await.unwrap();
-        let state_txns = fetch_cbft_tx_data(cl_block_number).await.unwrap();
+        let cosmos_txns = fetch_cbft_tx_data(cl_block_number).await.unwrap();
         let cosmos_block = fetch_cosmos_block(cl_block_number).await.unwrap();
         let evm_block = fetch_exection_layer_block(&args.execution_layer_rpc, i).await;
 
@@ -129,7 +129,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
         };
 
         let cosmos_block = serde_json::to_vec(&cosmos_block).unwrap();
-        blocks.push(CircuitStateBlock { state_txns, cosmos_block, evm_block, withdrawals });
+        blocks.push(CircuitStateBlock { cosmos_txns, cosmos_block, evm_block, withdrawals });
     }
     let block_bytes = serde_json::to_vec(&blocks).unwrap();
     std::fs::write(&args.blocks, block_bytes).unwrap();

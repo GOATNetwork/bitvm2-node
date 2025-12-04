@@ -187,7 +187,7 @@ mod tests {
     pub fn test_verify_goat_block() {
         // https://explorer.goat.network/block/5756298
         // curl "http://127.0.0.1:26657/block?height=5756784" | jq .result.block.data
-        let state_txns: Vec<String> = serde_json::from_str(&LB_1_JSON_TXNS).unwrap();
+        let cosmos_txns: Vec<String> = serde_json::from_str(&LB_1_JSON_TXNS).unwrap();
         // loght block 5756784
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
 
@@ -201,7 +201,7 @@ mod tests {
                 .unwrap()
                 .try_into()
                 .unwrap(),
-            &state_txns,
+            &cosmos_txns,
             light_block_1.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
 
@@ -209,7 +209,7 @@ mod tests {
         let light_block_2 = serde_json::from_str::<LightBlock>(LB_2_JSON).unwrap();
         // curl "http://127.0.0.1:26657/block?height=5756785" | jq .result.block.data
         // https://explorer.goat.network/block/5756299
-        let state_txns: Vec<String> = serde_json::from_str(&LB_2_JSON_TXNS).unwrap();
+        let cosmos_txns: Vec<String> = serde_json::from_str(&LB_2_JSON_TXNS).unwrap();
         check_el_block_from_payload(
             5756299,
             &hex::decode("56473094ffd5bc070446fdbaaf2b443b9beffb82dded0e053eb6b25c7d60be0b")
@@ -220,7 +220,7 @@ mod tests {
                 .unwrap()
                 .try_into()
                 .unwrap(),
-            &state_txns,
+            &cosmos_txns,
             light_block_2.signed_header.header.data_hash.unwrap().as_bytes().try_into().unwrap(),
         );
     }

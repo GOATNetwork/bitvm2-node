@@ -4,7 +4,7 @@
 
 Trust Setup: choose a snapshot of GOAT Pre Alpha Mainnet, which consists of (Seqeuncer Set, EVM Block Hash)
 
-Verify: 
+Verify:
 
 * BTC Header Chain, check whether the Sequencer Set Commitment transaction is in the longgest chain
 * Sequencer Set Commitment, check whether the publishers have published the correct Sequencer Set

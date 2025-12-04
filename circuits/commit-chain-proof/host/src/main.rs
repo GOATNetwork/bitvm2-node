@@ -47,9 +47,12 @@ async fn fetch_commit_chain(args: &Args) {
     let rdr = std::fs::File::open(&args.commit_info).unwrap();
     let commit_info: CommitInfo = serde_json::from_reader(rdr).unwrap();
     for ci in &[commit_info] {
-        let tx = btc_client.get_tx(&Txid::from_str(&ci.txid).unwrap()).await.unwrap().unwrap();
+        let txid = Txid::from_str(&ci.txid).unwrap();
+        let commit_txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
+        let proof = btc_client.get_merkle_proof_extend(&txid).await.unwrap();
+        let block_height = proof.height;
 
-        let op_return_data = extract_op_return_data(&tx.output);
+        let op_return_data = extract_op_return_data(&commit_txn.output);
         let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
         sequencer_set_hash.copy_from_slice(&op_return_data);
 
@@ -65,11 +68,12 @@ async fn fetch_commit_chain(args: &Args) {
             .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
             .collect();
         let commit = CircuitCommit {
-            commit_txn: tx,
+            commit_txn,
             sequencers: ci.sequencers.clone(),
             publisher_public_keys,
             threshold: ci.threshold,
             genesis_txid: Txid::from_str(&ci.genesis_txid).unwrap().as_raw_hash().to_byte_array(),
+            block_height,
         };
         commits.push(commit);
     }

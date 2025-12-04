@@ -84,11 +84,11 @@ fn u256_to_bits(u: U256) -> [bool; 256] {
 // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
 #[allow(clippy::too_many_arguments)]
 pub fn propose_longest_chain(
-    included_watchtowers: U256,
-    graph_id: [u8; 16],
-    operator_genesis_sequencer_commit_txid: [u8; 32],
-    operator_latest_sequencer_commit_txn: CircuitTransaction,
+    included_watchtowers: U256,                       //pis
+    graph_id: [u8; 16],                               // pis
+    operator_genesis_sequencer_commit_txid: [u8; 32], // pis
 
+    operator_latest_sequencer_commit_txn: CircuitTransaction,
     watchtower_challenge_txns: Vec<CircuitTransaction>,
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
     watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
@@ -116,8 +116,9 @@ pub fn propose_longest_chain(
     // verify operator_header_chain is valid
     let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
-    let operator_consensus_block_height =
-        U256::from(btc_header_chain_output.chain_state.block_height);
+    let operator_consensus_block_height = U256::from(commit_chain_output.chain_state.block_height);
+    // commit header chain best block hash as pis
+    let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
 
     // verify that the latest_sequecner_commit_tx is in the header chain
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
@@ -129,7 +130,6 @@ pub fn propose_longest_chain(
     //   verify the watchtower_challenge_txns[i] is valid
     //   verify watchtower_challenge_txns[i].total_work <= operator_header_chain.total_work
     //   verify watchtower_challenge_txns[i].epoch <= operator_latest_sequencer_commit_tx.epoch
-    let mut number_of_valid_watchtower = 0;
     for i in 0..watchtower_challenge_txns.len() {
         if included_watchertowers_bits[i] {
             let tx = &watchtower_challenge_txns[i];
@@ -157,14 +157,28 @@ pub fn propose_longest_chain(
 
             let commitment = &extract_data_from_commitment_outputs(&tx.output)[..];
             println!("commitment: {commitment:?}");
-            let (parsed_graph_id, _, _, _, watchtower_total_work, watchtower_block_height) =
-                match parse_watchtower_commitment(commitment) {
-                    Ok(c) => c,
-                    Err(err) => {
-                        println!("parse commitment error, {err}");
-                        continue;
-                    }
-                };
+            let (
+                parsed_graph_id,
+                proof,
+                public_values,
+                vk,
+                watchtower_total_work,
+                watchtower_consensus_block_height,
+            ) = match parse_watchtower_commitment(commitment) {
+                Ok(c) => c,
+                Err(err) => {
+                    println!("Watchtower[{i}] parse commitment error, {err}");
+                    continue;
+                }
+            };
+
+            match verify_watchtower_proof(&proof, &public_values, vk.clone()) {
+                Ok(_) => {}
+                Err(err) => {
+                    println!("Watchtower[{i}] invalid proof: {err}");
+                    continue;
+                }
+            }
 
             if parsed_graph_id != graph_id {
                 println!(
@@ -175,16 +189,13 @@ pub fn propose_longest_chain(
                 continue;
             }
 
-            number_of_valid_watchtower += 1;
             // extract ChainState
             // check watchtower_chain_state.total_work <= operator_header_chain.total_work
             assert!(watchtower_total_work <= U256::from_be_bytes(operator_total_work));
             // check watchtower.consensus.block_height <= consensus.block_height
-            assert!(watchtower_block_height <= operator_consensus_block_height);
+            assert!(watchtower_consensus_block_height <= operator_consensus_block_height);
         }
     }
-
-    assert!(number_of_valid_watchtower > 0);
 
     println!("verify el block");
     let mut is_found = false;
@@ -209,7 +220,9 @@ pub fn propose_longest_chain(
 
     assert_eq!(commit_sequencer_set_hash, state_seqeuencer_set_hash);
 
-    operator_total_work
+    // (operator_total_work, included_watchtowers, graph_id, operator_genesis_sequencer_commit_txid, btc_best_block_hash)
+    // TODO: hash()
+    (operator_total_work)
 }
 
 /// Utility method for converting u32 words to bytes in big endian.
@@ -299,6 +312,14 @@ pub type WatchtowerCommitmentResult =
 pub fn parse_watchtower_commitment(
     commitment: &[u8],
 ) -> Result<WatchtowerCommitmentResult, String> {
+    if commitment.len() != GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + 32 + 32
+    {
+        return Err(format!(
+            "invalid commitment size: {}, expected: {}",
+            commitment.len(),
+            GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + 32 + 32
+        ));
+    }
     let mut end = GRAPH_ID_SIZE;
     let mut graph_id = [0u8; GRAPH_ID_SIZE];
     graph_id.copy_from_slice(&commitment[0..GRAPH_ID_SIZE]);
@@ -327,16 +348,6 @@ pub fn parse_watchtower_commitment(
     bh_bytes.copy_from_slice(&commitment[end..end + 32]);
     let watchtower_consensus_block_height = U256::from_le_bytes(bh_bytes);
 
-    let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
-    match Groth16Verifier::verify(&proof, &zkm_public_values, &zkm_vk_hash, groth16_vk) {
-        Ok(_) => {}
-        Err(err) => {
-            return Err(
-                format!("invalid commitment: head chain Groth16 proof, err: {err:?}").into()
-            );
-        }
-    }
-
     Ok((
         graph_id,
         proof,
@@ -345,6 +356,23 @@ pub fn parse_watchtower_commitment(
         watchtower_total_work,
         watchtower_consensus_block_height,
     ))
+}
+
+// TODO: check the public values are consistent with the total work and block height
+pub fn verify_watchtower_proof(
+    proof: &[u8],
+    zkm_public_values: &[u8; PUBLIC_INPUTS_SIZE],
+    zkm_vk_hash: String,
+) -> Result<(), String> {
+    let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
+    match Groth16Verifier::verify(proof, zkm_public_values, &zkm_vk_hash, groth16_vk) {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            return Err(
+                format!("invalid commitment: head chain Groth16 proof, err: {err:?}").into()
+            );
+        }
+    }
 }
 
 #[cfg(test)]
