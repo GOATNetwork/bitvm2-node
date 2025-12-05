@@ -113,6 +113,21 @@ mod tests {
         address: Address,
         amount: Amount,
     ) -> OutPoint {
+        // In regtest, we can use btcd rpc to fund address directly
+        if network == Network::Regtest {
+            let fund_txid = get_btcd_client()
+                .send_to_address(&address, amount, None, None, None, None, None, None)
+                .unwrap();
+            wait_tx_confirm(client, fund_txid).await;
+            let fund_tx = client.get_tx(&fund_txid).await.unwrap().unwrap();
+            let vout = fund_tx
+                .output
+                .iter()
+                .position(|o| o.script_pubkey == address.script_pubkey())
+                .unwrap() as u32;
+            return OutPoint { txid: fund_txid, vout };
+        }
+
         fn estimate_fee(num_inputs: usize, fee_rate: f64) -> Amount {
             let tx_size = (num_inputs * 148 + 2 * 34 + 10) as f64;
             let fee = (tx_size * fee_rate).ceil() as u64;
@@ -611,8 +626,21 @@ mod tests {
     async fn wait_tx_confirm(esplora: &EsploraClient, txid: Txid) -> u32 {
         if network() == Network::Regtest {
             regtest_mint_blocks(&get_btcd_client(), 1).await;
-            sleep(Duration::from_secs(1)).await;
-            esplora.get_height().await.unwrap()
+            let wait_start = std::time::Instant::now();
+            loop {
+                let tx_status = esplora.get_tx_status(&txid).await.unwrap();
+                if let Some(height) = tx_status.block_height {
+                    return height;
+                }
+                sleep(Duration::from_secs(1)).await;
+                let elapsed_secs = wait_start.elapsed().as_secs();
+                if elapsed_secs > 10 {
+                    panic!(
+                        "Transaction {txid} not confirmed after {} seconds in regtest",
+                        elapsed_secs
+                    );
+                }
+            }
         } else {
             let wait_start = std::time::Instant::now();
             loop {
