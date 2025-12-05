@@ -56,6 +56,7 @@ pub struct SequencerInfo {
     pub name: Option<String>,
 }
 
+/*
 impl Into<Info> for SequencerInfo {
     fn into(self) -> Info {
         Info {
@@ -63,6 +64,18 @@ impl Into<Info> for SequencerInfo {
             pub_key: TPublicKey::from_raw_secp256k1(&self.pub_key).unwrap(),
             power: self.power.try_into().unwrap(),
             name: self.name,
+            proposer_priority: ProposerPriority::default(),
+        }
+    }
+} */
+
+impl From<SequencerInfo> for Info {
+    fn from(val: SequencerInfo) -> Self {
+        Info {
+            address: account::Id::try_from(hex::decode(&val.address).unwrap()).unwrap(),
+            pub_key: TPublicKey::from_raw_secp256k1(&val.pub_key).unwrap(),
+            power: val.power.try_into().unwrap(),
+            name: val.name,
             proposer_priority: ProposerPriority::default(),
         }
     }

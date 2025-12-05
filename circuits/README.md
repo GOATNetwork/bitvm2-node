@@ -18,6 +18,7 @@ mkdir -p data/header-chain
 mkdir -p data/commit-chain
 mkdir -p data/state-chain
 mkdir -p data/watchtower
+mkdir -p data/operator
 ```
 
 if `Network Prover` is used, see [this](https://docs.zkm.io/dev/prover.html#network-prover) for more details.

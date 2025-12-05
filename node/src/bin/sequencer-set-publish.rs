@@ -133,19 +133,19 @@ async fn save_commit_info(
     goat_client: &GOATClient,
     file_path: &str,
     genesis_txid: String,
-    publishers: &Vec<EvmAddress>,
+    publishers: &[EvmAddress],
     sequencers: Vec<Info>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = std::fs::File::open(file_path)?;
     let output: OutputData = serde_json::from_reader(file)?;
-    let btc_public_keys = fetch_publishers(goat_client, &publishers).await?;
+    let btc_public_keys = fetch_publishers(goat_client, publishers).await?;
 
     let txid = &output.update_connector_txid.unwrap();
-    let genesis_txid = if genesis_txid == "" { txid.clone() } else { genesis_txid };
+    let genesis_txid = if genesis_txid.is_empty() { txid.clone() } else { genesis_txid };
 
     let commit_info = CommitInfo {
         txid: txid.clone(),
-        threshold: ((btc_public_keys.len() * 2 + 2) / 3) as u16,
+        threshold: (btc_public_keys.len() * 2).div_ceil(3) as u16,
         publisher_public_keys: btc_public_keys.iter().map(|pubkey| pubkey.to_string()).collect(),
         genesis_txid,
         sequencers: sequencers.iter().cloned().map(|v| v.into()).collect(),
@@ -549,7 +549,7 @@ async fn action_update_sequencer_set_on_goat(
     let next_publishers_hash = keccak256(&packed);
 
     let sequencer_set = SequencerSet {
-        sequencer_set_hash: sequencer_set_hash.clone(),
+        sequencer_set_hash,
         publishers_hash: *publishers_hash,
         next_publishers_hash: *next_publishers_hash,
         p2wsh_sig_hash: *p2wsh_sig_hash.as_ref().unwrap(),

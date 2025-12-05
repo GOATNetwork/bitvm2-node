@@ -118,7 +118,7 @@ pub fn propose_longest_chain(
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
     let operator_consensus_block_height = U256::from(commit_chain_output.chain_state.block_height);
     // commit header chain best block hash as pis
-    let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
+    //let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
 
     // verify that the latest_sequecner_commit_tx is in the header chain
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
@@ -200,11 +200,11 @@ pub fn propose_longest_chain(
     println!("verify el block");
     let mut is_found = false;
     for block in &state_chain.blocks {
-        if let Some(withdrawals) = &block.withdrawals {
-            if withdrawals.2.contains(&graph_id) {
-                is_found = true;
-                break;
-            }
+        if let Some(withdrawals) = &block.withdrawals
+            && withdrawals.2.contains(&graph_id)
+        {
+            is_found = true;
+            break;
         }
     }
     assert!(is_found, "Graph id {:?} is not included in current state chain", graph_id);
@@ -222,7 +222,7 @@ pub fn propose_longest_chain(
 
     // (operator_total_work, included_watchtowers, graph_id, operator_genesis_sequencer_commit_txid, btc_best_block_hash)
     // TODO: hash()
-    (operator_total_work)
+    operator_total_work
 }
 
 /// Utility method for converting u32 words to bytes in big endian.
@@ -367,11 +367,7 @@ pub fn verify_watchtower_proof(
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
     match Groth16Verifier::verify(proof, zkm_public_values, &zkm_vk_hash, groth16_vk) {
         Ok(_) => Ok(()),
-        Err(err) => {
-            return Err(
-                format!("invalid commitment: head chain Groth16 proof, err: {err:?}").into()
-            );
-        }
+        Err(err) => Err(format!("invalid commitment: head chain Groth16 proof, err: {err:?}")),
     }
 }
 

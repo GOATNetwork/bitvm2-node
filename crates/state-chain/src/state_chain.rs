@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tendermint_light_client_verifier::types::LightBlock;
 
+// Contract address, base slot and key, the expected value of the slot is hardcoded to 1.
+type WithdrawalSlot = (Address, [u8; 32], Vec<[u8; 16]>);
+
 /// The input proof of the commit chain circuit.
 /// The proof can be either None (implying the beginning) or a Succinct proof.
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -103,7 +106,7 @@ impl StateChainState {
 // https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L192
 // Get base slot:  forge inspect src/GatewayDebug.sol:GatewayDebug storage-layout
 pub fn execute_el_block_and_check_withdraw_tx(
-    withdrawals: &Option<(Address, [u8; 32], Vec<[u8; 16]>)>,
+    withdrawals: &Option<WithdrawalSlot>,
     input: EthClientExecutorInput,
 ) -> Header {
     // verify the state transition and withdraw status
