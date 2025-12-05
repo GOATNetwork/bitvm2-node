@@ -12,6 +12,7 @@ use client::goat_chain::utils::{
     get_committee_management_contract, get_gateway_relay_contracts, is_validate_committee,
 };
 use client::goat_chain::{GoatInitConfig, GoatNetwork};
+use goat::constants::CONNECTOR_Z_TIMELOCK;
 use libp2p::PeerId;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
@@ -89,7 +90,8 @@ pub const MESSAGE_SAVE_INTERVAL_SECOND: i64 = 3600 * 24 * 3;
 
 pub const GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED: i64 = 3600 * 48;
 
-pub const INSTANCE_PRESIGNED_TIME_EXPIRED: i64 = 3600 * 24 * 3;
+// update me later
+pub const INSTANCE_PRESIGNED_TIME_EXPIRED: i64 = CONNECTOR_Z_TIMELOCK as i64 * 2 / 3;
 
 pub const SYNC_GRAPH_INTERVAL: u64 = 3;
 pub const SYNC_GRAPH_MAX_WAIT_SECS: u64 = 30;

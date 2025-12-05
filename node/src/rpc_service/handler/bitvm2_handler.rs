@@ -1464,7 +1464,14 @@ pub async fn get_unsigned_pegin_txn(
     let mut res = UnsignPeginTxnResponse::default();
     if let Some(instance) =
         storage_processor.find_instance(&current_id).await.api_error("GET_UNSIGNED_PEGIN_ERROR")?
-        && instance.status == InstanceBridgeInStatus::CommitteesAnswered.to_string()
+        && [
+            InstanceBridgeInStatus::CommitteesAnswered.to_string(),
+            InstanceBridgeInStatus::UserBroadcastPeginPrepare.to_string(),
+            InstanceBridgeInStatus::Presigned.to_string(),
+            InstanceBridgeInStatus::PresignedFailed.to_string(),
+            InstanceBridgeInStatus::Timeout.to_string(),
+        ]
+        .contains(&instance.status)
     {
         let instance_parameters =
             gen_instance_parameters_local(&instance).api_error("GET_UNSIGNED_PEGIN_ERROR")?;

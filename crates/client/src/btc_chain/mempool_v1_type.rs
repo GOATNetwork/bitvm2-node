@@ -102,7 +102,7 @@ pub struct MempoolBlock {
     #[serde(rename = "blockSize")]
     pub block_size: u64,
     #[serde(rename = "blockVSize")]
-    pub block_v_size: u64,
+    pub block_v_size: f64,
     #[serde(rename = "nTx")]
     pub n_tx: u64,
     #[serde(rename = "medianFee")]
@@ -128,5 +128,5 @@ pub fn get_v1_blocks_url(network: Network, block_height: Option<u64>) -> String 
 }
 
 pub fn get_v1_mempool_blocks_url(network: Network) -> String {
-    format!("{}/v1/mempool-blocks", get_esplora_url(network))
+    format!("{}/v1/fees/mempool-blocks", get_esplora_url(network))
 }

@@ -13,6 +13,7 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::graph_query::BridgeInRequestEvent;
 use std::str::FromStr;
+use std::vec;
 use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{GoatTxProcessingStatus, GoatTxType, Instance, InstanceBridgeInStatus};
 use tracing::{info, warn};
@@ -131,7 +132,7 @@ pub async fn instance_window_expiration_monitor(
                     .with_is_bridge_in(true)
                     .with_status(InstanceBridgeInStatus::UserInited.to_string())
                     .with_pegin_request_height_threshold(current_height - window_blocks)
-                    .with_order("created_at DESC".to_string())
+                    .with_order("created_at ASC".to_string())
                     .with_offset(0)
                     .with_limit(MAX_INSTANCE),
             )
@@ -207,7 +208,7 @@ pub async fn instance_expiration_monitor(
         let mut storage_processor = local_db.acquire().await?;
         let expired_num = storage_processor
             .update_expired_instance(
-                &InstanceBridgeInStatus::CommitteesAnswered.to_string(),
+                &InstanceBridgeInStatus::UserBroadcastPeginPrepare.to_string(),
                 &InstanceBridgeInStatus::PresignedFailed.to_string(),
                 current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
             )
@@ -217,8 +218,11 @@ pub async fn instance_expiration_monitor(
             .find_instances(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
-                    .with_status(InstanceBridgeInStatus::PresignedFailed.to_string())
-                    .with_order("created_at DESC".to_string())
+                    .with_statuses(vec![
+                        InstanceBridgeInStatus::Presigned.to_string(),
+                        InstanceBridgeInStatus::PresignedFailed.to_string(),
+                    ])
+                    .with_order("created_at ASC".to_string())
                     .with_offset(0)
                     .with_limit(MAX_INSTANCE),
             )
@@ -262,7 +266,7 @@ pub async fn instance_btc_tx_monitor(
                         InstanceBridgeInStatus::Timeout.to_string(),
                     ])
                     .with_offset(0)
-                    .with_order("created_at DESC".to_string())
+                    .with_order("created_at ASC".to_string())
                     .with_limit(MAX_INSTANCE),
             )
             .await?
@@ -302,40 +306,43 @@ pub async fn instance_btc_tx_monitor(
             let mut tx = local_db.start_transaction().await?;
             let mut instance_update =
                 InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
-            if next_status == InstanceBridgeInStatus::UserBroadcastPeginPrepare {
-                instance_update =
-                    instance_update.with_btc_height(status.block_height.unwrap_or_default() as i64);
-
-                upsert_message(
-                    &mut tx,
-                    false,
-                    instance.instance_id,
-                    None,
-                    "self".to_string(),
-                    Actor::All,
-                    GOATMessageContent::ConfirmInstance(ConfirmInstance {
-                        instance_id: instance.instance_id,
-                    }),
-                    0,
-                    0,
-                )
-                .await?;
+            match next_status {
+                InstanceBridgeInStatus::UserBroadcastPeginPrepare => {
+                    instance_update = instance_update
+                        .with_btc_height(status.block_height.unwrap_or_default() as i64);
+                    upsert_message(
+                        &mut tx,
+                        false,
+                        instance.instance_id,
+                        None,
+                        "self".to_string(),
+                        Actor::All,
+                        GOATMessageContent::ConfirmInstance(ConfirmInstance {
+                            instance_id: instance.instance_id,
+                        }),
+                        0,
+                        0,
+                    )
+                    .await?;
+                }
+                InstanceBridgeInStatus::RelayerL1Broadcasted => {
+                    upsert_message(
+                        &mut tx,
+                        false,
+                        instance.instance_id,
+                        None,
+                        "self".to_string(),
+                        Actor::All,
+                        GOATMessageContent::PostReady(PostReady {
+                            instance_id: instance.instance_id,
+                        }),
+                        0,
+                        0,
+                    )
+                    .await?;
+                }
+                _ => {}
             }
-            if next_status == InstanceBridgeInStatus::RelayerL1Broadcasted {
-                upsert_message(
-                    &mut tx,
-                    false,
-                    instance.instance_id,
-                    None,
-                    "self".to_string(),
-                    Actor::All,
-                    GOATMessageContent::PostReady(PostReady { instance_id: instance.instance_id }),
-                    0,
-                    0,
-                )
-                .await?;
-            }
-
             update_instance(&mut tx, &instance_update).await?;
             tx.commit().await?;
         } else {
@@ -355,7 +362,7 @@ pub async fn instance_btc_tx_monitor(
                     "instance:{}, pegin prepare tx input utxos has been spent in other tx",
                     instance.instance_id
                 );
-                let mut storage_processor = local_db.start_transaction().await?;
+                let mut storage_processor = local_db.acquire().await?;
                 update_instance(
                     &mut storage_processor,
                     &InstanceUpdate::new(instance.instance_id)

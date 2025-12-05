@@ -115,7 +115,7 @@ pub async fn get_header_chain_blocks_desc(
 /// # Example
 ///
 /// ```http
-/// GET /v1/proofs/blocks-desc/header-chain/mempool
+/// GET /v1/proofs/blocks-desc/header-chain/mempool-blocks
 /// ```
 ///
 /// Response example:
