@@ -97,6 +97,24 @@ pub struct V1PoolInfo {
 
 pub type V1Blocks = Vec<V1Block>;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MempoolBlock {
+    #[serde(rename = "blockSize")]
+    pub block_size: u64,
+    #[serde(rename = "blockVSize")]
+    pub block_v_size: u64,
+    #[serde(rename = "nTx")]
+    pub n_tx: u64,
+    #[serde(rename = "medianFee")]
+    pub median_fee: u64,
+    #[serde(rename = "feeRange")]
+    pub fee_range: Vec<f64>,
+    #[serde(rename = "totalFees")]
+    pub total_fees: u64,
+}
+
+pub type MempoolBlocks = Vec<MempoolBlock>;
+
 pub fn get_v1_block_url(network: Network, block_hash: BlockHash) -> String {
     let base_url = get_esplora_url(network);
     format!("{base_url}/v1/block/{block_hash}")
@@ -107,4 +125,8 @@ pub fn get_v1_blocks_url(network: Network, block_height: Option<u64>) -> String 
     let path =
         block_height.map(|h| format!("/v1/blocks/{h}")).unwrap_or_else(|| "/v1/blocks".to_string());
     format!("{base_url}{path}")
+}
+
+pub fn get_v1_mempool_blocks_url(network: Network) -> String {
+    format!("{}/v1/mempool-blocks", get_esplora_url(network))
 }

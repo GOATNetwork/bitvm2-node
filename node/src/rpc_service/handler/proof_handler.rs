@@ -9,7 +9,9 @@ use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::generate_random_bytes;
 use axum::Json;
 use axum::extract::{Query, State};
-use client::btc_chain::mempool_v1_type::{V1Blocks, get_v1_blocks_url};
+use client::btc_chain::mempool_v1_type::{
+    MempoolBlocks, V1Blocks, get_v1_blocks_url, get_v1_mempool_blocks_url,
+};
 use http::{StatusCode, Uri};
 use std::sync::Arc;
 use store::ProofStatus;
@@ -80,6 +82,91 @@ pub async fn get_header_chain_blocks_desc(
         blocks_desc[0].proof_status = ProofStatus::Failed;
         blocks_desc[1].proof_status = ProofStatus::Pending;
     }
+    Ok((
+        StatusCode::OK,
+        Json(HeaderChainBlockDescListResponse {
+            start: blocks_desc[0].height,
+            range: blocks_desc.len() as u64,
+            blocks_desc,
+        }),
+    ))
+}
+
+/// Fetch a list of Header chain mempool block descriptors
+///
+/// Queries the mempool.space V1 Mempool Blocks endpoint to retrieve blocks currently in the mempool.
+/// Each mempool block is enriched with estimated height (based on current blockchain height),
+/// projected timestamp, and proof status. The height is calculated as current_height + index + 1,
+/// and timestamps are projected forward with offsets based on block position.
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns a list of mempool block descriptors.
+/// - `500 Internal Server Error`: Failed to call or parse the mempool API, or failed to get current blockchain height.
+/// - The payload includes `start` (height of the first mempool block), `range` (number of blocks),
+///   and a `blocks_desc` array containing fee stats, size, tx count, projected timestamp,
+///   estimated height, and proof status for each mempool block.
+///
+/// # Use Case
+///
+/// Dashboards, monitoring services, or explorers can use this endpoint to track
+/// pending blocks in the mempool and their projected inclusion in the header chain.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/proofs/blocks-desc/header-chain/mempool
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "start": 800001,
+///   "range": 5,
+///   "blocks_desc": [
+///     {
+///       "height": 800001,
+///       "median_fee": 50000,
+///       "fee_range": [10000.0, 20000.0, 50000.0, 100000.0, 200000.0],
+///       "total_fees": 5000000,
+///       "size": 1500000,
+///       "tx_count": 2500,
+///       "timestamp": 1640995800,
+///       "proof_status": "Pending"
+///     }
+///   ]
+/// }
+/// ```
+#[axum::debug_handler]
+pub async fn get_header_chain_mempool_blocks_desc(
+    _uri: Uri,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<HeaderChainBlockDescListResponse> {
+    let current_height =
+        app_state.btc_client.get_height().await.api_error("GET_MEMPOOL_BLOCKS_DESC")? as u64;
+    let mempool_blocks_url = get_v1_mempool_blocks_url(env::get_network());
+    let mempool_blocks: MempoolBlocks = app_state
+        .http_client
+        .get_response_json(&mempool_blocks_url)
+        .await
+        .api_error("GET_MEMPOOL_BLOCKS_DESC")?;
+
+    let current_time = current_time_secs() as u64;
+    let blocks_desc: Vec<HeaderChainBlockDesc> = mempool_blocks
+        .into_iter()
+        .enumerate()
+        .map(|(index, block)| {
+            let time_offset = match index {
+                0..=1 => (index as u64 + 1) * 600,
+                2..=4 => (index as u64 + 1) * 600 + 60,
+                _ => (index as u64 + 1) * 600 + 120,
+            };
+            let mut block_desc: HeaderChainBlockDesc = block.into();
+            block_desc.timestamp = current_time + time_offset;
+            block_desc.height = current_height + index as u64 + 1;
+            block_desc
+        })
+        .collect();
     Ok((
         StatusCode::OK,
         Json(HeaderChainBlockDescListResponse {

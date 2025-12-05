@@ -21,5 +21,7 @@ pub(crate) mod v1 {
     pub const PROOFS_BASE: &str = "/v1/proofs";
     pub const PROOFS_BLOCKS_HEADER_CHAIN_DESC: &str = "/v1/proofs/blocks-desc/header-chain";
     pub const PROOFS_BLOCKS_COMMIT_CHAIN_CHAIN_DESC: &str = "/v1/proofs/blocks-desc/commit-chain";
+    pub const PROOFS_BLOCKS_HEADER_CHAIN_MEMPOOL_BLOCKS: &str =
+        "/v1/proofs/blocks-desc/header-chain/mempool-blocks";
     // pub const PROOFS_BLOCKS_GOAT_CHAIN_DESC: &str = "/v1/proofs/blocks-desc/goat-chain";
 }

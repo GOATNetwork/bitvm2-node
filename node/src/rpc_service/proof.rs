@@ -1,4 +1,4 @@
-use client::btc_chain::mempool_v1_type::V1Block;
+use client::btc_chain::mempool_v1_type::{MempoolBlock, V1Block};
 use serde::{Deserialize, Serialize};
 use store::ProofStatus;
 use strum::{Display, EnumString};
@@ -48,6 +48,21 @@ impl From<V1Block> for HeaderChainBlockDesc {
             tx_count: value.tx_count,
             timestamp: value.timestamp,
             proof_status: ProofStatus::Proved,
+        }
+    }
+}
+
+impl From<MempoolBlock> for HeaderChainBlockDesc {
+    fn from(value: MempoolBlock) -> Self {
+        HeaderChainBlockDesc {
+            height: 0,
+            median_fee: value.median_fee,
+            fee_range: value.fee_range,
+            total_fees: value.total_fees,
+            size: value.block_size,
+            tx_count: value.n_tx,
+            timestamp: 0,
+            proof_status: ProofStatus::Pending,
         }
     }
 }

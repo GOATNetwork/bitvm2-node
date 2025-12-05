@@ -12,9 +12,10 @@ use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
     bridge_in_request_tag, get_commit_chain_blocks_desc, get_graph, get_graph_neighbor_ids,
-    get_graph_tx, get_graph_txn, get_graphs, get_header_chain_blocks_desc, get_instance,
-    get_instances, get_instances_overview, get_node, get_nodes, get_nodes_overview, get_proof,
-    get_ready_to_kickoff_graph, get_unsigned_pegin_txn, instance_settings,
+    get_graph_tx, get_graph_txn, get_graphs, get_header_chain_blocks_desc,
+    get_header_chain_mempool_blocks_desc, get_instance, get_instances, get_instances_overview,
+    get_node, get_nodes, get_nodes_overview, get_proof, get_ready_to_kickoff_graph,
+    get_unsigned_pegin_txn, instance_settings,
 };
 use axum::body::Body;
 use axum::extract::Request;
@@ -137,6 +138,10 @@ pub async fn serve(
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::GRAPHS_NEIGHBOR_IDS, get(get_graph_neighbor_ids))
         .route(routes::v1::PROOFS_BLOCKS_HEADER_CHAIN_DESC, get(get_header_chain_blocks_desc))
+        .route(
+            routes::v1::PROOFS_BLOCKS_HEADER_CHAIN_MEMPOOL_BLOCKS,
+            get(get_header_chain_mempool_blocks_desc),
+        )
         .route(routes::v1::PROOFS_BLOCKS_COMMIT_CHAIN_CHAIN_DESC, get(get_commit_chain_blocks_desc))
         .route(routes::v1::PROOFS_BASE, get(get_proof))
         .route(routes::METRICS, get(metrics_handler))
