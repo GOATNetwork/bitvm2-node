@@ -365,7 +365,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             {
                 Err(e) => {
-                    println!("Failed to save commit info: {}", e);
+                    println!("Failed to save commit info: {e}");
                     Ok(())
                 }
                 _ => Ok(()),

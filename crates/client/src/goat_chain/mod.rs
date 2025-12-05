@@ -626,7 +626,6 @@ impl GOATClient {
         if !owners.contains(&addr) {
             bail!("Publisher {addr} is not a multi-sig-verifier owner");
         }
-        println!("owners: {:?}", owners);
 
         // TODO: add more pre-checks
         self.chain_service.seq_set_pub_update_sequencer_set(sequencer_set, sign).await
