@@ -207,7 +207,7 @@ pub fn propose_longest_chain(
             break;
         }
     }
-    assert!(is_found, "Graph id {:?} is not included in current state chain", graph_id);
+    assert!(is_found, "Graph id {graph_id:?} is not included in current state chain");
     let state_chain_output = state_chain_circuit(state_chain);
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;

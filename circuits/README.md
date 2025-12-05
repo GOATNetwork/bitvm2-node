@@ -23,7 +23,7 @@ mkdir -p data/operator
 
 if `Network Prover` is used, see [this](https://docs.zkm.io/dev/prover.html#network-prover) for more details.
 
-Lanch the Regtest.
+Launch the Regtest.
 
 ```bash
 cd scripts
@@ -48,16 +48,16 @@ bash -x ssp-ci.sh $GOAT_BLOCK_NUMBER
 All the initial publishers are hardcoded. In the `ssp-ci.sh`, we simutate 2-round publisher rotations.
 `GOAT_BLOCK_NUMBER` is the GOAT's current block number, which is used as the key to fetch sequencer set commitment.
 
-If it's the first time to publish, we need to deploy [SequencerSetPublisher contract](https://github.com/GOATNetwork/bitvm2-L2-contracts/tree/main/script#deploy).
+Note that we should deploy [SequencerSetPublisher contract](https://github.com/GOATNetwork/bitvm2-L2-contracts/tree/main/script#deploy) before publishing the sequencer set.
 
-Make sure you use the correct contract address in below envs.
+Then setup the correct contract address in your `.env`.
 
 ```
 GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS=0x...
 ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS=0x...
 ```
 
-It will generate `commit_info.json`, the format is as below.
+After publishing, a `commit_info.json` of format as below will be generated.
 
 ```
 [
@@ -97,15 +97,13 @@ RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r
 
 State Chain represents the L2's state transition, which checks the EVM's execution, withdrawal transaction inclusion and sequencers' aggrement.
 
-We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optionally, the block may contain a `initWithdraw` transaction.
+We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optionally, the block may contain a `proceedWithdraw` transaction.
 
-* Kick off a withdrawl on L2.  
-
-* Generate state-chain proof
-
-If there are some `initWithdraw` transactions, configure `GRAPH_IDS` and `GRAPH_BLOCK_NUMBERS` by sparating them by comma. 
+* Submit the `proceedWithdraw` transaction on GOAT Network.
+* Generate state-chain proof. If there are some `proceedWithdraw` transactions, configure `GRAPH_IDS` and `GRAPH_BLOCK_NUMBERS` by sparating them by comma. 
 
 ```
+# Required if applied
 #export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
 #export GRAPH_BLOCK_NUMBERS=9344536
 
@@ -125,6 +123,8 @@ bash cron-state-chain-proof.sh $start $BATCH_SIZE
 
 ## Watchtower proof
 
+If a challenge is happened, each watchtower should broadcast a `watchtower-challenge-tx` to submit its longest chain.
+
 * Generate proofs
 
 ```
@@ -135,6 +135,10 @@ export HEADER_CHAIN_INPUT_PROOF="data/header-chain/350000-100.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
 export LATEST_STATE_BLOCK_HASH="0x598781ea505c0b801742ace07f408e7b3d0f4fc54f122c97f554dadb563d3814" 
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/9344536-30.bin"
+
+# optional
+#export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
+#export GRAPH_BLOCK_NUMBERS=9344536
 
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin 
 
@@ -169,7 +173,7 @@ Get the withdraw-challenge-init-txid , graph-id, and update `watchtower_info.jso
 
 * Generate proofs
 
-After calling the [`initWithdraw`](https://github.com/KSlashh/bitvm2-L2-contracts/blob/design/src/Gateway.sol#L509), we generate the operator proof with corresponding `graph_id` and transaction id. 
+After calling the [`proceedWithdraw`](https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L588), we generate the operator proof with corresponding `graph_id` and transaction id. 
 
 ```
 export BITCOIN_NETWORK=regtest
@@ -186,6 +190,10 @@ export INCLUDED_WATCHTOWERS=1
 export LATEST_STATE_BLOCK_HASH="0xc0544eea14e024dad0e480dcd5e5c89bdb51653b6aa4a07cfcf34e38ba0d204d" 
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/8447750-30.bin"
 
+# required 
+#export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
+#export GRAPH_BLOCK_NUMBERS=9344536
+
 RUST_LOG=info cargo run --package operator-proof --bin operator-proof -r -- --output "data/operator-proof/output.bin"
 ```
 
@@ -193,6 +201,6 @@ RUST_LOG=info cargo run --package operator-proof --bin operator-proof -r -- --ou
 * header-chain-input-proof: the header chain's proof, input and vk.
 * commit-chain-input-proof: the commit chain's proof, input and vk.
 * included-watchtower: a 256-bit bitmask; each bit flags a valid watchtower.
-* execution-layer-block-number: the block number that including `initWithdraw`(Peg-out) transaction of GOAT Network's execution layer(Geth).
+* execution-layer-block-number: the block number that including `proceedWithdraw`(Peg-out) transaction of GOAT Network's execution layer(Geth).
 * watchtower-challenge-info: list of watchtower's challenge transaction id and compressed public key, i.e: [wachtower_info.json](./data/watchtower/watchtower_info.json).
 * watchtower-challenge-init-txid: the watchtower challenge init transaction id in GOAT's BitVM2 graph.
