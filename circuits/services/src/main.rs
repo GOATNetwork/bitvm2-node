@@ -1,12 +1,14 @@
 mod api;
+mod env;
 mod proof_tasks;
 
-use crate::proof_tasks::run_gen_proof_tasks;
+use crate::proof_tasks::{is_start_generate_proof_tasks, run_generate_proof_tasks};
 use clap::{Parser, command};
 use futures::future;
 use tokio::signal;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -28,11 +30,13 @@ async fn main() -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     // Create cancellation token for graceful shutdown
     let cancellation_token = CancellationToken::new();
+    info!("load db {}", opt.db_path);
     let local_db = store::create_local_db(&opt.db_path).await;
     let local_db_clone1 = local_db.clone();
     let mut task_handles: Vec<JoinHandle<anyhow::Result<String, String>>> = vec![];
     let cancel_token_clone = cancellation_token.clone();
     let opt_rpc_addr = opt.rpc_addr.clone();
+    info!("start api server");
     task_handles.push(tokio::spawn(async move {
         match api::serve(opt_rpc_addr, local_db_clone1, cancel_token_clone).await {
             Ok(tag) => Ok(tag),
@@ -42,16 +46,20 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }));
-    let cancel_token_clone = cancellation_token.clone();
-    task_handles.push(tokio::spawn(async move {
-        match run_gen_proof_tasks(local_db, 5, cancel_token_clone).await {
-            Ok(tag) => Ok(tag),
-            Err(e) => {
-                tracing::error!("Generate proof tasks error: {}", e);
-                Err("Generate error".to_string())
+    if is_start_generate_proof_tasks() {
+        info!("start generate proof tasks");
+        let cancel_token_clone = cancellation_token.clone();
+        task_handles.push(tokio::spawn(async move {
+            match run_generate_proof_tasks(local_db, 5, cancel_token_clone).await {
+                Ok(tag) => Ok(tag),
+                Err(e) => {
+                    tracing::error!("Generate proof tasks error: {}", e);
+                    Err("Generate error".to_string())
+                }
             }
-        }
-    }));
+        }));
+    }
+
     // Wait for shutdown signal or any task completion
     let task_count = task_handles.len();
     tokio::select! {

@@ -1,38 +1,73 @@
+use client::btc_chain::mempool_v1_type::V1Block;
 use serde::{Deserialize, Serialize};
+use store::ProofStatus;
 use strum::{Display, EnumString};
 
 #[derive(Debug, Deserialize)]
-pub struct BtcBlockDescQueryParams {
-    #[allow(dead_code)]
-    pub start_height: Option<i64>, //desc order
-    #[allow(dead_code)]
-    pub offset: Option<u32>,
-    #[serde(default = "default_block_desc_limit")]
-    #[allow(dead_code)]
-    pub limit: Option<u32>,
+pub struct BlockDescQueryParams {
+    pub start_height: Option<u64>, //desc order
+    #[serde(default = "default_block_desc_range")]
+    pub range: u32,
 }
-fn default_block_desc_limit() -> Option<u32> {
-    Some(6)
+fn default_block_desc_range() -> u32 {
+    15
 }
 
 #[derive(Debug, Serialize)]
-pub struct BtcBlockDesc {
-    pub height: i64,
-    pub median_fee: f64,
+pub struct HeaderChainBlockDesc {
+    pub height: u64,
+    pub median_fee: u64,
     pub fee_range: Vec<f64>,
-    pub total_fees: f64,
-    pub tx_count: i64,
+    pub total_fees: u64,
+    pub size: u64,
+    pub tx_count: u64,
     pub timestamp: u64,
+    pub proof_status: ProofStatus,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BtcBlockDescListResponse {
-    pub blocks_desc: Vec<BtcBlockDesc>,
-    pub start: i64, // desc order
-    pub range: i64,
+pub struct CommitChainBlockDesc {
+    pub height: u64,
+    pub size: u64,
+    pub tx_count: u64,
+    pub timestamp: u64,
+    pub sequencer_number: u64,
+    pub sequencer_set_hash: String,
+    pub commit_id: String,
+    pub proof_status: ProofStatus,
+}
+
+impl From<V1Block> for HeaderChainBlockDesc {
+    fn from(value: V1Block) -> Self {
+        HeaderChainBlockDesc {
+            height: value.height,
+            median_fee: value.extras.median_fee,
+            fee_range: value.extras.fee_range,
+            total_fees: value.extras.total_fees,
+            size: value.size,
+            tx_count: value.tx_count,
+            timestamp: value.timestamp,
+            proof_status: ProofStatus::Proved,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct HeaderChainBlockDescListResponse {
+    pub blocks_desc: Vec<HeaderChainBlockDesc>,
+    pub start: u64, // desc order
+    pub range: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CommitChainBlockDescListResponse {
+    pub blocks_desc: Vec<CommitChainBlockDesc>,
+    pub start: u64, // desc order
+    pub range: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Display, EnumString)]
+#[serde(rename_all = "snake_case")]
 pub enum ProofType {
     #[strum(serialize = "header_chain")]
     HeaderChain,

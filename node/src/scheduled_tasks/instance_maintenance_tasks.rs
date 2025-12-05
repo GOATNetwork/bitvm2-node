@@ -1,16 +1,20 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
-use crate::utils::{gen_instance_parameters_local, upsert_message};
+use crate::scheduled_tasks::event_watch_task::generate_instance_from_bridge_in_request_event;
+use crate::utils::{
+    check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local, upsert_message,
+};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::transactions::base::BaseTransaction;
+use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::graph_query::BridgeInRequestEvent;
 use std::str::FromStr;
 use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
-use store::{GoatTxProcessingStatus, GoatTxType, Instance, InstanceStatus};
+use store::{GoatTxProcessingStatus, GoatTxType, Instance, InstanceBridgeInStatus};
 use tracing::{info, warn};
 
 const MAX_INSTANCE: u32 = 50;
@@ -32,7 +36,11 @@ async fn update_instance<'a>(
 }
 
 /// for committee
-pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> {
+pub async fn instance_answers_monitor(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+) -> anyhow::Result<()> {
     let tx_records = {
         let mut storage_processor = local_db.acquire().await?;
         storage_processor
@@ -42,27 +50,59 @@ pub async fn instance_answers_monitor(local_db: &LocalDB) -> anyhow::Result<()> 
             )
             .await?
     };
-
+    let current_height = goat_client.get_finalized_block_number().await?;
+    let response_window_blocks = goat_client.gateway_get_response_window_blocks().await? as i64;
     for tx_record in tx_records {
         let mut tx = local_db.start_transaction().await?;
         if let Some(event) = tx_record.extra {
-            let _event: BridgeInRequestEvent = serde_json::from_str(&event)?;
-            upsert_message(
-                &mut tx,
-                false,
-                tx_record.instance_id,
-                None,
-                "self".to_string(),
-                Actor::All,
-                GOATMessageContent::PeginRequest(PeginRequest {
-                    instance_id: tx_record.instance_id,
-                    pegin_request_tx_hash: tx_record.tx_hash,
-                    pegin_request_height: tx_record.height,
-                }),
-                0,
-                0,
-            )
-            .await?;
+            let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
+            if tx_record.height + response_window_blocks < current_height {
+                info!(
+                    "instance_answers_monitor: instance_id:{} BridgeInRequest is outside the response window",
+                    tx_record.instance_id
+                );
+
+                if let Ok((mut instance, input_utxo_available)) =
+                    generate_instance_from_bridge_in_request_event(
+                        btc_client,
+                        goat_client,
+                        &event,
+                        true,
+                    )
+                    .await
+                    && !input_utxo_available
+                {
+                    info!(
+                        "instance_answers_monitor: instance_id:{} BridgeInRequest is outside the response window and input utxos not available",
+                        tx_record.instance_id
+                    );
+                    // for the case: if bridgeIn confirm is broadcast,but L2 not minted,
+                    // instance status will been updated to L2Minted when normal finished
+                    instance.status = InstanceBridgeInStatus::UserDiscarded.to_string();
+                    tx.upsert_instance(&instance).await?;
+                }
+            } else {
+                upsert_message(
+                    &mut tx,
+                    false,
+                    tx_record.instance_id,
+                    None,
+                    "self".to_string(),
+                    Actor::All,
+                    GOATMessageContent::PeginRequest(PeginRequest {
+                        instance_id: tx_record.instance_id,
+                        pegin_request_tx_hash: tx_record.tx_hash,
+                        pegin_request_height: tx_record.height,
+                        pegin_timestamp: event
+                            .block_timestamp
+                            .parse::<i64>()
+                            .unwrap_or_else(|_| current_time_secs()),
+                    }),
+                    0,
+                    0,
+                )
+                .await?;
+            }
         }
 
         tx.update_goat_tx_record_processing_status(
@@ -89,7 +129,7 @@ pub async fn instance_window_expiration_monitor(
             .find_instances(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
-                    .with_status(InstanceStatus::UserInited.to_string())
+                    .with_status(InstanceBridgeInStatus::UserInited.to_string())
                     .with_pegin_request_height_threshold(current_height - window_blocks)
                     .with_order("created_at DESC".to_string())
                     .with_offset(0)
@@ -115,12 +155,17 @@ pub async fn instance_window_expiration_monitor(
                 }
 
                 if committee_quorum_size <= instance.committees_answers.len() as u64 {
-                    instance.status = InstanceStatus::CommitteesAnswered.to_string();
+                    instance.status = InstanceBridgeInStatus::CommitteesAnswered.to_string();
+                    if let Err(err) = update_pegin_txids(&mut instance) {
+                        warn!(
+                            "instance_window_expiration_monitor fail to update_pegin_txids for instance {}, err: {:?}",
+                            instance.instance_id, err
+                        );
+                    }
                 } else {
-                    instance.status = InstanceStatus::NoEnoughCommitteesAnswered.to_string();
+                    instance.status =
+                        InstanceBridgeInStatus::NoEnoughCommitteesAnswered.to_string();
                 }
-
-                let _ = update_pegin_txids(&mut instance);
                 let mut storage_processor = local_db.acquire().await?;
                 if let Err(err) = storage_processor.upsert_instance(&instance).await {
                     warn!(
@@ -162,8 +207,8 @@ pub async fn instance_expiration_monitor(
         let mut storage_processor = local_db.acquire().await?;
         let expired_num = storage_processor
             .update_expired_instance(
-                &InstanceStatus::CommitteesAnswered.to_string(),
-                &InstanceStatus::PresignedFailed.to_string(),
+                &InstanceBridgeInStatus::CommitteesAnswered.to_string(),
+                &InstanceBridgeInStatus::PresignedFailed.to_string(),
                 current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
             )
             .await?;
@@ -172,7 +217,7 @@ pub async fn instance_expiration_monitor(
             .find_instances(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
-                    .with_status(InstanceStatus::PresignedFailed.to_string())
+                    .with_status(InstanceBridgeInStatus::PresignedFailed.to_string())
                     .with_order("created_at DESC".to_string())
                     .with_offset(0)
                     .with_limit(MAX_INSTANCE),
@@ -187,7 +232,7 @@ pub async fn instance_expiration_monitor(
             update_instance(
                 &mut storage_processor,
                 &InstanceUpdate::new(instance.instance_id)
-                    .with_status(InstanceStatus::Timeout.to_string()),
+                    .with_status(InstanceBridgeInStatus::Timeout.to_string()),
             )
             .await?;
         } else {
@@ -211,9 +256,10 @@ pub async fn instance_btc_tx_monitor(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
                     .with_statuses(vec![
-                        InstanceStatus::CommitteesAnswered.to_string(),
-                        InstanceStatus::Presigned.to_string(),
-                        InstanceStatus::Timeout.to_string(),
+                        InstanceBridgeInStatus::UserInited.to_string(),
+                        InstanceBridgeInStatus::CommitteesAnswered.to_string(),
+                        InstanceBridgeInStatus::Presigned.to_string(),
+                        InstanceBridgeInStatus::Timeout.to_string(),
                     ])
                     .with_offset(0)
                     .with_order("created_at DESC".to_string())
@@ -222,16 +268,20 @@ pub async fn instance_btc_tx_monitor(
             .await?
     };
     for instance in instances {
-        let (tx_id_op, next_status) = match InstanceStatus::from_str(&instance.status) {
+        let (txid_op, next_status) = match InstanceBridgeInStatus::from_str(&instance.status) {
             Ok(status) => match status {
-                InstanceStatus::CommitteesAnswered => {
-                    (instance.btc_txid.clone(), InstanceStatus::UserBroadcastPeginPrepare)
+                InstanceBridgeInStatus::UserInited => {
+                    (None, InstanceBridgeInStatus::CommitteesAnswered)
                 }
-                InstanceStatus::Presigned => {
-                    (instance.pegin_confirm_txid.clone(), InstanceStatus::RelayerL1Broadcasted)
+                InstanceBridgeInStatus::CommitteesAnswered => {
+                    (instance.btc_txid.clone(), InstanceBridgeInStatus::UserBroadcastPeginPrepare)
                 }
-                InstanceStatus::Timeout => {
-                    (instance.pegin_cancel_txid.clone(), InstanceStatus::UserCanceled)
+                InstanceBridgeInStatus::Presigned => (
+                    instance.pegin_confirm_txid.clone(),
+                    InstanceBridgeInStatus::RelayerL1Broadcasted,
+                ),
+                InstanceBridgeInStatus::Timeout => {
+                    (instance.pegin_cancel_txid.clone(), InstanceBridgeInStatus::UserCanceled)
                 }
                 _ => (None, status),
             },
@@ -245,23 +295,14 @@ pub async fn instance_btc_tx_monitor(
                 continue;
             }
         };
-
-        if tx_id_op.is_none() {
-            warn!(
-                "instance:{} status:{} get check tx id is none",
-                instance.instance_id,
-                instance.status.clone()
-            );
-            continue;
-        }
-        let tx_id = tx_id_op.unwrap().0;
-        if let Ok(status) = btc_client.get_tx_status(&tx_id).await
+        if let Some(txid) = txid_op.clone()
+            && let Ok(status) = btc_client.get_tx_status(&txid.0).await
             && status.confirmed
         {
             let mut tx = local_db.start_transaction().await?;
             let mut instance_update =
                 InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
-            if next_status == InstanceStatus::UserBroadcastPeginPrepare {
+            if next_status == InstanceBridgeInStatus::UserBroadcastPeginPrepare {
                 instance_update =
                     instance_update.with_btc_height(status.block_height.unwrap_or_default() as i64);
 
@@ -280,7 +321,7 @@ pub async fn instance_btc_tx_monitor(
                 )
                 .await?;
             }
-            if next_status == InstanceStatus::RelayerL1Broadcasted {
+            if next_status == InstanceBridgeInStatus::RelayerL1Broadcasted {
                 upsert_message(
                     &mut tx,
                     false,
@@ -299,11 +340,29 @@ pub async fn instance_btc_tx_monitor(
             tx.commit().await?;
         } else {
             warn!(
-                "instance:{}, status{}, check tx_id:{} is not chain ",
-                instance.instance_id,
-                instance.status,
-                tx_id.to_string()
+                "instance:{}, status{}, check tx_id:{:?} is not chain ",
+                instance.instance_id, instance.status, txid_op
             );
+            if [
+                InstanceBridgeInStatus::UserInited,
+                InstanceBridgeInStatus::UserBroadcastPeginPrepare,
+            ]
+            .contains(&next_status)
+                && let utxos = serde_json::from_str::<Vec<Utxo>>(&instance.input_utxos)?
+                && !check_bridge_in_uxto_available_or_self_spent(btc_client, None, &utxos).await?
+            {
+                warn!(
+                    "instance:{}, pegin prepare tx input utxos has been spent in other tx",
+                    instance.instance_id
+                );
+                let mut storage_processor = local_db.start_transaction().await?;
+                update_instance(
+                    &mut storage_processor,
+                    &InstanceUpdate::new(instance.instance_id)
+                        .with_status(InstanceBridgeInStatus::UserDiscarded.to_string()),
+                )
+                .await?;
+            }
         }
     }
     Ok(())

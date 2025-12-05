@@ -49,6 +49,7 @@ pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
 pub const ENV_EXTERNAL_SOCKET_ADDR: &str = "EXTERNAL_SOCKET_ADDR";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
+pub const ASSERT_COMMITS_CACHE_DIR: &str = "cache/assert_commits_cache/";
 pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
 pub const MAX_CUSTOM_INPUTS: usize = 100;
@@ -82,7 +83,7 @@ const COMMITTEE_MEMBER_NUMBER: usize = 2;
 
 pub const MESSAGE_BROADCAST_MAX_TIMES: i64 = 3;
 pub const MESSAGE_RESEND_INTERVAL_SECOND: i64 = 60 * 5;
-pub const MESSAGE_EXPIRE_TIME: i64 = 3600 * 24; // 1 days
+pub const MESSAGE_EXPIRE_TIME: i64 = 3600 * 24 * 15; // 15 days for test
 
 pub const MESSAGE_SAVE_INTERVAL_SECOND: i64 = 3600 * 24 * 3;
 
@@ -343,9 +344,6 @@ pub fn get_goat_event_the_graph_url_from_env() -> String {
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {
-    if cfg!(feature = "tests") {
-        return GoatInitConfig::from_env_for_test();
-    }
     let rpc_url = get_goat_url_from_env();
     let private_key = std::env::var(ENV_GOAT_PRIVATE_KEY).ok();
     let gateway_address = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS);

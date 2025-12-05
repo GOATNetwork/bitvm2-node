@@ -1,39 +1,26 @@
-use crate::env::{GraphBtcTxName, get_network};
+use crate::env::GraphBtcTxName;
 use crate::rpc_service::bitvm2::*;
-use crate::rpc_service::handler::is_use_mock_data;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
-use crate::rpc_service::response::{ApiResult, ErrorResponse};
+use crate::rpc_service::response::{ApiErrorExt, ApiResult, ErrorResponse};
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::scheduled_tasks::graph_maintenance_tasks::{
-    AssertInitTxVoutMonitorData, WTInitTxVoutMonitorData,
+    AssertInitTxVoutMonitorData, ChallengeSubStatus, WTInitTxVoutMonitorData,
 };
-use crate::utils::{get_rand_btc_address_p2wpkh, get_rand_goat_address};
+use crate::utils::{gen_instance_parameters_local, parse_graph_raw_data};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
-use bitcoin::{Network, Txid};
-use bitvm2_lib::types::Bitvm2Graph;
-use client::Utxo;
-use client::btc_chain::BTCClient;
+use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
+use client::goat_chain::DisproveTxType;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::default::Default;
-use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
-use store::{Graph, GraphStatus, Instance, InstanceStatus, UInt64Array3};
-use uuid::Uuid;
+use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus};
+use tracing::warn;
 
-const WATCHTOWER_CHALLENGE_STEP_INIT: &str = "Watchtower Challenge init";
-const WATCHTOWER_CHALLENGE_STEP_CHALLENGE: &str = "Watchtower Challenge";
-const WATCHTOWER_CHALLENGE_STEP_CHALLENGE_TIMEOUT: &str = "Watchtower Challenge Timeout";
-const WATCHTOWER_CHALLENGE_STEP_ACK: &str = "Operator Challenge NACK";
-const WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH: &str = "Operator Commit BlockHash";
-const WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH_TIMEOUT: &str =
-    "Operator Commit BlockHash Timeout";
-const ASSERT_STEP_INIT: &str = "Assert init";
-const ASSERT_STEP_COMMIT: &str = "Assert Commit";
 /// Get instance settings
 ///
 /// Returns bridge-in amount configuration information for frontend display of available bridge amount options.
@@ -66,8 +53,88 @@ pub async fn instance_settings(
 ) -> ApiResult<InstanceSettingResponse> {
     Ok((
         StatusCode::OK,
-        Json(InstanceSettingResponse { bridge_in_amount: vec![0.1, 0.05, 0.02, 0.01] }),
+        Json(InstanceSettingResponse { bridge_in_amount: BRIDGE_IN_AMOUNTS.to_vec() }),
     ))
+}
+
+/// Prepare bridge-in request
+///
+/// Validates user-provided data against the allowed bridge-in options returned by
+/// [`instance_settings`](routes::v1::INSTANCES_SETTINGS). Clients should first call
+/// `instance_settings` to know the supported `bridge_in_amount` list and then submit a
+/// bridge-in request using one of those amounts.
+///
+/// # Request Body
+///
+/// - `instance_id`: UUID of the bridge-in request created earlier
+/// - `network`: Target Bitcoin network (e.g. `testnet3`, `mainnet`)
+/// - `from_addr`: Funding Bitcoin address selected by the user
+/// - `to_addr`: Destination address that receives bridged assets on L2
+/// - `bridge_request_tx_hash`: Goat chain transaction hash referencing the bridge intent
+///
+/// # Returns
+///
+/// - `200 OK`: Request is valid and can proceed to the next step of bridge-in workflow
+/// - Response body currently acts as an acknowledgment placeholder for future metadata
+///
+/// # Example
+///
+/// ```http
+/// PUT /v1/instances/bridge-in-request-tag
+/// {
+///   "instance_id": "123e4567-e89b-12d3-a456-426614174000",
+///   "network": "testnet",
+///   "from_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+///   "to_addr": "0x1234567890abcdef1234567890abcdef12345678",
+///   "bridge_request_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e"
+/// }
+/// ```
+///
+/// Response example:
+/// ```json
+/// {}
+/// ```
+#[axum::debug_handler]
+pub async fn bridge_in_request_tag(
+    State(app_state): State<Arc<AppState>>,
+    Json(payload): Json<BridgeInPrepareRequest>,
+) -> ApiResult<BridgeInPrepareResponse> {
+    InputValidator::validate_btc_address(&payload.from_addr, "from_addr")?;
+    InputValidator::validate_goat_address(&payload.to_addr, "goat_addr")?;
+    let instance_id = InputValidator::validate_uuid(&payload.instance_id, "btc_addr")?;
+    let mut storage_process =
+        app_state.local_db.acquire().await.api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
+    let current_time = current_time_secs();
+    storage_process
+        .upsert_instance(&Instance {
+            instance_id,
+            is_bridge_in: true,
+            network: payload.network,
+            from_addr: payload.from_addr,
+            to_addr: payload.to_addr,
+            amount: 0,
+            fees: Default::default(),
+            input_utxos: "[]".to_string(),
+            status: InstanceBridgeInStatus::UserIniting.to_string(),
+            goat_tx_hash: "".to_string(),
+            goat_tx_height: 0,
+            user_xonly_pubkey: Default::default(),
+            user_change_addr: "".to_string(),
+            user_refund_addr: "".to_string(),
+            btc_txid: None,
+            btc_height: 0,
+            pegin_confirm_txid: None,
+            pegin_cancel_txid: None,
+            committees_answers: Default::default(),
+            pegin_data_tx_hash: "".to_string(),
+            parameters: None,
+            status_updated_at: current_time,
+            created_at: current_time,
+            updated_at: current_time,
+        })
+        .await
+        .api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
+    Ok((StatusCode::OK, Json(BridgeInPrepareResponse {})))
 }
 
 /// Get instance list
@@ -115,7 +182,7 @@ pub async fn instance_settings(
 ///         "status": "CommitteesAnswered",
 ///         "goat_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
 ///         "goat_tx_height": 8509060,
-///         "user_xonly_pubkey": "02abc123...",
+///         "user_xonly_pubkey": [2, 171, 193, 35, ...],
 ///         "user_change_addr": "tb1q...",
 ///         "user_refund_addr": "tb1q...",
 ///         "btc_txid": "f6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
@@ -125,22 +192,23 @@ pub async fn instance_settings(
 ///         "committees_answers": {},
 ///         "pegin_data_tx_hash": "0x...",
 ///         "parameters": null,
+///         "status_updated_at": 1699123456,
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
 ///       },
 ///       "utxo": [
 ///         {
-///           "txid": "abc123...",
+///           "txid": [171, 193, 35, ...],
 ///           "vout": 0,
-///           "value": 100000000,
-///           "script_pubkey": "0014..."
+///           "amount_sats": 100000000
 ///         }
 ///       ],
 ///       "confirmations": 0,
 ///       "target_confirmations": 6,
-///       "waiting_time_in_mins": 60,
+///       "waiting_time_in_secs": 60,
+///       "current_status_waiting_time_in_secs": 30,
 ///       "status_extra": {
-///         "user_action": "Submit",
+///         "user_action": "None",
 ///         "is_failed": false,
 ///         "error": null
 ///       }
@@ -154,116 +222,53 @@ pub async fn get_instances(
     Query(params): Query<InstanceListRequest>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceListResponse> {
-    // todo update statusExtra
     // Validate pagination parameters
     let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
-
     // Validate from_addr format (if provided)
     if let Some(ref from_addr) = params.from_addr {
         InputValidator::validate_btc_address(from_addr, "from_addr")?;
     }
 
-    if is_use_mock_data() {
-        let (from_addr, to_addr) = if params.is_bridge_in {
-            (get_rand_btc_address_p2wpkh(Network::Testnet), get_rand_goat_address())
-        } else {
-            (get_rand_goat_address(), get_rand_btc_address_p2wpkh(Network::Testnet))
-        };
-        return Ok((
-            StatusCode::OK,
-            Json(InstanceListResponse {
-                instance_wraps: vec![InstanceExtended {
-                    instance: Instance {
-                        instance_id: Uuid::new_v4(),
-                        is_bridge_in: params.is_bridge_in,
-                        network: "testnet".to_string(),
-                        from_addr,
-                        to_addr,
-                        amount: 100000000,
-                        fees: UInt64Array3([10, 20, 30]),
-                        input_utxos: "".to_string(),
-                        status: InstanceStatus::CommitteesAnswered.to_string(),
-                        goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
-                        goat_tx_height: 8509060,
-                        user_xonly_pubkey: Default::default(),
-                        user_change_addr: "".to_string(),
-                        user_refund_addr: "".to_string(),
-                        btc_txid: Some(Txid::from_str("0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e").expect("fail to decode btc txid").into()),
-                        btc_height: 0,
-                        pegin_confirm_txid: None,
-                        pegin_cancel_txid: None,
-                        committees_answers: Default::default(),
-                        pegin_data_tx_hash: "".to_string(),
-                        parameters: None,
-                        created_at: 0,
-                        updated_at: 0,
-                    },
-                    utxo: vec![],
-                    waiting_time_in_mins: 60,
-                    confirmations: 0,
-                    target_confirmations: 0,
-                    status_extra: StatusExtra{
-                        user_action: StatusUserAction::Submit,
-                        is_failed: false,
-                        error: None,
-                    },
-                }],
-                total: 1,
-            }),
-        ));
+    // Database query
+    let mut storage_process = app_state.local_db.acquire().await.api_error("GET_INSTANCE_ERROR")?;
+
+    let mut query = InstanceQuery::default();
+    if let Some(from_addr) = params.from_addr {
+        query = query.with_from_addr(from_addr);
+    }
+    query = query
+        .with_pagination(offset, limit)
+        .with_order("created_at DESC".to_string())
+        .with_is_bridge_in(params.is_bridge_in);
+
+    let (instances, total) =
+        storage_process.find_instances(query).await.api_error("GET_INSTANCE_ERROR")?;
+
+    if instances.is_empty() {
+        warn!("get_instances instance is empty: total {}", total);
+        return Ok((StatusCode::OK, Json(InstanceListResponse::default())));
+    }
+    let btc_current_height =
+        app_state.btc_client.get_height().await.api_error("GET_INSTANCE_ERROR")?;
+    let response_window_blocks = app_state
+        .goat_client
+        .gateway_get_response_window_blocks()
+        .await
+        .api_error("GET_INSTANCE_ERROR")?;
+    let mut items = vec![];
+    for instance in instances {
+        let item = InstanceExtended::convert_from_instance(
+            &app_state.btc_client,
+            btc_current_height,
+            response_window_blocks as i64,
+            instance,
+        )
+        .await
+        .api_error("GET_INSTANCE_ERROR")?;
+        items.push(item);
     }
 
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let mut query = InstanceQuery::default();
-        if let Some(from_addr) = params.from_addr {
-            query = query.with_from_addr(from_addr);
-        }
-        query = query
-            .with_pagination(offset, limit)
-            .with_order("created_at DESC".to_string())
-            .with_is_bridge_in(params.is_bridge_in);
-
-        let (instances, total) = storage_process.find_instances(query).await?;
-
-        if instances.is_empty() {
-            tracing::warn!("get_instances instance is empty: total {}", total);
-            return Ok::<InstanceListResponse, Box<dyn std::error::Error>>(
-                InstanceListResponse::default(),
-            );
-        }
-        let mut items = vec![];
-        for instance in instances {
-            let utxo: Vec<Utxo> =
-                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
-            items.push(InstanceExtended {
-                utxo,
-                instance,
-                waiting_time_in_mins: 0,
-                confirmations: 0,
-                target_confirmations: 0,
-                status_extra: Default::default(),
-            })
-        }
-
-        Ok::<InstanceListResponse, Box<dyn std::error::Error>>(InstanceListResponse {
-            instance_wraps: items,
-            total,
-        })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get instances err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_INSTANCE_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
+    Ok((StatusCode::OK, Json(InstanceListResponse { instance_wraps: items, total })))
 }
 
 /// Get instance by ID
@@ -308,7 +313,7 @@ pub async fn get_instances(
 ///       "status": "CommitteesAnswered",
 ///       "goat_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
 ///       "goat_tx_height": 8509060,
-///       "user_xonly_pubkey": "02abc123...",
+///       "user_xonly_pubkey": [2, 171, 193, 35, ...],
 ///       "user_change_addr": "tb1q...",
 ///       "user_refund_addr": "tb1q...",
 ///       "btc_txid": "f6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
@@ -318,22 +323,23 @@ pub async fn get_instances(
 ///       "committees_answers": {},
 ///       "pegin_data_tx_hash": "0x...",
 ///       "parameters": null,
+///       "status_updated_at": 1699123456,
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
 ///     },
 ///     "utxo": [
 ///       {
-///         "txid": "abc123...",
+///         "txid": [171, 193, 35, ...],
 ///         "vout": 0,
-///         "value": 100000000,
-///         "script_pubkey": "0014..."
+///         "amount_sats": 100000000
 ///       }
 ///     ],
 ///     "confirmations": 0,
 ///     "target_confirmations": 6,
-///     "waiting_time_in_mins": 60,
+///     "waiting_time_in_secs": 60,
+///     "current_status_waiting_time_in_secs": 30,
 ///     "status_extra": {
-///       "user_action": "Submit",
+///       "user_action": "None",
 ///       "is_failed": false,
 ///       "error": null
 ///     }
@@ -345,88 +351,36 @@ pub async fn get_instance(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceGetResponse> {
-    // todo update statusExtra
     // Validate instance_id format
     let instance_id_uuid = InputValidator::validate_uuid(&instance_id, "instance_id")?;
 
-    if is_use_mock_data() {
-        return Ok((
-            StatusCode::OK,
-            Json(InstanceGetResponse {
-                instance_wrap: InstanceExtended {
-                    instance: Instance {
-                        instance_id: Uuid::new_v4(),
-                        is_bridge_in: true,
-                        network: "testnet".to_string(),
-                        from_addr:get_rand_btc_address_p2wpkh(Network::Testnet),
-                        to_addr:get_rand_goat_address(),
-                        amount: 100000000,
-                        fees: UInt64Array3([10, 20, 30]),
-                        input_utxos: "".to_string(),
-                        status: InstanceStatus::CommitteesAnswered.to_string(),
-                        goat_tx_hash: "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e".to_string(),
-                        goat_tx_height: 8509060,
-                        user_xonly_pubkey: Default::default(),
-                        user_change_addr: "".to_string(),
-                        user_refund_addr: "".to_string(),
-                        btc_txid: Some(Txid::from_str("0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e").expect("fail to decode btc txid").into()),
-                        btc_height: 0,
-                        pegin_confirm_txid: None,
-                        pegin_cancel_txid: None,
-                        committees_answers: Default::default(),
-                        pegin_data_tx_hash: "".to_string(),
-                        parameters: None,
-                        created_at: 0,
-                        updated_at: 0,
-                    },
-                    utxo: vec![],
-                    waiting_time_in_mins: 60,
-                    confirmations: 0,
-                    target_confirmations: 0,
-                    status_extra: StatusExtra{
-                        user_action: StatusUserAction::Submit,
-                        is_failed: false,
-                        error: None,
-                    },
-                }
-            }),
-        ));
-    }
+    let mut storage_process = app_state.local_db.acquire().await.api_error("GET_INSTANCE_ERROR")?;
 
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(instance) = storage_process.find_instance(&instance_id_uuid).await? {
-            let utxo: Vec<Utxo> =
-                serde_json::from_str(&instance.input_utxos).map_err(|_| "failed to parse utxos")?;
-            Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
-                instance_wrap: InstanceExtended {
-                    utxo,
-                    instance,
-                    waiting_time_in_mins: 0,
-                    confirmations: 0,
-                    target_confirmations: 0,
-                    status_extra: Default::default(),
-                },
-            })
-        } else {
-            tracing::info!("instance_id {} has no record in database", instance_id);
-            Ok::<InstanceGetResponse, Box<dyn std::error::Error>>(InstanceGetResponse {
-                instance_wrap: InstanceExtended::default(),
-            })
-        }
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get instances err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_INSTANCE_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
+    if let Some(instance) =
+        storage_process.find_instance(&instance_id_uuid).await.api_error("GET_INSTANCE_ERROR")?
+    {
+        let btc_current_height =
+            app_state.btc_client.get_height().await.api_error("GET_INSTANCE_ERROR")?;
+        let response_window_blocks = app_state
+            .goat_client
+            .gateway_get_response_window_blocks()
+            .await
+            .api_error("GET_INSTANCE_ERROR")?;
+        let instance_wrap = Some(
+            InstanceExtended::convert_from_instance(
+                &app_state.btc_client,
+                btc_current_height,
+                response_window_blocks as i64,
+                instance,
+            )
+            .await
+            .api_error("GET_INSTANCE_ERROR")?,
+        );
+
+        Ok((StatusCode::OK, Json(InstanceGetResponse { instance_wrap })))
+    } else {
+        tracing::info!("instance_id {} has no record in database", instance_id);
+        Ok((StatusCode::OK, Json(InstanceGetResponse { instance_wrap: None })))
     }
 }
 
@@ -471,40 +425,32 @@ pub async fn get_instance(
 pub async fn get_instances_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceOverviewResponse> {
-    if is_use_mock_data() {
-        return Ok((
-            StatusCode::OK,
-            Json(InstanceOverviewResponse {
-                instances_overview: InstanceOverview {
-                    total_bridge_in_amount: 3000000,
-                    total_bridge_in_txn: 1,
-                    total_bridge_out_amount: 2000000,
-                    total_bridge_out_txn: 2,
-                    total_peg_out_amount: 1000000,
-                    total_peg_out_txn: 1,
-                    online_nodes: 3,
-                    total_nodes: 4,
-                },
-            }),
-        ));
-    }
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let (pegin_sum, pegin_count) = storage_process
-            .get_sum_bridge_in(&[
-                InstanceStatus::RelayerL1Broadcasted.to_string(),
-                InstanceStatus::RelayerL2Minted.to_string(),
-            ])
-            .await?;
-        let (pegout_sum, pegout_count) = storage_process
-            .get_sum_bridge_out(&[
-                GraphStatus::OperatorTake1.to_string(),
-                GraphStatus::OperatorTake2.to_string(),
-                GraphStatus::Disprove.to_string(),
-            ])
-            .await?;
-        let (total, alive) = storage_process.get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD).await?;
-        Ok::<InstanceOverviewResponse, Box<dyn std::error::Error>>(InstanceOverviewResponse {
+    // todo update bridge out calc
+    let mut storage_process =
+        app_state.local_db.acquire().await.api_error("INSTANCE_OVERVIEW_ERROR")?;
+
+    let (pegin_sum, pegin_count) = storage_process
+        .get_sum_bridge_in(&[InstanceBridgeInStatus::RelayerL2Minted.to_string()])
+        .await
+        .api_error("INSTANCE_OVERVIEW_ERROR")?;
+
+    let (pegout_sum, pegout_count) = storage_process
+        .get_sum_peg_out(&[
+            GraphStatus::OperatorTake1.to_string(),
+            GraphStatus::OperatorTake2.to_string(),
+            GraphStatus::Disprove.to_string(),
+        ])
+        .await
+        .api_error("INSTANCE_OVERVIEW_ERROR")?;
+
+    let (total, alive) = storage_process
+        .get_nodes_info(ALIVE_TIME_JUDGE_THRESHOLD)
+        .await
+        .api_error("INSTANCE_OVERVIEW_ERROR")?;
+
+    Ok((
+        StatusCode::OK,
+        Json(InstanceOverviewResponse {
             instances_overview: InstanceOverview {
                 total_bridge_in_amount: pegin_sum,
                 total_bridge_in_txn: pegin_count,
@@ -515,41 +461,9 @@ pub async fn get_instances_overview(
                 online_nodes: alive,
                 total_nodes: total,
             },
-        })
-    };
-    match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
-        Err(err) => {
-            tracing::warn!("get instances overview err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "INSTANCE_OVERVIEW_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
+        }),
+    ))
 }
-
-// async fn get_tx_confirmation_info(
-//     btc_client: &BTCClient,
-//     btc_tx_id: Option<String>,
-//     current_height: u32,
-//     target_confirm_num: u32,
-// ) -> anyhow::Result<(u32, u32)> {
-//     if btc_tx_id.is_none() {
-//         return Ok((0, target_confirm_num));
-//     }
-//     let tx_id = btc_tx_id.unwrap();
-//     let status = btc_client.get_tx_status(&Txid::from_str(&tx_id)?).await?;
-//     let blocks_pass = if let Some(block_height) = status.block_height {
-//         current_height - block_height
-//     } else {
-//         0
-//     };
-//     Ok((blocks_pass, target_confirm_num))
-// }
 
 /// Get graph by ID
 ///
@@ -580,7 +494,6 @@ pub async fn get_instances_overview(
 /// Response example:
 /// ```json
 /// {
-///   "graph": {
 ///     "graph": {
 ///       "graph_id": "123e4567-e89b-12d3-a456-426614174000",
 ///       "instance_id": "987e6543-e89b-12d3-a456-426614174000",
@@ -613,11 +526,13 @@ pub async fn get_instances_overview(
 ///       "init_withdraw_tx_hash": null,
 ///       "bridge_out_start_at": 1699123456,
 ///       "zkm_version": "zkm1.0.0",
+///       "status_updated_at": 1699123456,
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
 ///     },
-///     "waiting_time_in_mins": 1000
-///   }
+///     "challenge_sub_status": "Assert",
+///     "waiting_time_in_secs": 1000,
+///     "proof_status": "Pending"
 /// }
 /// ```
 #[axum::debug_handler]
@@ -627,37 +542,20 @@ pub async fn get_graph(
 ) -> ApiResult<GraphGetResponse> {
     // Validate graph_id format
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(graph) = storage_process.find_graph(&graph_id_uuid).await? {
-            let graphs =
-                add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, vec![graph])
-                    .await?;
-            if graphs.is_empty() {
-                tracing::warn!("graph:{} is convert failed", graph_id);
-                Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: None })
-            } else {
-                Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse {
-                    graph: Some(graphs[0].clone()),
-                })
-            }
-        } else {
-            tracing::warn!("graph:{} is not record in db", graph_id);
-            Ok::<GraphGetResponse, Box<dyn std::error::Error>>(GraphGetResponse { graph: None })
-        }
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get graph err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_GRAPH_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
+
+    let mut storage_process = app_state.local_db.acquire().await.api_error("GET_GRAPH_ERROR")?;
+
+    if let Some(graph) =
+        storage_process.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_ERROR")?
+    {
+        let graph_extended = GraphExtended::convert_from_graph(&app_state.btc_client, graph)
+            .await
+            .api_error("GET_GRAPH_ERROR")?;
+
+        Ok((StatusCode::OK, Json(graph_extended)))
+    } else {
+        tracing::warn!("graph:{} is not record in db", graph_id);
+        Ok((StatusCode::OK, Json(GraphExtended::default())))
     }
 }
 
@@ -722,10 +620,13 @@ pub async fn get_graph(
 ///         "init_withdraw_tx_hash": null,
 ///         "bridge_out_start_at": 1699123456,
 ///         "zkm_version": "zkm1.0.0",
+///         "status_updated_at": 1699123456,
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
 ///       },
-///       "waiting_time_in_mins": 1000
+///       "challenge_sub_status": "Assert",
+///       "waiting_time_in_secs": 1000,
+///       "proof_status": "Pending"
 ///     }
 ///   ],
 ///   "total": 1
@@ -736,32 +637,28 @@ pub async fn get_graphs(
     Query(params): Query<GraphQueryParams>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<GraphListResponse> {
-    let async_fn = || async move {
-        let mut resp = GraphListResponse::default();
-        let mut storage_process = app_state.local_db.acquire().await?;
-        let filter_params: GraphQuery = params.into();
-        let (graphs, total) = storage_process.find_graphs(filter_params).await?;
-        resp.total = total;
-        if graphs.is_empty() {
-            return Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp);
-        }
-        resp.graphs =
-            add_extend_data_to_graphs(&mut storage_process, &app_state.btc_client, graphs).await?;
-        Ok::<GraphListResponse, Box<dyn std::error::Error>>(resp)
-    };
-    match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
-        Err(err) => {
-            tracing::warn!("get graphs err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET GRAPHS_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
+    let mut resp = GraphListResponse::default();
+    let mut storage_process = app_state.local_db.acquire().await.api_error("GET_GRAPHS_ERROR")?;
+
+    let filter_params: GraphQuery = params.into();
+    let (graphs, total) =
+        storage_process.find_graphs(filter_params).await.api_error("GET_GRAPHS_ERROR")?;
+
+    resp.total = total;
+    if graphs.is_empty() {
+        return Ok((StatusCode::OK, Json(resp)));
     }
+
+    let mut converted_graphs = Vec::new();
+    for graph in graphs {
+        let graph_extended = GraphExtended::convert_from_graph(&app_state.btc_client, graph)
+            .await
+            .api_error("GET_GRAPHS_ERROR")?;
+        converted_graphs.push(graph_extended);
+    }
+    resp.graphs = converted_graphs;
+
+    Ok((StatusCode::OK, Json(resp)))
 }
 
 /// Get ready to kickoff graph
@@ -827,6 +724,7 @@ pub async fn get_graphs(
 ///     "init_withdraw_tx_hash": null,
 ///     "bridge_out_start_at": 0,
 ///     "zkm_version": "zkm1.0.0",
+///     "status_updated_at": 1699123456,
 ///     "created_at": 1699123456,
 ///     "updated_at": 1699123456
 ///   },
@@ -836,142 +734,83 @@ pub async fn get_graphs(
 #[axum::debug_handler]
 pub async fn get_ready_to_kickoff_graph(
     Query(params): Query<GraphReadyToKickoffRequest>,
-    State(_app_state): State<Arc<AppState>>,
+    State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<GraphReadyToKickoffResponse> {
-    if params.btc_pub_key.is_none() || params.btc_pub_key.is_none() {
+    let mut graph_query = GraphQuery::default()
+        .with_status(GraphStatus::OperatorDataPushed.to_string())
+        .with_order("kickoff_index ASC".to_string())
+        .with_raw_condition("init_withdraw_tx_hash IS NULL".to_string())
+        .with_limit(1);
+    if params.btc_pub_key.is_none() && params.goat_addr.is_none() {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: "GET READT_KICKOFF_GRAPHS_ERROR".to_string(),
-                message: "Wrong input: btc_pub_key and btc_pub_key should not all been none "
+                message: "Wrong input: btc_pub_key and goat_addr should not all been none "
                     .to_string(),
             }),
         ));
+    } else {
+        if let Some(ref goat_addr) = params.goat_addr {
+            graph_query = graph_query
+                .with_from_addr(InputValidator::validate_goat_address(goat_addr, "goat_addr")?);
+        }
+        if let Some(ref btc_pub_key) = params.btc_pub_key {
+            graph_query = graph_query.with_operator_pubkey(InputValidator::validate_btc_pubkey(
+                btc_pub_key,
+                "btc_pub_key",
+            )?);
+        }
     }
 
-    let async_fn = || async move {
-        let mut graph = Graph {
-            graph_id: Uuid::new_v4(),
-            instance_id: Uuid::new_v4(),
-            kickoff_index: 10,
-            from_addr: get_rand_goat_address(),
-            to_addr: get_rand_btc_address_p2wpkh(get_network()),
-            graph_ipfs_base_url: "".to_string(),
-            amount: 2000000,
-            challenge_amount: 1000000,
-            status: GraphStatus::OperatorDataPushed.to_string(),
-            sub_status: "".to_string(),
-            operator_pubkey: "btc_pub_key".to_string(),
-            next_prekickoff: None,
-            cur_prekickoff_txid: None,
-            force_skip_kickoff_txid: None,
-            quick_challenge_txid: None,
-            challenge_incomplete_kickoff_txid: None,
-            pegin_txid: None,
-            kickoff_txid: None,
-            take1_txid: None,
-            challenge_txid: None,
-            take2_txid: None,
-            disprove_txid: None,
-            watchtower_challenge_init_txid: None,
-            watchtower_challenge_timeout_txids: vec![],
-            nack_txids: vec![],
-            blockhash_commit_timeout_txid: None,
-            assert_init_txid: None,
-            assert_commit_timeout_txids: vec![],
-            init_withdraw_tx_hash: None,
-            bridge_out_start_at: 0,
-            zkm_version: "zkm1.0.0".to_string(),
-            created_at: current_time_secs(),
-            updated_at: current_time_secs(),
-        };
-        if let Some(goat_addr) = params.goat_addr {
-            graph.from_addr = goat_addr;
-        }
-        if let Some(btc_pub_key) = params.btc_pub_key {
-            graph.operator_pubkey = btc_pub_key;
-        }
+    let mut storage_processor =
+        app_state.local_db.acquire().await.api_error("GET_READY_KICKOFF_GRAPHS_ERROR")?;
 
-        Ok::<GraphReadyToKickoffResponse, Box<dyn std::error::Error>>(GraphReadyToKickoffResponse {
-            graph: Some(graph),
-            no_ready_reason: None,
-        })
-    };
-    match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
-        Err(err) => {
-            tracing::warn!("get ready to kickoff graph  err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET READT_KICKOFF_GRAPHS_ERROR".to_string(),
-                    message: err.to_string(),
+    let graphs = storage_processor
+        .get_operator_graphs(graph_query)
+        .await
+        .api_error("GET_READY_KICKOFF_GRAPHS_ERROR")?;
+
+    if graphs.is_empty() {
+        return Ok((
+            StatusCode::OK,
+            Json(GraphReadyToKickoffResponse { graph: None, no_ready_reason: None }),
+        ));
+    }
+
+    let graph = graphs[0].clone();
+    if graph.kickoff_index > 0 {
+        let pre_graphs = storage_processor
+            .get_operator_graphs(
+                GraphQuery::default()
+                    .with_operator_pubkey(graph.operator_pubkey.clone())
+                    .with_kickoff_index(graph.kickoff_index - 1),
+            )
+            .await
+            .api_error("GET_READY_KICKOFF_GRAPHS_ERROR")?;
+
+        if !pre_graphs.is_empty()
+            && [
+                GraphStatus::OperatorDataPushed.to_string(),
+                GraphStatus::OperatorKickOff.to_string(),
+                GraphStatus::Challenge.to_string(),
+            ]
+            .contains(&pre_graphs[0].status)
+        {
+            return Ok((
+                StatusCode::OK,
+                Json(GraphReadyToKickoffResponse {
+                    graph: None,
+                    no_ready_reason: Some(pre_graphs[0].graph_id.to_string()),
                 }),
-            ))
+            ));
         }
     }
-}
 
-/// Add extended data to graphs
-///
-/// Helper function to enrich graph data with confirmation status and proof information.
-/// This function processes a list of graphs and adds confirmation counts, target confirmations,
-/// and proof-related metadata.
-///
-/// # Parameters
-///
-/// - `storage_processor`: Database storage processor for querying additional data
-/// - `btc_client`: Bitcoin client for getting current blockchain height
-/// - `graphs`: Vector of graphs to process
-///
-/// # Returns
-///
-/// - `Ok(Vec<GraphExtended>)`: Vector of graphs with extended data
-/// - `Err`: Error if processing fails
-///
-/// # Features
-///
-/// - Calculates transaction confirmation status
-/// - Modifies graph status based on withdrawal transaction presence
-/// - Adds proof height and query URL information
-///
-/// Add extended data to graphs
-///
-/// Helper function to enrich graph data with confirmation status and proof information.
-/// This function processes a list of graphs and adds confirmation counts, target confirmations,
-/// and proof-related metadata.
-///
-/// # Parameters
-///
-/// - `storage_processor`: Database storage processor for querying additional data
-/// - `btc_client`: Bitcoin client for getting current blockchain height
-/// - `graphs`: Vector of graphs to process
-///
-/// # Returns
-///
-/// - `Ok(Vec<GraphExtended>)`: Vector of graphs with extended data
-/// - `Err`: Error if processing fails
-///
-/// # Features
-///
-/// - Calculates transaction confirmation status
-/// - Modifies graph status based on withdrawal transaction presence
-/// - Adds proof height and query URL information
-/// - Reverses Bitcoin transaction IDs for proper display
-///
-/// # Note
-///
-/// This function modifies the input graphs in-place and returns enhanced versions.
-async fn add_extend_data_to_graphs<'a>(
-    _storage_processor: &mut StorageProcessor<'a>,
-    _btc_client: &BTCClient,
-    graphs: Vec<Graph>,
-) -> Result<Vec<GraphExtended>, Box<dyn std::error::Error>> {
-    // todo update waiting in time
-    Ok(graphs
-        .into_iter()
-        .map(|graph| GraphExtended { graph, waiting_time_in_mins: 1000 })
-        .collect())
+    Ok((
+        StatusCode::OK,
+        Json(GraphReadyToKickoffResponse { graph: Some(graph), no_ready_reason: None }),
+    ))
 }
 
 /// Get graph Bitcoin transaction progress data
@@ -1007,7 +846,7 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
 ) -> anyhow::Result<(Vec<ProgressData>, Option<String>)> {
     let mut progress_datas: Vec<ProgressData> = vec![];
     // todo update fail reason
-    let fail_reason: Option<String> = None;
+    let mut fail_reason: Option<String> = None;
 
     match btc_tx_name {
         GraphBtcTxName::WatchtowerChallengeInit => {
@@ -1016,36 +855,45 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     storage_processor.get_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
                 && let Ok(monitor_data) =
                     serde_json::from_str::<WTInitTxVoutMonitorData>(&vout_monitor.monitor_data)
+                && let Ok(challenge_status) =
+                    serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status)
             {
                 progress_datas.push(ProgressData {
                     name: WATCHTOWER_CHALLENGE_STEP_INIT.to_string(),
                     current: 1,
                     total: 1,
                 });
-                let (current, total) = monitor_data.get_challenge_process_desc();
+                let (challenge_current, challenge_total) =
+                    monitor_data.get_challenge_process_desc();
                 progress_datas.push(ProgressData {
                     name: WATCHTOWER_CHALLENGE_STEP_CHALLENGE.to_string(),
-                    current,
-                    total,
-                });
-                let (current, total) = monitor_data.get_challenge_timeout_process_desc();
-                progress_datas.push(ProgressData {
-                    name: WATCHTOWER_CHALLENGE_STEP_CHALLENGE_TIMEOUT.to_string(),
-                    current,
-                    total,
-                });
-                let (current, total) = monitor_data.get_ack_process_desc();
-                progress_datas.push(ProgressData {
-                    name: WATCHTOWER_CHALLENGE_STEP_ACK.to_string(),
-                    current,
-                    total,
+                    current: challenge_current,
+                    total: challenge_total,
                 });
 
-                let (current, total) = monitor_data.get_commit_block_hash_desc();
+                let (challenge_timeout_current, challenge_timeout_total) =
+                    monitor_data.get_challenge_timeout_process_desc();
+                progress_datas.push(ProgressData {
+                    name: WATCHTOWER_CHALLENGE_STEP_CHALLENGE_TIMEOUT.to_string(),
+                    current: challenge_timeout_current,
+                    total: challenge_timeout_total,
+                });
+
+                let (ack_current, ack_total) = monitor_data.get_ack_process_desc();
+                if ack_total > 0 {
+                    progress_datas.push(ProgressData {
+                        name: WATCHTOWER_CHALLENGE_STEP_ACK.to_string(),
+                        current: ack_current,
+                        total: ack_total,
+                    });
+                }
+
+                let (block_hash_current, block_hash_total) =
+                    monitor_data.get_commit_block_hash_desc();
                 progress_datas.push(ProgressData {
                     name: WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH.to_string(),
-                    current,
-                    total,
+                    current: block_hash_current,
+                    total: block_hash_total,
                 });
 
                 let (current, total) = monitor_data.get_commit_block_hash_timeout_desc();
@@ -1053,6 +901,40 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     name: WATCHTOWER_CHALLENGE_STEP_COMMIT_BLOCKHASH_TIMEOUT.to_string(),
                     current,
                     total,
+                });
+
+                if let Some(disprove_type) = challenge_status.disprove_type {
+                    match disprove_type {
+                        DisproveTxType::OperatorCommitTimeout => {
+                            fail_reason = Some("Operator commit block hash timeout".to_string());
+                        }
+                        DisproveTxType::OperatorNack => {
+                            let (challenge_timeout_num, nack_num) = (
+                                challenge_timeout_total - challenge_timeout_current,
+                                ack_total - ack_current,
+                            );
+
+                            fail_reason = match (challenge_timeout_num > 0, nack_num > 0) {
+                                (true, true) => Some(format!(
+                                    "Operator has {challenge_timeout_num} challenge timeout txn no sent, {nack_num} ack txn no sent"
+                                )),
+                                (false, true) => {
+                                    Some(format!("Operator has {nack_num} ack txn no sent"))
+                                }
+                                (true, false) => Some(format!(
+                                    "Operator has {challenge_timeout_num} challenge timeout txn no sent"
+                                )),
+                                (false, false) => None,
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+            } else {
+                progress_datas.push(ProgressData {
+                    name: WATCHTOWER_CHALLENGE_STEP_INIT.to_string(),
+                    current: 0,
+                    total: 1,
                 });
             }
         }
@@ -1062,6 +944,8 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     storage_processor.get_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
                 && let Ok(monitor_data) =
                     serde_json::from_str::<AssertInitTxVoutMonitorData>(&vout_monitor.monitor_data)
+                && let Ok(challenge_status) =
+                    serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status)
             {
                 progress_datas.push(ProgressData {
                     name: ASSERT_STEP_INIT.to_string(),
@@ -1073,6 +957,16 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                     name: ASSERT_STEP_COMMIT.to_string(),
                     current,
                     total,
+                });
+
+                if let Some(DisproveTxType::AssertTimeout) = challenge_status.disprove_type {
+                    fail_reason = Some(format!("Operator has {} assert no sent", total - current));
+                }
+            } else {
+                progress_datas.push(ProgressData {
+                    name: ASSERT_STEP_INIT.to_string(),
+                    current: 0,
+                    total: 1,
                 });
             }
         }
@@ -1163,64 +1057,72 @@ pub async fn get_graph_tx(
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
     // Validate tx_name format
     let tx_name = InputValidator::validate_tx_name(&params.tx_name)?;
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id_uuid).await?
-            && let Some(graph) = storage_process.find_graph(&graph_id_uuid).await?
-        {
-            let (progresses, fail_reason) =
-                get_graph_btc_tx_process_data(&mut storage_process, tx_name.clone(), &graph)
-                    .await?;
-            let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
-            let raw_data = match tx_name {
-                GraphBtcTxName::AssertInit => serialize_hex(bitvm2_graph.assert_init.tx()),
-                GraphBtcTxName::PreKickoff => serialize_hex(bitvm2_graph.cur_prekickoff.tx()),
-                GraphBtcTxName::Kickoff => serialize_hex(bitvm2_graph.kickoff.tx()),
-                GraphBtcTxName::Pegin => serialize_hex(bitvm2_graph.pegin.tx()),
-                GraphBtcTxName::Take1 => serialize_hex(bitvm2_graph.take1.tx()),
-                GraphBtcTxName::Take2 => serialize_hex(bitvm2_graph.take2.tx()),
-                GraphBtcTxName::WatchtowerChallengeInit => {
-                    serialize_hex(bitvm2_graph.watchtower_challenge_init.tx())
+
+    let mut storage_process = app_state.local_db.acquire().await.api_error("GET_GRAPH_TX_ERROR")?;
+
+    let graph_raw_data =
+        storage_process.get_graph_raw_data(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
+    let graph = storage_process.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
+
+    if let (Some(graph_raw_data), Some(graph)) = (graph_raw_data, graph) {
+        let (progresses, fail_reason) =
+            get_graph_btc_tx_process_data(&mut storage_process, tx_name.clone(), &graph)
+                .await
+                .api_error("GET_GRAPH_TX_ERROR")?;
+
+        let simplified_bitvm2_graph: SimplifiedBitvm2Graph =
+            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph_id_uuid)
+                .await
+                .api_error("GET_GRAPH_TXN_ERROR")?;
+
+        let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(&simplified_bitvm2_graph)
+            .api_error("GET_GRAPH_TX_ERROR")?;
+
+        let raw_data = match tx_name {
+            GraphBtcTxName::AssertInit => serialize_hex(bitvm2_graph.assert_init.tx()),
+            GraphBtcTxName::PreKickoff => serialize_hex(bitvm2_graph.cur_prekickoff.tx()),
+            GraphBtcTxName::Kickoff => serialize_hex(bitvm2_graph.kickoff.tx()),
+            GraphBtcTxName::Pegin => serialize_hex(bitvm2_graph.pegin.tx()),
+            GraphBtcTxName::Take1 => serialize_hex(bitvm2_graph.take1.tx()),
+            GraphBtcTxName::Take2 => serialize_hex(bitvm2_graph.take2.tx()),
+            GraphBtcTxName::WatchtowerChallengeInit => {
+                serialize_hex(bitvm2_graph.watchtower_challenge_init.tx())
+            }
+            GraphBtcTxName::Challenge => {
+                if let Some(challenge_txid) = graph.challenge_txid
+                    && let Ok(Some(tx)) = app_state.btc_client.get_tx(&challenge_txid.0).await
+                {
+                    serialize_hex(&tx)
+                } else {
+                    serialize_hex(bitvm2_graph.challenge.tx())
                 }
-                GraphBtcTxName::Challenge => {
-                    if let Some(challenge_txid) = graph.challenge_txid
-                        && let Ok(Some(tx)) = app_state.btc_client.get_tx(&challenge_txid.0).await
-                    {
-                        serialize_hex(&tx)
-                    } else {
-                        serialize_hex(bitvm2_graph.challenge.tx())
-                    }
+            }
+            GraphBtcTxName::Disprove => {
+                if let Some(disprove_txid) = graph.disprove_txid
+                    && let Ok(Some(tx)) = app_state.btc_client.get_tx(&disprove_txid.0).await
+                {
+                    serialize_hex(&tx)
+                } else {
+                    "".to_string()
                 }
-                GraphBtcTxName::Disprove => {
-                    if let Some(disprove_txid) = graph.disprove_txid
-                        && let Ok(Some(tx)) = app_state.btc_client.get_tx(&disprove_txid.0).await
-                    {
-                        serialize_hex(&tx)
-                    } else {
-                        "".to_string()
-                    }
-                }
-            };
-            Ok::<GraphTxGetResponse, Box<dyn std::error::Error>>(GraphTxGetResponse {
+            }
+        };
+
+        Ok((
+            StatusCode::OK,
+            Json(GraphTxGetResponse {
                 btc_tx_data: BtcTxData { raw_data, progresses, fail_reason },
-            })
-        } else {
-            tracing::warn!("graph:{} is not record in db", graph_id);
-            Err(format!("graph:{graph_id} is not record in db").into())
-        }
-    };
-    match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
-        Err(err) => {
-            tracing::warn!("get_graph_tx err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_GRAPH_TX_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
+            }),
+        ))
+    } else {
+        tracing::warn!("graph:{} is not record in db", graph_id);
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "GET_GRAPH_TX_ERROR".to_string(),
+                message: format!("graph:{graph_id} is not record in db"),
+            }),
+        ))
     }
 }
 
@@ -1339,76 +1241,248 @@ pub async fn get_graph_tx(
 #[axum::debug_handler]
 pub async fn get_graph_txn(
     Path(graph_id): Path<String>,
-    Query(_params): Query<GraphTxnGetParams>,
+    Query(params): Query<GraphTxnGetParams>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<GraphTxnGetResponse> {
     // Validate graph_id format
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
-
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id_uuid).await?
-            && let Some(graph) = storage_process.find_graph(&graph_id_uuid).await?
-        {
-            let bitvm2_graph: Bitvm2Graph = serde_json::from_str(graph_raw_data.raw_data.as_str())?;
-            let (wt_progresses, wt_fail_reason) = get_graph_btc_tx_process_data(
-                &mut storage_process,
-                GraphBtcTxName::WatchtowerChallengeInit,
-                &graph,
-            )
-            .await?;
-            let (assert_progresses, assert_fail_reason) = get_graph_btc_tx_process_data(
-                &mut storage_process,
-                GraphBtcTxName::AssertInit,
-                &graph,
-            )
-            .await?;
-            let mut resp = GraphTxnGetResponse {
-                assert_init: BtcTxData::new(serialize_hex(bitvm2_graph.assert_init.tx())),
-                watchtower_challenge_init: BtcTxData::new(serialize_hex(
-                    bitvm2_graph.watchtower_challenge_init.tx(),
-                ))
-                .with_progresses(wt_progresses)
-                .with_fail_reason(wt_fail_reason),
-                pre_kickoff: BtcTxData::new(serialize_hex(bitvm2_graph.cur_prekickoff.tx()))
-                    .with_progresses(assert_progresses)
-                    .with_fail_reason(assert_fail_reason),
-                challenge: BtcTxData::new(serialize_hex(bitvm2_graph.challenge.tx())),
-                disprove: Default::default(),
-                kickoff: BtcTxData::new(serialize_hex(bitvm2_graph.kickoff.tx())),
-                pegin: BtcTxData::new(serialize_hex(bitvm2_graph.pegin.tx())),
-                take1: BtcTxData::new(serialize_hex(bitvm2_graph.take1.tx())),
-                take2: BtcTxData::new(serialize_hex(bitvm2_graph.take2.tx())),
-            };
-            if let Some(challenge_txid) = graph.challenge_txid
-                && let Ok(Some(tx)) = app_state.btc_client.get_tx(&challenge_txid.0).await
-            {
-                resp.challenge.raw_data = serialize_hex(&tx);
+    let mut storage_processor =
+        app_state.local_db.acquire().await.api_error("GET_GRAPH_TXN_ERROR")?;
+    if let Some(graph) =
+        storage_processor.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TXN_ERROR")?
+    {
+        let kickoff_index = graph.kickoff_index + params.cursor as i64;
+        let graph = if kickoff_index != graph.kickoff_index {
+            let graph_arrays = storage_processor
+                .get_operator_graphs(
+                    GraphQuery::default()
+                        .with_operator_pubkey(graph.operator_pubkey)
+                        .with_kickoff_index(kickoff_index)
+                        .with_limit(1),
+                )
+                .await
+                .api_error("GET_OPERATOR_GRAPHS")?;
+            if graph_arrays.is_empty() {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "GET_GRAPH_TXN_ERROR".to_string(),
+                        message: format!(
+                            "graph:{graph_id} with cursor:{} is not record in db",
+                            params.cursor
+                        ),
+                    }),
+                ));
             }
-            if let Some(disprove_txid) = graph.disprove_txid
-                && let Ok(Some(tx)) = app_state.btc_client.get_tx(&disprove_txid.0).await
-            {
-                resp.disprove.raw_data = serialize_hex(&tx);
-            }
-            Ok::<GraphTxnGetResponse, Box<dyn std::error::Error>>(resp)
+            graph_arrays[0].clone()
         } else {
-            tracing::warn!("graph:{} is not record in db", graph_id);
-            Err(format!("graph:{graph_id} is not record in db").into())
-        }
-    };
-    match async_fn().await {
-        Ok(resp) => Ok((StatusCode::OK, Json(resp))),
-        Err(err) => {
-            tracing::warn!("get graph txn err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_GRAPH_TXN_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
+            graph
+        };
+
+        let graph_raw_data = storage_processor
+            .get_graph_raw_data(&graph.graph_id)
+            .await
+            .api_error("GET_GRAPH_TXN_ERROR")?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "GET_GRAPH_TXN_ERROR".to_string(),
+                        message: format!(
+                            "graph:{graph_id} with cursor:{} raw data is not record in db",
+                            params.cursor
+                        ),
+                    }),
+                )
+            })?;
+        let simplified_bitvm2_graph: SimplifiedBitvm2Graph =
+            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph_id_uuid)
+                .await
+                .api_error("GET_GRAPH_TXN_ERROR")?;
+        let bitvm2_graph: Bitvm2Graph = Bitvm2Graph::from_simplified(&simplified_bitvm2_graph)
+            .api_error("GET_GRAPH_TXN_ERROR")?;
+
+        let (wt_progresses, wt_fail_reason) = get_graph_btc_tx_process_data(
+            &mut storage_processor,
+            GraphBtcTxName::WatchtowerChallengeInit,
+            &graph,
+        )
+        .await
+        .api_error("GET_GRAPH_TXN_ERROR")?;
+
+        let (assert_progresses, assert_fail_reason) = get_graph_btc_tx_process_data(
+            &mut storage_processor,
+            GraphBtcTxName::AssertInit,
+            &graph,
+        )
+        .await
+        .api_error("GET_GRAPH_TXN_ERROR")?;
+
+        let mut resp = GraphTxnGetResponse {
+            assert_init: BtcTxData::new(serialize_hex(bitvm2_graph.assert_init.tx()))
+                .with_progresses(assert_progresses)
+                .with_fail_reason(assert_fail_reason),
+            watchtower_challenge_init: BtcTxData::new(serialize_hex(
+                bitvm2_graph.watchtower_challenge_init.tx(),
             ))
+            .with_progresses(wt_progresses)
+            .with_fail_reason(wt_fail_reason),
+            pre_kickoff: BtcTxData::new(serialize_hex(bitvm2_graph.cur_prekickoff.tx())),
+            challenge: BtcTxData::new(serialize_hex(bitvm2_graph.challenge.tx())),
+            disprove: Default::default(),
+            kickoff: BtcTxData::new(serialize_hex(bitvm2_graph.kickoff.tx())),
+            pegin: BtcTxData::new(serialize_hex(bitvm2_graph.pegin.tx())),
+            take1: BtcTxData::new(serialize_hex(bitvm2_graph.take1.tx())),
+            take2: BtcTxData::new(serialize_hex(bitvm2_graph.take2.tx())),
+        };
+
+        if let Some(challenge_txid) = graph.challenge_txid
+            && let Ok(Some(tx)) = app_state.btc_client.get_tx(&challenge_txid.0).await
+        {
+            resp.challenge.raw_data = serialize_hex(&tx);
+        }
+        if let Some(disprove_txid) = graph.disprove_txid
+            && let Ok(Some(tx)) = app_state.btc_client.get_tx(&disprove_txid.0).await
+        {
+            resp.disprove.raw_data = serialize_hex(&tx);
+        }
+
+        Ok((StatusCode::OK, Json(resp)))
+    } else {
+        warn!("graph:{} is not record in db", graph_id);
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "GET_GRAPH_TXN_ERROR".to_string(),
+                message: format!(
+                    "graph:{graph_id} with cursor:{} is not record in db",
+                    params.cursor
+                ),
+            }),
+        ))
+    }
+}
+
+/// Get neighboring graph IDs
+///
+/// Returns the previous and next graphs (by kickoff index) for the same operator,
+/// which allows the UI to implement previous/next navigation when browsing graph details.
+///
+/// # Path Parameters
+///
+/// - `graph_id`: UUID of the current BitVM2 graph
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns the current graph ID plus its previous and next neighbors
+/// - `500 Internal Server Error`: Parameter validation failed or database query failed
+///
+/// # Use Case
+///
+/// Frontend can call this endpoint when showing a graph detail page to quickly fetch
+/// the `previous_id` and `next_id` for navigation controls.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/graphs/123e4567-e89b-12d3-a456-426614174000/neighbor-ids
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "current_id": "123e4567-e89b-12d3-a456-426614174000",
+///   "previous_id": "123e4567-e89b-12d3-a456-426614173999",
+///   "next_id": "123e4567-e89b-12d3-a456-426614174001"
+/// }
+/// ```
+#[axum::debug_handler]
+pub async fn get_graph_neighbor_ids(
+    Path(graph_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<GraphNeighborIdsResponse> {
+    let current_id = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+    let mut storage_processor =
+        app_state.local_db.acquire().await.api_error("GET_GRAPH_NEIGHBOR_ERROR")?;
+    let id_with_kickoff_indexes = storage_processor
+        .find_graph_neighbor_ids(current_id, 1)
+        .await
+        .api_error("GET_GRAPH_NEIGHBOR_ERROR")?;
+    let mut res = GraphNeighborIdsResponse { current_id, previous_id: None, next_id: None };
+    for (i, (_kickoff_index, graph_id)) in id_with_kickoff_indexes.iter().enumerate() {
+        if i == 0 && *graph_id != current_id {
+            res.previous_id = Some(*graph_id);
+        }
+        if i > 0 && *graph_id != current_id {
+            res.next_id = Some(*graph_id);
         }
     }
+    Ok((StatusCode::OK, Json(res)))
+}
+
+/// Get unsigned pegin transactions
+///
+/// Returns the unsigned pegin deposit transaction (prepare) and pegin refund transaction (cancel)
+/// for a given instance, which allows users to sign and broadcast these transactions for pegin operations.
+///
+/// # Path Parameters
+///
+/// - `instance_id`: UUID of the BitVM2 instance
+///
+/// # Returns
+///
+/// - `200 OK`: Successfully returns the unsigned pegin transactions (if instance exists)
+/// - `500 Internal Server Error`: Parameter validation failed or database query failed
+///
+/// # Use Case
+///
+/// Frontend can call this endpoint to get the unsigned pegin transactions for an instance,
+/// allowing users to sign and broadcast the `pegin_prepare` transaction to deposit funds,
+/// or the `pegin_cancel` transaction to refund if needed.
+///
+/// # Example
+///
+/// ```http
+/// GET /v1/instances/123e4567-e89b-12d3-a456-426614174000/unsigned-pegin-txn
+/// ```
+///
+/// Response example:
+/// ```json
+/// {
+///   "pegin_prepare": "0200000001...",
+///   "pegin_cancel_psbt": "0200000001..."
+/// }
+/// ```
+#[axum::debug_handler]
+pub async fn get_unsigned_pegin_txn(
+    Path(instance_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<UnsignPeginTxnResponse> {
+    let current_id = InputValidator::validate_uuid(&instance_id, "instance_id")?;
+    let mut storage_processor =
+        app_state.local_db.acquire().await.api_error("GET_UNSIGNED_PEGIN_ERROR")?;
+    let mut res = UnsignPeginTxnResponse::default();
+    if let Some(instance) =
+        storage_processor.find_instance(&current_id).await.api_error("GET_UNSIGNED_PEGIN_ERROR")?
+        && instance.status == InstanceBridgeInStatus::CommitteesAnswered.to_string()
+    {
+        let instance_parameters =
+            gen_instance_parameters_local(&instance).api_error("GET_UNSIGNED_PEGIN_ERROR")?;
+        let (pegin_deposit_tx, _, _) =
+            instance_parameters.build_pegin_tx().api_error("GET_UNSIGNED_PEGIN_ERROR")?;
+        res.pegin_prepare = Some(serialize_hex(pegin_deposit_tx.tx()));
+        res.pegin_cancel_psbt = Some(hex::encode(
+            instance_parameters
+                .build_pegin_cancel_psbt()
+                .api_error("GET_UNSIGNED_PEGIN_ERROR")?
+                .serialize(),
+        ));
+    } else {
+        warn!(
+            "instance:{instance_id} is not record in db or instance status neq CommitteesAnswered"
+        );
+    }
+    Ok((StatusCode::OK, Json(res)))
 }
 
 // fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {

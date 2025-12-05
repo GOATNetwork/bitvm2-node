@@ -1,7 +1,8 @@
 use crate::rpc_service::node::{
-    ALIVE_TIME_JUDGE_THRESHOLD, NodeDesc, NodeListResponse, NodeOverViewResponse, NodeQueryParams,
+    ALIVE_TIME_JUDGE_THRESHOLD, NODE_STATUS_OFFLINE, NodeDesc, NodeListResponse,
+    NodeOverViewResponse, NodeQueryParams, ToNodeDesc,
 };
-use crate::rpc_service::response::{ApiResult, ErrorResponse};
+use crate::rpc_service::response::{ApiErrorExt, ApiResult};
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::reflect_goat_address;
@@ -10,9 +11,8 @@ use axum::extract::{Path, Query, State};
 use bitvm2_lib::actors::Actor;
 use http::StatusCode;
 use std::sync::Arc;
-
+use store::Node;
 use store::localdb::NodeQuery;
-use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 
 /// Get node list
 ///
@@ -53,13 +53,13 @@ use store::{NODE_STATUS_OFFLINE, NODE_STATUS_ONLINE, Node};
 ///       "actor": "Operator",
 ///       "name": "zkm",
 ///       "service_fee_rate": 0.001,
-///       "updated_at": 1699123456,
-///       "status": "online",
+///       "available_peg_btc": 0,
 ///       "goat_addr": "0x1234567890abcdef1234567890abcdef12345678",
 ///       "btc_pub_key": "02abc123def456...",
 ///       "socket_addr": "127.0.0.1:8080",
 ///       "reward": 1000000,
-///       "available_peg_btc": 0
+///       "updated_at": 1699123456,
+///       "status": "online"
 ///     }
 ///   ],
 ///   "total": 1
@@ -70,86 +70,48 @@ pub async fn get_nodes(
     Query(query_params): Query<NodeQueryParams>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<NodeListResponse> {
-    // todo update node filed
     // Validate pagination parameters
     let (offset, limit) =
         InputValidator::validate_pagination(query_params.offset, query_params.limit)?;
 
     // Validate goat_addr format (if provided)
     if let Some(ref goat_addr) = query_params.goat_addr {
-        InputValidator::validata_goat_address(goat_addr, "goat_addr")?;
+        InputValidator::validate_goat_address(goat_addr, "goat_addr")?;
     }
 
     // Validate actor field (if provided)
     if let Some(ref actor) = query_params.actor {
         InputValidator::validate_actor(actor, "actor")?;
     }
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
-        let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
-        let (_, goat_addr) = reflect_goat_address(query_params.goat_addr);
-        let actor = if let Some(actor) = query_params.actor
-            && actor != Actor::All.to_string()
-        {
-            Some(actor)
-        } else {
-            None
-        };
-        let (nodes, total) = storage_process
-            .find_nodes(&NodeQuery {
-                actor,
-                goat_addr,
-                time_threshold,
-                status_expect: query_params.status,
-                order: None,
-                offset: Some(offset),
-                limit: Some(limit),
-            })
-            .await?;
-        let node_desc_list: Vec<NodeDesc> = nodes
-            .into_iter()
-            .map(|v| {
-                let status: String =
-                    if v.updated_at >= time_threshold || v.peer_id == app_state.peer_id {
-                        NODE_STATUS_ONLINE.to_string()
-                    } else {
-                        NODE_STATUS_OFFLINE.to_string()
-                    };
-                NodeDesc {
-                    peer_id: v.peer_id,
-                    actor: v.actor,
-                    name: v.node_name,
-                    service_fee_rate: v.service_fee_rate,
-                    updated_at: v.updated_at,
-                    status,
-                    goat_addr: v.goat_addr,
-                    btc_pub_key: v.btc_pub_key,
-                    socket_addr: v.socket_addr,
-                    reward: v.reward,
-                    available_peg_btc: v.available_peg_btc,
-                }
-            })
-            .collect();
 
-        Ok::<NodeListResponse, Box<dyn std::error::Error>>(NodeListResponse {
-            nodes: node_desc_list,
-            total,
+    let mut storage_process = app_state.local_db.acquire().await.api_error("GET_NODES_ERROR")?;
+
+    storage_process
+        .update_node_timestamp(&app_state.peer_id, current_time_secs())
+        .await
+        .api_error("GET_NODES_ERROR")?;
+    let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
+    let (_, goat_addr) = reflect_goat_address(query_params.goat_addr);
+    let (nodes, total) = storage_process
+        .find_nodes(&NodeQuery {
+            actor: query_params.actor.filter(|actor| actor != Actor::All.to_string().as_str()),
+            goat_addr,
+            time_threshold: query_params.status.clone().map(|_| time_threshold),
+            is_in_time_threshold: query_params
+                .status
+                .map(|status| status != NODE_STATUS_OFFLINE)
+                .unwrap_or(true),
+            order: None,
+            offset: Some(offset),
+            limit: Some(limit),
         })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get nodes err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_NODES_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
+        .await
+        .api_error("GET_NODES_ERROR")?;
+
+    let node_desc_list: Vec<NodeDesc> =
+        nodes.into_iter().map(|v| v.to_node_desc(time_threshold, &app_state.peer_id)).collect();
+
+    Ok((StatusCode::OK, Json(NodeListResponse { nodes: node_desc_list, total })))
 }
 
 /// Get nodes overview statistics
@@ -178,14 +140,15 @@ pub async fn get_nodes(
 /// ```json
 /// {
 ///   "nodes_overview": {
-///     "total_operators": 10,
+///     "total": 18,
 ///     "online_operators": 8,
-///     "total_watchtowers": 5,
-///     "online_watchtowers": 4,
-///     "total_verifiers": 3,
-///     "online_verifiers": 2,
-///     "total_nodes": 18,
-///     "online_nodes": 14
+///     "offline_operators": 2,
+///     "online_challengers": 3,
+///     "offline_challengers": 1,
+///     "online_committees": 2,
+///     "offline_committees": 0,
+///     "online_watchtowers": 2,
+///     "offline_watchtowers": 0
 ///   }
 /// }
 /// ```
@@ -193,28 +156,19 @@ pub async fn get_nodes(
 pub async fn get_nodes_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<NodeOverViewResponse> {
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
-        let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
-        let nodes_overview = storage_process.node_overview(time_threshold).await?;
-        Ok::<NodeOverViewResponse, Box<dyn std::error::Error>>(NodeOverViewResponse {
-            nodes_overview,
-        })
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("nodes overview err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "NODES_OVERVIEW_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
-    }
+    let mut storage_process =
+        app_state.local_db.acquire().await.api_error("NODES_OVERVIEW_ERROR")?;
+
+    storage_process
+        .update_node_timestamp(&app_state.peer_id, current_time_secs())
+        .await
+        .api_error("NODES_OVERVIEW_ERROR")?;
+
+    let time_threshold = current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD;
+    let nodes_overview =
+        storage_process.node_overview(time_threshold).await.api_error("NODES_OVERVIEW_ERROR")?;
+
+    Ok((StatusCode::OK, Json(NodeOverViewResponse { nodes_overview })))
 }
 
 /// Get node by peer ID
@@ -248,10 +202,13 @@ pub async fn get_nodes_overview(
 /// {
 ///   "peer_id": "QmPeerId...",
 ///   "actor": "Operator",
-///   "btc_pub_key": "02abc...",
+///   "node_name": "zkm",
 ///   "goat_addr": "0x123...",
+///   "btc_pub_key": "02abc...",
 ///   "socket_addr": "127.0.0.1:8080",
 ///   "reward": 1000000,
+///   "service_fee_rate": 0.001,
+///   "available_peg_btc": 0,
 ///   "updated_at": 1640995200,
 ///   "created_at": 1640995200
 /// }
@@ -263,25 +220,17 @@ pub async fn get_node(
 ) -> ApiResult<Option<Node>> {
     // Validate peer_id format
     InputValidator::validate_peer_id(&peer_id, "peer_id")?;
-    let async_fn = || async move {
-        let mut storage_process = app_state.local_db.acquire().await?;
-        if peer_id == app_state.peer_id {
-            storage_process.update_node_timestamp(&app_state.peer_id, current_time_secs()).await?;
-        }
-        let res = storage_process.node_by_id(peer_id.as_str()).await?;
-        Ok::<Option<Node>, Box<dyn std::error::Error>>(res)
-    };
-    match async_fn().await {
-        Ok(res) => Ok((StatusCode::OK, Json(res))),
-        Err(err) => {
-            tracing::warn!("get node err:{:?}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "GET_NODE_ERROR".to_string(),
-                    message: err.to_string(),
-                }),
-            ))
-        }
+
+    let mut storage_process = app_state.local_db.acquire().await.api_error("GET_NODE_ERROR")?;
+
+    if peer_id == app_state.peer_id {
+        storage_process
+            .update_node_timestamp(&app_state.peer_id, current_time_secs())
+            .await
+            .api_error("GET_NODE_ERROR")?;
     }
+
+    let res = storage_process.node_by_id(peer_id.as_str()).await.api_error("GET_NODE_ERROR")?;
+
+    Ok((StatusCode::OK, Json(res)))
 }

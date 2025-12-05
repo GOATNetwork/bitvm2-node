@@ -25,6 +25,8 @@ use goat::transactions::pre_signed::{PreSignedTransaction, pre_sign_taproot_inpu
 use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
+use std::time::Duration;
+use tokio::time::sleep;
 use tracing_subscriber::EnvFilter;
 
 use bitvm2_noded::env::{
@@ -38,6 +40,7 @@ use bitvm2_noded::utils::{
 const PEGIN_PREPARE_BASE_VBYTES: u64 = 200;
 const PEGIN_REFUND_EST_VBYTES: u64 = 300;
 const PEGIN_CONFIRM_EST_VBYTES: u64 = 300;
+const REQUEST_PREPARE_WAIT_MINUTES: u64 = 12;
 
 #[derive(Parser)]
 #[command(name = "send-pegin", version, about = "Pegin helper (request + prepare)")]
@@ -89,6 +92,33 @@ enum Commands {
         #[arg(long, env = ENV_BITVM_SECRET)]
         user_btc_secret: String,
     },
+    /// Post a pegin request and automatically prepare after waiting ~12 minutes
+    RequestPrepare {
+        /// The instance id (UUID) for this pegin, optional (generated if not provided)
+        #[arg(long)]
+        instance_id: Option<String>,
+        /// Pegin amount in satoshis, default 1000000 sats (0.01 BTC)
+        #[arg(long, default_value = "1000000")]
+        pegin_amount_sats: u64,
+        /// Optional user's BTC key to derive addresses and select UTXOs, otherwise read from ENV_BITVM_SECRET
+        #[arg(long, env = ENV_BITVM_SECRET)]
+        user_btc_secret: String,
+        /// Optional fees rate in sat/vbyte to compute deposit/confirm/refund fees, otherwise get from api
+        #[arg(long)]
+        fee_rate: Option<f64>,
+        /// Optional explicit change address; default derived from user key (p2wsh)
+        #[arg(long)]
+        user_change_address: Option<String>,
+        /// Optional explicit refund address; default derived from user key (p2wsh)
+        #[arg(long)]
+        user_refund_address: Option<String>,
+        /// Optional explicit EVM receiver (0x...), otherwise read from env
+        #[arg(long)]
+        receiver_evm_address: Option<String>,
+        /// Minutes to wait between request completion and prepare submission
+        #[arg(long, default_value_t = REQUEST_PREPARE_WAIT_MINUTES)]
+        wait_minutes: u64,
+    },
     /// Build, sign and broadcast the pegin cancel (refund) transaction on Bitcoin
     Cancel {
         /// The instance id (UUID) used in the request
@@ -103,7 +133,8 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
     let args = Args::parse();
     let network = args.network.as_str();
     let network = match network {
@@ -135,8 +166,34 @@ async fn main() -> Result<()> {
             user_change_address,
             user_refund_address,
             receiver_evm_address,
+        } => action_request(
+            network,
+            &btc_client,
+            &goat_client,
+            instance_id.as_deref(),
+            pegin_amount_sats,
+            &user_btc_secret,
+            fee_rate,
+            user_change_address.as_deref(),
+            user_refund_address.as_deref(),
+            receiver_evm_address.as_deref(),
+        )
+        .await
+        .map(|_| ()),
+        Commands::Prepare { instance_id, user_btc_secret } => {
+            action_prepare(network, &btc_client, &goat_client, &instance_id, &user_btc_secret).await
+        }
+        Commands::RequestPrepare {
+            instance_id,
+            pegin_amount_sats,
+            user_btc_secret,
+            fee_rate,
+            user_change_address,
+            user_refund_address,
+            receiver_evm_address,
+            wait_minutes,
         } => {
-            action_request(
+            let uuid = action_request(
                 network,
                 &btc_client,
                 &goat_client,
@@ -148,10 +205,16 @@ async fn main() -> Result<()> {
                 user_refund_address.as_deref(),
                 receiver_evm_address.as_deref(),
             )
-            .await
-        }
-        Commands::Prepare { instance_id, user_btc_secret } => {
-            action_prepare(network, &btc_client, &goat_client, &instance_id, &user_btc_secret).await
+            .await?;
+            let wait_secs = wait_minutes.saturating_mul(60);
+            tracing::info!(
+                "Request complete. Waiting {} minutes before broadcasting prepare transaction...",
+                wait_minutes
+            );
+            sleep(Duration::from_secs(wait_secs)).await;
+
+            let uuid_str = uuid.to_string();
+            action_prepare(network, &btc_client, &goat_client, &uuid_str, &user_btc_secret).await
         }
         Commands::Cancel { instance_id, user_btc_secret } => {
             action_cancel(network, &btc_client, &goat_client, &instance_id, &user_btc_secret).await
@@ -171,7 +234,7 @@ async fn action_request(
     user_change_address: Option<&str>,
     user_refund_address: Option<&str>,
     receiver_evm_address: Option<&str>,
-) -> Result<()> {
+) -> Result<uuid::Uuid> {
     let instance_id = match instance_id_str {
         Some(s) => uuid::Uuid::from_str(s).map_err(|e| anyhow!("invalid instance_id {s}: {e}"))?,
         None => uuid::Uuid::new_v4(),
@@ -224,7 +287,7 @@ async fn action_request(
         .map(|i| ClientUtxo {
             txid: i.outpoint.txid.to_byte_array(),
             vout: i.outpoint.vout,
-            amount_stats: i.amount.to_sat(),
+            amount_sats: i.amount.to_sat(),
         })
         .collect();
 
@@ -255,8 +318,8 @@ async fn action_request(
         )
         .await?;
 
-    println!("Pegin request posted. instance_id: {instance_id}, goat tx: {tx_hash}");
-    Ok(())
+    tracing::info!("Pegin request posted. instance_id: {instance_id}, goat tx: {tx_hash}");
+    Ok(instance_id)
 }
 
 async fn action_prepare(
@@ -291,7 +354,7 @@ async fn action_prepare(
 
     // Broadcast deposit
     broadcast_tx(btc_client, pegin_deposit.tx()).await?;
-    println!("Broadcasted pegin prepare tx: {}", pegin_deposit.tx().compute_txid());
+    tracing::info!("Broadcasted pegin prepare tx: {}", pegin_deposit.tx().compute_txid());
     Ok(())
 }
 
@@ -334,7 +397,7 @@ async fn action_cancel(
 
     // Broadcast refund (cancel)
     broadcast_tx(btc_client, pegin_refund.tx()).await?;
-    println!("Broadcasted pegin cancel/refund tx: {}", pegin_refund.tx().compute_txid());
+    tracing::info!("Broadcasted pegin cancel/refund tx: {}", pegin_refund.tx().compute_txid());
     Ok(())
 }
 

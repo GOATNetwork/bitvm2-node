@@ -61,7 +61,7 @@ async fn run(
         return Ok(());
     }
 
-    if let Err(err) = instance_answers_monitor(local_db).await {
+    if let Err(err) = instance_answers_monitor(local_db, btc_client, goat_client).await {
         warn!("instance_answers_monitor, err {:?}", err)
     }
     if let Err(err) = instance_window_expiration_monitor(local_db, goat_client).await {

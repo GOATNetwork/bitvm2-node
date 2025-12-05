@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
-use store::NodesOverview;
+use store::{Node, NodesOverview};
 
 pub const ALIVE_TIME_JUDGE_THRESHOLD: i64 = 4 * 3600;
+pub const NODE_STATUS_ONLINE: &str = "Online";
+pub const NODE_STATUS_OFFLINE: &str = "Offline";
 
 /// node_overview
 #[derive(Serialize, Deserialize)]
@@ -45,4 +47,31 @@ pub struct NodeDesc {
     pub reward: i64,
     pub updated_at: i64,
     pub status: String, //dynamic status: online/offline
+}
+
+pub trait ToNodeDesc {
+    fn to_node_desc(self, time_threshold: i64, current_peer_id: &str) -> NodeDesc;
+}
+impl ToNodeDesc for Node {
+    fn to_node_desc(self, time_threshold: i64, current_peer_id: &str) -> NodeDesc {
+        let status = if self.updated_at >= time_threshold || self.peer_id == current_peer_id {
+            NODE_STATUS_ONLINE
+        } else {
+            NODE_STATUS_OFFLINE
+        };
+
+        NodeDesc {
+            peer_id: self.peer_id.clone(),
+            actor: self.actor.clone(),
+            name: self.node_name.clone(),
+            service_fee_rate: self.service_fee_rate,
+            updated_at: self.updated_at,
+            status: status.to_string(),
+            goat_addr: self.goat_addr.clone(),
+            btc_pub_key: self.btc_pub_key.clone(),
+            socket_addr: self.socket_addr.clone(),
+            reward: self.reward,
+            available_peg_btc: self.available_peg_btc,
+        }
+    }
 }

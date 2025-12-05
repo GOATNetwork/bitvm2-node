@@ -1,5 +1,3 @@
-use crate::schema::NODE_STATUS_OFFLINE;
-use crate::schema::NODE_STATUS_ONLINE;
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     CommitChainProof, CommitInfo, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData,
@@ -235,6 +233,8 @@ impl InstanceUpdate {
         // Set field
         if let Some(ref status) = self.status {
             query_builder.set_field("status", QueryParam::Text(status.clone()));
+            query_builder
+                .set_field("status_updated_at", QueryParam::Int(get_current_timestamp_secs()));
         }
 
         if let Some(ref txid) = self.pegin_confirm_txid {
@@ -466,6 +466,8 @@ impl GraphUpdate {
         // Add SET fields
         if let Some(ref status) = self.status {
             query_builder.set_field("status", QueryParam::Text(status.clone()));
+            query_builder
+                .set_field("status_updated_at", QueryParam::Int(get_current_timestamp_secs()));
         }
         if let Some(ref sub_status) = self.sub_status {
             query_builder.set_field("sub_status", QueryParam::Text(sub_status.clone()));
@@ -511,8 +513,8 @@ impl GraphUpdate {
 pub struct NodeQuery {
     pub actor: Option<String>,
     pub goat_addr: Option<String>,
-    pub time_threshold: i64,
-    pub status_expect: Option<String>,
+    pub time_threshold: Option<i64>,
+    pub is_in_time_threshold: bool,
     pub order: Option<String>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
@@ -528,13 +530,9 @@ impl NodeQuery {
         self
     }
 
-    pub fn with_time_threshold(mut self, time_threshold: i64) -> Self {
-        self.time_threshold = time_threshold;
-        self
-    }
-
-    pub fn with_status_expect(mut self, status_expect: String) -> Self {
-        self.status_expect = Some(status_expect);
+    pub fn with_time_threshold(mut self, time_threshold: i64, is_in_time_threshold: bool) -> Self {
+        self.time_threshold = Some(time_threshold);
+        self.is_in_time_threshold = is_in_time_threshold;
         self
     }
 
@@ -570,17 +568,12 @@ impl NodeQuery {
         if let Some(goat_addr) = &self.goat_addr {
             query_builder.and_where("goat_addr = ?", Some(QueryParam::Text(goat_addr.clone())));
         }
-        if let Some(status_expect) = &self.status_expect {
-            match status_expect.as_str() {
-                NODE_STATUS_ONLINE => {
-                    query_builder
-                        .and_where("updated_at > ?", Some(QueryParam::Int(self.time_threshold)));
-                }
-                NODE_STATUS_OFFLINE => {
-                    query_builder
-                        .and_where("updated_at <= ?", Some(QueryParam::Int(self.time_threshold)));
-                }
-                _ => {}
+
+        if let Some(time_threshold) = &self.time_threshold {
+            if self.is_in_time_threshold {
+                query_builder.and_where("updated_at > ?", Some(QueryParam::Int(*time_threshold)));
+            } else {
+                query_builder.and_where("updated_at <= ?", Some(QueryParam::Int(*time_threshold)));
             }
         }
 
@@ -633,8 +626,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, is_bridge_in,  network, from_addr, to_addr, amount, fees, input_utxos, status, goat_tx_hash, goat_tx_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers,
-                       pegin_data_tx_hash, btc_height, parameters, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       pegin_data_tx_hash, btc_height, parameters, status_updated_at,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.is_bridge_in,
             instance.network,
@@ -656,6 +649,7 @@ impl<'a> StorageProcessor<'a> {
             instance.pegin_data_tx_hash,
             instance.btc_height,
             instance.parameters,
+            instance.status_updated_at,
             instance.created_at,
             instance.updated_at
         )
@@ -759,9 +753,12 @@ impl<'a> StorageProcessor<'a> {
         expired_status: &str,
         time_threshold: i64,
     ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
         let row = sqlx::query!(
-            r#"UPDATE instance SET status = ? WHERE status = ? AND updated_at < ?"#,
+            r#"UPDATE instance SET status = ?, status_updated_at = ?, updated_at = ?  WHERE status = ? AND updated_at < ?"#,
             expired_status,
+            current_time,
+            current_time,
             current_status,
             time_threshold
         )
@@ -780,8 +777,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let result = sqlx::query!(
-            "UPDATE instance SET status = ?, updated_at = ? WHERE instance_id = ?",
+            "UPDATE instance SET status = ?, status_updated_at = ?, updated_at = ? WHERE instance_id = ?",
             new_status,
+            current_time,
             current_time,
             instance_id
         )
@@ -849,28 +847,6 @@ impl<'a> StorageProcessor<'a> {
         query = query_builder.query(query);
         let result = query.execute(self.conn()).await?;
         Ok(result.rows_affected() > 0)
-    }
-
-    pub async fn update_instances_status_batch(
-        &mut self,
-        status: &str,
-        ids: &[Uuid],
-    ) -> anyhow::Result<()> {
-        let current_time = get_current_timestamp_secs();
-        let query_str = format!(
-            "UPDATE instance \
-            SET status = \'{status}\',
-                updated_at = {current_time}
-            WHERE hex(instance_id)
-                 COLLATE NOCASE IN ({})",
-            create_place_holders(ids)
-        );
-        let mut update_query = sqlx::query(&query_str);
-        for id in ids {
-            update_query = update_query.bind(hex::encode(id));
-        }
-        update_query.execute(self.conn()).await?;
-        Ok(())
     }
 
     /// Add or update a single committee answer for an instance
@@ -998,7 +974,7 @@ impl<'a> StorageProcessor<'a> {
     /// Returns:
     /// - Ok(affected_rows) number of rows affected by the operation
     /// - Err if the operation failed
-    pub async fn upsert_graph(&mut self, graph: Graph) -> anyhow::Result<u64> {
+    pub async fn upsert_graph(&mut self, graph: &Graph) -> anyhow::Result<u64> {
         let nack_txids_json = serde_json::to_string(&graph.nack_txids)?;
         let watchtower_challenge_timeout_txids_json =
             serde_json::to_string(&graph.watchtower_challenge_timeout_txids)?;
@@ -1011,8 +987,8 @@ impl<'a> StorageProcessor<'a> {
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, disprove_txid,  watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
-                    bridge_out_start_at, zkm_version,created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    bridge_out_start_at, zkm_version, status_updated_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
@@ -1044,6 +1020,7 @@ impl<'a> StorageProcessor<'a> {
             graph.init_withdraw_tx_hash,
             graph.bridge_out_start_at,
             graph.zkm_version,
+            graph.status_updated_at,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -1051,7 +1028,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn update_graph_fields(&mut self, params: GraphUpdate) -> anyhow::Result<()> {
+    pub async fn update_graph(&mut self, params: &GraphUpdate) -> anyhow::Result<()> {
         let query_builder = params.get_query_builder("graph");
         let update_sql = query_builder.get_sql();
         let query = sqlx::query(&update_sql);
@@ -1127,6 +1104,7 @@ impl<'a> StorageProcessor<'a> {
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
                     zkm_version,
+                    status_updated_at,
                     CASE
                         WHEN bridge_out_start_at > 0
                         THEN bridge_out_start_at
@@ -1195,32 +1173,10 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query_as::<_, NextPrekickoffRow>(
             "SELECT graph_id,  instance_id,  cur_prekickoff_txid, next_prekickoff FROM graph WHERE cur_prekickoff_txid  = ?",
         )
-        .bind(current_pre_kickoff)
-        .fetch_optional(self.conn())
-        .await?;
+            .bind(current_pre_kickoff)
+            .fetch_optional(self.conn())
+            .await?;
         Ok(res.map(|v| (v.graph_id, v.instance_id, v.cur_prekickoff_txid, v.next_prekickoff)))
-    }
-
-    pub async fn update_graphs_status_by_instance_ids(
-        &mut self,
-        status: &str,
-        ids: &[Uuid],
-    ) -> anyhow::Result<()> {
-        let current_time = get_current_timestamp_secs();
-        let query_str = format!(
-            "UPDATE graph SET \
-                status = \'{status}\',
-                updated_at = {current_time}
-            WHERE hex(instance_id)
-                     COLLATE NOCASE IN ({})",
-            create_place_holders(ids)
-        );
-        let mut update_query = sqlx::query(&query_str);
-        for id in ids {
-            update_query = update_query.bind(hex::encode(id));
-        }
-        update_query.execute(self.conn()).await?;
-        Ok(())
     }
 
     pub async fn get_graphs_ids_and_operator_by_instance_ids(
@@ -1304,10 +1260,18 @@ impl<'a> StorageProcessor<'a> {
         ignore_graph_id: Option<Uuid>,
         status: &str,
     ) -> anyhow::Result<()> {
+        let current_time = get_current_timestamp_secs();
         if let Some(ignore_graph_id) = ignore_graph_id {
             sqlx::query!(
-                "UPDATE graph SET status = ? WHERE instance_id = ? AND graph_id != ? ",
+                "UPDATE graph
+                 SET status            = ?,
+                     status_updated_at = ?,
+                     updated_at        = ?
+                 WHERE instance_id = ?
+                   AND graph_id != ?",
                 status,
+                current_time,
+                current_time,
                 instance_id,
                 ignore_graph_id
             )
@@ -1315,8 +1279,14 @@ impl<'a> StorageProcessor<'a> {
             .await?;
         } else {
             sqlx::query!(
-                "UPDATE graph SET status = ? WHERE instance_id = ?  ",
+                "UPDATE graph
+                 SET status            = ?,
+                     status_updated_at = ?,
+                     updated_at        = ?
+                 WHERE instance_id = ?",
                 status,
+                current_time,
+                current_time,
                 instance_id,
             )
             .execute(self.conn())
@@ -1325,8 +1295,40 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    pub async fn find_graph_neighbor_ids(
+        &mut self,
+        graph_id: Uuid,
+        range: i64,
+    ) -> anyhow::Result<Vec<(i64, Uuid)>> {
+        #[derive(sqlx::FromRow)]
+        struct GraphIds {
+            pub graph_id: Uuid,
+            pub kickoff_index: i64,
+        }
+        if let Some(graph) = self.find_graph(&graph_id).await? {
+            let start = 0.max(graph.kickoff_index - range);
+            let end = graph.kickoff_index + range;
+            let res = sqlx::query_as!(
+                GraphIds,
+                "SELECT graph_id AS \"graph_id:Uuid\", kickoff_index
+                 FROM graph
+                 WHERE operator_pubkey = ?
+                   AND kickoff_index >= ?
+                   AND kickoff_index <= ?",
+                graph.operator_pubkey,
+                start,
+                end
+            )
+            .fetch_all(self.conn())
+            .await?;
+
+            Ok(res.into_iter().map(|g| (g.kickoff_index, g.graph_id)).collect())
+        } else {
+            Ok(vec![])
+        }
+    }
     /// Insert or update node without reward field
-    pub async fn upsert_node(&mut self, node: Node) -> anyhow::Result<u64> {
+    pub async fn upsert_node(&mut self, node: &Node) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             r#"
             INSERT INTO node (peer_id, node_name, actor, goat_addr, btc_pub_key, socket_addr, service_fee_rate, available_peg_btc,
@@ -1438,17 +1440,18 @@ impl<'a> StorageProcessor<'a> {
             res.total += record.total;
             match record.actor.as_str() {
                 "Challenger" => {
-                    (res.offline_challenger, res.online_challenger) =
+                    (res.offline_challengers, res.online_challengers) =
                         (record.offline, record.online);
                 }
                 "Operator" => {
-                    (res.offline_operator, res.online_operator) = (record.offline, record.online);
+                    (res.offline_operators, res.online_operators) = (record.offline, record.online);
                 }
                 "Committee" => {
-                    (res.offline_committee, res.online_committee) = (record.offline, record.online);
+                    (res.offline_committees, res.online_committees) =
+                        (record.offline, record.online);
                 }
-                "Relayer" => {
-                    (res.offline_watchtower, res.online_watchtower) =
+                "Watchtower" => {
+                    (res.offline_watchtowers, res.online_watchtowers) =
                         (record.offline, record.online);
                 }
                 _ => {}
@@ -1485,7 +1488,7 @@ impl<'a> StorageProcessor<'a> {
         Ok((record.total, record.tx_count))
     }
 
-    pub async fn get_sum_bridge_out(&mut self, statuses: &[String]) -> anyhow::Result<(i64, i64)> {
+    pub async fn get_sum_peg_out(&mut self, statuses: &[String]) -> anyhow::Result<(i64, i64)> {
         #[derive(sqlx::FromRow)]
         struct BridgeOutRow {
             pub total: i64,
@@ -2831,8 +2834,13 @@ impl<'a> StorageProcessor<'a> {
         goat_tx_record: &GoatTxRecord,
     ) -> anyhow::Result<()> {
         let mut update_goat_tx_record = goat_tx_record.clone();
-        if let Some(goat_tx_record_store) =
-            self.get_graph_goat_tx_record(&goat_tx_record.graph_id, &goat_tx_record.tx_type).await?
+        if let Some(goat_tx_record_store) = self
+            .get_graph_goat_tx_record(
+                &goat_tx_record.instance_id,
+                &goat_tx_record.graph_id,
+                &goat_tx_record.tx_type,
+            )
+            .await?
         {
             update_goat_tx_record.created_at = goat_tx_record_store.created_at;
             update_goat_tx_record.is_local = goat_tx_record_store.is_local;
@@ -2877,6 +2885,7 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn get_graph_goat_tx_record(
         &mut self,
+        instance_id: &Uuid,
         graph_id: &Uuid,
         tx_type: &str,
     ) -> anyhow::Result<Option<GoatTxRecord>> {
@@ -2892,8 +2901,10 @@ impl<'a> StorageProcessor<'a> {
                         extra,
                         created_at
             FROM goat_tx_record
-            WHERE graph_id = ?
+            WHERE instance_id = ?
+                AND graph_id = ?
                 AND tx_type = ?",
+            instance_id,
             graph_id,
             tx_type
         )

@@ -43,7 +43,7 @@ impl InputValidator {
     }
 
     /// Validate goat address format
-    pub fn validata_goat_address(
+    pub fn validate_goat_address(
         goat_addr_str: &str,
         field_name: &str,
     ) -> ValidationResult<String> {
@@ -54,6 +54,19 @@ impl InputValidator {
                 Json(ErrorResponse {
                     error: "INVALID_GOAT_FORMAT".to_string(),
                     message: format!("{field_name} is not a valid goat format"),
+                }),
+            )),
+        }
+    }
+
+    pub fn validate_btc_pubkey(pubkey_str: &str, field_name: &str) -> ValidationResult<String> {
+        match PublicKey::from_str(pubkey_str) {
+            Ok(goat_addr) => Ok(goat_addr.to_string()),
+            Err(_) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "INVALID_PUB_KEY_FORMAT".to_string(),
+                    message: format!("{field_name} is not a valid pub key format"),
                 }),
             )),
         }
