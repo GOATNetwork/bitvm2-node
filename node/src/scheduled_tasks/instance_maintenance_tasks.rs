@@ -356,7 +356,13 @@ pub async fn instance_btc_tx_monitor(
             ]
             .contains(&next_status)
                 && let utxos = serde_json::from_str::<Vec<Utxo>>(&instance.input_utxos)?
-                && !check_bridge_in_uxto_available_or_self_spent(btc_client, None, &utxos).await?
+                && let Some(user_prepare_tx) = instance.btc_txid
+                && !check_bridge_in_uxto_available_or_self_spent(
+                    btc_client,
+                    Some(user_prepare_tx.0.to_string()),
+                    &utxos,
+                )
+                .await?
             {
                 warn!(
                     "instance:{}, pegin prepare tx input utxos has been spent in other tx",
