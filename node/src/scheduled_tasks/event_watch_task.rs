@@ -63,57 +63,63 @@ pub async fn fetch_and_handle_block_range_events<'a>(
     let mut committee_response_events: Vec<CommitteeResponseEvent> = vec![];
     let mut bridge_in_events: Vec<BridgeInEvent> = vec![];
     let mut post_graph_data_events: Vec<PostGraphDataEvent> = vec![];
-    for event_entity in event_entities {
-        let entity = event_entity.clone();
-        if let Some(value_vec) = query_res[entity.to_string()].as_array() {
-            match entity {
-                GatewayEventEntity::InitWithdraws => {
-                    init_withdraw_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-                GatewayEventEntity::CancelWithdraws => {
-                    cancel_withdraw_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-                GatewayEventEntity::ProceedWithdraws => {
-                    proceed_withdraw_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-                GatewayEventEntity::WithdrawHappyPaths => {
-                    let events: Vec<WithdrawHappyEvent> =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                    let mut events: Vec<WithdrawPathsEvent> =
-                        events.into_iter().map(WithdrawPathsEvent::WithdrawHappyEvent).collect();
-                    withdraw_paths_events.append(&mut events);
-                }
-                GatewayEventEntity::WithdrawUnhappyPaths => {
-                    let events: Vec<WithdrawUnhappyEvent> =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                    let mut events: Vec<WithdrawPathsEvent> =
-                        events.into_iter().map(WithdrawPathsEvent::WithdrawUnhappyEvent).collect();
-                    withdraw_paths_events.append(&mut events);
-                }
-                GatewayEventEntity::WithdrawDisproveds => {
-                    withdraw_disproved_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-                GatewayEventEntity::BridgeInRequests => {
-                    bridge_in_request_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-                GatewayEventEntity::CommitteeResponses => {
-                    committee_response_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-                GatewayEventEntity::BridgeIns => {
-                    bridge_in_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-                GatewayEventEntity::PostGraphDatas => {
-                    post_graph_data_events =
-                        serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
-                }
-            };
+    for query_res_item in query_res {
+        for event_entity in event_entities {
+            let entity = event_entity.clone();
+            if let Some(value_vec) = query_res_item[entity.to_string()].as_array() {
+                match entity {
+                    GatewayEventEntity::InitWithdraws => {
+                        init_withdraw_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                    GatewayEventEntity::CancelWithdraws => {
+                        cancel_withdraw_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                    GatewayEventEntity::ProceedWithdraws => {
+                        proceed_withdraw_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                    GatewayEventEntity::WithdrawHappyPaths => {
+                        let events: Vec<WithdrawHappyEvent> =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                        let mut events: Vec<WithdrawPathsEvent> = events
+                            .into_iter()
+                            .map(WithdrawPathsEvent::WithdrawHappyEvent)
+                            .collect();
+                        withdraw_paths_events.append(&mut events);
+                    }
+                    GatewayEventEntity::WithdrawUnhappyPaths => {
+                        let events: Vec<WithdrawUnhappyEvent> =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                        let mut events: Vec<WithdrawPathsEvent> = events
+                            .into_iter()
+                            .map(WithdrawPathsEvent::WithdrawUnhappyEvent)
+                            .collect();
+                        withdraw_paths_events.append(&mut events);
+                    }
+                    GatewayEventEntity::WithdrawDisproveds => {
+                        withdraw_disproved_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                    GatewayEventEntity::BridgeInRequests => {
+                        bridge_in_request_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                    GatewayEventEntity::CommitteeResponses => {
+                        committee_response_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                    GatewayEventEntity::BridgeIns => {
+                        bridge_in_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                    GatewayEventEntity::PostGraphDatas => {
+                        post_graph_data_events =
+                            serde_json::from_value(serde_json::Value::Array(value_vec.clone()))?;
+                    }
+                };
+            }
         }
     }
     info!(
@@ -630,7 +636,9 @@ pub async fn monitor_events(
     info!("start tick monitor_events");
     let mut storage_processor = local_db.acquire().await?;
     let mut watch_contract = get_watch_contract(&mut storage_processor).await?;
-    let query_client = GraphQueryClient::new(watch_contract.the_graph_url.clone());
+    let query_client = GraphQueryClient::new(
+        watch_contract.the_graph_url.split(",").map(|s| s.to_string()).collect(),
+    );
     let current_finalized = goat_client.get_finalized_block_number().await?;
 
     if watch_contract.from_height == 0 || watch_contract.from_height >= current_finalized {
