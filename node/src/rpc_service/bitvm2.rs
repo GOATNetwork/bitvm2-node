@@ -387,7 +387,7 @@ pub struct GraphQueryParams {
     pub limit: Option<u32>,
 }
 fn default_is_peg_out() -> bool {
-    true
+    false
 }
 
 impl From<GraphQueryParams> for GraphQuery {

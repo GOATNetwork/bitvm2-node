@@ -341,7 +341,7 @@ mod tests {
             std::env::set_var(ENV_GOAT_CHAIN_URL, "https://rpc.testnet3.goat.network");
             std::env::set_var(
                 ENV_GOAT_GATEWAY_CONTRACT_ADDRESS,
-                "0xeD8AeeD334fA446FA03Aa00B28aFf02FA8aC02df",
+                "0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f",
             );
             if let Some(remote_proof_server) = remote_proof_server {
                 std::env::set_var(ENV_PROOF_SEVER_URL, remote_proof_server);
