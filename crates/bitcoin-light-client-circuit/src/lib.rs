@@ -68,7 +68,8 @@ pub fn watch_longest_chain(
 
     println!("commit public inputs");
     // commit public inputs
-    (btc_header_chain_output.chain_state.total_work, latest_sequencer_commit_txid)
+    let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
+    (btc_header_chain_output.chain_state.total_work, btc_best_block_hash)
 }
 
 fn u256_to_bits(u: U256) -> [bool; 256] {
@@ -170,7 +171,13 @@ pub fn propose_longest_chain(
                 }
             };
 
-            match verify_watchtower_proof(&proof, &public_values, vk.clone()) {
+            match verify_watchtower_proof(
+                &proof,
+                &public_values,
+                vk.clone(),
+                watchtower_total_work,
+                &btc_best_block_hash,
+            ) {
                 Ok(_) => {}
                 Err(err) => {
                     println!("Watchtower[{i}] invalid proof: {err}");
@@ -367,17 +374,41 @@ pub fn parse_watchtower_commitment(
     ))
 }
 
-// TODO: check the public values are consistent with the total work and block height
+// Check the public values are consistent with the total work and block hash
 pub fn verify_watchtower_proof(
     proof: &[u8],
     zkm_public_values: &[u8; PUBLIC_INPUTS_SIZE],
     zkm_vk_hash: String,
+    watchtower_total_work: U256,
+    watchtower_consensus_block_hash: &[u8; 32],
 ) -> Result<(), String> {
+    check_guest_committed_value(
+        zkm_public_values,
+        watchtower_total_work,
+        watchtower_consensus_block_hash,
+    )?;
+
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
     match Groth16Verifier::verify(proof, zkm_public_values, &zkm_vk_hash, groth16_vk) {
         Ok(_) => Ok(()),
-        Err(err) => Err(format!("invalid commitment: head chain Groth16 proof, err: {err:?}")),
+        Err(err) => Err(format!("head chain Groth16 proof, err: {err:?}")),
     }
+}
+
+pub fn check_guest_committed_value(
+    digest: &[u8; PUBLIC_INPUTS_SIZE],
+    total_work: U256,
+    block_hash: &[u8; 32],
+) -> Result<(), String> {
+    println!("check guest committed value: {digest:?}");
+    println!("total work: {:?}, block hash: {:?}", total_work.to_be_bytes::<32>(), block_hash);
+    if total_work.to_be_bytes::<32>() != &digest[0..32] {
+        return Err("total work mismatch".to_string());
+    }
+    if block_hash != &digest[32..] {
+        return Err("block hash mismatch".to_string());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

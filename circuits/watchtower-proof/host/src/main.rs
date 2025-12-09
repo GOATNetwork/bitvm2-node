@@ -171,8 +171,11 @@ async fn main() {
         client.prove(&watchtower_proof_pk, stdin).groth16().run().expect("proving failed")
     });
 
+    use alloy_primitives::U256;
     let total_work: [u8; 32] = proof.public_values.read();
-    println!("total work: {total_work:?}");
+    println!("total work: {total_work:?}, {}", U256::from_be_bytes(total_work));
+    let btc_best_block_hash: [u8; 32] = proof.public_values.read();
+    println!("btc_best_block_hash: {btc_best_block_hash:?}");
 
     std::fs::write(&format!("{}.proof.bin", args.output), proof.bytes()).unwrap();
     std::fs::write(&format!("{}.public_inputs.bin", args.output), proof.public_values.to_vec())

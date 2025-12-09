@@ -911,7 +911,7 @@ mod tests {
             include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
 
         let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap(); //graph.parameters.graph_id.to_bytes_le();
-        let total_work = 100;
+        let total_work = 1006120;
         let block_height = 100;
         let comm = bitcoin_light_client_circuit::build_watchtower_commitment(
             &graph_id,

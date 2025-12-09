@@ -23,6 +23,7 @@ futures-util = "0.3.31"
 sha2 = "0.10.8"
 lazy_static = "1.5.0"
 serde_json.workspace = true
+alloy-primitives.workspace = true
 
 borsh = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
