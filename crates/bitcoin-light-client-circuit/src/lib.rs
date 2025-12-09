@@ -27,7 +27,7 @@ pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 64;
 pub const VK_HASH_SIZE: usize = 66;
 
-pub fn check_longest_chain(
+pub fn watch_longest_chain(
     genesis_sequencer_commit_txid: [u8; 32],
     latest_sequencer_commit_txid: [u8; 32],
     header_chain: HeaderChainCircuitInput,
@@ -65,7 +65,6 @@ pub fn check_longest_chain(
     // check the equivalence of sequencer set
     let commit_sequencer_set_hash = sequencer_hash(&commit_chain_output.chain_state.sequencers);
     let state_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
-
     assert_eq!(commit_sequencer_set_hash, state_seqeuencer_set_hash);
 
     println!("commit public inputs");
@@ -188,6 +187,7 @@ pub fn propose_longest_chain(
                 );
                 continue;
             }
+            println!("check total work with watchtower {i}");
 
             // extract ChainState
             // check watchtower_chain_state.total_work <= operator_header_chain.total_work
@@ -312,7 +312,7 @@ pub type WatchtowerCommitmentResult =
 pub fn parse_watchtower_commitment(
     commitment: &[u8],
 ) -> Result<WatchtowerCommitmentResult, String> {
-    if commitment.len() != GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + 32 + 32
+    if commitment.len() < GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + 32 + 32
     {
         return Err(format!(
             "invalid commitment size: {}, expected: {}",

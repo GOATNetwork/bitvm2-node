@@ -903,24 +903,24 @@ mod tests {
             amount: watchtower_challenge_payer_amount,
         };
 
-        //const PROOF: &[u8] =
-        //    include_bytes!("../../../circuits/data/watchtower/output3.bin.proof.bin");
-        //const PUBLIC_INPUTS: &[u8] =
-        //    include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
-        //const VK_HASH: &str =
-        //    include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
+        const PROOF: &[u8] =
+            include_bytes!("../../../circuits/data/watchtower/output3.bin.proof.bin");
+        const PUBLIC_INPUTS: &[u8] =
+            include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
+        const VK_HASH: &str =
+            include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
 
         let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap(); //graph.parameters.graph_id.to_bytes_le();
         let total_work = 100;
         let block_height = 100;
         let comm = bitcoin_light_client_circuit::build_watchtower_commitment(
             &graph_id,
-            &[0u8; PROOF_SIZE],
-            &[0u8; PUBLIC_INPUTS_SIZE],
-            "",
-            //&PROOF.try_into().unwrap(),
-            //&PUBLIC_INPUTS.try_into().unwrap(),
-            //VK_HASH,
+            //&[0u8; PROOF_SIZE],
+            //&[0u8; PUBLIC_INPUTS_SIZE],
+            //"",
+            &PROOF.try_into().unwrap(),
+            &PUBLIC_INPUTS.try_into().unwrap(),
+            VK_HASH,
             total_work,
             block_height,
         );

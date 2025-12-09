@@ -44,8 +44,6 @@ pub fn main() {
         operator_commit_chain,
         operator_state_chain,
         spv,
-        //l2_contract_address,
-        //base_slot,
     );
 
     zkm_zkvm::io::commit(&operator_total_work);

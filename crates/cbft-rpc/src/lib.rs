@@ -80,7 +80,6 @@ pub async fn fetch_cbft_validator_info(
 
     let mut max_retries = 100;
     while max_retries > 0 {
-        println!("block_height: {block_height}");
         let block_data = reqwest::get(format!("{cosmos_rpc_url}/block?height={block_height}"))
             .await?
             .text()
@@ -172,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_validators() {
-        let evm_block_number = 2000002;
+        let evm_block_number = 9511050;
         let (sequencer_hash, block_number) =
             fetch_cbft_validator_info(evm_block_number).await.unwrap();
 

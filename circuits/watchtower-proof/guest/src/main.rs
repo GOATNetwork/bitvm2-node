@@ -17,7 +17,7 @@ pub fn main() {
     let state_chain: StateChainCircuitInput = zkm_zkvm::io::read();
     let spv: SPV = zkm_zkvm::io::read();
 
-    let (total_work, latest_sequencer_commit_txid) = bitcoin_light_client_circuit::check_longest_chain(
+    let (total_work, latest_sequencer_commit_txid) = bitcoin_light_client_circuit::watch_longest_chain(
         genesis_sequencer_commit_txid,
         latest_sequencer_commit_txid,
         header_chain,

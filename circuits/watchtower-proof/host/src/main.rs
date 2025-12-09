@@ -132,6 +132,10 @@ async fn main() {
             .collect::<Vec<CircuitBlockHeader>>()
     };
     println!("block headers: {:?}", bitcoin_block_headers.len());
+    let found = bitcoin_block_headers
+        .iter()
+        .position(|h| h.compute_block_hash() == *target_block.block_hash().as_byte_array());
+    println!("block found: {:?}", found);
 
     println!("construct spv");
     let spv = build_spv(&tx, block_pos, target_block, &bitcoin_block_headers);

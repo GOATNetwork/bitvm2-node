@@ -56,19 +56,6 @@ pub struct SequencerInfo {
     pub name: Option<String>,
 }
 
-/*
-impl Into<Info> for SequencerInfo {
-    fn into(self) -> Info {
-        Info {
-            address: account::Id::try_from(hex::decode(&self.address).unwrap()).unwrap(),
-            pub_key: TPublicKey::from_raw_secp256k1(&self.pub_key).unwrap(),
-            power: self.power.try_into().unwrap(),
-            name: self.name,
-            proposer_priority: ProposerPriority::default(),
-        }
-    }
-} */
-
 impl From<SequencerInfo> for Info {
     fn from(val: SequencerInfo) -> Self {
         Info {
@@ -196,6 +183,8 @@ impl CommitChainState {
                 .unwrap();
             }
             prev_sequencers = latest_sequencers;
+            println!("[apply_commit]: sequencer_hash: {:?}", sequencer_hash(&prev_sequencers));
+            println!("[apply_commit]: prev_sequencer: {:?}", prev_sequencers);
 
             // remove witness
             prev_commit_txn = latest_commit_txn_with_wtns.clone();

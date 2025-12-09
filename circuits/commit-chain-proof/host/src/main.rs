@@ -67,6 +67,7 @@ async fn fetch_commit_chain(args: &Args) {
             .iter()
             .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
             .collect();
+        println!("sequencer_hash: {:?}", sequencer_hash(&ci.sequencers));
         let commit = CircuitCommit {
             commit_txn,
             sequencers: ci.sequencers.clone(),

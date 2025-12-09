@@ -67,6 +67,7 @@ pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
 async fn fetch_exection_layer_block(
     execution_layer_rpc: &str,
     execution_layer_block_number: u64,
+    genesis: &Genesis,
 ) -> EthClientExecutorInput {
     // Setup the provider.
     let rpc_url = Url::parse(&execution_layer_rpc).expect("invalid rpc url");
@@ -75,7 +76,6 @@ async fn fetch_exection_layer_block(
 
     let rpc_db = RpcDb::new(provider.clone(), provider.clone(), execution_layer_block_number - 1);
 
-    let genesis = &Genesis::GoatTestnet;
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
     let custom_beneficiary = None;
 
@@ -102,12 +102,13 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
     let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
     let l2_contract_address = Address::from(bytes);
     let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
+    let genesis = &Genesis::GoatTestnet;
 
     for i in args.start..(args.start + args.batch_size) {
         let (_, cl_block_number) = fetch_cbft_validator_info(i).await.unwrap();
         let cosmos_txns = fetch_cbft_tx_data(cl_block_number).await.unwrap();
         let cosmos_block = fetch_cosmos_block(cl_block_number).await.unwrap();
-        let evm_block = fetch_exection_layer_block(&args.execution_layer_rpc, i).await;
+        let evm_block = fetch_exection_layer_block(&args.execution_layer_rpc, i, genesis).await;
 
         let withdrawals = if !args.graph_block_numbers.is_empty() {
             let indices: Vec<usize> = args
@@ -129,6 +130,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
         };
 
         let cosmos_block = serde_json::to_vec(&cosmos_block).unwrap();
+        println!("[push] block: {}, withdrawals: {:?}", i, withdrawals);
         blocks.push(CircuitStateBlock { cosmos_txns, cosmos_block, evm_block, withdrawals });
     }
     let block_bytes = serde_json::to_vec(&blocks).unwrap();
@@ -167,7 +169,6 @@ async fn main() {
         Some(mut receipt) => {
             let prev_output = receipt.public_values.read();
             let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
-            println!("prev out: {:?}", prev_output);
             (StateChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
         None => (StateChainPrevProofType::GenesisBlock, [0u8; 32]),

@@ -132,18 +132,23 @@ impl OutputData {
 
 async fn save_commit_info(
     goat_client: &GOATClient,
-    file_path: &str,
-    genesis_txid: String,
+    output_file: &str,
     publishers: &[EvmAddress],
     sequencers: Vec<Info>,
+    init_genesis: bool,
+    commit_info_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file = std::fs::File::open(file_path)?;
+    let file = std::fs::File::open(output_file)?;
     let output: OutputData = serde_json::from_reader(file)?;
     let btc_public_keys = fetch_publishers(goat_client, publishers).await?;
 
     let txid = &output.update_connector_txid.unwrap();
-    let genesis_txid = if genesis_txid.is_empty() { txid.clone() } else { genesis_txid };
-
+    let genesis_txid = if !init_genesis { 
+        std::fs::read_to_string("{output_file}.genesis")?
+    } else {
+        std::fs::write(format!("{output_file}.genesis"), txid)?;
+        txid.clone()
+    };
     let commit_info = CommitInfo {
         txid: txid.clone(),
         threshold: (btc_public_keys.len() * 2).div_ceil(3) as u16,
@@ -153,8 +158,7 @@ async fn save_commit_info(
     };
 
     let commit_info = serde_json::to_string(&commit_info).unwrap();
-    let file_path = format!("{file_path}.{txid}.commit_info.json");
-    Ok(std::fs::write(file_path, commit_info)?)
+    Ok(std::fs::write(commit_info_file, commit_info)?)
 }
 
 fn save_output(input: OutputData, output_file: &str, clean_sigs: bool) {
@@ -208,9 +212,10 @@ enum Commands {
         goat_block_number: u64,
         #[arg(long, env = "NEXT_PUBLISHERS", value_delimiter = ',', value_parser = decode_eth_address_object)]
         next_publishers: Vec<EvmAddress>,
-
-        #[arg(long, env = "COMMIT_GENESIS_TXID", default_value = "")]
-        genesis_txid: String,
+        #[arg(long, default_value_t = false)]
+        init_genesis: bool,
+        #[arg(long)]
+        commit_info: String,
     },
     Payfee {
         #[arg(long, env = "FUND_BTC_KEY_WIF")]
@@ -330,7 +335,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             owner_btc_key_wif,
             goat_block_number,
             next_publishers,
-            genesis_txid,
+            init_genesis,
+            commit_info,
         } => {
             let (sequencer_set_hash, cosmos_block_number) =
                 fetch_cbft_validator_info(goat_block_number).await?;
@@ -358,9 +364,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match save_commit_info(
                 &goat_client,
                 &args.output_file,
-                genesis_txid,
                 &args.publishers,
                 sequencers,
+                init_genesis,
+                &commit_info,
             )
             .await
             {

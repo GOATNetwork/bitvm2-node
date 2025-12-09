@@ -104,7 +104,10 @@ pub struct Args {
 
     /// All the watchtower challenges txids
     #[clap(long, env, short)]
-    watchtower_challenge_info: String,
+    watchtower_challenge_txids: Vec<String>,
+
+    #[clap(long, env, short)]
+    watchtower_public_keys: Vec<String>,
 
     #[clap(long, env, short)]
     watchtower_challenge_init_txid: String,
@@ -237,9 +240,6 @@ async fn main() {
     //);
 
     // --- watchtower_challenge_txns --- //
-    let bytes = std::fs::read(&args.watchtower_challenge_info).unwrap();
-    // watchtower challenge's (txid, public key)
-    let watchtower_challenge_txids: Vec<(String, String)> = serde_json::from_slice(&bytes).unwrap();
     let mut watchtower_challenge_txns = Vec::new();
     let mut watchtower_challenge_txn_prev_outs: Vec<TxOut> = Vec::new();
     let mut watchtower_challenge_txn_prev_indices: Vec<usize> = Vec::new();
@@ -252,7 +252,8 @@ async fn main() {
         .unwrap()
         .unwrap();
 
-    for (id, pk) in &watchtower_challenge_txids {
+    for (id, pk) in  args.watchtower_challenge_txids.iter().zip(args.watchtower_public_keys.iter()) {
+        println!("txid: {}, pk: {}", id, pk);
         let txid = id.parse().unwrap();
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
         // get prev outs
