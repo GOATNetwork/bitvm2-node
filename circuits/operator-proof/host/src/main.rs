@@ -103,10 +103,10 @@ pub struct Args {
     execution_layer_block_number: u64,
 
     /// All the watchtower challenges txids
-    #[clap(long, env, short)]
+    #[clap(long, env, short, value_delimiter = ',')]
     watchtower_challenge_txids: Vec<String>,
 
-    #[clap(long, env, short)]
+    #[clap(long, env, short, value_delimiter = ',')]
     watchtower_public_keys: Vec<String>,
 
     #[clap(long, env, short)]
