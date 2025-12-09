@@ -143,7 +143,7 @@ async fn save_commit_info(
     let btc_public_keys = fetch_publishers(goat_client, publishers).await?;
 
     let txid = &output.update_connector_txid.unwrap();
-    let genesis_txid = if !init_genesis { 
+    let genesis_txid = if !init_genesis {
         std::fs::read_to_string("{output_file}.genesis")?
     } else {
         std::fs::write(format!("{output_file}.genesis"), txid)?;

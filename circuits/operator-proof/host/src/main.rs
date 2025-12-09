@@ -252,7 +252,7 @@ async fn main() {
         .unwrap()
         .unwrap();
 
-    for (id, pk) in  args.watchtower_challenge_txids.iter().zip(args.watchtower_public_keys.iter()) {
+    for (id, pk) in args.watchtower_challenge_txids.iter().zip(args.watchtower_public_keys.iter()) {
         println!("txid: {}, pk: {}", id, pk);
         let txid = id.parse().unwrap();
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();

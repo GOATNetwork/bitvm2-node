@@ -183,7 +183,7 @@ impl CommitChainState {
                 .unwrap();
             }
             prev_sequencers = latest_sequencers;
-            println!("[apply_commit]: sequencer_hash: {:?}", sequencer_hash(&prev_sequencers));
+            println!("[apply_commit]: sequencer_hash: {:?}", sequencer_hash(prev_sequencers));
             println!("[apply_commit]: prev_sequencer: {:?}", prev_sequencers);
 
             // remove witness

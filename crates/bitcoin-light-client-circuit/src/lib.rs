@@ -1,6 +1,5 @@
 mod signature;
 mod utils;
-
 pub use signature::*;
 use state_chain::verify_sequencer_commit;
 pub use utils::*;
@@ -84,7 +83,7 @@ fn u256_to_bits(u: U256) -> [bool; 256] {
 #[allow(clippy::too_many_arguments)]
 pub fn propose_longest_chain(
     included_watchtowers: U256,                       //pis
-    graph_id: [u8; 16],                               // pis
+    graph_id: [u8; GRAPH_ID_SIZE],                    // pis
     operator_genesis_sequencer_commit_txid: [u8; 32], // pis
 
     operator_latest_sequencer_commit_txn: CircuitTransaction,
@@ -98,7 +97,7 @@ pub fn propose_longest_chain(
     commit_chain: CommitChainCircuitInput,
     state_chain: StateChainCircuitInput,
     spv: SPV,
-) -> [u8; 32] {
+) -> ([u8; 32], [u8; 32]) {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
     let commit_chain_output = commit_chain_circuit(commit_chain.clone());
@@ -117,7 +116,7 @@ pub fn propose_longest_chain(
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
     let operator_consensus_block_height = U256::from(commit_chain_output.chain_state.block_height);
     // commit header chain best block hash as pis
-    //let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
+    let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
 
     // verify that the latest_sequecner_commit_tx is in the header chain
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
@@ -221,8 +220,19 @@ pub fn propose_longest_chain(
     assert_eq!(commit_sequencer_set_hash, state_seqeuencer_set_hash);
 
     // (operator_total_work, included_watchtowers, graph_id, operator_genesis_sequencer_commit_txid, btc_best_block_hash)
-    // TODO: hash()
-    operator_total_work
+    (hash_operator_inputs(graph_id, operator_genesis_sequencer_commit_txid), btc_best_block_hash)
+}
+
+pub fn hash_operator_inputs(
+    graph_id: [u8; GRAPH_ID_SIZE],
+    operator_genesis_sequencer_commit_txid: [u8; 32],
+) -> [u8; 32] {
+    use bitcoin::hashes::{Hash, HashEngine, sha256};
+    let mut engine = sha256::HashEngine::default();
+    engine.input(&graph_id);
+    engine.input(&operator_genesis_sequencer_commit_txid);
+    let hash = sha256::Hash::from_engine(engine);
+    *hash.as_byte_array()
 }
 
 /// Utility method for converting u32 words to bytes in big endian.
@@ -312,8 +322,7 @@ pub type WatchtowerCommitmentResult =
 pub fn parse_watchtower_commitment(
     commitment: &[u8],
 ) -> Result<WatchtowerCommitmentResult, String> {
-    if commitment.len() < GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + 32 + 32
-    {
+    if commitment.len() < GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + 32 + 32 {
         return Err(format!(
             "invalid commitment size: {}, expected: {}",
             commitment.len(),
@@ -382,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_build_watchtower_commitment() {
-        let graph_id = [1u8; 16];
+        let graph_id = [1u8; GRAPH_ID_SIZE];
 
         let total_work = 100;
         let block_height = 100;
