@@ -426,7 +426,7 @@ mod tests {
             Arc::new(Mutex::new(Registry::default())),
             CancellationToken::new(),
         ));
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(3)).await;
         let api_test_items = [
             ApiTestItem {
                 tag: format!("{} get node", routes::v1::NODES_BASE),
@@ -620,7 +620,7 @@ mod tests {
             Arc::new(Mutex::new(Registry::default())),
             CancellationToken::new(),
         ));
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(3)).await;
 
         let bridge_in_request_tag_id = Uuid::new_v4();
 
@@ -778,6 +778,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_proof_api() -> Result<(), Box<dyn std::error::Error>> {
+        init(None);
         let addr = available_addr();
         info!("Start api server");
         let committee = Actor::Committee;
@@ -791,7 +792,7 @@ mod tests {
             Arc::new(Mutex::new(Registry::default())),
             CancellationToken::new(),
         ));
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(3)).await;
         let client = reqwest::Client::new();
 
         let api_test_items = [ApiTestItem {

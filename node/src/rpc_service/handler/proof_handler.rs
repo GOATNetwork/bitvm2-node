@@ -170,7 +170,7 @@ pub async fn get_header_chain_mempool_blocks_desc(
     Ok((
         StatusCode::OK,
         Json(HeaderChainBlockDescListResponse {
-            start: blocks_desc[0].height,
+            start: blocks_desc.first().map_or(0, |block| block.height),
             range: blocks_desc.len() as u64,
             blocks_desc,
         }),
