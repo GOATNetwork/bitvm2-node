@@ -370,6 +370,10 @@ mod tests {
         (guest_pubs, proof, pis, vk)
     }
 
+    fn get_test_operator_proof() {
+        // data/operator-proof/output.bin.*
+    }
+
     async fn gen_test_graph(
         esplora: &EsploraClient,
         disprove_scripts: Vec<ScriptBuf>,
@@ -635,7 +639,7 @@ mod tests {
                 }
                 sleep(Duration::from_secs(1)).await;
                 let elapsed_secs = wait_start.elapsed().as_secs();
-                if elapsed_secs > 10 {
+                if elapsed_secs > 60 {
                     panic!(
                         "Transaction {txid} not confirmed after {} seconds in regtest",
                         elapsed_secs
@@ -911,8 +915,8 @@ mod tests {
             include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
 
         let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap(); //graph.parameters.graph_id.to_bytes_le();
-        let total_work = 1006120;
-        let block_height = 100;
+        //let total_work = 1006120;
+        //let consensus_commit_block_height = 503043;
         let comm = bitcoin_light_client_circuit::build_watchtower_commitment(
             &graph_id,
             //&[0u8; PROOF_SIZE],
@@ -921,8 +925,8 @@ mod tests {
             &PROOF.try_into().unwrap(),
             &PUBLIC_INPUTS.try_into().unwrap(),
             VK_HASH,
-            total_work,
-            block_height,
+            //total_work,
+            //consensus_commit_block_height,
         );
 
         let mut watchtower_0_challenge = build_watchtower_challenge_tx(

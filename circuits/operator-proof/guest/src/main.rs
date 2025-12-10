@@ -30,7 +30,7 @@ pub fn main() {
     let operator_state_chain: StateChainCircuitInput = zkm_zkvm::io::read();
     let spv: SPV = zkm_zkvm::io::read();
 
-    let (constant_hash,btc_best_block_hash)= bitcoin_light_client_circuit::propose_longest_chain(
+    let operator_public_input = bitcoin_light_client_circuit::propose_longest_chain(
         included_watchertowers,
         graph_id,
         operator_genesis_sequencer_commit_txid,
@@ -46,8 +46,6 @@ pub fn main() {
         spv,
     );
 
-    zkm_zkvm::io::commit(&constant_hash);
-    zkm_zkvm::io::commit(&included_watchertowers);
-    zkm_zkvm::io::commit(&btc_best_block_hash);
+    zkm_zkvm::io::commit(&operator_public_input);
 }
 

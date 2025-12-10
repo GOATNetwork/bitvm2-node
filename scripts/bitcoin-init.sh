@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RPC_USER=111111
 RPC_PSWD=111111
@@ -38,7 +39,7 @@ $BTC --rpcwallet=$WALLET_NAME walletpassphrase $WALLET_PASSPHRASE 600
 
 address="bcrt1q7tr8sl50zanztcrps35hakqpe7gmfzedhhnxcspj7n0ks5lyrnhs6m8ewg"
 ## fund the address
-$BTC --rpcwallet=$WALLET_NAME -generate 101
+#$BTC --rpcwallet=$WALLET_NAME -generate 101
 $BTC --rpcwallet=$WALLET_NAME sendtoaddress $address 20
 
 # Install watch
