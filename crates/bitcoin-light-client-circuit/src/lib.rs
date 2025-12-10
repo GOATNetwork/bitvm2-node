@@ -103,7 +103,7 @@ pub fn propose_longest_chain(
     commit_chain: CommitChainCircuitInput,
     state_chain: StateChainCircuitInput,
     spv: SPV,
-) -> [u8; 32] {
+) -> ([u8; 32], [u8; 32], [u8; 32]) {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
     let commit_chain_output = commit_chain_circuit(commit_chain.clone());
@@ -253,11 +253,12 @@ pub fn propose_longest_chain(
 
     println!("btc_best_block_hash hex: {:?}", hex::encode(btc_best_block_hash));
     println!("included_watchtowers: {:?}", hex::encode(included_watchtowers.to_le_bytes::<32>()));
-    let operator_public_input =
-        hash_operator_inputs(btc_best_block_hash, constant, included_watchtowers);
-    println!("operator public input hex: {:?}", hex::encode(operator_public_input));
+    //let operator_public_input =
+    //    hash_operator_inputs(btc_best_block_hash, constant, included_watchtowers);
+    //println!("operator public input hex: {:?}", hex::encode(operator_public_input));
 
-    operator_public_input
+    //operator_public_input
+    (btc_best_block_hash, constant, included_watchtowers.to_le_bytes::<32>())
 }
 
 pub fn hash_operator_constant(
@@ -271,6 +272,7 @@ pub fn hash_operator_constant(
     *hash.as_byte_array()
 }
 
+/*
 pub fn hash_operator_inputs(
     block_hash: [u8; 32],
     constant: [u8; 32],
@@ -283,6 +285,7 @@ pub fn hash_operator_inputs(
     let hash = sha256::Hash::from_engine(engine);
     *hash.as_byte_array()
 }
+*/
 
 /// Utility method for converting u32 words to bytes in big endian.
 pub fn words_to_bytes_be(words: &[u32; 8]) -> [u8; 32] {
