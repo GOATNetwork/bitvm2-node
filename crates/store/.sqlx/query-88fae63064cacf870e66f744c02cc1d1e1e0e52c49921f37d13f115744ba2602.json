@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT * FROM header_chain_proof WHERE id = ?",
+  "query": "SELECT * FROM header_chain_proof WHERE status = ? ORDER BY id DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -94,5 +94,5 @@
       false
     ]
   },
-  "hash": "4ed790ebbaef694229f4c64f0e0f7f568adbb8a4da04703a290fb27ccd5afda1"
+  "hash": "88fae63064cacf870e66f744c02cc1d1e1e0e52c49921f37d13f115744ba2602"
 }

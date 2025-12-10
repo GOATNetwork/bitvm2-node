@@ -11,7 +11,8 @@ anyhow.workspace = true
 bincode.workspace = true
 chrono.workspace = true
 serde.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-util = "0.7.15"
 tracing-appender.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -27,6 +28,8 @@ borsh = { workspace = true }
 header-chain = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
+circuits-base = { workspace = true }
+store = { workspace = true }
 
 # Ziren
 zkm-sdk.workspace = true

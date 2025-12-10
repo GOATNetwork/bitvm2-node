@@ -1,16 +1,15 @@
 mod commit_chain_proof;
-mod header_chain_proof;
 mod operator_proof;
 mod watchtower_proof;
 
-use crate::env::{
+use crate::proof_tasks::commit_chain_proof::spawn_commit_chain_proof_task;
+use crate::proof_tasks::operator_proof::spawn_operator_proof_task;
+use crate::proof_tasks::watchtower_proof::spawn_watchtower_proof_task;
+use circuits_base::env::{
     is_start_commit_chain_proof_generate, is_start_heard_chain_proof_generate,
     is_start_operator_proof_generate, is_start_watchtower_proof_generate,
 };
-use crate::proof_tasks::commit_chain_proof::spawn_commit_chain_proof_task;
-use crate::proof_tasks::header_chain_proof::spawn_header_chain_proof_task;
-use crate::proof_tasks::operator_proof::spawn_operator_proof_task;
-use crate::proof_tasks::watchtower_proof::spawn_watchtower_proof_task;
+use header_chain_proof::spawn_header_chain_proof_task;
 use futures::future::Either;
 use store::localdb::LocalDB;
 use tokio_util::sync::CancellationToken;
@@ -23,12 +22,12 @@ pub(crate) fn is_start_generate_proof_tasks() -> bool {
         || is_start_watchtower_proof_generate()
 }
 pub(crate) async fn run_generate_proof_tasks(
-    _local_db: LocalDB,
+    local_db: LocalDB,
     interval: u64,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
     let header_chain_proof_future = if is_start_heard_chain_proof_generate() {
-        Either::Left(spawn_header_chain_proof_task(interval, 0, cancellation_token.clone()))
+        Either::Left(spawn_header_chain_proof_task(interval, 0, cancellation_token.clone(), &local_db))
     } else {
         Either::Right(std::future::pending::<Result<anyhow::Result<()>, tokio::task::JoinError>>())
     };

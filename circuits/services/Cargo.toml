@@ -21,5 +21,7 @@ serde = { version = "1.0.226", default-features = false, features = ["derive"] }
 axum = { workspace = true, features = ["macros", "json"] }
 http-body-util = "0.1"
 prometheus-client = { workspace = true }
+circuits-base = { workspace = true }
+header-chain-proof = { workspace = true }
 [lints]
 workspace = true

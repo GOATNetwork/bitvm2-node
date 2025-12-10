@@ -741,33 +741,28 @@ pub enum ProofType {
 pub enum ProofStatus {
     #[default]
     Pending,
-    Readying,
     Proved,
     Failed,
 }
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct CommitInfo {
-    pub txid: SerializableTxid,
-    pub threshold: i64,
-    #[sqlx(json)]
-    pub publisher_public_keys: Vec<String>,
-    pub commit_proof_id: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
+pub enum ProofDataLocation {
+    #[default]
+    DB,
+    File,
+    S3,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct CommitChainProof {
     pub id: i64,
-    #[sqlx(json)]
-    pub commit_info_txids: Vec<SerializableTxid>,
-    pub in_location: String,
-    pub prev_proof: Option<String>,
-    pub out_location: String,
+    pub commits: String,
+    pub data_location: String,
     pub proof: String,
-    pub vk: String,
+    pub vk_hash: String,
     pub public_inputs: String,
     pub status: String,
+    pub proving_cycles: i64,
+    pub proof_size: i64,
     pub proving_time: i64,
     pub zkm_version: String,
     pub created_at: i64,
@@ -777,15 +772,15 @@ pub struct CommitChainProof {
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct HeaderChainProof {
     pub id: i64,
-    pub in_location: String,
-    pub prev_proof: Option<String>,
+    pub data_location: String,
     pub batch_size: i64,
     pub start: i64,
-    pub out_location: String,
     pub proof: String,
-    pub vk: String,
+    pub vk_hash: String,
     pub public_inputs: String,
     pub status: String,
+    pub proving_cycles: i64,
+    pub proof_size: i64,
     pub proving_time: i64,
     pub zkm_version: String,
     pub created_at: i64,
@@ -817,21 +812,23 @@ pub struct WatchtowerProof {
 pub struct OperatorProof {
     pub graph_id: Uuid,
     pub instance_id: Uuid,
-    pub included_watchtowers: String,
+    pub genesis_sequencer_commit_txid: String,
     pub latest_sequencer_commit_txid: String,
-    pub in_location: String,
-    pub header_chain_proof: String,
-    pub commit_chain_proof: String,
+    pub header_chain_proof_id: i64,
+    pub state_chain_proof_id: i64,
+    pub commit_chain_proof_id: i64,
     pub execution_layer_block_number: i64,
-    pub watchtower_challenge_info: String,
+    pub watchtower_challenge_txids: String,
+    pub watchtower_public_keys: String,
     pub watchtower_challenge_init_txid: String,
-    pub block_headers_file_path: String,
-    pub out_location: String,
+    pub data_location: String,
     pub proof: Option<String>,
-    pub groth16_vk: Option<String>,
+    pub groth16_vk_hash: Option<String>,
     pub public_inputs: Option<String>,
     pub status: String,
     pub proving_time: i64,
+    pub proving_cycles: i64,
+    pub proof_size: i64,
     pub zkm_version: String,
     pub created_at: i64,
     pub updated_at: i64,

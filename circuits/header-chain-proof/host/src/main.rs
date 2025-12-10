@@ -3,6 +3,9 @@
 //!     export BITCOIN_NETWORK=regtest
 //!     Genesis:        RUST_LOG=debug cargo run -r -- --start 0 --batch-size 278 --init-input --output-proof "0-10.bin"
 //!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 278 --batch-size 20 --input-proof "0-10.bin" --output-proof "10-20.bin"
+
+mod proof_task;
+
 use bitcoin::Network;
 use borsh::{BorshDeserialize, BorshSerialize};
 use client::btc_chain::BTCClient;
@@ -20,11 +23,20 @@ use std::sync::OnceLock;
 /// A program that aggregates the proofs of the simple program.
 const HEADER_CHAIN: &[u8] = include_elf!("guest");
 
+use circuits_base::env;
 use clap::Parser;
+use futures_util::TryFutureExt;
+use std::env::args;
+use std::time::Duration;
 use std::{
     fs,
     io::{Read, Seek},
 };
+use store::ProofStatus;
+use store::localdb::LocalDB;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
