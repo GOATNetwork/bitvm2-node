@@ -484,13 +484,13 @@ pub mod evm_swap_utils {
             outputAmount: output_amount,
             outputScriptHash: output_script_hash,
         };
-        let txo_hash = keccak256(&txo.abi_encode_packed());
+        let txo_hash = keccak256(txo.abi_encode_packed());
         let claim_commitment = IClaimHandlerHelper::ClaimCommitment {
             TxoHash: txo_hash,
             confirmations,
             btcRelayContract: *btc_relay_contract,
         };
-        keccak256(&claim_commitment.abi_encode_packed())
+        keccak256(claim_commitment.abi_encode_packed())
     }
 
     fn find_init_swap_data(
