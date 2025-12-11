@@ -18,7 +18,8 @@ use hex::FromHex;
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
 use zkm_sdk::{
-    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
+    include_elf,
 };
 use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
@@ -27,6 +28,10 @@ const OPERATOR: &[u8] = include_elf!("guest");
 
 use clap::Parser;
 use std::fs;
+
+use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
+static ELF_ID: OnceLock<String> = OnceLock::new();
 
 /*
 // https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
@@ -213,7 +218,7 @@ async fn main() {
     let tx_merkle_proof =
         btc_client.get_merkle_proof(&latest_sequencer_commit_txid).await.unwrap().unwrap();
     let block_pos = tx_merkle_proof.block_height;
-    println!("block height: {block_pos}");
+    tracing::info!("block height: {block_pos}");
     let target_block = btc_client.get_block_by_height(block_pos).await.unwrap();
 
     let bitcoin_block_headers = {
@@ -223,8 +228,8 @@ async fn main() {
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::<Vec<CircuitBlockHeader>>()
     };
-    println!("block headers: {:?}", bitcoin_block_headers.len());
-    println!("construct spv");
+    tracing::info!("block headers: {:?}", bitcoin_block_headers.len());
+    tracing::info!("construct spv");
     let spv = build_spv(
         &operator_latest_sequencer_commit_txn,
         block_pos,
@@ -253,7 +258,7 @@ async fn main() {
         .unwrap();
 
     for (id, pk) in args.watchtower_challenge_txids.iter().zip(args.watchtower_public_keys.iter()) {
-        println!("txid: {}, pk: {}", id, pk);
+        tracing::info!("txid: {}, pk: {}", id, pk);
         let txid = id.parse().unwrap();
         let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
         // get prev outs
@@ -280,7 +285,7 @@ async fn main() {
         watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
     }
     // Generate the proofs
-    let proof = tracing::info_span!("generate proof").in_scope(|| {
+    let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
 
         let included_watchtowers: U256 = U256::from_str(&args.included_watchtowers).unwrap();
@@ -305,23 +310,35 @@ async fn main() {
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
         } else {
-            println!("Skip writing commit chain proof");
+            tracing::info!("Skip writing commit chain proof");
         }
 
         if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
             stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
         } else {
-            println!("Skip writing header chain proof");
+            tracing::info!("Skip writing header chain proof");
         }
 
         if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
             stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
         } else {
-            println!("Skip writing state chain proof");
+            tracing::info!("Skip writing state chain proof");
         }
 
-        client.prove(&proof_pk, stdin).groth16().run().expect("proving failed")
+        let elf_id = if ELF_ID.get().is_none() {
+            ELF_ID.set(hex::encode(Sha256::digest(&proof_pk.elf))).unwrap();
+            None
+        } else {
+            Some(ELF_ID.get().unwrap().clone())
+        };
+        tracing::info!("elf id: {:?}", elf_id);
+
+        client
+            .prove_with_cycles(&proof_pk, &stdin, ZKMProofKind::Groth16, elf_id)
+            .expect("proving failed")
     });
+
+    tracing::info!("Operator proof cycles: {}", cycles);
 
     //fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
     //fs::write(&format!("{}.vk", args.output), bincode::serialize(&proof_vk).unwrap()).unwrap();
@@ -339,5 +356,5 @@ async fn main() {
     let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", args.output)).unwrap();
     ark_proof.public_inputs.serialize_compressed(&mut writer).unwrap();
 
-    println!("Generate proof successfully, Ark proof: {:?}", ark_proof);
+    tracing::info!("Generate proof successfully, Ark proof: {:?}", ark_proof);
 }

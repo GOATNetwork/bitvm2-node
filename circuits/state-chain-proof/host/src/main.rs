@@ -12,8 +12,13 @@ use state_chain::*;
 use std::sync::Arc;
 use url::Url;
 use zkm_sdk::{
-    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
+    include_elf,
 };
+
+use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
+static ELF_ID: OnceLock<String> = OnceLock::new();
 
 /// A program that aggregates the proofs of the simple program.
 const STATE_CHAIN: &[u8] = include_elf!("guest");
@@ -120,7 +125,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
                 .collect();
             let graph_ids: Vec<_> = indices.iter().map(|&x| args.graph_ids[x].clone()).collect();
             if graph_ids.len() > 0 {
-                println!("block_id: {i}, check graph_ids: {:?}", graph_ids);
+                tracing::info!("block_id: {i}, check graph_ids: {:?}", graph_ids);
                 Some((l2_contract_address, base_slot, graph_ids))
             } else {
                 None
@@ -130,7 +135,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
         };
 
         let cosmos_block = serde_json::to_vec(&cosmos_block).unwrap();
-        println!("[push] block: {}, withdrawals: {:?}", i, withdrawals);
+        tracing::info!("[push] block: {}, withdrawals: {:?}", i, withdrawals);
         blocks.push(CircuitStateBlock { cosmos_txns, cosmos_block, evm_block, withdrawals });
     }
     let block_bytes = serde_json::to_vec(&blocks).unwrap();
@@ -142,7 +147,7 @@ async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
 async fn main() {
     dotenv::dotenv().ok();
     let args = Args::parse();
-    println!("args: {:?}", args);
+    tracing::info!("args: {:?}", args);
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
     let blocks = fetch_state_chain(&args).await;
@@ -156,7 +161,6 @@ async fn main() {
     let vk_hash = state_chain_proof_vk.hash_u32();
 
     // Set the previous proof type based on input_proof argument
-    println!("init input: {}", args.init_input);
     let prev_receipt = if args.init_input {
         None
     } else {
@@ -177,17 +181,28 @@ async fn main() {
     let input: StateChainCircuitInput =
         StateChainCircuitInput { vk_hash, pv_hash, prev_proof, blocks };
     // Generate the proofs.
-    let proof = tracing::info_span!("generate proof").in_scope(|| {
+    let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
         stdin.write(&input);
         if let Some(proof) = prev_receipt {
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
             stdin.write_proof(*compressed_proof, state_chain_proof_vk.vk.clone());
         } else {
-            println!("Skip writing proof for genesis evm block");
+            tracing::info!("Skip writing proof for genesis evm block");
         }
-        client.prove(&state_chain_proof_pk, stdin).compressed().run().expect("proving failed")
+        let elf_id = if ELF_ID.get().is_none() {
+            ELF_ID.set(hex::encode(Sha256::digest(&state_chain_proof_pk.elf))).unwrap();
+            None
+        } else {
+            Some(ELF_ID.get().unwrap().clone())
+        };
+        tracing::info!("elf id: {:?}", elf_id);
+
+        client
+            .prove_with_cycles(&state_chain_proof_pk, &stdin, ZKMProofKind::Compressed, elf_id)
+            .expect("proving failed")
     });
+    tracing::info!("State chain proof cycles: {}", cycles);
     if let Err(e) = client.verify(&proof, &state_chain_proof_vk) {
         panic!("{}", e);
     }
@@ -199,5 +214,5 @@ async fn main() {
     )
     .unwrap();
     fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
-    println!("Generate proof successfully, proof: {:?}", proof);
+    tracing::info!("Generate proof successfully, proof: {:?}", proof);
 }

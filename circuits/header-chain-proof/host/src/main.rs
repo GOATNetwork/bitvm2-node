@@ -9,9 +9,13 @@ use client::btc_chain::BTCClient;
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
+use sha2::{Digest, Sha256};
+use zkm_sdk::ZKMProofKind;
 use zkm_sdk::{
-    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
+static ELF_ID: OnceLock<String> = OnceLock::new();
+use std::sync::OnceLock;
 
 /// A program that aggregates the proofs of the simple program.
 const HEADER_CHAIN: &[u8] = include_elf!("guest");
@@ -78,7 +82,7 @@ async fn fetch_header_chain(args: &Args) -> Vec<CircuitBlockHeader> {
 
     for i in args.start..(args.start + args.batch_size) {
         let block = btc_client.get_block_by_height(i as u32).await.unwrap();
-        println!("block_id {i}: {}", block.block_hash().to_string());
+        tracing::info!("block_id {i}: {}", block.block_hash().to_string());
         let header: header_chain::CircuitBlockHeader = block.header.into();
         block_headers.push(header.clone());
         header.serialize(&mut writer).unwrap();
@@ -91,7 +95,6 @@ async fn fetch_header_chain(args: &Args) -> Vec<CircuitBlockHeader> {
 async fn main() {
     dotenv::dotenv().ok();
     let args = Args::parse();
-    println!("ca path: {:?}", std::env::var("CA_CERT_PATH"));
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
 
@@ -109,7 +112,6 @@ async fn main() {
     let prev_receipt = if args.init_input {
         None
     } else {
-        println!("read previous proof");
         let proof_bytes = fs::read(&args.input_proof).expect("Failed to read input proof file");
         let proof: ZKMProofWithPublicValues =
             bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
@@ -117,16 +119,14 @@ async fn main() {
     };
     let (prev_proof, pv_hash) = match prev_receipt.clone() {
         Some(mut receipt) => {
-            println!("read public values");
             let prev_output: BlockHeaderCircuitOutput = receipt.public_values.read();
-            println!("read public values done");
             start = prev_output.chain_state.block_height as usize + 1;
             let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
             (HeaderChainPrevProofType::PrevProof(prev_output), pv_hash)
         }
         None => (HeaderChainPrevProofType::GenesisBlock, [0u8; 32]),
     };
-    println!(
+    tracing::info!(
         "header-chain length: {}, start: {}, batch_size: {}",
         total_block_headers.len(),
         start,
@@ -138,21 +138,29 @@ async fn main() {
         HeaderChainCircuitInput { vk_hash, prev_proof, pv_hash, block_headers };
 
     // Generate the proofs.
-    let proof = tracing::info_span!("generate proof").in_scope(|| {
+    let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
-        println!("write inputs");
         stdin.write(&input);
-        println!("write inputs done");
         if let Some(proof) = prev_receipt {
-            println!("Generate proof from block {}", start);
+            tracing::info!("Generate proof from block {}", start);
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
             stdin.write_proof(*compressed_proof, header_chain_proof_vk.vk.clone());
         } else {
-            println!("Generate proof from genesis block");
+            tracing::info!("Generate proof from genesis block");
         }
-        println!("begin to prove");
-        client.prove(&header_chain_proof_pk, stdin).compressed().run().expect("proving failed")
+        let elf_id = if ELF_ID.get().is_none() {
+            ELF_ID.set(hex::encode(Sha256::digest(&header_chain_proof_pk.elf))).unwrap();
+            None
+        } else {
+            Some(ELF_ID.get().unwrap().clone())
+        };
+        tracing::info!("elf id: {:?}", elf_id);
+        client
+            .prove_with_cycles(&header_chain_proof_pk, &stdin, ZKMProofKind::Compressed, elf_id)
+            .expect("proving failed")
     });
+
+    tracing::info!("Header chain proof cycles: {}", cycles);
 
     if let Err(e) = client.verify(&proof, &header_chain_proof_vk) {
         panic!("{}", e);
@@ -165,5 +173,5 @@ async fn main() {
     )
     .unwrap();
     fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
-    println!("Generate proof successfully, proof: {:?}", proof);
+    tracing::info!("Generate proof successfully, proof: {:?}", proof);
 }

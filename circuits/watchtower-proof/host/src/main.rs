@@ -5,14 +5,18 @@ use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
-    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
+    include_elf,
 };
 
 use bitcoin::{Network, Txid, hashes::Hash};
 use bitcoin_light_client_circuit::build_spv;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
+use sha2::{Digest, Sha256};
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
+use std::sync::OnceLock;
+static ELF_ID: OnceLock<String> = OnceLock::new();
 
 /// A program that aggregates the proofs of the simple program.
 const WTACHTOWER: &[u8] = include_elf!("guest");
@@ -121,7 +125,7 @@ async fn main() {
     let tx_merkle_proof =
         btc_client.get_merkle_proof(&latest_sequencer_commit_txid).await.unwrap().unwrap();
     let block_pos = tx_merkle_proof.block_height;
-    println!("block height: {block_pos}");
+    tracing::info!("block height: {block_pos}");
     let target_block = btc_client.get_block_by_height(block_pos).await.unwrap();
 
     let bitcoin_block_headers = {
@@ -131,17 +135,17 @@ async fn main() {
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::<Vec<CircuitBlockHeader>>()
     };
-    println!("block headers: {:?}", bitcoin_block_headers.len());
+    tracing::info!("block headers: {:?}", bitcoin_block_headers.len());
     let found = bitcoin_block_headers
         .iter()
         .position(|h| h.compute_block_hash() == *target_block.block_hash().as_byte_array());
-    println!("block found: {:?}", found);
+    tracing::info!("block found: {:?}", found);
 
-    println!("construct spv");
+    tracing::info!("construct spv");
     let spv = build_spv(&tx, block_pos, target_block, &bitcoin_block_headers);
 
     // Generate the proofs.
-    let mut proof = tracing::info_span!("generate proof").in_scope(|| {
+    let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
         stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
         stdin.write(&latest_sequencer_commit_txid.to_byte_array());
@@ -153,29 +157,35 @@ async fn main() {
         if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
             stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
         } else {
-            println!("skip writing commit chain proof");
+            tracing::info!("skip writing commit chain proof");
         }
 
         if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
             stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
         } else {
-            println!("skip writing header chain proof");
+            tracing::info!("skip writing header chain proof");
         }
 
         if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
             stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
         } else {
-            println!("skip writing consensus chain proof");
+            tracing::info!("skip writing consensus chain proof");
         }
 
-        client.prove(&watchtower_proof_pk, stdin).groth16().run().expect("proving failed")
+        let elf_id = if ELF_ID.get().is_none() {
+            ELF_ID.set(hex::encode(Sha256::digest(&watchtower_proof_pk.elf))).unwrap();
+            None
+        } else {
+            Some(ELF_ID.get().unwrap().clone())
+        };
+        tracing::info!("elf id: {:?}", elf_id);
+
+        client
+            .prove_with_cycles(&watchtower_proof_pk, &stdin, ZKMProofKind::Groth16, elf_id)
+            .expect("proving failed")
     });
 
-    use alloy_primitives::U256;
-    let total_work: [u8; 32] = proof.public_values.read();
-    println!("total work: {total_work:?}, {}", U256::from_be_bytes(total_work));
-    let btc_best_block_height: u32 = proof.public_values.read();
-    println!("btc_best_block_height: {btc_best_block_height:?}");
+    tracing::info!("Watchtower proof cycles: {}", cycles);
 
     std::fs::write(&format!("{}.proof.bin", args.output), proof.bytes()).unwrap();
     std::fs::write(&format!("{}.public_inputs.bin", args.output), proof.public_values.to_vec())

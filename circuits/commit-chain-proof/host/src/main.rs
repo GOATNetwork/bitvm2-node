@@ -7,8 +7,13 @@ use client::btc_chain::BTCClient;
 use commit_chain::*;
 use std::str::FromStr;
 use zkm_sdk::{
-    HashableKey, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
+    include_elf,
 };
+
+use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
+static ELF_ID: OnceLock<String> = OnceLock::new();
 
 /// A program that aggregates the proofs of the simple program.
 const COMMIT_CHAIN: &[u8] = include_elf!("guest");
@@ -67,7 +72,7 @@ async fn fetch_commit_chain(args: &Args) {
             .iter()
             .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
             .collect();
-        println!("sequencer_hash: {:?}", sequencer_hash(&ci.sequencers));
+        tracing::info!("sequencer_hash: {:?}", sequencer_hash(&ci.sequencers));
         let commit = CircuitCommit {
             commit_txn,
             sequencers: ci.sequencers.clone(),
@@ -85,7 +90,7 @@ async fn fetch_commit_chain(args: &Args) {
 async fn main() {
     dotenv::dotenv().ok();
     let args = Args::parse();
-    println!("args: {:?}", args);
+    tracing::info!("args: {:?}", args);
     fetch_commit_chain(&args).await;
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
@@ -121,27 +126,35 @@ async fn main() {
     let input: CommitChainCircuitInput =
         CommitChainCircuitInput { vk_hash, pv_hash, prev_proof, commits };
 
-    let aaa = bincode::serialize(&input).unwrap();
-    println!("input aaa size: {}", aaa.len());
-    let bbb = bincode::deserialize::<CommitChainCircuitInput>(&aaa).unwrap();
-    assert_eq!(input, bbb);
-
     //let output = commit_chain_circuit(input.clone());
-    //println!("Commit chain circuit output: {:?}", output);
+    //tracing::info!("Commit chain circuit output: {:?}", output);
     // Generate the proofs.
-    let proof = tracing::info_span!("generate proof").in_scope(|| {
+    let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
         let mut stdin = ZKMStdin::new();
         stdin.write(&input);
 
         if let Some(proof) = prev_receipt {
             let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
             stdin.write_proof(*compressed_proof, commit_chain_proof_vk.vk.clone());
-            println!("Write prev proof into stdin");
+            tracing::info!("Write prev proof into stdin");
         } else {
-            println!("Skip writing proof for genesis commit");
+            tracing::info!("Skip writing proof for genesis commit");
         }
-        client.prove(&commit_chain_proof_pk, stdin).compressed().run().expect("proving failed")
+
+        let elf_id = if ELF_ID.get().is_none() {
+            ELF_ID.set(hex::encode(Sha256::digest(&commit_chain_proof_pk.elf))).unwrap();
+            None
+        } else {
+            Some(ELF_ID.get().unwrap().clone())
+        };
+        tracing::info!("elf id: {:?}", elf_id);
+        client
+            .prove_with_cycles(&commit_chain_proof_pk, &stdin, ZKMProofKind::Compressed, elf_id)
+            .expect("proving failed")
     });
+
+    tracing::info!("Commit chain proof cycles: {}", cycles);
+
     if let Err(e) = client.verify(&proof, &commit_chain_proof_vk) {
         panic!("{}", e);
     }
@@ -153,5 +166,5 @@ async fn main() {
     )
     .unwrap();
     fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
-    println!("Generate proof successfully, proof: {:?}", proof);
+    tracing::info!("Generate proof successfully, proof: {:?}", proof);
 }
