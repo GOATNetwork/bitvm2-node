@@ -2,7 +2,10 @@
 const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 use alloy::consensus::crypto::secp256k1::recover_signer;
 use alloy::primitives::{Address, B256, Bytes, FixedBytes, Signature, U256};
-use alloy::rpc::types::TransactionReceipt;
+use alloy::rpc::types::{
+    TransactionReceipt,
+    trace::geth::{GethDebugTracingOptions, GethTrace},
+};
 use anyhow::bail;
 use bitcoin::hashes::Hash;
 use bitcoin::{PublicKey, Transaction, Txid, XOnlyPublicKey};
@@ -71,6 +74,15 @@ impl GOATClient {
     ) -> anyhow::Result<Option<TransactionReceipt>> {
         self.chain_service.get_tx_receipt(tx_hash).await
     }
+
+    pub async fn debug_trace_tx(
+        &self,
+        tx_hash: &str,
+        trace_options: Option<GethDebugTracingOptions>,
+    ) -> anyhow::Result<GethTrace> {
+        self.chain_service.debug_trace_tx(tx_hash, trace_options).await
+    }
+
     pub async fn is_committee_member(&self) -> anyhow::Result<bool> {
         let addr = self.get_default_signer_address();
         self.committee_mana_is_committee_member(&addr).await

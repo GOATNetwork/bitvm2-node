@@ -387,6 +387,217 @@ pub mod todo_funcs {
         }
     }
 }
+
+pub mod evm_swap_utils {
+    use super::*;
+    use crate::utils::evm_swap_utils::IEscrowManager::{EscrowData, IEscrowManagerCalls};
+    use alloy::primitives::{B256, keccak256};
+    use alloy::rpc::types::trace::geth::{CallConfig, CallFrame, GethDebugTracingOptions};
+    use alloy::sol;
+    use alloy::sol_types::SolInterface;
+    use alloy::sol_types::SolValue;
+
+    sol! {
+        interface IEscrowManager {
+            event Initialize(address indexed offerer, address indexed claimer, bytes32 indexed escrowHash, address claimHandler, address refundHandler);
+            event Claim(address indexed offerer, address indexed claimer, bytes32 indexed escrowHash, address claimHandler, bytes witnessResult);
+            event Refund(address indexed offerer, address indexed claimer, bytes32 indexed escrowHash, address refundHandler, bytes witnessResult);
+            event ExecutionError(bytes32 indexed escrowHash, bytes error);
+            #[derive(Debug)]
+            struct EscrowData {
+                //Account funding the escrow
+                address offerer;
+                //Account entitled to claim the funds from the escrow
+                address claimer;
+
+                //Amount of tokens in the escrow
+                uint256 amount;
+                //Token of the escrow
+                address token;
+
+                //Misc escrow data flags, currently defined: payIn, payOut, reputation.
+                //It is recommended to randomize the other unused bits in the flags to act as a salt,
+                // such that no 2 escrow data are the same, even if all the other data in them match.
+                uint256 flags;
+
+                //Address of the IClaimHandler deciding if this escrow is claimable
+                // use BitcoinNoncedOutputClaimHandler for Goat -> Bitcoin swaps
+                address claimHandler;
+                //Data provided to the claim handler along with the witness to check claimability
+                // for BitcoinNoncedOutputClaimHandler, this is the hash commitment of the claim data, see hash_claim_commitment
+                bytes32 claimData;
+
+                //Address of the IRefundHandler deciding if this escrow is refundable
+                // use TimelockRefundHandler for Goat -> Bitcoin swaps
+                address refundHandler;
+                //Data provided to the refund handler along with the witness to check for refundability
+                // for TimelockRefundHandler, this is the timestamp after which refund is possible
+                bytes32 refundData;
+
+                //Security deposit taken by the offerer if swap expires without claimer claiming (i.e. options premium)
+                uint256 securityDeposit;
+                //Claimer bounty that can be claimed by a 3rd party claimer if he were to claim this swap on behalf of claimer
+                uint256 claimerBounty;
+                //Deposit token of the swap used for securityDeposit and claimerBounty
+                address depositToken;
+
+                //ExecutionAction hash commitment to be executed on claim, left 0x0 if no execution should happen on claim
+                bytes32 successActionCommitment;
+            }
+            function initialize(EscrowData calldata escrow, bytes calldata signature, uint256 timeout, bytes memory _extraData) external payable {}
+            function claim(EscrowData calldata escrow, bytes calldata witness) external {}
+        }
+    }
+
+    pub fn hash_escrow_data(escrow: &EscrowData) -> B256 {
+        let encoded = escrow.abi_encode();
+        keccak256(&encoded)
+    }
+
+    pub fn hash_claim_commitment(
+        nonce: u64,
+        output_amount: u64,
+        output_script: &[u8],
+        confirmations: u32,
+        btc_relay_contract: &EvmAddress,
+    ) -> B256 {
+        // txoHash = keccak256(uint64 nonce || uint64 outputAmount || keccak256(bytes outputScript))
+        // Commitment: C = abi.encodePacked(bytes32 txoHash, uint32 confirmations, address btcRelayContract)
+        // Witness: W = C || StoredBlockHeader blockheader || uint32 vout || bytes transaction || uint32 position || bytes32[] merkleProof
+        sol! {
+            interface IClaimHandlerHelper {
+                struct Txo {
+                    uint64 nonce;
+                    uint64 outputAmount;
+                    bytes32 outputScriptHash;
+                }
+                struct ClaimCommitment {
+                    bytes32 TxoHash;
+                    uint32 confirmations;
+                    address btcRelayContract;
+                }
+            }
+        }
+        let output_script_hash = keccak256(output_script);
+        let txo = IClaimHandlerHelper::Txo {
+            nonce,
+            outputAmount: output_amount,
+            outputScriptHash: output_script_hash,
+        };
+        let txo_hash = keccak256(&txo.abi_encode_packed());
+        let claim_commitment = IClaimHandlerHelper::ClaimCommitment {
+            TxoHash: txo_hash,
+            confirmations,
+            btcRelayContract: *btc_relay_contract,
+        };
+        keccak256(&claim_commitment.abi_encode_packed())
+    }
+
+    fn find_init_swap_data(
+        call: &CallFrame,
+        swap_contract_address: &EvmAddress,
+        escrow_hash: &[u8; 32],
+    ) -> anyhow::Result<Option<EscrowData>> {
+        if call.to == Some(*swap_contract_address)
+            && let Ok(calldata) = IEscrowManagerCalls::abi_decode(&call.input)
+            && let IEscrowManagerCalls::initialize(args) = calldata
+        {
+            let computed_hash = hash_escrow_data(&args.escrow);
+            if &computed_hash.0 == escrow_hash {
+                return Ok(Some(args.escrow));
+            }
+        }
+
+        for sub_call in &call.calls {
+            if let Some(escrow_data) =
+                find_init_swap_data(sub_call, swap_contract_address, escrow_hash)?
+            {
+                return Ok(Some(escrow_data));
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn extract_escrow_data_from_tx(
+        goat_client: &GOATClient,
+        tx_hash: &str,
+        swap_contract_address: &EvmAddress,
+        escrow_hash: &[u8; 32],
+    ) -> anyhow::Result<Option<EscrowData>> {
+        let trace_opts = GethDebugTracingOptions::call_tracer(CallConfig::default());
+        let trace_raw = goat_client.debug_trace_tx(tx_hash, Some(trace_opts)).await?;
+        let call_trace = trace_raw.try_into_call_frame()?;
+        if let Some(escrow_data) =
+            find_init_swap_data(&call_trace, swap_contract_address, escrow_hash)?
+        {
+            Ok(Some(escrow_data))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_trace_tx() {
+        unsafe {
+            std::env::set_var(crate::env::ENV_GOAT_CHAIN_URL, "https://rpc.testnet3.goat.network");
+        }
+        let tx_hash = "0x6027024dc57b847120074efed67c3e31534988f70b6b1e5043b248e7740a295c";
+        let goat_client = GOATClient::new(
+            crate::env::goat_config_from_env().await,
+            client::goat_chain::GoatNetwork::Test,
+        );
+        let swap_contract_address =
+            EvmAddress::from_str("0xe510D5781C6C849284Fb25Dc20b1684cEC445C8B").unwrap();
+        let escrow_hash: [u8; 32] =
+            hex::decode("521a1d007f9fdf41b18ad6f1ccfeaf8fd67d0b04608ce3d8950526e55e4eca28")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let escrow_data = extract_escrow_data_from_tx(
+            &goat_client,
+            tx_hash,
+            &swap_contract_address,
+            &escrow_hash,
+        )
+        .await
+        .unwrap();
+        assert!(escrow_data.is_some());
+        let expected_claim_hash =
+            B256::from_str("0xc69e4a62e0c904b341245656ba191790356d771bd4a7a00bed2780a5abad8c63")
+                .unwrap();
+        assert_eq!(escrow_data.unwrap().claimData, expected_claim_hash);
+    }
+
+    #[test]
+    fn test_hash_claim_commitment() {
+        // example data from an actual swap on testnet:
+        // goat initialize txid: 0x6027024dc57b847120074efed67c3e31534988f70b6b1e5043b248e7740a295c
+        // goat claim txid: 0xc2b26508a28f349c7ee1e189914dc5815b77d1abaa5ce6a60449f69bd1e7e64a
+        // btc payout txid: 033d4024aca7f6dda6b01e7f0a2bb0fdd15160cc9b2559b55c6f65962362d74e
+        let nonce = 17872110975047329u64;
+        let output_amount = 9511u64;
+        let output_script =
+            hex::decode("5120a5d06cb76aaf6287b93a8ee73d9678e32b039354e6df4019bbd60087e347f5cc")
+                .unwrap();
+        let confirmations = 2u32;
+        let btc_relay_contract =
+            &EvmAddress::from_str("0x3887B02217726bB36958Dd595e57293fB63D5082").unwrap();
+
+        let commitment_hash = hash_claim_commitment(
+            nonce,
+            output_amount,
+            &output_script,
+            confirmations,
+            btc_relay_contract,
+        );
+
+        let expected_hash =
+            B256::from_str("0xc69e4a62e0c904b341245656ba191790356d771bd4a7a00bed2780a5abad8c63")
+                .unwrap();
+        assert_eq!(commitment_hash, expected_hash);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::redundant_pattern_matching)]
 #[allow(clippy::collapsible_else_if)]

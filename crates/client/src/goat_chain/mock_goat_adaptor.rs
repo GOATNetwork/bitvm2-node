@@ -1,7 +1,10 @@
 use crate::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
 use alloy::primitives::{Address, Bytes, FixedBytes, TxHash, U256};
-use alloy::rpc::types::TransactionReceipt;
+use alloy::rpc::types::{
+    TransactionReceipt,
+    trace::geth::{GethDebugTracingOptions, GethTrace, NoopFrame},
+};
 use alloy::signers::Signature;
 use anyhow::bail;
 use async_trait::async_trait;
@@ -83,6 +86,15 @@ impl ChainAdaptor for MockAdaptor {
         } else {
             None
         })
+    }
+
+    async fn debug_trace_tx(
+        &self,
+        _tx_hash: &str,
+        _trace_options: Option<GethDebugTracingOptions>,
+    ) -> anyhow::Result<GethTrace> {
+        // Mock adaptor returns empty trace structure.
+        Ok(GethTrace::NoopTracer(NoopFrame::default()))
     }
 
     async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {

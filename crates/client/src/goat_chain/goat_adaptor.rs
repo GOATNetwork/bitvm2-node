@@ -11,8 +11,10 @@ use crate::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublis
 use crate::goat_chain::goat_adaptor::IStakeManagement::IStakeManagementInstance;
 use alloy::eips::BlockNumberOrTag;
 use alloy::providers::Identity;
+use alloy::providers::ext::DebugApi;
 use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
 use alloy::rpc::types::TransactionReceipt;
+use alloy::rpc::types::trace::geth::{CallConfig, GethDebugTracingOptions, GethTrace};
 use alloy::signers::Signature;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
@@ -703,6 +705,16 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
         Ok(self.provider.get_transaction_receipt(TxHash::from_str(tx_hash)?).await?)
+    }
+
+    async fn debug_trace_tx(
+        &self,
+        tx_hash: &str,
+        trace_options: Option<GethDebugTracingOptions>,
+    ) -> anyhow::Result<GethTrace> {
+        let opts = trace_options
+            .unwrap_or_else(|| GethDebugTracingOptions::call_tracer(CallConfig::default()));
+        Ok(self.provider.debug_trace_transaction(TxHash::from_str(tx_hash)?, opts).await?)
     }
 
     async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {

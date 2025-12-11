@@ -5,7 +5,10 @@ use crate::goat_chain::chain_adaptor::{
 };
 use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
 use alloy::primitives::{Address, Bytes, FixedBytes, U256};
-use alloy::rpc::types::TransactionReceipt;
+use alloy::rpc::types::{
+    TransactionReceipt,
+    trace::geth::{GethDebugTracingOptions, GethTrace},
+};
 use alloy::signers::Signature;
 use bitcoin::Txid;
 use bitcoin::hashes::Hash;
@@ -249,6 +252,14 @@ impl EvmChain {
         tx_hash: &str,
     ) -> anyhow::Result<Option<TransactionReceipt>> {
         self.adaptor.get_tx_receipt(tx_hash).await
+    }
+
+    pub async fn debug_trace_tx(
+        &self,
+        tx_hash: &str,
+        trace_options: Option<GethDebugTracingOptions>,
+    ) -> anyhow::Result<GethTrace> {
+        self.adaptor.debug_trace_tx(tx_hash, trace_options).await
     }
 
     pub async fn gateway_get_committee_pubkeys(
