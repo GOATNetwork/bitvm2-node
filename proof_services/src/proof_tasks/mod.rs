@@ -33,7 +33,7 @@ pub(crate) async fn run_generate_proof_tasks(
             0,
             cancellation_token.clone(),
             HeaderChainProofConfig {
-                local_db: &local_db,
+                local_db: local_db.clone(),
                 esplora_url: env::get_esplora_url(),
                 data_dir: env::get_data_dir(),
                 batch_size: env::get_header_chain_proof_batch_size(),
@@ -71,21 +71,21 @@ pub(crate) async fn run_generate_proof_tasks(
     };
 
     tokio::select! {
-        // result = header_chain_proof_future => {
-        //     match result {
-        //         Ok(Ok(_)) => {
-        //             info!("Header chain proof generate task completed successfully");
-        //         }
-        //         Ok(Err(e)) => {
-        //             error!("Header chain generate proof task error: {}", e);
-        //             return Err(e);
-        //         }
-        //         Err(e) => {
-        //            error!("Header chain proof generate task panic: {:?}", e);
-        //             return Err(anyhow::anyhow!("Header chain proof generate task panic: {:?}", e));
-        //         }
-        //     }
-        // }
+        result = header_chain_proof_future => {
+            match result {
+                Ok(Ok(_)) => {
+                    info!("Header chain proof generate task completed successfully");
+                }
+                Ok(Err(e)) => {
+                    error!("Header chain generate proof task error: {}", e);
+                    return Err(e);
+                }
+                Err(e) => {
+                   error!("Header chain proof generate task panic: {:?}", e);
+                    return Err(anyhow::anyhow!("Header chain proof generate task panic: {:?}", e));
+                }
+            }
+        }
         result = commit_chain_proof_future => {
             match result {
                 Ok(Ok(_)) => {

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO operator_proof (graph_id, instance_id,  genesis_sequencer_commit_txid, latest_sequencer_commit_txid,\n                            header_chain_proof_id, commit_chain_proof_id, state_chain_proof_id, execution_layer_block_number, watchtower_challenge_txids, watchtower_public_keys , watchtower_challenge_init_txid,\n                            data_location, proof, verifier_id, public_inputs, status, proving_time, proving_cycles, proof_size, zkm_version,\n                            created_at, updated_at)\n              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 22
+    },
+    "nullable": []
+  },
+  "hash": "3268cb9a9a142685cbb1b04a75db2336bb7b226545dcf9e2e6e085a20d8b4c00"
+}

@@ -3229,14 +3229,14 @@ impl<'a> StorageProcessor<'a> {
         commit_chain_proof: &CommitChainProof,
     ) -> anyhow::Result<i64> {
         let res = sqlx::query!(
-            r#"INSERT OR REPLACE INTO commit_chain_proof (commits, data_location, proof, vk_hash,
+            r#"INSERT OR REPLACE INTO commit_chain_proof (commits, data_location, proof, verifier_id,
                         public_inputs, status, proving_cycles, proof_size, proving_time, zkm_version,
                         created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             commit_chain_proof.commits,
             commit_chain_proof.data_location,
             commit_chain_proof.proof,
-            commit_chain_proof.vk_hash,
+            commit_chain_proof.verifier_id,
             commit_chain_proof.public_inputs,
             commit_chain_proof.status,
             commit_chain_proof.proving_cycles,
@@ -3282,14 +3282,14 @@ impl<'a> StorageProcessor<'a> {
         header_chain_proof: &HeaderChainProof,
     ) -> anyhow::Result<i64> {
         let res = sqlx::query!(
-            r#"INSERT INTO header_chain_proof (data_location, batch_size, start, proof, vk_hash, public_inputs,  
+            r#"INSERT INTO header_chain_proof (data_location, batch_size, start, proof, verifier_id, public_inputs,
                                 status, proving_cycles, proof_size, proving_time, zkm_version, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             header_chain_proof.data_location,
             header_chain_proof.batch_size,
             header_chain_proof.start,
             header_chain_proof.proof,
-            header_chain_proof.vk_hash,
+            header_chain_proof.verifier_id,
             header_chain_proof.public_inputs,
             header_chain_proof.status,
             header_chain_proof.proving_cycles,
@@ -3344,7 +3344,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_header_chain_proof(
         &mut self,
         id: i64,
-        vk_hash: &str,
+        verifier_id: &str,
         proof: &str,
         public_inputs: &str,
         proving_cycles: i64,
@@ -3356,7 +3356,7 @@ impl<'a> StorageProcessor<'a> {
         let update_at = get_current_timestamp_secs();
         let res = sqlx::query!(
             r#"UPDATE header_chain_proof
-                            SET vk_hash        = ?,
+                            SET verifier_id        = ?,
                                 proof          = ?,
                                 public_inputs  = ?,
                                 proving_cycles = ?,
@@ -3366,7 +3366,7 @@ impl<'a> StorageProcessor<'a> {
                                 status         = ?,
                                 updated_at     = ?
                             WHERE id = ?"#,
-            vk_hash,
+            verifier_id,
             proof,
             public_inputs,
             proving_cycles,
@@ -3455,7 +3455,7 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             r#"INSERT OR REPLACE INTO operator_proof (graph_id, instance_id,  genesis_sequencer_commit_txid, latest_sequencer_commit_txid,
                             header_chain_proof_id, commit_chain_proof_id, state_chain_proof_id, execution_layer_block_number, watchtower_challenge_txids, watchtower_public_keys , watchtower_challenge_init_txid,
-                            data_location, proof, groth16_vk_hash, public_inputs, status, proving_time, proving_cycles, proof_size, zkm_version,
+                            data_location, proof, verifier_id, public_inputs, status, proving_time, proving_cycles, proof_size, zkm_version,
                             created_at, updated_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             operator_proof.graph_id,
@@ -3471,7 +3471,7 @@ impl<'a> StorageProcessor<'a> {
             operator_proof.watchtower_challenge_init_txid,
             operator_proof.data_location,
             operator_proof.proof,
-            operator_proof.groth16_vk_hash,
+            operator_proof.verifier_id,
             operator_proof.public_inputs,
             operator_proof.status,
             operator_proof.proving_time,

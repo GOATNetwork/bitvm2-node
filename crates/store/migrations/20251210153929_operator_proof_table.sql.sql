@@ -15,7 +15,7 @@ CREATE TABLE operator_proof
     `watchtower_challenge_init_txid` TEXT   NOT NULL,
     `data_location`                  TEXT   NOT NULL CHECK (status IN ('File', 'DB', 'S3')),
     `proof`                          TEXT,
-    `groth16_vk_hash`                TEXT,
+    `verifier_id`                    TEXT,
     `public_inputs`                  TEXT,
     `status`                         TEXT   NOT NULL CHECK (status IN ('Pending', 'Proved', 'Failed')),
     `proving_time`                   BIGINT NOT NULL DEFAULT 0,

@@ -1,7 +1,5 @@
-use crate::{Args, HEADER_CHAIN};
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use bitcoin::Network;
-use borsh::BorshSerialize;
 use std::time::UNIX_EPOCH;
 
 #[inline(always)]
@@ -11,25 +9,24 @@ fn current_time_secs() -> i64 {
 use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::fs;
 use std::sync::OnceLock;
 use std::time::Duration;
-use std::{
-    fs,
-    io::{Read, Seek},
-};
 use store::localdb::LocalDB;
 use store::{HeaderChainProof, ProofDataLocation, ProofStatus};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use zkm_prover::{HashableKey, ZKMProvingKey, ZKMVerifyingKey};
-use zkm_sdk::{Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin};
+use zkm_sdk::{
+    Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin, include_elf,
+};
+const HEADER_CHAIN: &[u8] = include_elf!("guest");
 
 /// Configuration for header chain proof task
 #[derive(Debug, Clone)]
-pub struct HeaderChainProofConfig<'a> {
-    pub local_db: &'a LocalDB,
+pub struct HeaderChainProofConfig {
+    pub local_db: LocalDB,
     pub esplora_url: String,
     pub data_dir: String,
     pub batch_size: i64,
@@ -66,14 +63,12 @@ fn get_pre_proof(
                 hex::decode(&pre_proof_task.proof)?
             };
             let mut proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
+            let pv_hash: [u8; 32] =
+                proof.public_values.hash().try_into().expect("fail to cast to public_values hash");
             Ok((
                 Some(proof.clone()),
                 HeaderChainPrevProofType::PrevProof(proof.public_values.read()),
-                proof
-                    .public_values
-                    .hash()
-                    .try_into()
-                    .map_err(|| "fail to calc public values hash".into())?,
+                pv_hash,
             ))
         }
 
@@ -90,7 +85,7 @@ async fn run_task(
     prove_client: &ProverClient,
     pk: &ZKMProvingKey,
     vk: &ZKMVerifyingKey,
-    config: &HeaderChainProofConfig<'_>,
+    config: HeaderChainProofConfig,
 ) -> anyhow::Result<()> {
     let latest_proof_task = {
         let mut storage_processor = config.local_db.acquire().await?;
@@ -133,11 +128,11 @@ async fn run_task(
         id = tx
             .create_header_chain_proof(&HeaderChainProof {
                 id: 0,
-                data_location,
+                data_location: data_location.clone(),
                 batch_size,
                 start,
                 proof: "".to_string(),
-                vk_hash: hex::encode(&vk_hash),
+                verifier_id: vk.bytes32(),
                 public_inputs: hex::encode(&bincode::serialize(&input)?),
                 status: ProofStatus::Pending.to_string(),
                 proving_cycles: 0,
@@ -148,7 +143,7 @@ async fn run_task(
                 updated_at: current_time_secs(),
             })
             .await?;
-        tx.create_verifier_key(&hex::encode(&vk_hash), &bincode::serialize(&vk)?).await?;
+        tx.create_verifier_key(&vk.bytes32(), &bincode::serialize(&vk)?).await?;
         tx.commit().await?;
         info!("created header chain proof at id {id}");
     };
@@ -162,16 +157,9 @@ async fn run_task(
         stdin.write_proof(*compressed_proof, vk.vk.clone());
     }
     let proving_start = tokio::time::Instant::now();
-    let (zkm_version, proof, cycles) = tokio::task::spawn_blocking(move || {
-        let (proof, cycles) = prove_client.prove_with_cycles(
-            &pk,
-            &stdin,
-            ZKMProofKind::Compressed,
-            get_elf_id(&pk),
-        )?;
-        Ok((proof.zkm_version.clone(), proof, cycles))
-    })
-    .await??;
+    let (proof, cycles) =
+        prove_client.prove_with_cycles(&pk, &stdin, ZKMProofKind::Compressed, get_elf_id(&pk))?;
+    let zkm_version = proof.zkm_version.clone();
     let proving_duration = proving_start.elapsed().as_secs();
     if let Err(e) = prove_client.verify(&proof, &vk) {
         bail!(
@@ -190,7 +178,7 @@ async fn run_task(
     let mut tx = config.local_db.start_transaction().await?;
     tx.update_header_chain_proof(
         id,
-        &hex::encode(&vk_hash),
+        &vk.bytes32(),
         &proof,
         &hex::encode(&bincode::serialize(&input)?),
         cycles as i64,
@@ -200,7 +188,7 @@ async fn run_task(
         &ProofStatus::Proved.to_string(),
     )
     .await?;
-    tx.create_verifier_key(&hex::encode(&vk_hash), &bincode::serialize(&vk)?).await?;
+    tx.create_verifier_key(&vk.bytes32(), &bincode::serialize(&vk)?).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -219,7 +207,7 @@ pub fn spawn_header_chain_proof_task(
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
-    config: HeaderChainProofConfig<'_>,
+    config: HeaderChainProofConfig,
 ) -> JoinHandle<anyhow::Result<()>> {
     tokio::spawn(async move {
         tokio::select! {
@@ -235,7 +223,7 @@ pub fn spawn_header_chain_proof_task(
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     info!("Header chain proof generate task: generate proof");
-                    match run_task(&btc_client, &client, &pk , &vk, &config).await{
+                    match run_task(&btc_client, &client, &pk , &vk, config.clone()).await{
                         Ok(_) => {}
                         Err(err) => {
                             warn!("Header chain proof generate task: fail to generate proof:{}", err);

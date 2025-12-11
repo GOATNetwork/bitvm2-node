@@ -29,7 +29,7 @@
         "type_info": "Text"
       },
       {
-        "name": "vk_hash",
+        "name": "verifier_id",
         "ordinal": 5,
         "type_info": "Text"
       },
