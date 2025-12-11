@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE header_chain_proof\n                            SET vk_hash        = ?,\n                                proof          = ?,\n                                public_inputs  = ?,\n                                proving_cycles = ?,\n                                proof_size     = ?,\n                                zkm_version    = ?,\n                                proving_time   = ?,\n                                status         = ?,\n                                updated_at     = ?\n                            WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "101c5ed2fc974ae0d5d07cc9ef5f1b2272303368487fa810f198c2f3be6845fb"
+}

@@ -23,7 +23,6 @@ use std::sync::OnceLock;
 /// A program that aggregates the proofs of the simple program.
 const HEADER_CHAIN: &[u8] = include_elf!("guest");
 
-use circuits_base::env;
 use clap::Parser;
 use futures_util::TryFutureExt;
 use std::env::args;

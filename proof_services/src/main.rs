@@ -1,6 +1,6 @@
 mod api;
-mod env;
 mod proof_tasks;
+mod env;
 
 use crate::proof_tasks::{is_start_generate_proof_tasks, run_generate_proof_tasks};
 use clap::{Parser, command};

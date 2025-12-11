@@ -16,7 +16,7 @@ members = [
     "circuits/header-chain-proof/host",
     "circuits/commit-chain-proof/host",
     "circuits/watchtower-proof/host",
-    "circuits/operator-proof/host", "crates/cbft-rpc", "circuits/services", "circuits/state-chain-proof/host", "circuits/base",
+    "circuits/operator-proof/host", "crates/cbft-rpc", "proof_services", "circuits/state-chain-proof/host",
 ]
 default-members = ["node"]
 
@@ -90,7 +90,6 @@ header-chain = { path = "crates/header-chain" }
 commit-chain = { path = "crates/commit-chain" }
 cbft-rpc = { path = "crates/cbft-rpc" }
 state-chain = { path = "crates/state-chain" }
-circuits-base = { path = "circuits/base" }
 header-chain-proof = { path = "circuits/header-chain-proof/host" }
 
 chrono = "0.4.39"

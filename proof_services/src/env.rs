@@ -1,5 +1,4 @@
 use bitcoin::Network;
-use std::path::PathBuf;
 use tracing::warn;
 
 pub const ENV_BTC_NETWORK: &str = "BTC_NETWORK";
@@ -16,6 +15,31 @@ pub(crate) const ENV_ENABLE_CHAIN_PROOF_GENERATE: &str = "ENABLE_CHAIN_PROOF_GEN
 pub(crate) const ENV_ENABLE_OPERATOR_PROOF_GENERATE: &str = "ENABLE_OPERATOR_PROOF_GENERATE";
 
 pub(crate) const ENV_ENABLE_WATCHTOWER_PROOF_GENERATE: &str = "ENABLE_WATCHTOWER_PROOF_GENERATE";
+
+pub(crate) fn is_start_heard_chain_proof_generate() -> bool {
+    match std::env::var(ENV_ENABLE_CHAIN_PROOF_GENERATE) {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+pub(crate) fn is_start_commit_chain_proof_generate() -> bool {
+    match std::env::var(ENV_ENABLE_CHAIN_PROOF_GENERATE) {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+pub(crate) fn is_start_watchtower_proof_generate() -> bool {
+    match std::env::var(ENV_ENABLE_OPERATOR_PROOF_GENERATE) {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+pub(crate) fn is_start_operator_proof_generate() -> bool {
+    match std::env::var(ENV_ENABLE_WATCHTOWER_PROOF_GENERATE) {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
 
 pub fn get_network() -> Network {
     let network = std::env::var(ENV_BTC_NETWORK).unwrap_or("regtest".to_string());
@@ -60,31 +84,6 @@ pub fn get_data_dir() -> String {
 
 pub fn is_save_to_file() -> bool {
     match std::env::var(ENV_SAVE_TO_FILE) {
-        Ok(value) => value.to_lowercase() == "true",
-        Err(_) => false,
-    }
-}
-
-pub fn is_start_heard_chain_proof_generate() -> bool {
-    match std::env::var(ENV_ENABLE_CHAIN_PROOF_GENERATE) {
-        Ok(value) => value.to_lowercase() == "true",
-        Err(_) => false,
-    }
-}
-pub fn is_start_commit_chain_proof_generate() -> bool {
-    match std::env::var(ENV_ENABLE_CHAIN_PROOF_GENERATE) {
-        Ok(value) => value.to_lowercase() == "true",
-        Err(_) => false,
-    }
-}
-pub fn is_start_watchtower_proof_generate() -> bool {
-    match std::env::var(ENV_ENABLE_OPERATOR_PROOF_GENERATE) {
-        Ok(value) => value.to_lowercase() == "true",
-        Err(_) => false,
-    }
-}
-pub fn is_start_operator_proof_generate() -> bool {
-    match std::env::var(ENV_ENABLE_WATCHTOWER_PROOF_GENERATE) {
         Ok(value) => value.to_lowercase() == "true",
         Err(_) => false,
     }

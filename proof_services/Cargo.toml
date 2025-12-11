@@ -1,5 +1,5 @@
 [package]
-name = "services"
+name = "proof_services"
 version.workspace = true
 edition.workspace = true
 
@@ -20,8 +20,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 serde = { version = "1.0.226", default-features = false, features = ["derive"] }
 axum = { workspace = true, features = ["macros", "json"] }
 http-body-util = "0.1"
+bitcoin = { workspace = true }
 prometheus-client = { workspace = true }
-circuits-base = { workspace = true }
 header-chain-proof = { workspace = true }
 [lints]
 workspace = true

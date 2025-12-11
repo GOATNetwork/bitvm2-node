@@ -2,15 +2,16 @@ mod commit_chain_proof;
 mod operator_proof;
 mod watchtower_proof;
 
-use crate::proof_tasks::commit_chain_proof::spawn_commit_chain_proof_task;
-use crate::proof_tasks::operator_proof::spawn_operator_proof_task;
-use crate::proof_tasks::watchtower_proof::spawn_watchtower_proof_task;
-use circuits_base::env::{
+use crate::env;
+use crate::env::{
     is_start_commit_chain_proof_generate, is_start_heard_chain_proof_generate,
     is_start_operator_proof_generate, is_start_watchtower_proof_generate,
 };
-use header_chain_proof::spawn_header_chain_proof_task;
+use crate::proof_tasks::commit_chain_proof::spawn_commit_chain_proof_task;
+use crate::proof_tasks::operator_proof::spawn_operator_proof_task;
+use crate::proof_tasks::watchtower_proof::spawn_watchtower_proof_task;
 use futures::future::Either;
+use header_chain_proof::{HeaderChainProofConfig, spawn_header_chain_proof_task};
 use store::localdb::LocalDB;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -27,7 +28,18 @@ pub(crate) async fn run_generate_proof_tasks(
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
     let header_chain_proof_future = if is_start_heard_chain_proof_generate() {
-        Either::Left(spawn_header_chain_proof_task(interval, 0, cancellation_token.clone(), &local_db))
+        Either::Left(spawn_header_chain_proof_task(
+            interval,
+            0,
+            cancellation_token.clone(),
+            HeaderChainProofConfig {
+                local_db: &local_db,
+                esplora_url: env::get_esplora_url(),
+                data_dir: env::get_data_dir(),
+                batch_size: env::get_header_chain_proof_batch_size(),
+                is_save_to_file: env::is_save_to_file(),
+            },
+        ))
     } else {
         Either::Right(std::future::pending::<Result<anyhow::Result<()>, tokio::task::JoinError>>())
     };
@@ -59,21 +71,21 @@ pub(crate) async fn run_generate_proof_tasks(
     };
 
     tokio::select! {
-        result = header_chain_proof_future => {
-            match result {
-                Ok(Ok(_)) => {
-                    info!("Header chain proof generate task completed successfully");
-                }
-                Ok(Err(e)) => {
-                    error!("Header chain generate proof task error: {}", e);
-                    return Err(e);
-                }
-                Err(e) => {
-                   error!("Header chain proof generate task panic: {:?}", e);
-                    return Err(anyhow::anyhow!("Header chain proof generate task panic: {:?}", e));
-                }
-            }
-        }
+        // result = header_chain_proof_future => {
+        //     match result {
+        //         Ok(Ok(_)) => {
+        //             info!("Header chain proof generate task completed successfully");
+        //         }
+        //         Ok(Err(e)) => {
+        //             error!("Header chain generate proof task error: {}", e);
+        //             return Err(e);
+        //         }
+        //         Err(e) => {
+        //            error!("Header chain proof generate task panic: {:?}", e);
+        //             return Err(anyhow::anyhow!("Header chain proof generate task panic: {:?}", e));
+        //         }
+        //     }
+        // }
         result = commit_chain_proof_future => {
             match result {
                 Ok(Ok(_)) => {

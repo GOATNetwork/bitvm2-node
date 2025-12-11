@@ -2,8 +2,12 @@ use crate::{Args, HEADER_CHAIN};
 use anyhow::{anyhow, bail};
 use bitcoin::Network;
 use borsh::BorshSerialize;
-use circuits_base::env;
-use circuits_base::utils::current_time_secs;
+use std::time::UNIX_EPOCH;
+
+#[inline(always)]
+fn current_time_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
 use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use sha2::{Digest, Sha256};
@@ -21,6 +25,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use zkm_prover::{HashableKey, ZKMProvingKey, ZKMVerifyingKey};
 use zkm_sdk::{Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin};
+
+/// Configuration for header chain proof task
+#[derive(Debug, Clone)]
+pub struct HeaderChainProofConfig<'a> {
+    pub local_db: &'a LocalDB,
+    pub esplora_url: String,
+    pub data_dir: String,
+    pub batch_size: i64,
+    pub is_save_to_file: bool,
+}
 
 static ELF_ID: OnceLock<String> = OnceLock::new();
 async fn fetch_header_chain(
@@ -67,19 +81,19 @@ fn get_pre_proof(
     }
 }
 
-fn get_file_path(start: i64, batch: i64) -> String {
-    format!("{}/header-chain/{start}_{batch}.bin", env::get_data_dir())
+fn get_file_path(data_dir: &str, start: i64, batch: i64) -> String {
+    format!("{}/header-chain/{start}_{batch}.bin", data_dir)
 }
 
 async fn run_task(
     btc_client: &BTCClient,
-    local_db: &LocalDB,
     prove_client: &ProverClient,
     pk: &ZKMProvingKey,
     vk: &ZKMVerifyingKey,
+    config: &HeaderChainProofConfig<'_>,
 ) -> anyhow::Result<()> {
     let latest_proof_task = {
-        let mut storage_processor = local_db.acquire().await?;
+        let mut storage_processor = config.local_db.acquire().await?;
         storage_processor.find_latest_header_chain_proof_task().await?
     };
     let (mut id, start, batch_size, latest_proof_task) = match latest_proof_task {
@@ -91,17 +105,17 @@ async fn run_task(
                 (
                     latest_proof_task.id,
                     latest_proof_task.start + latest_proof_task.batch_size + 1,
-                    env::get_header_chain_proof_batch_size(),
+                    config.batch_size,
                     Some(latest_proof_task),
                 )
             }
         }
-        None => (0, 0, env::get_header_chain_proof_batch_size(), None),
+        None => (0, 0, config.batch_size, None),
     };
     if start + batch_size - 1 > btc_client.get_height().await? as i64 {
         return Ok(());
     }
-    let data_location = if env::is_save_to_file() {
+    let data_location = if config.is_save_to_file {
         ProofDataLocation::File.to_string()
     } else {
         ProofDataLocation::DB.to_string()
@@ -115,7 +129,7 @@ async fn run_task(
         block_headers: fetch_header_chain(&btc_client, start, batch_size).await?,
     };
     if latest_proof_task.is_none() {
-        let mut tx = local_db.start_transaction().await?;
+        let mut tx = config.local_db.start_transaction().await?;
         id = tx
             .create_header_chain_proof(&HeaderChainProof {
                 id: 0,
@@ -167,13 +181,13 @@ async fn run_task(
     }
     let proof_bytes = bincode::serialize(&proof)?;
     let proof = if data_location == ProofDataLocation::File.to_string() {
-        let file_path = get_file_path(start, batch_size);
+        let file_path = get_file_path(&config.data_dir, start, batch_size);
         fs::write(file_path.clone(), &proof_bytes)?;
         file_path
     } else {
         hex::encode(&proof_bytes)
     };
-    let mut tx = local_db.start_transaction().await?;
+    let mut tx = config.local_db.start_transaction().await?;
     tx.update_header_chain_proof(
         id,
         &hex::encode(&vk_hash),
@@ -205,7 +219,7 @@ pub fn spawn_header_chain_proof_task(
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
-    local_db: &LocalDB,
+    config: HeaderChainProofConfig<'_>,
 ) -> JoinHandle<anyhow::Result<()>> {
     tokio::spawn(async move {
         tokio::select! {
@@ -214,15 +228,14 @@ pub fn spawn_header_chain_proof_task(
                 return Err(anyhow::anyhow!("Header chain proof generate task cancelled"));
             }
         }
-        let btc_client = BTCClient::new(Network::Regtest, Some(&env::get_esplora_url()));
+        let btc_client = BTCClient::new(Network::Regtest, Some(&config.esplora_url));
         let client = ProverClient::new();
         let (pk, vk) = client.setup(HEADER_CHAIN);
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     info!("Header chain proof generate task: generate proof");
-
-                    match run_task(&btc_client, local_db, &client, &pk , &vk).await{
+                    match run_task(&btc_client, &client, &pk , &vk, &config).await{
                         Ok(_) => {}
                         Err(err) => {
                             warn!("Header chain proof generate task: fail to generate proof:{}", err);

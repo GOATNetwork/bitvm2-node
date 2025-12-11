@@ -28,7 +28,6 @@ borsh = { workspace = true }
 header-chain = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
-circuits-base = { workspace = true }
 store = { workspace = true }
 
 # Ziren
