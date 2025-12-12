@@ -222,15 +222,9 @@ pub enum InstanceBridgeInStatus {
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Display, EnumString)]
 pub enum InstanceBridgeOutStatus {
     #[default]
-    UserL2Locked,
-    OperatorL1Locked,
-    OperatorToL1LockedTimeout,
-    UserL1Unlocked,
-    OperatorL2Unlocked,    // success
-    UserL2LockTimeout,     // L2Locked -> L2 timeout (operator is offline)
-    OperatorL1LockTimeout, // L1Locked -> L1 timeout -> L2 timeout (user doesn't presign)
-    OperatorL1Refunded,
-    UserL2Refunded,
+    Initialize,
+    Claim,
+    Refund,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -257,6 +251,7 @@ pub struct Instance {
     pub committees_answers: IndexMap<String, Vec<u8>>,
     pub pegin_data_tx_hash: String,
     pub parameters: Option<String>,
+    pub escrow_hash: Option<String>,
     pub status_updated_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
@@ -618,13 +613,14 @@ pub enum WatchContractStatus {
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct WatchContract {
-    pub addr: String,
+    pub contract_addr: String,
     pub the_graph_url: String,
     pub gap: i64,
     pub from_height: i64,
     pub status: String,
     pub extra: Option<String>,
     pub updated_at: i64,
+    pub created_at: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
@@ -642,6 +638,10 @@ pub enum GoatTxType {
     WithdrawHappyPath,
     WithdrawUnhappyPath,
     WithdrawDisproved,
+    // swap
+    SwapInitialize,
+    SwapClaim,
+    SwapRefund,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
@@ -712,6 +712,10 @@ impl GoatTxRecord {
     pub fn with_processing_status(mut self, processing_status: String) -> Self {
         self.processing_status = processing_status;
         self
+    }
+
+    pub fn is_processed(&self) -> bool {
+        self.processing_status == GoatTxProcessingStatus::Processed.to_string()
     }
 }
 

@@ -449,13 +449,15 @@ pub mod evm_swap_utils {
         }
     }
 
-    #[derive(Debug, Clone, Eq, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
     pub struct ClaimData {
-        nonce: u64,
-        output_amount: u64,
-        output_script: Vec<u8>,
-        confirmations: u32,
-        btc_relay_contract: EvmAddress,
+        pub txid: Txid,
+        pub nonce: u64,
+        pub output_amount: u64,
+        pub output_script: Vec<u8>,
+        pub confirmations: u32,
+        pub btc_relay_contract: EvmAddress,
+        pub witness: String,
     }
 
     pub fn hash_escrow_data(escrow: &EscrowData) -> B256 {
@@ -621,16 +623,19 @@ pub mod evm_swap_utils {
         let nonce = ((lock_time_val as u64) << 24) | ((first_input_sequence as u64) & 0x00ffffff);
 
         Ok(ClaimData {
+            txid: tx.compute_txid(),
             nonce,
             output_amount: output.value.to_sat(),
             output_script: output.script_pubkey.to_bytes(),
             confirmations,
             btc_relay_contract,
+            witness: hex::encode(witness),
         })
     }
 
     // for BitcoinNoncedOutputClaimHandler
     fn find_claim_data(
+        tx_hash: &str,
         call: &CallFrame,
         swap_contract_address: &EvmAddress,
         escrow_hash: &[u8; 32],
@@ -641,12 +646,19 @@ pub mod evm_swap_utils {
         {
             let computed_hash = hash_escrow_data(&args.escrow);
             if &computed_hash.0 == escrow_hash {
-                return Ok(Some(claim_data_from_witness(&args.witness)?));
+                return match claim_data_from_witness(&args.witness) {
+                    Ok(claim_data) => Ok(Some(claim_data)),
+                    Err(e) => {
+                        warn!("fail to decode claim data for tx: {tx_hash}, error:{e}");
+                        Ok(None)
+                    }
+                };
             }
         }
 
         for sub_call in &call.calls {
-            if let Some(claim_data) = find_claim_data(sub_call, swap_contract_address, escrow_hash)?
+            if let Some(claim_data) =
+                find_claim_data(tx_hash, sub_call, swap_contract_address, escrow_hash)?
             {
                 return Ok(Some(claim_data));
             }
@@ -663,7 +675,8 @@ pub mod evm_swap_utils {
         let trace_opts = GethDebugTracingOptions::call_tracer(CallConfig::default());
         let trace_raw = goat_client.debug_trace_tx(tx_hash, Some(trace_opts)).await?;
         let call_trace = trace_raw.try_into_call_frame()?;
-        if let Some(claim_data) = find_claim_data(&call_trace, swap_contract_address, escrow_hash)?
+        if let Some(claim_data) =
+            find_claim_data(tx_hash, &call_trace, swap_contract_address, escrow_hash)?
         {
             Ok(Some(claim_data))
         } else {
@@ -710,6 +723,7 @@ pub mod evm_swap_utils {
         // goat claim txid: 0xc2b26508a28f349c7ee1e189914dc5815b77d1abaa5ce6a60449f69bd1e7e64a
         // btc payout txid: 033d4024aca7f6dda6b01e7f0a2bb0fdd15160cc9b2559b55c6f65962362d74e
         let claim_data = ClaimData {
+            txid: Txid::from_slice(&[0_u8; 32]).unwrap(),
             nonce: 17872110975047329u64,
             output_amount: 9511u64,
             output_script: hex::decode(
@@ -719,6 +733,7 @@ pub mod evm_swap_utils {
             confirmations: 2u32,
             btc_relay_contract: EvmAddress::from_str("0x3887B02217726bB36958Dd595e57293fB63D5082")
                 .unwrap(),
+            witness: "".to_string(),
         };
         let commitment_hash = hash_claim_commitment(&claim_data);
 
@@ -746,6 +761,7 @@ pub mod evm_swap_utils {
                 .try_into()
                 .unwrap();
         let expected_claim_data = ClaimData {
+            txid: Txid::from_str("033d4024aca7f6dda6b01e7f0a2bb0fdd15160cc9b2559b55c6f65962362d74e").unwrap(),
             nonce: 17872110975047329u64,
             output_amount: 9511u64,
             output_script: hex::decode(
@@ -755,6 +771,18 @@ pub mod evm_swap_utils {
             confirmations: 2u32,
             btc_relay_contract: EvmAddress::from_str("0x3887B02217726bB36958Dd595e57293fB63D5082")
                 .unwrap(),
+            witness: "8977831297fa2d7156898a8d26bb9e276a83cf907d739eb64ff98a0092e9250e000000023887b022\
+            17726bb36958dd595e57293fb63d508200600020bfe2760399ccb567289b120361316911b13e937aa0f2742bb7\
+            0b000000000000efaf19dc26fadb8b1cd69e76c6d1f51123f6d22407755f865b65b446cf863c3c5fbe3769f0ff\
+            0f1ad88a60f10000000000000000000000000000000000000000000017b6e253602b5f4cc25000494e876937b2\
+            636937bd246937bd2a6937bd2d6937bd306937bd6f6937bd8f6937bda66937bde76937bdf96937be07000000000\
+            00000000000000000000000000000000000000000000000000000000000008902000000018c3db50ef29dbdddf9\
+            628cd968667688cd37560ef5e64131efc3a1e4cf4e739c0100000000a1d60dfe022725000000000000225120a5d\
+            06cb76aaf6287b93a8ee73d9678e32b039354e6df4019bbd60087e347f5ccf61a010000000000225120eb3e0c2d\
+            d6b344c6efaa771306a29e864c65d536dfac8f89a87680285af7acad1afc4b5d000000060000000000000000000\
+            000000000000000000000000000000000000000000003f7cfe6eed4929eea954c8e1358704c6dec19e2826f7223\
+            ff7d0eff92c1addf20fd2b876e05846a100c38bd3c30619c66437abb97bc5fc21e2595fbb8a514f5341ebf1f8dd\
+            26752879de5c581667aaf183b18c1b5a111f4a24061d2c44aea2fd1".to_string(),
         };
         let claim_data =
             extract_claim_data_from_tx(&goat_client, tx_hash, &swap_contract_address, &escrow_hash)
@@ -3340,6 +3368,7 @@ pub async fn generate_instance(
         pegin_data_tx_hash: "".to_string(),
         btc_height: 0,
         parameters: None,
+        escrow_hash: None,
         status_updated_at: params.pegin_timestamp,
         created_at: current_time,
         updated_at: current_time,
@@ -3468,7 +3497,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
     tx.upsert_graph(&graph).await?;
     if bitvm2_graph.committee_pre_signed() {
         tx.update_instance(
-            &InstanceUpdate::new(instance_id)
+            &InstanceUpdate::new_with_instance_id(instance_id)
                 .with_status(InstanceBridgeInStatus::Presigned.to_string()),
         )
         .await?;
@@ -4022,7 +4051,7 @@ pub async fn update_graph_status(
     if new_status == GraphStatus::CommitteePresigned {
         storage_processor
             .update_instance(
-                &InstanceUpdate::new(instance_id)
+                &InstanceUpdate::new_with_instance_id(instance_id)
                     .with_status(InstanceBridgeInStatus::Presigned.to_string()),
             )
             .await?;

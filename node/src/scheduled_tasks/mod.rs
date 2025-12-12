@@ -17,7 +17,7 @@ use crate::scheduled_tasks::node_maintenance_tasks::node_available_pbtc_update_m
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
-pub use event_watch_task::{is_processing_history_events, run_watch_event_task};
+pub use event_watch_task::{is_processing_gateway_history_events, run_watch_event_task};
 use std::sync::Arc;
 use std::time::Duration;
 use store::localdb::{LocalDB, StorageProcessor};
@@ -56,7 +56,7 @@ async fn run(
         warn!("node_available_pbtc_update_monitor, err {:?}", err)
     }
 
-    if is_processing_history_events(local_db, goat_client).await? {
+    if is_processing_gateway_history_events(local_db, goat_client).await? {
         warn!("Still in history events processing");
         return Ok(());
     }

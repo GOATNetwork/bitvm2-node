@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE watch_contract SET status = ?,  updated_at = ? WHERE contract_addr = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "37b8c65418113455a31792eb3893b16615e87875a14186d20d89376640d05824"
+}

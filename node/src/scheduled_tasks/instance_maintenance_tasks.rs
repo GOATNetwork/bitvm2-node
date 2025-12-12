@@ -235,7 +235,7 @@ pub async fn instance_expiration_monitor(
         if instance.btc_height > 0 && current_height > instance.btc_height + lock_height {
             update_instance(
                 &mut storage_processor,
-                &InstanceUpdate::new(instance.instance_id)
+                &InstanceUpdate::new_with_instance_id(instance.instance_id)
                     .with_status(InstanceBridgeInStatus::Timeout.to_string()),
             )
             .await?;
@@ -304,8 +304,8 @@ pub async fn instance_btc_tx_monitor(
             && status.confirmed
         {
             let mut tx = local_db.start_transaction().await?;
-            let mut instance_update =
-                InstanceUpdate::new(instance.instance_id).with_status(next_status.to_string());
+            let mut instance_update = InstanceUpdate::new_with_instance_id(instance.instance_id)
+                .with_status(next_status.to_string());
             match next_status {
                 InstanceBridgeInStatus::UserBroadcastPeginPrepare => {
                     instance_update = instance_update
@@ -371,7 +371,7 @@ pub async fn instance_btc_tx_monitor(
                 let mut storage_processor = local_db.acquire().await?;
                 update_instance(
                     &mut storage_processor,
-                    &InstanceUpdate::new(instance.instance_id)
+                    &InstanceUpdate::new_with_instance_id(instance.instance_id)
                         .with_status(InstanceBridgeInStatus::UserDiscarded.to_string()),
                 )
                 .await?;

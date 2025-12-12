@@ -23,6 +23,7 @@ use zeroize::Zeroizing;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
+pub const ENV_GOAT_SWAP_CONTRACT_ADDRESS: &str = "GOAT_SWAP_CONTRACT_ADDRESS";
 pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
     "GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS";
 pub const ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS: &str =
@@ -30,9 +31,13 @@ pub const ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS: &str =
 pub const ENV_ENABLE_RELAYER: &str = "ENABLE_RELAYER";
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
-pub const ENV_GOAT_EVENT_THE_GRAPH_URL: &str = "GOAT_EVENT_THE_GRAPH_URL";
-pub const ENV_GOAT_EVENT_FILTER_FROM: &str = "GOAT_EVENT_FILTER_FROM";
-pub const ENV_GOAT_EVENT_FILTER_GAP: &str = "GOAT_EVENT_FILTER_GAP";
+pub const ENV_GOAT_GATEWAY_EVENT_THE_GRAPH_URL: &str = "GOAT_GATEWAY_EVENT_THE_GRAPH_URL";
+pub const ENV_GOAT_GATEWAY_EVENT_FILTER_FROM: &str = "GOAT_GATEWAY_EVENT_FILTER_FROM";
+pub const ENV_GOAT_GATEWAY_EVENT_FILTER_GAP: &str = "GOAT_GATEWAY_EVENT_FILTER_GAP";
+
+pub const ENV_GOAT_SWAP_EVENT_THE_GRAPH_URL: &str = "GOAT_SWAP_EVENT_THE_GRAPH_URL";
+pub const ENV_GOAT_SWAP_EVENT_FILTER_FROM: &str = "GOAT_SWAP_EVENT_FILTER_FROM";
+pub const ENV_GOAT_SWAP_EVENT_FILTER_GAP: &str = "GOAT_SWAP_EVENT_FILTER_GAP";
 
 /// Operator Challenge
 pub const ENV_NODE_NAME: &str = "NODE_NAME";
@@ -324,25 +329,44 @@ pub fn get_goat_gateway_contract_from_env() -> EvmAddress {
         .unwrap_or_else(|| panic!("Failed to get goat address from env"))
 }
 
-pub fn get_goat_event_filter_from_from_env() -> i64 {
+pub fn get_goat_gateway_event_filter_from_from_env() -> i64 {
     let event_filter_from_str =
-        std::env::var(ENV_GOAT_EVENT_FILTER_FROM).unwrap_or("8454507".to_string());
+        std::env::var(ENV_GOAT_GATEWAY_EVENT_FILTER_FROM).unwrap_or("8454507".to_string());
+    event_filter_from_str
+        .parse::<i64>()
+        .unwrap_or_else(|_| panic!("Failed to parse {event_filter_from_str} to i64"))
+}
+pub fn get_goat_swap_event_filter_from_from_env() -> i64 {
+    let event_filter_from_str =
+        std::env::var(ENV_GOAT_SWAP_EVENT_FILTER_FROM).unwrap_or("8454507".to_string());
     event_filter_from_str
         .parse::<i64>()
         .unwrap_or_else(|_| panic!("Failed to parse {event_filter_from_str} to i64"))
 }
 
-pub fn get_goat_event_filter_gap_from_env() -> i64 {
+pub fn get_goat_gateway_event_filter_gap_from_env() -> i64 {
     let event_filter_gap_str =
-        std::env::var(ENV_GOAT_EVENT_FILTER_GAP).unwrap_or("1000".to_string());
+        std::env::var(ENV_GOAT_GATEWAY_EVENT_FILTER_GAP).unwrap_or("1000".to_string());
+    event_filter_gap_str
+        .parse::<i64>()
+        .unwrap_or_else(|_| panic!("Failed to parse {event_filter_gap_str} to address"))
+}
+pub fn get_goat_swap_event_filter_gap_from_env() -> i64 {
+    let event_filter_gap_str =
+        std::env::var(ENV_GOAT_SWAP_EVENT_FILTER_GAP).unwrap_or("1000".to_string());
     event_filter_gap_str
         .parse::<i64>()
         .unwrap_or_else(|_| panic!("Failed to parse {event_filter_gap_str} to address"))
 }
 
-pub fn get_goat_event_the_graph_url_from_env() -> String {
-    std::env::var(ENV_GOAT_EVENT_THE_GRAPH_URL)
-        .unwrap_or("https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/bitvm2_gateway_ga_dev/0.0.1/gn".to_string())
+pub fn get_goat_gateway_the_graph_urls_from_env() -> String {
+    std::env::var(ENV_GOAT_GATEWAY_EVENT_THE_GRAPH_URL)
+        .unwrap_or( "https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/bitvm2_gateway_ga_dev_0/0.0.3/gn".to_string())
+}
+
+pub fn get_goat_swap_the_graph_urls_from_env() -> String {
+    std::env::var(ENV_GOAT_SWAP_EVENT_THE_GRAPH_URL)
+        .unwrap_or( "https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/escrow_manager_ga_dev_0/0.0.1/gn".to_string())
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {

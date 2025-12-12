@@ -18,7 +18,7 @@ use http::StatusCode;
 use std::default::Default;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
-use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus};
+use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus};
 use tracing::warn;
 
 /// Get instance settings
@@ -128,6 +128,7 @@ pub async fn bridge_in_request_tag(
             committees_answers: Default::default(),
             pegin_data_tx_hash: "".to_string(),
             parameters: None,
+            escrow_hash: None,
             status_updated_at: current_time,
             created_at: current_time,
             updated_at: current_time,
@@ -192,6 +193,7 @@ pub async fn bridge_in_request_tag(
 ///         "committees_answers": {},
 ///         "pegin_data_tx_hash": "0x...",
 ///         "parameters": null,
+///         "escrow_hash": null,
 ///         "status_updated_at": 1699123456,
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
@@ -226,7 +228,11 @@ pub async fn get_instances(
     let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
     // Validate from_addr format (if provided)
     if let Some(ref from_addr) = params.from_addr {
-        InputValidator::validate_btc_address(from_addr, "from_addr")?;
+        if params.is_bridge_in {
+            InputValidator::validate_btc_address(from_addr, "bridge in from_addr")?;
+        } else {
+            InputValidator::validate_goat_address(from_addr, "Bridge out from_addr")?;
+        }
     }
 
     // Database query
@@ -323,6 +329,7 @@ pub async fn get_instances(
 ///       "committees_answers": {},
 ///       "pegin_data_tx_hash": "0x...",
 ///       "parameters": null,
+///       "escrow_hash": null,
 ///       "status_updated_at": 1699123456,
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
@@ -429,8 +436,13 @@ pub async fn get_instances_overview(
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("INSTANCE_OVERVIEW_ERROR")?;
 
-    let (pegin_sum, pegin_count) = storage_process
-        .get_sum_bridge_in(&[InstanceBridgeInStatus::RelayerL2Minted.to_string()])
+    let (bridge_in_sum, bridge_in_count) = storage_process
+        .get_sum_bridge_txn(true, &[InstanceBridgeInStatus::RelayerL2Minted.to_string()])
+        .await
+        .api_error("INSTANCE_OVERVIEW_ERROR")?;
+
+    let (bridge_out_sum, bridge_out_count) = storage_process
+        .get_sum_bridge_txn(false, &[InstanceBridgeOutStatus::Claim.to_string()])
         .await
         .api_error("INSTANCE_OVERVIEW_ERROR")?;
 
@@ -452,10 +464,10 @@ pub async fn get_instances_overview(
         StatusCode::OK,
         Json(InstanceOverviewResponse {
             instances_overview: InstanceOverview {
-                total_bridge_in_amount: pegin_sum,
-                total_bridge_in_txn: pegin_count,
-                total_bridge_out_amount: 0,
-                total_bridge_out_txn: 0,
+                total_bridge_in_amount: bridge_in_sum,
+                total_bridge_in_txn: bridge_in_count,
+                total_bridge_out_amount: bridge_out_sum,
+                total_bridge_out_txn: bridge_out_count,
                 total_peg_out_amount: pegout_sum,
                 total_peg_out_txn: pegout_count,
                 online_nodes: alive,

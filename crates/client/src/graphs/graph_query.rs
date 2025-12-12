@@ -1,5 +1,46 @@
+use alloy::primitives::Address;
 use serde::{Deserialize, Serialize};
 use strum::Display;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
+pub enum WatchContractType {
+    Gateway,
+    Swap,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TheGraphConfig<T> {
+    pub address: Address,
+    pub the_graph_url: String,
+    pub event_entities: Vec<T>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
+pub enum WatchEventConfig {
+    Gateway(TheGraphConfig<GatewayEventEntity>),
+    Swap(TheGraphConfig<SwapEventEntity>),
+}
+
+impl WatchEventConfig {
+    pub fn get_watch_events_len(&self) -> usize {
+        match self {
+            WatchEventConfig::Gateway(config) => config.event_entities.len(),
+            WatchEventConfig::Swap(config) => config.event_entities.len(),
+        }
+    }
+
+    pub fn get_watch_contract(&self) -> Address {
+        match self {
+            WatchEventConfig::Gateway(config) => config.address,
+            WatchEventConfig::Swap(config) => config.address,
+        }
+    }
+    pub fn get_watch_contract_type(&self) -> WatchContractType {
+        match self {
+            WatchEventConfig::Gateway(_) => WatchContractType::Gateway,
+            WatchEventConfig::Swap(_) => WatchContractType::Swap,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Display)]
 pub enum GatewayEventEntity {
@@ -23,6 +64,16 @@ pub enum GatewayEventEntity {
     BridgeIns,
     #[strum(serialize = "postGraphDatas")]
     PostGraphDatas,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
+pub enum SwapEventEntity {
+    #[strum(serialize = "initializes")]
+    Initializes,
+    #[strum(serialize = "claims")]
+    Claims,
+    #[strum(serialize = "refunds")]
+    Refunds,
 }
 
 impl GatewayEventEntity {
@@ -119,6 +170,65 @@ impl GatewayEventEntity {
                     .add_field(&tag, "depositorAddress")
                     .add_field(&tag, "peginAmountSats")
                     .add_field(&tag, "feeAmountSats")
+                    .add_field(&tag, "transactionHash")
+                    .add_field(&tag, "blockNumber")
+                    .set_order_by(&tag, "blockNumber", "asc");
+            }
+        }
+
+        if let Some(range) = block_range {
+            builder = builder
+                .add_filter(&tag, "blockNumber_gte", &range.start_block.to_string())
+                .add_filter(&tag, "blockNumber_lte", &range.end_block.to_string())
+        }
+        builder
+    }
+}
+
+impl SwapEventEntity {
+    pub fn add_single_query(
+        &self,
+        builder: QueryBuilder,
+        block_range: Option<BlockRange>,
+    ) -> QueryBuilder {
+        let mut builder = builder;
+        let tag = self.to_string();
+        builder = builder.add_query(&tag);
+        match self {
+            SwapEventEntity::Initializes => {
+                builder = builder
+                    .add_field(&tag, "id")
+                    .add_field(&tag, "offerer")
+                    .add_field(&tag, "claimer")
+                    .add_field(&tag, "escrowHash")
+                    .add_field(&tag, "claimHandler")
+                    .add_field(&tag, "refundHandler")
+                    .add_field(&tag, "blockTimestamp")
+                    .add_field(&tag, "transactionHash")
+                    .add_field(&tag, "blockNumber")
+                    .set_order_by(&tag, "blockNumber", "asc");
+            }
+            SwapEventEntity::Claims => {
+                builder = builder
+                    .add_field(&tag, "id")
+                    .add_field(&tag, "offerer")
+                    .add_field(&tag, "claimer")
+                    .add_field(&tag, "escrowHash")
+                    .add_field(&tag, "claimHandler")
+                    .add_field(&tag, "witnessResult")
+                    .add_field(&tag, "transactionHash")
+                    .add_field(&tag, "blockNumber")
+                    .set_order_by(&tag, "blockNumber", "asc");
+            }
+
+            SwapEventEntity::Refunds => {
+                builder = builder
+                    .add_field(&tag, "id")
+                    .add_field(&tag, "offerer")
+                    .add_field(&tag, "claimer")
+                    .add_field(&tag, "escrowHash")
+                    .add_field(&tag, "witnessResult")
+                    .add_field(&tag, "refundHandler")
                     .add_field(&tag, "transactionHash")
                     .add_field(&tag, "blockNumber")
                     .set_order_by(&tag, "blockNumber", "asc");
@@ -375,6 +485,65 @@ pub struct PostGraphDataEvent {
     pub graph_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SwapInitializeEvent {
+    pub id: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "blockTimestamp")]
+    pub block_timestamp: String,
+    #[serde(rename = "offerer")]
+    pub offerer: String,
+    #[serde(rename = "claimer")]
+    pub claimer: String,
+    #[serde(rename = "escrowHash")]
+    pub escrow_hash: String,
+    #[serde(rename = "claimHandler")]
+    pub claim_handler: String,
+    #[serde(rename = "refundHandler")]
+    pub refund_handler: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SwapClaimEvent {
+    pub id: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "offerer")]
+    pub offerer: String,
+    #[serde(rename = "claimer")]
+    pub claimer: String,
+    #[serde(rename = "escrowHash")]
+    pub escrow_hash: String,
+    #[serde(rename = "claimHandler")]
+    pub claim_handler: String,
+    #[serde(rename = "witnessResult")]
+    pub witness_result: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SwapRefundEvent {
+    pub id: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "offerer")]
+    pub offerer: String,
+    #[serde(rename = "claimer")]
+    pub claimer: String,
+    #[serde(rename = "escrowHash")]
+    pub escrow_hash: String,
+    #[serde(rename = "refundHandler")]
+    pub refund_handler: String,
+    #[serde(rename = "witnessResult")]
+    pub witness_result: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockRange {
     start_block: i64,
@@ -492,6 +661,17 @@ impl QueryBuilder {
 
 pub fn get_gateway_events_query(
     event_entities: &[GatewayEventEntity],
+    block_range: Option<BlockRange>,
+) -> String {
+    let mut query_builder = QueryBuilder::new();
+    for entity in event_entities {
+        query_builder = entity.add_single_query(query_builder, block_range.clone());
+    }
+    query_builder.build()
+}
+// to merge get_gateway_events_query get_bridge_out_events_query later
+pub fn get_bridge_out_events_query(
+    event_entities: &[SwapEventEntity],
     block_range: Option<BlockRange>,
 ) -> String {
     let mut query_builder = QueryBuilder::new();

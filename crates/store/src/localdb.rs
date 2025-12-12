@@ -87,6 +87,7 @@ impl LocalDB {
 pub struct InstanceQuery {
     pub is_bridge_in: bool,
     pub from_addr: Option<String>,
+    pub escrow_hash: Option<String>,
     pub statuses: Vec<String>,
     pub earliest_updated: Option<i64>,
     pub pegin_request_height_threshold: Option<i64>,
@@ -118,6 +119,11 @@ impl InstanceQuery {
 
     pub fn with_order(mut self, order: String) -> Self {
         self.order = Some(order);
+        self
+    }
+
+    pub fn with_escrow_hash(mut self, escrow_hash: String) -> Self {
+        self.escrow_hash = Some(escrow_hash);
         self
     }
 
@@ -154,6 +160,11 @@ impl InstanceQuery {
         if let Some(from_addr) = &self.from_addr {
             query_builder.and_where("from_addr = ?", Some(QueryParam::Text(from_addr.clone())));
         }
+
+        if let Some(escrow_hash) = &self.escrow_hash {
+            query_builder.and_where("escrow_hash = ?", Some(QueryParam::Text(escrow_hash.clone())));
+        }
+
         if !self.statuses.is_empty() {
             query_builder.and_where_in("status", &self.statuses, false);
         }
@@ -179,7 +190,10 @@ impl InstanceQuery {
 /// Provides a more elegant way to specify which instance fields to update
 #[derive(Debug, Clone)]
 pub struct InstanceUpdate {
-    pub instance_id: Uuid,
+    pub instance_id: Option<Uuid>,
+    pub escrow_hash: Option<String>,
+    pub to_addr: Option<String>,
+    pub btc_txid: Option<SerializableTxid>,
     pub status: Option<String>,
     pub pegin_confirm_txid: Option<String>,
     pub btc_height: Option<i64>,
@@ -188,9 +202,24 @@ pub struct InstanceUpdate {
 
 impl InstanceUpdate {
     /// Create new update parameters
-    pub fn new(instance_id: Uuid) -> Self {
+    pub fn new_with_instance_id(instance_id: Uuid) -> Self {
         Self {
-            instance_id,
+            instance_id: Some(instance_id),
+            escrow_hash: None,
+            to_addr: None,
+            btc_txid: None,
+            status: None,
+            pegin_confirm_txid: None,
+            btc_height: None,
+            committees_answers: None,
+        }
+    }
+    pub fn new_with_escrow_hash(escrow_hash: String) -> Self {
+        Self {
+            instance_id: None,
+            escrow_hash: Some(escrow_hash),
+            to_addr: None,
+            btc_txid: None,
             status: None,
             pegin_confirm_txid: None,
             btc_height: None,
@@ -198,6 +227,17 @@ impl InstanceUpdate {
         }
     }
 
+    /// Set to_addr
+    pub fn with_to_addr(mut self, to_addr: String) -> Self {
+        self.to_addr = Some(to_addr);
+        self
+    }
+
+    /// Set btc txid
+    pub fn with_btc_txid(mut self, btc_txid: SerializableTxid) -> Self {
+        self.btc_txid = Some(btc_txid);
+        self
+    }
     /// Set status
     pub fn with_status(mut self, status: String) -> Self {
         self.status = Some(status);
@@ -245,15 +285,29 @@ impl InstanceUpdate {
             query_builder.set_field("btc_height", QueryParam::Int(pegin_prepare_height));
         }
 
+        if let Some(ref to_addr) = self.to_addr {
+            query_builder.set_field("to_addr", QueryParam::Text(to_addr.clone()));
+        }
+
+        if let Some(ref btc_txid) = self.btc_txid {
+            query_builder.set_field("btc_txid", QueryParam::BTCTxid(btc_txid.clone()));
+        }
+
         // Add update time
         let current_time = get_current_timestamp_secs();
         query_builder.set_field("updated_at", QueryParam::Int(current_time));
 
         // Add WHERE clause
-        query_builder.and_where(
-            "hex(instance_id) = ? COLLATE NOCASE ",
-            Some(QueryParam::Text(hex::encode(self.instance_id))),
-        );
+        if let Some(ref instance_id) = self.instance_id {
+            query_builder.and_where(
+                "hex(instance_id) = ? COLLATE NOCASE ",
+                Some(QueryParam::Text(hex::encode(instance_id))),
+            );
+        }
+        if let Some(ref escrow_hash) = self.escrow_hash {
+            query_builder
+                .and_where("escrow_hash = ? ", Some(QueryParam::Text(escrow_hash.clone())));
+        }
 
         query_builder
     }
@@ -626,8 +680,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, is_bridge_in,  network, from_addr, to_addr, amount, fees, input_utxos, status, goat_tx_hash, goat_tx_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers,
-                       pegin_data_tx_hash, btc_height, parameters, status_updated_at,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.is_bridge_in,
             instance.network,
@@ -650,6 +704,7 @@ impl<'a> StorageProcessor<'a> {
             instance.btc_height,
             instance.parameters,
             instance.status_updated_at,
+            instance.escrow_hash,
             instance.created_at,
             instance.updated_at
         )
@@ -1467,7 +1522,11 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn get_sum_bridge_in(&mut self, statuses: &[String]) -> anyhow::Result<(i64, i64)> {
+    pub async fn get_sum_bridge_txn(
+        &mut self,
+        is_bridge_in: bool,
+        statuses: &[String],
+    ) -> anyhow::Result<(i64, i64)> {
         #[derive(sqlx::FromRow)]
         struct BridgeInRow {
             pub total: i64,
@@ -1477,7 +1536,8 @@ impl<'a> StorageProcessor<'a> {
         let query_str = format!(
             "SELECT SUM(amount) AS total, COUNT(*) AS tx_count
              FROM instance
-             WHERE status IN ({})",
+             WHERE  is_bridge_in = {} AND status IN ({})",
+            is_bridge_in,
             create_place_holders(statuses)
         );
         let mut query = sqlx::query_as::<_, BridgeInRow>(&query_str);
@@ -2784,9 +2844,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<WatchContract>> {
         Ok(sqlx::query_as!(
             WatchContract,
-            "SELECT addr, the_graph_url, from_height, gap, status, extra, updated_at
+            "SELECT *
              FROM watch_contract
-             WHERE addr = ? ",
+             WHERE contract_addr = ?",
             addr
         )
         .fetch_optional(self.conn())
@@ -2798,31 +2858,37 @@ impl<'a> StorageProcessor<'a> {
         watch_contract: &WatchContract,
     ) -> anyhow::Result<()> {
         let _ = sqlx::query!(
-            "INSERT OR
-             REPLACE INTO watch_contract (addr, the_graph_url, gap, from_height, status, extra, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-            watch_contract.addr,
+            "INSERT INTO watch_contract (contract_addr, the_graph_url, gap, from_height, status, extra, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (contract_addr) DO UPDATE SET the_graph_url = excluded.the_graph_url,
+                                            gap            = excluded.gap,
+                                            from_height    = excluded.from_height,
+                                            status         = excluded.status,
+                                            extra          = excluded.extra,
+                                            updated_at     = excluded.updated_at",
+            watch_contract.contract_addr,
             watch_contract.the_graph_url,
             watch_contract.gap,
             watch_contract.from_height,
             watch_contract.status,
             watch_contract.extra,
             watch_contract.updated_at,
+            watch_contract.created_at
         ).execute(self.conn()).await;
         Ok(())
     }
 
     pub async fn update_watch_contract_status(
         &mut self,
-        addr: &str,
+        contract_addr: &str,
         status: &str,
         updated_at: i64,
     ) -> anyhow::Result<()> {
         let _ = sqlx::query!(
-            "UPDATE watch_contract SET status =?,  updated_at=? WHERE addr =?",
+            "UPDATE watch_contract SET status = ?,  updated_at = ? WHERE contract_addr = ?",
             status,
             updated_at,
-            addr,
+            contract_addr,
         )
         .execute(self.conn())
         .await;
@@ -2844,6 +2910,9 @@ impl<'a> StorageProcessor<'a> {
         {
             update_goat_tx_record.created_at = goat_tx_record_store.created_at;
             update_goat_tx_record.is_local = goat_tx_record_store.is_local;
+            if goat_tx_record_store.is_processed() {
+                update_goat_tx_record.processing_status = goat_tx_record_store.processing_status;
+            }
             if update_goat_tx_record.height < goat_tx_record_store.height {
                 update_goat_tx_record.height = goat_tx_record_store.height;
             }
