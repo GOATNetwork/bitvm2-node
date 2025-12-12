@@ -31,7 +31,7 @@ pub struct Args {
     output: String,
 
     #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
-    block_headers: String,
+    btc_block_headers: String,
 }
 
 #[tokio::main]
@@ -54,7 +54,7 @@ async fn main() {
             commit_chain_input_proof: args.commit_chain_input_proof.clone(),
             state_chain_input_proof: args.state_chain_input_proof.clone(),
             output: args.output.clone(),
-            block_headers: args.block_headers.clone(),
+            btc_block_headers: args.btc_block_headers.clone(),
             target_block,
             block_pos,
             latest_sequencer_commit_tx,

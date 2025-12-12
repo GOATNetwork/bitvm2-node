@@ -82,7 +82,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
             ref state_chain_input_proof,
             ref latest_sequencer_commit_txid,
             ref genesis_sequencer_commit_txid,
-            ref block_headers,
+            ref btc_block_headers,
             ref target_block,
             ref block_pos,
             ref latest_sequencer_commit_tx,
@@ -154,7 +154,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
         */
 
         let bitcoin_block_headers = {
-            let headers: Vec<u8> = std::fs::read(&block_headers).unwrap();
+            let headers: Vec<u8> = std::fs::read(&btc_block_headers).unwrap();
             headers
                 .chunks(80)
                 .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())

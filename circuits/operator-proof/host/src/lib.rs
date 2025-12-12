@@ -31,12 +31,12 @@ use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 
-pub async fn fetch_data(
+pub async fn fetch_target_block_and_watchtower_tx(
     esplora_url: &str,
     latest_sequencer_commit_txid: &str,
-    watchtower_challenge_init_txid: String,
-    watchtower_challenge_txids: Vec<String>,
-    watchtower_public_keys: Vec<String>,
+    watchtower_challenge_init_txid: &String,
+    watchtower_challenge_txids: &Vec<String>,
+    watchtower_public_keys: &Vec<String>,
 ) -> anyhow::Result<(
     u32,
     bitcoin::Block,
@@ -149,7 +149,7 @@ impl ProofBuilder for OperatorProofBuilder {
             ref commit_chain_input_proof,
             ref state_chain_input_proof,
             ref genesis_sequencer_commit_txid,
-            ref block_headers,
+            ref btc_block_headers,
             ref target_block,
             ref block_pos,
             ref operator_latest_sequencer_commit_txn,
@@ -232,7 +232,7 @@ impl ProofBuilder for OperatorProofBuilder {
         */
 
         let bitcoin_block_headers = {
-            let headers: Vec<u8> = std::fs::read(&block_headers).unwrap();
+            let headers: Vec<u8> = std::fs::read(btc_block_headers).unwrap();
             headers
                 .chunks(80)
                 .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())

@@ -2,7 +2,7 @@
 use clap::Parser;
 use hex::FromHex;
 
-use operator_proof::{OperatorProofBuilder, fetch_data};
+use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 
 pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
@@ -57,7 +57,7 @@ pub struct Args {
     output: String,
 
     #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
-    block_headers: String,
+    btc_block_headers: String,
 }
 
 #[tokio::main]
@@ -76,12 +76,12 @@ async fn main() {
         watchtower_challenge_txn_prev_indices,
         watchtower_challenge_txn_pubkeys,
         watchtower_challenge_txn_scripts,
-    ) = fetch_data(
+    ) = fetch_target_block_and_watchtower_tx(
         &args.esplora_url,
         &args.latest_sequencer_commit_txid,
-        args.watchtower_challenge_init_txid.clone(),
-        args.watchtower_challenge_txids.clone(),
-        args.watchtower_public_keys.clone(),
+        &args.watchtower_challenge_init_txid,
+        &args.watchtower_challenge_txids,
+        &args.watchtower_public_keys,
     )
     .await
     .unwrap();
@@ -100,7 +100,7 @@ async fn main() {
             execution_layer_block_number: args.execution_layer_block_number,
 
             output: args.output.clone(),
-            block_headers: args.block_headers.clone(),
+            btc_block_headers: args.btc_block_headers.clone(),
 
             block_pos,
             target_block,
