@@ -1,10 +1,10 @@
 [package]
-name = "services"
+name = "proof-service"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "proof_services"
+name = "proof-service"
 path = "src/main.rs"
 
 [dependencies]
@@ -21,5 +21,9 @@ serde = { version = "1.0.226", default-features = false, features = ["derive"] }
 axum = { workspace = true, features = ["macros", "json"] }
 http-body-util = "0.1"
 prometheus-client = { workspace = true }
+
+proof-builder = { workspace = true }
+header-chain-proof = { workspace = true }
+
 [lints]
 workspace = true

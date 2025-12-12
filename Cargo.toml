@@ -6,6 +6,8 @@ edition = "2024"
 resolver = "3"
 members = [
     "node",
+    "proof-service",
+    "crates/cbft-rpc",
     "crates/bitvm2-ga",
     "crates/store",
     "crates/client",
@@ -16,7 +18,9 @@ members = [
     "circuits/header-chain-proof/host",
     "circuits/commit-chain-proof/host",
     "circuits/watchtower-proof/host",
-    "circuits/operator-proof/host", "crates/cbft-rpc", "circuits/services", "circuits/state-chain-proof/host",
+    "circuits/operator-proof/host",
+    "circuits/state-chain-proof/host",
+    "circuits/proof-builder",
 ]
 default-members = ["node"]
 
@@ -87,9 +91,11 @@ store = { path = "crates/store" }
 client = { path = "crates/client" }
 bitcoin-light-client-circuit = { path = "crates/bitcoin-light-client-circuit" }
 header-chain = { path = "crates/header-chain" }
+header-chain-proof = { path = "circuits/header-chain-proof/host" }
 commit-chain = { path = "crates/commit-chain" }
 cbft-rpc = { path = "crates/cbft-rpc" }
 state-chain = { path = "crates/state-chain" }
+proof-builder = { path = "circuits/proof-builder" }
 
 chrono = "0.4.39"
 tracing = { version = "0.1.40", default-features = false }

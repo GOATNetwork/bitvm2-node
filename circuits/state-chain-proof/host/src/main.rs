@@ -1,30 +1,7 @@
 #![feature(trim_prefix_suffix)]
-use alloy_primitives::{Address, U256};
-use alloy_provider::{RootProvider, network::Ethereum};
-use bitcoin_light_client_circuit::EthClientExecutorInput;
-use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block};
-use hex::FromHex;
-use host_executor::EthHostExecutor;
-use primitives::genesis::Genesis;
-use reth_chainspec::ChainSpec;
-use rpc_db::RpcDb;
-use state_chain::*;
-use std::sync::Arc;
-use url::Url;
-use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
-    include_elf,
-};
-
-use sha2::{Digest, Sha256};
-use std::sync::OnceLock;
-static ELF_ID: OnceLock<String> = OnceLock::new();
-
-/// A program that aggregates the proofs of the simple program.
-const STATE_CHAIN: &[u8] = include_elf!("guest");
-
 use clap::Parser;
-use std::fs;
+use hex::FromHex;
+use proof_builder::{Context, ProofBuilder, ProofRequest};
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
@@ -68,80 +45,7 @@ pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
     b.try_into().map_err(|_| "len must be 16".to_string())
 }
 
-// https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
-async fn fetch_exection_layer_block(
-    execution_layer_rpc: &str,
-    execution_layer_block_number: u64,
-    genesis: &Genesis,
-) -> EthClientExecutorInput {
-    // Setup the provider.
-    let rpc_url = Url::parse(&execution_layer_rpc).expect("invalid rpc url");
-
-    let provider = RootProvider::<Ethereum>::new_http(rpc_url);
-
-    let rpc_db = RpcDb::new(provider.clone(), provider.clone(), execution_layer_block_number - 1);
-
-    let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
-    let custom_beneficiary = None;
-
-    let host_executor = EthHostExecutor::eth(chain_spec.clone(), custom_beneficiary);
-    // Execute the host.
-    let client_input = host_executor
-        .execute(
-            execution_layer_block_number,
-            &rpc_db,
-            &provider,
-            genesis.clone(),
-            custom_beneficiary,
-            false,
-        )
-        .await
-        .expect("failed to execute host");
-    client_input
-}
-
-async fn fetch_state_chain(args: &Args) -> Vec<CircuitStateBlock> {
-    assert!(args.start > 0, "Don't get genesis block from the consensus layer.");
-    let mut blocks: Vec<_> = Vec::new();
-    let addr = args.l2_contract_address.trim_prefix("0x");
-    let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
-    let l2_contract_address = Address::from(bytes);
-    let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
-    let genesis = &Genesis::GoatTestnet;
-
-    for i in args.start..(args.start + args.batch_size) {
-        let (_, cl_block_number) = fetch_cbft_validator_info(i).await.unwrap();
-        let cosmos_txns = fetch_cbft_tx_data(cl_block_number).await.unwrap();
-        let cosmos_block = fetch_cosmos_block(cl_block_number).await.unwrap();
-        let evm_block = fetch_exection_layer_block(&args.execution_layer_rpc, i, genesis).await;
-
-        let withdrawals = if !args.graph_block_numbers.is_empty() {
-            let indices: Vec<usize> = args
-                .graph_block_numbers
-                .iter()
-                .enumerate()
-                .filter(|&(_, &val)| val == i)
-                .map(|(i, _)| i)
-                .collect();
-            let graph_ids: Vec<_> = indices.iter().map(|&x| args.graph_ids[x].clone()).collect();
-            if graph_ids.len() > 0 {
-                tracing::info!("block_id: {i}, check graph_ids: {:?}", graph_ids);
-                Some((l2_contract_address, base_slot, graph_ids))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let cosmos_block = serde_json::to_vec(&cosmos_block).unwrap();
-        tracing::info!("[push] block: {}, withdrawals: {:?}", i, withdrawals);
-        blocks.push(CircuitStateBlock { cosmos_txns, cosmos_block, evm_block, withdrawals });
-    }
-    let block_bytes = serde_json::to_vec(&blocks).unwrap();
-    std::fs::write(&args.blocks, block_bytes).unwrap();
-    blocks
-}
+use state_chain_proof::{StateChainProofBuilder, fetch_state_chain};
 
 #[tokio::main]
 async fn main() {
@@ -150,69 +54,34 @@ async fn main() {
     tracing::info!("args: {:?}", args);
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
-    let blocks = fetch_state_chain(&args).await;
-
-    // Initialize the proving client.
-    let client = ProverClient::new();
-
-    // Setup the proving and verifying keys.
-    let (state_chain_proof_pk, state_chain_proof_vk) = client.setup(STATE_CHAIN);
-
-    let vk_hash = state_chain_proof_vk.hash_u32();
-
-    // Set the previous proof type based on input_proof argument
-    let prev_receipt = if args.init_input {
-        None
-    } else {
-        let proof_bytes = fs::read(args.input_proof).expect("Failed to read input proof file");
-        let proof: ZKMProofWithPublicValues =
-            bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
-        Some(proof)
-    };
-    let (prev_proof, pv_hash) = match prev_receipt.clone() {
-        Some(mut receipt) => {
-            let prev_output = receipt.public_values.read();
-            let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
-            (StateChainPrevProofType::PrevProof(prev_output), pv_hash)
-        }
-        None => (StateChainPrevProofType::GenesisBlock, [0u8; 32]),
-    };
-
-    let input: StateChainCircuitInput =
-        StateChainCircuitInput { vk_hash, pv_hash, prev_proof, blocks };
-    // Generate the proofs.
-    let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
-        let mut stdin = ZKMStdin::new();
-        stdin.write(&input);
-        if let Some(proof) = prev_receipt {
-            let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
-            stdin.write_proof(*compressed_proof, state_chain_proof_vk.vk.clone());
-        } else {
-            tracing::info!("Skip writing proof for genesis evm block");
-        }
-        let elf_id = if ELF_ID.get().is_none() {
-            ELF_ID.set(hex::encode(Sha256::digest(&state_chain_proof_pk.elf))).unwrap();
-            None
-        } else {
-            Some(ELF_ID.get().unwrap().clone())
-        };
-        tracing::info!("elf id: {:?}", elf_id);
-
-        client
-            .prove_with_cycles(&state_chain_proof_pk, &stdin, ZKMProofKind::Compressed, elf_id)
-            .expect("proving failed")
-    });
-    tracing::info!("State chain proof cycles: {}", cycles);
-    if let Err(e) = client.verify(&proof, &state_chain_proof_vk) {
-        panic!("{}", e);
-    }
-
-    fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
-    fs::write(
-        &format!("{}.vk", args.output_proof),
-        bincode::serialize(&state_chain_proof_vk).unwrap(),
+    let blocks = fetch_state_chain(
+        args.l2_contract_address.clone(),
+        args.start,
+        args.batch_size,
+        args.execution_layer_rpc.clone(),
+        args.graph_block_numbers.clone(),
+        args.graph_ids.clone(),
+        args.blocks.clone(),
     )
-    .unwrap();
-    fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
-    tracing::info!("Generate proof successfully, proof: {:?}", proof);
+    .await;
+
+    let builder = StateChainProofBuilder::new();
+
+    let ctx = Context {
+        request: ProofRequest::StateChainProofRequest {
+            execution_layer_rpc: args.execution_layer_rpc.clone(),
+            init_input: args.init_input,
+            input_proof: args.input_proof.clone(),
+            output_proof: args.output_proof.clone(),
+            start: args.start,
+            l2_contract_address: args.l2_contract_address.clone(),
+            graph_ids: args.graph_ids.clone(),
+            graph_block_numbers: args.graph_block_numbers.clone(),
+            batch_size: args.batch_size,
+            blocks,
+        },
+    };
+    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+    tracing::info!("header chain proof cycles: {cycles}");
+    builder.save_proof(&ctx, &input, proof).unwrap();
 }

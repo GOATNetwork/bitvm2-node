@@ -35,6 +35,7 @@ host-executor.workspace = true
 alloy-provider.workspace = true
 alloy-primitives.workspace = true
 cbft-rpc.workspace = true
+proof-builder.workspace = true
 
 # Ziren
 zkm-sdk.workspace = true

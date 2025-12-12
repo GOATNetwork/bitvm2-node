@@ -9,6 +9,32 @@ pub(crate) fn spawn_header_chain_proof_task(
     cancellation_token: CancellationToken,
 ) -> JoinHandle<anyhow::Result<()>> {
     tokio::spawn(async move {
+        /*
+            let total_block_headers = fetch_header_chain(
+                &args.esplora_url,
+                args.start,
+                args.batch_size,
+                &args.block_headers,
+                args.force_fetch,
+            ).await;
+
+            let builder = HeaderChainProofBuilder::new();
+
+            let ctx = Context {
+               request: proof_builder::ProofRequest::HeaderChainProofRequest {
+                   init_input: args.init_input,
+                   input_proof: args.input_proof.clone(),
+                   output_proof: args.output_proof.clone(),
+                   start: args.start,
+                   batch_size: args.batch_size,
+                   total_block_headers,
+               }
+            };
+            let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+            tracing::info!("header chain proof cycles: {cycles}");
+            builder.save_proof(&ctx, &input, proof).unwrap();
+        */
+
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}
             _ = cancellation_token.cancelled() => {

@@ -32,6 +32,7 @@ header-chain = { workspace = true }
 commit-chain = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
+proof-builder.workspace = true
 
 # Ziren
 zkm-sdk.workspace = true

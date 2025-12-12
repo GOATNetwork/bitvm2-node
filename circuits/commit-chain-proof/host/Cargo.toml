@@ -34,6 +34,8 @@ tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tender
   "rust-crypto",
 ] }
 
+proof-builder.workspace = true
+
 # Ziren
 zkm-sdk.workspace = true
 zkm-prover.workspace = true

@@ -1,30 +1,8 @@
 //! Generate header chain proof
-//! Example:
-//!     export BITCOIN_NETWORK=regtest
-//!     Genesis:        RUST_LOG=debug cargo run -r -- --start 0 --batch-size 278 --init-input --output-proof "0-10.bin"
-//!     Regular blocks: RUST_LOG=debug cargo run -r -- --start 278 --batch-size 20 --input-proof "0-10.bin" --output-proof "10-20.bin"
-use bitcoin::Network;
-use borsh::{BorshDeserialize, BorshSerialize};
-use client::btc_chain::BTCClient;
-use header_chain::{
-    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
-};
-use sha2::{Digest, Sha256};
-use zkm_sdk::ZKMProofKind;
-use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
-};
-static ELF_ID: OnceLock<String> = OnceLock::new();
-use std::sync::OnceLock;
-
-/// A program that aggregates the proofs of the simple program.
-const HEADER_CHAIN: &[u8] = include_elf!("guest");
+use header_chain_proof::{HeaderChainProofBuilder, fetch_header_chain};
+use proof_builder::{Context, ProofBuilder};
 
 use clap::Parser;
-use std::{
-    fs,
-    io::{Read, Seek},
-};
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser)]
@@ -54,43 +32,6 @@ pub struct Args {
     force_fetch: bool,
 }
 
-async fn fetch_header_chain(args: &Args) -> Vec<CircuitBlockHeader> {
-    let network = Network::Regtest;
-    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
-
-    let mut writer = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(&args.block_headers)
-        .unwrap();
-
-    let mut headers: Vec<u8> = Vec::new();
-    writer.read_to_end(&mut headers).unwrap();
-
-    let mut block_headers: Vec<_> = headers
-        .chunks(80)
-        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-        .collect::<Vec<CircuitBlockHeader>>();
-
-    if args.force_fetch {
-        block_headers.truncate(args.start);
-    }
-    assert!(block_headers.len() == args.start, "Invalid starting block number");
-
-    writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64)).unwrap();
-
-    for i in args.start..(args.start + args.batch_size) {
-        let block = btc_client.get_block_by_height(i as u32).await.unwrap();
-        tracing::info!("block_id {i}: {}", block.block_hash().to_string());
-        let header: header_chain::CircuitBlockHeader = block.header.into();
-        block_headers.push(header.clone());
-        header.serialize(&mut writer).unwrap();
-    }
-    writer.set_len((block_headers.len() * 80) as u64).unwrap();
-    block_headers
-}
-
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
@@ -98,80 +39,28 @@ async fn main() {
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
 
-    let total_block_headers = fetch_header_chain(&args).await;
-
-    // Initialize the proving client.
-    let client = ProverClient::new();
-
-    // Setup the proving and verifying keys.
-    let (header_chain_proof_pk, header_chain_proof_vk) = client.setup(HEADER_CHAIN);
-
-    let vk_hash = header_chain_proof_vk.hash_u32();
-    let mut start = 0;
-    // Set the previous proof type based on input_proof argument
-    let prev_receipt = if args.init_input {
-        None
-    } else {
-        let proof_bytes = fs::read(&args.input_proof).expect("Failed to read input proof file");
-        let proof: ZKMProofWithPublicValues =
-            bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
-        Some(proof)
-    };
-    let (prev_proof, pv_hash) = match prev_receipt.clone() {
-        Some(mut receipt) => {
-            let prev_output: BlockHeaderCircuitOutput = receipt.public_values.read();
-            start = prev_output.chain_state.block_height as usize + 1;
-            let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
-            (HeaderChainPrevProofType::PrevProof(prev_output), pv_hash)
-        }
-        None => (HeaderChainPrevProofType::GenesisBlock, [0u8; 32]),
-    };
-    tracing::info!(
-        "header-chain length: {}, start: {}, batch_size: {}",
-        total_block_headers.len(),
-        start,
-        args.batch_size
-    );
-
-    let block_headers = (&total_block_headers[args.start..args.start + args.batch_size]).to_vec();
-    let input: HeaderChainCircuitInput =
-        HeaderChainCircuitInput { vk_hash, prev_proof, pv_hash, block_headers };
-
-    // Generate the proofs.
-    let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
-        let mut stdin = ZKMStdin::new();
-        stdin.write(&input);
-        if let Some(proof) = prev_receipt {
-            tracing::info!("Generate proof from block {}", start);
-            let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
-            stdin.write_proof(*compressed_proof, header_chain_proof_vk.vk.clone());
-        } else {
-            tracing::info!("Generate proof from genesis block");
-        }
-        let elf_id = if ELF_ID.get().is_none() {
-            ELF_ID.set(hex::encode(Sha256::digest(&header_chain_proof_pk.elf))).unwrap();
-            None
-        } else {
-            Some(ELF_ID.get().unwrap().clone())
-        };
-        tracing::info!("elf id: {:?}", elf_id);
-        client
-            .prove_with_cycles(&header_chain_proof_pk, &stdin, ZKMProofKind::Compressed, elf_id)
-            .expect("proving failed")
-    });
-
-    tracing::info!("Header chain proof cycles: {}", cycles);
-
-    if let Err(e) = client.verify(&proof, &header_chain_proof_vk) {
-        panic!("{}", e);
-    }
-
-    fs::write(&args.output_proof, bincode::serialize(&proof).unwrap()).unwrap();
-    fs::write(
-        &format!("{}.vk", args.output_proof),
-        bincode::serialize(&header_chain_proof_vk).unwrap(),
+    let total_block_headers = fetch_header_chain(
+        &args.esplora_url,
+        args.start,
+        args.batch_size,
+        &args.block_headers,
+        args.force_fetch,
     )
-    .unwrap();
-    fs::write(&format!("{}.in", args.output_proof), bincode::serialize(&input).unwrap()).unwrap();
-    tracing::info!("Generate proof successfully, proof: {:?}", proof);
+    .await;
+
+    let builder = HeaderChainProofBuilder::new();
+
+    let ctx = Context {
+        request: proof_builder::ProofRequest::HeaderChainProofRequest {
+            init_input: args.init_input,
+            input_proof: args.input_proof.clone(),
+            output_proof: args.output_proof.clone(),
+            start: args.start,
+            batch_size: args.batch_size,
+            total_block_headers,
+        },
+    };
+    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+    tracing::info!("header chain proof cycles: {cycles}");
+    builder.save_proof(&ctx, &input, proof).unwrap();
 }
