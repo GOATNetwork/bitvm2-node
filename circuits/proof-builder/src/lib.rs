@@ -35,8 +35,6 @@ pub enum ProofRequest {
         batch_size: u64,
         start: u64,
         l2_contract_address: String,
-        //graph_ids: Vec<[u8; 16]>,
-        //graph_block_numbers: Vec<u64>,
         blocks: Vec<CircuitStateBlock>,
     },
     WatchtowerProofRequest {

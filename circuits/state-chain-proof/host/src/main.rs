@@ -30,19 +30,18 @@ pub struct Args {
     #[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
     l2_contract_address: String,
 
-    //#[clap(long, env, value_parser=hex_parse)]
-    //graph_ids: Vec<[u8; 16]>,
-    //#[clap(long, env)]
-    //graph_block_numbers: Vec<u64>,
+    // https://explorer.testnet3.goat.network/address/0x9F0A61ce47678F43A326dB9F8964C56a924cd3D0?tab=read_write_contract
+    #[clap(long, env, value_parser=hex_parse::<4>, default_value = "0xc3342df3")]
+    proceed_withdraw_method_id: [u8; 4],
 }
 
-pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
+pub fn hex_parse<const N: usize>(s: &str) -> Result<[u8; N], String> {
     let mut s = s;
     if s.starts_with("0x") {
         s = &s[2..];
     }
     let b = Vec::from_hex(s).map_err(|e| e.to_string())?;
-    b.try_into().map_err(|_| "len must be 16".to_string())
+    b.try_into().map_err(|_| "len must be {N}".to_string())
 }
 
 use state_chain_proof::{StateChainProofBuilder, fetch_state_chain};
@@ -56,11 +55,10 @@ async fn main() {
     zkm_sdk::utils::setup_logger();
     let blocks = fetch_state_chain(
         &args.l2_contract_address,
+        &args.proceed_withdraw_method_id,
         args.start,
         args.batch_size,
         &args.execution_layer_rpc,
-        //args.graph_block_numbers.clone(),
-        //args.graph_ids.clone(),
         args.blocks.clone(),
     )
     .await;
@@ -74,8 +72,6 @@ async fn main() {
             output_proof: args.output_proof.clone(),
             start: args.start,
             l2_contract_address: args.l2_contract_address.clone(),
-            //graph_ids: args.graph_ids.clone(),
-            //graph_block_numbers: args.graph_block_numbers.clone(),
             batch_size: args.batch_size,
             blocks,
         },

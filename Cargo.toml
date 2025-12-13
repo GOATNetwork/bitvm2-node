@@ -114,7 +114,8 @@ hex-literal = "0.4.1"
 rayon = "1.10.0"
 rlp = "0.5.2"
 logroller = { version = "0.1", features = ["tracing"] }
-serde_cbor = "0.11.2"
+#serde_cbor = "0.11.2"
+alloy-consensus = { git = "https://github.com/ziren-patches/alloy", branch = "patch-0.14.0", default-features = false, features = ["serde", "serde-bincode-compat"] }
 
 # workspace
 

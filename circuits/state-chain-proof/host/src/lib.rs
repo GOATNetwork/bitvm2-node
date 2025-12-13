@@ -1,4 +1,5 @@
 #![feature(trim_prefix_suffix)]
+use alloy_consensus::transaction::Transaction;
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
 use alloy_provider::{RootProvider, network::Ethereum};
@@ -30,36 +31,28 @@ use std::fs;
 async fn fetch_withdrawal(
     execution_layer_rpc: &str,
     l2_contract_address: &Address,
+    proceed_withdraw_method_id: &[u8; 4],
     start: u64,
     batch_size: u64,
-    genesis: &Genesis,
 ) -> anyhow::Result<(Vec<u64>, Vec<[u8; 16]>)> {
     let rpc_url = Url::parse(&execution_layer_rpc).expect("invalid rpc url");
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
     let mut block_numbers = vec![];
     let mut graph_ids: Vec<[u8; 16]> = vec![];
-
-    use alloy::sol;
-    sol! {
-        function mockProceedWithdraw(bytes16 graphId); 
-    }
-
-    //let method = transferCall::abi_decode();
-    let method_id = hex::decode("c3342df3").unwrap();
-
     for i in start..start + batch_size {
         let block = provider.get_block(i.into()).await.unwrap().unwrap();
         for txid in block.transactions.hashes() {
-            let txn = provider.get_transaction_by_hash(txid).await.unwrap();
-            if txn.as_ref().unwrap().inner.to.unwrap() == *l2_contract_address 
-                && txn.as_ref().unwrap().input[0..4] == method_id
-            {
-                println!("txn: {txn:?}");
-                panic!("1111111111111")
+            let txn = provider.get_transaction_by_hash(txid).await.unwrap().unwrap();
+            let to = txn.to();
+            let input = txn.input();
+            if to == Some(*l2_contract_address) && &input[0..4] == proceed_withdraw_method_id {
+                let graph_id: [u8; 16] = input[4..16 + 4].try_into().unwrap();
+                block_numbers.push(i);
+                graph_ids.push(graph_id);
+                println!("block: {i}, graph_id: {:?}", hex::encode(graph_id));
             }
         }
     }
-    todo!();
     Ok((block_numbers, graph_ids))
 }
 
@@ -93,6 +86,7 @@ async fn fetch_exection_layer_block(
 
 pub async fn fetch_state_chain(
     l2_contract_address: &str,
+    proceed_withdraw_method_id: &[u8; 4],
     start: u64,
     batch_size: u64,
     execution_layer_rpc: &str,
@@ -109,8 +103,15 @@ pub async fn fetch_state_chain(
     let genesis = &Genesis::GoatTestnet;
 
     // fetch graph_block_numbers and graph_ids between in goat block(start, start + batch_size)
-    let (graph_block_numbers, graph_ids) = fetch_withdrawal(execution_layer_rpc, &l2_contract_address, start, batch_size, genesis).await.unwrap();
-
+    let (graph_block_numbers, graph_ids) = fetch_withdrawal(
+        execution_layer_rpc,
+        &l2_contract_address,
+        proceed_withdraw_method_id,
+        start,
+        batch_size,
+    )
+    .await
+    .unwrap();
 
     for i in start..(start + batch_size) {
         let (_, cl_block_number) = fetch_cbft_validator_info(i).await.unwrap();

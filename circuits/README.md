@@ -103,10 +103,6 @@ We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optiona
 * Generate state-chain proof. If there are some `proceedWithdraw` transactions, configure `GRAPH_IDS` and `GRAPH_BLOCK_NUMBERS` by sparating them by comma. 
 
 ```
-# Required if applied
-export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
-export GRAPH_BLOCK_NUMBERS=9511055
-
 export EL_START_BLOCK_NUMBER=9511050
 export BATCH_SIZE=10
 export L2_CONTRACT_ADDRESS=0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f
