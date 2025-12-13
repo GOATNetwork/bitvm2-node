@@ -29,15 +29,14 @@ pub enum ProofRequest {
         output_proof: String,
     },
     StateChainProofRequest {
-        //execution_layer_rpc: String,
         init_input: bool,
         input_proof: String,
         output_proof: String,
         batch_size: u64,
         start: u64,
         l2_contract_address: String,
-        graph_ids: Vec<[u8; 16]>,
-        graph_block_numbers: Vec<u64>,
+        //graph_ids: Vec<[u8; 16]>,
+        //graph_block_numbers: Vec<u64>,
         blocks: Vec<CircuitStateBlock>,
     },
     WatchtowerProofRequest {

@@ -30,10 +30,10 @@ pub struct Args {
     #[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
     l2_contract_address: String,
 
-    #[clap(long, env, value_parser=hex_parse)]
-    graph_ids: Vec<[u8; 16]>,
-    #[clap(long, env)]
-    graph_block_numbers: Vec<u64>,
+    //#[clap(long, env, value_parser=hex_parse)]
+    //graph_ids: Vec<[u8; 16]>,
+    //#[clap(long, env)]
+    //graph_block_numbers: Vec<u64>,
 }
 
 pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
@@ -55,12 +55,12 @@ async fn main() {
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
     let blocks = fetch_state_chain(
-        args.l2_contract_address.clone(),
+        &args.l2_contract_address,
         args.start,
         args.batch_size,
-        args.execution_layer_rpc.clone(),
-        args.graph_block_numbers.clone(),
-        args.graph_ids.clone(),
+        &args.execution_layer_rpc,
+        //args.graph_block_numbers.clone(),
+        //args.graph_ids.clone(),
         args.blocks.clone(),
     )
     .await;
@@ -74,8 +74,8 @@ async fn main() {
             output_proof: args.output_proof.clone(),
             start: args.start,
             l2_contract_address: args.l2_contract_address.clone(),
-            graph_ids: args.graph_ids.clone(),
-            graph_block_numbers: args.graph_block_numbers.clone(),
+            //graph_ids: args.graph_ids.clone(),
+            //graph_block_numbers: args.graph_block_numbers.clone(),
             batch_size: args.batch_size,
             blocks,
         },

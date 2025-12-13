@@ -1,5 +1,6 @@
 #![feature(trim_prefix_suffix)]
 use alloy_primitives::{Address, U256};
+use alloy_provider::Provider;
 use alloy_provider::{RootProvider, network::Ethereum};
 use bitcoin_light_client_circuit::EthClientExecutorInput;
 use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block};
@@ -26,6 +27,42 @@ const STATE_CHAIN: &[u8] = include_elf!("guest");
 
 use std::fs;
 
+async fn fetch_withdrawal(
+    execution_layer_rpc: &str,
+    l2_contract_address: &Address,
+    start: u64,
+    batch_size: u64,
+    genesis: &Genesis,
+) -> anyhow::Result<(Vec<u64>, Vec<[u8; 16]>)> {
+    let rpc_url = Url::parse(&execution_layer_rpc).expect("invalid rpc url");
+    let provider = RootProvider::<Ethereum>::new_http(rpc_url);
+    let mut block_numbers = vec![];
+    let mut graph_ids: Vec<[u8; 16]> = vec![];
+
+    use alloy::sol;
+    sol! {
+        function mockProceedWithdraw(bytes16 graphId); 
+    }
+
+    //let method = transferCall::abi_decode();
+    let method_id = hex::decode("c3342df3").unwrap();
+
+    for i in start..start + batch_size {
+        let block = provider.get_block(i.into()).await.unwrap().unwrap();
+        for txid in block.transactions.hashes() {
+            let txn = provider.get_transaction_by_hash(txid).await.unwrap();
+            if txn.as_ref().unwrap().inner.to.unwrap() == *l2_contract_address 
+                && txn.as_ref().unwrap().input[0..4] == method_id
+            {
+                println!("txn: {txn:?}");
+                panic!("1111111111111")
+            }
+        }
+    }
+    todo!();
+    Ok((block_numbers, graph_ids))
+}
+
 // https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
 async fn fetch_exection_layer_block(
     execution_layer_rpc: &str,
@@ -34,14 +71,10 @@ async fn fetch_exection_layer_block(
 ) -> EthClientExecutorInput {
     // Setup the provider.
     let rpc_url = Url::parse(&execution_layer_rpc).expect("invalid rpc url");
-
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
-
     let rpc_db = RpcDb::new(provider.clone(), provider.clone(), execution_layer_block_number - 1);
-
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
     let custom_beneficiary = None;
-
     let host_executor = EthHostExecutor::eth(chain_spec.clone(), custom_beneficiary);
     // Execute the host.
     let client_input = host_executor
@@ -59,12 +92,12 @@ async fn fetch_exection_layer_block(
 }
 
 pub async fn fetch_state_chain(
-    l2_contract_address: String,
+    l2_contract_address: &str,
     start: u64,
     batch_size: u64,
-    execution_layer_rpc: String,
-    graph_block_numbers: Vec<u64>,
-    graph_ids: Vec<[u8; 16]>,
+    execution_layer_rpc: &str,
+    //graph_block_numbers: Vec<u64>,
+    //graph_ids: Vec<[u8; 16]>,
     blocks_file: String,
 ) -> Vec<CircuitStateBlock> {
     assert!(start > 0, "Don't get genesis block from the consensus layer.");
@@ -74,6 +107,10 @@ pub async fn fetch_state_chain(
     let l2_contract_address = Address::from(bytes);
     let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
     let genesis = &Genesis::GoatTestnet;
+
+    // fetch graph_block_numbers and graph_ids between in goat block(start, start + batch_size)
+    let (graph_block_numbers, graph_ids) = fetch_withdrawal(execution_layer_rpc, &l2_contract_address, start, batch_size, genesis).await.unwrap();
+
 
     for i in start..(start + batch_size) {
         let (_, cl_block_number) = fetch_cbft_validator_info(i).await.unwrap();
