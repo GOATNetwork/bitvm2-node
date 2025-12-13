@@ -65,7 +65,6 @@ pub struct CommitChainProofBuilder {
     client: ProverClient,
     proving_key: zkm_sdk::ZKMProvingKey,
     verifying_key: zkm_sdk::ZKMVerifyingKey,
-    // database handle
 }
 
 impl CommitChainProofBuilder {
@@ -98,7 +97,7 @@ impl ProofBuilder for CommitChainProofBuilder {
             ref input_proof,
             ref commits,
             ..
-        } = ctx.prev_output
+        } = ctx.request
         else {
             return Err(anyhow::anyhow!("Invalid proof request type"));
         };
@@ -118,9 +117,9 @@ impl ProofBuilder for CommitChainProofBuilder {
         };
         let (prev_proof, pv_hash) = match prev_receipt.clone() {
             Some(mut receipt) => {
-                let prev_output = receipt.public_values.read();
+                let request = receipt.public_values.read();
                 let pv_hash: [u8; 32] = receipt.public_values.hash().try_into().unwrap();
-                (CommitChainPrevProofType::PrevProof(prev_output), pv_hash)
+                (CommitChainPrevProofType::PrevProof(request), pv_hash)
             }
             None => (CommitChainPrevProofType::GenesisBlock, [0u8; 32]),
         };
@@ -171,7 +170,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         input: &[u8],
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
-        let ProofRequest::CommitChainProofRequest { ref output_proof, .. } = ctx.prev_output else {
+        let ProofRequest::CommitChainProofRequest { ref output_proof, .. } = ctx.request else {
             return Err(anyhow::anyhow!("Invalid commit chain input"));
         };
         fs::write(&output_proof, bincode::serialize(&proof)?)?;

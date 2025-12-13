@@ -41,7 +41,6 @@ async fn main() {
             init_input: args.init_input,
             input_proof: args.input_proof.clone(),
             output_proof: args.output_proof.clone(),
-            esplora_url: args.esplora_url.clone(),
             commit_info: args.commit_info.clone(),
             commits: args.commits.clone(),
         },

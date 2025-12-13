@@ -69,7 +69,6 @@ async fn main() {
 
     let ctx = Context {
         request: ProofRequest::StateChainProofRequest {
-            execution_layer_rpc: args.execution_layer_rpc.clone(),
             init_input: args.init_input,
             input_proof: args.input_proof.clone(),
             output_proof: args.output_proof.clone(),

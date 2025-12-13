@@ -22,7 +22,6 @@ pub enum ProofRequest {
         total_block_headers: Vec<CircuitBlockHeader>,
     },
     CommitChainProofRequest {
-        esplora_url: String,
         commit_info: String,
         commits: String,
         init_input: bool,
@@ -30,7 +29,7 @@ pub enum ProofRequest {
         output_proof: String,
     },
     StateChainProofRequest {
-        execution_layer_rpc: String,
+        //execution_layer_rpc: String,
         init_input: bool,
         input_proof: String,
         output_proof: String,

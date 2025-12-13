@@ -112,7 +112,6 @@ pub struct StateChainProofBuilder {
     client: ProverClient,
     proving_key: zkm_sdk::ZKMProvingKey,
     verifying_key: zkm_sdk::ZKMVerifyingKey,
-    // database handle
 }
 
 impl StateChainProofBuilder {
