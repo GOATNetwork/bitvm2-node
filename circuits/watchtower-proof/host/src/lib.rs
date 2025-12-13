@@ -20,7 +20,38 @@ static ELF_ID: OnceLock<String> = OnceLock::new();
 /// A program that aggregates the proofs of the simple program.
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 
+use clap::Parser;
 use std::fs;
+// The arguments for the cli.
+#[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
+pub struct Args {
+    #[arg(long, default_value_t = true)]
+    pub enable: bool,
+
+    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    pub esplora_url: String,
+
+    #[clap(long, env)]
+    pub genesis_sequencer_commit_txid: String,
+
+    #[clap(long, env)]
+    pub latest_sequencer_commit_txid: String,
+
+    #[clap(long, env, short)]
+    pub header_chain_input_proof: String,
+
+    #[clap(long, env, short)]
+    pub commit_chain_input_proof: String,
+
+    #[clap(long, env, short)]
+    pub state_chain_input_proof: String,
+
+    #[clap(long, env)]
+    pub output: String,
+
+    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
+    pub btc_block_headers: String,
+}
 
 pub async fn fetch_target_block(
     esplora_url: &str,

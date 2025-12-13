@@ -6,20 +6,21 @@ edition = "2024"
 resolver = "3"
 members = [
     "node",
-    "proof-service",
+    "proof-builder-rpc",
     "crates/cbft-rpc",
     "crates/bitvm2-ga",
     "crates/store",
     "crates/client",
+    "crates/util",
     "crates/header-chain",
     "crates/commit-chain",
     "crates/state-chain",
     "crates/bitcoin-light-client-circuit",
     "circuits/header-chain-proof/host",
     "circuits/commit-chain-proof/host",
+    "circuits/state-chain-proof/host",
     "circuits/watchtower-proof/host",
     "circuits/operator-proof/host",
-    "circuits/state-chain-proof/host",
     "circuits/proof-builder",
 ]
 default-members = ["node"]
@@ -88,13 +89,18 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"]
 
 bitvm2-lib = { path = "crates/bitvm2-ga" }
 store = { path = "crates/store" }
+util = { path = "crates/util" }
 client = { path = "crates/client" }
 bitcoin-light-client-circuit = { path = "crates/bitcoin-light-client-circuit" }
 header-chain = { path = "crates/header-chain" }
 header-chain-proof = { path = "circuits/header-chain-proof/host" }
 commit-chain = { path = "crates/commit-chain" }
+commit-chain-proof = { path = "circuits/commit-chain-proof/host" }
 cbft-rpc = { path = "crates/cbft-rpc" }
 state-chain = { path = "crates/state-chain" }
+state-chain-proof = { path = "circuits/state-chain-proof/host" }
+operator-proof = { path = "circuits/operator-proof/host" }
+watchtower-proof = { path = "circuits/watchtower-proof/host" }
 proof-builder = { path = "circuits/proof-builder" }
 
 chrono = "0.4.39"
@@ -114,7 +120,6 @@ hex-literal = "0.4.1"
 rayon = "1.10.0"
 rlp = "0.5.2"
 logroller = { version = "0.1", features = ["tracing"] }
-#serde_cbor = "0.11.2"
 alloy-consensus = { git = "https://github.com/ziren-patches/alloy", branch = "patch-0.14.0", default-features = false, features = ["serde", "serde-bincode-compat"] }
 
 # workspace

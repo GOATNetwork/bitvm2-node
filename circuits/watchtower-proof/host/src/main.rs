@@ -1,38 +1,8 @@
 #![feature(trim_prefix_suffix)]
 //! Generate watchtower proof
-use proof_builder::{Context, ProofBuilder, ProofRequest};
-
 use clap::Parser;
-
-use watchtower_proof::{WatchtowerProofBuilder, fetch_target_block};
-
-// The arguments for the cli.
-#[derive(Debug, Clone, Parser)]
-pub struct Args {
-    #[arg(long, default_value = "http://127.0.0.1:3002")]
-    esplora_url: String,
-
-    #[clap(long, env)]
-    genesis_sequencer_commit_txid: String,
-
-    #[clap(long, env)]
-    latest_sequencer_commit_txid: String,
-
-    #[clap(long, env, short)]
-    header_chain_input_proof: String,
-
-    #[clap(long, env, short)]
-    commit_chain_input_proof: String,
-
-    #[clap(long, env, short)]
-    state_chain_input_proof: String,
-
-    #[clap(long, env)]
-    output: String,
-
-    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
-    btc_block_headers: String,
-}
+use proof_builder::{Context, ProofBuilder, ProofRequest};
+use watchtower_proof::{Args, WatchtowerProofBuilder, fetch_target_block};
 
 #[tokio::main]
 async fn main() {
@@ -40,10 +10,8 @@ async fn main() {
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
-
     let (block_pos, target_block, latest_sequencer_commit_tx) =
         fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid).await.unwrap();
-
     let builder = WatchtowerProofBuilder::new();
 
     let ctx = Context {

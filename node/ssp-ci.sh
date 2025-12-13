@@ -19,7 +19,7 @@ $CMD fund
 $CMD payfee
 
 echo -e "publish genisis sign sequencer set" 
-$CMD push-seq --goat-block-number $GOAT_BLOCK_NUMBER --next-publishers=$PUBLISHERS --init-genesis --commit-info="./tests_data/commit_info.json"
+$CMD push-seq --goat-block-number $GOAT_BLOCK_NUMBER --next-publishers=$PUBLISHERS --init-genesis --commit-info="./tests_data/commit_info.json.0"
 
 echo -e "set the new publisher set: publishers => next_publishers"
 GOAT_BLOCK_NUMBER=$(($GOAT_BLOCK_NUMBER+1))
@@ -45,7 +45,7 @@ $CMD --goat-evm-prvkey 0xc12bb8b3c48eb1ffd8f573dd9a7da45b06b739a647f5ee60a8a9143
 $CMD push-pub --goat-block-number $GOAT_BLOCK_NUMBER
 
 # broadcast publisher changes to Bitcoin
-$CMD push-seq --goat-block-number $GOAT_BLOCK_NUMBER --commit-info="./tests_data/commit_info2.json"
+$CMD push-seq --goat-block-number $GOAT_BLOCK_NUMBER --commit-info="./tests_data/commit_info.json.1"
 
 GOAT_BLOCK_NUMBER=$(($GOAT_BLOCK_NUMBER+1))
 echo -e "recover the publisher set: next_publishers => publishers"
@@ -65,4 +65,4 @@ $CMD --publishers=$NEXT_PUBLISHERS --goat-evm-prvkey 0x134e45328c0cf16fa450e9b40
 $CMD --publishers=$NEXT_PUBLISHERS push-pub --goat-block-number $GOAT_BLOCK_NUMBER --next-publishers=$PUBLISHERS --next-publisher-btc-pubkeys=$PUBLISHERS_BTC_PUBKEYS
 
 # broadcast publisher changes to Bitcoin
-$CMD --publishers=$NEXT_PUBLISHERS push-seq --goat-block-number $GOAT_BLOCK_NUMBER --next-publishers=$PUBLISHERS --commit-info="./tests_data/commit_info3.json"
+$CMD --publishers=$NEXT_PUBLISHERS push-seq --goat-block-number $GOAT_BLOCK_NUMBER --next-publishers=$PUBLISHERS --commit-info="./tests_data/commit_info.json.2"

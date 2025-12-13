@@ -36,6 +36,8 @@ bitcoin-script.workspace = true
 alloy-provider = { workspace = true, default-features = false }
 #serde_cbor.workspace = true
 
+util.workspace = true
+
 borsh = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 header-chain = { workspace = true }

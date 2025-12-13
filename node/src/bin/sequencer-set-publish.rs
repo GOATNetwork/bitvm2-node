@@ -49,15 +49,11 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::str::FromStr;
+use util::hex_parse;
 
 pub fn decode_eth_address_object(addr: &str) -> Result<EvmAddress, String> {
     let addr = addr.trim();
     EvmAddress::from_str(addr).map_err(|_| format!("Invalid Ethereum address: {addr}"))
-}
-
-pub fn hex_parse(s: &str) -> Result<[u8; 32], String> {
-    let b = Vec::from_hex(s).map_err(|e| e.to_string())?;
-    b.try_into().map_err(|_| "len must be 32".to_string())
 }
 
 #[derive(Parser)]
@@ -267,7 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let p2wsh_sig_hash = match cached_output.p2wsh_sig_hash {
-        Some(s) => Some(hex_parse(&s)?),
+        Some(s) => Some(hex_parse::<32>(&s)?),
         None => None,
     };
 

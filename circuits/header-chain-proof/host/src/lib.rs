@@ -4,7 +4,7 @@ use client::btc_chain::BTCClient;
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{ArgsRotator, Context, ProofBuilder, ProofRequest};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -16,6 +16,52 @@ use zkm_sdk::{
 };
 static ELF_ID: OnceLock<String> = OnceLock::new();
 use std::sync::OnceLock;
+
+use clap::Parser;
+
+/// The arguments for the cli.
+#[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
+pub struct Args {
+    #[arg(long, default_value_t = true)]
+    pub enable: bool,
+
+    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    pub esplora_url: String,
+
+    #[clap(long, env, default_value_t = 4)]
+    pub batch_size: usize,
+
+    #[clap(long, env, default_value_t = 0)]
+    pub start: usize,
+
+    #[clap(long, env, default_value_t = false)]
+    pub init_input: bool,
+
+    #[clap(long, env, default_value = "block_headers.bin")]
+    pub block_headers: String,
+
+    #[clap(long, env, default_value = "input_proof.bin")]
+    pub input_proof: String,
+
+    #[clap(long, env, default_value = "output_proof.bin")]
+    pub output_proof: String,
+
+    #[clap(long, default_value_t = false)]
+    pub force_fetch: bool,
+}
+
+impl ArgsRotator for Args {
+    fn rotate(&self) -> Self {
+        let mut next_args = self.clone();
+        next_args.input_proof = self.output_proof.clone();
+        next_args.init_input = false;
+        next_args.start = self.start + self.batch_size;
+        next_args
+    }
+    fn path(&self) -> String {
+        "header-chain.ckpt".to_string()
+    }
+}
 
 pub async fn fetch_header_chain(
     esplora_url: &str,

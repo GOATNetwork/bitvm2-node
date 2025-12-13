@@ -92,3 +92,8 @@ pub trait ProofBuilder {
 
     fn is_long_running(&self) -> bool;
 }
+
+pub trait ArgsRotator {
+    fn rotate(&self) -> Self;
+    fn path(&self) -> String;
+}

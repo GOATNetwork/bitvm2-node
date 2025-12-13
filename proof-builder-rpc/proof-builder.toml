@@ -1,0 +1,63 @@
+[header_chain]
+enable = true
+init_input = false 
+esplora_url = "http://127.0.0.1:3002"
+start = 503050
+block_headers = "../circuits/data/header-chain/block_headers.bin"
+force_fetch = true 
+
+batch_size = 10 
+input_proof = "../circuits/data/header_chain/503050-10.bin"
+output_proof = "../circuits/data/header_chain/503060-10.bin"
+
+[commit_chain]
+enable = false
+esplora_url = "http://127.0.0.1:3002"
+commit_info = "./data/commit_info.json"
+commits = "./data/commits.bin"
+init_input = false
+start = 0
+batch_size = 1
+input_proof = "../circuits/data/commit-chain/commit-proof.bin"
+output_proof = "../circuits/data/commit-chain/commit_proof2.bin"
+
+[state_chain]
+enable = false
+init_input = true
+l2_contract_address = "0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f"
+proceed_withdraw_method_id = "0xc3342df3"
+start = 9511050
+batch_size = 10
+execution_layer_rpc = "https://rpc.testnet3.goat.network"
+blocks = "../circuits/data/state-chain/state_blocks.json"
+input_proof = "../circuits/data/state-chain/9511050-10.bin"
+output_proof = "../circuits/data/state-chain/9511050-10.bin"
+
+[watchtower]
+enable = false
+esplora_url = "http://127.0.0.1:3002"
+genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
+latest_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
+header_chain_input_proof = "../circuits/data/header-chain/503050-10.bin"
+commit_chain_input_proof = "../circuits/data/commit-chain/commit-proof.bin"
+state_chain_input_proof = "../circuits/data/state-chain/9511050-10.bin"
+output = "../circuits/data/watchtower/output.bin"
+btc_block_headers = "../circuits/data/header-chain/block_headers.bin"
+
+[operator]
+enable = false
+esplora_url = "http://127.0.0.1:3002"
+genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
+latest_sequencer_commit_txid = "b8e0c71b8a2b7c8c7e6f5e4d3c2b1a0099887766554433221100ffeeddccbbaa"
+watchtower_challenge_init_txid = "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246"
+watchtower_challenge_txids = "3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0"
+watchtower_public_keys = "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651" 
+
+header_chain_input_proof = "../circuits/data/header-chain/503050-10.bin"
+commit_chain_input_proof = "../circuits/data/commit-chain/commit-proof.bin"
+state_chain_input_proof = "../circuits/data/state-chain/9511050-10.bin"
+output = "../circuits/data/operator/output.bin"
+btc_block_headers = "../circuits/data/header-chain/block_headers.bin"
+included_watchtowers = "1"
+graph_id="0x00112233445566778899aabbccddeeff"
+execution_layer_block_number = 8447360

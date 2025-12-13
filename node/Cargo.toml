@@ -99,6 +99,7 @@ stun-client = "0.1.4"
 strum = { version = "0.26", features = ["derive"] }
 borsh = {version = "1.5.3", features = ["derive"] }
 cbft-rpc = { workspace = true }
+util = { workspace = true }
 
 # bin
 tempfile = "3.19.1"

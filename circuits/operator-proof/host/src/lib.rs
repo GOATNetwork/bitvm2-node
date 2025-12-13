@@ -22,6 +22,56 @@ use zkm_sdk::{
 };
 use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
+use clap::Parser;
+/// The arguments for the cli.
+#[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
+pub struct Args {
+    #[arg(long, default_value_t = true)]
+    pub enable: bool,
+
+    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    pub esplora_url: String,
+
+    #[clap(long, env)]
+    pub included_watchtowers: String,
+
+    #[clap(long, env)]
+    pub graph_id: String,
+
+    #[clap(long, env)]
+    pub latest_sequencer_commit_txid: String,
+
+    #[clap(long, env)]
+    pub genesis_sequencer_commit_txid: String,
+
+    #[clap(long, env, short)]
+    pub header_chain_input_proof: String,
+
+    #[clap(long, env, short)]
+    pub commit_chain_input_proof: String,
+
+    #[clap(long, env, short)]
+    pub state_chain_input_proof: String,
+
+    #[clap(long, env, short)]
+    pub execution_layer_block_number: u64,
+
+    #[clap(long, env, short)]
+    pub watchtower_challenge_txids: String,
+
+    #[clap(long, env, short)]
+    pub watchtower_public_keys: String,
+
+    #[clap(long, env, short)]
+    pub watchtower_challenge_init_txid: String,
+
+    #[clap(long, env, default_value = "commit-proof.bin")]
+    pub output: String,
+
+    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
+    pub btc_block_headers: String,
+}
+
 /// A program that aggregates the proofs of the simple program.
 const OPERATOR: &[u8] = include_elf!("guest");
 
@@ -35,8 +85,8 @@ pub async fn fetch_target_block_and_watchtower_tx(
     esplora_url: &str,
     latest_sequencer_commit_txid: &str,
     watchtower_challenge_init_txid: &String,
-    watchtower_challenge_txids: &Vec<String>,
-    watchtower_public_keys: &Vec<String>,
+    watchtower_challenge_txids: &str,
+    watchtower_public_keys: &str,
 ) -> anyhow::Result<(
     u32,
     bitcoin::Block,
@@ -47,6 +97,8 @@ pub async fn fetch_target_block_and_watchtower_tx(
     Vec<bitcoin::secp256k1::PublicKey>,
     Vec<ScriptBuf>,
 )> {
+    let watchtower_challenge_txids: Vec<&str> = watchtower_challenge_txids.split(",").collect();
+    let watchtower_public_keys: Vec<&str> = watchtower_public_keys.split(",").collect();
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid).unwrap();

@@ -4,10 +4,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 pub(crate) fn spawn_operator_proof_task(
+    cfg: operator_proof::Args,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
-) -> JoinHandle<anyhow::Result<()>> {
+) -> JoinHandle<anyhow::Result<operator_proof::Args>> {
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}

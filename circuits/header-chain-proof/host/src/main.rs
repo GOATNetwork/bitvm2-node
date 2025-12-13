@@ -1,36 +1,8 @@
 //! Generate header chain proof
-use header_chain_proof::{HeaderChainProofBuilder, fetch_header_chain};
+use header_chain_proof::{Args, HeaderChainProofBuilder, fetch_header_chain};
 use proof_builder::{Context, ProofBuilder};
 
 use clap::Parser;
-
-/// The arguments for the cli.
-#[derive(Debug, Clone, Parser)]
-pub struct Args {
-    #[arg(long, default_value = "http://127.0.0.1:3002")]
-    esplora_url: String,
-
-    #[clap(long, env, default_value_t = 4)]
-    batch_size: usize,
-
-    #[clap(long, env, default_value_t = 0)]
-    start: usize,
-
-    #[clap(long, env, default_value_t = false)]
-    init_input: bool,
-
-    #[clap(long, env, default_value = "block_headers.bin")]
-    block_headers: String,
-
-    #[clap(long, env, default_value = "input_proof.bin")]
-    input_proof: String,
-
-    #[clap(long, env, default_value = "output_proof.bin")]
-    output_proof: String,
-
-    #[clap(long, default_value_t = false)]
-    force_fetch: bool,
-}
 
 #[tokio::main]
 async fn main() {

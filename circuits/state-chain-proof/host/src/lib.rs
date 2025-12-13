@@ -7,7 +7,7 @@ use bitcoin_light_client_circuit::EthClientExecutorInput;
 use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block};
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
-use proof_builder::ProofBuilder;
+use proof_builder::{ArgsRotator, ProofBuilder};
 use proof_builder::{Context, ProofRequest};
 use reth_chainspec::ChainSpec;
 use rpc_db::RpcDb;
@@ -21,12 +21,62 @@ use zkm_sdk::{
 
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
+use util::hex_parse;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 
 /// A program that aggregates the proofs of the simple program.
 const STATE_CHAIN: &[u8] = include_elf!("guest");
 
 use std::fs;
+
+use clap::Parser;
+/// The arguments for the cli.
+#[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
+pub struct Args {
+    #[arg(long, default_value_t = true)]
+    pub enable: bool,
+
+    #[clap(long, env, short, default_value = "https://rpc.testnet3.goat.network")]
+    pub execution_layer_rpc: String,
+
+    #[arg(long, default_value = "blocks.bin")]
+    pub blocks: String,
+
+    #[clap(long, env, default_value_t = false)]
+    pub init_input: bool,
+
+    #[clap(long, env, default_value = "input.bin")]
+    pub input_proof: String,
+
+    #[clap(long, env, default_value = "output.bin")]
+    pub output_proof: String,
+
+    #[clap(long, env, default_value_t = 4)]
+    pub batch_size: u64,
+
+    #[clap(long, env, default_value_t = 0)]
+    pub start: u64,
+
+    #[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
+    pub l2_contract_address: String,
+
+    // https://explorer.testnet3.goat.network/address/0x9F0A61ce47678F43A326dB9F8964C56a924cd3D0?tab=read_write_contract
+    #[clap(long, env, default_value = "0xc3342df3")]
+    pub proceed_withdraw_method_id: String,
+}
+
+impl ArgsRotator for Args {
+    fn rotate(&self) -> Self {
+        let mut next_args = self.clone();
+        next_args.input_proof = self.output_proof.clone();
+        next_args.init_input = false;
+        next_args.start = self.start + self.batch_size;
+        next_args
+    }
+    fn path(&self) -> String {
+        "state-chain.ckpt".to_string()
+    }
+}
 
 async fn fetch_withdrawal(
     execution_layer_rpc: &str,
@@ -86,13 +136,13 @@ async fn fetch_exection_layer_block(
 
 pub async fn fetch_state_chain(
     l2_contract_address: &str,
-    proceed_withdraw_method_id: &[u8; 4],
+    proceed_withdraw_method_id: &str,
     start: u64,
     batch_size: u64,
     execution_layer_rpc: &str,
     //graph_block_numbers: Vec<u64>,
     //graph_ids: Vec<[u8; 16]>,
-    blocks_file: String,
+    blocks_file: &str,
 ) -> Vec<CircuitStateBlock> {
     assert!(start > 0, "Don't get genesis block from the consensus layer.");
     let mut blocks: Vec<_> = Vec::new();
@@ -102,11 +152,12 @@ pub async fn fetch_state_chain(
     let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into().unwrap();
     let genesis = &Genesis::GoatTestnet;
 
+    let proceed_withdraw_method_id = hex_parse::<4>(proceed_withdraw_method_id).unwrap();
     // fetch graph_block_numbers and graph_ids between in goat block(start, start + batch_size)
     let (graph_block_numbers, graph_ids) = fetch_withdrawal(
         execution_layer_rpc,
         &l2_contract_address,
-        proceed_withdraw_method_id,
+        &proceed_withdraw_method_id,
         start,
         batch_size,
     )

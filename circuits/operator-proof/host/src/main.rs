@@ -1,64 +1,8 @@
 //! Generate operator proof
 use clap::Parser;
-use hex::FromHex;
-
-use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
+use operator_proof::{Args, OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
-
-pub fn hex_parse(s: &str) -> Result<[u8; 16], String> {
-    let mut s = s;
-    if s.starts_with("0x") {
-        s = &s[2..];
-    }
-    let b = Vec::from_hex(s).map_err(|e| e.to_string())?;
-    b.try_into().map_err(|_| "len must be 16".to_string())
-}
-
-/// The arguments for the cli.
-#[derive(Debug, Clone, Parser)]
-pub struct Args {
-    #[arg(long, default_value = "http://127.0.0.1:3002")]
-    esplora_url: String,
-
-    #[clap(long, env)]
-    included_watchtowers: String,
-
-    #[clap(long, env, value_parser = hex_parse)]
-    graph_id: [u8; 16],
-
-    #[clap(long, env)]
-    latest_sequencer_commit_txid: String,
-
-    #[clap(long, env)]
-    genesis_sequencer_commit_txid: String,
-
-    #[clap(long, env, short)]
-    header_chain_input_proof: String,
-
-    #[clap(long, env, short)]
-    commit_chain_input_proof: String,
-
-    #[clap(long, env, short)]
-    state_chain_input_proof: String,
-
-    #[clap(long, env, short)]
-    execution_layer_block_number: u64,
-
-    #[clap(long, env, short, value_delimiter = ',')]
-    watchtower_challenge_txids: Vec<String>,
-
-    #[clap(long, env, short, value_delimiter = ',')]
-    watchtower_public_keys: Vec<String>,
-
-    #[clap(long, env, short)]
-    watchtower_challenge_init_txid: String,
-
-    #[clap(long, env, default_value = "commit-proof.bin")]
-    output: String,
-
-    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
-    btc_block_headers: String,
-}
+use util::hex_parse;
 
 #[tokio::main]
 async fn main() {
@@ -91,7 +35,7 @@ async fn main() {
     let ctx = Context {
         request: ProofRequest::OperatorProofRequest {
             included_watchtowers: args.included_watchtowers.clone(),
-            graph_id: args.graph_id.clone(),
+            graph_id: hex_parse::<16>(&args.graph_id).unwrap(),
             genesis_sequencer_commit_txid: args.genesis_sequencer_commit_txid.clone(),
 
             header_chain_input_proof: args.header_chain_input_proof.clone(),

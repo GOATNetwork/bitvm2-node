@@ -1,7 +1,7 @@
 use bitcoin::{Network, Txid, hashes::Hash, secp256k1::PublicKey};
 use client::btc_chain::BTCClient;
 use commit_chain::*;
-use proof_builder::{ProofBuilder, ProofRequest};
+use proof_builder::{ArgsRotator, ProofBuilder, ProofRequest};
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
@@ -17,15 +17,65 @@ const COMMIT_CHAIN: &[u8] = include_elf!("guest");
 
 use std::fs;
 
-pub async fn fetch_commit_chain(esplora_url: &str, commit_info_file: &str, commits_file: &str) {
+use clap::Parser;
+/// The arguments for the cli.
+#[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
+pub struct Args {
+    #[arg(long, default_value_t = true)]
+    pub enable: bool,
+
+    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    pub esplora_url: String,
+
+    #[arg(long, env)]
+    pub commit_info: String,
+
+    #[arg(long, default_value = "commits.bin")]
+    pub commits: String,
+
+    #[clap(long, env, default_value_t = 1)]
+    pub batch_size: usize,
+
+    #[clap(long, env, default_value_t = 0)]
+    pub start: usize,
+
+    #[clap(long, env, default_value_t = false)]
+    pub init_input: bool,
+
+    #[clap(long, env, default_value = "input.bin")]
+    pub input_proof: String,
+
+    #[clap(long, env, default_value = "output.bin")]
+    pub output_proof: String,
+}
+
+impl ArgsRotator for Args {
+    fn rotate(&self) -> Self {
+        let mut next_args = self.clone();
+        next_args.input_proof = self.output_proof.clone();
+        next_args.init_input = false;
+        next_args.start = self.start + self.batch_size;
+        next_args
+    }
+    fn path(&self) -> String {
+        "commit-chain.ckpt".to_string()
+    }
+}
+
+pub async fn fetch_commit_chain(
+    esplora_url: &str,
+    commit_info_file: &str,
+    commits_file: &str,
+    start: usize,
+    batch_size: usize,
+) {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&esplora_url));
 
     let mut commits: Vec<CircuitCommit> = vec![];
-
-    let rdr = std::fs::File::open(&commit_info_file).unwrap();
-    let commit_info: CommitInfo = serde_json::from_reader(rdr).unwrap();
-    for ci in &[commit_info] {
+    for i in start..start + batch_size {
+        let rdr = std::fs::File::open(&format!("{commit_info_file}.{i}")).unwrap();
+        let ci: CommitInfo = serde_json::from_reader(rdr).unwrap();
         let txid = Txid::from_str(&ci.txid).unwrap();
         let commit_txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
         let proof = btc_client.get_merkle_proof_extend(&txid).await.unwrap();

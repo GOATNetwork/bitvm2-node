@@ -3,26 +3,27 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-pub(crate) fn spawn_commit_chain_proof_task(
+pub(crate) fn spawn_watchtower_proof_task(
+    cfg: watchtower_proof::Args,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
-) -> JoinHandle<anyhow::Result<()>> {
+) -> JoinHandle<anyhow::Result<watchtower_proof::Args>> {
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}
             _ = cancellation_token.cancelled() => {
-                return Err(anyhow::anyhow!("Commit chain proof generate task cancelled"));
+                return Err(anyhow::anyhow!("Watchtower proof generate task cancelled"));
             }
         }
 
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
-                    info!("Commit chain proof generate task: generate proof");
+                    info!("Watchtower proof generate task: generate proof");
                 }
                 _ = cancellation_token.cancelled() => {
-                    return Err(anyhow::anyhow!("Commit chain proof generate task cancelled"));
+                    return Err(anyhow::anyhow!("Watchtower proof generate task cancelled"));
                 }
             }
         }

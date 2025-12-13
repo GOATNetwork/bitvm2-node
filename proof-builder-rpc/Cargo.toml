@@ -1,10 +1,10 @@
 [package]
-name = "proof-service"
+name = "proof-builder-rpc"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "proof-service"
+name = "proof-builder-rpc"
 path = "src/main.rs"
 
 [dependencies]
@@ -17,13 +17,21 @@ tokio = { workspace = true, features = ["full"] }
 tokio-util = "0.7.15"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-serde = { version = "1.0.226", default-features = false, features = ["derive"] }
+serde = { workspace = true, default-features = false, features = ["derive"] }
 axum = { workspace = true, features = ["macros", "json"] }
 http-body-util = "0.1"
 prometheus-client = { workspace = true }
 
+# proofs
 proof-builder = { workspace = true }
 header-chain-proof = { workspace = true }
+commit-chain-proof = { workspace = true }
+state-chain-proof = { workspace = true }
+watchtower-proof = { workspace = true }
+operator-proof = { workspace = true }
+
+#config
+toml = "0.8"
 
 [lints]
 workspace = true
