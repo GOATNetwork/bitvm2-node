@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 
 /// A program that aggregates the proofs of the simple program.
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{Context, LongRunning, ProofBuilder, ProofRequest};
 
 use clap::Parser;
 use std::fs;
@@ -51,6 +51,20 @@ pub struct Args {
 
     #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
     pub btc_block_headers: String,
+
+    #[clap(long, env, default_value_t = 0)]
+    pub index: usize,
+}
+
+impl LongRunning for Args {
+    fn rotate(&self) -> Self {
+        let mut next_args = self.clone();
+        next_args.index = self.index + 1;
+        next_args
+    }
+    fn path(&self) -> String {
+        "header-chain.ckpt".to_string()
+    }
 }
 
 pub async fn fetch_target_block(

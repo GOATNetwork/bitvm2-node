@@ -13,7 +13,7 @@ use client::btc_chain::BTCClient;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::CircuitTransaction;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{Context, LongRunning, ProofBuilder, ProofRequest};
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
 use zkm_sdk::{
@@ -70,6 +70,20 @@ pub struct Args {
 
     #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
     pub btc_block_headers: String,
+
+    #[clap(long, env, default_value_t = 0)]
+    pub index: usize,
+}
+
+impl LongRunning for Args {
+    fn rotate(&self) -> Self {
+        let mut next_args = self.clone();
+        next_args.index = self.index + 1;
+        next_args
+    }
+    fn path(&self) -> String {
+        "header-chain.ckpt".to_string()
+    }
 }
 
 /// A program that aggregates the proofs of the simple program.

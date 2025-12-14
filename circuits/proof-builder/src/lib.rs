@@ -98,3 +98,7 @@ pub trait LongRunning {
     fn rotate(&self) -> Self;
     fn path(&self) -> String;
 }
+
+
+#[derive(Debug)]
+pub struct OnDemandTask {}
