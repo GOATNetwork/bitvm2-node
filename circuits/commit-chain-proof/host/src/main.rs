@@ -18,7 +18,8 @@ async fn main() {
         args.start,
         args.batch_size,
     )
-    .await;
+    .await
+    .unwrap();
     let builder = CommitChainProofBuilder::new();
 
     let ctx = Context {
@@ -32,5 +33,5 @@ async fn main() {
     };
     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
     tracing::info!("commit chain proof cycles: {cycles}");
-    builder.save_proof(&ctx, &input, proof).unwrap();
+    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

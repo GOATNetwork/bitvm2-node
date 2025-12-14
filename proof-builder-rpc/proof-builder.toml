@@ -2,13 +2,13 @@
 enable = true
 init_input = false 
 esplora_url = "http://127.0.0.1:3002"
-start = 503050
+start = 503040
 block_headers = "../circuits/data/header-chain/block_headers.bin"
 force_fetch = true 
 
 batch_size = 10 
-input_proof = "../circuits/data/header_chain/503050-10.bin"
-output_proof = "../circuits/data/header_chain/503060-10.bin"
+input_proof = "../circuits/data/header-chain/0-503040.bin"
+output_proof = "../circuits/data/header-chain/503060-10.bin"
 
 [commit_chain]
 enable = false
@@ -18,8 +18,8 @@ commits = "./data/commits.bin"
 init_input = false
 start = 0
 batch_size = 1
-input_proof = "../circuits/data/commit-chain/commit-proof.bin"
-output_proof = "../circuits/data/commit-chain/commit_proof2.bin"
+input_proof = "../circuits/data/commit-chain/commit-proof.bin.0"
+output_proof = "../circuits/data/commit-chain/commit_proof.bin.1"
 
 [state_chain]
 enable = false

@@ -71,6 +71,12 @@ impl ArgsRotator for Args {
         next_args.input_proof = self.output_proof.clone();
         next_args.init_input = false;
         next_args.start = self.start + self.batch_size;
+        next_args.output_proof = format!(
+            "{}/{}-{}.bin",
+            std::path::Path::new(&self.output_proof).parent().unwrap().to_str().unwrap(),
+            next_args.start,
+            self.batch_size
+        );
         next_args
     }
     fn path(&self) -> String {
@@ -294,6 +300,7 @@ impl ProofBuilder for StateChainProofBuilder {
         &self,
         ctx: &Context,
         input: &[u8],
+        cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::StateChainProofRequest { ref output_proof, .. } = ctx.request else {
@@ -302,6 +309,7 @@ impl ProofBuilder for StateChainProofBuilder {
         fs::write(output_proof, bincode::serialize(&proof)?)?;
         fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;
         fs::write(&format!("{}.in", output_proof), input)?;
+        fs::write(&format!("{}.clk", output_proof), bincode::serialize(&cycles)?)?;
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok(())
     }

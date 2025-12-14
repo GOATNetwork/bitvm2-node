@@ -18,7 +18,8 @@ async fn main() {
         &args.block_headers,
         args.force_fetch,
     )
-    .await;
+    .await
+    .unwrap();
 
     let builder = HeaderChainProofBuilder::new();
 
@@ -34,5 +35,5 @@ async fn main() {
     };
     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
     tracing::info!("header chain proof cycles: {cycles}");
-    builder.save_proof(&ctx, &input, proof).unwrap();
+    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

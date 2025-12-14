@@ -7,6 +7,7 @@ use tracing::info;
 
 use crate::config::ProofBuilderConfig;
 
+#[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_header_chain_proof_task(
     args: header_chain_proof::Args,
     interval: u64,
@@ -23,20 +24,25 @@ pub(crate) fn spawn_header_chain_proof_task(
             }
         }
 
+        let builder = HeaderChainProofBuilder::new();
         loop {
             tokio::select! {
                 // TODO: handle err and retry
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     info!("Header chain proof generate task: generate proof");
-                    let total_block_headers = fetch_header_chain(
+                    let total_block_headers = match fetch_header_chain(
                         &args.esplora_url,
                         args.start,
                         args.batch_size,
                         &args.block_headers,
                         args.force_fetch,
-                    ).await;
-
-                    let builder = HeaderChainProofBuilder::new();
+                    ).await {
+                        Ok(data) => data,
+                        Err(err) => {
+                            tracing::error!("Fetch header blocks error, {err:?}");
+                            continue;
+                        }
+                    };
 
                     let ctx = Context {
                        request: ProofRequest::HeaderChainProofRequest {
@@ -49,8 +55,7 @@ pub(crate) fn spawn_header_chain_proof_task(
                        }
                     };
                     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
-                    tracing::info!("header chain proof cycles: {cycles}");
-                    builder.save_proof(&ctx, &input, proof).unwrap();
+                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
                     args = ProofBuilderConfig::save(args).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {

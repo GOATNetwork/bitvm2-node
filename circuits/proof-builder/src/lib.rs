@@ -87,6 +87,7 @@ pub trait ProofBuilder {
         &self,
         ctx: &Context,
         input: &[u8],
+        cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()>;
 

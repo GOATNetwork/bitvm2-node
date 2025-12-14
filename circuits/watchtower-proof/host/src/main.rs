@@ -30,5 +30,5 @@ async fn main() {
     };
     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
     tracing::info!("Watchtower proof cycles: {cycles}");
-    builder.save_proof(&ctx, &input, proof).unwrap();
+    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

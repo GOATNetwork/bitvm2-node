@@ -6,6 +6,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+#[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_state_chain_proof_task(
     args: state_chain_proof::Args,
     interval: u64,
@@ -22,6 +23,7 @@ pub(crate) fn spawn_state_chain_proof_task(
             }
         }
 
+        let builder = StateChainProofBuilder::new();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
@@ -36,8 +38,6 @@ pub(crate) fn spawn_state_chain_proof_task(
                     )
                     .await;
 
-                    let builder = StateChainProofBuilder::new();
-
                     let ctx = Context {
                         request: ProofRequest::StateChainProofRequest {
                             init_input: args.init_input,
@@ -50,8 +50,7 @@ pub(crate) fn spawn_state_chain_proof_task(
                         },
                     };
                     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
-                    tracing::info!("header chain proof cycles: {cycles}");
-                    builder.save_proof(&ctx, &input, proof).unwrap();
+                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
                     args = ProofBuilderConfig::save(args).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {

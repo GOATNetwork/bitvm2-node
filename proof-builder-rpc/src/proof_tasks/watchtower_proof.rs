@@ -5,6 +5,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use watchtower_proof::{WatchtowerProofBuilder, fetch_target_block};
 
+#[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_watchtower_proof_task(
     args: watchtower_proof::Args,
     interval: u64,
@@ -19,15 +20,20 @@ pub(crate) fn spawn_watchtower_proof_task(
             }
         }
 
+        let builder = WatchtowerProofBuilder::new();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     info!("Watchtower proof generate task: generate proof");
-                    // TODO: fetch args from the database.
+                    // TODO: fetch args from the database by instance id and graph id.
                     let (block_pos, target_block, latest_sequencer_commit_tx) =
-                        fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid).await.unwrap();
-                    let builder = WatchtowerProofBuilder::new();
-
+                        match fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid).await {
+                            Ok(data) => data,
+                            Err(e) => {
+                                tracing::error!("Fetch target block error: {e}");
+                                continue;
+                            }
+                        };
                     let ctx = Context {
                         request: ProofRequest::WatchtowerProofRequest {
                             genesis_sequencer_commit_txid: args.genesis_sequencer_commit_txid.clone(),
@@ -42,9 +48,14 @@ pub(crate) fn spawn_watchtower_proof_task(
                             latest_sequencer_commit_tx,
                         },
                     };
-                    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
-                    tracing::info!("Watchtower proof cycles: {cycles}");
-                    builder.save_proof(&ctx, &input, proof).unwrap();
+                    let (input, proof, cycles) = match builder.build_proof(&ctx) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            tracing::error!("build proof error, {e}");
+                            continue;
+                        }
+                    };
+                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {
                     return Err(anyhow::anyhow!("Watchtower proof generate task cancelled"));

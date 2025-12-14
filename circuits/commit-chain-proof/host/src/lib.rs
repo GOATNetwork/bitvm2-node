@@ -55,6 +55,12 @@ impl ArgsRotator for Args {
         next_args.input_proof = self.output_proof.clone();
         next_args.init_input = false;
         next_args.start = self.start + self.batch_size;
+        next_args.output_proof = format!(
+            "{}/{}-{}.bin",
+            std::path::Path::new(&self.output_proof).parent().unwrap().to_str().unwrap(),
+            next_args.start,
+            self.batch_size
+        );
         next_args
     }
     fn path(&self) -> String {
@@ -68,17 +74,17 @@ pub async fn fetch_commit_chain(
     commits_file: &str,
     start: usize,
     batch_size: usize,
-) {
+) -> anyhow::Result<()> {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&esplora_url));
 
     let mut commits: Vec<CircuitCommit> = vec![];
     for i in start..start + batch_size {
-        let rdr = std::fs::File::open(&format!("{commit_info_file}.{i}")).unwrap();
-        let ci: CommitInfo = serde_json::from_reader(rdr).unwrap();
-        let txid = Txid::from_str(&ci.txid).unwrap();
-        let commit_txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
-        let proof = btc_client.get_merkle_proof_extend(&txid).await.unwrap();
+        let rdr = std::fs::File::open(&format!("{commit_info_file}.{i}"))?;
+        let ci: CommitInfo = serde_json::from_reader(rdr)?;
+        let txid = Txid::from_str(&ci.txid)?;
+        let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
+        let proof = btc_client.get_merkle_proof_extend(&txid).await?;
         let block_height = proof.height as u32;
 
         let op_return_data = extract_op_return_data(&commit_txn.output);
@@ -102,12 +108,13 @@ pub async fn fetch_commit_chain(
             sequencers: ci.sequencers.clone(),
             publisher_public_keys,
             threshold: ci.threshold,
-            genesis_txid: Txid::from_str(&ci.genesis_txid).unwrap().as_raw_hash().to_byte_array(),
+            genesis_txid: Txid::from_str(&ci.genesis_txid)?.as_raw_hash().to_byte_array(),
             block_height,
         };
         commits.push(commit);
     }
-    std::fs::write(&commits_file, serde_json::to_vec(&commits).unwrap()).unwrap();
+    std::fs::write(&commits_file, serde_json::to_vec(&commits)?)?;
+    Ok(())
 }
 
 /// A program that aggregates the proofs of the simple program.
@@ -218,6 +225,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         &self,
         ctx: &proof_builder::Context,
         input: &[u8],
+        cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::CommitChainProofRequest { ref output_proof, .. } = ctx.request else {
@@ -226,6 +234,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         fs::write(&output_proof, bincode::serialize(&proof)?)?;
         fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;
         fs::write(&format!("{}.in", output_proof), input)?;
+        fs::write(&format!("{}.clk", output_proof), bincode::serialize(&cycles)?)?;
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok(())
     }

@@ -366,6 +366,7 @@ impl ProofBuilder for OperatorProofBuilder {
         &self,
         ctx: &Context,
         _input: &[u8],
+        _cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::OperatorProofRequest { ref output, .. } = ctx.request else {

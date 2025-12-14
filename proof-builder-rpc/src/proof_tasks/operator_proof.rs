@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use util::hex_parse;
 
+#[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_operator_proof_task(
     args: operator_proof::Args,
     interval: u64,
@@ -20,6 +21,7 @@ pub(crate) fn spawn_operator_proof_task(
             }
         }
 
+        let builder = OperatorProofBuilder::new();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
@@ -34,18 +36,20 @@ pub(crate) fn spawn_operator_proof_task(
                         watchtower_challenge_txn_prev_indices,
                         watchtower_challenge_txn_pubkeys,
                         watchtower_challenge_txn_scripts,
-                    ) = fetch_target_block_and_watchtower_tx(
+                    ) = match fetch_target_block_and_watchtower_tx(
                         &args.esplora_url,
                         &args.latest_sequencer_commit_txid,
                         &args.watchtower_challenge_init_txid,
                         &args.watchtower_challenge_txids,
                         &args.watchtower_public_keys,
                     )
-                    .await
-                    .unwrap();
-
-                    let builder = OperatorProofBuilder::new();
-
+                    .await {
+                        Ok(data) => data,
+                        Err(err) => {
+                            tracing::error!("Fetch target block and watchtower txns error, {err:?}");
+                            continue;
+                        }
+                    };
                     let ctx = Context {
                         request: ProofRequest::OperatorProofRequest {
                             included_watchtowers: args.included_watchtowers.clone(),
@@ -71,9 +75,14 @@ pub(crate) fn spawn_operator_proof_task(
                             watchtower_challenge_txn_scripts,
                         },
                     };
-                    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
-                    tracing::info!("Operator proof cycles: {cycles}");
-                    builder.save_proof(&ctx, &input, proof).unwrap();
+                    let (input, proof, cycles) = match builder.build_proof(&ctx) {
+                        Ok(data) => data,
+                        Err(err) => {
+                            tracing::error!("Build error error, {err:?}");
+                            continue;
+                        }
+                    };
+                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {
                     return Err(anyhow::anyhow!("Operator proof generate task cancelled"));

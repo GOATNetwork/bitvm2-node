@@ -56,6 +56,12 @@ impl ArgsRotator for Args {
         next_args.input_proof = self.output_proof.clone();
         next_args.init_input = false;
         next_args.start = self.start + self.batch_size;
+        next_args.output_proof = format!(
+            "{}/{}-{}.bin",
+            std::path::Path::new(&self.output_proof).parent().unwrap().to_str().unwrap(),
+            next_args.start,
+            self.batch_size
+        );
         next_args
     }
     fn path(&self) -> String {
@@ -69,19 +75,15 @@ pub async fn fetch_header_chain(
     batch_size: usize,
     block_header_file: &str,
     force_fetch: bool,
-) -> Vec<CircuitBlockHeader> {
+) -> anyhow::Result<Vec<CircuitBlockHeader>> {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(esplora_url));
 
-    let mut writer = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(block_header_file)
-        .unwrap();
+    let mut writer =
+        std::fs::OpenOptions::new().read(true).write(true).create(true).open(block_header_file)?;
 
     let mut headers: Vec<u8> = Vec::new();
-    writer.read_to_end(&mut headers).unwrap();
+    writer.read_to_end(&mut headers)?;
 
     let mut block_headers: Vec<_> = headers
         .chunks(80)
@@ -93,17 +95,17 @@ pub async fn fetch_header_chain(
     }
     assert!(block_headers.len() == start, "Invalid starting block number");
 
-    writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64)).unwrap();
+    writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64))?;
 
     for i in start..(start + batch_size) {
-        let block = btc_client.get_block_by_height(i as u32).await.unwrap();
+        let block = btc_client.get_block_by_height(i as u32).await?;
         tracing::info!("block_id {i}: {}", block.block_hash().to_string());
         let header: header_chain::CircuitBlockHeader = block.header.into();
         block_headers.push(header.clone());
-        header.serialize(&mut writer).unwrap();
+        header.serialize(&mut writer)?;
     }
-    writer.set_len((block_headers.len() * 80) as u64).unwrap();
-    block_headers
+    writer.set_len((block_headers.len() * 80) as u64)?;
+    Ok(block_headers)
 }
 
 /// A program that aggregates the proofs of the simple program.
@@ -158,9 +160,8 @@ impl ProofBuilder for HeaderChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let proof_bytes = fs::read(&input_proof).expect("Failed to read input proof file");
-            let proof: ZKMProofWithPublicValues =
-                bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+            let proof_bytes = fs::read(&input_proof)?;
+            let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
             Some(proof)
         };
         let (prev_proof, pv_hash) = match prev_receipt.clone() {
@@ -220,6 +221,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
         &self,
         ctx: &Context,
         input: &[u8],
+        cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::HeaderChainProofRequest { ref output_proof, .. } = ctx.request else {
@@ -228,6 +230,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
         fs::write(&output_proof, bincode::serialize(&proof)?)?;
         fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;
         fs::write(&format!("{}.in", output_proof), input)?;
+        fs::write(&format!("{}.clk", output_proof), bincode::serialize(&cycles)?)?;
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok(())
     }
