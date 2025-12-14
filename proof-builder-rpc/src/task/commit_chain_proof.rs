@@ -15,7 +15,6 @@ pub(crate) fn spawn_commit_chain_proof_task(
     cancellation_token: CancellationToken,
 ) -> JoinHandle<anyhow::Result<commit_chain_proof::Args>> {
     let mut args = args.clone();
-    let mut internal = interval;
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}

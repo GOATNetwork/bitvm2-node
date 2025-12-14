@@ -6,13 +6,14 @@ mod watchtower_proof;
 
 use crate::config::ProofBuilderConfig;
 
-use crate::proof_tasks::{
+use crate::task::{
     commit_chain_proof::spawn_commit_chain_proof_task,
     header_chain_proof::spawn_header_chain_proof_task, operator_proof::spawn_operator_proof_task,
     state_chain_proof::spawn_state_chain_proof_task, watchtower_proof::spawn_watchtower_proof_task,
 };
 
 use futures::future::Either;
+use proof_builder::OnDemandTask;
 use store::localdb::LocalDB;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -27,7 +28,7 @@ pub(crate) fn is_start_generate_proof_tasks(cfg: &ProofBuilderConfig) -> bool {
 
 pub(crate) async fn run_generate_proof_tasks(
     cfg: ProofBuilderConfig,
-    _local_db: LocalDB,
+    local_db: LocalDB,
     interval: u64,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
@@ -67,6 +68,7 @@ pub(crate) async fn run_generate_proof_tasks(
     let operator_proof_future = if cfg.operator.enable {
         Either::Left(spawn_operator_proof_task(
             cfg.operator.clone(),
+            local_db.clone(),
             interval,
             interval / 2,
             cancellation_token.clone(),
@@ -78,6 +80,7 @@ pub(crate) async fn run_generate_proof_tasks(
     let watchtower_proof_future = if cfg.watchtower.enable {
         Either::Left(spawn_watchtower_proof_task(
             cfg.watchtower.clone(),
+            local_db.clone(),
             interval,
             interval * 3 / 4,
             cancellation_token.clone(),
@@ -120,15 +123,15 @@ pub(crate) async fn run_generate_proof_tasks(
         result = state_chain_proof_future => {
             match result {
                 Ok(Ok(_)) => {
-                    info!("Commit chain proof generate task completed successfully");
+                    info!("State chain proof generate task completed successfully");
                 }
                 Ok(Err(e)) => {
-                    error!("Commit chain proof generate task error: {}", e);
+                    error!("State chain proof generate task error: {}", e);
                     return Err(e);
                 }
                 Err(e) => {
-                   error!("Commit chain proof generate task panic: {:?}", e);
-                    return Err(anyhow::anyhow!("Commit chain proof generate task panic: {:?}", e));
+                   error!("State chain proof generate task panic: {:?}", e);
+                    return Err(anyhow::anyhow!("State chain proof generate task panic: {:?}", e));
                 }
             }
         }
@@ -165,4 +168,20 @@ pub(crate) async fn run_generate_proof_tasks(
     }
 
     Ok("tasks_completed".to_string())
+}
+
+pub(crate) async fn fetch_on_demand_task(
+    local_db: &LocalDB,
+    index: usize,
+    is_watchtower: bool,
+) -> anyhow::Result<OnDemandTask> {
+    tracing::info!("fetch task: {index} for watchtower {is_watchtower}");
+    // btc header chain: always fetch the latest
+    // commit chain: always fetch the latest
+
+    // state chain: find the proof that includes the execution_layer_block_number
+
+    // watchtower info
+
+    todo!()
 }

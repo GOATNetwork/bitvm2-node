@@ -1,4 +1,4 @@
-use proof_builder::ArgsRotator;
+use proof_builder::LongRunning;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -20,7 +20,7 @@ impl ProofBuilderConfig {
         Ok(toml::from_str(&content)?)
     }
 
-    pub(crate) fn save<R: ArgsRotator + serde::Serialize>(args: R) -> anyhow::Result<R> {
+    pub(crate) fn save<R: LongRunning + serde::Serialize>(args: R) -> anyhow::Result<R> {
         let new_args = args.rotate();
         let contents = toml::to_string_pretty(&new_args)?;
         std::fs::write(args.path(), contents)?;

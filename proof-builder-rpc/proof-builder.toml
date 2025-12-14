@@ -1,5 +1,5 @@
 [header_chain]
-enable = true
+enable = true 
 init_input = false 
 esplora_url = "http://127.0.0.1:3002"
 start = 503040
@@ -11,15 +11,15 @@ input_proof = "../circuits/data/header-chain/0-503040.bin"
 output_proof = "../circuits/data/header-chain/503060-10.bin"
 
 [commit_chain]
-enable = false
+enable = false 
 esplora_url = "http://127.0.0.1:3002"
-commit_info = "./data/commit_info.json"
-commits = "./data/commits.bin"
-init_input = false
+commit_info = "../node/tests_data/commit_info.json"
+commits = "../circuits/data/commit-chain/commits.bin"
+init_input = true 
 start = 0
 batch_size = 1
-input_proof = "../circuits/data/commit-chain/commit-proof.bin.0"
-output_proof = "../circuits/data/commit-chain/commit_proof.bin.1"
+input_proof = "../circuits/data/commit-chain/0-1.bin"
+output_proof = "../circuits/data/commit-chain/0-1.bin"
 
 [state_chain]
 enable = false

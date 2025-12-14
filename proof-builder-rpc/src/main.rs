@@ -1,8 +1,8 @@
 mod api;
 mod config;
-mod proof_tasks;
+mod task;
 
-use crate::proof_tasks::{is_start_generate_proof_tasks, run_generate_proof_tasks};
+use crate::task::{is_start_generate_proof_tasks, run_generate_proof_tasks};
 use clap::{Parser, command};
 use futures::future;
 use tokio::signal;

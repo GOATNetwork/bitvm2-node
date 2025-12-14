@@ -7,8 +7,8 @@ use bitcoin_light_client_circuit::EthClientExecutorInput;
 use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block};
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
-use proof_builder::{ArgsRotator, ProofBuilder};
 use proof_builder::{Context, ProofRequest};
+use proof_builder::{LongRunning, ProofBuilder};
 use reth_chainspec::ChainSpec;
 use rpc_db::RpcDb;
 use state_chain::*;
@@ -65,7 +65,7 @@ pub struct Args {
     pub proceed_withdraw_method_id: String,
 }
 
-impl ArgsRotator for Args {
+impl LongRunning for Args {
     fn rotate(&self) -> Self {
         let mut next_args = self.clone();
         next_args.input_proof = self.output_proof.clone();

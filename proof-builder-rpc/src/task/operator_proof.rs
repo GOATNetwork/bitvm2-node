@@ -1,6 +1,7 @@
 use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
+use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -9,6 +10,7 @@ use util::hex_parse;
 #[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_operator_proof_task(
     args: operator_proof::Args,
+    local_db: LocalDB,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
@@ -27,6 +29,7 @@ pub(crate) fn spawn_operator_proof_task(
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     info!("Operator proof generate task: generate proof");
                     // TODO: fetch args from the database.
+
                     let (
                         block_pos,
                         target_block,

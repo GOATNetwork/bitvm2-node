@@ -1,5 +1,5 @@
 use header_chain_proof::{HeaderChainProofBuilder, fetch_header_chain};
-use proof_builder::{ArgsRotator, Context, ProofBuilder, ProofRequest};
+use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -15,7 +15,6 @@ pub(crate) fn spawn_header_chain_proof_task(
     cancellation_token: CancellationToken,
 ) -> JoinHandle<anyhow::Result<header_chain_proof::Args>> {
     let mut args = args.clone();
-    let mut internal = interval;
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}

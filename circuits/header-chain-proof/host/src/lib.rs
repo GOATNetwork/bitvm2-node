@@ -4,7 +4,7 @@ use client::btc_chain::BTCClient;
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
-use proof_builder::{ArgsRotator, Context, ProofBuilder, ProofRequest};
+use proof_builder::{Context, LongRunning, ProofBuilder, ProofRequest};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -50,7 +50,7 @@ pub struct Args {
     pub force_fetch: bool,
 }
 
-impl ArgsRotator for Args {
+impl LongRunning for Args {
     fn rotate(&self) -> Self {
         let mut next_args = self.clone();
         next_args.input_proof = self.output_proof.clone();
@@ -105,6 +105,13 @@ pub async fn fetch_header_chain(
         header.serialize(&mut writer)?;
     }
     writer.set_len((block_headers.len() * 80) as u64)?;
+    let backup_file = format!(
+        "{}/{}-{}.blocks",
+        std::path::Path::new(block_header_file).parent().unwrap().to_str().unwrap(),
+        start,
+        batch_size,
+    );
+    std::fs::copy(block_header_file, backup_file)?;
     Ok(block_headers)
 }
 

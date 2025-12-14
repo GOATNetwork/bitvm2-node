@@ -1,7 +1,7 @@
 use bitcoin::{Network, Txid, hashes::Hash, secp256k1::PublicKey};
 use client::btc_chain::BTCClient;
 use commit_chain::*;
-use proof_builder::{ArgsRotator, ProofBuilder, ProofRequest};
+use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProof, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
@@ -49,7 +49,7 @@ pub struct Args {
     pub output_proof: String,
 }
 
-impl ArgsRotator for Args {
+impl LongRunning for Args {
     fn rotate(&self) -> Self {
         let mut next_args = self.clone();
         next_args.input_proof = self.output_proof.clone();
