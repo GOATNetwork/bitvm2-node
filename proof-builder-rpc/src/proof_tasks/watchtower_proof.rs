@@ -1,8 +1,8 @@
+use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-use proof_builder::{Context, ProofBuilder, ProofRequest};
 use watchtower_proof::{WatchtowerProofBuilder, fetch_target_block};
 
 pub(crate) fn spawn_watchtower_proof_task(

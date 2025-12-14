@@ -1,9 +1,9 @@
+use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
+use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-use proof_builder::{ProofBuilder, ProofRequest, Context};
-use operator_proof::{fetch_target_block_and_watchtower_tx, OperatorProofBuilder};
 use util::hex_parse;
 
 pub(crate) fn spawn_operator_proof_task(
