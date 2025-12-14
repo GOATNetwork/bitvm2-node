@@ -63,8 +63,8 @@ impl LongRunning for Args {
         );
         next_args
     }
-    fn path(&self) -> String {
-        "commit-chain.ckpt".to_string()
+    fn name(&self) -> String {
+        "commit-chain".to_string()
     }
 }
 

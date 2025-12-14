@@ -79,8 +79,8 @@ impl LongRunning for Args {
         );
         next_args
     }
-    fn path(&self) -> String {
-        "state-chain.ckpt".to_string()
+    fn name(&self) -> String {
+        "state-chain".to_string()
     }
 }
 

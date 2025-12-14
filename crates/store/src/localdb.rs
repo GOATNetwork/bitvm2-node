@@ -3363,7 +3363,7 @@ impl<'a> StorageProcessor<'a> {
         .await?)
     }
 
-    pub async fn update_header_chain_proof_status(
+    pub async fn update_long_running_task_proof_status(
         &mut self,
         id: i64,
         status: &str,

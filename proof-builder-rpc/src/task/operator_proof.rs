@@ -1,3 +1,4 @@
+use crate::task::{fetch_on_demand_task, update_operator_task};
 use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
@@ -15,6 +16,7 @@ pub(crate) fn spawn_operator_proof_task(
     initial_delay: u64,
     cancellation_token: CancellationToken,
 ) -> JoinHandle<anyhow::Result<operator_proof::Args>> {
+    let mut args = args.clone();
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}
@@ -28,7 +30,16 @@ pub(crate) fn spawn_operator_proof_task(
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     info!("Operator proof generate task: generate proof");
-                    // TODO: fetch args from the database.
+                    // fetch args from the database.
+                    let next_task = fetch_on_demand_task(&local_db, args.index, false).await.unwrap();
+                    args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
+                    args.header_chain_input_proof = next_task.header_chain_input_proof;
+                    args.btc_block_headers = next_task.btc_block_headers;
+                    args.commit_chain_input_proof = next_task.commit_chain_input_proof;
+                    args.state_chain_input_proof = next_task.state_chain_input_proof;
+                    args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
+                    args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.unwrap().join(",");
+                    args.watchtower_public_keys = next_task.watchtower_public_keys.unwrap().join(",");
 
                     let (
                         block_pos,
@@ -85,6 +96,7 @@ pub(crate) fn spawn_operator_proof_task(
                             continue;
                         }
                     };
+                    update_operator_task(args.index, &args.output, cycles).await?;
                     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {

@@ -96,8 +96,18 @@ pub trait ProofBuilder {
 
 pub trait LongRunning {
     fn rotate(&self) -> Self;
-    fn path(&self) -> String;
+    fn name(&self) -> String;
 }
 
 #[derive(Debug)]
-pub struct OnDemandTask {}
+pub struct OnDemandTask {
+    pub latest_sequencer_commit_txid: String,
+    pub header_chain_input_proof: String,
+    pub btc_block_headers: String,
+    pub commit_chain_input_proof: String,
+    pub state_chain_input_proof: String,
+
+    pub watchtower_challenge_init_txid: Option<String>,
+    pub watchtower_challenge_txids: Option<Vec<String>>,
+    pub watchtower_public_keys: Option<Vec<String>>,
+}

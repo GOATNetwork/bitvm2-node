@@ -1,5 +1,5 @@
 use crate::ProofBuilderConfig;
-use crate::task::fetch_on_demand_task;
+use crate::task::{fetch_on_demand_task, update_watchtower_task};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
@@ -33,6 +33,12 @@ pub(crate) fn spawn_watchtower_proof_task(
                     // fetch args from the database by instance id and graph id.
                     let next_task = fetch_on_demand_task(&local_db, args.index, true).await.unwrap();
 
+                    args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
+                    args.header_chain_input_proof = next_task.header_chain_input_proof;
+                    args.btc_block_headers = next_task.btc_block_headers;
+                    args.commit_chain_input_proof = next_task.commit_chain_input_proof;
+                    args.state_chain_input_proof = next_task.state_chain_input_proof;
+
                     let (block_pos, target_block, latest_sequencer_commit_tx) =
                         match fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid).await {
                             Ok(data) => data,
@@ -62,8 +68,9 @@ pub(crate) fn spawn_watchtower_proof_task(
                             continue;
                         }
                     };
-                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
-                    args = ProofBuilderConfig::save(args).unwrap();
+                    builder.save_proof(&ctx, &input, cycles, proof)?;
+                    update_watchtower_task(args.index, &args.output, cycles).await?;
+                    args = ProofBuilderConfig::run_next(args)?;
                 }
                 _ = cancellation_token.cancelled() => {
                     return Err(anyhow::anyhow!("Watchtower proof generate task cancelled"));

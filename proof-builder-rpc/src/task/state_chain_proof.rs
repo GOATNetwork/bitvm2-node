@@ -1,7 +1,10 @@
 use crate::ProofBuilderConfig;
+use crate::task::update_long_running_task;
+use proof_builder::LongRunning;
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use state_chain_proof::{StateChainProofBuilder, fetch_state_chain};
 use std::time::Duration;
+use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -9,6 +12,7 @@ use tracing::info;
 #[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_state_chain_proof_task(
     args: state_chain_proof::Args,
+    local_db: LocalDB,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
@@ -50,7 +54,8 @@ pub(crate) fn spawn_state_chain_proof_task(
                     };
                     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
                     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
-                    args = ProofBuilderConfig::save(args).unwrap();
+                    update_long_running_task(&local_db, args.start, args.batch_size, &args.output_proof, cycles, args.name()).await?;
+                    args = ProofBuilderConfig::run_next(args).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {
                     return Err(anyhow::anyhow!("state chain proof generate task cancelled"));

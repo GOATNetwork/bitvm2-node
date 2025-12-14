@@ -1,15 +1,19 @@
 use header_chain_proof::{HeaderChainProofBuilder, fetch_header_chain};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
+use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::config::ProofBuilderConfig;
+use crate::task::update_long_running_task;
+use proof_builder::LongRunning;
 
 #[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_header_chain_proof_task(
     args: header_chain_proof::Args,
+    local_db: LocalDB,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
@@ -55,7 +59,8 @@ pub(crate) fn spawn_header_chain_proof_task(
                     };
                     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
                     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
-                    args = ProofBuilderConfig::save(args).unwrap();
+                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, args.name()).await?;
+                    args = ProofBuilderConfig::run_next(args).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {
                     return Err(anyhow::anyhow!("Header chain proof generate task cancelled"));

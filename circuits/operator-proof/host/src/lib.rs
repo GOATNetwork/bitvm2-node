@@ -81,8 +81,8 @@ impl LongRunning for Args {
         next_args.index = self.index + 1;
         next_args
     }
-    fn path(&self) -> String {
-        "header-chain.ckpt".to_string()
+    fn name(&self) -> String {
+        "operator-chain".to_string()
     }
 }
 

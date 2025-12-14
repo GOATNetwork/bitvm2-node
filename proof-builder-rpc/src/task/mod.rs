@@ -35,6 +35,7 @@ pub(crate) async fn run_generate_proof_tasks(
     let header_chain_proof_future = if cfg.header_chain.enable {
         Either::Left(spawn_header_chain_proof_task(
             cfg.header_chain.clone(),
+            local_db.clone(),
             interval,
             0,
             cancellation_token.clone(),
@@ -46,6 +47,7 @@ pub(crate) async fn run_generate_proof_tasks(
     let commit_chain_proof_future = if cfg.commit_chain.enable {
         Either::Left(spawn_commit_chain_proof_task(
             cfg.commit_chain.clone(),
+            local_db.clone(),
             interval,
             interval / 4,
             cancellation_token.clone(),
@@ -57,6 +59,7 @@ pub(crate) async fn run_generate_proof_tasks(
     let state_chain_proof_future = if cfg.state_chain.enable {
         Either::Left(spawn_state_chain_proof_task(
             cfg.state_chain.clone(),
+            local_db.clone(),
             interval,
             interval / 4,
             cancellation_token.clone(),
@@ -170,8 +173,9 @@ pub(crate) async fn run_generate_proof_tasks(
     Ok("tasks_completed".to_string())
 }
 
+// fetch next task from watchtower or operator.
 pub(crate) async fn fetch_on_demand_task(
-    local_db: &LocalDB,
+    _local_db: &LocalDB,
     index: usize,
     is_watchtower: bool,
 ) -> anyhow::Result<OnDemandTask> {
@@ -181,7 +185,66 @@ pub(crate) async fn fetch_on_demand_task(
 
     // state chain: find the proof that includes the execution_layer_block_number
 
-    // watchtower info
+    // handle operator
+    //if !is_watchtower {
+    // //fetch watchtower info
+    //}
 
+    todo!()
+}
+
+/// table schema: (start, end, path_to_proof, cycles, update_time, table_name)
+/// * table_name: header-chain | state-chain | commit-chain
+pub(crate) async fn update_long_running_task(
+    _local_db: &LocalDB,
+    _start: u64,
+    _batch_size: u64,
+    _path_to_proof: &str,
+    _cycles: u64,
+    _table_name: String,
+) -> anyhow::Result<()> {
+    todo!()
+}
+
+/// table schema: (index, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, path_to_proof, cycles, state, update_time)
+/// * index: incremental id
+/// * state: 0-new, 1-doing, 2-done, 3-failed
+/// Invocated by API
+pub(crate) async fn add_watchtower_task(
+    _local_db: &LocalDB,
+    _instance_id: String,
+    _graph_id: String,
+    _public_key: String,
+    _challenge_txid: String,
+    _challenge_init_txid: String,
+) -> anyhow::Result<()> {
+    todo!()
+}
+
+pub(crate) async fn update_watchtower_task(
+    _index: usize,
+    _path_to_proof: &str,
+    _cycles: u64,
+) -> anyhow::Result<()> {
+    todo!()
+}
+
+/// table schema: (index, graph_id, execution_layer_block_number, path_to_proof, cycles, state, update_time)
+/// * state: 0-new, 1-doing, 2-done, 3-failed
+/// * index: incremental id
+/// Invocated by API
+pub(crate) async fn add_operator_task(
+    _instance_id: String,
+    _graph_id: String,
+    _execution_layer_block_number: u64,
+) -> anyhow::Result<()> {
+    todo!()
+}
+
+pub(crate) async fn update_operator_task(
+    _index: usize,
+    _path_to_proof: &str,
+    _cycles: u64,
+) -> anyhow::Result<()> {
     todo!()
 }
