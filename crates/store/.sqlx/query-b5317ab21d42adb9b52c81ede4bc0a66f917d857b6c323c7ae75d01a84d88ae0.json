@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT count(*) AS length \n               FROM pegin_graph_process_data\n               WHERE instance_id = ? AND is_endorsed = ?",
+  "query": "SELECT count(*) AS length\n               FROM pegin_graph_process_data\n               WHERE instance_id = ? AND is_endorsed = ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "c87ad285746121dae7240192ea4815956c596c1ea8aacc265990dfb2b195f36e"
+  "hash": "b5317ab21d42adb9b52c81ede4bc0a66f917d857b6c323c7ae75d01a84d88ae0"
 }

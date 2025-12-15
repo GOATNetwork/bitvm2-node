@@ -1,9 +1,8 @@
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    CommitChainProof, CommitInfo, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData,
-    HeaderChainProof, Instance, Message, MessageBroadcast, Node, NodesOverview, OperatorProof,
-    PeginGraphProcessData, PeginInstanceProcessData, ProofInfo, ProofType, SerializableTxid,
-    WatchContract, WatchtowerProof,
+    GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance, LongRunningTaskProof,
+    Message, MessageBroadcast, Node, NodesOverview, OperatorProof, PeginGraphProcessData,
+    PeginInstanceProcessData, SerializableTxid, WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -762,8 +761,8 @@ impl<'a> StorageProcessor<'a> {
             current_status,
             time_threshold
         )
-        .execute(self.conn())
-        .await?;
+            .execute(self.conn())
+            .await?;
         Ok(row.rows_affected())
     }
 
@@ -783,8 +782,8 @@ impl<'a> StorageProcessor<'a> {
             current_time,
             instance_id
         )
-        .execute(self.conn())
-        .await?;
+            .execute(self.conn())
+            .await?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -1134,7 +1133,7 @@ impl<'a> StorageProcessor<'a> {
         status: &str,
     ) -> anyhow::Result<Vec<Graph>> {
         let row = sqlx::query_as::<_, Graph>(
-            "SELECT * 
+            "SELECT *
              FROM graph
              WHERE status = ? ORDER BY  operator_pubkey,  kickoff_index",
         )
@@ -1149,7 +1148,7 @@ impl<'a> StorageProcessor<'a> {
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as::<_, Graph>(
-            "SELECT * 
+            "SELECT *
              FROM graph
              WHERE instance_id = ?",
         )
@@ -1712,9 +1711,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<PeginInstanceProcessData>> {
         let row = sqlx::query_as!(
             PeginInstanceProcessData,
-            "SELECT 
-                instance_id AS  \"instance_id:Uuid\", 
-                process_data, 
+            "SELECT
+                instance_id AS  \"instance_id:Uuid\",
+                process_data,
                 created_at,
                 updated_at
              FROM pegin_instance_process_data
@@ -1759,7 +1758,7 @@ impl<'a> StorageProcessor<'a> {
             PeginGraphProcessData,
             "SELECT
                 graph_id AS  \"graph_id:Uuid\",
-                instance_id AS  \"instance_id:Uuid\", 
+                instance_id AS  \"instance_id:Uuid\",
                 process_data,
                 is_endorsed,
                 created_at,
@@ -1796,7 +1795,7 @@ impl<'a> StorageProcessor<'a> {
         is_endorsed: bool,
     ) -> anyhow::Result<i64> {
         let record = sqlx::query!(
-            r#"SELECT count(*) AS length 
+            r#"SELECT count(*) AS length
                FROM pegin_graph_process_data
                WHERE instance_id = ? AND is_endorsed = ?"#,
             instance_id,
@@ -1939,772 +1938,6 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn get_block_execution_start_time(
-        &mut self,
-        block_number: i64,
-    ) -> anyhow::Result<i64> {
-        #[derive(sqlx::FromRow)]
-        struct TimestampRow {
-            created_at: Option<i64>,
-        }
-
-        let row = sqlx::query_as!(
-            TimestampRow,
-            r#"
-            SELECT
-                created_at as "created_at?: i64"
-            FROM block_proof
-            WHERE block_number = ?
-            "#,
-            block_number
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        Ok(row.and_then(|r| r.created_at).unwrap_or(0))
-    }
-
-    pub async fn create_block_proving_task(
-        &mut self,
-        block_number: i64,
-        state: String,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-
-        sqlx::query!(
-            r#"
-            INSERT INTO block_proof
-                (block_number, state, created_at, updated_at)
-            VALUES 
-                (?, ?, ?, ?)
-            ON CONFLICT(block_number) DO UPDATE SET
-                state = excluded.state,
-                created_at = excluded.created_at,
-                updated_at = excluded.updated_at
-            "#,
-            block_number,
-            state,
-            timestamp,
-            timestamp,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn delete_block_proofs(&mut self, block_number: i64) -> anyhow::Result<()> {
-        sqlx::query!(r#"DELETE FROM block_proof WHERE block_number < ?"#, block_number)
-            .execute(self.conn())
-            .await?;
-
-        Ok(())
-    }
-
-    pub async fn update_block_executed(
-        &mut self,
-        block_number: i64,
-        tx_count: i64,
-        gas_used: i64,
-        state: String,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-
-        sqlx::query!(
-            r#"
-            UPDATE block_proof 
-            SET 
-                tx_count = ?, 
-                gas_used = ?, 
-                state = ?,
-                updated_at = ?
-            WHERE block_number = ?
-            "#,
-            tx_count,
-            gas_used,
-            state,
-            timestamp,
-            block_number
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn update_block_proved(
-        &mut self,
-        block_number: i64,
-        proving_time: i64,
-        proving_cycles: i64,
-        proof: &[u8],
-        public_values: &[u8],
-        verifier_id: String,
-        zkm_version: &str,
-        state: String,
-    ) -> anyhow::Result<()> {
-        let end_timestamp = get_current_timestamp_millis();
-
-        let start_timestamp = self.get_block_execution_start_time(block_number).await?;
-
-        let total_time_to_proof = end_timestamp - start_timestamp;
-
-        let proof_size = proof.len() as i64;
-        let proof = hex::encode(proof);
-
-        let public_values = hex::encode(public_values);
-
-        sqlx::query!(
-            r#"
-            UPDATE block_proof 
-            SET
-                total_time_to_proof = ?,
-                proving_time = ?, 
-                proving_cycles = ?, 
-                proof = ?,
-                proof_size = ?,
-                public_values = ?,
-                verifier_id = ?,
-                zkm_version = ?,
-                state = ?,
-                reason = ?,
-                updated_at = ?
-            WHERE block_number = ?
-            "#,
-            total_time_to_proof,
-            proving_time,
-            proving_cycles,
-            proof,
-            proof_size,
-            public_values,
-            verifier_id,
-            zkm_version,
-            state,
-            "",
-            end_timestamp,
-            block_number,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn update_block_proving_failed(
-        &mut self,
-        block_number: i64,
-        state: String,
-        reason: String,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-        let reason = truncate_string(&reason, 100);
-
-        sqlx::query!(
-            r#"
-            UPDATE block_proof 
-            SET 
-                state = ?,
-                reason = ?,
-                updated_at = ?
-            WHERE block_number = ?
-            "#,
-            state,
-            reason,
-            timestamp,
-            block_number
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_block_proof(
-        &mut self,
-        block_number: i64,
-    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String, String)> {
-        #[derive(sqlx::FromRow)]
-        struct BlockProofRow {
-            proof: String,
-            public_values: String,
-            verifier_id: String,
-            zkm_version: String,
-        }
-
-        let row = sqlx::query_as!(
-            BlockProofRow,
-            r#"
-            SELECT proof, public_values, verifier_id, zkm_version
-            FROM block_proof
-            WHERE block_number = ?
-            "#,
-            block_number
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        match row {
-            Some(r) => {
-                let proof = hex::decode(r.proof)?;
-                let public_values = hex::decode(r.public_values)?;
-                Ok((proof, public_values, r.verifier_id, r.zkm_version))
-            }
-            None => {
-                Ok((Default::default(), Default::default(), Default::default(), Default::default()))
-            }
-        }
-    }
-
-    pub async fn get_last_continuous_number(&mut self) -> anyhow::Result<Option<i64>> {
-        #[derive(sqlx::FromRow)]
-        struct BlockNumberRow {
-            block_number: Option<i64>,
-        }
-
-        let row = sqlx::query_as!(
-            BlockNumberRow,
-            r#"
-            SELECT MIN(block_number) as block_number
-            FROM block_proof
-            WHERE state != 'proved'
-            "#,
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        Ok(if let Some(r) = row { r.block_number } else { None })
-    }
-
-    pub async fn create_aggregation_task(
-        &mut self,
-        block_number: i64,
-        state: String,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-
-        sqlx::query!(
-            r#"
-            INSERT INTO aggregation_proof 
-                (block_number, state, created_at, updated_at)
-            VALUES
-                (?, ?, ?, ?)
-            ON CONFLICT(block_number) DO UPDATE SET
-                state = excluded.state,
-                created_at = excluded.created_at,
-                updated_at = excluded.updated_at
-            "#,
-            block_number,
-            state,
-            timestamp,
-            timestamp,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn delete_aggregation_proofs(&mut self, block_number: i64) -> anyhow::Result<()> {
-        sqlx::query!(r#"DELETE FROM aggregation_proof WHERE block_number < ?"#, block_number)
-            .execute(self.conn())
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn update_aggregation_succ(
-        &mut self,
-        block_number: i64,
-        proving_time: i64,
-        proving_cycles: i64,
-        proof: &[u8],
-        public_values: &[u8],
-        verifier_id: String,
-        zkm_version: &str,
-        state: String,
-    ) -> anyhow::Result<()> {
-        let end_timestamp = get_current_timestamp_millis();
-
-        let start_timestamp = self.get_aggregation_start_time(block_number).await?;
-
-        let total_time_to_proof = end_timestamp - start_timestamp;
-
-        let proof_size = proof.len() as i64;
-        let proof = hex::encode(proof);
-
-        let public_values = hex::encode(public_values);
-
-        sqlx::query!(
-            r#"
-            UPDATE aggregation_proof 
-            SET
-                total_time_to_proof = ?,
-                proving_time = ?, 
-                proving_cycles = ?, 
-                proof = ?,
-                proof_size = ?,
-                public_values = ?,
-                verifier_id = ?,
-                zkm_version = ?,
-                state = ?,
-                reason = ?,
-                updated_at = ?
-            WHERE block_number = ?
-            "#,
-            total_time_to_proof,
-            proving_time,
-            proving_cycles,
-            proof,
-            proof_size,
-            public_values,
-            verifier_id,
-            zkm_version,
-            state,
-            "",
-            end_timestamp,
-            block_number,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn update_aggregation_failed(
-        &mut self,
-        block_number: i64,
-        state: String,
-        reason: String,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-        let reason = truncate_string(&reason, 100);
-
-        sqlx::query!(
-            r#"
-            UPDATE aggregation_proof 
-            SET 
-                state = ?,
-                reason = ?,
-                updated_at = ?
-            WHERE block_number = ?
-            "#,
-            state,
-            reason,
-            timestamp,
-            block_number
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_aggregation_start_time(&mut self, block_number: i64) -> anyhow::Result<i64> {
-        #[derive(sqlx::FromRow)]
-        struct TimestampRow {
-            created_at: Option<i64>,
-        }
-
-        let row = sqlx::query_as!(
-            TimestampRow,
-            r#"
-            SELECT
-                created_at as "created_at?: i64"
-            FROM aggregation_proof
-            WHERE block_number = ?
-            "#,
-            block_number
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        Ok(row.and_then(|r| r.created_at).unwrap_or(0))
-    }
-
-    pub async fn get_aggregation_proof(
-        &mut self,
-        block_number: i64,
-    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String, String)> {
-        #[derive(sqlx::FromRow)]
-        struct AggregationProofRow {
-            proof: String,
-            public_values: String,
-            verifier_id: String,
-            zkm_version: String,
-        }
-
-        let row = sqlx::query_as!(
-            AggregationProofRow,
-            r#"
-            SELECT proof, public_values, verifier_id, zkm_version
-            FROM aggregation_proof
-            WHERE block_number = ?
-            "#,
-            block_number
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        match row {
-            Some(r) => {
-                let proof = hex::decode(r.proof)?;
-                let public_values = hex::decode(r.public_values)?;
-                Ok((proof, public_values, r.verifier_id, r.zkm_version))
-            }
-            None => {
-                Ok((Default::default(), Default::default(), Default::default(), Default::default()))
-            }
-        }
-    }
-
-    pub async fn get_last_aggregation_number(&mut self) -> anyhow::Result<Option<i64>> {
-        #[derive(sqlx::FromRow)]
-        struct BlockNumberRow {
-            block_number: Option<i64>,
-        }
-
-        let row = sqlx::query_as!(
-            BlockNumberRow,
-            r#"
-            SELECT MAX(block_number) as block_number
-            FROM aggregation_proof
-            WHERE state = 'proved'
-            "#,
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        Ok(if let Some(r) = row { r.block_number } else { None })
-    }
-
-    pub async fn create_groth16_task(
-        &mut self,
-        block_number: i64,
-        start_number: i64,
-        real_numbers: String,
-        state: String,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-
-        sqlx::query!(
-            r#"
-            INSERT INTO groth16_proof 
-                (block_number, start_number, real_numbers, state, created_at, updated_at)
-            VALUES
-                (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(block_number) DO UPDATE SET
-                start_number = excluded.start_number,
-                real_numbers = excluded.real_numbers,
-                state = excluded.state,
-                created_at = excluded.created_at,
-                updated_at = excluded.updated_at
-            "#,
-            block_number,
-            start_number,
-            real_numbers,
-            state,
-            timestamp,
-            timestamp
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn update_groth16_succ(
-        &mut self,
-        block_number: i64,
-        init_number: i64,
-        proving_time: i64,
-        proving_cycles: i64,
-        proof: &[u8],
-        public_values: &[u8],
-        verifier_id: String,
-        zkm_version: &str,
-        state: String,
-    ) -> anyhow::Result<()> {
-        let end_timestamp = get_current_timestamp_millis();
-        let start_timestamp = self.get_groth16_start_time(block_number).await?;
-
-        let total_time_to_proof = end_timestamp - start_timestamp;
-
-        let proof_size = proof.len() as f64;
-        let proof = hex::encode(proof);
-
-        let public_values = hex::encode(public_values);
-
-        sqlx::query!(
-            r#"
-            UPDATE groth16_proof 
-            SET
-                init_number = ?,
-                total_time_to_proof = ?,
-                proving_time = ?, 
-                proving_cycles = ?, 
-                proof = ?,
-                proof_size = ?,
-                public_values = ?,
-                verifier_id = ?,
-                zkm_version = ?,
-                state = ?,
-                reason = ?,
-                updated_at = ?
-            WHERE block_number = ?
-            "#,
-            init_number,
-            total_time_to_proof,
-            proving_time,
-            proving_cycles,
-            proof,
-            proof_size,
-            public_values,
-            verifier_id,
-            zkm_version,
-            state,
-            "",
-            end_timestamp,
-            block_number,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn update_groth16_failed(
-        &mut self,
-        block_number: i64,
-        state: String,
-        reason: String,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-        let reason = truncate_string(&reason, 100);
-
-        sqlx::query!(
-            r#"
-            UPDATE groth16_proof 
-            SET 
-                state = ?,
-                reason = ?,
-                updated_at = ?
-            WHERE block_number = ?
-            "#,
-            state,
-            reason,
-            timestamp,
-            block_number
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn add_groth16_proof(
-        &mut self,
-        block_number: i64,
-        start_number: i64,
-        real_numbers: &str,
-        proof: &[u8],
-        public_values: &[u8],
-        verifier_id: &str,
-        zkm_version: &str,
-        state: &str,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-        let proof = hex::encode(proof);
-        let public_values = hex::encode(public_values);
-        sqlx::query!(
-            "INSERT INTO groth16_proof
-                         (block_number, start_number, real_numbers, proof, public_values, verifier_id, zkm_version, state, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                         ON CONFLICT(block_number) DO UPDATE SET proof         = excluded.proof,
-                                                                 public_values = excluded.public_values,
-                                                                 start_number = excluded.start_number,
-                                                                 real_numbers = excluded.real_numbers,
-                                                                 verifier_id   = excluded.verifier_id,
-                                                                 zkm_version   = excluded.zkm_version,
-                                                                 state         = excluded.state,
-                                                                 updated_at    = excluded.updated_at",
-            block_number,
-            start_number,
-            real_numbers,
-            proof,
-            public_values,
-            verifier_id,
-            zkm_version,
-            state,
-            timestamp,
-            timestamp
-        )
-            .execute(self.conn())
-            .await?;
-        Ok(())
-    }
-
-    pub async fn get_groth16_start_time(&mut self, block_number: i64) -> anyhow::Result<i64> {
-        #[derive(sqlx::FromRow)]
-        struct TimestampRow {
-            created_at: Option<i64>,
-        }
-
-        let row = sqlx::query_as!(
-            TimestampRow,
-            r#"
-            SELECT
-                created_at as "created_at?: i64"
-            FROM groth16_proof
-            WHERE block_number = ?
-            "#,
-            block_number
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        Ok(row.and_then(|r| r.created_at).unwrap_or(0))
-    }
-
-    pub async fn get_groth16_proof(
-        &mut self,
-        block_number: i64,
-    ) -> anyhow::Result<(Vec<u8>, Vec<u8>, String, String)> {
-        #[derive(sqlx::FromRow)]
-        struct Groth16ProofRow {
-            proof: String,
-            public_values: String,
-            verifier_id: String,
-            zkm_version: String,
-        }
-
-        let row = sqlx::query_as!(
-            Groth16ProofRow,
-            r#"
-            SELECT proof, public_values, verifier_id, zkm_version
-            FROM groth16_proof
-            WHERE block_number >= ? AND start_number <= ?
-            "#,
-            block_number,
-            block_number
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        match row {
-            Some(r) => {
-                let proof = hex::decode(r.proof)?;
-                let public_values = hex::decode(r.public_values)?;
-                Ok((proof, public_values, r.verifier_id, r.zkm_version))
-            }
-            None => {
-                Ok((Default::default(), Default::default(), Default::default(), Default::default()))
-            }
-        }
-    }
-
-    pub async fn set_block_proof_concurrency(&mut self, concurrency: i64) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-
-        sqlx::query!(
-            r#"
-            INSERT INTO proof_config
-                (id, block_proof_concurrency, updated_at)
-            VALUES
-                (?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                block_proof_concurrency = excluded.block_proof_concurrency,
-                updated_at = excluded.updated_at
-            "#,
-            1,
-            concurrency,
-            timestamp,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn set_aggregation_count(
-        &mut self,
-        aggregate_block_count: i64,
-    ) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-
-        sqlx::query!(
-            r#"
-            UPDATE proof_config
-            SET 
-                aggregate_block_count = ?,
-                updated_at = ?
-            WHERE id = ?
-            "#,
-            aggregate_block_count,
-            timestamp,
-            1,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn set_init_number(&mut self, start_aggregation_number: i64) -> anyhow::Result<()> {
-        let timestamp = get_current_timestamp_millis();
-
-        sqlx::query!(
-            r#"
-            UPDATE proof_config
-            SET
-                start_aggregation_number = ?,
-                updated_at = ?
-            WHERE id = ?
-            "#,
-            start_aggregation_number,
-            timestamp,
-            1,
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_proof_config(&mut self) -> anyhow::Result<(i64, i64, i64)> {
-        #[derive(sqlx::FromRow)]
-        struct ProofConfig {
-            block_proof_concurrency: Option<i64>,
-            aggregate_block_count: Option<i64>,
-            start_aggregation_number: Option<i64>,
-        }
-
-        let row = sqlx::query_as!(
-            ProofConfig,
-            "SELECT
-                block_proof_concurrency, aggregate_block_count, start_aggregation_number
-            FROM
-                proof_config
-            WHERE id = ?",
-            1
-        )
-        .fetch_optional(self.conn())
-        .await?;
-
-        if let Some(row) = row {
-            Ok((
-                row.block_proof_concurrency.unwrap_or(1),
-                row.aggregate_block_count.unwrap_or(1),
-                row.start_aggregation_number.unwrap_or(2),
-            ))
-        } else {
-            Ok((1, 1, 2))
-        }
-    }
-
     pub async fn create_verifier_key(
         &mut self,
         verifier_id: &str,
@@ -2716,7 +1949,7 @@ impl<'a> StorageProcessor<'a> {
         sqlx::query!(
             r#"
             INSERT OR IGNORE INTO verifier_key
-                (verifier_id, verifier_key, created_at) 
+                (verifier_id, verifier_key, created_at)
             VALUES
                 (?, ?, ?)
             "#,
@@ -3013,107 +2246,6 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn get_groth16_proof_info(
-        &mut self,
-
-        block_number: i64,
-    ) -> anyhow::Result<Option<ProofInfo>> {
-        Ok(sqlx::query_as!(ProofInfo, "SELECT block_number, real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
-                 FROM groth16_proof
-                 WHERE   block_number >= ? AND  start_number  <= ? LIMIT 1", block_number, block_number).fetch_optional(self.conn()).await?)
-    }
-
-    pub async fn get_range_proofs(
-        &mut self,
-        proof_type: ProofType,
-        block_number_min: i64,
-        block_number_max: i64,
-    ) -> anyhow::Result<Vec<ProofInfo>> {
-        let query = match proof_type {
-            ProofType::BlockProof => {
-                "SELECT block_number, CAST(block_number AS TEXT) AS real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
-                FROM block_proof
-                WHERE block_number BETWEEN ? AND ?
-                ORDER BY block_number ASC"
-            }
-            ProofType::AggregationProof => {
-                "SELECT block_number, CAST(block_number AS TEXT) AS real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
-                 FROM aggregation_proof
-                 WHERE block_number BETWEEN ? AND ?
-                 ORDER BY block_number ASC"
-            }
-            ProofType::Groth16Proof => {
-                "SELECT block_number, CAST(block_number AS TEXT) AS real_numbers, proving_cycles, state, proving_time, proof_size, zkm_version, created_at, updated_at
-                 FROM groth16_proof
-                 WHERE block_number BETWEEN ? AND ?
-                 ORDER BY block_number ASC"
-            }
-        };
-
-        Ok(sqlx::query_as::<_, ProofInfo>(query)
-            .bind(block_number_min)
-            .bind(block_number_max)
-            .fetch_all(self.conn())
-            .await?)
-    }
-
-    pub async fn get_proof_overview(
-        &mut self,
-        proof_type: ProofType,
-        avg_range: i64,
-    ) -> anyhow::Result<(i64, i64, i64)> {
-        #[derive(sqlx::FromRow)]
-        struct OverviewProof {
-            max_block_number: i64,
-            total_proof_time_sum: i64,
-            proof_record_count: i64,
-        }
-        let query = match proof_type {
-            ProofType::BlockProof => {
-                format!("WITH top_blocks AS (
-                        SELECT total_time_to_proof
-                        FROM block_proof
-                        WHERE state = 'proved'
-                        ORDER BY block_number DESC
-                        LIMIT {avg_range}
-                    )
-                    SELECT
-                        COALESCE((SELECT MAX(block_number) FROM block_proof), 0) AS max_block_number,
-                        COALESCE((SELECT SUM(total_time_to_proof) FROM top_blocks), 0) AS total_proof_time_sum,
-                        COALESCE((SELECT COUNT(*) FROM top_blocks), 0) AS proof_record_count
-                    ")
-            }
-            ProofType::AggregationProof => {
-                format!("WITH top_blocks AS (
-                        SELECT total_time_to_proof
-                        FROM aggregation_proof
-                        WHERE state = 'proved'
-                        ORDER BY block_number DESC
-                        LIMIT {avg_range}
-                    )
-                    SELECT
-                        COALESCE((SELECT MAX(block_number) FROM aggregation_proof), 0) AS max_block_number,
-                        COALESCE((SELECT SUM(total_time_to_proof) FROM top_blocks), 0) AS total_proof_time_sum,
-                        COALESCE((SELECT COUNT(*) FROM top_blocks), 0) AS proof_record_count")
-            }
-            ProofType::Groth16Proof => {
-                format!("WITH top_blocks AS (
-                        SELECT total_time_to_proof
-                        FROM groth16_proof
-                        WHERE state = 'proved'
-                        ORDER BY block_number DESC
-                        LIMIT {avg_range}
-                    )
-                    SELECT
-                        COALESCE((SELECT MAX(block_number) FROM groth16_proof), 0) AS max_block_number,
-                        COALESCE((SELECT SUM(total_time_to_proof) FROM top_blocks), 0) AS total_proof_time_sum,
-                        COALESCE((SELECT COUNT(*) FROM top_blocks), 0) AS proof_record_count")
-            }
-        };
-        let res = sqlx::query_as::<_, OverviewProof>(query.as_str()).fetch_one(self.conn()).await?;
-        Ok((res.max_block_number, res.total_proof_time_sum, res.proof_record_count))
-    }
-
     pub async fn get_socket_addr_for_graph_query_proof(
         &mut self,
         ids: &[Uuid],
@@ -3224,296 +2356,397 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn upsert_commit_info(&mut self, commit_info: &CommitInfo) -> anyhow::Result<bool> {
-        let pubkeys_json = serde_json::to_string(&commit_info.publisher_public_keys)?;
+    pub async fn create_long_running_task_proof(
+        &mut self,
+        long_running_task_proof: &LongRunningTaskProof,
+    ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            r#"INSERT OR REPLACE INTO commit_info (txid, threshold, publisher_public_keys, commit_proof_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)"#,
-            commit_info.txid,
-            commit_info.threshold,
-           pubkeys_json,
-            commit_info.commit_proof_id,
-            commit_info.created_at,
-            commit_info.updated_at
+            "INSERT
+             INTO long_running_task_proof (block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
+                                           zkm_version, extra, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            long_running_task_proof.block_start,
+            long_running_task_proof.block_end,
+            long_running_task_proof.chain_name,
+            long_running_task_proof.path_to_proof,
+            long_running_task_proof.cycles,
+            long_running_task_proof.proof_state,
+            long_running_task_proof.proving_time,
+            long_running_task_proof.zkm_version,
+            long_running_task_proof.extra,
+            long_running_task_proof.updated_at,
+            long_running_task_proof.created_at,
         )
             .execute(self.conn())
             .await?;
-        Ok(res.rows_affected() > 0)
+        Ok(res.rows_affected())
     }
 
-    pub async fn find_commit_info(
+    pub async fn update_long_running_task_proof_success(
         &mut self,
-        txid: SerializableTxid,
-    ) -> anyhow::Result<Option<CommitInfo>> {
-        Ok(sqlx::query_as::<_, CommitInfo>(
-            "SELECT * 
-                 FROM commit_info
-                 WHERE txid = ?",
-        )
-        .bind(txid)
-        .fetch_optional(self.conn())
-        .await?)
-    }
-
-    pub async fn update_commit_info_proof_id(
-        &mut self,
-        txid: SerializableTxid,
-        proof_id: i64,
-    ) -> anyhow::Result<bool> {
+        block_start: i64,
+        chain_name: &str,
+        batch_size: i64,
+        path_to_proof: &str,
+        cycles: i64,
+        proving_time: i64,
+        zkm_version: &str,
+    ) -> anyhow::Result<u64> {
+        let block_end = block_start + batch_size;
+        let current_time = get_current_timestamp_secs();
         let res = sqlx::query!(
-            r#"UPDATE commit_info SET commit_proof_id = ? WHERE txid = ?"#,
-            proof_id,
-            txid,
+            "UPDATE long_running_task_proof
+             SET path_to_proof = ?,
+                 cycles = ?,
+                 proof_state = 2,
+                 proving_time = ?,
+                 zkm_version = ?,
+                 block_end = ?,
+                 updated_at = ?
+             WHERE block_start = ? AND chain_name = ?",
+            path_to_proof,
+            cycles,
+            proving_time,
+            zkm_version,
+            block_end,
+            current_time,
+            block_start,
+            chain_name,
         )
         .execute(self.conn())
         .await?;
-        Ok(res.rows_affected() > 0)
+        Ok(res.rows_affected())
     }
 
-    pub async fn insert_commit_chain_proof(
+    pub async fn update_long_running_task_proof_state(
         &mut self,
-        commit_chain_proof: &CommitChainProof,
-    ) -> anyhow::Result<bool> {
-        let commit_info_txids = serde_json::to_string(&commit_chain_proof.commit_info_txids)?;
+        block_start: i64,
+        chain_name: &str,
+        batch_size: i64,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let block_end = block_start + batch_size;
+        let current_time = get_current_timestamp_secs();
         let res = sqlx::query!(
-            r#"INSERT OR REPLACE INTO commit_chain_proof (commit_info_txids, in_location, prev_proof, out_location, proof,
-                                vk,  public_inputs,  status, proving_time, zkm_version, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-            commit_info_txids,
-            commit_chain_proof.in_location,
-            commit_chain_proof.prev_proof,
-            commit_chain_proof.out_location,
-            commit_chain_proof.proof,
-            commit_chain_proof.vk,
-            commit_chain_proof.public_inputs,
-            commit_chain_proof.status,
-            commit_chain_proof.proving_time,
-            commit_chain_proof.zkm_version,
-            commit_chain_proof.created_at,
-            commit_chain_proof.updated_at
-        )
-            .execute(self.conn())
-            .await?;
-        Ok(res.rows_affected() > 0)
-    }
-
-    pub async fn find_commit_chain_proof_by_id(
-        &mut self,
-        id: i64,
-    ) -> anyhow::Result<Option<CommitChainProof>> {
-        Ok(sqlx::query_as::<_, CommitChainProof>(
-            "SELECT * 
-                 FROM commit_chain_proof
-                 WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(self.conn())
-        .await?)
-    }
-
-    pub async fn update_commit_chain_proof_status(
-        &mut self,
-        id: i64,
-        status: &str,
-    ) -> anyhow::Result<bool> {
-        let res =
-            sqlx::query!(r#"UPDATE commit_chain_proof SET status = ? WHERE id = ?"#, status, id,)
-                .execute(self.conn())
-                .await?;
-        Ok(res.rows_affected() > 0)
-    }
-
-    pub async fn insert_header_chain_proof(
-        &mut self,
-        header_chain_proof: &HeaderChainProof,
-    ) -> anyhow::Result<bool> {
-        let res = sqlx::query!(
-            r#"INSERT INTO header_chain_proof (in_location,  prev_proof, batch_size, start, out_location, proof,
-                                vk,  public_inputs,  status, proving_time, zkm_version, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-            header_chain_proof.in_location,
-            header_chain_proof.prev_proof,
-            header_chain_proof.batch_size,
-            header_chain_proof.start,
-            header_chain_proof.out_location,
-            header_chain_proof.proof,
-            header_chain_proof.vk,
-            header_chain_proof.public_inputs,
-            header_chain_proof.status,
-            header_chain_proof.proving_time,
-            header_chain_proof.zkm_version,
-            header_chain_proof.created_at,
-            header_chain_proof.updated_at
-        )
-            .execute(self.conn())
-            .await?;
-        Ok(res.rows_affected() > 0)
-    }
-
-    pub async fn find_header_chain_proof_by_id(
-        &mut self,
-        id: i64,
-    ) -> anyhow::Result<Option<HeaderChainProof>> {
-        Ok(sqlx::query_as!(
-            HeaderChainProof,
-            r#"SELECT * FROM header_chain_proof WHERE id = ?"#,
-            id
-        )
-        .fetch_optional(self.conn())
-        .await?)
-    }
-
-    pub async fn update_long_running_task_proof_status(
-        &mut self,
-        id: i64,
-        status: &str,
-    ) -> anyhow::Result<bool> {
-        let res =
-            sqlx::query!(r#"UPDATE header_chain_proof SET status = ? WHERE id = ?"#, status, id,)
-                .execute(self.conn())
-                .await?;
-        Ok(res.rows_affected() > 0)
-    }
-
-    pub async fn upsert_watchtower_proof(
-        &mut self,
-        watchtower_proof: &WatchtowerProof,
-    ) -> anyhow::Result<bool> {
-        let res = sqlx::query!(
-            r#"INSERT OR REPLACE INTO watchtower_proof (graph_id, instance_id, latest_sequencer_commit_txid, in_location, header_chain_proof,
-                    commit_chain_proof, out_location,  proof, groth16_vk, public_inputs, status, proving_time, zkm_version,
-                    created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-            watchtower_proof.graph_id,
-            watchtower_proof.instance_id,
-            watchtower_proof.latest_sequencer_commit_txid,
-            watchtower_proof.in_location,
-            watchtower_proof.header_chain_proof,
-            watchtower_proof.commit_chain_proof,
-            watchtower_proof.out_location,
-            watchtower_proof.proof,
-            watchtower_proof.groth16_vk,
-            watchtower_proof.public_inputs,
-            watchtower_proof.status,
-            watchtower_proof.proving_time,
-            watchtower_proof.zkm_version,
-            watchtower_proof.created_at,
-            watchtower_proof.updated_at
-        )
-            .execute(self.conn())
-            .await?;
-        Ok(res.rows_affected() > 0)
-    }
-
-    pub async fn find_watchtower_proof(
-        &mut self,
-        graph_id: &Uuid,
-        instance_id: &Uuid,
-    ) -> anyhow::Result<Option<WatchtowerProof>> {
-        Ok(sqlx::query_as::<_, WatchtowerProof>(
-            "SELECT * 
-                 FROM watchtower_proof
-                 WHERE  graph_id = ? AND instance_id = ?",
-        )
-        .bind(graph_id)
-        .bind(instance_id)
-        .fetch_optional(self.conn())
-        .await?)
-    }
-
-    pub async fn update_watchtower_proof_status(
-        &mut self,
-        graph_id: Uuid,
-        instance_id: Uuid,
-        status: &str,
-    ) -> anyhow::Result<bool> {
-        let res = sqlx::query!(
-            r#"UPDATE 
-                     watchtower_proof 
-                SET status = ?
-                WHERE graph_id = ? AND instance_id = ?"#,
-            status,
-            graph_id,
-            instance_id,
+            "UPDATE long_running_task_proof
+             SET proof_state = ?,
+                 block_end = ?,
+                 updated_at = ?
+             WHERE block_start = ? AND chain_name = ?",
+            proof_state,
+            block_end,
+            current_time,
+            block_start,
+            chain_name,
         )
         .execute(self.conn())
         .await?;
-        Ok(res.rows_affected() > 0)
+        Ok(res.rows_affected())
     }
 
-    pub async fn upsert_operator_proof(
+    pub async fn find_long_running_task_proof_by_start(
+        &mut self,
+        block_start: i64,
+        chain_name: &str,
+    ) -> anyhow::Result<Option<LongRunningTaskProof>> {
+        let res = sqlx::query_as!(
+            LongRunningTaskProof,
+            "SELECT block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
+                                           zkm_version, extra, updated_at, created_at FROM long_running_task_proof
+           
+             WHERE block_start >= ? AND chain_name = ? ORDER BY block_start DESC LIMIT 1",
+            block_start,
+            chain_name,
+        )
+            .fetch_optional(self.conn())
+            .await?;
+        Ok(res)
+    }
+
+    pub async fn create_operator_proof(
         &mut self,
         operator_proof: &OperatorProof,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
-            r#"INSERT OR REPLACE INTO operator_proof (graph_id, instance_id,  included_watchtowers, latest_sequencer_commit_txid, in_location,
-                            header_chain_proof, commit_chain_proof, execution_layer_block_number, watchtower_challenge_info, watchtower_challenge_init_txid,
-                            block_headers_file_path, out_location, proof, groth16_vk, public_inputs, status, proving_time, zkm_version,
-                            created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-            operator_proof.graph_id,
+            "INSERT
+             INTO operator_proof (id, instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
+                                 zkm_version, extra, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            operator_proof.id,
             operator_proof.instance_id,
-            operator_proof.included_watchtowers,
-            operator_proof.latest_sequencer_commit_txid,
-            operator_proof.in_location,
-            operator_proof.header_chain_proof,
-            operator_proof.commit_chain_proof,
+            operator_proof.graph_id,
             operator_proof.execution_layer_block_number,
-            operator_proof.watchtower_challenge_info,
-            operator_proof.watchtower_challenge_init_txid,
-            operator_proof.block_headers_file_path,
-            operator_proof.out_location,
-            operator_proof.proof,
-            operator_proof.groth16_vk,
-            operator_proof.public_inputs,
-            operator_proof.status,
+            operator_proof.path_to_proof,
+            operator_proof.cycles,
+            operator_proof.proof_state,
             operator_proof.proving_time,
             operator_proof.zkm_version,
+            operator_proof.extra,
+            operator_proof.updated_at,
             operator_proof.created_at,
-            operator_proof.updated_at
         )
             .execute(self.conn())
             .await?;
-        Ok(res.rows_affected() > 0)
+        Ok(res.rows_affected())
     }
 
-    pub async fn find_operator_proof(
+    pub async fn update_operator_proof_success(
         &mut self,
-        graph_id: &Uuid,
-        instance_id: &Uuid,
-    ) -> anyhow::Result<Option<OperatorProof>> {
-        Ok(sqlx::query_as::<_, OperatorProof>(
-            "SELECT * 
-                 FROM operator_proof
-                 WHERE  graph_id = ? AND instance_id = ?",
-        )
-        .bind(graph_id)
-        .bind(instance_id)
-        .fetch_optional(self.conn())
-        .await?)
-    }
-
-    pub async fn update_operator_proof_status(
-        &mut self,
-        graph_id: Uuid,
-        instance_id: Uuid,
-        status: &str,
-    ) -> anyhow::Result<bool> {
+        id: i64,
+        path_to_proof: &str,
+        cycles: i64,
+        proving_time: i64,
+        zkm_version: &str,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
         let res = sqlx::query!(
-            "UPDATE operator_proof SET status = ? WHERE graph_id = ? AND instance_id = ?",
-            status,
-            graph_id,
-            instance_id
+            "UPDATE operator_proof
+             SET path_to_proof = ?,
+                 cycles = ?,
+                 proof_state = 2,
+                 proving_time = ?,
+                 zkm_version = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            path_to_proof,
+            cycles,
+            proving_time,
+            zkm_version,
+            current_time,
+            id,
         )
         .execute(self.conn())
         .await?;
-        Ok(res.rows_affected() > 0)
+        Ok(res.rows_affected())
+    }
+
+    pub async fn update_operator_proof_state(
+        &mut self,
+        id: i64,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE operator_proof
+             SET proof_state = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            proof_state,
+            current_time,
+            id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn find_operator_proof_by_instance_and_graph(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<Option<OperatorProof>> {
+        let res = sqlx::query_as::<_, OperatorProof>(
+            "SELECT id,
+                        instance_id,
+                        graph_id,
+                        execution_layer_block_number,
+                        path_to_proof,
+                        cycles,
+                        proof_state,
+                        proving_time,
+                        zkm_version,
+                        extra,
+                        created_at,
+                        updated_at
+                 FROM operator_proof
+                 WHERE instance_id = ?
+                   AND graph_id = ?",
+        )
+        .bind(instance_id)
+        .bind(graph_id)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn find_operator_proofs_unproved(&mut self) -> anyhow::Result<Vec<OperatorProof>> {
+        let res = sqlx::query_as::<_, OperatorProof>(
+            "SELECT id,
+                        instance_id,
+                        graph_id,
+                        execution_layer_block_number,
+                        path_to_proof,
+                        cycles,
+                        proof_state,
+                        proving_time,
+                        zkm_version,
+                    extra,
+                        created_at,
+                        updated_at
+                 FROM operator_proof
+                 WHERE proof_state != 2
+                 ORDER BY id ASC",
+        )
+        .fetch_all(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn get_next_operator_proof_id(&mut self) -> anyhow::Result<i64> {
+        let res = sqlx::query!("SELECT MAX(id) as max_id FROM operator_proof")
+            .fetch_optional(self.conn())
+            .await?;
+        Ok(res.and_then(|row| row.max_id).map_or(0, |max_id| max_id + 1))
+    }
+
+    pub async fn update_watchtower_proof_success(
+        &mut self,
+        id: i64,
+        path_to_proof: &str,
+        cycles: i64,
+        proving_time: i64,
+        zkm_version: &str,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE watchtower_proof
+             SET path_to_proof = ?,
+                 cycles = ?,
+                 proof_state = 2,
+                 proving_time = ?,
+                 zkm_version = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            path_to_proof,
+            cycles,
+            proving_time,
+            zkm_version,
+            current_time,
+            id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn update_watchtower_proof_state(
+        &mut self,
+        id: i64,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE watchtower_proof
+             SET proof_state = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            proof_state,
+            current_time,
+            id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn find_watchtower_proof_by_instance_and_graph(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<Option<WatchtowerProof>> {
+        let res = sqlx::query_as::<_, WatchtowerProof>(
+            "SELECT instance_id,
+                         graph_id,
+                         public_key,
+                         challenge_txid,
+                         challenge_init_txid,
+                         path_to_proof,
+                         cycles,
+                         proof_state,
+                         proving_time,
+                         zkm_version,
+                         extra,
+                         created_at,
+                         updated_at
+                  FROM watchtower_proof
+                  WHERE instance_id = ?
+                    AND graph_id = ?",
+        )
+        .bind(instance_id)
+        .bind(graph_id)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn find_watchtower_proofs_unproved(
+        &mut self,
+    ) -> anyhow::Result<Vec<WatchtowerProof>> {
+        let res = sqlx::query_as::<_, WatchtowerProof>(
+            "SELECT id,
+                         instance_id,
+                         graph_id,
+                         public_key,
+                         challenge_txid,
+                         challenge_init_txid,
+                         path_to_proof,
+                         cycles,
+                         proof_state,
+                         proving_time,
+                         zkm_version,
+                         extra,
+                         created_at,
+                         updated_at
+                  FROM watchtower_proof
+                  WHERE proof_state != 2
+                  ORDER BY id ASC",
+        )
+        .fetch_all(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn get_next_watchtower_proof_id(&mut self) -> anyhow::Result<i64> {
+        let res = sqlx::query!("SELECT MAX(id) as max_id FROM watchtower_proof")
+            .fetch_optional(self.conn())
+            .await?;
+
+        Ok(res.and_then(|row| row.max_id).map_or(0, |max_id| max_id + 1))
+    }
+
+    pub async fn create_watchtower_proof(
+        &mut self,
+        watchtower_proof: &WatchtowerProof,
+    ) -> anyhow::Result<u64> {
+        let res = sqlx::query!(
+            "INSERT
+             INTO watchtower_proof (id, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, path_to_proof, cycles, proof_state, proving_time,
+                                   zkm_version, extra, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            watchtower_proof.id,
+            watchtower_proof.instance_id,
+            watchtower_proof.graph_id,
+            watchtower_proof.public_key,
+            watchtower_proof.challenge_txid,
+            watchtower_proof.challenge_init_txid,
+            watchtower_proof.path_to_proof,
+            watchtower_proof.cycles,
+            watchtower_proof.proof_state,
+            watchtower_proof.proving_time,
+            watchtower_proof.zkm_version,
+            watchtower_proof.extra,
+            watchtower_proof.updated_at,
+            watchtower_proof.created_at,
+        )
+            .execute(self.conn())
+            .await?;
+        Ok(res.rows_affected())
     }
 }
 
-fn truncate_string(s: &str, max_len: usize) -> &str {
-    if s.len() > max_len { &s[..max_len] } else { s }
-}
+// fn truncate_string(s: &str, max_len: usize) -> &str {
+//     if s.len() > max_len { &s[..max_len] } else { s }
+// }
 
 pub async fn create_local_db(db_path: &str) -> LocalDB {
     let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;

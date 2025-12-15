@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT \n                instance_id AS  \"instance_id:Uuid\", \n                process_data, \n                created_at,\n                updated_at\n             FROM pegin_instance_process_data\n             WHERE instance_id = ?",
+  "query": "SELECT\n                instance_id AS  \"instance_id:Uuid\",\n                process_data,\n                created_at,\n                updated_at\n             FROM pegin_instance_process_data\n             WHERE instance_id = ?",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "8286b1fd6425d24098674f413c1bcc351302099d8890e85a30882c04b2a09977"
+  "hash": "df2d7d26a4841610621d0452b719383138d9046fa9278a8fe5462110cd5e8377"
 }

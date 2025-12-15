@@ -21,6 +21,8 @@ serde = { workspace = true, default-features = false, features = ["derive"] }
 axum = { workspace = true, features = ["macros", "json"] }
 http-body-util = "0.1"
 prometheus-client = { workspace = true }
+uuid = { workspace = true }
+bitcoin = { workspace = true }
 
 # proofs
 proof-builder = { workspace = true }

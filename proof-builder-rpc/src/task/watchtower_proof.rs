@@ -61,6 +61,7 @@ pub(crate) fn spawn_watchtower_proof_task(
                             latest_sequencer_commit_tx,
                         },
                     };
+                    let proving_start = tokio::time::Instant::now();
                     let (input, proof, cycles) = match builder.build_proof(&ctx) {
                         Ok(data) => data,
                         Err(e) => {
@@ -68,8 +69,10 @@ pub(crate) fn spawn_watchtower_proof_task(
                             continue;
                         }
                     };
+                    let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0 as i64;
+                    let zkm_version = proof.zkm_version.clone();
                     builder.save_proof(&ctx, &input, cycles, proof)?;
-                    update_watchtower_task(args.index, &args.output, cycles).await?;
+                    update_watchtower_task(&local_db, args.index, &args.output, cycles, proving_duration, &zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args)?;
                 }
                 _ = cancellation_token.cancelled() => {
