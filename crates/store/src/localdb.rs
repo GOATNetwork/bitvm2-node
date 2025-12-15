@@ -1,8 +1,8 @@
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance, LongRuntingTaskProof,
-    Message, MessageBroadcast, Node, NodesOverview, PeginGraphProcessData,
-    PeginInstanceProcessData, SerializableTxid, WatchContract,
+    GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance, LongRunningTaskProof,
+    Message, MessageBroadcast, Node, NodesOverview, OperatorProof, PeginGraphProcessData,
+    PeginInstanceProcessData, SerializableTxid, WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -1133,7 +1133,7 @@ impl<'a> StorageProcessor<'a> {
         status: &str,
     ) -> anyhow::Result<Vec<Graph>> {
         let row = sqlx::query_as::<_, Graph>(
-            "SELECT * 
+            "SELECT *
              FROM graph
              WHERE status = ? ORDER BY  operator_pubkey,  kickoff_index",
         )
@@ -1148,7 +1148,7 @@ impl<'a> StorageProcessor<'a> {
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Graph>> {
         let res = sqlx::query_as::<_, Graph>(
-            "SELECT * 
+            "SELECT *
              FROM graph
              WHERE instance_id = ?",
         )
@@ -1711,9 +1711,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<PeginInstanceProcessData>> {
         let row = sqlx::query_as!(
             PeginInstanceProcessData,
-            "SELECT 
-                instance_id AS  \"instance_id:Uuid\", 
-                process_data, 
+            "SELECT
+                instance_id AS  \"instance_id:Uuid\",
+                process_data,
                 created_at,
                 updated_at
              FROM pegin_instance_process_data
@@ -1758,7 +1758,7 @@ impl<'a> StorageProcessor<'a> {
             PeginGraphProcessData,
             "SELECT
                 graph_id AS  \"graph_id:Uuid\",
-                instance_id AS  \"instance_id:Uuid\", 
+                instance_id AS  \"instance_id:Uuid\",
                 process_data,
                 is_endorsed,
                 created_at,
@@ -1795,7 +1795,7 @@ impl<'a> StorageProcessor<'a> {
         is_endorsed: bool,
     ) -> anyhow::Result<i64> {
         let record = sqlx::query!(
-            r#"SELECT count(*) AS length 
+            r#"SELECT count(*) AS length
                FROM pegin_graph_process_data
                WHERE instance_id = ? AND is_endorsed = ?"#,
             instance_id,
@@ -1949,7 +1949,7 @@ impl<'a> StorageProcessor<'a> {
         sqlx::query!(
             r#"
             INSERT OR IGNORE INTO verifier_key
-                (verifier_id, verifier_key, created_at) 
+                (verifier_id, verifier_key, created_at)
             VALUES
                 (?, ?, ?)
             "#,
@@ -2258,7 +2258,7 @@ impl<'a> StorageProcessor<'a> {
             pub height: i64,
         }
         let query_str = format!(
-        "WITH filtered_tx AS (SELECT graph_id, height FROM goat_tx_record WHERE tx_type = \'{goat_tx_type}\')
+            "WITH filtered_tx AS (SELECT graph_id, height FROM goat_tx_record WHERE tx_type = \'{goat_tx_type}\')
             SELECT g.graph_id AS graph_id, n.socket_addr, COALESCE(ft.height, 0) AS height
             FROM graph g
                      JOIN node n
@@ -2266,8 +2266,8 @@ impl<'a> StorageProcessor<'a> {
                      LEFT JOIN filtered_tx ft ON g.graph_id = ft.graph_id
             WHERE hex(g.graph_id)
                       COLLATE NOCASE IN ({})",
-        create_place_holders(ids)
-    );
+            create_place_holders(ids)
+        );
         let mut query_as = sqlx::query_as::<_, SocketInfoRow>(&query_str);
         for id in ids {
             query_as = query_as.bind(hex::encode(id));
@@ -2358,13 +2358,13 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn create_long_running_task_proof(
         &mut self,
-        long_running_task_proof: &LongRuntingTaskProof,
+        long_running_task_proof: &LongRunningTaskProof,
     ) -> anyhow::Result<u64> {
-        let _ = sqlx::query!(
+        let res = sqlx::query!(
             "INSERT
              INTO long_running_task_proof (block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
                                            zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?),",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             long_running_task_proof.block_start,
             long_running_task_proof.block_end,
             long_running_task_proof.chain_name,
@@ -2376,7 +2376,371 @@ impl<'a> StorageProcessor<'a> {
             long_running_task_proof.extra,
             long_running_task_proof.updated_at,
             long_running_task_proof.created_at,
-        ).execute(self.conn()).await;
+        )
+            .execute(self.conn())
+            .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn update_long_running_task_proof_success(
+        &mut self,
+        block_start: i64,
+        chain_name: &str,
+        batch_size: i64,
+        path_to_proof: &str,
+        cycles: i64,
+        proving_time: i64,
+        zkm_version: &str,
+    ) -> anyhow::Result<u64> {
+        let block_end = block_start + batch_size;
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE long_running_task_proof
+             SET path_to_proof = ?,
+                 cycles = ?,
+                 proof_state = 2,
+                 proving_time = ?,
+                 zkm_version = ?,
+                 block_end = ?,
+                 updated_at = ?
+             WHERE block_start = ? AND chain_name = ?",
+            path_to_proof,
+            cycles,
+            proving_time,
+            zkm_version,
+            block_end,
+            current_time,
+            block_start,
+            chain_name,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn update_long_running_task_proof_state(
+        &mut self,
+        block_start: i64,
+        chain_name: &str,
+        batch_size: i64,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let block_end = block_start + batch_size;
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE long_running_task_proof
+             SET proof_state = ?,
+                 block_end = ?,
+                 updated_at = ?
+             WHERE block_start = ? AND chain_name = ?",
+            proof_state,
+            block_end,
+            current_time,
+            block_start,
+            chain_name,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn find_long_running_task_proof_by_start(
+        &mut self,
+        block_start: i64,
+        chain_name: &str,
+    ) -> anyhow::Result<Option<LongRunningTaskProof>> {
+        let res = sqlx::query_as!(
+            LongRunningTaskProof,
+            "SELECT block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
+                                           zkm_version, extra, updated_at, created_at FROM long_running_task_proof
+           
+             WHERE block_start >= ? AND chain_name = ? ORDER BY block_start DESC LIMIT 1",
+            block_start,
+            chain_name,
+        )
+            .fetch_optional(self.conn())
+            .await?;
+        Ok(res)
+    }
+
+    pub async fn create_operator_proof(
+        &mut self,
+        operator_proof: &OperatorProof,
+    ) -> anyhow::Result<u64> {
+        let res = sqlx::query!(
+            "INSERT
+             INTO operator_proof (id, instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
+                                 zkm_version, extra, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            operator_proof.id,
+            operator_proof.instance_id,
+            operator_proof.graph_id,
+            operator_proof.execution_layer_block_number,
+            operator_proof.path_to_proof,
+            operator_proof.cycles,
+            operator_proof.proof_state,
+            operator_proof.proving_time,
+            operator_proof.zkm_version,
+            operator_proof.extra,
+            operator_proof.updated_at,
+            operator_proof.created_at,
+        )
+            .execute(self.conn())
+            .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn update_operator_proof_success(
+        &mut self,
+        id: i64,
+        path_to_proof: &str,
+        cycles: i64,
+        proving_time: i64,
+        zkm_version: &str,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE operator_proof
+             SET path_to_proof = ?,
+                 cycles = ?,
+                 proof_state = 2,
+                 proving_time = ?,
+                 zkm_version = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            path_to_proof,
+            cycles,
+            proving_time,
+            zkm_version,
+            current_time,
+            id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn update_operator_proof_state(
+        &mut self,
+        id: i64,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE operator_proof
+             SET proof_state = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            proof_state,
+            current_time,
+            id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn find_operator_proof_by_instance_and_graph(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<Option<OperatorProof>> {
+        let res = sqlx::query_as::<_, OperatorProof>(
+            "SELECT id,
+                        instance_id,
+                        graph_id,
+                        execution_layer_block_number,
+                        path_to_proof,
+                        cycles,
+                        proof_state,
+                        proving_time,
+                        zkm_version,
+                        extra,
+                        created_at,
+                        updated_at
+                 FROM operator_proof
+                 WHERE instance_id = ?
+                   AND graph_id = ?",
+        )
+        .bind(instance_id)
+        .bind(graph_id)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn find_operator_proofs_unproved(&mut self) -> anyhow::Result<Vec<OperatorProof>> {
+        let res = sqlx::query_as::<_, OperatorProof>(
+            "SELECT id,
+                        instance_id,
+                        graph_id,
+                        execution_layer_block_number,
+                        path_to_proof,
+                        cycles,
+                        proof_state,
+                        proving_time,
+                        zkm_version,
+                    extra,
+                        created_at,
+                        updated_at
+                 FROM operator_proof
+                 WHERE proof_state != 2
+                 ORDER BY id ASC",
+        )
+        .fetch_all(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn get_next_operator_proof_id(&mut self) -> anyhow::Result<i64> {
+        let res = sqlx::query!("SELECT MAX(id) as max_id FROM operator_proof")
+            .fetch_optional(self.conn())
+            .await?;
+        Ok(res.and_then(|row| row.max_id).map_or(0, |max_id| max_id + 1))
+    }
+
+    pub async fn update_watchtower_proof_success(
+        &mut self,
+        id: i64,
+        path_to_proof: &str,
+        cycles: i64,
+        proving_time: i64,
+        zkm_version: &str,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE watchtower_proof
+             SET path_to_proof = ?,
+                 cycles = ?,
+                 proof_state = 2,
+                 proving_time = ?,
+                 zkm_version = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            path_to_proof,
+            cycles,
+            proving_time,
+            zkm_version,
+            current_time,
+            id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn update_watchtower_proof_state(
+        &mut self,
+        id: i64,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE watchtower_proof
+             SET proof_state = ?,
+                 updated_at = ?
+             WHERE id = ?",
+            proof_state,
+            current_time,
+            id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn find_watchtower_proof_by_instance_and_graph(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> anyhow::Result<Option<WatchtowerProof>> {
+        let res = sqlx::query_as::<_, WatchtowerProof>(
+            "SELECT instance_id,
+                         graph_id,
+                         public_key,
+                         challenge_txid,
+                         challenge_init_txid,
+                         path_to_proof,
+                         cycles,
+                         proof_state,
+                         proving_time,
+                         zkm_version,
+                         extra,
+                         created_at,
+                         updated_at
+                  FROM watchtower_proof
+                  WHERE instance_id = ?
+                    AND graph_id = ?",
+        )
+        .bind(instance_id)
+        .bind(graph_id)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn find_watchtower_proofs_unproved(
+        &mut self,
+    ) -> anyhow::Result<Vec<WatchtowerProof>> {
+        let res = sqlx::query_as::<_, WatchtowerProof>(
+            "SELECT id,
+                         instance_id,
+                         graph_id,
+                         public_key,
+                         challenge_txid,
+                         challenge_init_txid,
+                         path_to_proof,
+                         cycles,
+                         proof_state,
+                         proving_time,
+                         zkm_version,
+                         extra,
+                         created_at,
+                         updated_at
+                  FROM watchtower_proof
+                  WHERE proof_state != 2
+                  ORDER BY id ASC",
+        )
+        .fetch_all(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn get_next_watchtower_proof_id(&mut self) -> anyhow::Result<i64> {
+        let res = sqlx::query!("SELECT MAX(id) as max_id FROM watchtower_proof")
+            .fetch_optional(self.conn())
+            .await?;
+
+        Ok(res.and_then(|row| row.max_id).map_or(0, |max_id| max_id + 1))
+    }
+
+    pub async fn create_watchtower_proof(
+        &mut self,
+        watchtower_proof: &WatchtowerProof,
+    ) -> anyhow::Result<u64> {
+        let res = sqlx::query!(
+            "INSERT
+             INTO watchtower_proof (id, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, path_to_proof, cycles, proof_state, proving_time,
+                                   zkm_version, extra, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            watchtower_proof.id,
+            watchtower_proof.instance_id,
+            watchtower_proof.graph_id,
+            watchtower_proof.public_key,
+            watchtower_proof.challenge_txid,
+            watchtower_proof.challenge_init_txid,
+            watchtower_proof.path_to_proof,
+            watchtower_proof.cycles,
+            watchtower_proof.proof_state,
+            watchtower_proof.proving_time,
+            watchtower_proof.zkm_version,
+            watchtower_proof.extra,
+            watchtower_proof.updated_at,
+            watchtower_proof.created_at,
+        )
+            .execute(self.conn())
+            .await?;
+        Ok(res.rows_affected())
     }
 }
 

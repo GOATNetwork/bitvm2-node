@@ -658,49 +658,49 @@ pub enum ProofStatus {
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct WatchtowerProof {
+    pub id: i64,
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub public_key: String,
     pub challenge_txid: SerializableTxid,
     pub challenge_init_txid: SerializableTxid,
-    pub path_to_proof: String,
+    pub path_to_proof: Option<String>,
     pub cycles: i64,
     pub proof_state: i64,
     pub proving_time: i64,
     pub zkm_version: String,
-    pub extra: String,
+    pub extra: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct OperatorProof {
+    pub id: i64,
     pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub public_key: String,
     pub execution_layer_block_number: i64,
-    pub path_to_proof: String,
+    pub path_to_proof: Option<String>,
     pub cycles: i64,
     pub proof_state: i64,
     pub proving_time: i64,
     pub zkm_version: String,
-    pub extra: String,
+    pub extra: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct LongRuntingTaskProof {
-    pub instance_id: Uuid,
+pub struct LongRunningTaskProof {
     pub block_start: i64,
     pub block_end: i64,
     pub chain_name: String,
-    pub path_to_proof: String,
+    pub path_to_proof: Option<String>,
     pub cycles: i64,
     pub proof_state: i64,
     pub proving_time: i64,
     pub zkm_version: String,
-    pub extra: String,
+    pub extra: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

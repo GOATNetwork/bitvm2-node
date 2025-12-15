@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE operator_proof\n             SET path_to_proof = ?,\n                 cycles = ?,\n                 proof_state = 2,\n                 proving_time = ?,\n                 zkm_version = ?,\n                 updated_at = ?\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "44ea8e28ab27998b45dce9318288a54acbc4b5d8b11e2a7036fb78232bd7ccfd"
+}

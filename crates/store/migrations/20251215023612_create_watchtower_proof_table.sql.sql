@@ -10,7 +10,7 @@ CREATE TABLE watchtower_proof
     `challenge_init_txid` TEXT   NOT NULL,
     `path_to_proof`       TEXT,
     `cycles`              BIGINT NOT NULL DEFAULT 0,
-    `proof_state`               BIGINT NOT NULL DEFAULT 0 CHECK (proof_state IN (0, 1, 2)),
+    `proof_state`         BIGINT NOT NULL DEFAULT 0 CHECK (proof_state IN (0, 1, 2, 3)),
     `proving_time`        BIGINT NOT NULL DEFAULT 0,
     `zkm_version`         TEXT   NOT NULL DEFAULT '',
     `extra`               TEXT,

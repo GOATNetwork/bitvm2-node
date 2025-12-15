@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT\n             INTO operator_proof (id, instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,\n                                 zkm_version, extra, updated_at, created_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "aee14507856b01f6ad72b1457935b1fe921c440901dc4f9d16f4ad75fad65f1b"
+}

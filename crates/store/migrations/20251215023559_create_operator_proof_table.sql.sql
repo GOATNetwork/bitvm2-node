@@ -8,10 +8,10 @@ CREATE TABLE operator_proof
     `execution_layer_block_number` BIGINT NOT NULL DEFAULT 0,
     `path_to_proof`                TEXT,
     `cycles`                       BIGINT NOT NULL DEFAULT 0,
-    `proof_state`                        BIGINT NOT NULL DEFAULT 0 CHECK (state IN (0, 1, 2)),
+    `proof_state`                  BIGINT NOT NULL DEFAULT 0 CHECK (proof_state IN (0, 1, 2, 3)),
     `proving_time`                 BIGINT NOT NULL DEFAULT 0,
     `zkm_version`                  TEXT   NOT NULL DEFAULT '',
-    `extra`               TEXT,
+    `extra`                        TEXT,
     `created_at`                   BIGINT NOT NULL DEFAULT 0,
     `updated_at`                   BIGINT NOT NULL DEFAULT 0
 );
