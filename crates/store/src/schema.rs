@@ -521,86 +521,6 @@ pub struct MessageBroadcast {
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct BlockProof {
-    pub block_number: i64,
-    pub tx_count: i64,
-    pub gas_used: i64,
-    pub total_time_to_proof: i64,
-    pub proving_time: i64,
-    pub proving_cycles: i64,
-    pub proof: String,
-    pub proof_size: f64,
-    pub public_values: String,
-    pub verifier_id: String,
-    pub zkm_version: String,
-    pub state: String,
-    pub reason: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct AggregationProof {
-    pub block_number: i64,
-    pub total_time_to_proof: i64,
-    pub proving_time: i64,
-    pub proving_cycles: i64,
-    pub proof: String,
-    pub proof_size: f64,
-    pub public_values: String,
-    pub verifier_id: String,
-    pub zkm_version: String,
-    pub state: String,
-    pub reason: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct Groth16Proof {
-    pub block_number: i64,
-    pub init_number: i64,
-    pub start_number: i64,
-    pub real_numbers: i64,
-    pub total_time_to_proof: i64,
-    pub proving_time: i64,
-    pub proving_cycles: i64,
-    pub proof: String,
-    pub proof_size: f64,
-    pub public_values: String,
-    pub verifier_id: String,
-    pub zkm_version: String,
-    pub state: String,
-    pub reason: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct ProofConfig {
-    pub id: i64,
-    pub block_proof_concurrency: i64,
-    pub aggregate_block_count: i64,
-    pub start_aggregation_number: i64,
-    pub updated_at: i64,
-}
-
-/// This data structure is not intended for database table creation ;
-/// it serves the purpose of supporting information related to query proofs.
-#[derive(Clone, Debug, FromRow)]
-pub struct ProofInfo {
-    pub block_number: i64,
-    pub real_numbers: String,
-    pub proving_cycles: i64,
-    pub state: String,
-    pub proving_time: i64,
-    pub proof_size: f64,
-    pub zkm_version: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct VerifierKey {
     pub verifier_id: String,
     pub verifier_key: String,
@@ -728,111 +648,59 @@ pub struct GoatTxProceedWithdrawExtra {
     pub challenge_txid: String,
 }
 
-// TODO remove v1 proof type
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
-pub enum ProofType {
-    #[default]
-    BlockProof,
-    AggregationProof,
-    Groth16Proof,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
 pub enum ProofStatus {
     #[default]
     Pending,
-    Readying,
     Proved,
     Failed,
-}
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct CommitInfo {
-    pub txid: SerializableTxid,
-    pub threshold: i64,
-    #[sqlx(json)]
-    pub publisher_public_keys: Vec<String>,
-    pub commit_proof_id: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct CommitChainProof {
-    pub id: i64,
-    #[sqlx(json)]
-    pub commit_info_txids: Vec<SerializableTxid>,
-    pub in_location: String,
-    pub prev_proof: Option<String>,
-    pub out_location: String,
-    pub proof: String,
-    pub vk: String,
-    pub public_inputs: String,
-    pub status: String,
-    pub proving_time: i64,
-    pub zkm_version: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct HeaderChainProof {
-    pub id: i64,
-    pub in_location: String,
-    pub prev_proof: Option<String>,
-    pub batch_size: i64,
-    pub start: i64,
-    pub out_location: String,
-    pub proof: String,
-    pub vk: String,
-    pub public_inputs: String,
-    pub status: String,
-    pub proving_time: i64,
-    pub zkm_version: String,
-    pub created_at: i64,
-    pub updated_at: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct WatchtowerProof {
-    pub graph_id: Uuid,
     pub instance_id: Uuid,
-    pub process_withdraw_height: i64,
-    pub commit_block_hash_height: i64,
-    pub latest_sequencer_commit_txid: String,
-    pub in_location: String,
-    pub header_chain_proof: String,
-    pub commit_chain_proof: String,
-    pub out_location: String,
-    pub proof: String,
-    pub groth16_vk: String,
-    pub public_inputs: String,
-    pub status: String,
+    pub graph_id: Uuid,
+    pub public_key: String,
+    pub challenge_txid: SerializableTxid,
+    pub challenge_init_txid: SerializableTxid,
+    pub path_to_proof: String,
+    pub cycles: i64,
+    pub proof_state: i64,
     pub proving_time: i64,
     pub zkm_version: String,
+    pub extra: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct OperatorProof {
-    pub graph_id: Uuid,
     pub instance_id: Uuid,
-    pub included_watchtowers: String,
-    pub latest_sequencer_commit_txid: String,
-    pub in_location: String,
-    pub header_chain_proof: String,
-    pub commit_chain_proof: String,
+    pub graph_id: Uuid,
+    pub public_key: String,
     pub execution_layer_block_number: i64,
-    pub watchtower_challenge_info: String,
-    pub watchtower_challenge_init_txid: String,
-    pub block_headers_file_path: String,
-    pub out_location: String,
-    pub proof: Option<String>,
-    pub groth16_vk: Option<String>,
-    pub public_inputs: Option<String>,
-    pub status: String,
+    pub path_to_proof: String,
+    pub cycles: i64,
+    pub proof_state: i64,
     pub proving_time: i64,
     pub zkm_version: String,
+    pub extra: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct LongRuntingTaskProof {
+    pub instance_id: Uuid,
+    pub block_start: i64,
+    pub block_end: i64,
+    pub chain_name: String,
+    pub path_to_proof: String,
+    pub cycles: i64,
+    pub proof_state: i64,
+    pub proving_time: i64,
+    pub zkm_version: String,
+    pub extra: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

@@ -58,9 +58,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
 use store::localdb::{GraphQuery, GraphUpdate, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
-    ByteArray32, GoatTxProceedWithdrawExtra, GoatTxProcessingStatus, GoatTxRecord, GoatTxType,
-    Graph, GraphRawData, GraphStatus, Instance, InstanceBridgeInStatus, Message, MessageState,
-    Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
+    ByteArray32, Graph, GraphRawData, GraphStatus, Instance, InstanceBridgeInStatus, Message,
+    MessageState, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 
@@ -2628,50 +2627,6 @@ pub async fn outpoint_spent_txin(
     }
 }
 
-/// Retrieves the Groth16 proof, public inputs, and verifying key
-/// for the given graph.
-///
-/// These are fetched via the ProofNetwork SDK.
-pub async fn get_groth16_proof(
-    local_db: &LocalDB,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    challenge_txid: String,
-) -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
-    if cfg!(all(feature = "tests", feature = "e2e-tests")) {
-        return get_test_groth16_proof();
-    }
-
-    let mut storage_processor = local_db.acquire().await?;
-    if let Some(tx_record) = storage_processor
-        .get_graph_goat_tx_record(&instance_id, &graph_id, &GoatTxType::ProceedWithdraw.to_string())
-        .await?
-        && let Ok((proof, pis, vk, version)) =
-            proofs::get_groth16_proof(local_db, tx_record.height as u64).await
-    {
-        tracing::info!(
-            "instance_id:{instance_id}, graph_id:{graph_id} finish get groth16 proof at version: {version}"
-        );
-        Ok((proof, pis, vk))
-    } else {
-        storage_processor
-            .upsert_goat_tx_record(&GoatTxRecord {
-                instance_id,
-                graph_id,
-                tx_type: GoatTxType::ProceedWithdraw.to_string(),
-                tx_hash: "".to_string(),
-                height: 0,
-                is_local: false,
-                processing_status: GoatTxProcessingStatus::Pending.to_string(),
-                extra: Some(
-                    serde_json::to_string(&GoatTxProceedWithdrawExtra { challenge_txid }).unwrap(),
-                ),
-                created_at: 0,
-            })
-            .await?;
-        Err(anyhow!("instance_id:{instance_id}, graph_id:{graph_id} not ready!"))
-    }
-}
 pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey> {
     if cfg!(all(feature = "tests", feature = "e2e-tests")) {
         return get_test_vk();
