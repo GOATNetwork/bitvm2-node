@@ -269,7 +269,7 @@ pub(crate) async fn update_watchtower_task(
     path_to_proof: &str,
     cycles: u64,
     proving_duration: i64,
-    zkm_version: &str,
+    zkm_version: String,
 ) -> anyhow::Result<()> {
     let mut storage_proccessor = local_db.acquire().await?;
     storage_proccessor
@@ -330,7 +330,7 @@ pub(crate) async fn update_operator_task(
     path_to_proof: &str,
     cycles: u64,
     proving_duration: i64,
-    zkm_version: &str,
+    zkm_version: String,
 ) -> anyhow::Result<()> {
     let mut storage_proccessor = local_db.acquire().await?;
     storage_proccessor
@@ -353,6 +353,6 @@ pub(crate) async fn find_operator_unproved_task(
 }
 
 #[inline(always)]
-pub fn current_time_secs() -> i64 {
+pub(crate) fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
 }

@@ -2496,7 +2496,7 @@ impl<'a> StorageProcessor<'a> {
         path_to_proof: &str,
         cycles: i64,
         proving_time: i64,
-        zkm_version: &str,
+        zkm_version: String,
     ) -> anyhow::Result<u64> {
         let current_time = get_current_timestamp_secs();
         let res = sqlx::query!(

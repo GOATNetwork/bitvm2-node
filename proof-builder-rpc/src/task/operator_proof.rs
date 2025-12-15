@@ -89,6 +89,7 @@ pub(crate) fn spawn_operator_proof_task(
                             watchtower_challenge_txn_scripts,
                         },
                     };
+                    let proving_start = tokio::time::Instant::now();
                     let (input, proof, cycles) = match builder.build_proof(&ctx) {
                         Ok(data) => data,
                         Err(err) => {
@@ -96,7 +97,9 @@ pub(crate) fn spawn_operator_proof_task(
                             continue;
                         }
                     };
-                    update_operator_task(args.index, &args.output, cycles).await?;
+                    let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
+                    let zkm_version = proof.zkm_version.clone();
+                    update_operator_task(&local_db, args.index, &args.output, cycles, proving_duration as i64, zkm_version).await?;
                     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {
