@@ -229,8 +229,9 @@ pub(crate) async fn update_watchtower_task(
     todo!()
 }
 
-/// table schema: (index, graph_id, execution_layer_block_number, path_to_proof, cycles, state, update_time)
+/// table schema: (index, instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, state, update_time)
 /// * state: 0-new, 1-doing, 2-done, 3-failed
+/// * execution_layer_block_number: proceedWithdraw's block number
 /// * index: incremental id
 /// Invocated by API
 pub(crate) async fn add_operator_task(
