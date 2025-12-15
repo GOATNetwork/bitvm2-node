@@ -59,7 +59,7 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0 as i64;
                     let zkm_version = proof.zkm_version.clone();
                     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
-                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, args.name(), proving_start.elapsed().as_secs(),  ).await?;
+                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, args.name(), proving_duration, zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {
