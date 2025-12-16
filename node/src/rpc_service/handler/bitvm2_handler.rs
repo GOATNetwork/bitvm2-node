@@ -1,7 +1,7 @@
 use crate::env::GraphBtcTxName;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
-use crate::rpc_service::response::{ApiErrorExt, ApiResult, ErrorResponse};
+use crate::rpc_service::response::{ApiErrorExt, ApiResult, ErrorResponse, ok_response};
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::scheduled_tasks::graph_maintenance_tasks::{
@@ -51,10 +51,7 @@ use tracing::warn;
 pub async fn instance_settings(
     State(_app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceSettingResponse> {
-    Ok((
-        StatusCode::OK,
-        Json(InstanceSettingResponse { bridge_in_amount: BRIDGE_IN_AMOUNTS.to_vec() }),
-    ))
+    ok_response(InstanceSettingResponse { bridge_in_amount: BRIDGE_IN_AMOUNTS.to_vec() })
 }
 
 /// Prepare bridge-in request
@@ -135,7 +132,7 @@ pub async fn bridge_in_request_tag(
         })
         .await
         .api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
-    Ok((StatusCode::OK, Json(BridgeInPrepareResponse {})))
+    ok_response(BridgeInPrepareResponse {})
 }
 
 /// Get instance list
@@ -250,7 +247,7 @@ pub async fn get_instances(
 
     if instances.is_empty() {
         warn!("get_instances instance is empty: total {}", total);
-        return Ok((StatusCode::OK, Json(InstanceListResponse::default())));
+        return ok_response(InstanceListResponse::default());
     }
     let btc_current_height =
         app_state.btc_client.get_height().await.api_error("GET_INSTANCE_ERROR")?;
@@ -272,7 +269,7 @@ pub async fn get_instances(
         items.push(item);
     }
 
-    Ok((StatusCode::OK, Json(InstanceListResponse { instance_wraps: items, total })))
+    ok_response(InstanceListResponse { instance_wraps: items, total })
 }
 
 /// Get instance by ID
@@ -382,10 +379,10 @@ pub async fn get_instance(
             .api_error("GET_INSTANCE_ERROR")?,
         );
 
-        Ok((StatusCode::OK, Json(InstanceGetResponse { instance_wrap })))
+        ok_response(InstanceGetResponse { instance_wrap })
     } else {
         tracing::info!("instance_id {} has no record in database", instance_id);
-        Ok((StatusCode::OK, Json(InstanceGetResponse { instance_wrap: None })))
+        ok_response(InstanceGetResponse { instance_wrap: None })
     }
 }
 
@@ -458,21 +455,18 @@ pub async fn get_instances_overview(
         .await
         .api_error("INSTANCE_OVERVIEW_ERROR")?;
 
-    Ok((
-        StatusCode::OK,
-        Json(InstanceOverviewResponse {
-            instances_overview: InstanceOverview {
-                total_bridge_in_amount: bridge_in_sum,
-                total_bridge_in_txn: bridge_in_count,
-                total_bridge_out_amount: bridge_out_sum,
-                total_bridge_out_txn: bridge_out_count,
-                total_peg_out_amount: pegout_sum,
-                total_peg_out_txn: pegout_count,
-                online_nodes: alive,
-                total_nodes: total,
-            },
-        }),
-    ))
+    ok_response(InstanceOverviewResponse {
+        instances_overview: InstanceOverview {
+            total_bridge_in_amount: bridge_in_sum,
+            total_bridge_in_txn: bridge_in_count,
+            total_bridge_out_amount: bridge_out_sum,
+            total_bridge_out_txn: bridge_out_count,
+            total_peg_out_amount: pegout_sum,
+            total_peg_out_txn: pegout_count,
+            online_nodes: alive,
+            total_nodes: total,
+        },
+    })
 }
 
 /// Get graph by ID
@@ -562,10 +556,10 @@ pub async fn get_graph(
             .await
             .api_error("GET_GRAPH_ERROR")?;
 
-        Ok((StatusCode::OK, Json(graph_extended)))
+        ok_response(graph_extended)
     } else {
         tracing::warn!("graph:{} is not record in db", graph_id);
-        Ok((StatusCode::OK, Json(GraphExtended::default())))
+        ok_response(GraphExtended::default())
     }
 }
 
@@ -656,7 +650,7 @@ pub async fn get_graphs(
 
     resp.total = total;
     if graphs.is_empty() {
-        return Ok((StatusCode::OK, Json(resp)));
+        return ok_response(resp);
     }
 
     let mut converted_graphs = Vec::new();
@@ -668,7 +662,7 @@ pub async fn get_graphs(
     }
     resp.graphs = converted_graphs;
 
-    Ok((StatusCode::OK, Json(resp)))
+    ok_response(resp)
 }
 
 /// Get ready to kickoff graph
@@ -782,10 +776,7 @@ pub async fn get_ready_to_kickoff_graph(
         .api_error("GET_READY_KICKOFF_GRAPHS_ERROR")?;
 
     if graphs.is_empty() {
-        return Ok((
-            StatusCode::OK,
-            Json(GraphReadyToKickoffResponse { graph: None, no_ready_reason: None }),
-        ));
+        return ok_response(GraphReadyToKickoffResponse { graph: None, no_ready_reason: None });
     }
 
     let graph = graphs[0].clone();
@@ -807,20 +798,14 @@ pub async fn get_ready_to_kickoff_graph(
             ]
             .contains(&pre_graphs[0].status)
         {
-            return Ok((
-                StatusCode::OK,
-                Json(GraphReadyToKickoffResponse {
-                    graph: None,
-                    no_ready_reason: Some(pre_graphs[0].graph_id.to_string()),
-                }),
-            ));
+            return ok_response(GraphReadyToKickoffResponse {
+                graph: None,
+                no_ready_reason: Some(pre_graphs[0].graph_id.to_string()),
+            });
         }
     }
 
-    Ok((
-        StatusCode::OK,
-        Json(GraphReadyToKickoffResponse { graph: Some(graph), no_ready_reason: None }),
-    ))
+    ok_response(GraphReadyToKickoffResponse { graph: Some(graph), no_ready_reason: None })
 }
 
 /// Get graph Bitcoin transaction progress data
@@ -1118,12 +1103,9 @@ pub async fn get_graph_tx(
             }
         };
 
-        Ok((
-            StatusCode::OK,
-            Json(GraphTxGetResponse {
-                btc_tx_data: BtcTxData { raw_data, progresses, fail_reason },
-            }),
-        ))
+        ok_response(GraphTxGetResponse {
+            btc_tx_data: BtcTxData { raw_data, progresses, fail_reason },
+        })
     } else {
         tracing::warn!("graph:{} is not record in db", graph_id);
         Err((
@@ -1357,7 +1339,7 @@ pub async fn get_graph_txn(
             resp.disprove.raw_data = serialize_hex(&tx);
         }
 
-        Ok((StatusCode::OK, Json(resp)))
+        ok_response(resp)
     } else {
         warn!("graph:{} is not record in db", graph_id);
         Err((
@@ -1427,7 +1409,7 @@ pub async fn get_graph_neighbor_ids(
             res.next_id = Some(*graph_id);
         }
     }
-    Ok((StatusCode::OK, Json(res)))
+    ok_response(res)
 }
 
 /// Get unsigned pegin transactions
@@ -1499,7 +1481,7 @@ pub async fn get_unsigned_pegin_txn(
             "instance:{instance_id} is not record in db or instance status neq CommitteesAnswered"
         );
     }
-    Ok((StatusCode::OK, Json(res)))
+    ok_response(res)
 }
 
 // fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {

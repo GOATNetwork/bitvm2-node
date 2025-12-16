@@ -1,6 +1,6 @@
 use client::btc_chain::mempool_v1_type::{MempoolBlock, V1Block};
 use serde::{Deserialize, Serialize};
-use store::ProofStatus;
+use store::ProofState;
 use strum::{Display, EnumString};
 
 #[derive(Debug, Deserialize)]
@@ -22,7 +22,7 @@ pub struct HeaderChainBlockDesc {
     pub size: u64,
     pub tx_count: u64,
     pub timestamp: u64,
-    pub proof_status: ProofStatus,
+    pub proof_status: ProofState,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,7 +34,7 @@ pub struct CommitChainBlockDesc {
     pub sequencer_number: u64,
     pub sequencer_set_hash: String,
     pub commit_id: String,
-    pub proof_status: ProofStatus,
+    pub proof_status: ProofState,
 }
 
 impl From<V1Block> for HeaderChainBlockDesc {
@@ -47,7 +47,7 @@ impl From<V1Block> for HeaderChainBlockDesc {
             size: value.size,
             tx_count: value.tx_count,
             timestamp: value.timestamp,
-            proof_status: ProofStatus::Proved,
+            proof_status: ProofState::Done,
         }
     }
 }
@@ -62,7 +62,7 @@ impl From<MempoolBlock> for HeaderChainBlockDesc {
             size: value.block_size,
             tx_count: value.n_tx,
             timestamp: 0,
-            proof_status: ProofStatus::Pending,
+            proof_status: ProofState::New,
         }
     }
 }
@@ -88,6 +88,8 @@ pub enum ProofType {
     HeaderChain,
     #[strum(serialize = "commit_chain")]
     CommitChain,
+    #[strum(serialize = "state_chain")]
+    StateChain,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

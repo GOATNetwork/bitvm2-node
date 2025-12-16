@@ -12,7 +12,7 @@ use std::default::Default;
 use std::str::FromStr;
 use store::localdb::GraphQuery;
 use store::{
-    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, ProofStatus,
+    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, ProofState,
     SerializableTxid,
 };
 use strum::{Display, EnumString};
@@ -471,7 +471,7 @@ pub struct GraphExtended {
     pub challenge_sub_status: SimpleChallengeSubStatus,
     pub waiting_time_in_secs: i64,
     pub current_status_waiting_time_in_secs: i64,
-    pub proof_status: ProofStatus,
+    pub proof_status: ProofState,
 }
 
 impl GraphExtended {
@@ -510,7 +510,7 @@ impl GraphExtended {
             current_status_waiting_time_in_secs,
             challenge_sub_status,
             waiting_time_in_secs,
-            proof_status: ProofStatus::Pending,
+            proof_status: ProofState::New,
             graph: Some(graph),
         })
     }

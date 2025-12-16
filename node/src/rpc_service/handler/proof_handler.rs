@@ -4,17 +4,16 @@ use crate::rpc_service::proof::{
     HeaderChainBlockDesc, HeaderChainBlockDescListResponse, ProofDesc, ProofResponse, ProofType,
     ProofsQueryParams,
 };
-use crate::rpc_service::response::{ApiErrorExt, ApiResult};
+use crate::rpc_service::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::generate_random_bytes;
-use axum::Json;
 use axum::extract::{Query, State};
 use client::btc_chain::mempool_v1_type::{
     MempoolBlocks, V1Blocks, get_v1_blocks_url, get_v1_mempool_blocks_url,
 };
-use http::{StatusCode, Uri};
+use http::Uri;
 use std::sync::Arc;
-use store::ProofStatus;
+use store::ProofState;
 
 /// Fetch a descending list of Header chain block descriptors
 ///
@@ -79,17 +78,14 @@ pub async fn get_header_chain_blocks_desc(
     let mut blocks_desc: Vec<HeaderChainBlockDesc> =
         v1_blocks.into_iter().take(take_count).map(HeaderChainBlockDesc::from).collect();
     if take_count > 2 {
-        blocks_desc[0].proof_status = ProofStatus::Failed;
-        blocks_desc[1].proof_status = ProofStatus::Pending;
+        blocks_desc[0].proof_status = ProofState::Failed;
+        blocks_desc[1].proof_status = ProofState::New;
     }
-    Ok((
-        StatusCode::OK,
-        Json(HeaderChainBlockDescListResponse {
-            start: blocks_desc[0].height,
-            range: blocks_desc.len() as u64,
-            blocks_desc,
-        }),
-    ))
+    ok_response(HeaderChainBlockDescListResponse {
+        start: blocks_desc[0].height,
+        range: blocks_desc.len() as u64,
+        blocks_desc,
+    })
 }
 
 /// Fetch a list of Header chain mempool block descriptors
@@ -167,14 +163,11 @@ pub async fn get_header_chain_mempool_blocks_desc(
             block_desc
         })
         .collect();
-    Ok((
-        StatusCode::OK,
-        Json(HeaderChainBlockDescListResponse {
-            start: blocks_desc.first().map_or(0, |block| block.height),
-            range: blocks_desc.len() as u64,
-            blocks_desc,
-        }),
-    ))
+    ok_response(HeaderChainBlockDescListResponse {
+        start: blocks_desc.first().map_or(0, |block| block.height),
+        range: blocks_desc.len() as u64,
+        blocks_desc,
+    })
 }
 
 /// Fetch a descending list of Commit chain block descriptors
@@ -234,9 +227,9 @@ pub async fn get_commit_chain_blocks_desc(
 
     for i in 0..params.range {
         let proof_status = match i {
-            0 => ProofStatus::Failed,
-            1 => ProofStatus::Pending,
-            _ => ProofStatus::Proved,
+            0 => ProofState::Failed,
+            1 => ProofState::New,
+            _ => ProofState::Done,
         };
         let block_number = start_height - i as u64;
         if block_number == 0 {
@@ -254,14 +247,11 @@ pub async fn get_commit_chain_blocks_desc(
         })
     }
 
-    Ok((
-        StatusCode::OK,
-        Json(CommitChainBlockDescListResponse {
-            start: blocks_desc[0].height,
-            range: blocks_desc.len() as u64,
-            blocks_desc,
-        }),
-    ))
+    ok_response(CommitChainBlockDescListResponse {
+        start: blocks_desc[0].height,
+        range: blocks_desc.len() as u64,
+        blocks_desc,
+    })
 }
 
 /// Get proof by block height and type
@@ -300,7 +290,6 @@ pub async fn get_commit_chain_blocks_desc(
 ///     "state": "proved",
 ///     "proving_cycles": 1000000,
 ///     "proving_time": 120,
-///     "contain_blocks": "799990-800000",
 ///     "total_time_to_proof": 180,
 ///     "proof_size": 2048.5,
 ///     "zkm_version": "v1.0.0",
@@ -324,25 +313,25 @@ pub async fn get_proof(
         ProofType::CommitChain => {
             r#"{"vk_hash":[0,0,0,0,0,0,0,0],"pv_hash":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"prev_proof":"GenesisBlock","commits":[{"commit_txn":{"version":1,"lock_time":0,"input":[{"previous_output":"0000000000000000000000000000000000000000000000000000000000000000:4294967295","script_sig":"0393384400fe20e13100fe214f07000963676d696e6572343208760000000000000000","sequence":4294967295,"witness":["0000000000000000000000000000000000000000000000000000000000000000"]}],"output":[{"value":6106,"script_pubkey":"76a914349514f43295c41764ee036aaa8520dac4b1468c88ac"},{"value":0,"script_pubkey":"6a24aa21a9ed6229b05f1985ef7852e32d53f8a2a6e1f2c2b973ebf2b8aa53ec2cf157078122"}]},"genesis_txid":[85,110,218,173,174,159,216,250,98,250,2,152,245,160,242,16,136,221,5,151,207,214,0,169,238,243,136,233,24,75,67,203],"sequencer_set_hash":[119,143,242,6,41,98,189,153,210,117,109,34,4,251,217,57,27,151,214,24,218,251,238,29,134,228,62,100,48,52,68,248],"publisher_public_keys":["0277d8bae5febdabb96e9b5e5788556cdd39755936027721df39b8a339b9f0c982"],"threshold":0}]}"#
         }
+        ProofType::StateChain => {
+            r#"{"vk_hash":[0,0,0,0,0,0,0,0],"pv_hash":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"prev_proof":"GenesisBlock","commits":[{"commit_txn":{"version":1,"lock_time":0,"input":[{"previous_output":"0000000000000000000000000000000000000000000000000000000000000000:4294967295","script_sig":"0393384400fe20e13100fe214f07000963676d696e6572343208760000000000000000","sequence":4294967295,"witness":["0000000000000000000000000000000000000000000000000000000000000000"]}],"output":[{"value":6106,"script_pubkey":"76a914349514f43295c41764ee036aaa8520dac4b1468c88ac"},{"value":0,"script_pubkey":"6a24aa21a9ed6229b05f1985ef7852e32d53f8a2a6e1f2c2b973ebf2b8aa53ec2cf157078122"}]},"genesis_txid":[85,110,218,173,174,159,216,250,98,250,2,152,245,160,242,16,136,221,5,151,207,214,0,169,238,243,136,233,24,75,67,203],"sequencer_set_hash":[119,143,242,6,41,98,189,153,210,117,109,34,4,251,217,57,27,151,214,24,218,251,238,29,134,228,62,100,48,52,68,248],"publisher_public_keys":["0277d8bae5febdabb96e9b5e5788556cdd39755936027721df39b8a339b9f0c982"],"threshold":0}]}"#
+        }
     };
 
-    Ok((
-        StatusCode::OK,
-        Json(ProofResponse {
-            proof: Some(ProofDesc {
-                block_number: 800000,
-                proof_type: params.proof_type,
-                state: "proved".to_string(),
-                proving_cycles: 1000000,
-                proving_time: 120,
-                contain_blocks: "799990-800000".to_string(),
-                total_time_to_proof: 180,
-                proof_size: 2048.5,
-                zkm_version: "1.0.0".to_string(),
-                pub_inputs: pub_inputs.to_string(),
-                started_at: current_time_secs(),
-                updated_at: current_time_secs(),
-            }),
+    ok_response(ProofResponse {
+        proof: Some(ProofDesc {
+            block_number: 800000,
+            proof_type: params.proof_type,
+            state: "proved".to_string(),
+            proving_cycles: 1000000,
+            proving_time: 120,
+            contain_blocks: "799990-800000".to_string(),
+            total_time_to_proof: 180,
+            proof_size: 2048.5,
+            zkm_version: "1.0.0".to_string(),
+            pub_inputs: pub_inputs.to_string(),
+            started_at: current_time_secs(),
+            updated_at: current_time_secs(),
         }),
-    ))
+    })
 }

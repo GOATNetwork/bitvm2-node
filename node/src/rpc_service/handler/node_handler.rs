@@ -2,14 +2,12 @@ use crate::rpc_service::node::{
     ALIVE_TIME_JUDGE_THRESHOLD, NODE_STATUS_OFFLINE, NodeDesc, NodeListResponse,
     NodeOverViewResponse, NodeQueryParams, ToNodeDesc,
 };
-use crate::rpc_service::response::{ApiErrorExt, ApiResult};
+use crate::rpc_service::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::reflect_goat_address;
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitvm2_lib::actors::Actor;
-use http::StatusCode;
 use std::sync::Arc;
 use store::Node;
 use store::localdb::NodeQuery;
@@ -111,7 +109,7 @@ pub async fn get_nodes(
     let node_desc_list: Vec<NodeDesc> =
         nodes.into_iter().map(|v| v.to_node_desc(time_threshold, &app_state.peer_id)).collect();
 
-    Ok((StatusCode::OK, Json(NodeListResponse { nodes: node_desc_list, total })))
+    ok_response(NodeListResponse { nodes: node_desc_list, total })
 }
 
 /// Get nodes overview statistics
@@ -168,7 +166,7 @@ pub async fn get_nodes_overview(
     let nodes_overview =
         storage_process.node_overview(time_threshold).await.api_error("NODES_OVERVIEW_ERROR")?;
 
-    Ok((StatusCode::OK, Json(NodeOverViewResponse { nodes_overview })))
+    ok_response(NodeOverViewResponse { nodes_overview })
 }
 
 /// Get node by peer ID
@@ -232,5 +230,5 @@ pub async fn get_node(
 
     let res = storage_process.node_by_id(peer_id.as_str()).await.api_error("GET_NODE_ERROR")?;
 
-    Ok((StatusCode::OK, Json(res)))
+    ok_response(res)
 }

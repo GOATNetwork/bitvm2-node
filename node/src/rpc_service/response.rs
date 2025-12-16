@@ -33,3 +33,8 @@ pub fn to_api_error<E: std::fmt::Display>(
         Json(ErrorResponse { error: error_code.to_string(), message: error.to_string() }),
     )
 }
+
+/// Helper function to create a successful ApiResult response
+pub fn ok_response<T: Serialize>(data: T) -> ApiResult<T> {
+    Ok((StatusCode::OK, Json(data)))
+}
