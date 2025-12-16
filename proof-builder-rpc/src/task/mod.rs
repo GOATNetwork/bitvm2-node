@@ -195,8 +195,6 @@ pub(crate) async fn fetch_on_demand_task(
         .unwrap();
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
 
-    let btc_block_headers = format!("{header_chain_input_proof}.blocks");
-
     // commit chain: always fetch the latest
     let commit_chain_input_proof = storage_processor
         .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
@@ -258,7 +256,6 @@ pub(crate) async fn fetch_on_demand_task(
     Ok(OnDemandTask {
         latest_sequencer_commit_txid,
         header_chain_input_proof,
-        btc_block_headers,
         commit_chain_input_proof,
         state_chain_input_proof,
         watchtower_challenge_init_txid,

@@ -22,7 +22,6 @@ async fn main() {
             commit_chain_input_proof: args.commit_chain_input_proof.clone(),
             state_chain_input_proof: args.state_chain_input_proof.clone(),
             output: args.output.clone(),
-            btc_block_headers: args.btc_block_headers.clone(),
             target_block,
             block_pos,
             latest_sequencer_commit_tx,

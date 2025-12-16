@@ -35,7 +35,6 @@ pub(crate) fn spawn_watchtower_proof_task(
 
                     args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
                     args.header_chain_input_proof = next_task.header_chain_input_proof;
-                    args.btc_block_headers = next_task.btc_block_headers;
                     args.commit_chain_input_proof = next_task.commit_chain_input_proof;
                     args.state_chain_input_proof = next_task.state_chain_input_proof;
 
@@ -55,7 +54,6 @@ pub(crate) fn spawn_watchtower_proof_task(
                             commit_chain_input_proof: args.commit_chain_input_proof.clone(),
                             state_chain_input_proof: args.state_chain_input_proof.clone(),
                             output: args.output.clone(),
-                            btc_block_headers: args.btc_block_headers.clone(),
                             target_block,
                             block_pos,
                             latest_sequencer_commit_tx,

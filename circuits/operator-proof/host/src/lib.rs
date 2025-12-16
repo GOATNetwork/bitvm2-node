@@ -68,9 +68,6 @@ pub struct Args {
     #[clap(long, env, default_value = "commit-proof.bin")]
     pub output: String,
 
-    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
-    pub btc_block_headers: String,
-
     #[clap(long, env, default_value_t = 0)]
     pub index: usize,
 }
@@ -216,7 +213,6 @@ impl ProofBuilder for OperatorProofBuilder {
             ref commit_chain_input_proof,
             ref state_chain_input_proof,
             ref genesis_sequencer_commit_txid,
-            ref btc_block_headers,
             ref target_block,
             ref block_pos,
             ref operator_latest_sequencer_commit_txn,
@@ -299,7 +295,8 @@ impl ProofBuilder for OperatorProofBuilder {
         */
 
         let bitcoin_block_headers = {
-            let headers: Vec<u8> = std::fs::read(btc_block_headers).unwrap();
+            let headers: Vec<u8> =
+                std::fs::read(&format!("{header_chain_input_proof}.blocks")).unwrap();
             headers
                 .chunks(80)
                 .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())

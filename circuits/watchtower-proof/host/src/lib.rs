@@ -49,9 +49,6 @@ pub struct Args {
     #[clap(long, env)]
     pub output: String,
 
-    #[clap(long, env, default_value = "data/header-chain/block_headers.bin")]
-    pub btc_block_headers: String,
-
     #[clap(long, env, default_value_t = 0)]
     pub index: usize,
 }
@@ -127,7 +124,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
             ref state_chain_input_proof,
             ref latest_sequencer_commit_txid,
             ref genesis_sequencer_commit_txid,
-            ref btc_block_headers,
             ref target_block,
             ref block_pos,
             ref latest_sequencer_commit_tx,
@@ -199,7 +195,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
         */
 
         let bitcoin_block_headers = {
-            let headers: Vec<u8> = std::fs::read(&btc_block_headers).unwrap();
+            let headers: Vec<u8> = std::fs::read(&format!("{header_chain_input_proof}.blocks"))?;
             headers
                 .chunks(80)
                 .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())

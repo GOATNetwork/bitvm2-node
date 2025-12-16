@@ -37,7 +37,6 @@ pub(crate) fn spawn_operator_proof_task(
                     let next_task = fetch_on_demand_task(&local_db, args.index, false).await.unwrap();
                     args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
                     args.header_chain_input_proof = next_task.header_chain_input_proof;
-                    args.btc_block_headers = next_task.btc_block_headers;
                     args.commit_chain_input_proof = next_task.commit_chain_input_proof;
                     args.state_chain_input_proof = next_task.state_chain_input_proof;
                     args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
@@ -79,7 +78,6 @@ pub(crate) fn spawn_operator_proof_task(
                             execution_layer_block_number: args.execution_layer_block_number,
 
                             output: args.output.clone(),
-                            btc_block_headers: args.btc_block_headers.clone(),
 
                             block_pos,
                             target_block,

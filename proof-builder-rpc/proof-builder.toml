@@ -1,5 +1,5 @@
 [header_chain]
-enable = true 
+enable = false 
 init_input = false 
 esplora_url = "http://127.0.0.1:3002"
 start = 503040
@@ -42,7 +42,6 @@ header_chain_input_proof = "../circuits/data/header-chain/503050-10.bin"
 commit_chain_input_proof = "../circuits/data/commit-chain/commit-proof.bin"
 state_chain_input_proof = "../circuits/data/state-chain/9511050-10.bin"
 output = "../circuits/data/watchtower/output.bin"
-btc_block_headers = "../circuits/data/header-chain/block_headers.bin"
 index = 0
 
 [operator]
@@ -58,7 +57,6 @@ header_chain_input_proof = "../circuits/data/header-chain/503050-10.bin"
 commit_chain_input_proof = "../circuits/data/commit-chain/commit-proof.bin"
 state_chain_input_proof = "../circuits/data/state-chain/9511050-10.bin"
 output = "../circuits/data/operator/output.bin"
-btc_block_headers = "../circuits/data/header-chain/block_headers.bin"
 included_watchtowers = "1"
 graph_id="0x00112233445566778899aabbccddeeff"
 execution_layer_block_number = 8447360

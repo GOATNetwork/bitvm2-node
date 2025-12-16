@@ -74,13 +74,15 @@ pub async fn fetch_commit_chain(
 ) -> anyhow::Result<()> {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&esplora_url));
+
+    tracing::info!("read: {commit_info_file}");
+    let rdr = std::fs::File::open(commit_info_file)?;
+    let ci: CommitInfo = serde_json::from_reader(rdr)?;
+    // NOTE: we support one commit-info per commit file currently
     assert_eq!(batch_size, 1);
 
     let mut commits: Vec<CircuitCommit> = vec![];
-    for i in start..start + batch_size {
-        tracing::info!("read: {commit_info_file}.{i}");
-        let rdr = std::fs::File::open(&format!("{commit_info_file}.{i}"))?;
-        let ci: CommitInfo = serde_json::from_reader(rdr)?;
+    for _i in start..start + batch_size {
         let txid = Txid::from_str(&ci.txid)?;
         let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
         let proof = btc_client.get_merkle_proof_extend(&txid).await?;
@@ -112,7 +114,7 @@ pub async fn fetch_commit_chain(
         };
         commits.push(commit);
     }
-    std::fs::write(&format!("{commits_file}.{start}"), serde_json::to_vec(&commits)?)?;
+    std::fs::write(&commits_file, serde_json::to_vec(&commits)?)?;
     Ok(())
 }
 

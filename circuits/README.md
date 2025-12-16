@@ -85,12 +85,12 @@ Generate the proof:
 
 ```
 # Genesis
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/commit-proof.bin" --commit-info ../node/tests_data/commit_info.json --start 0 --commits data/commit-chain/commits.bin
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/0-1.bin" --commit-info ../node/tests_data/commit_info.json.0 --commits data/commit-chain/commits.bin.0
 
 # Regular proof
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof.bin" --output-proof "data/commit-chain/commit-proof.bin.1" --commit-info ../node/tests_data/commit_info.json --start 1 --commits data/commit-chain/commits.bin
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/0-1.bin" --output-proof "data/commit-chain/1-1.bin" --commit-info ../node/tests_data/commit_info.json.1 --commits data/commit-chain/commits.bin.1
 
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof.bin.2" --output-proof "data/commit-chain/commit-proof3.bin" --commit-info ../node/tests_data/commit_info.json --start 2 --commits data/commit-chain/commits.bin
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/1-1.bin" --output-proof "data/commit-chain/2-1.bin" --commit-info ../node/tests_data/commit_info.json.2 --commits data/commit-chain/commits.bin.2
 ```
 
 ## State Chain
@@ -122,18 +122,18 @@ export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.0 | jq -r .genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.0 | jq -r .txid)
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/503050-10.bin"
-export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/0-1.bin"
 export LATEST_STATE_BLOCK_HASH="0x7908184bce067fa5a4508d309cbaf22dd1e0b586ad2dd42c0e51a5308a7bd815"
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"
 
-RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin" --block-headers data/header-chain/block_headers.bin
+RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin"
 
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.1 | jq -r .txid)
-export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof2.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/1-1.bin"
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output2.bin"
 
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.2 | jq -r .txid)
-export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof3.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/2-1.bin"
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output3.bin"
 ```
 
@@ -166,7 +166,7 @@ export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.0 | jq -r .genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.2 | jq -r .txid)
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/503050-10.bin"
-export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/commit-proof3.bin"
+export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/2-1.bin"
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"
 export LATEST_STATE_BLOCK_HASH="0x7908184bce067fa5a4508d309cbaf22dd1e0b586ad2dd42c0e51a5308a7bd815"
 

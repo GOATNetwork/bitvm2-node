@@ -44,7 +44,6 @@ pub enum ProofRequest {
         commit_chain_input_proof: String,
         state_chain_input_proof: String,
         output: String,
-        btc_block_headers: String,
         target_block: Block,
         block_pos: u32,
         latest_sequencer_commit_tx: Transaction,
@@ -58,7 +57,6 @@ pub enum ProofRequest {
         state_chain_input_proof: String,
         execution_layer_block_number: u64,
         output: String,
-        btc_block_headers: String,
         target_block: Block,
         block_pos: u32,
         operator_latest_sequencer_commit_txn: Transaction,
@@ -104,7 +102,6 @@ pub trait LongRunning {
 pub struct OnDemandTask {
     pub latest_sequencer_commit_txid: String,
     pub header_chain_input_proof: String,
-    pub btc_block_headers: String,
     pub commit_chain_input_proof: String,
     pub state_chain_input_proof: String,
 
