@@ -31,7 +31,7 @@ pub(crate) fn spawn_header_chain_proof_task(
             tokio::select! {
                 // TODO: handle err and retry
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
-                    info!("Header chain proof generate task: generate proof");
+                    info!("Header chain proof generate task: generate proof, args: {args:?}");
                     let total_block_headers = match fetch_header_chain(
                         &args.esplora_url,
                         args.start,

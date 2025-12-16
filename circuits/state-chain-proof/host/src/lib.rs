@@ -143,8 +143,6 @@ pub async fn fetch_state_chain(
     start: u64,
     batch_size: u64,
     execution_layer_rpc: &str,
-    //graph_block_numbers: Vec<u64>,
-    //graph_ids: Vec<[u8; 16]>,
     blocks_file: &str,
 ) -> Vec<CircuitStateBlock> {
     assert!(start > 0, "Don't get genesis block from the consensus layer.");

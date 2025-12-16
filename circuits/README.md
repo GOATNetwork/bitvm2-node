@@ -100,7 +100,7 @@ State Chain represents the L2's state transition, which checks the EVM's executi
 We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optionally, the block may contain a `proceedWithdraw` transaction.
 
 * Submit the `proceedWithdraw` transaction on GOAT Network.
-* Generate state-chain proof. If there are some `proceedWithdraw` transactions, configure `GRAPH_IDS` and `GRAPH_BLOCK_NUMBERS` by sparating them by comma. 
+* Generate state-chain proof. 
 
 ```
 export EL_START_BLOCK_NUMBER=9511050
@@ -177,11 +177,6 @@ export INCLUDED_WATCHTOWERS=1
 export WATCHTOWER_PUBLIC_KEYS="0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651"
 export WATCHTOWER_CHALLENGE_TXIDS="3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0"
 export WATCHTOWER_CHALLENGE_INIT_TXID="7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246"
-
-
-# required 
-export GRAPH_IDS="0x00112233445566778899aabbccddeeff"
-export GRAPH_BLOCK_NUMBERS=9511055
 
 RUST_LOG=info cargo run --package operator-proof --bin operator-proof -r -- --output "data/operator-proof/output.bin"
 ```

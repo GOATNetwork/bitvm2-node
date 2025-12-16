@@ -44,7 +44,6 @@ async fn main() {
             execution_layer_block_number: args.execution_layer_block_number,
 
             output: args.output.clone(),
-            btc_block_headers: args.btc_block_headers.clone(),
 
             block_pos,
             target_block,
