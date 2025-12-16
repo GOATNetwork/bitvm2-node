@@ -23,6 +23,7 @@ http-body-util = "0.1"
 prometheus-client = { workspace = true }
 uuid = { workspace = true }
 bitcoin = { workspace = true }
+strum = { workspace = true }
 
 # proofs
 proof-builder = { workspace = true }

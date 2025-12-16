@@ -1,7 +1,7 @@
 pub(crate) const ROOT: &str = "/";
 pub(crate) const METRICS: &str = "/metrics";
 pub(crate) mod v1 {
-    pub(crate) const CHAIN_PROOFS_BASE: &str = "/v1/chain_proofs";
-    pub(crate) const NODES_WATCHTOWER_BASE: &str = "/v1/watchtower_proofs";
-    pub(crate) const NODES_OPERATOR_BASE: &str = "/v1/operator_proofs";
+    pub(crate) const PROOFS_CHAIN_PROOFS_DESC: &str = "/v1/proofs/chain_proofs_desc";
+    pub(crate) const PROOFS_WATCHTOWER_PROOF: &str = "/v1/proofs/watchtower_proofs";
+    pub(crate) const PROOFS_OPERATOR_PROOF: &str = "/v1/proofs/operator_proofs";
 }

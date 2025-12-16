@@ -1,12 +1,35 @@
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 
+const HEADER_CHAIN_NAME: &str = "header-chain";
+const COMMIT_CHAIN_NAME: &str = "commit_chain";
+const STATE_CHAIN_NAME: &str = "state-chain";
+#[derive(Clone, Debug, Serialize, Deserialize, Display, EnumString)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ProofType {
+    #[strum(serialize = "header_chain")]
+    HeaderChain,
+    #[strum(serialize = "commit_chain")]
+    CommitChain,
+    #[strum(serialize = "state_chain")]
+    StateChain,
+}
+
+impl ProofType {
+    pub(super) fn get_chain_name(&self) -> &'static str {
+        match self {
+            ProofType::HeaderChain => HEADER_CHAIN_NAME,
+            ProofType::CommitChain => COMMIT_CHAIN_NAME,
+            ProofType::StateChain => STATE_CHAIN_NAME,
+        }
+    }
+}
 #[derive(Debug, Deserialize)]
 pub(super) struct ChainProofDescRequest {
     pub height: Option<i64>,
-    pub proof_type: String,
+    pub proof_type: ProofType,
 }
-
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub(super) struct ChainProofDesc {
     pub block_start: i64,
     pub block_end: i64,
@@ -22,9 +45,9 @@ pub(super) struct ChainProofDesc {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub(super) struct ChainProofDescResponse {
-    pub proof_desc : Option<ChainProofDesc>,
+    pub proof_desc: Option<ChainProofDesc>,
     pub error: Option<String>,
 }
 

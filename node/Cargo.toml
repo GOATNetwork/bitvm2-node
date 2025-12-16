@@ -83,6 +83,7 @@ alloy = { workspace = true, features = ["full", "serde"] }
 secp256k1 = { workspace = true }
 sha2 = { workspace = true }
 dotenv = { workspace = true }
+strum = { workspace = true }
 
 bincode = "1.3.3"
 bitcoin-script = { workspace = true }
@@ -96,7 +97,6 @@ zkm-sdk = { workspace = true }
 zkm-verifier = { workspace = true }
 
 stun-client = "0.1.4"
-strum = { version = "0.26", features = ["derive"] }
 borsh = {version = "1.5.3", features = ["derive"] }
 cbft-rpc = { workspace = true }
 util = { workspace = true }

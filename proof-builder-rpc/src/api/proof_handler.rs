@@ -17,42 +17,51 @@ pub(super) async fn get_chain_proof_task(
     State(api_state): State<Arc<ApiState>>,
     Query(payload): Query<ChainProofDescRequest>,
 ) -> ApiResult<ChainProofDescResponse> {
-    let chain_name = payload.proof_type.replace("_", "-").to_string();
     let mut storage_process =
         api_state.local_db.acquire().await.api_error("GET_CHAIN_PROOF_ERROR")?;
 
     let proof = if let Some(height) = payload.height {
         storage_process
-            .find_nearst_long_running_task_proof_by_start(height, chain_name)
+            .find_nearst_long_running_task_proof_by_start(
+                height,
+                payload.proof_type.get_chain_name().to_string(),
+            )
             .await
             .api_error("GET_CHAIN_PROOF_ERROR")?
     } else {
         storage_process
-            .find_latest_long_running_task_proof_by_name(chain_name)
+            .find_latest_long_running_task_proof_by_name(
+                payload.proof_type.get_chain_name().to_string(),
+            )
             .await
             .api_error("GET_CHAIN_PROOF_ERROR")?
     };
 
     match proof {
-        Some(proof) => ok_response(ChainProofDescResponse {
-            proof_desc: Some(ChainProofDesc {
-                block_start: proof.block_start,
-                block_end: proof.block_start,
-                proof_type: payload.proof_type,
-                state: ProofState::from_i64(proof.proof_state)
-                    .unwrap_or_else(|| ProofState::New)
-                    .to_string(),
-                proving_cycles: proof.cycles,
-                proving_time: proof.proving_time,
-                total_time_to_proof: proof.updated_at - proof.created_at,
-                proof_size: 0.0,
-                zkm_version: proof.zkm_version,
-                pub_values: "".to_string(),
-                created_at: proof.created_at,
-                updated_at: proof.updated_at,
-            }),
-            error: None,
-        }),
+        Some(proof) => {
+            let total_time_to_proof =
+                if proof.proof_state == 2 { proof.updated_at - proof.created_at } else { 0 };
+            ok_response(ChainProofDescResponse {
+                proof_desc: Some(ChainProofDesc {
+                    block_start: proof.block_start,
+                    block_end: proof.block_start,
+                    proof_type: payload.proof_type.to_string(),
+                    state: ProofState::from_i64(proof.proof_state)
+                        .unwrap_or_else(|| ProofState::New)
+                        .to_string(),
+                    proving_cycles: proof.cycles,
+                    proving_time: proof.proving_time,
+                    total_time_to_proof,
+                    proof_size: 0.0,
+                    zkm_version: proof.zkm_version,
+                    pub_values: "".to_string(),
+                    created_at: proof.created_at,
+                    updated_at: proof.updated_at,
+                }),
+                error: None,
+            })
+        }
+
         None => ok_response(ChainProofDescResponse {
             proof_desc: None,
             error: Some("No proof found".to_string()),

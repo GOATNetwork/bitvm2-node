@@ -22,6 +22,7 @@ use tracing::{info, warn};
 use zeroize::Zeroizing;
 
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
+pub const ENV_PROOF_BUILD_URL: &str = "GOAT_PROOF_BUILD_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
 pub const ENV_GOAT_SWAP_CONTRACT_ADDRESS: &str = "GOAT_SWAP_CONTRACT_ADDRESS";
 pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
@@ -467,4 +468,8 @@ pub fn get_operator_node_service_fee_rate() -> f64 {
     } else {
         DEFAULT_OPERATOR_NODE_SERVICE_FEE_RATE
     }
+}
+
+pub fn get_proof_build_rpc_host() -> Option<String> {
+    std::env::var(ENV_PROOF_BUILD_URL).ok()
 }

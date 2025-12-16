@@ -9210,6 +9210,7 @@ dependencies = [
  "serde_json",
  "state-chain-proof",
  "store",
+ "strum 0.26.3",
  "tokio",
  "tokio-util",
  "toml 0.8.23",
