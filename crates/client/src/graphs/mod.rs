@@ -4,9 +4,15 @@ pub struct GraphQueryClient {
     client: reqwest::Client,
 }
 
+impl Default for GraphQueryClient {
+    fn default() -> Self {
+        Self { client: reqwest::Client::new() }
+    }
+}
+
 impl GraphQueryClient {
     pub fn new() -> Self {
-        Self { client: reqwest::Client::new() }
+        Self::default()
     }
 
     pub async fn execute_query(

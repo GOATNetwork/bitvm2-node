@@ -23,8 +23,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
 use store::{
-    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphBtcTxVoutMonitor, GraphStatus,
-    SerializableTxid,
+    GoatTxProcessingStatus, GoatTxType, Graph, GraphBtcTxVoutMonitor, GraphStatus, SerializableTxid,
 };
 use strum::{Display, EnumString};
 use tracing::{info, trace, warn};

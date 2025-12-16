@@ -586,7 +586,7 @@ async fn handle_swap_init_events<'a>(
             &goat_client,
             &event.transaction_hash,
             swap_contract_address,
-            &hex::decode(&strip_hex_prefix_owned(&event.escrow_hash))?.try_into().map_err(
+            &hex::decode(strip_hex_prefix_owned(&event.escrow_hash))?.try_into().map_err(
                 |v: Vec<u8>| anyhow::anyhow!("escrow_hash length is {}, expected 32", v.len()),
             )?,
         )
@@ -610,7 +610,7 @@ async fn handle_swap_init_events<'a>(
                     height: event.block_number.parse::<i64>()?,
                     is_local: false,
                     processing_status: GoatTxProcessingStatus::Skipped.to_string(),
-                    extra: Some(hex::encode(&escrow_data.abi_encode())),
+                    extra: Some(hex::encode(escrow_data.abi_encode())),
                     created_at: create_time,
                 })
                 .await?;
@@ -659,7 +659,7 @@ async fn handle_swap_claim_events<'a>(
             &goat_client,
             &event.transaction_hash,
             swap_contract_address,
-            &hex::decode(&strip_hex_prefix_owned(&event.escrow_hash))?.try_into().map_err(
+            &hex::decode(strip_hex_prefix_owned(&event.escrow_hash))?.try_into().map_err(
                 |v: Vec<u8>| anyhow::anyhow!("escrow_hash length is {}, expected 32", v.len()),
             )?,
         )
@@ -997,7 +997,7 @@ pub async fn run_watch_event_task(
             Actor::Committee,
             vec![
                 WatchEventConfig::Gateway(TheGraphConfig {
-                    address: gateway_contract.clone(),
+                    address: gateway_contract,
                     the_graph_url: get_goat_gateway_the_graph_urls_from_env(),
                     event_entities: vec![
                         GatewayEventEntity::InitWithdraws,
@@ -1012,7 +1012,7 @@ pub async fn run_watch_event_task(
                     ],
                 }),
                 WatchEventConfig::Swap(TheGraphConfig {
-                    address: swap_contract.clone(),
+                    address: swap_contract,
                     the_graph_url: get_goat_swap_the_graph_urls_from_env(),
                     event_entities: vec![
                         SwapEventEntity::Initializes,
@@ -1025,7 +1025,7 @@ pub async fn run_watch_event_task(
         (
             Actor::Operator,
             vec![WatchEventConfig::Gateway(TheGraphConfig {
-                address: gateway_contract.clone(),
+                address: gateway_contract,
                 the_graph_url: get_goat_gateway_the_graph_urls_from_env(),
                 event_entities: vec![
                     GatewayEventEntity::InitWithdraws,
@@ -1043,7 +1043,7 @@ pub async fn run_watch_event_task(
         (
             Actor::Challenger,
             vec![WatchEventConfig::Gateway(TheGraphConfig {
-                address: gateway_contract.clone(),
+                address: gateway_contract,
                 the_graph_url: get_goat_gateway_the_graph_urls_from_env(),
                 event_entities: vec![
                     GatewayEventEntity::InitWithdraws,
@@ -1061,7 +1061,7 @@ pub async fn run_watch_event_task(
         (
             Actor::Watchtower,
             vec![WatchEventConfig::Gateway(TheGraphConfig {
-                address: gateway_contract.clone(),
+                address: gateway_contract,
                 the_graph_url: get_goat_gateway_the_graph_urls_from_env(),
                 event_entities: vec![
                     GatewayEventEntity::InitWithdraws,
