@@ -88,9 +88,9 @@ Generate the proof:
 RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/commit-proof.bin" --commit-info ../node/tests_data/commit_info.json --start 0 --commits data/commit-chain/commits.bin
 
 # Regular proof
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof.bin" --output-proof "data/commit-chain/commit-proof2.bin" --commit-info ../node/tests_data/commit_info.json --start 1 --commits data/commit-chain/commits.bin
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof.bin" --output-proof "data/commit-chain/commit-proof.bin.1" --commit-info ../node/tests_data/commit_info.json --start 1 --commits data/commit-chain/commits.bin
 
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof2.bin" --output-proof "data/commit-chain/commit-proof3.bin" --commit-info ../node/tests_data/commit_info.json --start 2 --commits data/commit-chain/commits.bin
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/commit-proof.bin.2" --output-proof "data/commit-chain/commit-proof3.bin" --commit-info ../node/tests_data/commit_info.json --start 2 --commits data/commit-chain/commits.bin
 ```
 
 ## State Chain

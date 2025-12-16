@@ -163,3 +163,6 @@ rust.unreachable_pub = "warn"
 rust.unused_must_use = "deny"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rustdoc.all = "warn"
+
+[patch.crates-io]
+camino = { git = "https://github.com/camino-rs/camino", rev = "28e15dbd8a51c086d244e70f7f77eeee7d0b25cb" }

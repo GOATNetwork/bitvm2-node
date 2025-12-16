@@ -7,8 +7,8 @@ block_headers = "../circuits/data/header-chain/block_headers.bin"
 force_fetch = true 
 
 batch_size = 10 
-input_proof = "../circuits/data/header-chain/0-503040.bin"
-output_proof = "../circuits/data/header-chain/503060-10.bin"
+input_proof = "../circuits/data/header-chain/0-503050.bin"
+output_proof = "../circuits/data/header-chain/503050-10.bin"
 
 [commit_chain]
 enable = false 
