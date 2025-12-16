@@ -311,10 +311,9 @@ pub(crate) async fn add_watchtower_task(
     challenge_init_txid: String,
 ) -> anyhow::Result<()> {
     let mut storage_processor = local_db.acquire().await?;
-    let id = storage_processor.get_next_watchtower_proof_id().await?;
     storage_processor
         .create_watchtower_proof(&WatchtowerProof {
-            id,
+            id: 1,
             instance_id,
             graph_id,
             public_key,
@@ -362,10 +361,9 @@ pub(crate) async fn add_operator_task(
     execution_layer_block_number: u64,
 ) -> anyhow::Result<()> {
     let mut storage_processor = local_db.acquire().await?;
-    let id = storage_processor.get_next_operator_proof_id().await?;
     storage_processor
         .create_operator_proof(&OperatorProof {
-            id,
+            id: 1,
             instance_id,
             graph_id,
             execution_layer_block_number: execution_layer_block_number as i64,

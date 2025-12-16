@@ -2499,10 +2499,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO operator_proof (id, instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
+             INTO operator_proof ( instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
                                  zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            operator_proof.id,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             operator_proof.instance_id,
             operator_proof.graph_id,
             operator_proof.execution_layer_block_number,
@@ -2646,13 +2645,6 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn get_next_operator_proof_id(&mut self) -> anyhow::Result<i64> {
-        let res = sqlx::query!("SELECT MAX(id) as max_id FROM operator_proof")
-            .fetch_optional(self.conn())
-            .await?;
-        Ok(res.and_then(|row| row.max_id).map_or(0, |max_id| max_id + 1))
-    }
-
     pub async fn update_watchtower_proof_success(
         &mut self,
         id: i64,
@@ -2792,24 +2784,15 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn get_next_watchtower_proof_id(&mut self) -> anyhow::Result<i64> {
-        let res = sqlx::query!("SELECT MAX(id) as max_id FROM watchtower_proof")
-            .fetch_optional(self.conn())
-            .await?;
-
-        Ok(res.and_then(|row| row.max_id).map_or(0, |max_id| max_id + 1))
-    }
-
     pub async fn create_watchtower_proof(
         &mut self,
         watchtower_proof: &WatchtowerProof,
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO watchtower_proof (id, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
+             INTO watchtower_proof (instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
                                    zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            watchtower_proof.id,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             watchtower_proof.instance_id,
             watchtower_proof.graph_id,
             watchtower_proof.public_key,
