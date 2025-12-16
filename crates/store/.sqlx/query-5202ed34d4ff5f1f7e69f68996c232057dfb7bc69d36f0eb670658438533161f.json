@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT\n             INTO watchtower_proof (instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,\n                                   zkm_version, extra, updated_at, created_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 14
+    },
+    "nullable": []
+  },
+  "hash": "5202ed34d4ff5f1f7e69f68996c232057dfb7bc69d36f0eb670658438533161f"
+}
