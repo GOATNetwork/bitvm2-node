@@ -229,7 +229,7 @@ pub async fn get_commit_chain_blocks_desc(
         let proof_status = match i {
             0 => ProofState::Failed,
             1 => ProofState::New,
-            _ => ProofState::Done,
+            _ => ProofState::Proven,
         };
         let block_number = start_height - i as u64;
         if block_number == 0 {

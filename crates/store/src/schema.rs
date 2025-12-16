@@ -653,11 +653,32 @@ pub struct GoatTxProceedWithdrawExtra {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
-pub enum ProofStatus {
+pub enum ProofState {
     #[default]
-    Pending,
-    Proved,
+    New,
+    Proving,
+    Proven,
     Failed,
+}
+impl ProofState {
+    pub fn to_i64(&self) -> i64 {
+        match self {
+            Self::New => 0,
+            Self::Proving => 1,
+            Self::Proven => 2,
+            Self::Failed => 3,
+        }
+    }
+
+    pub fn from_i64(value: i64) -> Option<Self> {
+        match value {
+            0 => Some(Self::New),
+            1 => Some(Self::Proving),
+            2 => Some(Self::Proven),
+            3 => Some(Self::Failed),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]

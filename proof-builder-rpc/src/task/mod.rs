@@ -335,6 +335,7 @@ pub(crate) async fn update_long_running_task(
 /// * index: incremental id
 /// * state: 0-new, 1-doing, 2-done, 3-failed
 /// Invocated by API
+#[allow(dead_code)]
 pub(crate) async fn add_watchtower_task(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -388,6 +389,7 @@ pub(crate) async fn update_watchtower_task(
 /// * execution_layer_block_number: proceedWithdraw's block number
 /// * index: incremental id
 /// Invocated by API
+#[allow(dead_code)]
 pub(crate) async fn add_operator_task(
     local_db: &LocalDB,
     instance_id: Uuid,

@@ -47,7 +47,7 @@ impl From<V1Block> for HeaderChainBlockDesc {
             size: value.size,
             tx_count: value.tx_count,
             timestamp: value.timestamp,
-            proof_status: ProofState::Done,
+            proof_status: ProofState::Proven,
         }
     }
 }
