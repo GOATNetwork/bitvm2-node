@@ -100,7 +100,7 @@ pub async fn bridge_in_request_tag(
     Json(payload): Json<BridgeInPrepareRequest>,
 ) -> ApiResult<BridgeInPrepareResponse> {
     InputValidator::validate_btc_address(&payload.from_addr, "from_addr")?;
-    InputValidator::validate_goat_address(&payload.to_addr, "goat_addr")?;
+    let to_addr = InputValidator::validate_goat_address(&payload.to_addr, "goat_addr")?;
     let instance_id = InputValidator::validate_uuid(&payload.instance_id, "btc_addr")?;
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
@@ -111,7 +111,7 @@ pub async fn bridge_in_request_tag(
             is_bridge_in: true,
             network: payload.network,
             from_addr: payload.from_addr,
-            to_addr: payload.to_addr,
+            to_addr,
             amount: 0,
             fees: Default::default(),
             input_utxos: "[]".to_string(),
@@ -226,20 +226,18 @@ pub async fn get_instances(
 ) -> ApiResult<InstanceListResponse> {
     // Validate pagination parameters
     let (offset, limit) = InputValidator::validate_pagination(params.offset, params.limit)?;
-    // Validate from_addr format (if provided)
-    if let Some(ref from_addr) = params.from_addr {
-        if params.is_bridge_in {
-            InputValidator::validate_btc_address(from_addr, "bridge in from_addr")?;
-        } else {
-            InputValidator::validate_goat_address(from_addr, "Bridge out from_addr")?;
-        }
-    }
-
     // Database query
     let mut storage_process = app_state.local_db.acquire().await.api_error("GET_INSTANCE_ERROR")?;
 
     let mut query = InstanceQuery::default();
     if let Some(from_addr) = params.from_addr {
+        // Validate from_addr format (if provided)
+        let from_addr = if params.is_bridge_in {
+            InputValidator::validate_btc_address(&from_addr, "bridge in from_addr")?;
+            from_addr
+        } else {
+            InputValidator::validate_goat_address(&from_addr, "Bridge out from_addr")?.to_string()
+        };
         query = query.with_from_addr(from_addr);
     }
     query = query
