@@ -233,7 +233,8 @@ pub(crate) async fn fetch_on_demand_task(
                 );
             }
         }
-        let challenge_txids = watchtower_info.iter().map(|w| w.challenge_txid.0.to_string()).collect::<Vec<_>>();
+        let challenge_txids =
+            watchtower_info.iter().map(|w| w.challenge_txid.0.to_string()).collect::<Vec<_>>();
         let challenge_public_keys =
             watchtower_info.iter().map(|w| w.public_key.clone()).collect::<Vec<_>>();
         (

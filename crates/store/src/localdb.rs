@@ -2382,6 +2382,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_long_running_task_proof_success(
         &mut self,
         block_start: i64,
