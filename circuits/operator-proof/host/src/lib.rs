@@ -81,9 +81,6 @@ impl LongRunning for Args {
         next_args.index = self.index + 1;
         next_args
     }
-    fn name(&self) -> String {
-        "operator-chain".to_string()
-    }
 }
 
 /// A program that aggregates the proofs of the simple program.
@@ -204,6 +201,10 @@ impl ProofBuilder for OperatorProofBuilder {
         &self.verifying_key
     }
 
+    fn name() -> String {
+        "operator-chain".to_string()
+    }
+
     fn build_proof(
         &self,
         ctx: &Context,
@@ -228,7 +229,7 @@ impl ProofBuilder for OperatorProofBuilder {
             ..
         } = ctx.request
         else {
-            return Err(anyhow::anyhow!("Invalid proof request type"));
+            anyhow::bail!("Invalid proof request type");
         };
 
         // --- header chain --- //
@@ -384,7 +385,7 @@ impl ProofBuilder for OperatorProofBuilder {
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::OperatorProofRequest { ref output, .. } = ctx.request else {
-            return Err(anyhow::anyhow!("invalid context"));
+            anyhow::bail!("invalid context");
         };
         //fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
         //fs::write(&format!("{}.vk", args.output), bincode::serialize(&proof_vk).unwrap()).unwrap();

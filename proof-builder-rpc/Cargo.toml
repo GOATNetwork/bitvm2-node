@@ -28,10 +28,12 @@ bitcoin = { workspace = true }
 proof-builder = { workspace = true }
 header-chain-proof = { workspace = true }
 commit-chain-proof = { workspace = true }
+commit-chain = { workspace = true }
 state-chain-proof = { workspace = true }
 watchtower-proof = { workspace = true }
 operator-proof = { workspace = true }
 util = { workspace = true }
+serde_json = { workspace = true }
 
 #config
 toml = "0.8"

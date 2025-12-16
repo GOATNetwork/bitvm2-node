@@ -664,6 +664,7 @@ pub struct WatchtowerProof {
     pub public_key: String,
     pub challenge_txid: SerializableTxid,
     pub challenge_init_txid: SerializableTxid,
+    pub execution_layer_block_number: i64,
     pub path_to_proof: Option<String>,
     pub cycles: i64,
     pub proof_state: i64,

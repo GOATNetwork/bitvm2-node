@@ -2729,10 +2729,10 @@ pub async fn get_graph_status(
     };
     let graph = graph_op.unwrap();
     if graph.instance_id.ne(&instance_id) {
-        return Err(anyhow!(
+        bail!(
             "grap with graph_id:{graph_id} has instance_id:{} not match exp instance:{instance_id}",
             graph.instance_id,
-        ));
+        );
     }
     Ok(Some(
         GraphStatus::from_str(&graph.status)
@@ -2770,7 +2770,7 @@ pub async fn wait_tx_confirmation(
                 }
             }
             Err(e) => {
-                return Err(anyhow!("Failed to fetch transaction status: {e}"));
+                bail!("Failed to fetch transaction status: {e}");
             }
         }
         thread::sleep(Duration::from_secs(interval));
@@ -2801,7 +2801,7 @@ pub async fn wait_tx_appear(
                 }
             }
             Err(e) => {
-                return Err(anyhow!("Failed to fetch transaction status: {e}"));
+                bail!("Failed to fetch transaction status: {e}");
             }
         }
         thread::sleep(Duration::from_secs(interval));

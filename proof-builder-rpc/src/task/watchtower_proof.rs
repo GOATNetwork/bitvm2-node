@@ -21,7 +21,7 @@ pub(crate) fn spawn_watchtower_proof_task(
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}
             _ = cancellation_token.cancelled() => {
-                return Err(anyhow::anyhow!("Watchtower proof generate task cancelled"));
+                anyhow::bail!("Watchtower proof generate task cancelled");
             }
         }
 
@@ -73,10 +73,10 @@ pub(crate) fn spawn_watchtower_proof_task(
                     let zkm_version = proof.zkm_version.clone();
                     builder.save_proof(&ctx, &input, cycles, proof)?;
                     update_watchtower_task(&local_db, args.index, &args.output, cycles, proving_duration as i64, zkm_version).await?;
-                    args = ProofBuilderConfig::run_next(args)?;
+                    args = ProofBuilderConfig::run_next(args, WatchtowerProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {
-                    return Err(anyhow::anyhow!("Watchtower proof generate task cancelled"));
+                    anyhow::bail!("Watchtower proof generate task cancelled");
                 }
             }
         }

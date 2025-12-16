@@ -2444,22 +2444,51 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn find_long_running_task_proof_by_start(
+    pub async fn find_nearst_long_running_task_proof_by_start(
         &mut self,
         block_start: i64,
-        chain_name: &str,
+        chain_name: String,
     ) -> anyhow::Result<Option<LongRunningTaskProof>> {
         let res = sqlx::query_as!(
             LongRunningTaskProof,
             "SELECT block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
                                            zkm_version, extra, updated_at, created_at FROM long_running_task_proof
            
-             WHERE block_start >= ? AND chain_name = ? ORDER BY block_start DESC LIMIT 1",
+             WHERE block_start >= ? AND chain_name = ? ORDER BY block_start ASC LIMIT 1",
             block_start,
             chain_name,
         )
             .fetch_optional(self.conn())
             .await?;
+        Ok(res)
+    }
+
+    pub async fn find_latest_long_running_task_proof_by_name(
+        &mut self,
+        chain_name: String,
+    ) -> anyhow::Result<Option<LongRunningTaskProof>> {
+        let res = sqlx::query_as!(
+            LongRunningTaskProof,
+            "SELECT
+                block_start,
+                block_end,
+                chain_name,
+                path_to_proof,
+                cycles,
+                proof_state,
+                proving_time,
+                zkm_version,
+                extra,
+                updated_at,
+                created_at
+            FROM long_running_task_proof
+            WHERE chain_name = ?
+            ORDER BY block_start DESC
+            LIMIT 1",
+            chain_name,
+        )
+        .fetch_optional(self.conn())
+        .await?;
         Ok(res)
     }
 
@@ -2592,6 +2621,30 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
+    pub async fn find_operator_proof_by_id(&mut self, index: i64) -> anyhow::Result<OperatorProof> {
+        let res = sqlx::query_as::<_, OperatorProof>(
+            "SELECT id,
+                        instance_id,
+                        graph_id,
+                        execution_layer_block_number,
+                        path_to_proof,
+                        cycles,
+                        proof_state,
+                        proving_time,
+                        zkm_version,
+                    extra,
+                        created_at,
+                        updated_at
+                 FROM operator_proof
+                 WHERE proof_state != 2 and id = ?
+                 ORDER BY id ASC",
+        )
+        .bind(index)
+        .fetch_one(self.conn())
+        .await?;
+        Ok(res)
+    }
+
     pub async fn get_next_operator_proof_id(&mut self) -> anyhow::Result<i64> {
         let res = sqlx::query!("SELECT MAX(id) as max_id FROM operator_proof")
             .fetch_optional(self.conn())
@@ -2653,13 +2706,14 @@ impl<'a> StorageProcessor<'a> {
         &mut self,
         instance_id: &Uuid,
         graph_id: &Uuid,
-    ) -> anyhow::Result<Option<WatchtowerProof>> {
+    ) -> anyhow::Result<Vec<WatchtowerProof>> {
         let res = sqlx::query_as::<_, WatchtowerProof>(
             "SELECT instance_id,
                          graph_id,
                          public_key,
                          challenge_txid,
                          challenge_init_txid,
+                         execution_layer_block_number,
                          path_to_proof,
                          cycles,
                          proof_state,
@@ -2674,7 +2728,7 @@ impl<'a> StorageProcessor<'a> {
         )
         .bind(instance_id)
         .bind(graph_id)
-        .fetch_optional(self.conn())
+        .fetch_all(self.conn())
         .await?;
         Ok(res)
     }
@@ -2689,6 +2743,7 @@ impl<'a> StorageProcessor<'a> {
                          public_key,
                          challenge_txid,
                          challenge_init_txid,
+                         execution_layer_block_number,
                          path_to_proof,
                          cycles,
                          proof_state,
@@ -2702,6 +2757,36 @@ impl<'a> StorageProcessor<'a> {
                   ORDER BY id ASC",
         )
         .fetch_all(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn find_watchtower_proof_by_id(
+        &mut self,
+        index: i64,
+    ) -> anyhow::Result<WatchtowerProof> {
+        let res = sqlx::query_as::<_, WatchtowerProof>(
+            "SELECT id,
+                         instance_id,
+                         graph_id,
+                         public_key,
+                         challenge_txid,
+                         challenge_init_txid,
+                         execution_layer_block_number,
+                         path_to_proof,
+                         cycles,
+                         proof_state,
+                         proving_time,
+                         zkm_version,
+                         extra,
+                         created_at,
+                         updated_at
+                  FROM watchtower_proof
+                  WHERE proof_state != 2 and id = ?
+                  ORDER BY id ASC",
+        )
+        .bind(index)
+        .fetch_one(self.conn())
         .await?;
         Ok(res)
     }
@@ -2720,15 +2805,16 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO watchtower_proof (id, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, path_to_proof, cycles, proof_state, proving_time,
+             INTO watchtower_proof (id, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
                                    zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             watchtower_proof.id,
             watchtower_proof.instance_id,
             watchtower_proof.graph_id,
             watchtower_proof.public_key,
             watchtower_proof.challenge_txid,
             watchtower_proof.challenge_init_txid,
+            watchtower_proof.execution_layer_block_number,
             watchtower_proof.path_to_proof,
             watchtower_proof.cycles,
             watchtower_proof.proof_state,

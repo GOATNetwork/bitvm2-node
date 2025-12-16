@@ -64,9 +64,6 @@ impl LongRunning for Args {
         );
         next_args
     }
-    fn name(&self) -> String {
-        "header-chain".to_string()
-    }
 }
 
 pub async fn fetch_header_chain(
@@ -106,7 +103,7 @@ pub async fn fetch_header_chain(
     }
     writer.set_len((block_headers.len() * 80) as u64)?;
     let backup_file = format!(
-        "{}/{}-{}.blocks",
+        "{}/{}-{}.bin.blocks",
         std::path::Path::new(block_header_file).parent().unwrap().to_str().unwrap(),
         start,
         batch_size,
@@ -145,6 +142,10 @@ impl ProofBuilder for HeaderChainProofBuilder {
         &self.verifying_key
     }
 
+    fn name() -> String {
+        "header-chain".to_string()
+    }
+
     fn build_proof(
         &self,
         ctx: &Context,
@@ -158,7 +159,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
             ..
         } = ctx.request
         else {
-            return Err(anyhow::anyhow!("Invalid proof request type"));
+            anyhow::bail!("Invalid proof request type");
         };
 
         let vk_hash = self.verifying_key.hash_u32();
@@ -232,7 +233,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::HeaderChainProofRequest { ref output_proof, .. } = ctx.request else {
-            return Err(anyhow::anyhow!("invalid context"));
+            anyhow::bail!("invalid context");
         };
         fs::write(&output_proof, bincode::serialize(&proof)?)?;
         fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;

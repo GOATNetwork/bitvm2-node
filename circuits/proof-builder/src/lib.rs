@@ -92,14 +92,15 @@ pub trait ProofBuilder {
     ) -> anyhow::Result<()>;
 
     fn is_long_running(&self) -> bool;
+
+    fn name() -> String;
 }
 
 pub trait LongRunning {
     fn rotate(&self) -> Self;
-    fn name(&self) -> String;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct OnDemandTask {
     pub latest_sequencer_commit_txid: String,
     pub header_chain_input_proof: String,

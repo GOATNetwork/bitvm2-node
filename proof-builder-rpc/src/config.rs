@@ -20,10 +20,13 @@ impl ProofBuilderConfig {
         Ok(toml::from_str(&content)?)
     }
 
-    pub(crate) fn run_next<R: LongRunning + serde::Serialize>(args: R) -> anyhow::Result<R> {
+    pub(crate) fn run_next<R: LongRunning + serde::Serialize>(
+        args: R,
+        name: String,
+    ) -> anyhow::Result<R> {
         let new_args = args.rotate();
         let contents = toml::to_string_pretty(&new_args)?;
-        std::fs::write(format!("{}.ckpt", args.name()), contents)?;
+        std::fs::write(format!("{name}.ckpt"), contents)?;
         Ok(new_args)
     }
 }

@@ -284,7 +284,7 @@ mod tests {
                 Method::PUT => client.put(self.url.clone()),
                 Method::DELETE => client.delete(self.url.clone()),
                 _ => {
-                    return Err(anyhow::anyhow!("wrong method"));
+                    anyhow::bail!("wrong method");
                 }
             };
             if let Some(json_payload) = self.json_payload.clone() {
@@ -303,11 +303,11 @@ mod tests {
                     "Test api '{}' failed: expected status {}, got {}, resp: {data}",
                     self.tag, self.expe_res, actual_status
                 );
-                return Err(anyhow::anyhow!(
+                anyhow::bail!(
                     "Test failed: expected status {}, got {}",
                     self.expe_res,
                     actual_status
-                ));
+                );
             }
 
             if let Some(validate_fn) = &self.resp_validation {
@@ -315,7 +315,7 @@ mod tests {
                 if !validate_fn(text) {
                     eprintln!("Test api '{}' fail validate_fn", self.tag);
                     error!("Test api '{}' fail validate_fn", self.tag);
-                    return Err(anyhow::anyhow!("Test api '{}' fail validate_fn", self.tag));
+                    anyhow::bail!("Test api '{}' fail validate_fn", self.tag);
                 }
             }
 

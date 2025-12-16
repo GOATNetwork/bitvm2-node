@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,\n                                           zkm_version, extra, updated_at, created_at FROM long_running_task_proof\n           \n             WHERE block_start >= ? AND chain_name = ? ORDER BY block_start DESC LIMIT 1",
+  "query": "SELECT\n                block_start,\n                block_end,\n                chain_name,\n                path_to_proof,\n                cycles,\n                proof_state,\n                proving_time,\n                zkm_version,\n                extra,\n                updated_at,\n                created_at\n            FROM long_running_task_proof\n            WHERE chain_name = ?\n            ORDER BY block_start DESC\n            LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -60,7 +60,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       false,
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "2d4115f2f43c004ad408f884d63f713e3cdd94fc2d31cebce1ab6b8a9298b3f4"
+  "hash": "574517eb33c0518c8d0f6643e712823322c5538dc1c839d5fc2eb96d177b566c"
 }

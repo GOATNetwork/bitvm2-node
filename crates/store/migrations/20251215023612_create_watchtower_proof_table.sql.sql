@@ -8,6 +8,7 @@ CREATE TABLE watchtower_proof
     `public_key`          TEXT   NOT NULL,
     `challenge_txid`      TEXT   NOT NULL,
     `challenge_init_txid` TEXT   NOT NULL,
+    `execution_layer_block_number` BIGINT NOT NULL DEFAULT 0,
     `path_to_proof`       TEXT,
     `cycles`              BIGINT NOT NULL DEFAULT 0,
     `proof_state`         BIGINT NOT NULL DEFAULT 0 CHECK (proof_state IN (0, 1, 2, 3)),

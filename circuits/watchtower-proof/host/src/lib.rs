@@ -62,9 +62,6 @@ impl LongRunning for Args {
         next_args.index = self.index + 1;
         next_args
     }
-    fn name(&self) -> String {
-        "watchtower-chain".to_string()
-    }
 }
 
 pub async fn fetch_target_block(
@@ -116,6 +113,10 @@ impl ProofBuilder for WatchtowerProofBuilder {
         &self.verifying_key
     }
 
+    fn name() -> String {
+        "watchtower-chain".to_string()
+    }
+
     fn build_proof(
         &self,
         ctx: &Context,
@@ -133,7 +134,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
             ..
         } = ctx.request
         else {
-            return Err(anyhow::anyhow!("Invalid proof request type"));
+            anyhow::bail!("Invalid proof request type");
         };
 
         // --- header chain --- //
@@ -270,7 +271,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::WatchtowerProofRequest { ref output, .. } = ctx.request else {
-            return Err(anyhow::anyhow!("invalid context"));
+            anyhow::bail!("invalid context");
         };
         std::fs::write(&format!("{}.proof.bin", output), proof.bytes()).unwrap();
         std::fs::write(&format!("{}.public_inputs.bin", output), proof.public_values.to_vec())

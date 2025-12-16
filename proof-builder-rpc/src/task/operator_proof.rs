@@ -1,4 +1,7 @@
-use crate::task::{fetch_on_demand_task, update_operator_task};
+use crate::{
+    config::ProofBuilderConfig,
+    task::{fetch_on_demand_task, update_operator_task},
+};
 use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
@@ -21,7 +24,7 @@ pub(crate) fn spawn_operator_proof_task(
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}
             _ = cancellation_token.cancelled() => {
-                return Err(anyhow::anyhow!("Operator proof generate task cancelled"));
+                anyhow::bail!("Operator proof generate task cancelled");
             }
         }
 
@@ -101,9 +104,11 @@ pub(crate) fn spawn_operator_proof_task(
                     let zkm_version = proof.zkm_version.clone();
                     update_operator_task(&local_db, args.index, &args.output, cycles, proving_duration as i64, zkm_version).await?;
                     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
+                    args = ProofBuilderConfig::run_next(args, OperatorProofBuilder::name())?;
+
                 }
                 _ = cancellation_token.cancelled() => {
-                    return Err(anyhow::anyhow!("Operator proof generate task cancelled"));
+                    anyhow::bail!("Operator proof generate task cancelled");
                 }
             }
         }

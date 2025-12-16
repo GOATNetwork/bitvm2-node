@@ -63,9 +63,6 @@ impl LongRunning for Args {
         );
         next_args
     }
-    fn name(&self) -> String {
-        "commit-chain".to_string()
-    }
 }
 
 pub async fn fetch_commit_chain(
@@ -77,9 +74,11 @@ pub async fn fetch_commit_chain(
 ) -> anyhow::Result<()> {
     let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(&esplora_url));
+    assert_eq!(batch_size, 1);
 
     let mut commits: Vec<CircuitCommit> = vec![];
     for i in start..start + batch_size {
+        tracing::info!("read: {commit_info_file}.{i}");
         let rdr = std::fs::File::open(&format!("{commit_info_file}.{i}"))?;
         let ci: CommitInfo = serde_json::from_reader(rdr)?;
         let txid = Txid::from_str(&ci.txid)?;
@@ -113,7 +112,7 @@ pub async fn fetch_commit_chain(
         };
         commits.push(commit);
     }
-    std::fs::write(&commits_file, serde_json::to_vec(&commits)?)?;
+    std::fs::write(&format!("{commits_file}.{start}"), serde_json::to_vec(&commits)?)?;
     Ok(())
 }
 
@@ -145,6 +144,10 @@ impl ProofBuilder for CommitChainProofBuilder {
         &self.verifying_key
     }
 
+    fn name() -> String {
+        "commit-chain".to_string()
+    }
+
     fn build_proof(
         &self,
         ctx: &proof_builder::Context,
@@ -156,7 +159,7 @@ impl ProofBuilder for CommitChainProofBuilder {
             ..
         } = ctx.request
         else {
-            return Err(anyhow::anyhow!("Invalid proof request type"));
+            anyhow::bail!("Invalid proof request type");
         };
 
         let vk_hash = self.verifying_key.hash_u32();
@@ -229,7 +232,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::CommitChainProofRequest { ref output_proof, .. } = ctx.request else {
-            return Err(anyhow::anyhow!("Invalid commit chain input"));
+            anyhow::bail!("Invalid commit chain input");
         };
         fs::write(&output_proof, bincode::serialize(&proof)?)?;
         fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;

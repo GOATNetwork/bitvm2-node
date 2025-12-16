@@ -79,9 +79,6 @@ impl LongRunning for Args {
         );
         next_args
     }
-    fn name(&self) -> String {
-        "state-chain".to_string()
-    }
 }
 
 async fn fetch_withdrawal(
@@ -230,6 +227,10 @@ impl ProofBuilder for StateChainProofBuilder {
         &self.verifying_key
     }
 
+    fn name() -> String {
+        "state-chain".to_string()
+    }
+
     fn build_proof(
         &self,
         ctx: &Context,
@@ -241,7 +242,7 @@ impl ProofBuilder for StateChainProofBuilder {
             ..
         } = ctx.request
         else {
-            return Err(anyhow::anyhow!("Invalid state chain inputs"));
+            anyhow::bail!("Invalid state chain inputs");
         };
 
         let vk_hash = self.verifying_key.hash_u32();
@@ -304,7 +305,7 @@ impl ProofBuilder for StateChainProofBuilder {
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
         let ProofRequest::StateChainProofRequest { ref output_proof, .. } = ctx.request else {
-            return Err(anyhow::anyhow!("Invalid state chain inputs"));
+            anyhow::bail!("Invalid state chain inputs");
         };
         fs::write(output_proof, bincode::serialize(&proof)?)?;
         fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;

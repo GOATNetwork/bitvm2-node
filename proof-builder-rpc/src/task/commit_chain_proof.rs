@@ -2,7 +2,6 @@ use crate::ProofBuilderConfig;
 use crate::task::update_long_running_task;
 use commit_chain_proof::CommitChainProofBuilder;
 use commit_chain_proof::fetch_commit_chain;
-use proof_builder::LongRunning;
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
@@ -23,7 +22,7 @@ pub(crate) fn spawn_commit_chain_proof_task(
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}
             _ = cancellation_token.cancelled() => {
-                return Err(anyhow::anyhow!("Commit chain proof generate task cancelled"));
+                anyhow::bail!("Commit chain proof generate task cancelled");
             }
         }
 
@@ -59,11 +58,11 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
                     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
-                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, args.name(), proving_duration as i64, zkm_version).await?;
-                    args = ProofBuilderConfig::run_next(args).unwrap();
+                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, CommitChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
+                    args = ProofBuilderConfig::run_next(args, CommitChainProofBuilder::name()).unwrap();
                 }
                 _ = cancellation_token.cancelled() => {
-                    return Err(anyhow::anyhow!("Commit chain proof generate task cancelled"));
+                    anyhow::bail!("Commit chain proof generate task cancelled");
                 }
             }
         }
