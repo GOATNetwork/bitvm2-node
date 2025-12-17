@@ -2773,7 +2773,8 @@ impl<'a> StorageProcessor<'a> {
         graph_id: &Uuid,
     ) -> anyhow::Result<Vec<WatchtowerProof>> {
         let res = sqlx::query_as::<_, WatchtowerProof>(
-            "SELECT instance_id,
+            "SELECT id,
+                         instance_id,
                          graph_id,
                          public_key,
                          challenge_txid,

@@ -37,7 +37,7 @@ input_proof = "../circuits/data/state-chain/9511050-10.bin"
 output_proof = "../circuits/data/state-chain/9511060-10.bin"
 
 [watchtower]
-enable = true 
+enable = false 
 esplora_url = "http://127.0.0.1:3002"
 genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
 latest_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
@@ -48,7 +48,7 @@ output = "../circuits/data/watchtower/output.bin"
 index = 1
 
 [operator]
-enable = false
+enable = true 
 esplora_url = "http://127.0.0.1:3002"
 genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
 latest_sequencer_commit_txid = "b8e0c71b8a2b7c8c7e6f5e4d3c2b1a0099887766554433221100ffeeddccbbaa"

@@ -240,15 +240,15 @@ pub(crate) async fn fetch_on_demand_task(
         }
     } else {
         //fetch watchtower info
-        let task = storage_processor.find_operator_proof_by_id(index as i64).await?;
-        if task.is_none() {
-            return Ok(None);
-        }
-        let task = task.unwrap();
+        let task = match storage_processor.find_operator_proof_by_id(index as i64).await? {
+            Some(task) => task,
+            None => return Ok(None),
+        };
         tracing::info!("operator task: {task:?}");
         let watchtower_info = storage_processor
             .find_watchtower_proof_by_instance_and_graph(&task.instance_id, &task.graph_id)
             .await?;
+        tracing::info!("watchtower info: {watchtower_info:?}");
         let challenge_init_txids =
             watchtower_info.iter().map(|w| w.challenge_init_txid.0.to_string()).collect::<Vec<_>>();
         if let Some(first) = challenge_init_txids.first() {
