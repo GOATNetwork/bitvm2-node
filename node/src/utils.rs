@@ -3231,7 +3231,7 @@ pub fn generate_local_key() -> libp2p::identity::Keypair {
 
 pub fn temp_sqlite_db_path() -> String {
     let tmp_db = tempfile::NamedTempFile::new().unwrap();
-    format!("sqlite:{}", tmp_db.path().as_os_str().to_str().unwrap().to_string())
+    format!("sqlite:{}", tmp_db.path().as_os_str().to_str().unwrap())
 }
 
 // contract calls
