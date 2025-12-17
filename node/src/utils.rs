@@ -84,11 +84,16 @@ pub mod todo_funcs {
 
     use super::*;
 
-    // contract calls
-    // db operations
     // proof network
-    pub async fn get_watchtower_proof(instance_id: Uuid, graph_id: Uuid) -> Result<Vec<u8>> {
-        Ok(b"watchtower_proof".to_vec())
+
+    /// Returns:
+    /// - `Ok(Some(WatchtowerProof), _)` if watchtower proof is available
+    /// - `Ok(None, wait_secs)` if watchtower proof is not yet available, with suggested wait time
+    pub async fn get_watchtower_proof(
+        instance_id: Uuid,
+        graph_id: Uuid,
+    ) -> Result<(Option<Vec<u8>>, usize)> {
+        Ok((Some(b"watchtower_proof".to_vec()), 0))
     }
     pub async fn get_operator_proof_blockhash(
         instance_id: Uuid,
@@ -96,10 +101,14 @@ pub mod todo_funcs {
     ) -> Result<[u8; 32]> {
         Ok([0xbbu8; 32])
     }
+
+    /// Returns:
+    /// - `Ok(Some(OperatorProof), _)` if operator proof is available
+    /// - `Ok(None, wait_secs)` if operator proof is not yet available, with suggested wait time
     pub async fn get_operator_proof(
         instance_id: Uuid,
         graph_id: Uuid,
-    ) -> Result<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)> {
+    ) -> Result<(Option<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)>, usize)> {
         let proof = hex::decode(
             "b6ef2c5aa48a2f599a13bc4d8010e4d0190aeb05ff79e21266aff8dde6353d1756191f0959c787f6dedfc0c47751aed2648775101285b9da2d6c4e912e74891f884bd672f94f4d78528fb10b5410a94b53bcef07f99952ef72b68c72a5c4ff2a3de7c314ffbf17df018a753f070448c2f698706d4c2b99bdb06f928cffe1bea0",
         )?;
@@ -113,7 +122,7 @@ pub mod todo_funcs {
             get_guest_constant_value(instance_id, graph_id).await?,
             [0xffu8; 32], // use [0u8; 32] to test non-inclusion challenge
         ];
-        Ok((guest_inputs, proof, pis, pk))
+        Ok((Some((guest_inputs, proof, pis, pk)), 0))
     }
     pub async fn get_operator_proof_vk(instance_id: Uuid, graph_id: Uuid) -> Result<VerifyingKey> {
         let zkm_v1_vk_bytes = hex::decode(
@@ -2491,11 +2500,14 @@ pub async fn operator_kickoff(btc_client: &BTCClient, graph: &mut Bitvm2Graph) -
     Ok(())
 }
 
-// return split txid if need to split utxos for fees
+/// Return values: (Some(split_txid), has_pending_fee_inputs, Some(wait_proof_gen_secs))
+/// - `split_txid`: If a split transaction was broadcasted to consolidate UTXOs for fees, its txid is returned here.
+/// - `has_pending_fee_inputs`: Indicates whether some of UTXOs for fees are still pending.
+/// - `wait_proof_gen_secs`: If proof generation is still in progress, this returns the estimated time in seconds to wait before retrying.
 pub async fn operator_send_assert_commit(
     btc_client: &BTCClient,
     graph: &mut Bitvm2Graph,
-) -> Result<(Option<Txid>, bool)> {
+) -> Result<(Option<Txid>, bool, Option<usize>)> {
     // Prepare keys and proof materials
     let instance_id = graph.parameters.instance_parameters.instance_id;
     let graph_id = graph.parameters.graph_id;
@@ -2518,8 +2530,20 @@ pub async fn operator_send_assert_commit(
         inputs
     } else {
         let wots_secret_keys = operator_master_key.wots_keypair_for_graph(graph_id).0;
-        let (guest_inputs, proof, groth16_pubin, vk) =
-            todo_funcs::get_operator_proof(instance_id, graph_id).await?;
+        let (guest_inputs, proof, groth16_pubin, vk) = match todo_funcs::get_operator_proof(
+            instance_id,
+            graph_id,
+        )
+        .await?
+        {
+            (Some(proof_data), _) => proof_data,
+            (None, wait_secs) => {
+                tracing::info!(
+                    "operator proof generation in progress for graph_id:{graph_id}, wait and retry {wait_secs}s later"
+                );
+                return Ok((None, false, Some(wait_secs)));
+            }
+        };
         let inputs = operator_sign_assert_commit(
             node_keypair,
             graph,
@@ -2568,7 +2592,7 @@ pub async fn operator_send_assert_commit(
                 "failed to cleanup assert-commit cache for graph_id:{graph_id}: {err:?}"
             );
         }
-        return Ok((None, false));
+        return Ok((None, false, None));
     }
 
     // get available fee UTXOs from node address
@@ -2583,7 +2607,7 @@ pub async fn operator_send_assert_commit(
         }
         let split_txid = split_tx.compute_txid();
         broadcast_tx(btc_client, &split_tx).await?;
-        return Ok((Some(split_txid), false));
+        return Ok((Some(split_txid), false, None));
     } else if utxo_sets.is_empty() {
         let current_balance = btc_client
             .get_address_utxo(node_address)
@@ -2662,7 +2686,7 @@ pub async fn operator_send_assert_commit(
         warn!("failed to cleanup assert-commit cache for graph_id:{graph_id}: {err:?}");
     }
 
-    Ok((None, has_pending_fee_input))
+    Ok((None, has_pending_fee_input, None))
 }
 
 pub async fn send_challenge_tx(btc_client: &BTCClient, graph: &Bitvm2Graph) -> Result<Txid> {

@@ -2422,8 +2422,19 @@ pub async fn recv_and_dispatch(
             // 1. check the withdraw status on GoatChain, if the withdraw is invalid, sign & broadcast watchtower-challenge txn
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
-                let watchtower_proof =
-                    todo_funcs::get_watchtower_proof(instance_id, graph_id).await?;
+                let watchtower_proof = match todo_funcs::get_watchtower_proof(instance_id, graph_id)
+                    .await?
+                {
+                    (Some(proof), _) => proof,
+                    (None, wait_secs) => {
+                        tracing::warn!(
+                            "Retry WatchtowerChallengeInitSent for {instance_id}:{graph_id} later: watchtower proof not ready, retry after {wait_secs} seconds"
+                        );
+                        push_local_unhandled_messages(local_db, graph_id, &message, wait_secs)
+                            .await?;
+                        return Ok(());
+                    }
+                };
                 if let Err(e) =
                     send_watchtower_challenge_tx(btc_client, &graph, node_index, watchtower_proof)
                         .await
@@ -2951,10 +2962,19 @@ pub async fn recv_and_dispatch(
                     .await?;
                 return Ok(());
             } else {
-                let (split_txid_opt, has_pending_fee_input) =
+                let (split_txid_opt, has_pending_fee_input, proof_wait_secs_opt) =
                     operator_send_assert_commit(btc_client, &mut graph).await?;
-                if let Some(_split_txid) = split_txid_opt {
+                if let Some(wait_secs) = proof_wait_secs_opt {
+                    tracing::warn!(
+                        "Retry AssertInitReady for {instance_id}:{graph_id} later: operator proof not ready, retry after {wait_secs} seconds"
+                    );
+                    push_local_unhandled_messages(local_db, graph_id, &message, wait_secs).await?;
+                    return Ok(());
+                } else if let Some(split_txid) = split_txid_opt {
                     let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    tracing::warn!(
+                        "Retry AssertInitReady for {instance_id}:{graph_id} later: fee_inputs_split_tx {split_txid} broadcasted, retry after {delay_secs} seconds"
+                    );
                     push_local_unhandled_messages(
                         local_db,
                         graph_id,
@@ -2964,6 +2984,9 @@ pub async fn recv_and_dispatch(
                     .await?;
                 } else if has_pending_fee_input {
                     let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    tracing::warn!(
+                        "Retry AssertInitReady for {instance_id}:{graph_id} later: some fee inputs are pending, retry after {delay_secs} seconds",
+                    );
                     push_local_unhandled_messages(
                         local_db,
                         graph_id,
