@@ -2514,9 +2514,9 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn find_nearst_long_running_task_proof_by_start(
+    pub async fn find_long_running_task_proof_including_block_number(
         &mut self,
-        block_start: i64,
+        block_number: i64,
         chain_name: String,
     ) -> anyhow::Result<Option<LongRunningTaskProof>> {
         let res = sqlx::query_as!(
@@ -2524,8 +2524,9 @@ impl<'a> StorageProcessor<'a> {
             "SELECT block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
                                            zkm_version, extra, updated_at, created_at FROM long_running_task_proof
            
-             WHERE block_start >= ? AND chain_name = ? ORDER BY block_start ASC LIMIT 1",
-            block_start,
+             WHERE block_end > ? and block_start <= ? AND chain_name = ? LIMIT 1",
+            block_number,
+            block_number,
             chain_name,
         )
             .fetch_optional(self.conn())

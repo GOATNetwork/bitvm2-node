@@ -273,13 +273,20 @@ pub(crate) async fn fetch_on_demand_task(
     };
 
     // state chain: find the proof that includes the execution_layer_block_number
-    let state_chain_input_proof = storage_processor
-        .find_nearst_long_running_task_proof_by_start(
+    let state_chain_input_proof = match storage_processor
+        .find_long_running_task_proof_including_block_number(
             execution_layer_block_number,
             StateChainProofBuilder::name(),
         )
         .await?
-        .unwrap();
+    {
+        Some(d) => d,
+        None => {
+            anyhow::bail!(
+                "State chain proof is not ready for block: {execution_layer_block_number}"
+            );
+        }
+    };
     let state_chain_input_proof = state_chain_input_proof.path_to_proof.unwrap();
 
     Ok(Some(OnDemandTask {
@@ -452,7 +459,7 @@ mod tests {
             "3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0".to_string();
         let challenge_init_txid =
             "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
-        let number = 8447360;
+        let number = 9511055;
         add_watchtower_task(
             &local_db,
             instance_id,
@@ -474,7 +481,7 @@ mod tests {
         let local_db = create_local_db(&db_path).await;
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
-        let number = 8447360;
+        let number = 9511055;
         add_operator_task(&local_db, instance_id, graph_id, number).await.unwrap();
     }
 }
