@@ -91,6 +91,7 @@ pub struct InstanceQuery {
     pub earliest_updated: Option<i64>,
     pub pegin_request_height_threshold: Option<i64>,
     pub order: Option<String>,
+    pub raw_conditions: Vec<String>,
     pub offset: Option<u32>,
     pub limit: Option<u32>,
 }
@@ -152,6 +153,16 @@ impl InstanceQuery {
         self
     }
 
+    pub fn with_raw_condition(mut self, raw_condition: String) -> Self {
+        self.raw_conditions.push(raw_condition);
+        self
+    }
+
+    pub fn with_raw_conditions(mut self, raw_conditions: Vec<String>) -> Self {
+        self.raw_conditions = raw_conditions;
+        self
+    }
+
     pub fn get_query_builder(&self, base_sql: &str) -> QueryBuilder {
         let mut query_builder = QueryBuilder::new(base_sql);
         query_builder.and_where("is_bridge_in = ?", Some(QueryParam::Bool(self.is_bridge_in)));
@@ -176,6 +187,10 @@ impl InstanceQuery {
                 Some(QueryParam::Int(pegin_request_height_threshold)),
             );
         }
+        for raw_condition in &self.raw_conditions {
+            query_builder.add_raw_condition(raw_condition);
+        }
+
         if let Some(order) = &self.order {
             query_builder.apply_order(order);
         }
@@ -191,12 +206,14 @@ impl InstanceQuery {
 pub struct InstanceUpdate {
     pub instance_id: Option<Uuid>,
     pub escrow_hash: Option<String>,
+    pub from_addr: Option<String>,
     pub to_addr: Option<String>,
     pub btc_txid: Option<SerializableTxid>,
     pub status: Option<String>,
     pub pegin_confirm_txid: Option<String>,
     pub btc_height: Option<i64>,
     pub committees_answers: Option<HashMap<String, Vec<u8>>>,
+    pub bridge_out_lock_time: Option<i64>,
 }
 
 impl InstanceUpdate {
@@ -205,12 +222,14 @@ impl InstanceUpdate {
         Self {
             instance_id: Some(instance_id),
             escrow_hash: None,
+            from_addr: None,
             to_addr: None,
             btc_txid: None,
             status: None,
             pegin_confirm_txid: None,
             btc_height: None,
             committees_answers: None,
+            bridge_out_lock_time: None,
         }
     }
     pub fn new_with_escrow_hash(escrow_hash: String) -> Self {
@@ -218,12 +237,20 @@ impl InstanceUpdate {
             instance_id: None,
             escrow_hash: Some(escrow_hash),
             to_addr: None,
+            from_addr: None,
             btc_txid: None,
             status: None,
             pegin_confirm_txid: None,
             btc_height: None,
             committees_answers: None,
+            bridge_out_lock_time: None,
         }
+    }
+
+    /// Set from_addr
+    pub fn with_from_addr(mut self, from_addr: String) -> Self {
+        self.from_addr = Some(from_addr);
+        self
     }
 
     /// Set to_addr
@@ -255,16 +282,28 @@ impl InstanceUpdate {
         self
     }
 
-    pub fn with_btc_height(mut self, timeout: i64) -> Self {
-        self.btc_height = Some(timeout);
+    /// Set btc height
+    pub fn with_btc_height(mut self, btc_height: i64) -> Self {
+        self.btc_height = Some(btc_height);
+        self
+    }
+
+    /// Set bridge out lock time
+    pub fn with_bridge_out_lock_time(mut self, bridge_out_lock_time: i64) -> Self {
+        self.bridge_out_lock_time = Some(bridge_out_lock_time);
         self
     }
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
-        self.status.is_some()
+        self.escrow_hash.is_some()
+            || self.from_addr.is_some()
+            || self.to_addr.is_some()
+            || self.btc_txid.is_some()
+            || self.status.is_some()
             || self.pegin_confirm_txid.is_some()
-            || self.committees_answers.is_some()
             || self.btc_height.is_some()
+            || self.committees_answers.is_some()
+            || self.bridge_out_lock_time.is_some()
     }
 
     pub fn get_query_builder(&self, base_sql: &str) -> QueryBuilder {
@@ -288,8 +327,16 @@ impl InstanceUpdate {
             query_builder.set_field("to_addr", QueryParam::Text(to_addr.clone()));
         }
 
+        if let Some(ref from_addr) = self.from_addr {
+            query_builder.set_field("from_addr", QueryParam::Text(from_addr.clone()));
+        }
+
         if let Some(ref btc_txid) = self.btc_txid {
             query_builder.set_field("btc_txid", QueryParam::BTCTxid(btc_txid.clone()));
+        }
+
+        if let Some(bridge_out_lock_time) = self.bridge_out_lock_time {
+            query_builder.set_field("bridge_out_lock_time", QueryParam::Int(bridge_out_lock_time));
         }
 
         // Add update time
@@ -679,8 +726,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, is_bridge_in,  network, from_addr, to_addr, amount, fees, input_utxos, status, goat_tx_hash, goat_tx_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers,
-                       pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, bridge_out_lock_time,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.is_bridge_in,
             instance.network,
@@ -704,6 +751,7 @@ impl<'a> StorageProcessor<'a> {
             instance.parameters,
             instance.status_updated_at,
             instance.escrow_hash,
+            instance.bridge_out_lock_time,
             instance.created_at,
             instance.updated_at
         )

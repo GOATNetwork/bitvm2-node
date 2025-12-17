@@ -1,9 +1,10 @@
 use crate::env::{GraphBtcTxName, get_network};
 use crate::rpc_service::response::ErrorResponse;
+use crate::utils::strip_hex_prefix_owned;
 use alloy::primitives::Address as EvmAddress;
 use axum::Json;
 use axum::http::StatusCode;
-use bitcoin::{Address, AddressType, PublicKey};
+use bitcoin::{Address, AddressType, Network, PublicKey};
 use bitvm2_lib::actors::Actor;
 use libp2p::PeerId;
 use std::str::FromStr;
@@ -73,10 +74,27 @@ impl InputValidator {
     }
 
     /// Validate btc address format
-    pub fn validate_btc_address(addr_str: &str, field_name: &str) -> ValidationResult<()> {
+    pub fn validate_btc_address(
+        addr_str: &str,
+        network: Option<String>,
+        field_name: &str,
+    ) -> ValidationResult<()> {
+        let network = if let Some(network) = network {
+            Network::from_str(&network).map_err(|err| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "INVALID_BTC_SEGWIT_ADDRESS".to_string(),
+                        message: format!("{field_name} with wrong network: {network}, err:{err}"),
+                    }),
+                )
+            })?
+        } else {
+            get_network()
+        };
         let mut validate = false;
         if let Ok(addr_unchecked) = Address::from_str(addr_str)
-            && let Ok(addr) = addr_unchecked.require_network(get_network())
+            && let Ok(addr) = addr_unchecked.require_network(network)
         {
             validate = matches!(
                 addr.address_type(),
@@ -241,5 +259,38 @@ impl InputValidator {
             ));
         }
         Ok(())
+    }
+
+    pub fn validate_hex(
+        hex_str: &str,
+        is_with_prefix: bool,
+        expected_len: usize,
+        field_name: &str,
+    ) -> ValidationResult<String> {
+        let str = strip_hex_prefix_owned(hex_str);
+        match hex::decode(str) {
+            Ok(bytes) if bytes.len() == expected_len && is_with_prefix => {
+                Ok(format!("0x{}", hex::encode(&bytes)))
+            }
+            Ok(bytes) if bytes.len() == expected_len && !is_with_prefix => Ok(hex::encode(&bytes)),
+            Ok(bytes) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "INVALID_HEX_INPUT".to_string(),
+                    message: format!(
+                        "{field_name} decoded to bytes size is {} neq {}",
+                        bytes.len(),
+                        expected_len
+                    ),
+                }),
+            )),
+            Err(_) => Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "INVALID_HEX_INPUT".to_string(),
+                    message: format!("{field_name} is not a valid input hex"),
+                }),
+            )),
+        }
     }
 }

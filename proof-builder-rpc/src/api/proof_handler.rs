@@ -22,7 +22,7 @@ pub(super) async fn get_chain_proof_task(
 
     let proof = if let Some(height) = payload.height {
         storage_process
-            .find_nearst_long_running_task_proof_by_start(
+            .find_long_running_task_proof_including_block_number(
                 height,
                 payload.proof_type.get_chain_name().to_string(),
             )

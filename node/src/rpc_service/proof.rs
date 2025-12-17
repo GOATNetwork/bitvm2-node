@@ -3,6 +3,7 @@ use strum::{Display, EnumString};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Display, EnumString)]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
 pub enum ProofType {
     #[strum(serialize = "header_chain")]
     HeaderChain,

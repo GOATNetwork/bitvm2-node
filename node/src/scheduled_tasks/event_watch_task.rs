@@ -7,10 +7,11 @@ use crate::env::{
     get_goat_swap_event_filter_gap_from_env, get_goat_swap_the_graph_urls_from_env, get_network,
 };
 use crate::rpc_service::current_time_secs;
+use crate::scheduled_tasks::get_timestamp_from_contract_data;
 use crate::utils::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::utils::{
-    GenerateInstanceParams, generate_instance, outpoint_available, reflect_goat_address,
-    strip_hex_prefix_owned,
+    GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance, outpoint_available,
+    reflect_goat_address, strip_hex_prefix_owned,
 };
 use alloy::primitives::Address as EvmAddress;
 use alloy::sol_types::SolValue;
@@ -36,7 +37,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use store::localdb::{GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
+use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, Instance,
     InstanceBridgeInStatus, InstanceBridgeOutStatus, WatchContract, WatchContractStatus,
@@ -45,6 +46,7 @@ use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
+
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch_and_handle_block_range_events<'a>(
     actor: Actor,
@@ -592,15 +594,43 @@ async fn handle_swap_init_events<'a>(
         )
         .await?
         {
-            // block_timestamp, instance_id, escrow_hash, goat_txid, amount
-            info!(
-                "{}, {},{}",
-                event.escrow_hash,
-                escrow_data.offerer.to_string(),
-                escrow_data.claimer.to_string()
-            );
             let create_time = event.block_timestamp.parse::<i64>()?;
-            let instance_id = Uuid::new_v4();
+            let (instance_id, instance) = if let Some(instance) =
+                find_instances_by_escrow_hash(storage_processor, &event.escrow_hash).await?
+            {
+                if instance.status != InstanceBridgeOutStatus::Initialize.to_string() {
+                    (instance.instance_id, None)
+                } else {
+                    (instance.instance_id, Some(instance))
+                }
+            } else {
+                let instance_id = Uuid::new_v4();
+                (
+                    instance_id,
+                    Some(Instance {
+                        instance_id,
+                        is_bridge_in: false,
+                        network: get_network().to_string(),
+                        from_addr: escrow_data.offerer.to_string(),
+                        status: InstanceBridgeOutStatus::Initialize.to_string(),
+                        escrow_hash: Some(event.escrow_hash.clone()),
+                        status_updated_at: create_time,
+                        created_at: create_time,
+                        ..Default::default()
+                    }),
+                )
+            };
+            if let Some(mut instance) = instance {
+                instance.amount = escrow_data.amount.to::<i64>();
+                instance.goat_tx_hash = event.transaction_hash.clone();
+                instance.goat_tx_height = event.block_number.parse::<i64>()?;
+                instance.user_change_addr = escrow_data.claimer.to_string();
+                instance.user_refund_addr = escrow_data.claimer.to_string();
+                instance.bridge_out_lock_time =
+                    get_timestamp_from_contract_data(&escrow_data.refundData.0);
+                instance.status_updated_at = create_time;
+                storage_processor.upsert_instance(&instance).await?;
+            }
             storage_processor
                 .upsert_goat_tx_record(&GoatTxRecord {
                     instance_id,
@@ -614,35 +644,8 @@ async fn handle_swap_init_events<'a>(
                     created_at: create_time,
                 })
                 .await?;
-            storage_processor
-                .upsert_instance(&Instance {
-                    instance_id,
-                    is_bridge_in: false,
-                    network: get_network().to_string(),
-                    from_addr: escrow_data.offerer.to_string(),
-                    to_addr: "".to_string(),
-                    amount: escrow_data.amount.to::<i64>(),
-                    fees: Default::default(),
-                    input_utxos: "[]".to_string(),
-                    status: InstanceBridgeOutStatus::Initialize.to_string(),
-                    goat_tx_hash: event.transaction_hash.clone(),
-                    goat_tx_height: event.block_number.parse::<i64>()?,
-                    user_xonly_pubkey: Default::default(),
-                    user_change_addr: escrow_data.claimer.to_string(),
-                    user_refund_addr: escrow_data.offerer.to_string(),
-                    btc_txid: None,
-                    btc_height: 0,
-                    pegin_confirm_txid: None,
-                    pegin_cancel_txid: None,
-                    committees_answers: Default::default(),
-                    pegin_data_tx_hash: "".to_string(),
-                    parameters: None,
-                    escrow_hash: Some(event.escrow_hash.clone()),
-                    status_updated_at: create_time,
-                    created_at: create_time,
-                    updated_at: create_time,
-                })
-                .await?;
+        } else {
+            warn!("failed to parse escrow_data for event:{event:?}");
         }
     }
     Ok(())
@@ -664,16 +667,10 @@ async fn handle_swap_claim_events<'a>(
             )?,
         )
         .await?
-            && let (instances, size) = storage_processor
-                .find_instances(
-                    InstanceQuery::default()
-                        .with_is_bridge_in(false)
-                        .with_escrow_hash(event.escrow_hash.clone()),
-                )
-                .await?
-            && size > 0
+            && let Some(instance) =
+                find_instances_by_escrow_hash(storage_processor, &event.escrow_hash).await?
         {
-            let instance_id = instances[0].instance_id;
+            let instance_id = instance.instance_id;
             let to_addr = Address::from_script(
                 bitcoin::Script::from_bytes(&claim_data.output_script),
                 get_network(),
@@ -699,6 +696,8 @@ async fn handle_swap_claim_events<'a>(
                         .with_to_addr(to_addr.to_string()),
                 )
                 .await?;
+        } else {
+            warn!("failed to parse claim_data for event:{event:?}");
         }
     }
     Ok(())

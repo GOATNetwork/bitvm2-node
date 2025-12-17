@@ -36,7 +36,7 @@ use store::ProofState;
 /// # Example
 ///
 /// ```http
-/// GET /v1/proofs/chain_proofs_desc?proof_type=header_chain&height=100000
+/// GET /v1/proofs/chain_proofs_desc?proof_type=header_chain&height=100000&is_start_height=false
 /// ```
 ///
 /// Response example:
@@ -69,32 +69,30 @@ pub async fn get_chain_proof(
     match get_proof_build_rpc_host() {
         Some(host) => {
             if let Some(request_host) = request.headers().get("host").and_then(|h| h.to_str().ok())
-            {
-                if host == request_host
+                && (host == request_host
                     || host
-                        .starts_with(&format!("{}:", request_host.split(':').next().unwrap_or("")))
-                {
-                    tracing::warn!(
-                        "GOAT_PROOF_BUILD_URL points to self ({host}), returning mock data to avoid loop"
-                    );
-                    return ok_response(ChainProofDescResponse {
-                        proof_desc: Some(ChainProofDesc {
-                            block_start: 10000,
-                            block_end: 20000,
-                            proof_type: params.proof_type.to_string(),
-                            state: ProofState::Proven.to_string(),
-                            proving_cycles: 10000,
-                            proving_time: 100000,
-                            total_time_to_proof: 100010,
-                            proof_size: 333.0,
-                            zkm_version: "zkm_1.0.0".to_string(),
-                            pub_values: hex::encode(&generate_random_bytes(64)),
-                            created_at: current_time_secs(),
-                            updated_at: current_time_secs(),
-                        }),
-                        error: None,
-                    });
-                }
+                        .starts_with(&format!("{}:", request_host.split(':').next().unwrap_or(""))))
+            {
+                tracing::warn!(
+                    "GOAT_PROOF_BUILD_URL points to self ({host}), returning mock data to avoid loop"
+                );
+                return ok_response(ChainProofDescResponse {
+                    proof_desc: Some(ChainProofDesc {
+                        block_start: 10000,
+                        block_end: 20000,
+                        proof_type: params.proof_type.to_string(),
+                        state: ProofState::Proven.to_string(),
+                        proving_cycles: 10000,
+                        proving_time: 100000,
+                        total_time_to_proof: 100010,
+                        proof_size: 333.0,
+                        zkm_version: "zkm_1.0.0".to_string(),
+                        pub_values: hex::encode(generate_random_bytes(64)),
+                        created_at: current_time_secs(),
+                        updated_at: current_time_secs(),
+                    }),
+                    error: None,
+                });
             }
             let url = format!("http://{host}{uri}");
             let resp = app_state
@@ -120,7 +118,7 @@ pub async fn get_chain_proof(
                 total_time_to_proof: 100010,
                 proof_size: 333.0,
                 zkm_version: "zkm_1.0.0".to_string(),
-                pub_values: hex::encode(&generate_random_bytes(64)),
+                pub_values: hex::encode(generate_random_bytes(64)),
                 created_at: current_time_secs(),
                 updated_at: current_time_secs(),
             }),

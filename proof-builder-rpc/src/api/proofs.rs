@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
 const HEADER_CHAIN_NAME: &str = "header-chain";
-const COMMIT_CHAIN_NAME: &str = "commit_chain";
+const COMMIT_CHAIN_NAME: &str = "commit-chain";
 const STATE_CHAIN_NAME: &str = "state-chain";
 #[derive(Clone, Debug, Serialize, Deserialize, Display, EnumString)]
 #[serde(rename_all = "snake_case")]

@@ -2,9 +2,12 @@ use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady
 use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::event_watch_task::generate_instance_from_bridge_in_request_event;
+use crate::scheduled_tasks::get_timestamp_from_contract_data;
+use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
 use crate::utils::{
     check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local, upsert_message,
 };
+use alloy::sol_types::SolType;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm2_lib::transactions::base::BaseTransaction;
@@ -15,8 +18,11 @@ use client::graphs::graph_query::BridgeInRequestEvent;
 use std::str::FromStr;
 use std::vec;
 use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
-use store::{GoatTxProcessingStatus, GoatTxType, Instance, InstanceBridgeInStatus};
+use store::{
+    GoatTxProcessingStatus, GoatTxType, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
+};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 const MAX_INSTANCE: u32 = 50;
 
@@ -378,5 +384,77 @@ pub async fn instance_btc_tx_monitor(
             }
         }
     }
+    Ok(())
+}
+
+pub async fn get_bridge_out_deadline<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    instance_id: &Uuid,
+) -> anyhow::Result<i64> {
+    let deadline = if let Some(tx_record) = storage_processor
+        .get_graph_goat_tx_record(
+            instance_id,
+            &Uuid::nil(),
+            &GoatTxType::SwapInitialize.to_string(),
+        )
+        .await?
+        && let Some(encode_escrow_data) = tx_record.extra
+        && let Ok(escrow_data_bytes) = hex::decode(&encode_escrow_data)
+        && let Ok(escrow_data) = EscrowData::abi_decode(&escrow_data_bytes)
+    {
+        get_timestamp_from_contract_data(&escrow_data.refundData.0)
+    } else {
+        0
+    };
+    Ok(deadline)
+}
+
+pub async fn instance_bridge_out_monitor(local_db: &LocalDB) -> anyhow::Result<()> {
+    let current_time = current_time_secs();
+    let (instances, _) = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .find_instances(
+                InstanceQuery::default()
+                    .with_is_bridge_in(false)
+                    .with_status(InstanceBridgeOutStatus::Initialize.to_string())
+                    .with_raw_condition("escrow_hash IS NOT NULL".to_string())
+                    .with_order("escrow_hash, created_at ASC".to_string()),
+            )
+            .await?
+    };
+    let mut storage_processor = local_db.acquire().await?;
+    let mut pre_id = Uuid::nil();
+    for instance in instances {
+        if instance.instance_id == pre_id {
+            let from_addr = format!("{}_excessive", instance.from_addr);
+            storage_processor
+                .update_instance(
+                    &InstanceUpdate::new_with_instance_id(instance.instance_id)
+                        .with_from_addr(from_addr),
+                )
+                .await?;
+            continue;
+        }
+        let mut instance_update = InstanceUpdate::new_with_instance_id(instance.instance_id);
+        pre_id = instance.instance_id;
+        let lock_time = if instance.bridge_out_lock_time == 0 {
+            let lock_time =
+                get_bridge_out_deadline(&mut storage_processor, &instance.instance_id).await?;
+            instance_update = instance_update.with_bridge_out_lock_time(lock_time);
+            lock_time
+        } else {
+            instance.bridge_out_lock_time
+        };
+        if lock_time < current_time && lock_time > 0 {
+            instance_update =
+                instance_update.with_status(InstanceBridgeOutStatus::Timeout.to_string());
+        }
+
+        if instance_update.has_updates() {
+            storage_processor.update_instance(&instance_update).await?;
+        }
+    }
+
     Ok(())
 }

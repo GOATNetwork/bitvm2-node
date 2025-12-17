@@ -11,10 +11,10 @@ use crate::env::{get_goat_network, get_network, goat_config_from_env};
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    bridge_in_request_tag, get_chain_proof, get_graph, get_graph_neighbor_ids, get_graph_tx,
-    get_graph_txn, get_graphs, get_instance, get_instances, get_instances_overview, get_node,
-    get_nodes, get_nodes_overview, get_ready_to_kickoff_graph, get_unsigned_pegin_txn,
-    instance_settings,
+    bridge_in_request_tag, bridge_out_init_tag, get_chain_proof, get_graph, get_graph_neighbor_ids,
+    get_graph_tx, get_graph_txn, get_graphs, get_instance, get_instance_escrow_data, get_instances,
+    get_instances_overview, get_node, get_nodes, get_nodes_overview, get_ready_to_kickoff_graph,
+    get_unsigned_pegin_txn, instance_settings,
 };
 use axum::body::Body;
 use axum::extract::Request;
@@ -126,10 +126,12 @@ pub async fn serve(
         .route(routes::v1::NODES_OVERVIEW, get(get_nodes_overview))
         .route(routes::v1::INSTANCES_SETTINGS, get(instance_settings))
         .route(routes::v1::INSTANCES_BRIDGE_IN_REQUEST_TAG, put(bridge_in_request_tag))
+        .route(routes::v1::INSTANCES_BRIDGE_OUT_INIT_TAG, put(bridge_out_init_tag))
         .route(routes::v1::INSTANCES_BASE, get(get_instances))
         .route(routes::v1::INSTANCES_BY_ID, get(get_instance))
         .route(routes::v1::INSTANCES_OVERVIEW, get(get_instances_overview))
         .route(routes::v1::INSTANCES_UNSIGNED_PEGIN_TXN, get(get_unsigned_pegin_txn))
+        .route(routes::v1::INSTANCES_ESCROW_DATA, get(get_instance_escrow_data))
         .route(routes::v1::GRAPHS_BY_ID, get(get_graph))
         .route(routes::v1::GRAPHS_BASE, get(get_graphs))
         .route(routes::v1::GRAPHS_READY_TO_KICKOFF, get(get_ready_to_kickoff_graph))
@@ -234,6 +236,7 @@ mod tests {
         InstanceListResponse, InstanceOverviewResponse, InstanceSettingResponse,
     };
     use crate::rpc_service::node::{NodeListResponse, NodeOverViewResponse};
+    use crate::rpc_service::proof::ProofType;
     use crate::rpc_service::{self, Actor, current_time_secs, routes};
     use crate::utils::{
         generate_local_key, generate_random_bytes, get_rand_btc_address_p2wpkh,
@@ -251,7 +254,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use store::localdb::LocalDB;
-    use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, create_local_db};
+    use store::{
+        Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, ProofState, create_local_db,
+    };
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
     use tracing::{error, info};
@@ -495,6 +500,7 @@ mod tests {
             pegin_data_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             parameters: None,
             escrow_hash: None,
+            bridge_out_lock_time: 0,
             status_updated_at: current_time_secs(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
@@ -523,6 +529,7 @@ mod tests {
             pegin_data_tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
             parameters: None,
             escrow_hash: None,
+            bridge_out_lock_time: 0,
             status_updated_at: current_time_secs(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),

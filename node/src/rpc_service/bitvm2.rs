@@ -43,7 +43,7 @@ const _BRIDGE_IN_FAIL_AS_L1_LOCK_TIMEOUT: &str =
 pub const BRIDGE_IN_AMOUNTS: [f32; 2] = [0.1, 0.01];
 
 const GOAT_BLOCK_INTERVAL_SECS: i64 = 3;
-
+const INSTANCE_BRIDGE_OUT_INIT_STATUS_DURATION_SECS: i64 = 3600; // todo update
 const INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS: i64 = 3600 * 3;
 const INSTANCE_RELAYER_L1_BROADCAST_STATUS_DURATION_SECS: i64 = 3600 * 3;
 const GRAPH_OPERATOR_KICKOFFING_STATUS_DURATION_SECS: i64 = 1800;
@@ -60,6 +60,28 @@ pub struct BridgeInPrepareRequest {
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeInPrepareResponse {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BridgeOutInitTagRequest {
+    pub instance_id: String, // UUID
+    pub network: String,     // testnet | mainnet
+    pub from_addr: String,   // goat addr
+    pub to_addr: String,     // btc addr
+    pub escrow_hash: String, // goat tx hash
+}
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BridgeOutInitTagResponse {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EscrowDataRequest {
+    pub instance_id: String, // UUID
+}
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EscrowDataResponse {
+    pub instance_id: String,
+    pub escrow: Option<String>,
+    pub error: Option<String>,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InstanceSettingResponse {
@@ -91,6 +113,7 @@ pub enum StatusUserAction {
     Cancel,
     BroadcastPreparePegin,
     BroadcastCancelPegin,
+    Refund,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct StatusExtra {
@@ -141,6 +164,7 @@ impl InstanceExtended {
                 instance.created_at,
                 instance.status_updated_at,
                 response_window_blocks,
+                instance.bridge_out_lock_time,
             );
 
         // instance.status = instance.convert_to_display_status();
@@ -217,8 +241,13 @@ async fn get_instance_status_extra(
             _ => {}
         }
     } else if !is_bridge_in
-        && let Ok(_bridge_out_status) = InstanceBridgeOutStatus::from_str(&status)
+        && let Ok(bridge_out_status) = InstanceBridgeOutStatus::from_str(&status)
     {
+        if bridge_out_status == InstanceBridgeOutStatus::Timeout {
+            status_extra.is_failed = true;
+            status_extra.error = Some(BRIDGE_IN_FAIL_AS_TIMEOUT.to_string());
+            status_extra.user_action = StatusUserAction::Refund;
+        }
     } else {
         warn!("instance:with {instance_id}, is_bridge_in:{is_bridge_in} has wrong status:{status}");
     }
@@ -276,21 +305,40 @@ fn get_bridge_in_status_time_window_secs(status: &str, response_window_blocks: i
     }
 }
 
+// dead time
+fn get_bridge_out_status_time_window_secs(status: &str, bridge_out_lock_time: i64) -> (i64, i64) {
+    let deadline_time = if bridge_out_lock_time > 0 {
+        bridge_out_lock_time
+    } else {
+        // for history data not set bridge_out_lock_time
+        INSTANCE_BRIDGE_OUT_INIT_STATUS_DURATION_SECS
+    };
+
+    match InstanceBridgeOutStatus::from_str(status) {
+        Ok(InstanceBridgeOutStatus::Initialize) => (deadline_time, deadline_time),
+        Ok(_) | Err(_) => (0, 0),
+    }
+}
+
 fn get_instance_waiting_times(
     is_bridge_in: bool,
     status: &str,
     created_at: i64,
     last_updated: i64,
     response_window_blocks: i64,
+    bridge_out_lock_time: i64,
 ) -> (i64, i64) {
-    let current_state_past = current_time_secs() - last_updated;
-    let total_past = current_time_secs() - created_at;
+    let current_time = current_time_secs();
+    let current_state_past = current_time - last_updated;
+    let total_past = current_time - created_at;
     if is_bridge_in {
         let (current_status_window, total_window) =
             get_bridge_in_status_time_window_secs(status, response_window_blocks);
         ((current_status_window - current_state_past).max(0), (total_window - total_past).max(0))
     } else {
-        (0, 0)
+        let (current_status_deadline, status_deadline) =
+            get_bridge_out_status_time_window_secs(status, bridge_out_lock_time);
+        ((current_status_deadline - current_time).max(0), (status_deadline - current_time).max(0))
     }
 }
 

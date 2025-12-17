@@ -56,7 +56,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::ipfs::IPFS;
-use store::localdb::{GraphQuery, GraphUpdate, InstanceUpdate, LocalDB, StorageProcessor};
+use store::localdb::{
+    GraphQuery, GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor,
+};
 use store::{
     ByteArray32, Graph, GraphRawData, GraphStatus, Instance, InstanceBridgeInStatus, Message,
     MessageState, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
@@ -3348,6 +3350,7 @@ pub async fn generate_instance(
         btc_height: 0,
         parameters: None,
         escrow_hash: None,
+        bridge_out_lock_time: 0,
         status_updated_at: params.pegin_timestamp,
         created_at: current_time,
         updated_at: current_time,
@@ -4131,4 +4134,19 @@ pub async fn check_bridge_in_uxto_available_or_self_spent(
         }
     }
     Ok(true)
+}
+
+pub(super) async fn find_instances_by_escrow_hash<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    escrow_hash: &str,
+) -> anyhow::Result<Option<Instance>> {
+    let (instances, size) = storage_processor
+        .find_instances(
+            InstanceQuery::default()
+                .with_is_bridge_in(false)
+                .with_escrow_hash(escrow_hash.to_string())
+                .with_order("escrow_hash, created_at ASC".to_string()),
+        )
+        .await?;
+    if size > 0 { Ok(Some(instances[0].clone())) } else { Ok(None) }
 }

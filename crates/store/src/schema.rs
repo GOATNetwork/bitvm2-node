@@ -224,6 +224,7 @@ pub enum InstanceBridgeOutStatus {
     #[default]
     Initialize,
     Claim,
+    Timeout,
     Refund,
 }
 
@@ -252,6 +253,7 @@ pub struct Instance {
     pub pegin_data_tx_hash: String,
     pub parameters: Option<String>,
     pub escrow_hash: Option<String>,
+    pub bridge_out_lock_time: i64,
     pub status_updated_at: i64,
     pub created_at: i64,
     pub updated_at: i64,

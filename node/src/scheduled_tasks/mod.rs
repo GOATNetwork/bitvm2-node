@@ -10,8 +10,8 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
     scan_obsolete_sibling_graphs,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
-    instance_answers_monitor, instance_btc_tx_monitor, instance_expiration_monitor,
-    instance_window_expiration_monitor,
+    instance_answers_monitor, instance_bridge_out_monitor, instance_btc_tx_monitor,
+    instance_expiration_monitor, instance_window_expiration_monitor,
 };
 use crate::scheduled_tasks::node_maintenance_tasks::node_available_pbtc_update_monitor;
 use bitvm2_lib::actors::Actor;
@@ -74,6 +74,10 @@ async fn run(
 
     if let Err(err) = instance_btc_tx_monitor(local_db, btc_client).await {
         warn!("instance_btc_tx_monitor, err {:?}", err)
+    }
+
+    if let Err(err) = instance_bridge_out_monitor(local_db).await {
+        warn!("instance_bridge_out_monitor, err {:?}", err)
     }
 
     if let Err(err) = scan_obsolete_sibling_graphs(local_db).await {
@@ -168,4 +172,10 @@ pub fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageTyp
         GOATMessageContent::SyncGraph(_) => MessageType::SyncGraph,
         GOATMessageContent::InstanceDiscarded(_) => MessageType::InstanceDiscarded,
     }
+}
+
+fn get_timestamp_from_contract_data(input: &[u8; 32]) -> i64 {
+    let mut timestamp_bytes = [0u8; 8];
+    timestamp_bytes.copy_from_slice(&input[24..32]);
+    i64::from_be_bytes(timestamp_bytes)
 }
