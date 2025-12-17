@@ -168,7 +168,7 @@ mod tests {
         let local_db = if let Some(local_db) = local_db {
             local_db
         } else {
-            store::create_local_db(&temp_file()).await
+            store::create_local_db(&temp_sqlite_db_path()).await
         };
         bitvm_network_manager
             .run(actor, MockBitvmNodeProcessor { local_db }, cancel_token)
@@ -264,15 +264,15 @@ mod tests {
         let _ = tracing_subscriber::fmt().try_init();
     }
 
-    fn temp_file() -> String {
+    fn temp_sqlite_db_path() -> String {
         let tmp_db = tempfile::NamedTempFile::new().unwrap();
-        tmp_db.path().as_os_str().to_str().unwrap().to_string()
+        format!("sqlite:{}", tmp_db.path().as_os_str().to_str().unwrap().to_string())
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_p2p_heart_beat() -> anyhow::Result<()> {
         init();
-        let local_db = store::create_local_db(&temp_file()).await;
+        let local_db = store::create_local_db(&temp_sqlite_db_path()).await;
         let local_db_clone = local_db.clone();
         let cancellation_token = CancellationToken::new();
         let cancel_token_clone = cancellation_token.clone();

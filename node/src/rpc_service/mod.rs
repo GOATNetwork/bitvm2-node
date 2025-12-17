@@ -244,7 +244,7 @@ mod tests {
     use crate::rpc_service::{self, Actor, current_time_secs, routes};
     use crate::utils::{
         generate_local_key, generate_random_bytes, get_rand_btc_address_p2wpkh,
-        get_rand_goat_address, temp_file,
+        get_rand_goat_address, temp_sqlite_db_path,
     };
     use bitvm2_lib::types::Bitvm2Graph;
     use client::Utxo;
@@ -416,7 +416,7 @@ mod tests {
             created_at: current_time_secs(),
         });
 
-        let local_db = create_local_db(&temp_file()).await;
+        let local_db = create_local_db(&temp_sqlite_db_path()).await;
         init_nodes_data(&local_db, &nodes).await?;
         tokio::spawn(rpc_service::serve(
             addr.clone(),
@@ -467,7 +467,7 @@ mod tests {
         let actor = Actor::Challenger;
         let local_key = generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
-        let local_db = create_local_db(&temp_file()).await;
+        let local_db = create_local_db(&temp_sqlite_db_path()).await;
         let bridge_in_instance_id = Uuid::new_v4();
         let bridge_in_from = get_rand_btc_address_p2wpkh(get_network());
         let bridge_in_to = get_rand_goat_address();
@@ -785,7 +785,7 @@ mod tests {
         info!("Start api server");
         let committee = Actor::Committee;
         let committee_peer_id = generate_local_key().public().to_peer_id().to_string();
-        let local_db = create_local_db(&temp_file()).await;
+        let local_db = create_local_db(&temp_sqlite_db_path()).await;
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             local_db,

@@ -21,7 +21,7 @@ struct Opts {
     pub rpc_addr: String,
 
     /// Local Sqlite database file path
-    #[arg(long, env, default_value = "/tmp/bitvm2-node.db")]
+    #[arg(long, env, default_value = "sqlite:/tmp/bitvm2-node.db")]
     pub database_url: String,
 
     #[arg(long, default_value = "proof-builder.toml")]

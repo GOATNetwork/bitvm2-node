@@ -338,10 +338,9 @@ pub(crate) async fn add_watchtower_task(
     execution_layer_block_number: i64,
 ) -> anyhow::Result<()> {
     let mut storage_processor = local_db.acquire().await?;
-    let id = storage_processor.get_next_watchtower_proof_id().await?;
     storage_processor
         .create_watchtower_proof(&WatchtowerProof {
-            id,
+            id: 1,
             instance_id,
             graph_id,
             public_key,
@@ -367,12 +366,12 @@ pub(crate) async fn update_watchtower_task(
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
     Ok(storage_processor
-        .update_operator_proof_success(
+        .update_watchtower_proof_success(
             index as i64,
             path_to_proof,
             cycles as i64,
             proving_duration,
-            zkm_version,
+            &zkm_version,
         )
         .await?)
 }
@@ -389,10 +388,9 @@ pub(crate) async fn add_operator_task(
     execution_layer_block_number: i64,
 ) -> anyhow::Result<()> {
     let mut storage_processor = local_db.acquire().await?;
-    let id = storage_processor.get_next_operator_proof_id().await?;
     storage_processor
         .create_operator_proof(&OperatorProof {
-            id,
+            id: 1,
             instance_id,
             graph_id,
             execution_layer_block_number: execution_layer_block_number as i64,
@@ -420,7 +418,7 @@ pub(crate) async fn update_operator_task(
             path_to_proof,
             cycles as i64,
             proving_duration,
-            zkm_version,
+            &zkm_version,
         )
         .await?)
 }

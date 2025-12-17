@@ -45,7 +45,7 @@ header_chain_input_proof = "../circuits/data/header-chain/503050-10.bin"
 commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
 state_chain_input_proof = "../circuits/data/state-chain/9511050-10.bin"
 output = "../circuits/data/watchtower/output.bin"
-index = 0 
+index = 1
 
 [operator]
 enable = false
@@ -63,4 +63,4 @@ output = "../circuits/data/operator/output.bin"
 included_watchtowers = "1"
 graph_id="0x00112233445566778899aabbccddeeff"
 execution_layer_block_number = 8447360
-index = 0
+index = 1

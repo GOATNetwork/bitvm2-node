@@ -38,7 +38,7 @@ struct Opts {
     pub rpc_addr: String,
 
     /// Local Sqlite database file path
-    #[arg(long, default_value = "/tmp/bitvm2-node.db")]
+    #[arg(long, default_value = "sqlite:/tmp/bitvm2-node.db")]
     pub db_path: String,
 
     /// Peer nodes as the bootnodes

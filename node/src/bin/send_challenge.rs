@@ -47,7 +47,7 @@ struct Args {
     graph_id: Uuid,
 
     /// Local Sqlite database file path
-    #[arg(long, default_value = "/tmp/bitvm2-node.db")]
+    #[arg(long, default_value = "sqlite:/tmp/bitvm2-node.db")]
     db_path: String,
 
     /// Esplora base URL (optional override for Bitcoin RPC via Esplora)
