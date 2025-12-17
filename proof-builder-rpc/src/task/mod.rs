@@ -16,6 +16,7 @@ use bitcoin::Txid;
 use commit_chain::CircuitCommit;
 use std::str::FromStr;
 use std::time::UNIX_EPOCH;
+use uuid::Uuid;
 
 use futures::future::Either;
 use proof_builder::{OnDemandTask, ProofBuilder};
@@ -23,7 +24,6 @@ use store::localdb::LocalDB;
 use store::{LongRunningTaskProof, OperatorProof, WatchtowerProof};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
-use uuid::Uuid;
 
 pub(crate) fn is_start_generate_proof_tasks(cfg: &ProofBuilderConfig) -> bool {
     cfg.header_chain.enable
@@ -180,19 +180,29 @@ pub(crate) async fn run_generate_proof_tasks(
     Ok("tasks_completed".to_string())
 }
 
+pub(crate) async fn fetch_latest_long_running_task(
+    local_db: &LocalDB,
+    chain_name: String,
+) -> anyhow::Result<Option<LongRunningTaskProof>> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor.find_latest_long_running_task_proof_by_name(chain_name).await
+}
+
 // fetch next task from watchtower or operator.
+#[tracing::instrument(level = "info", skip(local_db))]
 pub(crate) async fn fetch_on_demand_task(
     local_db: &LocalDB,
     index: usize,
     is_watchtower: bool,
-) -> anyhow::Result<OnDemandTask> {
-    tracing::info!("fetch task: {index} for watchtower {is_watchtower}");
+) -> anyhow::Result<Option<OnDemandTask>> {
+    tracing::info!("Fetch task for watchtower:{is_watchtower}");
     // btc header chain: always fetch the latest
     let mut storage_processor = local_db.acquire().await?;
     let header_chain_input_proof = storage_processor
         .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
         .await?
         .unwrap();
+    tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
 
     // commit chain: always fetch the latest
@@ -200,23 +210,42 @@ pub(crate) async fn fetch_on_demand_task(
         .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
         .await?
         .unwrap();
+    tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
     let start = commit_chain_input_proof.block_start;
     let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
-    let file = format!("{commit_chain_input_proof}.{start}");
-    let commits: Vec<CircuitCommit> = serde_json::from_str(&file)?;
+    let file = std::path::Path::new(&commit_chain_input_proof)
+        .parent()
+        .unwrap()
+        .join(format!("commits.bin.{start}"));
+    println!("file: {file:?}");
+    let content = std::fs::read_to_string(&file)?;
+    let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
     let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
 
+    tracing::info!("fetch on-demand task");
     let (
         execution_layer_block_number,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         watchtower_public_keys,
     ) = if is_watchtower {
-        let task = storage_processor.find_watchtower_proof_by_id(index as i64).await?;
-        (task.execution_layer_block_number, None, None, None)
+        match storage_processor.find_watchtower_proof_by_id(index as i64).await? {
+            Some(task) => {
+                tracing::info!("watchtower task: {task:?}");
+                (task.execution_layer_block_number, None, None, None)
+            }
+            None => {
+                return Ok(None);
+            }
+        }
     } else {
         //fetch watchtower info
         let task = storage_processor.find_operator_proof_by_id(index as i64).await?;
+        if task.is_none() {
+            return Ok(None);
+        }
+        let task = task.unwrap();
+        tracing::info!("operator task: {task:?}");
         let watchtower_info = storage_processor
             .find_watchtower_proof_by_instance_and_graph(&task.instance_id, &task.graph_id)
             .await?;
@@ -253,7 +282,7 @@ pub(crate) async fn fetch_on_demand_task(
         .unwrap();
     let state_chain_input_proof = state_chain_input_proof.path_to_proof.unwrap();
 
-    Ok(OnDemandTask {
+    Ok(Some(OnDemandTask {
         latest_sequencer_commit_txid,
         header_chain_input_proof,
         commit_chain_input_proof,
@@ -261,7 +290,7 @@ pub(crate) async fn fetch_on_demand_task(
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         watchtower_public_keys,
-    })
+    }))
 }
 
 /// table schema: (start, end, path_to_proof, cycles, update_time, table_name)
@@ -306,6 +335,7 @@ pub(crate) async fn add_watchtower_task(
     public_key: String,
     challenge_txid: String,
     challenge_init_txid: String,
+    execution_layer_block_number: i64,
 ) -> anyhow::Result<()> {
     let mut storage_processor = local_db.acquire().await?;
     let id = storage_processor.get_next_watchtower_proof_id().await?;
@@ -320,6 +350,7 @@ pub(crate) async fn add_watchtower_task(
             proof_state: 0,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
+            execution_layer_block_number,
             ..Default::default()
         })
         .await?;
@@ -333,9 +364,9 @@ pub(crate) async fn update_watchtower_task(
     cycles: u64,
     proving_duration: i64,
     zkm_version: String,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    storage_processor
+    Ok(storage_processor
         .update_operator_proof_success(
             index as i64,
             path_to_proof,
@@ -343,8 +374,7 @@ pub(crate) async fn update_watchtower_task(
             proving_duration,
             zkm_version,
         )
-        .await?;
-    Ok(())
+        .await?)
 }
 
 /// table schema: (index, instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, state, update_time)
@@ -356,7 +386,7 @@ pub(crate) async fn add_operator_task(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-    execution_layer_block_number: u64,
+    execution_layer_block_number: i64,
 ) -> anyhow::Result<()> {
     let mut storage_processor = local_db.acquire().await?;
     let id = storage_processor.get_next_operator_proof_id().await?;
@@ -382,9 +412,9 @@ pub(crate) async fn update_operator_task(
     cycles: u64,
     proving_duration: i64,
     zkm_version: String,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    storage_processor
+    Ok(storage_processor
         .update_operator_proof_success(
             index as i64,
             path_to_proof,
@@ -392,11 +422,61 @@ pub(crate) async fn update_operator_task(
             proving_duration,
             zkm_version,
         )
-        .await?;
-    Ok(())
+        .await?)
 }
 
 #[inline(always)]
 pub(crate) fn current_time_secs() -> i64 {
     std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use store::create_local_db;
+    use uuid::Uuid;
+
+    use super::add_operator_task;
+    use super::add_watchtower_task;
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_add_watchtower_task() {
+        let db_path = std::env::var("TEST_DB")
+            .unwrap_or("sqlite:/tmp/.bitvm2-node-sd.db?mode=rwc".to_string());
+        let local_db = create_local_db(&db_path).await;
+        let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
+        let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
+        let public_key =
+            "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651".to_string();
+        let challenge_txid =
+            "3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0".to_string();
+        let challenge_init_txid =
+            "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
+        let number = 8447360;
+        add_watchtower_task(
+            &local_db,
+            instance_id,
+            graph_id,
+            public_key,
+            challenge_txid,
+            challenge_init_txid,
+            number,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_add_operator_proof() {
+        let db_path = std::env::var("TEST_DB")
+            .unwrap_or("sqlite:/tmp/.bitvm2-node-sd.db?mode=rwc".to_string());
+        let local_db = create_local_db(&db_path).await;
+        let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
+        let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
+        let number = 8447360;
+        add_operator_task(&local_db, instance_id, graph_id, number).await.unwrap();
+    }
 }

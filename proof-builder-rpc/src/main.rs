@@ -21,8 +21,8 @@ struct Opts {
     pub rpc_addr: String,
 
     /// Local Sqlite database file path
-    #[arg(long, default_value = "/tmp/bitvm2-node.db")]
-    pub db_path: String,
+    #[arg(long, env, default_value = "/tmp/bitvm2-node.db")]
+    pub database_url: String,
 
     #[arg(long, default_value = "proof-builder.toml")]
     pub config: String,
@@ -39,8 +39,8 @@ async fn main() -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     // Create cancellation token for graceful shutdown
     let cancellation_token = CancellationToken::new();
-    info!("load db {}", opt.db_path);
-    let local_db = store::create_local_db(&opt.db_path).await;
+    info!("load db {}", opt.database_url);
+    let local_db = store::create_local_db(&opt.database_url).await;
     let local_db_clone1 = local_db.clone();
     let mut task_handles: Vec<JoinHandle<anyhow::Result<String, String>>> = vec![];
     let cancel_token_clone = cancellation_token.clone();

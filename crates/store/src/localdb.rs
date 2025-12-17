@@ -2691,7 +2691,10 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn find_operator_proof_by_id(&mut self, index: i64) -> anyhow::Result<OperatorProof> {
+    pub async fn find_operator_proof_by_id(
+        &mut self,
+        index: i64,
+    ) -> anyhow::Result<Option<OperatorProof>> {
         let res = sqlx::query_as::<_, OperatorProof>(
             "SELECT id,
                         instance_id,
@@ -2710,7 +2713,7 @@ impl<'a> StorageProcessor<'a> {
                  ORDER BY id ASC",
         )
         .bind(index)
-        .fetch_one(self.conn())
+        .fetch_optional(self.conn())
         .await?;
         Ok(res)
     }
@@ -2834,7 +2837,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn find_watchtower_proof_by_id(
         &mut self,
         index: i64,
-    ) -> anyhow::Result<WatchtowerProof> {
+    ) -> anyhow::Result<Option<WatchtowerProof>> {
         let res = sqlx::query_as::<_, WatchtowerProof>(
             "SELECT id,
                          instance_id,
@@ -2856,7 +2859,7 @@ impl<'a> StorageProcessor<'a> {
                   ORDER BY id ASC",
         )
         .bind(index)
-        .fetch_one(self.conn())
+        .fetch_optional(self.conn())
         .await?;
         Ok(res)
     }
@@ -2905,7 +2908,7 @@ impl<'a> StorageProcessor<'a> {
 // }
 
 pub async fn create_local_db(db_path: &str) -> LocalDB {
-    let local_db = LocalDB::new(&format!("sqlite:{db_path}"), true).await;
+    let local_db = LocalDB::new(db_path, true).await;
     local_db.migrate().await;
     local_db
 }

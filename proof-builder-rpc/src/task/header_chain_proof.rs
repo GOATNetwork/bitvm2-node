@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::config::ProofBuilderConfig;
-use crate::task::update_long_running_task;
+use crate::task::{fetch_latest_long_running_task, update_long_running_task};
 
 #[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_header_chain_proof_task(
@@ -31,6 +31,19 @@ pub(crate) fn spawn_header_chain_proof_task(
             tokio::select! {
                 // TODO: handle err and retry
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
+                    let next_task = fetch_latest_long_running_task(&local_db, HeaderChainProofBuilder::name()).await?;
+                    if let Some(next_task) = next_task {
+                        info!("Header chain's next task: {next_task:?}");
+                        args.start = next_task.block_end as usize;
+                        args.input_proof = next_task.path_to_proof.unwrap();
+                        args.output_proof = format!(
+                            "{}/{}-{}.bin",
+                            std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
+                            args.start,
+                            args.batch_size
+                        );
+                        args.init_input = false;
+                    }
                     info!("Header chain proof generate task: generate proof, args: {args:?}");
                     let total_block_headers = match fetch_header_chain(
                         &args.esplora_url,

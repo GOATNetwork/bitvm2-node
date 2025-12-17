@@ -15,3 +15,25 @@ CREATE TABLE long_running_task_proof
     `created_at`    BIGINT NOT NULL DEFAULT 0,
     `updated_at`    BIGINT NOT NULL DEFAULT 0
 );
+
+INSERT INTO long_running_task_proof (
+    block_start,
+    block_end,
+    chain_name,
+    path_to_proof,
+    cycles,
+    proof_state,
+    proving_time,
+    zkm_version,
+    extra
+) VALUES (
+    0,
+    503050,
+    'header-chain',
+    '../circuits/data/header-chain/0-503050.bi',
+    0,
+    2,
+    0,
+    'v1.2.3',
+    ''
+);

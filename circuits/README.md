@@ -85,12 +85,12 @@ Generate the proof:
 
 ```
 # Genesis
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/0-1.bin" --commit-info ../node/tests_data/commit_info.json.0 --commits data/commit-chain/commits.bin.0
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/0-1.bin" --commit-info ./data/commit-chain/commit_info.json.0 --commits data/commit-chain/commits.bin.0
 
 # Regular proof
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/0-1.bin" --output-proof "data/commit-chain/1-1.bin" --commit-info ../node/tests_data/commit_info.json.1 --commits data/commit-chain/commits.bin.1
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/0-1.bin" --output-proof "data/commit-chain/1-1.bin" --commit-info ./data/commit-chain/commit_info.json.1 --commits data/commit-chain/commits.bin.1
 
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/1-1.bin" --output-proof "data/commit-chain/2-1.bin" --commit-info ../node/tests_data/commit_info.json.2 --commits data/commit-chain/commits.bin.2
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/1-1.bin" --output-proof "data/commit-chain/2-1.bin" --commit-info ./data/commit-chain/commit_info.json.2 --commits data/commit-chain/commits.bin.2
 ```
 
 ## State Chain
@@ -119,8 +119,8 @@ If a challenge is happened, each watchtower should broadcast a `watchtower-chall
 
 ```
 export BITCOIN_NETWORK=regtest
-export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.0 | jq -r .genesis_txid)
-export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.0 | jq -r .txid)
+export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .genesis_txid)
+export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .txid)
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/503050-10.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/0-1.bin"
 export LATEST_STATE_BLOCK_HASH="0x7908184bce067fa5a4508d309cbaf22dd1e0b586ad2dd42c0e51a5308a7bd815"
@@ -128,11 +128,11 @@ export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"
 
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output.bin"
 
-export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.1 | jq -r .txid)
+export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.1 | jq -r .txid)
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/1-1.bin"
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output2.bin"
 
-export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.2 | jq -r .txid)
+export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.2 | jq -r .txid)
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/2-1.bin"
 RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- --output "data/watchtower/output3.bin"
 ```
@@ -163,8 +163,8 @@ After calling the [`proceedWithdraw`](https://github.com/GOATNetwork/bitvm2-L2-c
 
 ```
 export BITCOIN_NETWORK=regtest
-export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.0 | jq -r .genesis_txid)
-export LATEST_SEQUENCER_COMMIT_TXID=$(cat ../node/tests_data/commit_info.json.2 | jq -r .txid)
+export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .genesis_txid)
+export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.2 | jq -r .txid)
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/503050-10.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/2-1.bin"
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"

@@ -61,6 +61,11 @@ impl LongRunning for Args {
             next_args.start,
             self.batch_size
         );
+        next_args.commit_info = format!(
+            "{}/commit_info.json.{}",
+            std::path::Path::new(&self.output_proof).parent().unwrap().to_str().unwrap(),
+            next_args.start,
+        );
         next_args
     }
 }

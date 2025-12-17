@@ -1,5 +1,5 @@
-use crate::ProofBuilderConfig;
 use crate::task::update_long_running_task;
+use crate::{ProofBuilderConfig, task::fetch_latest_long_running_task};
 use proof_builder::{Context, ProofBuilder, ProofRequest};
 use state_chain_proof::{StateChainProofBuilder, fetch_state_chain};
 use std::time::Duration;
@@ -29,7 +29,20 @@ pub(crate) fn spawn_state_chain_proof_task(
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
-                    info!("state chain proof generate task: generate proof");
+                    let next_task = fetch_latest_long_running_task(&local_db, StateChainProofBuilder::name()).await?;
+                    if let Some(next_task) = next_task {
+                        info!("State chain's next task: {next_task:?}");
+                        args.start = next_task.block_end as u64;
+                        args.input_proof = next_task.path_to_proof.unwrap();
+                        args.output_proof = format!(
+                            "{}/{}-{}.bin",
+                            std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
+                            args.start,
+                            args.batch_size
+                        );
+                        args.init_input = false;
+                    }
+                    info!("state chain proof generate task: generate proof, args: {args:?}");
                     let blocks = fetch_state_chain(
                         &args.l2_contract_address,
                         &args.proceed_withdraw_method_id,

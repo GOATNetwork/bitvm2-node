@@ -1,29 +1,32 @@
 [header_chain]
-enable = true 
+enable = false 
 init_input = false 
 esplora_url = "http://127.0.0.1:3002"
 start = 503050
-block_headers = "../circuits/data/header-chain/0-503050.bin.blocks"
+#start = 1000
+block_headers = "../circuits/data/header-chain/block_headers.bin"
 force_fetch = true 
 
 batch_size = 10 
+#input_proof = "../circuits/data/header-chain/0-1000.bin"
+#output_proof = "../circuits/data/header-chain/1000-10.bin"
 input_proof = "../circuits/data/header-chain/0-503050.bin"
 output_proof = "../circuits/data/header-chain/503050-10.bin"
 
 [commit_chain]
 enable = false 
 esplora_url = "http://127.0.0.1:3002"
-commit_info = "../node/tests_data/commit_info.json.0"
+commit_info = "../circuits/data/commit-chain/commit_info.json.0"
 commits = "../circuits/data/commit-chain/commits.bin"
 init_input = true 
-start = 0
+start = 0 
 batch_size = 1
 input_proof = "../circuits/data/commit-chain/0-1.bin"
-output_proof = "../circuits/data/commit-chain/1-1.bin"
+output_proof = "../circuits/data/commit-chain/0-1.bin"
 
 [state_chain]
-enable = false
-init_input = true
+enable = false 
+init_input = true 
 l2_contract_address = "0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f"
 proceed_withdraw_method_id = "0xc3342df3"
 start = 9511050
@@ -34,7 +37,7 @@ input_proof = "../circuits/data/state-chain/9511050-10.bin"
 output_proof = "../circuits/data/state-chain/9511060-10.bin"
 
 [watchtower]
-enable = false
+enable = true 
 esplora_url = "http://127.0.0.1:3002"
 genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
 latest_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
@@ -42,7 +45,7 @@ header_chain_input_proof = "../circuits/data/header-chain/503050-10.bin"
 commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
 state_chain_input_proof = "../circuits/data/state-chain/9511050-10.bin"
 output = "../circuits/data/watchtower/output.bin"
-index = 0
+index = 0 
 
 [operator]
 enable = false

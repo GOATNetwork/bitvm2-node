@@ -1,4 +1,5 @@
 use crate::ProofBuilderConfig;
+use crate::task::fetch_latest_long_running_task;
 use crate::task::update_long_running_task;
 use commit_chain_proof::CommitChainProofBuilder;
 use commit_chain_proof::fetch_commit_chain;
@@ -30,7 +31,26 @@ pub(crate) fn spawn_commit_chain_proof_task(
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
-                    info!("Commit chain proof generate task: generate proof");
+                    let next_task = fetch_latest_long_running_task(&local_db, CommitChainProofBuilder::name()).await?;
+                    if let Some(next_task) = next_task {
+                        info!("Commit chain's next task: {next_task:?}");
+                        args.start = next_task.block_end as usize;
+                        args.input_proof = next_task.path_to_proof.unwrap();
+                        args.commit_info = format!(
+                            "{}/commit_info.json.{}",
+                            std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
+                            args.start,
+                        );
+                        args.output_proof = format!(
+                            "{}/{}-{}.bin",
+                            std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
+                            args.start,
+                            args.batch_size
+                        );
+                        args.init_input = false;
+                    }
+                    info!("Commit chain proof generate task: generate proof, args: {args:?}");
+
                     match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.start, args.batch_size).await {
                         Ok(()) => {},
                         Err(err) => {
