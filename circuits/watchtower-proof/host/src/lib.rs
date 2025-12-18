@@ -223,45 +223,52 @@ impl ProofBuilder for WatchtowerProofBuilder {
         );
 
         // Generate the proofs.
-        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
-            let mut stdin = ZKMStdin::new();
-            stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
-            stdin.write(&latest_sequencer_commit_txid.to_byte_array());
-            stdin.write(&header_chain_input);
-            stdin.write(&commit_chain_input);
-            stdin.write(&state_chain_input);
-            stdin.write(&spv);
+        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(
+            || -> anyhow::Result<(ZKMProofWithPublicValues, u64)> {
+                let mut stdin = ZKMStdin::new();
+                stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
+                stdin.write(&latest_sequencer_commit_txid.to_byte_array());
+                stdin.write(&header_chain_input);
+                stdin.write(&commit_chain_input);
+                stdin.write(&state_chain_input);
+                stdin.write(&spv);
 
-            if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
-                stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
-            } else {
-                tracing::info!("skip writing commit chain proof");
-            }
+                if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
+                    stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
+                } else {
+                    tracing::info!("skip writing commit chain proof");
+                }
 
-            if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
-                stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
-            } else {
-                tracing::info!("skip writing header chain proof");
-            }
+                if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
+                    stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
+                } else {
+                    tracing::info!("skip writing header chain proof");
+                }
 
-            if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
-                stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
-            } else {
-                tracing::info!("skip writing consensus chain proof");
-            }
+                if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
+                    stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
+                } else {
+                    tracing::info!("skip writing consensus chain proof");
+                }
 
-            let elf_id = if ELF_ID.get().is_none() {
-                ELF_ID.set(hex::encode(Sha256::digest(&self.proving_key.elf))).unwrap();
-                None
-            } else {
-                Some(ELF_ID.get().unwrap().clone())
-            };
-            tracing::info!("elf id: {:?}", elf_id);
+                let elf_id = if ELF_ID.get().is_none() {
+                    ELF_ID
+                        .set(hex::encode(Sha256::digest(&self.proving_key.elf)))
+                        .map_err(anyhow::Error::msg)?;
+                    None
+                } else {
+                    Some(ELF_ID.get().unwrap().clone())
+                };
+                tracing::info!("elf id: {:?}", elf_id);
 
-            self.client
-                .prove_with_cycles(&self.proving_key, &stdin, ZKMProofKind::Groth16, elf_id)
-                .expect("proving failed")
-        });
+                Ok(self.client.prove_with_cycles(
+                    &self.proving_key,
+                    &stdin,
+                    ZKMProofKind::Groth16,
+                    elf_id,
+                )?)
+            },
+        )?;
 
         Ok((vec![], proof, cycles))
     }

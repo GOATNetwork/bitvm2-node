@@ -326,58 +326,65 @@ impl ProofBuilder for OperatorProofBuilder {
         //);
 
         // Generate the proofs
-        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
-            let mut stdin = ZKMStdin::new();
+        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(
+            || -> anyhow::Result<(ZKMProofWithPublicValues, u64)> {
+                let mut stdin = ZKMStdin::new();
 
-            let included_watchtowers: U256 = U256::from_str(&included_watchtowers).unwrap();
-            stdin.write(&included_watchtowers);
+                let included_watchtowers: U256 = U256::from_str(&included_watchtowers).unwrap();
+                stdin.write(&included_watchtowers);
 
-            stdin.write(&graph_id);
+                stdin.write(&graph_id);
 
-            stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
-            stdin.write(&operator_latest_sequencer_commit_txn);
+                stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
+                stdin.write(&operator_latest_sequencer_commit_txn);
 
-            stdin.write(&watchtower_challenge_txns);
-            stdin.write(&watchtower_challenge_txn_pubkeys);
-            stdin.write(&watchtower_challenge_txn_scripts);
-            stdin.write(&watchtower_challenge_txn_prev_outs);
-            stdin.write(&watchtower_challenge_txn_prev_indices);
+                stdin.write(&watchtower_challenge_txns);
+                stdin.write(&watchtower_challenge_txn_pubkeys);
+                stdin.write(&watchtower_challenge_txn_scripts);
+                stdin.write(&watchtower_challenge_txn_prev_outs);
+                stdin.write(&watchtower_challenge_txn_prev_indices);
 
-            stdin.write(&header_chain_input);
-            stdin.write(&commit_chain_input);
-            stdin.write(&state_chain_input);
-            stdin.write(&spv);
+                stdin.write(&header_chain_input);
+                stdin.write(&commit_chain_input);
+                stdin.write(&state_chain_input);
+                stdin.write(&spv);
 
-            if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
-                stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
-            } else {
-                tracing::info!("Skip writing commit chain proof");
-            }
+                if commit_chain_input.prev_proof != CommitChainPrevProofType::GenesisBlock {
+                    stdin.write_proof(*commit_compressed_proof, commit_chain_vk.vk);
+                } else {
+                    tracing::info!("Skip writing commit chain proof");
+                }
 
-            if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
-                stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
-            } else {
-                tracing::info!("Skip writing header chain proof");
-            }
+                if header_chain_input.prev_proof != HeaderChainPrevProofType::GenesisBlock {
+                    stdin.write_proof(*header_compressed_proof, header_chain_vk.vk);
+                } else {
+                    tracing::info!("Skip writing header chain proof");
+                }
 
-            if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
-                stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
-            } else {
-                tracing::info!("Skip writing state chain proof");
-            }
+                if state_chain_input.prev_proof != StateChainPrevProofType::GenesisBlock {
+                    stdin.write_proof(*state_compressed_proof, state_chain_vk.vk);
+                } else {
+                    tracing::info!("Skip writing state chain proof");
+                }
 
-            let elf_id = if ELF_ID.get().is_none() {
-                ELF_ID.set(hex::encode(Sha256::digest(&self.proving_key.elf))).unwrap();
-                None
-            } else {
-                Some(ELF_ID.get().unwrap().clone())
-            };
-            tracing::info!("elf id: {:?}", elf_id);
+                let elf_id = if ELF_ID.get().is_none() {
+                    ELF_ID
+                        .set(hex::encode(Sha256::digest(&self.proving_key.elf)))
+                        .map_err(anyhow::Error::msg)?;
+                    None
+                } else {
+                    Some(ELF_ID.get().unwrap().clone())
+                };
+                tracing::info!("elf id: {:?}", elf_id);
 
-            self.client
-                .prove_with_cycles(&self.proving_key, &stdin, ZKMProofKind::Groth16, elf_id)
-                .expect("proving failed")
-        });
+                Ok(self.client.prove_with_cycles(
+                    &self.proving_key,
+                    &stdin,
+                    ZKMProofKind::Groth16,
+                    elf_id,
+                )?)
+            },
+        )?;
         Ok((vec![], proof, cycles))
     }
 

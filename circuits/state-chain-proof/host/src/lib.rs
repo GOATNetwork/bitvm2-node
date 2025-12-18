@@ -267,27 +267,34 @@ impl ProofBuilder for StateChainProofBuilder {
         let input: StateChainCircuitInput =
             StateChainCircuitInput { vk_hash, pv_hash, prev_proof, blocks: blocks.clone() };
         // Generate the proofs.
-        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
-            let mut stdin = ZKMStdin::new();
-            stdin.write(&input);
-            if let Some(proof) = prev_receipt {
-                let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
-                stdin.write_proof(*compressed_proof, self.verifying_key.vk.clone());
-            } else {
-                tracing::info!("Skip writing proof for genesis evm block");
-            }
-            let elf_id = if ELF_ID.get().is_none() {
-                ELF_ID.set(hex::encode(Sha256::digest(&self.proving_key.elf))).unwrap();
-                None
-            } else {
-                Some(ELF_ID.get().unwrap().clone())
-            };
-            tracing::info!("elf id: {:?}", elf_id);
+        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(
+            || -> anyhow::Result<(ZKMProofWithPublicValues, u64)> {
+                let mut stdin = ZKMStdin::new();
+                stdin.write(&input);
+                if let Some(proof) = prev_receipt {
+                    let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
+                    stdin.write_proof(*compressed_proof, self.verifying_key.vk.clone());
+                } else {
+                    tracing::info!("Skip writing proof for genesis evm block");
+                }
+                let elf_id = if ELF_ID.get().is_none() {
+                    ELF_ID
+                        .set(hex::encode(Sha256::digest(&self.proving_key.elf)))
+                        .map_err(anyhow::Error::msg)?;
+                    None
+                } else {
+                    Some(ELF_ID.get().unwrap().clone())
+                };
+                tracing::info!("elf id: {:?}", elf_id);
 
-            self.client
-                .prove_with_cycles(&self.proving_key, &stdin, ZKMProofKind::Compressed, elf_id)
-                .expect("proving failed")
-        });
+                Ok(self.client.prove_with_cycles(
+                    &self.proving_key,
+                    &stdin,
+                    ZKMProofKind::Compressed,
+                    elf_id,
+                )?)
+            },
+        )?;
         tracing::info!("State chain proof cycles: {}", cycles);
         if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
             panic!("{}", e);

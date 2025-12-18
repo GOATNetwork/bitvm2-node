@@ -193,29 +193,36 @@ impl ProofBuilder for CommitChainProofBuilder {
         //let output = commit_chain_circuit(input.clone());
         //tracing::info!("Commit chain circuit output: {:?}", output);
         // Generate the proofs.
-        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(|| {
-            let mut stdin = ZKMStdin::new();
-            stdin.write(&input);
+        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(
+            || -> anyhow::Result<(ZKMProofWithPublicValues, u64)> {
+                let mut stdin = ZKMStdin::new();
+                stdin.write(&input);
 
-            if let Some(proof) = prev_receipt {
-                let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
-                stdin.write_proof(*compressed_proof, self.verifying_key.vk.clone());
-                tracing::info!("Write prev proof into stdin");
-            } else {
-                tracing::info!("Skip writing proof for genesis commit");
-            }
+                if let Some(proof) = prev_receipt {
+                    let ZKMProof::Compressed(compressed_proof) = proof.proof else { panic!() };
+                    stdin.write_proof(*compressed_proof, self.verifying_key.vk.clone());
+                    tracing::info!("Write prev proof into stdin");
+                } else {
+                    tracing::info!("Skip writing proof for genesis commit");
+                }
 
-            let elf_id = if ELF_ID.get().is_none() {
-                ELF_ID.set(hex::encode(Sha256::digest(&self.proving_key.elf))).unwrap();
-                None
-            } else {
-                Some(ELF_ID.get().unwrap().clone())
-            };
-            tracing::info!("elf id: {:?}", elf_id);
-            self.client
-                .prove_with_cycles(&self.proving_key, &stdin, ZKMProofKind::Compressed, elf_id)
-                .expect("prove failed")
-        });
+                let elf_id = if ELF_ID.get().is_none() {
+                    ELF_ID
+                        .set(hex::encode(Sha256::digest(&self.proving_key.elf)))
+                        .map_err(anyhow::Error::msg)?;
+                    None
+                } else {
+                    Some(ELF_ID.get().unwrap().clone())
+                };
+                tracing::info!("elf id: {:?}", elf_id);
+                Ok(self.client.prove_with_cycles(
+                    &self.proving_key,
+                    &stdin,
+                    ZKMProofKind::Compressed,
+                    elf_id,
+                )?)
+            },
+        )?;
 
         tracing::info!("Commit chain proof cycles: {}", cycles);
 
