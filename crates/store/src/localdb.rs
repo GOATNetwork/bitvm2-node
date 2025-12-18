@@ -3000,8 +3000,10 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO watchtower_proof (instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
+             INTO watchtower_proof (instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number,
+                                   path_to_proof,
                                    public_value_hex, proof_size,
+                                   cycles, proof_state, proving_time,
                                    zkm_version, extra, updated_at, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             watchtower_proof.instance_id,

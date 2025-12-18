@@ -85,7 +85,7 @@ pub async fn fetch_commit_chain(
     let btc_client = BTCClient::new(network, Some(&esplora_url));
 
     let rdr =
-        std::fs::File::open(commit_info_file).expect(&format!("read {commit_info_file} error"));
+        std::fs::File::open(commit_info_file).context("read error")?;
     let ci: CommitInfo = serde_json::from_reader(rdr)?;
     // NOTE: we support one commit-info per commit file currently
     assert_eq!(batch_size, 1);

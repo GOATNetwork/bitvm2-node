@@ -275,7 +275,7 @@ impl ProofBuilder for OperatorProofBuilder {
 
         // Set the previous proof type based on input_proof argument
         let proof_bytes =
-            fs::read(&state_chain_input_proof).expect("Failed to read input proof file");
+            fs::read(&state_chain_input_proof).context("Failed to read input proof file")?;
         let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
 
         state_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();

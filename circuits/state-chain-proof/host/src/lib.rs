@@ -3,6 +3,7 @@ use alloy_consensus::transaction::Transaction;
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
 use alloy_provider::{RootProvider, network::Ethereum};
+use anyhow::Context;
 use bitcoin_light_client_circuit::EthClientExecutorInput;
 use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block};
 use host_executor::EthHostExecutor;
@@ -250,9 +251,8 @@ impl ProofBuilder for StateChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let proof_bytes = fs::read(input_proof).expect("Failed to read input proof file");
-            let proof: ZKMProofWithPublicValues =
-                bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+            let proof_bytes = fs::read(input_proof).context("Failed to read input proof file")?;
+            let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
             Some(proof)
         };
         let (prev_proof, pv_hash) = match prev_receipt.clone() {

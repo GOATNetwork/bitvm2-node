@@ -32,10 +32,10 @@ INSERT INTO long_running_task_proof (
     0,
     503050,
     'header-chain',
-    '../circuits/data/header-chain/0-503050.bi',
-    0,
+    '../circuits/data/header-chain/0-503050.bin',
+    3147770424,
     2,
-    0,
+    637.403,
     'v1.2.3',
     ''
 );

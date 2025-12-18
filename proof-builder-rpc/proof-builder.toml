@@ -28,7 +28,7 @@ btc_network = "regtest"
 
 [state_chain]
 enable = true 
-init_input = false
+init_input = true 
 l2_contract_address = "0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f"
 proceed_withdraw_method_id = "0xc3342df3"
 start = 9511050

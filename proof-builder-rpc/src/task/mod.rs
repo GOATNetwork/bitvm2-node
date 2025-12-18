@@ -203,7 +203,10 @@ pub(crate) async fn fetch_on_demand_task(
         .await?
     {
         Some(d) => d,
-        None => anyhow::bail!("Header chain input proof is not ready"),
+        None => {
+            tracing::error!("Header chain input proof is not ready");
+            return Ok(None);
+        }
     };
     tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
@@ -214,7 +217,10 @@ pub(crate) async fn fetch_on_demand_task(
         .await?
     {
         Some(d) => d,
-        None => anyhow::bail!("Commit chain input proof is not ready"),
+        None => {
+            tracing::error!("Commit chain input proof is not ready");
+            return Ok(None);
+        }
     };
     tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
     let start = commit_chain_input_proof.block_start;
@@ -223,8 +229,13 @@ pub(crate) async fn fetch_on_demand_task(
         .parent()
         .unwrap()
         .join(format!("commits.bin.{start}"));
-    println!("file: {file:?}");
-    let content = std::fs::read_to_string(&file)?;
+    let content = match std::fs::read_to_string(&file) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("read {file:?} error, {e}");
+            return Ok(None);
+        }
+    };
     let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
     let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
 
@@ -428,6 +439,7 @@ pub(crate) async fn add_operator_task(
             proof_state: ProofState::New.to_i64(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
+            cycles: 0,
             ..Default::default()
         })
         .await?)
