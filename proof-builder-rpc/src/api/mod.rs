@@ -39,7 +39,6 @@ pub(crate) async fn serve(
         .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_task))
         .route(routes::v1::PROOFS_WATCHTOWER_PROOF, post(post_watchtower_proof_task))
         .route(routes::v1::PROOFS_OPERATOR_PROOF, post(post_operator_proof_task))
-        .route(routes::METRICS, get(metrics_handler))
         .layer(middleware::from_fn_with_state(api_state.clone(), metrics_middleware))
         .with_state(api_state);
     let listener = TcpListener::bind(addr).await?;
