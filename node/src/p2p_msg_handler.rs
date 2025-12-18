@@ -5,6 +5,7 @@ use crate::env::get_local_node_info;
 use crate::middleware::swarm::{BitvmSwarmWrapper, P2pMessageHandler, TickMessageType};
 use crate::utils::detect_heart_beat;
 use bitvm2_lib::actors::Actor;
+use client::http_client::async_client::HttpAsyncClient;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use libp2p::PeerId;
 use libp2p::gossipsub::MessageId;
@@ -15,6 +16,7 @@ pub struct BitvmNodeProcessor {
     pub local_db: LocalDB,
     pub btc_client: BTCClient,
     pub goat_client: GOATClient,
+    pub http_client: HttpAsyncClient,
     pub ipfs: IPFS,
 }
 impl P2pMessageHandler for BitvmNodeProcessor {
@@ -31,6 +33,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
             &self.local_db,
             &self.btc_client,
             &self.goat_client,
+            &self.http_client,
             &self.ipfs,
             actor,
             from_peer_id,
@@ -70,6 +73,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                     &self.local_db,
                     &self.btc_client,
                     &self.goat_client,
+                    &self.http_client,
                     &self.ipfs,
                     actor,
                     peer_id,

@@ -9,8 +9,10 @@ use crate::task::{
     add_operator_task, add_watchtower_task, current_time_secs, find_operator_task,
     find_watchtower_task,
 };
+use anyhow::Context;
 use axum::Json;
 use axum::extract::{Query, State};
+use std::fs;
 use std::sync::Arc;
 use store::{OperatorProof, ProofState, WatchtowerProof};
 use tracing::info;
@@ -42,11 +44,28 @@ pub(super) async fn get_chain_proof_task(
 
     match proof {
         Some(proof) => {
-            let total_time_to_proof = if proof.proof_state == ProofState::Proven.to_i64() {
+            let total_time_to_proof = if proof.proof_state == ProofState::Proven.to_i64()
+                && let Some(_path_to_proof) = proof.path_to_proof
+            {
                 proof.updated_at - proof.created_at
             } else {
                 0
             };
+            let has_prev_proof = storage_process
+                .find_long_running_task_proof_including_block_number(
+                    proof.block_start -1,
+                    payload.proof_type.get_chain_name().to_string(),
+                )
+                .await
+                .api_error("GET_CHAIN_PROOF_ERROR")?.is_some();
+            let has_next_proof = storage_process
+                .find_long_running_task_proof_including_block_number(
+                    proof.block_end,
+                    payload.proof_type.get_chain_name().to_string(),
+                )
+                .await
+                .api_error("GET_CHAIN_PROOF_ERROR")?.is_some();
+            
             ok_response(ChainProofDescResponse {
                 proof_desc: Some(ChainProofDesc {
                     block_start: proof.block_start,
@@ -58,9 +77,11 @@ pub(super) async fn get_chain_proof_task(
                     proving_cycles: proof.cycles,
                     proving_time: proof.proving_time,
                     total_time_to_proof,
-                    proof_size: 0.0,
+                    proof_size: 0.0, // todo
                     zkm_version: proof.zkm_version,
-                    pub_values: "".to_string(),
+                    pub_values: "".to_string(), // todo
+                    has_prev_proof,
+                    has_next_proof,
                     created_at: proof.created_at,
                     updated_at: proof.updated_at,
                 }),
@@ -87,8 +108,12 @@ pub(super) async fn post_operator_proof_task(
         .api_error("POST_OPERATOR_PROOF_TASK_ERROR")?;
     match operator_proof {
         Some(operator_proof) => {
-            // todo update
             info!("Get Operator Proof:{operator_proof:?}");
+            //  todo filed reader
+            ok_response(OperatorProofResponse {
+                proof_data: None,
+                error: Some("No proof found".to_string()),
+            })
         }
         None => {
             add_operator_task(
@@ -99,9 +124,12 @@ pub(super) async fn post_operator_proof_task(
             )
             .await
             .api_error("POST_OPERATOR_PROOF_TASK_ERROR")?;
+            ok_response(OperatorProofResponse {
+                proof_data: None,
+                error: Some("No proof found".to_string()),
+            })
         }
     }
-    ok_response(OperatorProofResponse {})
 }
 
 #[axum::debug_handler]
@@ -135,10 +163,15 @@ pub(super) async fn post_watchtower_proof_task(
         )
         .await
         .api_error("POST_WATCHTOWER_PROOF_TASK_ERROR")?;
+        ok_response(OperatorProofResponse {
+            proof_data: None,
+            error: Some("No proof found".to_string()),
+        })
     } else {
-        // todo update
-        info!("Get watchtower Proof:{:?}", watchtower_proofs[0]);
+        // todo File_reader
+        ok_response(OperatorProofResponse {
+            proof_data: None,
+            error: Some("No proof found".to_string()),
+        })
     }
-
-    ok_response(OperatorProofResponse {})
 }

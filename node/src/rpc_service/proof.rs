@@ -40,3 +40,38 @@ pub struct ChainProofDescResponse {
     pub proof_desc: Option<ChainProofDesc>,
     pub error: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OperatorProofRequest {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub execution_layer_block_number: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProofData {
+    pub proof: String,
+    pub groth16_vk: String,
+    pub public_inputs: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OperatorProofResponse {
+    pub proof_data: Option<ProofData>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WatchtowerProofRequest {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub public_key: String,
+    pub challenge_txid: String,
+    pub challenge_init_txid: String,
+    pub execution_layer_block_number: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WatchtowerProofResponse {
+    pub proof_data: Option<ProofData>,
+    pub error: Option<String>,
+}

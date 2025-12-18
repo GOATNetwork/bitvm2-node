@@ -22,10 +22,12 @@ use bitvm2_noded::{rpc_service, run_maintenance_tasks, run_watch_event_task};
 use anyhow::Result;
 use bitvm2_noded::middleware::swarm::{Bitvm2SwarmConfig, BitvmNetworkManager};
 use bitvm2_noded::p2p_msg_handler::BitvmNodeProcessor;
+use client::http_client::async_client::HttpAsyncClient;
 use futures::future;
 use tokio::signal;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Opts {
@@ -146,6 +148,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         local_db: local_db.clone(),
         btc_client: BTCClient::new(get_network(), None),
         goat_client: GOATClient::new(env::goat_config_from_env().await, env::get_goat_network()),
+        http_client: HttpAsyncClient::new(None),
         ipfs: IPFS::new(&get_ipfs_url()),
     };
 

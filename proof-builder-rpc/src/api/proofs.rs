@@ -41,6 +41,8 @@ pub(super) struct ChainProofDesc {
     pub proof_size: f64,
     pub zkm_version: String,
     pub pub_values: String,
+    pub has_prev_proof: bool,
+    pub has_next_proof: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -51,17 +53,26 @@ pub(super) struct ChainProofDescResponse {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct OperatorProofRequest {
     pub instance_id: String,
     pub graph_id: String,
     pub execution_layer_block_number: i64,
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct OperatorProofResponse {}
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct ProofData {
+    pub proof: String,
+    pub groth16_vk: String,
+    pub public_inputs: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct OperatorProofResponse {
+    pub proof_data: Option<ProofData>,
+    pub error: Option<String>,
+}
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct WatchtowerProofRequest {
     pub instance_id: String,
     pub graph_id: String,
@@ -71,6 +82,9 @@ pub(super) struct WatchtowerProofRequest {
     pub execution_layer_block_number: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct WatchtowerProofResponse {}
+pub(super) struct WatchtowerProofResponse {
+    pub proof_data: Option<ProofData>,
+    pub error: Option<String>,
+}

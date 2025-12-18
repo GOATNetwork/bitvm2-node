@@ -20,6 +20,7 @@ use bitvm2_lib::keys::*;
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
 use client::goat_chain::{DisproveTxType, PeginStatus, WithdrawStatus};
+use client::http_client::async_client::HttpAsyncClient;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::base::{BaseTransaction, Input};
@@ -305,6 +306,7 @@ pub async fn handle_self_p2p_msg(
     local_db: &LocalDB,
     btc_client: &BTCClient,
     goat_client: &GOATClient,
+    http_client: &HttpAsyncClient,
     ipfs: &IPFS,
     actor: Actor,
     from_peer_id: PeerId,
@@ -332,6 +334,7 @@ pub async fn handle_self_p2p_msg(
             local_db,
             btc_client,
             goat_client,
+            http_client,
             ipfs,
             actor.clone(),
             from_peer_id,
@@ -380,6 +383,7 @@ pub async fn recv_and_dispatch(
     local_db: &LocalDB,
     btc_client: &BTCClient,
     goat_client: &GOATClient,
+    http_client: &HttpAsyncClient,
     _ipfs: &IPFS,
     actor: Actor,
     from_peer_id: PeerId,
@@ -2419,11 +2423,17 @@ pub async fn recv_and_dispatch(
                 );
                 return Ok(());
             }
+            // update
             // 1. check the withdraw status on GoatChain, if the withdraw is invalid, sign & broadcast watchtower-challenge txn
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
-                let watchtower_proof = match todo_funcs::get_watchtower_proof(instance_id, graph_id)
-                    .await?
+                let watchtower_proof = match todo_funcs::get_watchtower_proof(
+                    local_db,
+                    http_client,
+                    instance_id,
+                    graph_id,
+                )
+                .await?
                 {
                     (Some(proof), _) => proof,
                     (None, wait_secs) => {
@@ -2963,7 +2973,8 @@ pub async fn recv_and_dispatch(
                 return Ok(());
             } else {
                 let (split_txid_opt, has_pending_fee_input, proof_wait_secs_opt) =
-                    operator_send_assert_commit(btc_client, &mut graph).await?;
+                    operator_send_assert_commit(local_db, btc_client, http_client, &mut graph)
+                        .await?;
                 if let Some(wait_secs) = proof_wait_secs_opt {
                     tracing::warn!(
                         "Retry AssertInitReady for {instance_id}:{graph_id} later: operator proof not ready, retry after {wait_secs} seconds"
@@ -3190,7 +3201,7 @@ pub async fn recv_and_dispatch(
                 txins
             };
             // 2. check assertions committed by Operator, if any assertion is invalid, sign & broadcast disprove txn
-            let vk = todo_funcs::get_operator_proof_vk(instance_id, graph_id).await?;
+            let vk = todo_funcs::get_operator_proof_vk(http_client, instance_id, graph_id).await?;
             let disprove_scripts = get_disprove_scripts(local_db, &graph.parameters).await?;
             let disprove_scripts = disprove_scripts
                 .try_into()
