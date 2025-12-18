@@ -108,6 +108,13 @@ pub(super) async fn get_operator_proof_task_desc(
     match operator_proof {
         Some(operator_proof) => {
             info!("Get Operator Proof:{operator_proof:?}");
+            let total_time_to_proof = if operator_proof.proof_state == ProofState::Proven.to_i64()
+                && let Some(_path_to_proof) = operator_proof.path_to_proof
+            {
+                operator_proof.updated_at - operator_proof.created_at
+            } else {
+                0
+            };
             ok_response(ProofDescResponse {
                 proof_desc: Some(ProofDesc {
                     block_start: operator_proof.execution_layer_block_number,
