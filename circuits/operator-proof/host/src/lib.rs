@@ -405,7 +405,7 @@ impl ProofBuilder for OperatorProofBuilder {
         let groth16_vk = &GROTH16_VK_BYTES;
         let ark_proof = convert_ark(&proof, self.verifying_key.bytes32().as_ref(), groth16_vk)?;
 
-        let mut writer = std::fs::File::create(format!("{}.proof.bin", output))?;
+        let mut writer = std::fs::File::create(format!("{}", output))?;
         let proof_size = ark_proof.proof.serialized_size(ark_serialize::Compress::Yes);
         ark_proof.proof.serialize_compressed(&mut writer)?;
 
