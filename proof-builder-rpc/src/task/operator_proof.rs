@@ -97,7 +97,7 @@ pub(crate) fn spawn_operator_proof_task(
                     let (input, proof, cycles) = match builder.build_proof(&ctx) {
                         Ok(data) => data,
                         Err(err) => {
-                            tracing::error!("Build error error, {err:?}");
+                            tracing::error!("Build proof error, {err:?}");
                             continue;
                         }
                     };
