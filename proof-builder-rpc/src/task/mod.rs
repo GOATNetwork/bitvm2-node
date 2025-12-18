@@ -375,9 +375,12 @@ pub(crate) async fn find_watchtower_task(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> anyhow::Result<Vec<WatchtowerProof>> {
+    public_key: &str,
+) -> anyhow::Result<Option<WatchtowerProof>> {
     let mut storage_processor = local_db.acquire().await?;
-    storage_processor.find_watchtower_proof_by_instance_and_graph(&instance_id, &graph_id).await
+    storage_processor
+        .find_watchtower_proof_by_instance_and_graph_and_pubkey(&instance_id, &graph_id, public_key)
+        .await
 }
 
 pub(crate) async fn update_watchtower_task(

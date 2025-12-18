@@ -20,7 +20,7 @@ pub struct ChainProofDescRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ChainProofDesc {
+pub struct ProofDesc {
     pub block_start: i64,
     pub block_end: i64,
     pub proof_type: String,
@@ -31,13 +31,21 @@ pub struct ChainProofDesc {
     pub proof_size: f64,
     pub zkm_version: String,
     pub pub_values: String,
+    pub prev_proof_number: Option<i64>,
+    pub next_proof_number: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OperatorProofDescRequest {
+    pub instance_id: String,
+    pub graph_id: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ChainProofDescResponse {
-    pub proof_desc: Option<ChainProofDesc>,
+pub struct ProofDescResponse {
+    pub proof_desc: Option<ProofDesc>,
     pub error: Option<String>,
 }
 
@@ -50,9 +58,9 @@ pub struct OperatorProofRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProofData {
-    pub proof: String,
-    pub groth16_vk: String,
-    pub public_inputs: String,
+    pub proof: Vec<u8>,
+    pub groth16_vk: Vec<u8>,
+    pub public_inputs: Vec<u8>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OperatorProofResponse {
