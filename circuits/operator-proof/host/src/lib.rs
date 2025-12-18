@@ -415,7 +415,8 @@ impl ProofBuilder for OperatorProofBuilder {
         let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", output))?;
         ark_proof.public_inputs.serialize_compressed(&mut writer)?;
 
-        let content = std::fs::read(format!("{}.public_inputs.bin", output)).context("failed to read public inputs")?;
+        let content = std::fs::read(format!("{}.public_inputs.bin", output))
+            .context("failed to read public inputs")?;
         let public_value_hex = hex::encode(content);
 
         tracing::info!("Generate proof successfully, Ark proof: {:?}", ark_proof);
