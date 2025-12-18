@@ -1,14 +1,13 @@
 # GOAT Bitvm2 Node
+A unified node for Operator, Challenger, Committee Signer, Watchtower, and SeqeuncerSet publisher, consisting of components:
 
-A universal node for Operator, Challenger and Committee.
-
-## Tutorial
-
-See [Node](node/README.md).
+* Node:  
+* SequencerSet publisher:
+* Proof Builder:
 
 ## Roles
 
-There are three main roles in this protocol, Committee, Operator, Challenger and Relayer.
+Roles in this protocol include Committee, Operator, Challenger and Relayer.
 
 | Role       | Functions                                                                                                                                                                                                                                                                                  |
 |------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -189,65 +188,6 @@ expires, <b>operator</b> send Take2 Transaction(L1).<br>2.<b>relayer</b>:finishW
   bridge-in -- instance reimbursed by other graph --> Obsoleted
   bridge-in -- instance Pegin tx input uxtos been spent --> Discarded
 ```
-
-## Node
-
-### Run a node
-
-```bash
-./target/debug/goat-bitvm2-node
-```
-
-It should print out the address to listen on.
-
-In another console, run
-
-```bash
-./target/debug/goat-bitvm2-node --bootnodes /ip4/127.0.0.1/tcp/50022
-```
-
-Replace the peer address with above.
-
-#### Operation
-
-**Requirement**
-
-Committee Member: need approval from all committee members
-
-Challenger: anyone can be a challenger
-
-Operator: anyone who holds PegBTC can be an operator
-
-**Operation**
-
-1. Generate identity
-2. Configure the bootnode and launch the node
-
-**Unjoin**
-
-#### Identity and Authentication
-
-Generate the identity by cli.
-
-P2P: ed25519
-
-Committee n-of-n: musig2 (secp256k1)
-
-### Store
-
-**Local Store**: Sqlite
-**Memory Store**
-
-**Scheme**
-
-| Field name       | Description                    | Field type      |
-|------------------|--------------------------------|-----------------|
-| Peg-in txid      | Peg-in Bitcoin transaction id  | bytes: 32-byte  |
-| Covenant address | BitVM2 covenant address        | bytes: 64-byte  |
-| Amount           | The amount pegged-in           | integer: 32-bit |
-| Operator         | The operator's bitcoin address | string          |
-| Step             | Current step                   | integer: 8-bit  |
-| BitVM2 instance  | BitVM2 transaction graph       | string          |
 
 ### Middleware
 

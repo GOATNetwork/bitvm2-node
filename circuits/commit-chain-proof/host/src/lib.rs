@@ -11,6 +11,7 @@ use zkm_sdk::{
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
+use anyhow::Context;
 
 /// A program that aggregates the proofs of the simple program.
 const COMMIT_CHAIN: &[u8] = include_elf!("guest");
@@ -23,6 +24,9 @@ use clap::Parser;
 pub struct Args {
     #[arg(long, default_value_t = true)]
     pub enable: bool,
+
+    #[arg(long, default_value_t = Network::Regtest)]
+    pub btc_network: Network,
 
     #[arg(long, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
@@ -76,12 +80,12 @@ pub async fn fetch_commit_chain(
     commits_file: &str,
     start: usize,
     batch_size: usize,
-) -> anyhow::Result<()> {
-    let network = Network::Regtest;
+    network: Network,
+) -> anyhow::Result<Vec<CircuitCommit>> {
     let btc_client = BTCClient::new(network, Some(&esplora_url));
 
-    tracing::info!("read: {commit_info_file}");
-    let rdr = std::fs::File::open(commit_info_file)?;
+    let rdr =
+        std::fs::File::open(commit_info_file).expect(&format!("read {commit_info_file} error"));
     let ci: CommitInfo = serde_json::from_reader(rdr)?;
     // NOTE: we support one commit-info per commit file currently
     assert_eq!(batch_size, 1);
@@ -119,8 +123,9 @@ pub async fn fetch_commit_chain(
         };
         commits.push(commit);
     }
-    std::fs::write(&commits_file, serde_json::to_vec(&commits)?)?;
-    Ok(())
+    std::fs::write(&commits_file, serde_json::to_vec(&commits)?)
+        .expect(&format!("write {commits_file} error"));
+    Ok(commits)
 }
 
 /// A program that aggregates the proofs of the simple program.
@@ -157,29 +162,20 @@ impl ProofBuilder for CommitChainProofBuilder {
 
     fn build_proof(
         &self,
-        ctx: &proof_builder::Context,
+        ctx: &proof_builder::ProofRequest,
     ) -> anyhow::Result<(Vec<u8>, ZKMProofWithPublicValues, u64)> {
-        let ProofRequest::CommitChainProofRequest {
-            ref init_input,
-            ref input_proof,
-            ref commits,
-            ..
-        } = ctx.request
+        let ProofRequest::CommitChainProofRequest { init_input, input_proof, commits, .. } = ctx
         else {
             anyhow::bail!("Invalid proof request type");
         };
 
         let vk_hash = self.verifying_key.hash_u32();
-
-        let cb = std::fs::read(&commits).unwrap();
-        let commits: Vec<CircuitCommit> = serde_json::from_slice(&cb).unwrap();
         // Set the previous proof type based on input_proof argument
         let prev_receipt = if *init_input {
             None
         } else {
-            let proof_bytes = fs::read(input_proof).expect("Failed to read input proof file");
-            let proof: ZKMProofWithPublicValues =
-                bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+            let proof_bytes = fs::read(input_proof).context("Failed to read input proof file")?;
+            let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
             Some(proof)
         };
         let (prev_proof, pv_hash) = match prev_receipt.clone() {
@@ -192,7 +188,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         };
 
         let input: CommitChainCircuitInput =
-            CommitChainCircuitInput { vk_hash, pv_hash, prev_proof, commits };
+            CommitChainCircuitInput { vk_hash, pv_hash, prev_proof, commits: commits.to_vec() };
 
         //let output = commit_chain_circuit(input.clone());
         //tracing::info!("Commit chain circuit output: {:?}", output);
@@ -218,7 +214,7 @@ impl ProofBuilder for CommitChainProofBuilder {
             tracing::info!("elf id: {:?}", elf_id);
             self.client
                 .prove_with_cycles(&self.proving_key, &stdin, ZKMProofKind::Compressed, elf_id)
-                .expect("proving failed")
+                .expect("prove failed")
         });
 
         tracing::info!("Commit chain proof cycles: {}", cycles);
@@ -233,12 +229,12 @@ impl ProofBuilder for CommitChainProofBuilder {
 
     fn save_proof(
         &self,
-        ctx: &proof_builder::Context,
+        ctx: &proof_builder::ProofRequest,
         input: &[u8],
         cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
-        let ProofRequest::CommitChainProofRequest { ref output_proof, .. } = ctx.request else {
+        let ProofRequest::CommitChainProofRequest { output_proof, .. } = ctx else {
             anyhow::bail!("Invalid commit chain input");
         };
         fs::write(&output_proof, bincode::serialize(&proof)?)?;
@@ -247,9 +243,5 @@ impl ProofBuilder for CommitChainProofBuilder {
         fs::write(&format!("{}.clk", output_proof), bincode::serialize(&cycles)?)?;
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok(())
-    }
-
-    fn is_long_running(&self) -> bool {
-        true
     }
 }

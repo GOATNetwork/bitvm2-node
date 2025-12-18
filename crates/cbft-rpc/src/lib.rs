@@ -1,3 +1,4 @@
+use anyhow::{Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as b64;
 use serde_json::Value;
@@ -9,17 +10,18 @@ use tendermint_light_client_verifier::types::{
     Header, LightBlock, PeerId, SignedHeader, Validator, ValidatorSet,
 };
 
-fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn std::error::Error>> {
+fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>)> {
     let block_data_json: Value = serde_json::from_str(block_data)?;
     let block = block_data_json.get("result").and_then(|result| result.get("block"));
-    let header = block.and_then(|block| block.get("header")).ok_or("Unable to extract header")?;
+    let header =
+        block.and_then(|block| block.get("header")).ok_or(anyhow!("Unable to extract header"))?;
     let header: Header = serde_json::from_value(header.clone())?;
     // Access the "txs" field as an array of strings
     let txs = block
         .and_then(|block| block.get("data"))
         .and_then(|data| data.get("txs"))
         .and_then(|txs| txs.as_array())
-        .ok_or("Unable to extract txs array")?;
+        .ok_or(anyhow!("Unable to extract txs array"))?;
 
     // Decode each base64-encoded transaction
     let decoded_txs: Vec<String> =
@@ -27,7 +29,7 @@ fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>), Box<dyn s
     Ok((header, decoded_txs))
 }
 
-pub async fn fetch_validators(block_height: u64) -> Result<Vec<Info>, Box<dyn std::error::Error>> {
+pub async fn fetch_validators(block_height: u64) -> Result<Vec<Info>> {
     let cosmos_rpc_url = get_cbft_rpc_url();
     // fetch validator set
     let validators_data =
@@ -40,7 +42,7 @@ pub async fn fetch_validators(block_height: u64) -> Result<Vec<Info>, Box<dyn st
         .get("result")
         .and_then(|result| result.get("validators"))
         .and_then(|validators| validators.as_array())
-        .ok_or("Unable to extract validators array")?;
+        .ok_or(anyhow!("Unable to extract validators array"))?;
 
     let mut validator_set = vec![];
     for validator in validators {
@@ -48,13 +50,13 @@ pub async fn fetch_validators(block_height: u64) -> Result<Vec<Info>, Box<dyn st
             .get("pub_key")
             .and_then(|pk| pk.get("value"))
             .and_then(|value| value.as_str())
-            .ok_or("Unable to extract pub_key value")?;
+            .ok_or(anyhow!("Unable to extract pub_key value"))?;
         let pub_key_bytes = b64.decode(pub_key)?;
         let voting_power = validator
             .get("voting_power")
             .and_then(|vp| vp.as_str())
             .and_then(|vp_str| vp_str.parse::<u64>().ok())
-            .ok_or("Unable to extract voting_power")?;
+            .ok_or(anyhow!("Unable to extract voting_power"))?;
         validator_set.push(Validator::new(
             PublicKey::from_raw_secp256k1(&pub_key_bytes).unwrap(),
             Power::try_from(voting_power).unwrap(),
@@ -67,9 +69,7 @@ pub fn get_cbft_rpc_url() -> String {
     std::env::var("COSMOS_RPC_URL").unwrap_or("https://cosmos.testnet3.goat.network/".to_string())
 }
 
-pub async fn fetch_cbft_validator_info(
-    goat_block_height: u64,
-) -> Result<([u8; 32], u64), Box<dyn std::error::Error>> {
+pub async fn fetch_cbft_validator_info(goat_block_height: u64) -> Result<([u8; 32], u64)> {
     let cosmos_rpc_url = get_cbft_rpc_url();
     // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
     // 1. fetch the latest cosmos block height
@@ -102,16 +102,14 @@ pub async fn fetch_cbft_validator_info(
         max_retries -= 1;
     }
     if max_retries == 0 {
-        return Err(
-            "Can not find the cosmos block for goat block height {goat_block_height}".into()
-        );
+        anyhow::bail!("Can not find the cosmos block for goat block height {goat_block_height}");
     }
     println!("cosmos block height: {block_height}");
 
     Ok((sequencer_hash, block_height))
 }
 
-pub async fn fetch_cbft_tx_data(height: u64) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub async fn fetch_cbft_tx_data(height: u64) -> Result<Vec<String>> {
     let cosmos_rpc_url = get_cbft_rpc_url();
     let block_data =
         reqwest::get(format!("{cosmos_rpc_url}/block?height={height}")).await?.text().await?;
@@ -119,7 +117,7 @@ pub async fn fetch_cbft_tx_data(height: u64) -> Result<Vec<String>, Box<dyn std:
     Ok(tx_data)
 }
 
-pub async fn fetch_cosmos_block(height: u64) -> Result<LightBlock, Box<dyn std::error::Error>> {
+pub async fn fetch_cosmos_block(height: u64) -> Result<LightBlock> {
     let cosmos_rpc_url = get_cbft_rpc_url();
     // 1. header + commit
     let commit_resp =

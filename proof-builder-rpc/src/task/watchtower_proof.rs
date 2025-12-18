@@ -1,6 +1,6 @@
 use crate::ProofBuilderConfig;
 use crate::task::{fetch_on_demand_task, update_watchtower_task};
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
@@ -42,15 +42,14 @@ pub(crate) fn spawn_watchtower_proof_task(
                     info!("Watchtower proof generate task: generate proof, args: {args:?}");
 
                     let (block_pos, target_block, latest_sequencer_commit_tx) =
-                        match fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid).await {
+                        match fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid, args.btc_network).await {
                             Ok(data) => data,
                             Err(e) => {
                                 tracing::error!("Fetch target block error: {e}");
                                 continue;
                             }
                         };
-                    let ctx = Context {
-                        request: ProofRequest::WatchtowerProofRequest {
+                    let ctx = ProofRequest::WatchtowerProofRequest {
                             genesis_sequencer_commit_txid: args.genesis_sequencer_commit_txid.clone(),
                             latest_sequencer_commit_txid: args.latest_sequencer_commit_txid.clone(),
                             header_chain_input_proof: args.header_chain_input_proof.clone(),
@@ -60,7 +59,6 @@ pub(crate) fn spawn_watchtower_proof_task(
                             target_block,
                             block_pos,
                             latest_sequencer_commit_tx,
-                        },
                     };
                     let proving_start = tokio::time::Instant::now();
                     let (input, proof, cycles) = match builder.build_proof(&ctx) {

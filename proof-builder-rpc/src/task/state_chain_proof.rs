@@ -1,6 +1,6 @@
 use crate::task::update_long_running_task;
 use crate::{ProofBuilderConfig, task::fetch_latest_long_running_task};
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{ProofBuilder, ProofRequest};
 use state_chain_proof::{StateChainProofBuilder, fetch_state_chain};
 use std::time::Duration;
 use store::localdb::LocalDB;
@@ -50,11 +50,11 @@ pub(crate) fn spawn_state_chain_proof_task(
                         args.batch_size,
                         &args.execution_layer_rpc,
                         &args.blocks,
+                        &args.goat_network,
                     )
-                    .await;
+                    .await?;
 
-                    let ctx = Context {
-                        request: ProofRequest::StateChainProofRequest {
+                    let ctx = ProofRequest::StateChainProofRequest {
                             init_input: args.init_input,
                             input_proof: args.input_proof.clone(),
                             output_proof: args.output_proof.clone(),
@@ -62,15 +62,14 @@ pub(crate) fn spawn_state_chain_proof_task(
                             l2_contract_address: args.l2_contract_address.clone(),
                             batch_size: args.batch_size,
                             blocks,
-                        },
                     };
                     let proving_start = tokio::time::Instant::now();
-                    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+                    let (input, proof, cycles) = builder.build_proof(&ctx)?;
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
-                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
+                    builder.save_proof(&ctx, &input, cycles, proof)?;
                     update_long_running_task(&local_db, args.start, args.batch_size, &args.output_proof, cycles, StateChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
-                    args = ProofBuilderConfig::run_next(args, StateChainProofBuilder::name()).unwrap();
+                    args = ProofBuilderConfig::run_next(args, StateChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {
                     anyhow::bail!("state chain proof generate task cancelled");

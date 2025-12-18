@@ -4,7 +4,7 @@ use client::btc_chain::BTCClient;
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
-use proof_builder::{Context, LongRunning, ProofBuilder, ProofRequest};
+use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -15,9 +15,9 @@ use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProof, ZKMProofWithPublicValues, ZKMStdin, include_elf,
 };
 static ELF_ID: OnceLock<String> = OnceLock::new();
-use std::sync::OnceLock;
-
+use anyhow::Context;
 use clap::Parser;
+use std::sync::OnceLock;
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
@@ -27,6 +27,9 @@ pub struct Args {
 
     #[arg(long, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
+
+    #[arg(long, default_value_t = Network::Regtest)]
+    pub btc_network: Network,
 
     #[clap(long, env, default_value_t = 4)]
     pub batch_size: usize,
@@ -72,12 +75,16 @@ pub async fn fetch_header_chain(
     batch_size: usize,
     block_header_file: &str,
     force_fetch: bool,
+    network: Network,
 ) -> anyhow::Result<Vec<CircuitBlockHeader>> {
-    let network = Network::Regtest;
     let btc_client = BTCClient::new(network, Some(esplora_url));
 
-    let mut writer =
-        std::fs::OpenOptions::new().read(true).write(true).create(true).open(block_header_file)?;
+    let mut writer = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(block_header_file)
+        .expect(&format!("Open {block_header_file} error"));
 
     let mut headers: Vec<u8> = Vec::new();
     writer.read_to_end(&mut headers)?;
@@ -108,7 +115,7 @@ pub async fn fetch_header_chain(
         start,
         batch_size,
     );
-    std::fs::copy(block_header_file, backup_file)?;
+    std::fs::copy(block_header_file, backup_file).context("copy error")?;
     Ok(block_headers)
 }
 
@@ -148,16 +155,16 @@ impl ProofBuilder for HeaderChainProofBuilder {
 
     fn build_proof(
         &self,
-        ctx: &Context,
+        ctx: &ProofRequest,
     ) -> anyhow::Result<(Vec<u8>, ZKMProofWithPublicValues, u64)> {
         let ProofRequest::HeaderChainProofRequest {
-            ref init_input,
-            ref input_proof,
-            ref start,
-            ref batch_size,
-            ref total_block_headers,
+            init_input,
+            input_proof,
+            start,
+            batch_size,
+            total_block_headers,
             ..
-        } = ctx.request
+        } = ctx
         else {
             anyhow::bail!("Invalid proof request type");
         };
@@ -168,7 +175,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let proof_bytes = fs::read(&input_proof)?;
+            let proof_bytes = fs::read(&input_proof).context("read error")?;
             let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
             Some(proof)
         };
@@ -227,12 +234,12 @@ impl ProofBuilder for HeaderChainProofBuilder {
 
     fn save_proof(
         &self,
-        ctx: &Context,
+        ctx: &ProofRequest,
         input: &[u8],
         cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
-        let ProofRequest::HeaderChainProofRequest { ref output_proof, .. } = ctx.request else {
+        let ProofRequest::HeaderChainProofRequest { output_proof, .. } = ctx else {
             anyhow::bail!("invalid context");
         };
         fs::write(&output_proof, bincode::serialize(&proof)?)?;
@@ -241,9 +248,5 @@ impl ProofBuilder for HeaderChainProofBuilder {
         fs::write(&format!("{}.clk", output_proof), bincode::serialize(&cycles)?)?;
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok(())
-    }
-
-    fn is_long_running(&self) -> bool {
-        true
     }
 }

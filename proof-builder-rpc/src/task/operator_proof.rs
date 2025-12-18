@@ -3,7 +3,7 @@ use crate::{
     task::{fetch_on_demand_task, update_operator_task},
 };
 use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
@@ -62,6 +62,7 @@ pub(crate) fn spawn_operator_proof_task(
                         &args.watchtower_challenge_init_txid,
                         &args.watchtower_challenge_txids,
                         &args.watchtower_public_keys,
+                        args.btc_network,
                     )
                     .await {
                         Ok(data) => data,
@@ -70,9 +71,8 @@ pub(crate) fn spawn_operator_proof_task(
                             continue;
                         }
                     };
-                    let ctx = Context {
-                        request: ProofRequest::OperatorProofRequest {
-                            included_watchtowers: args.included_watchtowers.clone(),
+                    let ctx = ProofRequest::OperatorProofRequest {
+                        included_watchtowers: args.included_watchtowers.clone(),
                             graph_id: hex_parse::<16>(&args.graph_id).unwrap(),
                             genesis_sequencer_commit_txid: args.genesis_sequencer_commit_txid.clone(),
 
@@ -92,7 +92,6 @@ pub(crate) fn spawn_operator_proof_task(
                             watchtower_challenge_txn_prev_indices,
                             watchtower_challenge_txn_pubkeys,
                             watchtower_challenge_txn_scripts,
-                        },
                     };
                     let proving_start = tokio::time::Instant::now();
                     let (input, proof, cycles) = match builder.build_proof(&ctx) {
@@ -105,7 +104,7 @@ pub(crate) fn spawn_operator_proof_task(
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
                     update_operator_task(&local_db, args.index, &args.output, cycles, proving_duration as i64, zkm_version).await?;
-                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
+                    builder.save_proof(&ctx, &input, cycles, proof)?;
                     args = ProofBuilderConfig::run_next(args, OperatorProofBuilder::name())?;
 
                 }

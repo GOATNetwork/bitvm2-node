@@ -1,15 +1,11 @@
 use anyhow::Result;
 use bitcoin::{Block, ScriptBuf, Transaction, TxOut};
+use commit_chain::CircuitCommit;
 use header_chain::{CircuitBlockHeader, CircuitTransaction};
 use state_chain::CircuitStateBlock;
 use thiserror::Error;
 use zkm_sdk::{ProverClient, ZKMProofWithPublicValues};
 use zkm_sdk::{ZKMProvingKey, ZKMVerifyingKey};
-
-#[derive(Debug, Clone)]
-pub struct Context {
-    pub request: ProofRequest,
-}
 
 #[derive(Debug, Clone)]
 pub enum ProofRequest {
@@ -23,7 +19,7 @@ pub enum ProofRequest {
     },
     CommitChainProofRequest {
         commit_info: String,
-        commits: String,
+        commits: Vec<CircuitCommit>,
         init_input: bool,
         input_proof: String,
         output_proof: String,
@@ -72,6 +68,8 @@ pub enum ProofRequest {
 pub enum ProofError {
     #[error("Retry after {0} seconds")]
     InputNotReady(u64),
+    #[error("File {0} not found")]
+    FileNotExit(String),
 }
 
 pub trait ProofBuilder {
@@ -79,17 +77,15 @@ pub trait ProofBuilder {
     fn pk(&self) -> &ZKMProvingKey;
     fn vk(&self) -> &ZKMVerifyingKey;
 
-    fn build_proof(&self, ctx: &Context) -> Result<(Vec<u8>, ZKMProofWithPublicValues, u64)>;
+    fn build_proof(&self, ctx: &ProofRequest) -> Result<(Vec<u8>, ZKMProofWithPublicValues, u64)>;
 
     fn save_proof(
         &self,
-        ctx: &Context,
+        ctx: &ProofRequest,
         input: &[u8],
         cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()>;
-
-    fn is_long_running(&self) -> bool;
 
     fn name() -> String;
 }

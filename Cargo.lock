@@ -3058,6 +3058,7 @@ dependencies = [
 name = "cbft-rpc"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "base64 0.21.7",
  "bitcoin-light-client-circuit",
  "commit-chain",

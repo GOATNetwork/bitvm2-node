@@ -1,6 +1,6 @@
 //! Generate header chain proof
 use header_chain_proof::{Args, HeaderChainProofBuilder, fetch_header_chain};
-use proof_builder::{Context, ProofBuilder};
+use proof_builder::{ProofBuilder, ProofRequest};
 
 use clap::Parser;
 
@@ -17,21 +17,20 @@ async fn main() {
         args.batch_size,
         &args.block_headers,
         args.force_fetch,
+        args.btc_network,
     )
     .await
     .unwrap();
 
     let builder = HeaderChainProofBuilder::new();
 
-    let ctx = Context {
-        request: proof_builder::ProofRequest::HeaderChainProofRequest {
-            init_input: args.init_input,
-            input_proof: args.input_proof.clone(),
-            output_proof: args.output_proof.clone(),
-            start: args.start,
-            batch_size: args.batch_size,
-            total_block_headers,
-        },
+    let ctx = ProofRequest::HeaderChainProofRequest {
+        init_input: args.init_input,
+        input_proof: args.input_proof.clone(),
+        output_proof: args.output_proof.clone(),
+        start: args.start,
+        batch_size: args.batch_size,
+        total_block_headers,
     };
     let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
     tracing::info!("header chain proof cycles: {cycles}");

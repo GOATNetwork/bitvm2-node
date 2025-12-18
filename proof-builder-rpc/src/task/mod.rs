@@ -198,18 +198,24 @@ pub(crate) async fn fetch_on_demand_task(
     tracing::info!("Fetch task for watchtower:{is_watchtower}");
     // btc header chain: always fetch the latest
     let mut storage_processor = local_db.acquire().await?;
-    let header_chain_input_proof = storage_processor
+    let header_chain_input_proof = match storage_processor
         .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
         .await?
-        .unwrap();
+    {
+        Some(d) => d,
+        None => anyhow::bail!("Header chain input proof is not ready"),
+    };
     tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
 
     // commit chain: always fetch the latest
-    let commit_chain_input_proof = storage_processor
+    let commit_chain_input_proof = match storage_processor
         .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
         .await?
-        .unwrap();
+    {
+        Some(d) => d,
+        None => anyhow::bail!("Commit chain input proof is not ready"),
+    };
     tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
     let start = commit_chain_input_proof.block_start;
     let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
@@ -311,9 +317,9 @@ pub(crate) async fn update_long_running_task(
     chain_name: String,
     proving_duration: i64,
     zkm_version: String,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    storage_processor
+    Ok(storage_processor
         .create_long_running_task_proof(&LongRunningTaskProof {
             block_start: start as i64,
             block_end: (start + batch_size) as i64,
@@ -327,8 +333,7 @@ pub(crate) async fn update_long_running_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
-        .await?;
-    Ok(())
+        .await?)
 }
 
 /// table schema: (index, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, path_to_proof, cycles, state, update_time)
@@ -343,9 +348,9 @@ pub(crate) async fn add_watchtower_task(
     challenge_txid: String,
     challenge_init_txid: String,
     execution_layer_block_number: i64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    storage_processor
+    Ok(storage_processor
         .create_watchtower_proof(&WatchtowerProof {
             id: 1,
             instance_id,
@@ -359,8 +364,7 @@ pub(crate) async fn add_watchtower_task(
             execution_layer_block_number,
             ..Default::default()
         })
-        .await?;
-    Ok(())
+        .await?)
 }
 
 pub(crate) async fn update_watchtower_task(
@@ -393,9 +397,9 @@ pub(crate) async fn add_operator_task(
     instance_id: Uuid,
     graph_id: Uuid,
     execution_layer_block_number: i64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    storage_processor
+    Ok(storage_processor
         .create_operator_proof(&OperatorProof {
             id: 1,
             instance_id,
@@ -406,8 +410,7 @@ pub(crate) async fn add_operator_task(
             updated_at: current_time_secs(),
             ..Default::default()
         })
-        .await?;
-    Ok(())
+        .await?)
 }
 
 pub(crate) async fn update_operator_task(

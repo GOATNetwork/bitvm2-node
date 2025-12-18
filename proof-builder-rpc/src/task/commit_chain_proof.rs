@@ -3,7 +3,7 @@ use crate::task::fetch_latest_long_running_task;
 use crate::task::update_long_running_task;
 use commit_chain_proof::CommitChainProofBuilder;
 use commit_chain_proof::fetch_commit_chain;
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
@@ -51,21 +51,20 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     }
                     info!("Commit chain proof generate task: generate proof, args: {args:?}");
 
-                    match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.start, args.batch_size).await {
-                        Ok(()) => {},
+                    let commits = match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.start, args.batch_size, args.btc_network).await {
+                        Ok(d) => d,
                         Err(err) => {
                             tracing::error!("Fetch commit chain error, {err:?}");
                             continue;
                         }
                     };
-                    let ctx = Context {
-                        request: ProofRequest::CommitChainProofRequest {
+                    let ctx =
+                        ProofRequest::CommitChainProofRequest {
                             init_input: args.init_input,
                             input_proof: args.input_proof.clone(),
                             output_proof: args.output_proof.clone(),
                             commit_info: args.commit_info.clone(),
-                            commits: args.commits.clone(),
-                        },
+                            commits,
                     };
                     let proving_start = tokio::time::Instant::now();
                     let (input, proof, cycles) = match builder.build_proof(&ctx) {
@@ -77,9 +76,9 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     };
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
-                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
+                    builder.save_proof(&ctx, &input, cycles, proof)?;
                     update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, CommitChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
-                    args = ProofBuilderConfig::run_next(args, CommitChainProofBuilder::name()).unwrap();
+                    args = ProofBuilderConfig::run_next(args, CommitChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {
                     anyhow::bail!("Commit chain proof generate task cancelled");

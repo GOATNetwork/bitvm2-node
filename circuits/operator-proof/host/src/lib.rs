@@ -1,5 +1,6 @@
 //! Generate operator proof
 use alloy_primitives::U256;
+use anyhow::Context;
 use ark_serialize::CanonicalSerialize;
 use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
@@ -13,7 +14,7 @@ use client::btc_chain::BTCClient;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::CircuitTransaction;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
-use proof_builder::{Context, LongRunning, ProofBuilder, ProofRequest};
+use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
 use zkm_sdk::{
@@ -31,6 +32,9 @@ pub struct Args {
 
     #[arg(long, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
+
+    #[arg(long, default_value_t = Network::Regtest)]
+    pub btc_network: Network,
 
     #[clap(long, env)]
     pub included_watchtowers: String,
@@ -95,6 +99,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
     watchtower_challenge_init_txid: &String,
     watchtower_challenge_txids: &str,
     watchtower_public_keys: &str,
+    btc_network: Network,
 ) -> anyhow::Result<(
     u32,
     bitcoin::Block,
@@ -107,8 +112,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
 )> {
     let watchtower_challenge_txids: Vec<&str> = watchtower_challenge_txids.split(",").collect();
     let watchtower_public_keys: Vec<&str> = watchtower_public_keys.split(",").collect();
-    let network = Network::Regtest;
-    let btc_client = BTCClient::new(network, Some(&esplora_url));
+    let btc_client = BTCClient::new(btc_network, Some(&esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid).unwrap();
     let operator_latest_sequencer_commit_txn =
         btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
@@ -204,83 +208,86 @@ impl ProofBuilder for OperatorProofBuilder {
 
     fn build_proof(
         &self,
-        ctx: &Context,
+        ctx: &ProofRequest,
     ) -> anyhow::Result<(Vec<u8>, ZKMProofWithPublicValues, u64)> {
         let ProofRequest::OperatorProofRequest {
-            ref included_watchtowers,
-            ref graph_id,
-            ref header_chain_input_proof,
-            ref commit_chain_input_proof,
-            ref state_chain_input_proof,
-            ref genesis_sequencer_commit_txid,
-            ref target_block,
-            ref block_pos,
-            ref operator_latest_sequencer_commit_txn,
+            included_watchtowers,
+            graph_id,
+            header_chain_input_proof,
+            commit_chain_input_proof,
+            state_chain_input_proof,
+            genesis_sequencer_commit_txid,
+            target_block,
+            block_pos,
+            operator_latest_sequencer_commit_txn,
 
-            ref watchtower_challenge_txns,
-            ref watchtower_challenge_txn_prev_outs,
-            ref watchtower_challenge_txn_prev_indices,
-            ref watchtower_challenge_txn_pubkeys,
-            ref watchtower_challenge_txn_scripts,
+            watchtower_challenge_txns,
+            watchtower_challenge_txn_prev_outs,
+            watchtower_challenge_txn_prev_indices,
+            watchtower_challenge_txn_pubkeys,
+            watchtower_challenge_txn_scripts,
             ..
-        } = ctx.request
+        } = ctx
         else {
             anyhow::bail!("Invalid proof request type");
         };
 
         // --- header chain --- //
-        let bytes = std::fs::read(&format!("{}.in", header_chain_input_proof)).unwrap();
-        let mut header_chain_input: HeaderChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+        let bytes = std::fs::read(&format!("{}.in", header_chain_input_proof))
+            .context("read header chain in error")?;
+        let mut header_chain_input: HeaderChainCircuitInput = bincode::deserialize(&bytes)?;
 
         let proof_bytes =
-            fs::read(&header_chain_input_proof).expect("Failed to read input proof file");
-        let proof: ZKMProofWithPublicValues =
-            bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+            fs::read(&header_chain_input_proof).context("Failed to read input proof file")?;
+        let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
         header_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();
 
         let ZKMProof::Compressed(header_compressed_proof) = proof.proof else { panic!() };
-        let bytes = std::fs::read(&format!("{}.vk", header_chain_input_proof)).unwrap();
-        let header_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
+        let bytes =
+            std::fs::read(&format!("{}.vk", header_chain_input_proof)).context("read vk error")?;
+        let header_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes)?;
         //assert_eq!(header_chain_output.vk_hash, header_chain_vk.hash_u32());
 
         // --- commit chain --- //
-        let bytes = std::fs::read(&format!("{}.in", commit_chain_input_proof)).unwrap();
-        let mut commit_chain_input: CommitChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+        let bytes = std::fs::read(&format!("{}.in", commit_chain_input_proof))
+            .context("read commit chain in error")?;
+        let mut commit_chain_input: CommitChainCircuitInput = bincode::deserialize(&bytes)?;
 
         // Set the previous proof type based on input_proof argument
         let proof_bytes =
-            fs::read(&commit_chain_input_proof).expect("Failed to read input proof file");
-        let proof: ZKMProofWithPublicValues =
-            bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+            fs::read(&commit_chain_input_proof).context("Failed to read input proof file")?;
+        let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
 
         //let commit_chain_output: CommitChainCircuitOutput = proof.public_values.read();
         commit_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();
 
         let ZKMProof::Compressed(commit_compressed_proof) = proof.proof else { panic!() };
 
-        let bytes = std::fs::read(&format!("{}.vk", commit_chain_input_proof)).unwrap();
-        let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
+        let bytes = std::fs::read(&format!("{}.vk", commit_chain_input_proof))
+            .context("read statechain vk error")?;
+        let commit_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes)?;
         //assert_eq!(commit_chain_output.vk_hash, commit_chain_vk.hash_u32());
 
         // --- state chain --- //
-        let bytes = std::fs::read(&format!("{}.in", state_chain_input_proof)).unwrap();
-        let mut state_chain_input: StateChainCircuitInput = bincode::deserialize(&bytes).unwrap();
+        let bytes = std::fs::read(&format!("{}.in", state_chain_input_proof))
+            .context("read state chain in error")?;
+        let mut state_chain_input: StateChainCircuitInput = bincode::deserialize(&bytes)?;
 
         // Set the previous proof type based on input_proof argument
         let proof_bytes =
             fs::read(&state_chain_input_proof).expect("Failed to read input proof file");
-        let proof: ZKMProofWithPublicValues =
-            bincode::deserialize(&proof_bytes).expect("failed to deserialize the proof");
+        let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
 
         state_chain_input.pv_hash = proof.public_values.hash().try_into().unwrap();
         let ZKMProof::Compressed(state_compressed_proof) = proof.proof else { panic!() };
-        let bytes = std::fs::read(&format!("{}.vk", state_chain_input_proof)).unwrap();
-        let state_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes).unwrap();
+        let bytes = std::fs::read(&format!("{}.vk", state_chain_input_proof))
+            .context("read state chain vk error")?;
+        let state_chain_vk: zkm_sdk::ZKMVerifyingKey = bincode::deserialize(&bytes)?;
         // --- spv --- //
         //let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid).unwrap();
 
         let operator_genesis_sequencer_commit_txid =
-            Txid::from_str(&genesis_sequencer_commit_txid).unwrap();
+            Txid::from_str(&genesis_sequencer_commit_txid)?;
         /*
         let operator_latest_sequencer_commit_txn =
             btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
@@ -295,8 +302,8 @@ impl ProofBuilder for OperatorProofBuilder {
         */
 
         let bitcoin_block_headers = {
-            let headers: Vec<u8> =
-                std::fs::read(&format!("{header_chain_input_proof}.blocks")).unwrap();
+            let headers: Vec<u8> = std::fs::read(&format!("{header_chain_input_proof}.blocks"))
+                .context("read header chain blocks error")?;
             headers
                 .chunks(80)
                 .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
@@ -376,12 +383,12 @@ impl ProofBuilder for OperatorProofBuilder {
 
     fn save_proof(
         &self,
-        ctx: &Context,
+        ctx: &ProofRequest,
         _input: &[u8],
         _cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<()> {
-        let ProofRequest::OperatorProofRequest { ref output, .. } = ctx.request else {
+        let ProofRequest::OperatorProofRequest { output, .. } = ctx else {
             anyhow::bail!("invalid context");
         };
         //fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
@@ -389,23 +396,18 @@ impl ProofBuilder for OperatorProofBuilder {
         //println!("Generate proof successfully, proof: {:?}", proof);
 
         let groth16_vk = &GROTH16_VK_BYTES;
-        let ark_proof =
-            convert_ark(&proof, self.verifying_key.bytes32().as_ref(), groth16_vk).unwrap();
+        let ark_proof = convert_ark(&proof, self.verifying_key.bytes32().as_ref(), groth16_vk)?;
 
-        let mut writer = std::fs::File::create(format!("{}.proof.bin", output)).unwrap();
-        ark_proof.proof.serialize_compressed(&mut writer).unwrap();
+        let mut writer = std::fs::File::create(format!("{}.proof.bin", output))?;
+        ark_proof.proof.serialize_compressed(&mut writer)?;
 
-        let mut writer = std::fs::File::create(format!("{}.vk.bin", output)).unwrap();
-        ark_proof.groth16_vk.serialize_compressed(&mut writer).unwrap();
+        let mut writer = std::fs::File::create(format!("{}.vk.bin", output))?;
+        ark_proof.groth16_vk.serialize_compressed(&mut writer)?;
 
-        let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", output)).unwrap();
-        ark_proof.public_inputs.serialize_compressed(&mut writer).unwrap();
+        let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", output))?;
+        ark_proof.public_inputs.serialize_compressed(&mut writer)?;
 
         tracing::info!("Generate proof successfully, Ark proof: {:?}", ark_proof);
         Ok(())
-    }
-
-    fn is_long_running(&self) -> bool {
-        false
     }
 }

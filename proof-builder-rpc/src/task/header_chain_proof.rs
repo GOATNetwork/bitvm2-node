@@ -1,5 +1,5 @@
 use header_chain_proof::{HeaderChainProofBuilder, fetch_header_chain};
-use proof_builder::{Context, ProofBuilder, ProofRequest};
+use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
@@ -51,6 +51,7 @@ pub(crate) fn spawn_header_chain_proof_task(
                         args.batch_size,
                         &args.block_headers,
                         args.force_fetch,
+                        args.btc_network,
                     ).await {
                         Ok(data) => data,
                         Err(err) => {
@@ -59,23 +60,22 @@ pub(crate) fn spawn_header_chain_proof_task(
                         }
                     };
 
-                    let ctx = Context {
-                       request: ProofRequest::HeaderChainProofRequest {
+                    let ctx =
+                       ProofRequest::HeaderChainProofRequest {
                            init_input: args.init_input,
                            input_proof: args.input_proof.clone(),
                            output_proof: args.output_proof.clone(),
                            start: args.start,
                            batch_size: args.batch_size,
                            total_block_headers,
-                       }
                     };
                     let proving_start = tokio::time::Instant::now();
-                    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+                    let (input, proof, cycles) = builder.build_proof(&ctx)?;
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
-                    builder.save_proof(&ctx, &input, cycles, proof).unwrap();
+                    builder.save_proof(&ctx, &input, cycles, proof)?;
                     update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, HeaderChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
-                    args = ProofBuilderConfig::run_next(args, HeaderChainProofBuilder::name()).unwrap();
+                    args = ProofBuilderConfig::run_next(args, HeaderChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {
                     anyhow::bail!("Header chain proof generate task cancelled");
