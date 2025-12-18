@@ -2664,6 +2664,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_operator_proof_success(
         &mut self,
         id: i64,
@@ -2805,6 +2806,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_watchtower_proof_success(
         &mut self,
         id: i64,
