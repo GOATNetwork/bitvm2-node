@@ -1,0 +1,80 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,\n                                           zkm_version, extra, updated_at, created_at FROM long_running_task_proof\n           \n             WHERE block_end > ? and block_start <= ? AND chain_name = ? LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "block_start",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "block_end",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "chain_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "path_to_proof",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "cycles",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "proof_state",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "proving_time",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "zkm_version",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "extra",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 10,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "09e9d2274da4a1a79674d641f01de012e25fbc3b8befd8c1b00e0ec30c6f0a74"
+}
