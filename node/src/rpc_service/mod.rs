@@ -236,7 +236,6 @@ mod tests {
         InstanceListResponse, InstanceOverviewResponse, InstanceSettingResponse,
     };
     use crate::rpc_service::node::{NodeListResponse, NodeOverViewResponse};
-    use crate::rpc_service::proof::ProofType;
     use crate::rpc_service::{self, Actor, current_time_secs, routes};
     use crate::utils::{
         generate_local_key, generate_random_bytes, get_rand_btc_address_p2wpkh,
@@ -254,9 +253,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use store::localdb::LocalDB;
-    use store::{
-        Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, ProofState, create_local_db,
-    };
+    use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, create_local_db};
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
     use tracing::{error, info};
