@@ -7,7 +7,7 @@ mod validation;
 
 use crate::api::metrics_service::{ApiMetricsState, metrics_handler, metrics_middleware};
 use crate::api::proof_handler::{
-    get_chain_proof_task, post_operator_proof_task, post_watchtower_proof_task,
+    get_chain_proof_task_desc, post_operator_proof_task, post_watchtower_proof_task,
 };
 use axum::routing::{get, post};
 use axum::{Router, middleware};
@@ -36,9 +36,11 @@ pub(crate) async fn serve(
     let server = Router::new()
         .route(routes::ROOT, get(root))
         .route(routes::METRICS, get(metrics_handler))
-        .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_task))
+        .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_task_desc))
         .route(routes::v1::PROOFS_WATCHTOWER_PROOF, post(post_watchtower_proof_task))
         .route(routes::v1::PROOFS_OPERATOR_PROOF, post(post_operator_proof_task))
+        .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(post_operator_proof_task))
+        .route(routes::METRICS, get(metrics_handler))
         .layer(middleware::from_fn_with_state(api_state.clone(), metrics_middleware))
         .with_state(api_state);
     let listener = TcpListener::bind(addr).await?;

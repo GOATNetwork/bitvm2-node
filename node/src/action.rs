@@ -2427,7 +2427,7 @@ pub async fn recv_and_dispatch(
             // 1. check the withdraw status on GoatChain, if the withdraw is invalid, sign & broadcast watchtower-challenge txn
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
-                let watchtower_proof = match todo_funcs::get_watchtower_proof(
+                let watchtower_proof = match get_watchtower_proof(
                     local_db,
                     http_client,
                     instance_id,
@@ -3201,7 +3201,7 @@ pub async fn recv_and_dispatch(
                 txins
             };
             // 2. check assertions committed by Operator, if any assertion is invalid, sign & broadcast disprove txn
-            let vk = todo_funcs::get_operator_proof_vk(http_client, instance_id, graph_id).await?;
+            let vk = get_operator_proof_vk(local_db, http_client, instance_id, graph_id).await?;
             let disprove_scripts = get_disprove_scripts(local_db, &graph.parameters).await?;
             let disprove_scripts = disprove_scripts
                 .try_into()

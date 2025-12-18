@@ -2895,6 +2895,43 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
+    pub async fn find_watchtower_proof_by_instance_and_graph_and_pubkey(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        public_key: &str,
+    ) -> anyhow::Result<Option<WatchtowerProof>> {
+        let res = sqlx::query_as::<_, WatchtowerProof>(
+            "SELECT id,
+                         instance_id,
+                         graph_id,
+                         public_key,
+                         challenge_txid,
+                         challenge_init_txid,
+                         execution_layer_block_number,
+                         path_to_proof,
+                         public_value_hex,
+                         proof_size,
+                         cycles,
+                         proof_state,
+                         proving_time,
+                         zkm_version,
+                         extra,
+                         created_at,
+                         updated_at
+                  FROM watchtower_proof
+                  WHERE instance_id = ?
+                    AND graph_id = ?
+                    AND  public_key = ?",
+        )
+        .bind(instance_id)
+        .bind(graph_id)
+        .bind(public_key)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
     pub async fn find_watchtower_proofs_unproved(
         &mut self,
     ) -> anyhow::Result<Vec<WatchtowerProof>> {
@@ -2974,11 +3011,11 @@ impl<'a> StorageProcessor<'a> {
             watchtower_proof.challenge_init_txid,
             watchtower_proof.execution_layer_block_number,
             watchtower_proof.path_to_proof,
-            watchtower_proof.public_value_hex,
-            watchtower_proof.proof_size,
             watchtower_proof.cycles,
             watchtower_proof.proof_state,
             watchtower_proof.proving_time,
+            watchtower_proof.public_value_hex,
+            watchtower_proof.proof_size,
             watchtower_proof.zkm_version,
             watchtower_proof.extra,
             watchtower_proof.updated_at,

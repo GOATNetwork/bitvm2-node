@@ -20,7 +20,7 @@ use bitvm2_lib::committee::*;
 use bitvm2_lib::keys::{ChallengerMasterKey, OperatorMasterKey, WatchtowerMasterKey};
 use bitvm2_lib::operator::*;
 use bitvm2_lib::types::{
-    Bitvm2Graph, Bitvm2GraphParameters, Bitvm2InstanceParameters, Groth16Proof,
+    Bitvm2Graph, Bitvm2GraphParameters, Bitvm2InstanceParameters, Groth16Proof, GuestInputs,
     PrekickoffParameters, PublicInputs, SimplifiedBitvm2Graph, UserInfo, VerifyingKey,
 };
 use bitvm2_lib::watchtower::*;
@@ -42,6 +42,7 @@ use rand::Rng;
 use secp256k1::Secp256k1;
 
 use anyhow::{Result, anyhow, bail};
+use ark_serialize::CanonicalDeserialize;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::encode::{deserialize, serialize};
 use bitcoin::hashes::Hash;
@@ -66,10 +67,15 @@ use store::{
 use stun_client::{Attribute, Class, Client};
 
 use crate::env;
+use crate::rpc_service::proof::{
+    OperatorProofRequest, OperatorProofResponse, WatchtowerProofRequest, WatchtowerProofResponse,
+};
+use crate::rpc_service::routes::v1::{NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE};
 use crate::scheduled_tasks::get_goat_message_content_type;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertCommitStatus, ChallengeSubStatus, CommitBlockHashStatus, WatchtowerChallengeStatus,
 };
+use crate::utils::todo_funcs::get_guest_constant_value;
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
 use client::http_client::async_client::HttpAsyncClient;
@@ -80,135 +86,17 @@ pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
 
     use super::*;
-    use crate::rpc_service::proof::{
-        OperatorProofRequest, OperatorProofResponse, WatchtowerProofRequest,
-        WatchtowerProofResponse,
-    };
-    use crate::rpc_service::routes::v1::{NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE};
     use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
-    use bitvm2_lib::types::{GuestInputs, SimplifiedBitvm2Graph};
+    use bitvm2_lib::types::SimplifiedBitvm2Graph;
     use goat::{
         connectors::assert_connectors::chunk_assert_commit, disprove_scripts::NUM_GUEST_PUBS_ASSERT,
     };
 
-    // proof network
-
-    /// Returns:
-    /// - `Ok(Some(WatchtowerProof), _)` if watchtower proof is available
-    /// - `Ok(None, wait_secs)` if watchtower proof is not yet available, with suggested wait time
-    pub async fn get_watchtower_proof(
-        local_db: &LocalDB,
-        http_client: &HttpAsyncClient,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<(Option<Vec<u8>>, usize)> {
-        let mut storage_processor = local_db.acquire().await?;
-        if let Some(graph) = storage_processor.find_graph(&graph_id).await?
-            && let (Some(challenge_txid), Some(challenge_init_txid)) =
-                (graph.challenge_txid, graph.watchtower_challenge_init_txid)
-        {
-            let url = format!(
-                "http://{}{}",
-                get_proof_build_rpc_host()
-                    .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
-                NODES_WATCHTOWER_BASE
-            );
-            let response = http_client
-                .post_response_json::<WatchtowerProofResponse, WatchtowerProofRequest>(
-                    &url,
-                    &WatchtowerProofRequest {
-                        instance_id: instance_id.to_string(),
-                        graph_id: graph_id.to_string(),
-                        public_key: "".to_string(), // todo need to get public key
-                        challenge_txid: challenge_txid.0.to_string(),
-                        challenge_init_txid: challenge_init_txid.0.to_string(),
-                        execution_layer_block_number: graph.proceed_withdraw_height,
-                    },
-                )
-                .await?;
-
-            if response.proof_data.is_none() {
-                bail!("failed to get proof_data: error: {:?}", response.error);
-            }
-            // todo parse response and  return res
-        } else {
-            warn!("graph:{graph_id} not found or related txn is none",);
-            bail!("No graph in db");
-        }
-
-        Ok((Some(b"watchtower_proof".to_vec()), 0))
-    }
     pub async fn get_operator_proof_blockhash(
         instance_id: Uuid,
         graph_id: Uuid,
     ) -> Result<[u8; 32]> {
         Ok([0xbbu8; 32])
-    }
-
-    /// Returns:
-    /// - `Ok(Some(OperatorProof), _)` if operator proof is available
-    /// - `Ok(None, wait_secs)` if operator proof is not yet available, with suggested wait time
-    pub async fn get_operator_proof(
-        local_db: &LocalDB,
-        http_client: &HttpAsyncClient,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<(Option<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)>, usize)> {
-        let mut storage_processor = local_db.acquire().await?;
-        if let Some(graph) = storage_processor.find_graph(&graph_id).await? {
-            let url = format!(
-                "http://{}{}",
-                get_proof_build_rpc_host()
-                    .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
-                NODES_OPERATOR_BASE
-            );
-            let response = http_client
-                .post_response_json::<OperatorProofResponse, OperatorProofRequest>(
-                    &url,
-                    &OperatorProofRequest {
-                        instance_id: instance_id.to_string(),
-                        graph_id: graph_id.to_string(),
-                        execution_layer_block_number: graph.proceed_withdraw_height,
-                    },
-                )
-                .await?;
-
-            if response.proof_data.is_none() {
-                bail!("failed to get proof_data: error: {:?}", response.error);
-            }
-
-            // todo parse response and  return res
-        } else {
-            warn!("graph:{graph_id} not found");
-            bail!("No graph in db");
-        }
-
-        // rm me later
-        let proof = hex::decode(
-            "b6ef2c5aa48a2f599a13bc4d8010e4d0190aeb05ff79e21266aff8dde6353d1756191f0959c787f6dedfc0c47751aed2648775101285b9da2d6c4e912e74891f884bd672f94f4d78528fb10b5410a94b53bcef07f99952ef72b68c72a5c4ff2a3de7c314ffbf17df018a753f070448c2f698706d4c2b99bdb06f928cffe1bea0",
-        )?;
-        let pis = hex::decode(
-            "02000000000000002000000000000000721db33a295a3b29a61c7360486e6d8346288822dc5cab652722e34d4b423d002000000000000000cfdc2f035c3699c6d17563570ea05a3d6d08302487937dd079a6b1671d484c0d",
-        )?;
-        let proof = goat::proof::deserialize_proof(proof);
-        let pis = goat::proof::deserialize_pubin(pis);
-        let pk = get_operator_proof_vk(http_client, instance_id, graph_id).await?;
-        let guest_inputs = [
-            get_guest_constant_value(instance_id, graph_id).await?,
-            [0xffu8; 32], // use [0u8; 32] to test non-inclusion challenge
-        ];
-        Ok((Some((guest_inputs, proof, pis, pk)), 0))
-    }
-    pub async fn get_operator_proof_vk(
-        http_client: &HttpAsyncClient,
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<VerifyingKey> {
-        // todo update
-        let zkm_v1_vk_bytes = hex::decode(
-            "e2f26dbea299f5223b646cb1fb33eadb059d9407559d7441dfd902e3a79a4d2dabb73dc17fbc13021e2471e0c08bd67d8401f52b73d6d07483794cad4778180e0c06f33bbc4c79a9cadef253a68084d382f17788f885c9afd176f7cb2f036789edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19ffdb10cf9f7e2b08673477187c33a695a397702cf22005900724518b57f92f2ce08f8dfe36ca3eff63b1743d64812936d8cab0d74c063d260e20a9a3339b2a8c0300000000000000d17e1efc51d15eef04bde8dc794edc9e5788eb7539171d3a49d970ab9215b89c9ab6c5ab119ca81927393ef29332a1d15ac5f197b878ea89a1f8f686b747011eaad636dcb52cdfd674d155ddd67d21186fbdd1c0a62ebd74dcd6ddc6784b819e",
-        )?;
-        Ok(goat::proof::deserialize_vk(zkm_v1_vk_bytes))
     }
     pub async fn get_guest_constant_value(instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
         Ok([0xccu8; 32])
@@ -1796,6 +1684,149 @@ pub async fn broadcast_package(
     Ok(())
 }
 
+// proof network
+/// Returns:
+/// - `Ok(Some(WatchtowerProof), _)` if watchtower proof is available
+/// - `Ok(None, wait_secs)` if watchtower proof is not yet available, with suggested wait time
+pub async fn get_watchtower_proof(
+    local_db: &LocalDB,
+    http_client: &HttpAsyncClient,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<(Option<Vec<u8>>, usize)> {
+    let mut storage_processor = local_db.acquire().await?;
+    if let Some(graph) = storage_processor.find_graph(&graph_id).await?
+        && let (Some(challenge_txid), Some(challenge_init_txid)) =
+            (graph.challenge_txid, graph.watchtower_challenge_init_txid)
+    {
+        let url = format!(
+            "http://{}{}",
+            get_proof_build_rpc_host()
+                .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
+            NODES_WATCHTOWER_BASE
+        );
+        let response = http_client
+            .post_response_json::<WatchtowerProofResponse, WatchtowerProofRequest>(
+                &url,
+                &WatchtowerProofRequest {
+                    instance_id: instance_id.to_string(),
+                    graph_id: graph_id.to_string(),
+                    public_key: env::get_node_pubkey()?.to_string(),
+                    challenge_txid: challenge_txid.0.to_string(),
+                    challenge_init_txid: challenge_init_txid.0.to_string(),
+                    execution_layer_block_number: graph.proceed_withdraw_height,
+                },
+            )
+            .await?;
+        match response.proof_data {
+            Some(proof_data) => {
+                let proof_size = proof_data.proof.len();
+                Ok((Some(proof_data.proof), proof_size))
+            }
+            None => {
+                bail!("failed to get proof_data: error: {:?}", response.error);
+            }
+        }
+    } else {
+        warn!("graph:{graph_id} not found or related txn is none",);
+        bail!("No graph in db");
+    }
+}
+
+/// Returns:
+/// - `Ok(Some(OperatorProof), _)` if operator proof is available
+/// - `Ok(None, wait_secs)` if operator proof is not yet available, with suggested wait time
+pub async fn get_operator_proof(
+    local_db: &LocalDB,
+    http_client: &HttpAsyncClient,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<(Option<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)>, usize)> {
+    let mut storage_processor = local_db.acquire().await?;
+    if let Some(graph) = storage_processor.find_graph(&graph_id).await? {
+        let url = format!(
+            "http://{}{}",
+            get_proof_build_rpc_host()
+                .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
+            NODES_OPERATOR_BASE
+        );
+        let response = http_client
+            .post_response_json::<OperatorProofResponse, OperatorProofRequest>(
+                &url,
+                &OperatorProofRequest {
+                    instance_id: instance_id.to_string(),
+                    graph_id: graph_id.to_string(),
+                    execution_layer_block_number: graph.proceed_withdraw_height,
+                },
+            )
+            .await?;
+
+        match response.proof_data {
+            Some(proof_data) => {
+                let guest_inputs = [
+                    get_guest_constant_value(instance_id, graph_id).await?,
+                    [0xffu8; 32], // use [0u8; 32] to test non-inclusion challenge
+                ];
+                let proof_size = proof_data.proof.len();
+                Ok((
+                    Some((
+                        guest_inputs,
+                        Groth16Proof::deserialize_compressed(proof_data.proof.as_slice())?,
+                        PublicInputs::deserialize_compressed(proof_data.public_inputs.as_slice())?,
+                        VerifyingKey::deserialize_compressed(proof_data.groth16_vk.as_slice())?,
+                    )),
+                    proof_size,
+                ))
+            }
+            None => bail!("failed to get Groth16Proof"),
+        }
+    } else {
+        warn!("graph:{graph_id} not found");
+        bail!("No graph in db");
+    }
+}
+pub async fn get_operator_proof_vk(
+    local_db: &LocalDB,
+    http_client: &HttpAsyncClient,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<VerifyingKey> {
+    let mut storage_processor = local_db.acquire().await?;
+    if let Some(graph) = storage_processor.find_graph(&graph_id).await? {
+        let url = format!(
+            "http://{}{}",
+            get_proof_build_rpc_host()
+                .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
+            NODES_OPERATOR_BASE
+        );
+        let response = http_client
+            .post_response_json::<OperatorProofResponse, OperatorProofRequest>(
+                &url,
+                &OperatorProofRequest {
+                    instance_id: instance_id.to_string(),
+                    graph_id: graph_id.to_string(),
+                    execution_layer_block_number: graph.proceed_withdraw_height,
+                },
+            )
+            .await?;
+
+        match response.proof_data {
+            Some(proof_data) => {
+                Ok(VerifyingKey::deserialize_compressed(proof_data.groth16_vk.as_slice())?)
+            }
+            None => bail!("failed to get Groth16Proof"),
+        }
+    } else {
+        warn!("graph:{graph_id} not found");
+        bail!("No graph in db");
+    }
+    // todo update
+    // let zkm_v1_vk_bytes = hex::decode(
+    //     "e2f26dbea299f5223b646cb1fb33eadb059d9407559d7441dfd902e3a79a4d2dabb73dc17fbc13021e2471e0c08bd67d8401f52b73d6d07483794cad4778180e0c06f33bbc4c79a9cadef253a68084d382f17788f885c9afd176f7cb2f036789edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19ffdb10cf9f7e2b08673477187c33a695a397702cf22005900724518b57f92f2ce08f8dfe36ca3eff63b1743d64812936d8cab0d74c063d260e20a9a3339b2a8c0300000000000000d17e1efc51d15eef04bde8dc794edc9e5788eb7539171d3a49d970ab9215b89c9ab6c5ab119ca81927393ef29332a1d15ac5f197b878ea89a1f8f686b747011eaad636dcb52cdfd674d155ddd67d21186fbdd1c0a62ebd74dcd6ddc6784b819e",
+    // )?;
+    // Ok(goat::proof::deserialize_vk(zkm_v1_vk_bytes))
+}
+
 const ASSERT_COMMIT_CACHE_VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize)]
@@ -2612,7 +2643,7 @@ pub async fn operator_send_assert_commit(
         inputs
     } else {
         let wots_secret_keys = operator_master_key.wots_keypair_for_graph(graph_id).0;
-        let (guest_inputs, proof, groth16_pubin, vk) = match todo_funcs::get_operator_proof(
+        let (guest_inputs, proof, groth16_pubin, vk) = match get_operator_proof(
             local_db,
             http_client,
             instance_id,

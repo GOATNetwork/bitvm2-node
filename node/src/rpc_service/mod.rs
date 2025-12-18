@@ -11,9 +11,10 @@ use crate::env::{get_goat_network, get_network, goat_config_from_env};
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    bridge_in_request_tag, bridge_out_init_tag, get_chain_proof, get_graph, get_graph_neighbor_ids,
-    get_graph_tx, get_graph_txn, get_graphs, get_instance, get_instance_escrow_data, get_instances,
-    get_instances_overview, get_node, get_nodes, get_nodes_overview, get_ready_to_kickoff_graph,
+    bridge_in_request_tag, bridge_out_init_tag, get_chain_proof_desc, get_graph,
+    get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs, get_instance,
+    get_instance_escrow_data, get_instances, get_instances_overview, get_node, get_nodes,
+    get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph,
     get_unsigned_pegin_txn, instance_settings,
 };
 use axum::body::Body;
@@ -138,7 +139,8 @@ pub async fn serve(
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::GRAPHS_NEIGHBOR_IDS, get(get_graph_neighbor_ids))
-        .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof))
+        .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_desc))
+        .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_desc))
         .route(routes::METRICS, get(metrics_handler))
         .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(create_secure_cors_layer())
