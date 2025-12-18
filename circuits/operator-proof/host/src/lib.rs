@@ -394,7 +394,7 @@ impl ProofBuilder for OperatorProofBuilder {
         _input: &[u8],
         _cycles: u64,
         proof: ZKMProofWithPublicValues,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<(String, usize)> {
         let ProofRequest::OperatorProofRequest { output, .. } = ctx else {
             anyhow::bail!("invalid context");
         };
@@ -406,6 +406,7 @@ impl ProofBuilder for OperatorProofBuilder {
         let ark_proof = convert_ark(&proof, self.verifying_key.bytes32().as_ref(), groth16_vk)?;
 
         let mut writer = std::fs::File::create(format!("{}.proof.bin", output))?;
+        let proof_size = ark_proof.proof.serialized_size(ark_serialize::Compress::Yes);
         ark_proof.proof.serialize_compressed(&mut writer)?;
 
         let mut writer = std::fs::File::create(format!("{}.vk.bin", output))?;
@@ -414,7 +415,10 @@ impl ProofBuilder for OperatorProofBuilder {
         let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", output))?;
         ark_proof.public_inputs.serialize_compressed(&mut writer)?;
 
+        let reader = std::fs::read_to_string(format!("{}.public_inputs.bin", output))?;
+        let public_value_hex = hex::encode(reader);
+
         tracing::info!("Generate proof successfully, Ark proof: {:?}", ark_proof);
-        Ok(())
+        Ok((public_value_hex, proof_size))
     }
 }

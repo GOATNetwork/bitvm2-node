@@ -70,7 +70,7 @@ struct Args {
     goat_rpc_url: String,
 
     #[clap(long, env, default_value = "https://cosmos.testnet3.goat.network/")]
-    pub cosmos_rpc_url: String,
+    cosmos_rpc_url: String,
 
     #[arg(long, default_value_t = 2, env = "FEE_RATE")]
     fee_rate: u64, // sat/vbyte

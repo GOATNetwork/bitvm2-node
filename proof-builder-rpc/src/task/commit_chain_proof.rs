@@ -76,8 +76,8 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     };
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
-                    builder.save_proof(&ctx, &input, cycles, proof)?;
-                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, CommitChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
+                    let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
+                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, CommitChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args, CommitChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {

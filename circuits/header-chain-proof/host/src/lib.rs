@@ -243,17 +243,18 @@ impl ProofBuilder for HeaderChainProofBuilder {
         &self,
         ctx: &ProofRequest,
         input: &[u8],
-        cycles: u64,
+        _cycles: u64,
         proof: ZKMProofWithPublicValues,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<(String, usize)> {
         let ProofRequest::HeaderChainProofRequest { output_proof, .. } = ctx else {
             anyhow::bail!("invalid context");
         };
         fs::write(&output_proof, bincode::serialize(&proof)?)?;
+        let public_value_hex = hex::encode(proof.public_values.as_slice());
+        let proof_size = proof.bytes().len();
         fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;
         fs::write(&format!("{}.in", output_proof), input)?;
-        fs::write(&format!("{}.clk", output_proof), bincode::serialize(&cycles)?)?;
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
-        Ok(())
+        Ok((public_value_hex, proof_size))
     }
 }

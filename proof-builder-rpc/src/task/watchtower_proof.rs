@@ -70,8 +70,8 @@ pub(crate) fn spawn_watchtower_proof_task(
                     };
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
-                    builder.save_proof(&ctx, &input, cycles, proof)?;
-                    let affected = update_watchtower_task(&local_db, args.index, &args.output, cycles, proving_duration as i64, zkm_version).await?;
+                    let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
+                    let affected = update_watchtower_task(&local_db, args.index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proving_duration as i64, zkm_version).await?;
                     tracing::info!("update watchtower task: {args:?}, cycles: {cycles}, index: {}, affected row: {affected}", args.index);
                     args = ProofBuilderConfig::run_next(args, WatchtowerProofBuilder::name())?;
                 }

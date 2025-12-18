@@ -2494,13 +2494,15 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO long_running_task_proof (block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
+             INTO long_running_task_proof (block_start, block_end, chain_name, path_to_proof, public_value_hex, proof_size, cycles, proof_state, proving_time,
                                            zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             long_running_task_proof.block_start,
             long_running_task_proof.block_end,
             long_running_task_proof.chain_name,
             long_running_task_proof.path_to_proof,
+            long_running_task_proof.public_value_hex,
+            long_running_task_proof.proof_size,
             long_running_task_proof.cycles,
             long_running_task_proof.proof_state,
             long_running_task_proof.proving_time,
@@ -2520,7 +2522,9 @@ impl<'a> StorageProcessor<'a> {
         block_start: i64,
         chain_name: &str,
         batch_size: i64,
-        path_to_proof: &str,
+        path_to_proof: String,
+        public_value_hex: String,
+        proof_size: i64,
         cycles: i64,
         proving_time: i64,
         zkm_version: &str,
@@ -2535,6 +2539,8 @@ impl<'a> StorageProcessor<'a> {
                  proving_time = ?,
                  zkm_version = ?,
                  block_end = ?,
+                 public_value_hex = ?,
+                 proof_size = ?,
                  updated_at = ?
              WHERE block_start = ? AND chain_name = ?",
             path_to_proof,
@@ -2542,6 +2548,8 @@ impl<'a> StorageProcessor<'a> {
             proving_time,
             zkm_version,
             block_end,
+            public_value_hex,
+            proof_size,
             current_time,
             block_start,
             chain_name,
@@ -2584,7 +2592,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<LongRunningTaskProof>> {
         let res = sqlx::query_as!(
             LongRunningTaskProof,
-            "SELECT block_start, block_end, chain_name, path_to_proof, cycles, proof_state, proving_time,
+            "SELECT block_start, block_end, chain_name, path_to_proof, public_value_hex, proof_size, cycles, proof_state, proving_time,
                                            zkm_version, extra, updated_at, created_at FROM long_running_task_proof
            
              WHERE block_end > ? and block_start <= ? AND chain_name = ? LIMIT 1",
@@ -2608,6 +2616,8 @@ impl<'a> StorageProcessor<'a> {
                 block_end,
                 chain_name,
                 path_to_proof,
+                public_value_hex,
+                proof_size,
                 cycles,
                 proof_state,
                 proving_time,
@@ -2632,13 +2642,15 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO operator_proof (instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
+             INTO operator_proof (instance_id, graph_id, execution_layer_block_number, path_to_proof, public_value_hex, proof_size, cycles, proof_state, proving_time,
                                  zkm_version, extra, updated_at, created_at)
-             VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             operator_proof.instance_id,
             operator_proof.graph_id,
             operator_proof.execution_layer_block_number,
             operator_proof.path_to_proof,
+            operator_proof.public_value_hex,
+            operator_proof.proof_size,
             operator_proof.cycles,
             operator_proof.proof_state,
             operator_proof.proving_time,
@@ -2655,7 +2667,9 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_operator_proof_success(
         &mut self,
         id: i64,
-        path_to_proof: &str,
+        path_to_proof: String,
+        public_value_hex: String,
+        proof_size: i64,
         cycles: i64,
         proving_time: i64,
         zkm_version: &str,
@@ -2664,6 +2678,8 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             "UPDATE operator_proof
              SET path_to_proof = ?,
+                 public_value_hex = ?,
+                 proof_size = ?,
                  cycles = ?,
                  proof_state = 2,
                  proving_time = ?,
@@ -2671,6 +2687,8 @@ impl<'a> StorageProcessor<'a> {
                  updated_at = ?
              WHERE id = ?",
             path_to_proof,
+            public_value_hex,
+            proof_size,
             cycles,
             proving_time,
             zkm_version,
@@ -2713,6 +2731,8 @@ impl<'a> StorageProcessor<'a> {
                         graph_id,
                         execution_layer_block_number,
                         path_to_proof,
+                        public_value_hex,
+                        proof_size,
                         cycles,
                         proof_state,
                         proving_time,
@@ -2738,11 +2758,13 @@ impl<'a> StorageProcessor<'a> {
                         graph_id,
                         execution_layer_block_number,
                         path_to_proof,
+                        public_value_hex,
+                        proof_size,
                         cycles,
                         proof_state,
                         proving_time,
                         zkm_version,
-                    extra,
+                        extra,
                         created_at,
                         updated_at
                  FROM operator_proof
@@ -2764,11 +2786,13 @@ impl<'a> StorageProcessor<'a> {
                         graph_id,
                         execution_layer_block_number,
                         path_to_proof,
+                        public_value_hex,
+                        proof_size,
                         cycles,
                         proof_state,
                         proving_time,
                         zkm_version,
-                    extra,
+                        extra,
                         created_at,
                         updated_at
                  FROM operator_proof
@@ -2784,7 +2808,9 @@ impl<'a> StorageProcessor<'a> {
     pub async fn update_watchtower_proof_success(
         &mut self,
         id: i64,
-        path_to_proof: &str,
+        path_to_proof: String,
+        public_value_hex: String,
+        proof_size: i64,
         cycles: i64,
         proving_time: i64,
         zkm_version: &str,
@@ -2793,6 +2819,8 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             "UPDATE watchtower_proof
              SET path_to_proof = ?,
+                 public_value_hex = ?,
+                 proof_size = ?,
                  cycles = ?,
                  proof_state = 2,
                  proving_time = ?,
@@ -2800,6 +2828,8 @@ impl<'a> StorageProcessor<'a> {
                  updated_at = ?
              WHERE id = ?",
             path_to_proof,
+            public_value_hex,
+            proof_size,
             cycles,
             proving_time,
             zkm_version,
@@ -2845,6 +2875,8 @@ impl<'a> StorageProcessor<'a> {
                          challenge_init_txid,
                          execution_layer_block_number,
                          path_to_proof,
+                         public_value_hex,
+                         proof_size,
                          cycles,
                          proof_state,
                          proving_time,
@@ -2875,6 +2907,8 @@ impl<'a> StorageProcessor<'a> {
                          challenge_init_txid,
                          execution_layer_block_number,
                          path_to_proof,
+                         public_value_hex,
+                         proof_size,
                          cycles,
                          proof_state,
                          proving_time,
@@ -2904,6 +2938,8 @@ impl<'a> StorageProcessor<'a> {
                          challenge_init_txid,
                          execution_layer_block_number,
                          path_to_proof,
+                         public_value_hex,
+                         proof_size,
                          cycles,
                          proof_state,
                          proving_time,
@@ -2928,8 +2964,9 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             "INSERT
              INTO watchtower_proof (instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number, path_to_proof, cycles, proof_state, proving_time,
+                                   public_value_hex, proof_size,
                                    zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             watchtower_proof.instance_id,
             watchtower_proof.graph_id,
             watchtower_proof.public_key,
@@ -2937,6 +2974,8 @@ impl<'a> StorageProcessor<'a> {
             watchtower_proof.challenge_init_txid,
             watchtower_proof.execution_layer_block_number,
             watchtower_proof.path_to_proof,
+            watchtower_proof.public_value_hex,
+            watchtower_proof.proof_size,
             watchtower_proof.cycles,
             watchtower_proof.proof_state,
             watchtower_proof.proving_time,

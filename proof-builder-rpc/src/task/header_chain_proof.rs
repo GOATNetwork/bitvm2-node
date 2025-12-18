@@ -73,8 +73,8 @@ pub(crate) fn spawn_header_chain_proof_task(
                     let (input, proof, cycles) = builder.build_proof(&ctx)?;
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
-                    builder.save_proof(&ctx, &input, cycles, proof)?;
-                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, &args.output_proof, cycles, HeaderChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
+                    let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
+                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, HeaderChainProofBuilder::name(), proving_duration as i64, zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args, HeaderChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {
