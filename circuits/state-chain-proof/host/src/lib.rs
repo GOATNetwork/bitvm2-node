@@ -42,6 +42,9 @@ pub struct Args {
     #[clap(long, env, default_value = "goattest")]
     pub goat_network: String,
 
+    #[clap(long, env, default_value = "https://cosmos.testnet3.goat.network/")]
+    pub cosmos_rpc_url: String,
+
     #[arg(long, default_value = "blocks.bin")]
     pub blocks: String,
 
@@ -54,7 +57,7 @@ pub struct Args {
     #[clap(long, env, default_value = "output.bin")]
     pub output_proof: String,
 
-    #[clap(long, env, default_value_t = 4)]
+    #[clap(long, env, default_value_t = 10)]
     pub batch_size: u64,
 
     #[clap(long, env, default_value_t = 0)]
@@ -147,6 +150,7 @@ pub async fn fetch_state_chain(
     execution_layer_rpc: &str,
     blocks_file: &str,
     genesis: &str,
+    cosmos_rpc_url: &str,
 ) -> anyhow::Result<Vec<CircuitStateBlock>> {
     let genesis = if genesis == "goattest" { Genesis::GoatTestnet } else { Genesis::GOAT };
     assert!(start > 0, "Don't get genesis block from the consensus layer.");
@@ -169,9 +173,9 @@ pub async fn fetch_state_chain(
     .await?;
 
     for i in start..(start + batch_size) {
-        let (_, cl_block_number) = fetch_cbft_validator_info(i).await?;
-        let cosmos_txns = fetch_cbft_tx_data(cl_block_number).await?;
-        let cosmos_block = fetch_cosmos_block(cl_block_number).await?;
+        let (_, cl_block_number) = fetch_cbft_validator_info(cosmos_rpc_url, i).await?;
+        let cosmos_txns = fetch_cbft_tx_data(cosmos_rpc_url, cl_block_number).await?;
+        let cosmos_block = fetch_cosmos_block(cosmos_rpc_url, cl_block_number).await?;
         let evm_block = fetch_exection_layer_block(&execution_layer_rpc, i, &genesis).await?;
 
         let withdrawals = if !graph_block_numbers.is_empty() {

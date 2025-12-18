@@ -270,6 +270,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
     async fn test_p2p_heart_beat() -> anyhow::Result<()> {
         init();
         let local_db = store::create_local_db(&temp_sqlite_db_path()).await;

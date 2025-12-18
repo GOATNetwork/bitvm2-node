@@ -69,6 +69,9 @@ struct Args {
     #[arg(long, default_value = "https://rpc.testnet3.goat.network")]
     goat_rpc_url: String,
 
+    #[clap(long, env, default_value = "https://cosmos.testnet3.goat.network/")]
+    pub cosmos_rpc_url: String,
+
     #[arg(long, default_value_t = 2, env = "FEE_RATE")]
     fee_rate: u64, // sat/vbyte
 
@@ -300,7 +303,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
         }
         Commands::SignSeq { owner_btc_key_wif, goat_block_number, next_publishers, clean_sigs } => {
-            let (sequencer_set_hash, _) = fetch_cbft_validator_info(goat_block_number).await?;
+            let (sequencer_set_hash, _) =
+                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
 
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
@@ -335,8 +339,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commit_info,
         } => {
             let (sequencer_set_hash, cosmos_block_number) =
-                fetch_cbft_validator_info(goat_block_number).await?;
-            let sequencers = fetch_validators(cosmos_block_number).await?;
+                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
+            let sequencers = fetch_validators(&args.cosmos_rpc_url, cosmos_block_number).await?;
             let (fee_txid, fee_tx_vout) =
                 (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
             let (update_connector_txid, update_connector_vout) =
@@ -376,7 +380,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::UpdateSeqSet { next_publishers, goat_block_number } => {
             // fetch validator set from cosmos
-            let (sequence_set_hash, _) = fetch_cbft_validator_info(goat_block_number).await?;
+            let (sequence_set_hash, _) =
+                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
 
             action_update_sequencer_set_on_goat(
                 &btc_client,

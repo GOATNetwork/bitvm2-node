@@ -29,8 +29,7 @@ fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>)> {
     Ok((header, decoded_txs))
 }
 
-pub async fn fetch_validators(block_height: u64) -> Result<Vec<Info>> {
-    let cosmos_rpc_url = get_cbft_rpc_url();
+pub async fn fetch_validators(cosmos_rpc_url: &str, block_height: u64) -> Result<Vec<Info>> {
     // fetch validator set
     let validators_data =
         reqwest::get(format!("{cosmos_rpc_url}/validators?height={block_height}"))
@@ -65,12 +64,10 @@ pub async fn fetch_validators(block_height: u64) -> Result<Vec<Info>> {
     Ok(validator_set)
 }
 
-pub fn get_cbft_rpc_url() -> String {
-    std::env::var("COSMOS_RPC_URL").unwrap_or("https://cosmos.testnet3.goat.network/".to_string())
-}
-
-pub async fn fetch_cbft_validator_info(goat_block_height: u64) -> Result<([u8; 32], u64)> {
-    let cosmos_rpc_url = get_cbft_rpc_url();
+pub async fn fetch_cbft_validator_info(
+    cosmos_rpc_url: &str,
+    goat_block_height: u64,
+) -> Result<([u8; 32], u64)> {
     // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
     // 1. fetch the latest cosmos block height
     // 2. binary search cosmos block height between goat block height and latest cosmos block height
@@ -109,16 +106,14 @@ pub async fn fetch_cbft_validator_info(goat_block_height: u64) -> Result<([u8; 3
     Ok((sequencer_hash, block_height))
 }
 
-pub async fn fetch_cbft_tx_data(height: u64) -> Result<Vec<String>> {
-    let cosmos_rpc_url = get_cbft_rpc_url();
+pub async fn fetch_cbft_tx_data(cosmos_rpc_url: &str, height: u64) -> Result<Vec<String>> {
     let block_data =
         reqwest::get(format!("{cosmos_rpc_url}/block?height={height}")).await?.text().await?;
     let (_, tx_data) = parse_block_data(&block_data)?;
     Ok(tx_data)
 }
 
-pub async fn fetch_cosmos_block(height: u64) -> Result<LightBlock> {
-    let cosmos_rpc_url = get_cbft_rpc_url();
+pub async fn fetch_cosmos_block(cosmos_rpc_url: &str, height: u64) -> Result<LightBlock> {
     // 1. header + commit
     let commit_resp =
         reqwest::get(format!("{cosmos_rpc_url}/commit?height={height}")).await?.text().await?;
@@ -163,20 +158,24 @@ mod tests {
     #[tokio::test]
     async fn test_create_cosmos_light_client() {
         let block_number = 10000;
-        let result = fetch_cbft_tx_data(block_number).await;
+        let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
+            .unwrap_or("https://cosmos.testnet3.goat.network/".to_string());
+        let result = fetch_cbft_tx_data(&cosmos_rpc_url, block_number).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_fetch_validators() {
+        let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
+            .unwrap_or("https://cosmos.testnet3.goat.network/".to_string());
         let evm_block_number = 9511050;
         let (sequencer_hash, block_number) =
-            fetch_cbft_validator_info(evm_block_number).await.unwrap();
+            fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number).await.unwrap();
 
         println!("hex sequencer_hash: {}", hex::encode(sequencer_hash));
         println!("cosmos block number: {}", block_number);
 
-        let validators = fetch_validators(block_number).await.unwrap();
+        let validators = fetch_validators(&cosmos_rpc_url, block_number).await.unwrap();
         let validators_info: Vec<commit_chain::SequencerInfo> =
             validators.iter().cloned().map(|v| v.into()).collect();
 
@@ -188,7 +187,7 @@ mod tests {
             panic!("Invalid sequencer set hash");
         }
 
-        let light_block = fetch_cosmos_block(block_number).await.unwrap();
+        let light_block = fetch_cosmos_block(&cosmos_rpc_url, block_number).await.unwrap();
         assert_eq!(light_block.signed_header.header.validators_hash.as_bytes(), &sequencer_hash);
     }
 }

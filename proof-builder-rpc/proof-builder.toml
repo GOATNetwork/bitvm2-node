@@ -12,6 +12,7 @@ batch_size = 10
 #output_proof = "../circuits/data/header-chain/1000-10.bin"
 input_proof = "../circuits/data/header-chain/0-503050.bin"
 output_proof = "../circuits/data/header-chain/503050-10.bin"
+btc_network = "regtest"
 
 [commit_chain]
 enable = true 
@@ -23,6 +24,7 @@ start = 0
 batch_size = 1
 input_proof = "../circuits/data/commit-chain/0-1.bin"
 output_proof = "../circuits/data/commit-chain/0-1.bin"
+btc_network = "regtest"
 
 [state_chain]
 enable = true 
@@ -35,6 +37,8 @@ execution_layer_rpc = "https://rpc.testnet3.goat.network"
 blocks = "../circuits/data/state-chain/blocks-9511050-10.json"
 input_proof = "../circuits/data/state-chain/9511040-10.bin"
 output_proof = "../circuits/data/state-chain/9511050-10.bin"
+goat_network = "goattest"
+cosmos_rpc_url = "https://cosmos.testnet3.goat.network"
 
 [watchtower]
 enable = true 
@@ -46,6 +50,7 @@ commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
 state_chain_input_proof = "../circuits/data/state-chain/9511050-10.bin"
 output = "../circuits/data/watchtower/output.bin"
 index = 1
+btc_network = "regtest"
 
 [operator]
 enable = true 
@@ -64,3 +69,4 @@ included_watchtowers = "1"
 graph_id="0x00112233445566778899aabbccddeeff"
 execution_layer_block_number = 9511055
 index = 1
+btc_network = "regtest"

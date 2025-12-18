@@ -19,6 +19,7 @@ async fn main() {
         &args.execution_layer_rpc,
         &args.blocks,
         &args.goat_network,
+        &args.cosmos_rpc_url,
     )
     .await
     .unwrap();
