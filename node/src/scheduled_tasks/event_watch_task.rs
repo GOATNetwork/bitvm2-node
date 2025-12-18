@@ -361,6 +361,13 @@ async fn handle_proceed_withdraw_events<'a>(
                 created_at: current_time_secs(),
             })
             .await?;
+        storage_processor
+            .update_graph(
+                &GraphUpdate::new(graph_id)
+                    .with_proceed_withdraw_height(event.block_number.parse::<i64>()?),
+            )
+            .await?;
+
         // for history events
         storage_processor
             .update_goat_tx_record_processing_status(

@@ -410,6 +410,7 @@ pub struct Graph {
     pub bridge_out_start_at: i64,
     pub zkm_version: String,
     pub status_updated_at: i64,
+    pub proceed_withdraw_height: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }

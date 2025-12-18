@@ -569,6 +569,7 @@ mod tests {
             bridge_out_start_at: current_time_secs() + 100,
             zkm_version: "zkm_0.1.0".to_string(),
             status_updated_at: current_time_secs(),
+            proceed_withdraw_height: 0,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });
@@ -605,6 +606,7 @@ mod tests {
             bridge_out_start_at: 0,
             zkm_version: "zkm_0.1.0".to_string(),
             status_updated_at: current_time_secs(),
+            proceed_withdraw_height: 0,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });

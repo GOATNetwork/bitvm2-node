@@ -3464,6 +3464,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
         bridge_out_start_at: 0,
         zkm_version: proofs::get_zkm_version(),
         status_updated_at: current_time,
+        proceed_withdraw_height: 0,
         created_at: current_time,
         updated_at: current_time,
     };

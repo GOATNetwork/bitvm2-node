@@ -492,6 +492,7 @@ pub struct GraphUpdate {
     pub disprove_txid: Option<SerializableTxid>,
     pub bridge_out_start_at: Option<i64>,
     pub init_withdraw_tx_hash: Option<String>,
+    pub proceed_withdraw_height: Option<i64>,
 }
 
 impl GraphUpdate {
@@ -506,6 +507,7 @@ impl GraphUpdate {
             disprove_txid: None,
             bridge_out_start_at: None,
             init_withdraw_tx_hash: None,
+            proceed_withdraw_height: None,
         }
     }
 
@@ -550,15 +552,22 @@ impl GraphUpdate {
         self
     }
 
+    /// Set proceed withdraw tx height at goat chain
+    pub fn with_proceed_withdraw_height(mut self, proceed_withdraw_height: i64) -> Self {
+        self.proceed_withdraw_height = Some(proceed_withdraw_height);
+        self
+    }
+
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
         self.status.is_some()
             || self.sub_status.is_some()
             || self.ipfs_base_url.is_some()
             || self.challenge_txid.is_some()
+            || self.disprove_txid.is_some()
             || self.bridge_out_start_at.is_some()
             || self.init_withdraw_tx_hash.is_some()
-            || self.disprove_txid.is_some()
+            || self.proceed_withdraw_height.is_some()
     }
 
     pub fn get_query_builder(&self, base_sql: &str) -> QueryBuilder {
@@ -583,6 +592,10 @@ impl GraphUpdate {
         }
         if let Some(bridge_out_start_at) = self.bridge_out_start_at {
             query_builder.set_field("bridge_out_start_at", QueryParam::Int(bridge_out_start_at));
+        }
+        if let Some(proceed_withdraw_height) = self.proceed_withdraw_height {
+            query_builder
+                .set_field("proceed_withdraw_height", QueryParam::Int(proceed_withdraw_height));
         }
         if let Some(ref init_withdraw_tx_hash) = self.init_withdraw_tx_hash {
             if init_withdraw_tx_hash.is_empty() {
@@ -1089,8 +1102,8 @@ impl<'a> StorageProcessor<'a> {
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, disprove_txid,  watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
-                    bridge_out_start_at, zkm_version, status_updated_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    bridge_out_start_at, zkm_version, status_updated_at, proceed_withdraw_height,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
@@ -1123,6 +1136,7 @@ impl<'a> StorageProcessor<'a> {
             graph.bridge_out_start_at,
             graph.zkm_version,
             graph.status_updated_at,
+            graph.proceed_withdraw_height,
             graph.created_at,
             graph.updated_at,
         ).execute(self.conn())
@@ -1207,6 +1221,7 @@ impl<'a> StorageProcessor<'a> {
                     bridge_out_start_at,
                     zkm_version,
                     status_updated_at,
+                    proceed_withdraw_height,
                     CASE
                         WHEN bridge_out_start_at > 0
                         THEN bridge_out_start_at
