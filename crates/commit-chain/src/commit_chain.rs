@@ -184,9 +184,6 @@ impl CommitChainState {
             }
             prev_sequencers = latest_sequencers;
 
-            println!("[apply_commit]: prev_sequencer: {prev_sequencers:?}");
-            println!("[apply_commit]: sequencer_hash: {:?}", sequencer_hash(prev_sequencers));
-
             // remove witness
             prev_commit_txn = latest_commit_txn_with_wtns.clone();
             prev_commit_txn.input.iter_mut().for_each(|input| {
