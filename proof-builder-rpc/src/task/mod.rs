@@ -21,7 +21,7 @@ use uuid::Uuid;
 use futures::future::Either;
 use proof_builder::{OnDemandTask, ProofBuilder};
 use store::localdb::LocalDB;
-use store::{LongRunningTaskProof, OperatorProof, WatchtowerProof};
+use store::{LongRunningTaskProof, OperatorProof, ProofState, WatchtowerProof};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -320,7 +320,7 @@ pub(crate) async fn update_long_running_task(
             chain_name,
             path_to_proof: Some(path_to_proof.to_string()),
             cycles: cycles as i64,
-            proof_state: 2,
+            proof_state: ProofState::Proven.to_i64(),
             proving_time: proving_duration,
             zkm_version,
             extra: None,
@@ -335,7 +335,6 @@ pub(crate) async fn update_long_running_task(
 /// * index: incremental id
 /// * state: 0-new, 1-doing, 2-done, 3-failed
 /// Invocated by API
-#[allow(dead_code)]
 pub(crate) async fn add_watchtower_task(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -354,7 +353,7 @@ pub(crate) async fn add_watchtower_task(
             public_key,
             challenge_txid: Txid::from_str(&challenge_txid)?.into(),
             challenge_init_txid: Txid::from_str(&challenge_init_txid)?.into(),
-            proof_state: 0,
+            proof_state: ProofState::New.to_i64(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             execution_layer_block_number,
@@ -362,6 +361,15 @@ pub(crate) async fn add_watchtower_task(
         })
         .await?;
     Ok(())
+}
+
+pub(crate) async fn find_watchtower_task(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> anyhow::Result<Vec<WatchtowerProof>> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor.find_watchtower_proof_by_instance_and_graph(&instance_id, &graph_id).await
 }
 
 pub(crate) async fn update_watchtower_task(
@@ -389,7 +397,6 @@ pub(crate) async fn update_watchtower_task(
 /// * execution_layer_block_number: proceedWithdraw's block number
 /// * index: incremental id
 /// Invocated by API
-#[allow(dead_code)]
 pub(crate) async fn add_operator_task(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -403,13 +410,22 @@ pub(crate) async fn add_operator_task(
             instance_id,
             graph_id,
             execution_layer_block_number: execution_layer_block_number as i64,
-            proof_state: 0,
+            proof_state: ProofState::New.to_i64(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             ..Default::default()
         })
         .await?;
     Ok(())
+}
+
+pub(crate) async fn find_operator_task(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> anyhow::Result<Option<OperatorProof>> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor.find_operator_proof_by_instance_and_graph(&instance_id, &graph_id).await
 }
 
 pub(crate) async fn update_operator_task(
