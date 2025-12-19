@@ -3,7 +3,7 @@ mod config;
 mod task;
 
 use crate::task::{is_start_generate_proof_tasks, run_generate_proof_tasks};
-use clap::{Parser, command};
+use clap::Parser;
 use futures::future;
 use tokio::signal;
 use tokio::task::JoinHandle;
