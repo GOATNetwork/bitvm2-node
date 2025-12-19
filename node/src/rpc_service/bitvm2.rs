@@ -135,8 +135,12 @@ impl InstanceExtended {
         response_window_blocks: i64,
         instance: Instance,
     ) -> anyhow::Result<Self> {
-        let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos)
-            .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let utxos: Vec<Utxo> = serde_json::from_str(&instance.input_utxos).map_err(|e| {
+            anyhow::Error::msg(format!(
+                "convert input utxos:{} failed, error:{}",
+                instance.input_utxos, e
+            ))
+        })?;
         let (confirmations, target_confirmations) = get_instance_block_confirm_progress(
             btc_client,
             btc_current_height,

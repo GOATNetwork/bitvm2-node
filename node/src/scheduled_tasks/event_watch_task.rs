@@ -619,6 +619,7 @@ async fn handle_swap_init_events<'a>(
                         is_bridge_in: false,
                         network: get_network().to_string(),
                         from_addr: escrow_data.offerer.to_string(),
+                        input_utxos: "[]".to_string(),
                         status: InstanceBridgeOutStatus::Initialize.to_string(),
                         escrow_hash: Some(event.escrow_hash.clone()),
                         status_updated_at: create_time,

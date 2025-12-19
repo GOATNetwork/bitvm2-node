@@ -118,6 +118,7 @@ pub async fn bridge_in_request_tag(
             network: payload.network,
             from_addr: payload.from_addr,
             to_addr,
+            input_utxos: "[]".to_string(),
             status: InstanceBridgeInStatus::UserIniting.to_string(),
             status_updated_at: current_time,
             created_at: current_time,
@@ -195,6 +196,7 @@ pub async fn bridge_out_init_tag(
             instance_id,
             from_addr,
             network: payload.network.clone(),
+            input_utxos: "[]".to_string(),
             escrow_hash: Some(escrow_hash),
             status: InstanceBridgeOutStatus::Initialize.to_string(),
             status_updated_at: current_time,
@@ -514,6 +516,7 @@ pub async fn get_instance(
             .gateway_get_response_window_blocks()
             .await
             .api_error("GET_INSTANCE_ERROR")?;
+
         let instance_wrap = Some(
             InstanceExtended::convert_from_instance(
                 &app_state.btc_client,
