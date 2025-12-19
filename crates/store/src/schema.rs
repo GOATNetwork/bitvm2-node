@@ -518,13 +518,6 @@ pub struct MessageBroadcast {
     pub created_at: i64,
 }
 
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct VerifierKey {
-    pub verifier_id: String,
-    pub verifier_key: String,
-    pub created_at: i64,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
 pub enum WatchContractStatus {
     #[default]
