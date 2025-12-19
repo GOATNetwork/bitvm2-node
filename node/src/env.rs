@@ -66,6 +66,11 @@ pub const DEFAULT_CONFIRMATION_TARGET: u16 = 1;
 pub const ENV_BTC_NETWORK: &str = "BTC_NETWORK";
 pub const ENV_GOAT_NETWORK: &str = "GOAT_NETWORK";
 
+pub const ENV_WATCHTOWER_PROOF_WAIT_SECS: &str = "WATCHTOWER_PROOF_WAIT_SECS";
+pub const ENV_OPERATOR_PROOF_WAIT_SECS: &str = "OPERATOR_PROOF_WAIT_SECS";
+pub const DEFAULT_WATCHTOWER_PROOF_WAIT_SECS: usize = 30;
+pub const DEFAULT_OPERATOR_PROOF_WAIT_SECS: usize = 30;
+
 // fee estimate
 // TODO: more precise fee estimation
 pub const CHEKSIG_P2WSH_INPUT_VBYTES: u64 = 100;
@@ -109,9 +114,6 @@ pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 
 pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
 pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
-
-pub const WATCHTOWER_PROOF_WAIT_SECS: usize = 30;
-pub const OPERATOR_PROOF_WAIT_SECS: usize = 30;
 
 pub fn get_network() -> Network {
     let network = std::env::var(ENV_BTC_NETWORK).unwrap_or("testnet".to_string());
@@ -475,4 +477,18 @@ pub fn get_operator_node_service_fee_rate() -> f64 {
 
 pub fn get_proof_build_rpc_host() -> Option<String> {
     std::env::var(ENV_PROOF_BUILD_URL).ok()
+}
+
+pub fn get_watchtower_proof_wait_secs() -> usize {
+    std::env::var(ENV_WATCHTOWER_PROOF_WAIT_SECS)
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_WATCHTOWER_PROOF_WAIT_SECS)
+}
+
+pub fn get_operator_proof_wait_secs() -> usize {
+    std::env::var(ENV_OPERATOR_PROOF_WAIT_SECS)
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_OPERATOR_PROOF_WAIT_SECS)
 }

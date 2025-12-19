@@ -69,7 +69,8 @@ use stun_client::{Attribute, Class, Client};
 
 use crate::env;
 use crate::rpc_service::proof::{
-    OperatorProofRequest, OperatorProofResponse, ProofData, WatchtowerProofRequest, WatchtowerProofResponse
+    OperatorProofRequest, OperatorProofResponse, ProofData, WatchtowerProofRequest,
+    WatchtowerProofResponse,
 };
 use crate::rpc_service::routes::v1::{NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE};
 use crate::scheduled_tasks::get_goat_message_content_type;
@@ -1685,21 +1686,19 @@ pub async fn broadcast_package(
     Ok(())
 }
 
-fn gen_watchtower_commitment(
-    graph_id: Uuid,
-    proof_data: ProofData,
-) -> Result<Vec<u8>> {
+fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Vec<u8>> {
     let graph_id = graph_id.as_bytes();
-    let proof = proof_data.proof.as_slice().try_into().map_err(|_| anyhow!("invalid proof length"))?;
-    let public_inputs = proof_data.public_inputs
+    let proof =
+        proof_data.proof.as_slice().try_into().map_err(|_| anyhow!("invalid proof length"))?;
+    let public_inputs = proof_data
+        .public_inputs
         .as_slice()
         .try_into()
         .map_err(|_| anyhow!("invalid public inputs length"))?;
     if proof_data.vk.len() != VK_HASH_SIZE {
         bail!("invalid vk_hash length");
     }
-    let vk_hash = String::from_utf8(proof_data.vk)
-        .map_err(|_| anyhow!("invalid vk_hash utf8"))?;
+    let vk_hash = String::from_utf8(proof_data.vk).map_err(|_| anyhow!("invalid vk_hash utf8"))?;
     Ok(build_watchtower_commitment(graph_id, proof, public_inputs, &vk_hash))
 }
 
@@ -1742,9 +1741,7 @@ pub async fn get_watchtower_commitment(
                 let watchtower_commitment = gen_watchtower_commitment(graph_id, proof_data)?;
                 Ok((Some(watchtower_commitment), 0))
             }
-            None => {
-                Ok((None, WATCHTOWER_PROOF_WAIT_SECS))
-            }
+            None => Ok((None, get_watchtower_proof_wait_secs())),
         }
     } else {
         warn!("graph:{graph_id} not found or related txn is none",);
@@ -1796,7 +1793,7 @@ pub async fn get_operator_proof(
                     0,
                 ))
             }
-            None => Ok((None, OPERATOR_PROOF_WAIT_SECS)),
+            None => Ok((None, get_operator_proof_wait_secs())),
         }
     } else {
         warn!("graph:{graph_id} not found");
