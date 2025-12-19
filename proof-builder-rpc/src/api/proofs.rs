@@ -14,6 +14,8 @@ pub(super) enum ProofType {
     CommitChain,
     #[strum(serialize = "state_chain")]
     StateChain,
+    Operator,
+    Watchtower,
 }
 
 impl ProofType {
@@ -22,6 +24,7 @@ impl ProofType {
             ProofType::HeaderChain => HEADER_CHAIN_NAME,
             ProofType::CommitChain => COMMIT_CHAIN_NAME,
             ProofType::StateChain => STATE_CHAIN_NAME,
+            _ => "",
         }
     }
 }
@@ -67,20 +70,35 @@ pub(super) struct OperatorProofRequest {
     pub execution_layer_block_number: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub(super) struct ProofData {
     pub proof: Vec<u8>,
-    pub groth16_vk: Vec<u8>,
+    pub vk: Vec<u8>,
     pub public_inputs: Vec<u8>,
 }
 
 impl ProofData {
-    pub(super) fn load_proof_data(path: &str) -> Self {
-        Self {
-            proof: fs::read(format!("{path}.proof.bin")).unwrap_or_default(),
-            groth16_vk: fs::read(format!("{path}.vk.bin")).unwrap_or_default(),
-            public_inputs: fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default(),
+    pub(super) fn load_proof_data(path: &str, proof_type: ProofType) -> Self {
+        let mut proof_data = ProofData::default();
+        match proof_type {
+            ProofType::HeaderChain | ProofType::CommitChain | ProofType::StateChain => {
+                proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
+                proof_data.vk = fs::read(format!("{path}.vk")).unwrap_or_default();
+            }
+            ProofType::Operator => {
+                proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
+                proof_data.vk = fs::read(format!("{path}.vk.bin")).unwrap_or_default();
+                proof_data.public_inputs =
+                    fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
+            }
+            ProofType::Watchtower => {
+                proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
+                proof_data.vk = fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default();
+                proof_data.public_inputs =
+                    fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
+            }
         }
+        proof_data
     }
 }
 

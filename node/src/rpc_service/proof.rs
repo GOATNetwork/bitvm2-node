@@ -59,7 +59,7 @@ pub struct OperatorProofRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProofData {
     pub proof: Vec<u8>,
-    pub groth16_vk: Vec<u8>,
+    pub vk: Vec<u8>,
     pub public_inputs: Vec<u8>,
 }
 #[derive(Debug, Serialize, Deserialize)]

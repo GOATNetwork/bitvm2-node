@@ -1773,7 +1773,7 @@ pub async fn get_operator_proof(
                         guest_inputs,
                         Groth16Proof::deserialize_compressed(proof_data.proof.as_slice())?,
                         PublicInputs::deserialize_compressed(proof_data.public_inputs.as_slice())?,
-                        VerifyingKey::deserialize_compressed(proof_data.groth16_vk.as_slice())?,
+                        VerifyingKey::deserialize_compressed(proof_data.vk.as_slice())?,
                     )),
                     proof_size,
                 ))
@@ -1811,9 +1811,7 @@ pub async fn get_operator_proof_vk(
             .await?;
 
         match response.proof_data {
-            Some(proof_data) => {
-                Ok(VerifyingKey::deserialize_compressed(proof_data.groth16_vk.as_slice())?)
-            }
+            Some(proof_data) => Ok(VerifyingKey::deserialize_compressed(proof_data.vk.as_slice())?),
             None => bail!("failed to get Groth16Proof"),
         }
     } else {

@@ -1,7 +1,8 @@
 use crate::api::ApiState;
 use crate::api::proofs::{
     ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
-    ProofData, ProofDesc, ProofDescResponse, WatchtowerProofRequest, WatchtowerProofResponse,
+    ProofData, ProofDesc, ProofDescResponse, ProofType, WatchtowerProofRequest,
+    WatchtowerProofResponse,
 };
 use crate::api::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::api::validation::InputValidator;
@@ -162,6 +163,7 @@ pub(super) async fn post_operator_proof_task(
             ok_response(OperatorProofResponse {
                 proof_data: Some(ProofData::load_proof_data(
                     &operator_proof.path_to_proof.unwrap(),
+                    ProofType::Operator,
                 )),
                 error: None,
             })
@@ -217,6 +219,7 @@ pub(super) async fn post_watchtower_proof_task(
             ok_response(WatchtowerProofResponse {
                 proof_data: Some(ProofData::load_proof_data(
                     &watchtower_proof.path_to_proof.unwrap(),
+                    ProofType::Watchtower,
                 )),
                 error: None,
             })
