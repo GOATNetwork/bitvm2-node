@@ -237,7 +237,7 @@ pub struct Instance {
     pub to_addr: String, // goat deposit addr
     pub amount: i64,
     pub fees: UInt64Array3,
-    pub input_utxos: String,// init should been []
+    pub input_utxos: String,  // init should been []
     pub status: String,       // InstanceBridgeInStatus | InstanceBridgeOutStatus
     pub goat_tx_hash: String, // bridgeIn:pegin Request tx || bridgeOut goat tx
     pub goat_tx_height: i64,
