@@ -2745,7 +2745,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "async-trait",
  "axum 0.8.7",
- "base64 0.22.1",
+ "base64 0.21.7",
  "bincode",
  "bitcoin 0.32.8",
  "bitcoin-light-client-circuit",
