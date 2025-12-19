@@ -503,6 +503,7 @@ mod tests {
                 .collect(),
             hashlocks: hashlocks().1.to_vec(),
             guest_constant_value: [0u8; 32], // all zero for test
+            zkm_version: "v1.2.3".to_string(),
         };
 
         generate_bitvm_graph(graph_parameters, disprove_scripts).unwrap()

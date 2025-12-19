@@ -8,6 +8,11 @@ use crate::rpc_service::current_time_secs;
 use alloy::primitives::{Address as EvmAddress, Signature as EvmSignature};
 use alloy::signers::Signer;
 use alloy::signers::local::PrivateKeySigner;
+use anyhow::{Result, anyhow, bail};
+use ark_serialize::CanonicalDeserialize;
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::consensus::encode::{deserialize, serialize};
+use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::{
     Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
@@ -37,19 +42,13 @@ use goat::disprove_scripts::hash160;
 use goat::scripts::generate_opreturn_script;
 use goat::transactions::base::Input;
 use goat::transactions::pre_signed::PreSignedTransaction;
+use goat::transactions::prekickoff::PrekickoffTransaction;
 use goat::transactions::signing::populate_p2wsh_witness;
+use indexmap::IndexMap;
 use libp2p::{PeerId, Swarm};
+use musig2::{PartialSignature, PubNonce};
 use rand::Rng;
 use secp256k1::Secp256k1;
-use zkm_prover::ZKM_CIRCUIT_VERSION;
-use anyhow::{Result, anyhow, bail};
-use ark_serialize::CanonicalDeserialize;
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::consensus::encode::{deserialize, serialize};
-use bitcoin::hashes::Hash;
-use goat::transactions::prekickoff::PrekickoffTransaction;
-use indexmap::IndexMap;
-use musig2::{PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
@@ -66,6 +65,7 @@ use store::{
     MessageState, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
+use zkm_prover::ZKM_CIRCUIT_VERSION;
 
 use crate::env;
 use crate::rpc_service::proof::{
@@ -1609,7 +1609,7 @@ pub async fn get_partial_scripts(
     http_client: &HttpAsyncClient,
     version: String,
 ) -> Result<Vec<ScriptBuf>> {
-    let scripts_cache_path = format!("{}_{version}.bin", SCRIPT_CACHE_FILE_NAME);
+    let scripts_cache_path = format!("{SCRIPT_CACHE_FILE_NAME}_{version}.bin");
     if Path::new(&scripts_cache_path).exists() {
         let file = File::open(scripts_cache_path)?;
         let reader = BufReader::new(file);
