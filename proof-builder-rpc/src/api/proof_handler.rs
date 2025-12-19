@@ -119,7 +119,7 @@ pub(super) async fn get_operator_proof_task_desc(
             ok_response(ProofDescResponse {
                 proof_desc: Some(ProofDesc {
                     block_start: operator_proof.execution_layer_block_number,
-                    block_end: operator_proof.execution_layer_block_number,
+                    block_end: operator_proof.execution_layer_block_number + 1,
                     proof_type: "Operator".to_string(),
                     state: ProofState::from_i64(operator_proof.proof_state)
                         .unwrap_or_else(|| ProofState::New)
