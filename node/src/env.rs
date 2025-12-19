@@ -110,6 +110,9 @@ pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
 pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
 
+pub const WATCHTOWER_PROOF_WAIT_SECS: usize = 30;
+pub const OPERATOR_PROOF_WAIT_SECS: usize = 30;
+
 pub fn get_network() -> Network {
     let network = std::env::var(ENV_BTC_NETWORK).unwrap_or("testnet".to_string());
     match network.as_str() {
