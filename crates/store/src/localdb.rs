@@ -2060,7 +2060,7 @@ impl<'a> StorageProcessor<'a> {
         ).execute(self.conn()).await?;
         Ok(())
     }
-    
+
     pub async fn get_watch_contract(
         &mut self,
         addr: &str,

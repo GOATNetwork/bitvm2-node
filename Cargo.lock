@@ -2771,7 +2771,6 @@ dependencies = [
  "musig2",
  "once_cell",
  "prometheus-client",
- "proofs",
  "rand 0.8.5",
  "reqwest 0.12.26",
  "secp256k1 0.29.1",
@@ -2792,6 +2791,7 @@ dependencies = [
  "util",
  "uuid 1.19.0",
  "zeroize",
+ "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
 ]
@@ -9220,29 +9220,6 @@ dependencies = [
  "util",
  "uuid 1.19.0",
  "watchtower-proof",
-]
-
-[[package]]
-name = "proofs"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "ark-bn254",
- "ark-groth16",
- "ark-serialize 0.5.0",
- "bincode",
- "clap",
- "dotenv",
- "futures-util",
- "hex",
- "serde",
- "store",
- "tokio",
- "tracing",
- "tracing-subscriber 0.3.22",
- "zkm-prover",
- "zkm-sdk",
- "zkm-verifier",
 ]
 
 [[package]]

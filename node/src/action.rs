@@ -554,7 +554,8 @@ pub async fn recv_and_dispatch(
             )
             .await?;
             let graph_id = graph_params.graph_id;
-            let disprove_scripts = get_disprove_scripts(local_db, &graph_params).await?;
+            let disprove_scripts =
+                get_disprove_scripts(local_db, http_client, &graph_params).await?;
             let mut graph = generate_bitvm_graph(graph_params, disprove_scripts)?;
             operator_pre_sign(operator_master_key.master_keypair(), &mut graph)?;
             store_graph(local_db, &graph.to_simplified()?).await?;
@@ -3202,7 +3203,8 @@ pub async fn recv_and_dispatch(
             };
             // 2. check assertions committed by Operator, if any assertion is invalid, sign & broadcast disprove txn
             let vk = get_operator_proof_vk(local_db, http_client, instance_id, graph_id).await?;
-            let disprove_scripts = get_disprove_scripts(local_db, &graph.parameters).await?;
+            let disprove_scripts =
+                get_disprove_scripts(local_db, http_client, &graph.parameters).await?;
             let disprove_scripts = disprove_scripts
                 .try_into()
                 .map_err(|_| anyhow!("Mismatch disprove scripts num"))?;

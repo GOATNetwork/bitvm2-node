@@ -41,6 +41,8 @@ use goat::transactions::signing::populate_p2wsh_witness;
 use libp2p::{PeerId, Swarm};
 use rand::Rng;
 use secp256k1::Secp256k1;
+use zkm_prover::ZKM_CIRCUIT_VERSION;
+use zkm_verifier::{GROTH16_VK_BYTES, load_ark_groth16_verifying_key_from_bytes};
 
 use anyhow::{Result, anyhow, bail};
 use ark_serialize::CanonicalDeserialize;
@@ -1604,7 +1606,11 @@ pub async fn is_take2_timelock_expired(
 
 /// Loads partial scripts from a local cache file.
 /// If cache file does not exist, generate partial scripts by vk an cache it
-pub async fn get_partial_scripts(local_db: &LocalDB) -> Result<Vec<ScriptBuf>> {
+pub async fn get_partial_scripts(
+    local_db: &LocalDB,
+    http_client: &HttpAsyncClient,
+    graph_id: Uuid,
+) -> Result<Vec<ScriptBuf>> {
     let scripts_cache_path = SCRIPT_CACHE_FILE_NAME;
     if Path::new(scripts_cache_path).exists() {
         let file = File::open(scripts_cache_path)?;
@@ -1612,7 +1618,8 @@ pub async fn get_partial_scripts(local_db: &LocalDB) -> Result<Vec<ScriptBuf>> {
         let scripts_bytes: Vec<ScriptBuf> = bincode::deserialize_from(reader)?;
         Ok(scripts_bytes)
     } else {
-        let partial_scripts = generate_partial_scripts(&get_vk(local_db).await?);
+        let partial_scripts =
+            generate_partial_scripts(&get_vk(local_db, http_client, graph_id).await?);
         if let Some(parent) = Path::new(scripts_cache_path).parent() {
             fs::create_dir_all(parent)?;
         };
@@ -1625,9 +1632,10 @@ pub async fn get_partial_scripts(local_db: &LocalDB) -> Result<Vec<ScriptBuf>> {
 
 pub async fn get_disprove_scripts(
     local_db: &LocalDB,
+    http_client: &HttpAsyncClient,
     graph_params: &Bitvm2GraphParameters,
 ) -> Result<Vec<ScriptBuf>> {
-    let partial_scripts = get_partial_scripts(local_db).await?;
+    let partial_scripts = get_partial_scripts(local_db, http_client, graph_params.graph_id).await?;
     let (mut disprove_scripts, disprove_scripts_1) = generate_disprove_scripts(
         &partial_scripts,
         graph_params.operator_wots_pubkeys.clone(),
@@ -2974,33 +2982,6 @@ pub async fn outpoint_spent_txin(
     }
 }
 
-pub async fn get_vk(db: &LocalDB) -> Result<VerifyingKey> {
-    if cfg!(all(feature = "tests", feature = "e2e-tests")) {
-        return get_test_vk();
-    }
-
-    proofs::get_groth16_vk(db, &proofs::get_zkm_version()).await
-}
-
-pub fn get_test_groth16_proof() -> Result<(Groth16Proof, PublicInputs, VerifyingKey)> {
-    let proof = hex::decode(
-        "b6ef2c5aa48a2f599a13bc4d8010e4d0190aeb05ff79e21266aff8dde6353d1756191f0959c787f6dedfc0c47751aed2648775101285b9da2d6c4e912e74891f884bd672f94f4d78528fb10b5410a94b53bcef07f99952ef72b68c72a5c4ff2a3de7c314ffbf17df018a753f070448c2f698706d4c2b99bdb06f928cffe1bea0",
-    )?;
-    let pis = hex::decode(
-        "02000000000000002000000000000000721db33a295a3b29a61c7360486e6d8346288822dc5cab652722e34d4b423d002000000000000000cfdc2f035c3699c6d17563570ea05a3d6d08302487937dd079a6b1671d484c0d",
-    )?;
-    let proof = goat::proof::deserialize_proof(proof);
-    let pis = goat::proof::deserialize_pubin(pis);
-    Ok((proof, pis, get_test_vk()?))
-}
-
-pub fn get_test_vk() -> Result<VerifyingKey> {
-    let zkm_v1_vk_bytes = hex::decode(
-        "e2f26dbea299f5223b646cb1fb33eadb059d9407559d7441dfd902e3a79a4d2dabb73dc17fbc13021e2471e0c08bd67d8401f52b73d6d07483794cad4778180e0c06f33bbc4c79a9cadef253a68084d382f17788f885c9afd176f7cb2f036789edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19ffdb10cf9f7e2b08673477187c33a695a397702cf22005900724518b57f92f2ce08f8dfe36ca3eff63b1743d64812936d8cab0d74c063d260e20a9a3339b2a8c0300000000000000d17e1efc51d15eef04bde8dc794edc9e5788eb7539171d3a49d970ab9215b89c9ab6c5ab119ca81927393ef29332a1d15ac5f197b878ea89a1f8f686b747011eaad636dcb52cdfd674d155ddd67d21186fbdd1c0a62ebd74dcd6ddc6784b819e",
-    )?;
-    Ok(goat::proof::deserialize_vk(zkm_v1_vk_bytes))
-}
-
 fn generate_message_id(business_id: Uuid, msg_type: String, sub_type: Option<String>) -> String {
     match sub_type {
         Some(sub_type) => {
@@ -3588,7 +3569,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
             .collect(),
         init_withdraw_tx_hash: None,
         bridge_out_start_at: 0,
-        zkm_version: proofs::get_zkm_version(),
+        zkm_version: get_zkm_versin(),
         status_updated_at: current_time,
         proceed_withdraw_height: 0,
         created_at: current_time,
@@ -4276,4 +4257,26 @@ pub(super) async fn find_instances_by_escrow_hash<'a>(
         )
         .await?;
     if size > 0 { Ok(Some(instances[0].clone())) } else { Ok(None) }
+}
+
+// user operator vk, validator it later
+pub async fn get_vk(
+    local_db: &LocalDB,
+    _http_client: &HttpAsyncClient,
+    graph_id: Uuid,
+) -> Result<VerifyingKey> {
+    let mut storage_processor = local_db.acquire().await?;
+    match storage_processor.find_graph(&graph_id).await? {
+        Some(graph) => {
+            let zk_version = graph.zkm_version.clone();
+            //todo get from  awa
+            bail!("no implementation for Groth16 virtual graph version: {}", zk_version);
+        }
+        None => Ok(load_ark_groth16_verifying_key_from_bytes(&GROTH16_VK_BYTES)?),
+    }
+}
+
+fn get_zkm_versin() -> String {
+    // todo implete get zkm viersion
+    ZKM_CIRCUIT_VERSION.to_owned()
 }

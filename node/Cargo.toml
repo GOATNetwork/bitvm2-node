@@ -91,6 +91,7 @@ ark-bn254 = { workspace = true }
 ark-groth16 = { workspace = true }
 
 zkm-sdk = { workspace = true }
+zkm-prover = { workspace = true }
 zkm-verifier = { workspace = true }
 borsh = {version = "1.5.3", features = ["derive"] }
 
@@ -103,8 +104,6 @@ client = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 commit-chain = { workspace = true }
 cbft-rpc = { workspace = true }
-# bin
-proofs = { path = "../crates/proofs" }
 [features]
 default = []
 tests = []
