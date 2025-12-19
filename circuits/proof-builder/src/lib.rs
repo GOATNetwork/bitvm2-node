@@ -77,7 +77,10 @@ pub trait ProofBuilder {
     fn pk(&self) -> &ZKMProvingKey;
     fn vk(&self) -> &ZKMVerifyingKey;
 
-    fn build_proof(&self, ctx: &ProofRequest) -> Result<(Vec<u8>, ZKMProofWithPublicValues, u64)>;
+    fn build_proof(
+        &self,
+        ctx: &ProofRequest,
+    ) -> Result<(Vec<u8>, ZKMProofWithPublicValues, u64, f32)>;
 
     fn save_proof(
         &self,

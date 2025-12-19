@@ -32,7 +32,7 @@ async fn main() {
         batch_size: args.batch_size,
         total_block_headers,
     };
-    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+    let (input, proof, cycles, _) = builder.build_proof(&ctx).unwrap();
     tracing::info!("header chain proof cycles: {cycles}");
     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

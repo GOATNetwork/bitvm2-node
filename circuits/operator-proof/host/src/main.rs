@@ -55,7 +55,7 @@ async fn main() {
         watchtower_challenge_txn_pubkeys,
         watchtower_challenge_txn_scripts,
     };
-    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+    let (input, proof, cycles, _) = builder.build_proof(&ctx).unwrap();
     tracing::info!("Operator proof cycles: {cycles}");
     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

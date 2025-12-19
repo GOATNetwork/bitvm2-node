@@ -35,7 +35,7 @@ async fn main() {
         batch_size: args.batch_size,
         blocks,
     };
-    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+    let (input, proof, cycles, _) = builder.build_proof(&ctx).unwrap();
     tracing::info!("header chain proof cycles: {cycles}");
     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

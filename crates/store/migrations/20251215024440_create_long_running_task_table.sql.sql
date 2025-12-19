@@ -10,7 +10,8 @@ CREATE TABLE long_running_task_proof
     `cycles`            BIGINT NOT NULL DEFAULT 0,
     `proof_state`       INT NOT NULL DEFAULT 0 CHECK (proof_state IN (0, 1, 2, 3)),
     `proof_size`        BIGINT NOT NULL DEFAULT 0,
-    `public_value_hex` TEXT,
+    `public_value_hex`  TEXT,
+    `total_time_to_proof`  BIGINT NOT NULL DEFAULT 0,
     `proving_time`      BIGINT NOT NULL DEFAULT 0,
     `zkm_version`       TEXT   NOT NULL DEFAULT '',
     `extra`             TEXT,
@@ -25,6 +26,7 @@ INSERT INTO long_running_task_proof (
     path_to_proof,
     cycles,
     proof_state,
+    total_time_to_proof,
     proving_time,
     zkm_version,
     extra
@@ -35,7 +37,8 @@ INSERT INTO long_running_task_proof (
     '../circuits/data/header-chain/0-503050.bin',
     3147770424,
     2,
-    637.403,
+    637403,
+    637403,
     'v1.2.3',
     ''
 );

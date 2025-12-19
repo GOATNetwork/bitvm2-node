@@ -94,7 +94,7 @@ pub(crate) fn spawn_operator_proof_task(
                             watchtower_challenge_txn_scripts,
                     };
                     let proving_start = tokio::time::Instant::now();
-                    let (input, proof, cycles) = match builder.build_proof(&ctx) {
+                    let (input, proof, cycles, proving_time) = match builder.build_proof(&ctx) {
                         Ok(data) => data,
                         Err(err) => {
                             tracing::error!("Build proof error, {err:?}");
@@ -104,7 +104,7 @@ pub(crate) fn spawn_operator_proof_task(
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
                     let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
-                    update_operator_task(&local_db, args.index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proving_duration as i64, zkm_version).await?;
+                    update_operator_task(&local_db, args.index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proving_duration as i64, proving_time as i64, zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args, OperatorProofBuilder::name())?;
 
                 }

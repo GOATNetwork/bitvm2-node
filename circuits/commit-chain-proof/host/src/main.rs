@@ -30,7 +30,7 @@ async fn main() {
         commit_info: args.commit_info.clone(),
         commits,
     };
-    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+    let (input, proof, cycles, _) = builder.build_proof(&ctx).unwrap();
     tracing::info!("commit chain proof cycles: {cycles}");
     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

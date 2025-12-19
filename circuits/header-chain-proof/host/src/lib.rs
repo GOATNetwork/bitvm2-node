@@ -156,7 +156,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
     fn build_proof(
         &self,
         ctx: &ProofRequest,
-    ) -> anyhow::Result<(Vec<u8>, ZKMProofWithPublicValues, u64)> {
+    ) -> anyhow::Result<(Vec<u8>, ZKMProofWithPublicValues, u64, f32)> {
         let ProofRequest::HeaderChainProofRequest {
             init_input,
             input_proof,
@@ -200,8 +200,8 @@ impl ProofBuilder for HeaderChainProofBuilder {
             HeaderChainCircuitInput { vk_hash, prev_proof, pv_hash, block_headers };
 
         // Generate the proofs.
-        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(
-            || -> anyhow::Result<(ZKMProofWithPublicValues, u64)> {
+        let (proof, cycles, proving_time) = tracing::info_span!("generate proof").in_scope(
+            || -> anyhow::Result<(ZKMProofWithPublicValues, u64, f32)> {
                 let mut stdin = ZKMStdin::new();
                 stdin.write(&input);
                 if let Some(proof) = prev_receipt {
@@ -219,13 +219,16 @@ impl ProofBuilder for HeaderChainProofBuilder {
                 } else {
                     Some(ELF_ID.get().unwrap().clone())
                 };
-                tracing::info!("elf id: {:?}", elf_id);
-                Ok(self.client.prove_with_cycles(
+
+                let proving_start = tokio::time::Instant::now();
+                let (proof, cycles) = self.client.prove_with_cycles(
                     &self.proving_key,
                     &stdin,
                     ZKMProofKind::Compressed,
                     elf_id,
-                )?)
+                )?;
+                let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
+                Ok((proof, cycles, proving_duration))
             },
         )?;
 
@@ -236,7 +239,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
         }
 
         let input = bincode::serialize(&input)?;
-        Ok((input, proof, cycles))
+        Ok((input, proof, cycles, proving_time))
     }
 
     fn save_proof(

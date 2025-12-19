@@ -328,7 +328,8 @@ pub(crate) async fn update_long_running_task(
     proof_size: i64,
     cycles: u64,
     chain_name: String,
-    proving_duration: i64,
+    total_time_to_proof: i64,
+    proving_time: i64,
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
@@ -342,7 +343,8 @@ pub(crate) async fn update_long_running_task(
             proof_size,
             cycles: cycles as i64,
             proof_state: ProofState::Proven.to_i64(),
-            proving_time: proving_duration,
+            total_time_to_proof,
+            proving_time,
             zkm_version,
             extra: None,
             created_at: current_time_secs(),
@@ -401,7 +403,8 @@ pub(crate) async fn update_watchtower_task(
     public_value_hex: String,
     proof_size: i64,
     cycles: u64,
-    proving_duration: i64,
+    total_time_to_proof: i64,
+    proving_time: i64,
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
@@ -412,7 +415,8 @@ pub(crate) async fn update_watchtower_task(
             public_value_hex,
             proof_size,
             cycles as i64,
-            proving_duration,
+            total_time_to_proof,
+            proving_time,
             &zkm_version,
         )
         .await?)
@@ -461,7 +465,8 @@ pub(crate) async fn update_operator_task(
     public_value_hex: String,
     proof_size: i64,
     cycles: u64,
-    proving_duration: i64,
+    total_time_to_proof: i64,
+    proving_time: i64,
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
@@ -472,7 +477,8 @@ pub(crate) async fn update_operator_task(
             public_value_hex,
             proof_size,
             cycles as i64,
-            proving_duration,
+            total_time_to_proof,
+            proving_time,
             &zkm_version,
         )
         .await?)

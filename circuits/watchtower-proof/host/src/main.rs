@@ -27,7 +27,7 @@ async fn main() {
         block_pos,
         latest_sequencer_commit_tx,
     };
-    let (input, proof, cycles) = builder.build_proof(&ctx).unwrap();
+    let (input, proof, cycles, _) = builder.build_proof(&ctx).unwrap();
     tracing::info!("Watchtower proof cycles: {cycles}");
     builder.save_proof(&ctx, &input, cycles, proof).unwrap();
 }

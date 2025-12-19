@@ -209,7 +209,7 @@ impl ProofBuilder for OperatorProofBuilder {
     fn build_proof(
         &self,
         ctx: &ProofRequest,
-    ) -> anyhow::Result<(Vec<u8>, ZKMProofWithPublicValues, u64)> {
+    ) -> anyhow::Result<(Vec<u8>, ZKMProofWithPublicValues, u64, f32)> {
         let ProofRequest::OperatorProofRequest {
             included_watchtowers,
             graph_id,
@@ -326,8 +326,8 @@ impl ProofBuilder for OperatorProofBuilder {
         //);
 
         // Generate the proofs
-        let (proof, cycles) = tracing::info_span!("generate proof").in_scope(
-            || -> anyhow::Result<(ZKMProofWithPublicValues, u64)> {
+        let (proof, cycles, proving_time) = tracing::info_span!("generate proof").in_scope(
+            || -> anyhow::Result<(ZKMProofWithPublicValues, u64, f32)> {
                 let mut stdin = ZKMStdin::new();
 
                 let included_watchtowers: U256 = U256::from_str(&included_watchtowers).unwrap();
@@ -377,15 +377,18 @@ impl ProofBuilder for OperatorProofBuilder {
                 };
                 tracing::info!("elf id: {:?}", elf_id);
 
-                Ok(self.client.prove_with_cycles(
+                let proving_start = tokio::time::Instant::now();
+                let (proof, cycles) = self.client.prove_with_cycles(
                     &self.proving_key,
                     &stdin,
                     ZKMProofKind::Groth16,
                     elf_id,
-                )?)
+                )?;
+                let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
+                Ok((proof, cycles, proving_duration))
             },
         )?;
-        Ok((vec![], proof, cycles))
+        Ok((vec![], proof, cycles, proving_time))
     }
 
     fn save_proof(

@@ -2421,9 +2421,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO long_running_task_proof (block_start, block_end, chain_name, path_to_proof, public_value_hex, proof_size, cycles, proof_state, proving_time,
+             INTO long_running_task_proof (block_start, block_end, chain_name, path_to_proof, public_value_hex, proof_size, cycles, proof_state, total_time_to_proof, proving_time,
                                            zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             long_running_task_proof.block_start,
             long_running_task_proof.block_end,
             long_running_task_proof.chain_name,
@@ -2432,6 +2432,7 @@ impl<'a> StorageProcessor<'a> {
             long_running_task_proof.proof_size,
             long_running_task_proof.cycles,
             long_running_task_proof.proof_state,
+            long_running_task_proof.total_time_to_proof,
             long_running_task_proof.proving_time,
             long_running_task_proof.zkm_version,
             long_running_task_proof.extra,
@@ -2453,6 +2454,7 @@ impl<'a> StorageProcessor<'a> {
         public_value_hex: String,
         proof_size: i64,
         cycles: i64,
+        total_time_to_proof: i64,
         proving_time: i64,
         zkm_version: &str,
     ) -> anyhow::Result<u64> {
@@ -2463,6 +2465,7 @@ impl<'a> StorageProcessor<'a> {
              SET path_to_proof = ?,
                  cycles = ?,
                  proof_state = 2,
+                 total_time_to_proof = ?,
                  proving_time = ?,
                  zkm_version = ?,
                  block_end = ?,
@@ -2472,6 +2475,7 @@ impl<'a> StorageProcessor<'a> {
              WHERE block_start = ? AND chain_name = ?",
             path_to_proof,
             cycles,
+            total_time_to_proof,
             proving_time,
             zkm_version,
             block_end,
@@ -2519,7 +2523,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<Option<LongRunningTaskProof>> {
         let res = sqlx::query_as!(
             LongRunningTaskProof,
-            "SELECT block_start, block_end, chain_name, path_to_proof, public_value_hex, proof_size, cycles, proof_state, proving_time,
+            "SELECT block_start, block_end, chain_name, path_to_proof, public_value_hex, proof_size, cycles, proof_state, total_time_to_proof, proving_time,
                                            zkm_version, extra, updated_at, created_at FROM long_running_task_proof
            
              WHERE block_end > ? and block_start <= ? AND chain_name = ? LIMIT 1",
@@ -2547,6 +2551,7 @@ impl<'a> StorageProcessor<'a> {
                 proof_size,
                 cycles,
                 proof_state,
+                total_time_to_proof,
                 proving_time,
                 zkm_version,
                 extra,
@@ -2569,9 +2574,9 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<u64> {
         let res = sqlx::query!(
             "INSERT
-             INTO operator_proof (instance_id, graph_id, execution_layer_block_number, path_to_proof, public_value_hex, proof_size, cycles, proof_state, proving_time,
+             INTO operator_proof (instance_id, graph_id, execution_layer_block_number, path_to_proof, public_value_hex, proof_size, cycles, proof_state, total_time_to_proof, proving_time,
                                  zkm_version, extra, updated_at, created_at)
-             VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             operator_proof.instance_id,
             operator_proof.graph_id,
             operator_proof.execution_layer_block_number,
@@ -2580,6 +2585,7 @@ impl<'a> StorageProcessor<'a> {
             operator_proof.proof_size,
             operator_proof.cycles,
             operator_proof.proof_state,
+            operator_proof.total_time_to_proof,
             operator_proof.proving_time,
             operator_proof.zkm_version,
             operator_proof.extra,
@@ -2599,6 +2605,7 @@ impl<'a> StorageProcessor<'a> {
         public_value_hex: String,
         proof_size: i64,
         cycles: i64,
+        total_time_to_proof: i64,
         proving_time: i64,
         zkm_version: &str,
     ) -> anyhow::Result<u64> {
@@ -2610,6 +2617,7 @@ impl<'a> StorageProcessor<'a> {
                  proof_size = ?,
                  cycles = ?,
                  proof_state = 2,
+                 total_time_to_proof = ?,
                  proving_time = ?,
                  zkm_version = ?,
                  updated_at = ?
@@ -2618,6 +2626,7 @@ impl<'a> StorageProcessor<'a> {
             public_value_hex,
             proof_size,
             cycles,
+            total_time_to_proof,
             proving_time,
             zkm_version,
             current_time,
@@ -2663,6 +2672,7 @@ impl<'a> StorageProcessor<'a> {
                         proof_size,
                         cycles,
                         proof_state,
+                        total_time_to_proof,
                         proving_time,
                         zkm_version,
                         extra,
@@ -2690,6 +2700,7 @@ impl<'a> StorageProcessor<'a> {
                         proof_size,
                         cycles,
                         proof_state,
+                        total_time_to_proof,
                         proving_time,
                         zkm_version,
                         extra,
@@ -2718,6 +2729,7 @@ impl<'a> StorageProcessor<'a> {
                         proof_size,
                         cycles,
                         proof_state,
+                        total_time_to_proof,
                         proving_time,
                         zkm_version,
                         extra,
@@ -2741,6 +2753,7 @@ impl<'a> StorageProcessor<'a> {
         public_value_hex: String,
         proof_size: i64,
         cycles: i64,
+        total_time_to_proof: i64,
         proving_time: i64,
         zkm_version: &str,
     ) -> anyhow::Result<u64> {
@@ -2752,6 +2765,7 @@ impl<'a> StorageProcessor<'a> {
                  proof_size = ?,
                  cycles = ?,
                  proof_state = 2,
+                 total_time_to_proof = ?,
                  proving_time = ?,
                  zkm_version = ?,
                  updated_at = ?
@@ -2760,6 +2774,7 @@ impl<'a> StorageProcessor<'a> {
             public_value_hex,
             proof_size,
             cycles,
+            total_time_to_proof,
             proving_time,
             zkm_version,
             current_time,
@@ -2808,6 +2823,7 @@ impl<'a> StorageProcessor<'a> {
                          proof_size,
                          cycles,
                          proof_state,
+                         total_time_to_proof,
                          proving_time,
                          zkm_version,
                          extra,
@@ -2843,6 +2859,7 @@ impl<'a> StorageProcessor<'a> {
                          proof_size,
                          cycles,
                          proof_state,
+                         total_time_to_proof,
                          proving_time,
                          zkm_version,
                          extra,
@@ -2877,6 +2894,7 @@ impl<'a> StorageProcessor<'a> {
                          proof_size,
                          cycles,
                          proof_state,
+                         total_time_to_proof,
                          proving_time,
                          zkm_version,
                          extra,
@@ -2908,6 +2926,7 @@ impl<'a> StorageProcessor<'a> {
                          proof_size,
                          cycles,
                          proof_state,
+                         total_time_to_proof,
                          proving_time,
                          zkm_version,
                          extra,
@@ -2932,9 +2951,9 @@ impl<'a> StorageProcessor<'a> {
              INTO watchtower_proof (instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number,
                                    path_to_proof,
                                    public_value_hex, proof_size,
-                                   cycles, proof_state, proving_time,
+                                   cycles, proof_state, total_time_to_proof, proving_time,
                                    zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             watchtower_proof.instance_id,
             watchtower_proof.graph_id,
             watchtower_proof.public_key,
@@ -2946,6 +2965,7 @@ impl<'a> StorageProcessor<'a> {
             watchtower_proof.proof_size,
             watchtower_proof.cycles,
             watchtower_proof.proof_state,
+            watchtower_proof.total_time_to_proof,
             watchtower_proof.proving_time,
             watchtower_proof.zkm_version,
             watchtower_proof.extra,
