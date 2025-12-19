@@ -42,13 +42,6 @@ pub(super) async fn get_chain_proof_task_desc(
 
     match proof {
         Some(proof) => {
-            let total_time_to_proof = if proof.proof_state == ProofState::Proven.to_i64()
-                && let Some(_path_to_proof) = proof.path_to_proof
-            {
-                proof.updated_at - proof.created_at
-            } else {
-                0
-            };
             let prev_proof_number = storage_process
                 .find_long_running_task_proof_including_block_number(
                     proof.block_start - 1,
@@ -76,7 +69,7 @@ pub(super) async fn get_chain_proof_task_desc(
                         .to_string(),
                     proving_cycles: proof.cycles,
                     proving_time: proof.proving_time,
-                    total_time_to_proof,
+                    total_time_to_proof: proof.proving_time,
                     proof_size: proof.proof_size as f64 / 1000.0, // use KiB
                     zkm_version: proof.zkm_version,
                     pub_values: proof.public_value_hex.unwrap_or("".to_string()),
@@ -109,13 +102,6 @@ pub(super) async fn get_operator_proof_task_desc(
     match operator_proof {
         Some(operator_proof) => {
             info!("Get Operator Proof:{operator_proof:?}");
-            let total_time_to_proof = if operator_proof.proof_state == ProofState::Proven.to_i64()
-                && let Some(_path_to_proof) = operator_proof.path_to_proof
-            {
-                operator_proof.updated_at - operator_proof.created_at
-            } else {
-                0
-            };
             ok_response(ProofDescResponse {
                 proof_desc: Some(ProofDesc {
                     block_start: operator_proof.execution_layer_block_number,
@@ -126,7 +112,7 @@ pub(super) async fn get_operator_proof_task_desc(
                         .to_string(),
                     proving_cycles: operator_proof.cycles,
                     proving_time: operator_proof.proving_time,
-                    total_time_to_proof,
+                    total_time_to_proof: operator_proof.proving_time,
                     proof_size: operator_proof.proof_size as f64 / 1000.0, // use KiB
                     zkm_version: operator_proof.zkm_version,
                     pub_values: operator_proof.public_value_hex.unwrap_or("".to_string()),
