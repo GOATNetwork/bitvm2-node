@@ -179,9 +179,3 @@ fn get_timestamp_from_contract_data(input: &[u8; 32]) -> i64 {
     timestamp_bytes.copy_from_slice(&input[24..32]);
     i64::from_be_bytes(timestamp_bytes)
 }
-
-
-#[test]
-fn dd(){
-    println!("{}", uuid::Uuid::new_v4());
-}

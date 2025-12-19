@@ -5,7 +5,7 @@ use bitvm2_noded::env::{
     self, ENV_PEER_KEY, check_node_info, get_goat_network, get_ipfs_url, get_network,
     get_node_pubkey, goat_config_from_env,
 };
-use clap::{Parser, Subcommand, command};
+use clap::{Parser, Subcommand};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use libp2p::PeerId;
 use libp2p_metrics::Registry;

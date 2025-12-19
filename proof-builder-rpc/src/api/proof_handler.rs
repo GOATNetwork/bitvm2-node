@@ -69,7 +69,7 @@ pub(super) async fn get_chain_proof_task_desc(
             ok_response(ProofDescResponse {
                 proof_desc: Some(ProofDesc {
                     block_start: proof.block_start,
-                    block_end: proof.block_start,
+                    block_end: proof.block_end,
                     proof_type: payload.proof_type.to_string(),
                     state: ProofState::from_i64(proof.proof_state)
                         .unwrap_or_else(|| ProofState::New)

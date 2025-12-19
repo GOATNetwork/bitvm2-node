@@ -73,10 +73,6 @@ pub struct BridgeOutInitTagRequest {
 pub struct BridgeOutInitTagResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct EscrowDataRequest {
-    pub instance_id: String, // UUID
-}
-#[derive(Debug, Deserialize, Serialize)]
 pub struct EscrowDataResponse {
     pub instance_id: String,
     pub escrow: Option<String>,
