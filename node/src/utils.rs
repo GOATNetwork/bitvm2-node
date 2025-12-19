@@ -42,8 +42,6 @@ use libp2p::{PeerId, Swarm};
 use rand::Rng;
 use secp256k1::Secp256k1;
 use zkm_prover::ZKM_CIRCUIT_VERSION;
-use zkm_verifier::{GROTH16_VK_BYTES, load_ark_groth16_verifying_key_from_bytes};
-
 use anyhow::{Result, anyhow, bail};
 use ark_serialize::CanonicalDeserialize;
 use bitcoin::address::NetworkUnchecked;
@@ -1609,21 +1607,21 @@ pub async fn is_take2_timelock_expired(
 pub async fn get_partial_scripts(
     local_db: &LocalDB,
     http_client: &HttpAsyncClient,
-    graph_id: Uuid,
+    version: String,
 ) -> Result<Vec<ScriptBuf>> {
-    let scripts_cache_path = SCRIPT_CACHE_FILE_NAME;
-    if Path::new(scripts_cache_path).exists() {
+    let scripts_cache_path = format!("{}_{version}.bin", SCRIPT_CACHE_FILE_NAME);
+    if Path::new(&scripts_cache_path).exists() {
         let file = File::open(scripts_cache_path)?;
         let reader = BufReader::new(file);
         let scripts_bytes: Vec<ScriptBuf> = bincode::deserialize_from(reader)?;
         Ok(scripts_bytes)
     } else {
         let partial_scripts =
-            generate_partial_scripts(&get_vk(local_db, http_client, graph_id).await?);
-        if let Some(parent) = Path::new(scripts_cache_path).parent() {
+            generate_partial_scripts(&get_vk(local_db, http_client, &version).await?);
+        if let Some(parent) = Path::new(&scripts_cache_path).parent() {
             fs::create_dir_all(parent)?;
         };
-        let file = File::create(scripts_cache_path)?;
+        let file = File::create(&scripts_cache_path)?;
         let writer = BufWriter::new(file);
         bincode::serialize_into(writer, &partial_scripts)?;
         Ok(partial_scripts)
@@ -1635,7 +1633,8 @@ pub async fn get_disprove_scripts(
     http_client: &HttpAsyncClient,
     graph_params: &Bitvm2GraphParameters,
 ) -> Result<Vec<ScriptBuf>> {
-    let partial_scripts = get_partial_scripts(local_db, http_client, graph_params.graph_id).await?;
+    let partial_scripts =
+        get_partial_scripts(local_db, http_client, graph_params.zkm_version.clone()).await?;
     let (mut disprove_scripts, disprove_scripts_1) = generate_disprove_scripts(
         &partial_scripts,
         graph_params.operator_wots_pubkeys.clone(),
@@ -2494,6 +2493,7 @@ pub async fn build_graph_params(
         watchtower_pubkeys,
         hashlocks,
         guest_constant_value,
+        zkm_version: get_zkm_versin(),
     })
 }
 
@@ -3569,7 +3569,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
             .collect(),
         init_withdraw_tx_hash: None,
         bridge_out_start_at: 0,
-        zkm_version: get_zkm_versin(),
+        zkm_version: bitvm2_graph.parameters.zkm_version.clone(),
         status_updated_at: current_time,
         proceed_withdraw_height: 0,
         created_at: current_time,
@@ -4261,19 +4261,12 @@ pub(super) async fn find_instances_by_escrow_hash<'a>(
 
 // user operator vk, validator it later
 pub async fn get_vk(
-    local_db: &LocalDB,
+    _local_db: &LocalDB,
     _http_client: &HttpAsyncClient,
-    graph_id: Uuid,
+    _zkm_version: &str,
 ) -> Result<VerifyingKey> {
-    let mut storage_processor = local_db.acquire().await?;
-    match storage_processor.find_graph(&graph_id).await? {
-        Some(graph) => {
-            let zk_version = graph.zkm_version.clone();
-            //todo get from  awa
-            bail!("no implementation for Groth16 virtual graph version: {}", zk_version);
-        }
-        None => Ok(load_ark_groth16_verifying_key_from_bytes(&GROTH16_VK_BYTES)?),
-    }
+    // todo
+    bail!("Not implemented")
 }
 
 fn get_zkm_versin() -> String {
