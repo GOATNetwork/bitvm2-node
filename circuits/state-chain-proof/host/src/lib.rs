@@ -159,7 +159,7 @@ pub async fn fetch_state_chain(
     let addr = l2_contract_address.trim_prefix("0x");
     let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
     let l2_contract_address = Address::from(bytes);
-    let base_slot: [u8; 32] = U256::from(12).to_be_bytes().try_into()?;
+    let base_slot: [u8; 32] = U256::from(16).to_be_bytes().try_into()?;
 
     let proceed_withdraw_method_id =
         hex_parse::<4>(proceed_withdraw_method_id).map_err(|e| anyhow::anyhow!(e))?;
