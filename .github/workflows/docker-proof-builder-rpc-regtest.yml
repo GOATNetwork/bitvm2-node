@@ -9,7 +9,7 @@ env:
   IMAGE_REPO: ${{ github.repository }}
 
 jobs:
-  build-and-push-circuits:
+  build-and-push-proof-builder-rpc:
     runs-on: ubuntu-latest
 
     permissions:
@@ -34,15 +34,15 @@ jobs:
         run: sudo apt-get update && sudo apt install protobuf-compiler -y
 
       - name: Build binarys
-        run: source ~/.zkm-toolchain/env && cd circuits && cargo build --release
+        run: export BITCOIN_NETWORK=regtest && source ~/.zkm-toolchain/env && cd proof-build-rpc && cargo build --release
 
       - name: Generate certs
-        run: cd circuits/continuous/tool && ./certgen.sh
+        run: cd circuits/tool && ./certgen.sh
 
       - name: Extract version from Cargo.toml
         id: version
         run: |
-          VERSION=$(grep '^version =' ./circuits/Cargo.toml | head -n1 | sed -E 's/version = "(.*)"/\1/')
+          VERSION=$(grep '^version =' ./Cargo.toml | head -n1 | sed -E 's/version = "(.*)"/\1/')
           echo "CARGO_VERSION=$VERSION" >> $GITHUB_ENV
           echo "Using version: $VERSION"
 
@@ -60,22 +60,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image (aggregation)
+      - name: Build and push Docker image (proof-builder-rpc)
         uses: docker/build-push-action@v5
         with:
-          context: ./circuits
-          file: ./circuits/Dockerfile.aggregation
+          context: ./proof-builder-rpc
+          file: ./proof-builder-rpc/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ env.REPO_LOWER }}:aggregation-latest
-            ghcr.io/${{ env.REPO_LOWER }}:aggregation-${{ env.CARGO_VERSION }}
-
-      - name: Build and push Docker image (continuous)
-        uses: docker/build-push-action@v5
-        with:
-          context: ./circuits
-          file: ./circuits/Dockerfile.continuous
-          push: true
-          tags: |
-            ghcr.io/${{ env.REPO_LOWER }}:continuous-latest
-            ghcr.io/${{ env.REPO_LOWER }}:continuous-${{ env.CARGO_VERSION }}
+            ghcr.io/${{ env.REPO_LOWER }}:proof-builder-rpc-latest
+            ghcr.io/${{ env.REPO_LOWER }}:proof-build-rpc-${{ env.CARGO_VERSION }}
