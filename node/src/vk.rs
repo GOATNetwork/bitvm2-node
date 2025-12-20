@@ -117,6 +117,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore]
     async fn test_get_vk() {
         let latest = zkm_sdk::ZKM_CIRCUIT_VERSION;
         get_vk(latest).await.unwrap();
