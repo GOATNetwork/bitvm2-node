@@ -24,7 +24,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions-rs/toolchain@v1
         timeout-minutes: 30
         with:
@@ -40,12 +40,12 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions-rs/toolchain@v1
         timeout-minutes: 30
         with:
           profile: minimal
-          toolchain: nightly-2025-06-30
+          toolchain: nightly-2025-12-11
           override: true
       - name: Install Dependencies
         run: sudo apt update && sudo apt install protobuf-compiler
@@ -57,9 +57,9 @@ jobs:
     strategy:
       matrix:
         toolchain:
-          - nightly-2025-06-30
+          - nightly-2025-12-11
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Dependencies
         run: sudo apt update && sudo apt install protobuf-compiler
       - name: Launch the Regtest

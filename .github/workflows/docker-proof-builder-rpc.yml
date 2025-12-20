@@ -2,7 +2,7 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ main ]  # or your deployment branch
+    branches: [ main, dev ]  # or your deployment branch
   workflow_dispatch:    # allow manual trigger
 
 env:
@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
