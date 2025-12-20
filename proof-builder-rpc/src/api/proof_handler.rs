@@ -69,7 +69,7 @@ pub(super) async fn get_chain_proof_task_desc(
                         .to_string(),
                     proving_cycles: proof.cycles,
                     proving_time: proof.proving_time,
-                    total_time_to_proof: proof.proving_time,
+                    total_time_to_proof: proof.total_time_to_proof,
                     proof_size: proof.proof_size as f64 / 1000.0, // use KiB
                     zkm_version: proof.zkm_version,
                     pub_values: proof.public_value_hex.unwrap_or("".to_string()),
@@ -112,7 +112,7 @@ pub(super) async fn get_operator_proof_task_desc(
                         .to_string(),
                     proving_cycles: operator_proof.cycles,
                     proving_time: operator_proof.proving_time,
-                    total_time_to_proof: operator_proof.proving_time,
+                    total_time_to_proof: operator_proof.total_time_to_proof,
                     proof_size: operator_proof.proof_size as f64 / 1000.0, // use KiB
                     zkm_version: operator_proof.zkm_version,
                     pub_values: operator_proof.public_value_hex.unwrap_or("".to_string()),
