@@ -832,13 +832,13 @@ async fn action_sign_sequencer_set_update(
     println!("replenish_fee_connector_value: {_replenish_fee_connector_value:?}");
     let sig_hash_type = EcdsaSighashType::AllPlusAnyoneCanPay;
     // if this is not the genesis commit tx
-    if update_connector_value.is_some() {
+    if let Some(update_connector_value_) = update_connector_value {
         println!("Standard spending flow for sequencer set publish tx");
         let (sig, msg) = sign_partial(
             &mut sequencer_set_publish_tx,
             &owner_private_key.inner,
             &redeem_script,
-            update_connector_value.unwrap(),
+            update_connector_value_,
             sig_hash_type,
         )?;
         let secp = secp256k1::Secp256k1::new();
