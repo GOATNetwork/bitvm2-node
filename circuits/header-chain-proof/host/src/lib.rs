@@ -5,6 +5,7 @@ use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -25,11 +26,11 @@ pub struct Args {
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
-    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    #[arg(long, env, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
 
-    #[arg(long, default_value_t = Network::Regtest)]
-    pub btc_network: Network,
+    #[arg(long, env, default_value_t = Network::Regtest)]
+    pub bitcoin_network: Network,
 
     #[clap(long, env, default_value_t = 4)]
     pub batch_size: usize,
@@ -101,9 +102,21 @@ pub async fn fetch_header_chain(
 
     writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64))?;
 
+    let mut cnt: usize = 0;
+    let mut range = 500;
+    let mut rng = rand::thread_rng();
     for i in start..(start + batch_size) {
+        tracing::info!("get block by height: {i}");
         let block = btc_client.get_block_by_height(i as u32).await?;
         tracing::info!("block_id {i}: {}", block.block_hash().to_string());
+
+        cnt += 1;
+        if cnt.is_multiple_of(range) {
+            range = rng.gen_range(500..1000);
+            let ms = rng.gen_range(500..1000);
+            tokio::time::sleep(tokio::time::Duration::from_millis(ms)).await;
+        }
+
         let header: header_chain::CircuitBlockHeader = block.header.into();
         block_headers.push(header.clone());
         header.serialize(&mut writer)?;

@@ -16,7 +16,7 @@
 //!   --to-address tb1q...
 //! ```
 //!
-//! Required env: `BITVM_SECRET` (Bitcoin key) and optionally `BTC_NETWORK`.
+//! Required env: `BITVM_SECRET` (Bitcoin key) and optionally `BITCOIN_NETWORK`.
 
 use std::fmt;
 use std::str::FromStr;

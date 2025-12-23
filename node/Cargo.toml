@@ -94,7 +94,6 @@ indicatif = "0.17.8"
 dirs = "5.0.1"
 
 zkm-sdk = { workspace = true }
-zkm-prover = { workspace = true }
 zkm-verifier = { workspace = true }
 borsh = {version = "1.5.3", features = ["derive"] }
 

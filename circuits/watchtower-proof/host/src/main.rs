@@ -10,10 +10,13 @@ async fn main() {
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
-    let (block_pos, target_block, latest_sequencer_commit_tx) =
-        fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid, args.btc_network)
-            .await
-            .unwrap();
+    let (block_pos, target_block, latest_sequencer_commit_tx) = fetch_target_block(
+        &args.esplora_url,
+        &args.latest_sequencer_commit_txid,
+        args.bitcoin_network,
+    )
+    .await
+    .unwrap();
     let builder = WatchtowerProofBuilder::new();
 
     let ctx = ProofRequest::WatchtowerProofRequest {

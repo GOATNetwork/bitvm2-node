@@ -101,7 +101,6 @@ pub async fn fetch_cbft_validator_info(
     if max_retries == 0 {
         anyhow::bail!("Can not find the cosmos block for goat block height {goat_block_height}");
     }
-    println!("cosmos block height: {block_height}");
 
     Ok((sequencer_hash, block_height))
 }

@@ -30,11 +30,11 @@ pub struct Args {
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
-    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    #[arg(long, env, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
 
-    #[arg(long, default_value_t = Network::Regtest)]
-    pub btc_network: Network,
+    #[arg(long, env, default_value_t = Network::Regtest)]
+    pub bitcoin_network: Network,
 
     #[clap(long, env)]
     pub included_watchtowers: String,
@@ -99,7 +99,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
     watchtower_challenge_init_txid: &String,
     watchtower_challenge_txids: &str,
     watchtower_public_keys: &str,
-    btc_network: Network,
+    bitcoin_network: Network,
 ) -> anyhow::Result<(
     u32,
     bitcoin::Block,
@@ -112,7 +112,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
 )> {
     let watchtower_challenge_txids: Vec<&str> = watchtower_challenge_txids.split(",").collect();
     let watchtower_public_keys: Vec<&str> = watchtower_public_keys.split(",").collect();
-    let btc_client = BTCClient::new(btc_network, Some(&esplora_url));
+    let btc_client = BTCClient::new(bitcoin_network, Some(&esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid).unwrap();
     let operator_latest_sequencer_commit_txn =
         btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();

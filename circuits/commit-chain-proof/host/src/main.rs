@@ -17,7 +17,7 @@ async fn main() {
         &args.commits,
         args.start,
         args.batch_size,
-        args.btc_network,
+        args.bitcoin_network,
     )
     .await
     .unwrap();

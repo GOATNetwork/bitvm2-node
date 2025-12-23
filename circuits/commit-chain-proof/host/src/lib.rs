@@ -25,8 +25,8 @@ pub struct Args {
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
-    #[arg(long, default_value_t = Network::Regtest)]
-    pub btc_network: Network,
+    #[arg(long, env, default_value_t = Network::Regtest)]
+    pub bitcoin_network: Network,
 
     #[arg(long, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,

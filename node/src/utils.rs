@@ -66,7 +66,7 @@ use store::{
     MessageState, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
-use zkm_prover::ZKM_CIRCUIT_VERSION;
+use zkm_sdk::ZKM_CIRCUIT_VERSION;
 
 use crate::env;
 use crate::rpc_service::proof::{

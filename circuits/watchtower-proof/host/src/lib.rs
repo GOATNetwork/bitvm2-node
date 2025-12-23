@@ -29,11 +29,11 @@ pub struct Args {
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
-    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    #[arg(long, env, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
 
-    #[arg(long, default_value_t = Network::Regtest)]
-    pub btc_network: Network,
+    #[arg(long, env, default_value_t = Network::Regtest)]
+    pub bitcoin_network: Network,
 
     #[clap(long, env)]
     pub genesis_sequencer_commit_txid: String,
@@ -68,9 +68,9 @@ impl LongRunning for Args {
 pub async fn fetch_target_block(
     esplora_url: &str,
     latest_sequencer_commit_txid: &str,
-    btc_network: Network,
+    bitcoin_network: Network,
 ) -> anyhow::Result<(u32, Block, Transaction)> {
-    let btc_client = client::btc_chain::BTCClient::new(btc_network, Some(&esplora_url));
+    let btc_client = client::btc_chain::BTCClient::new(bitcoin_network, Some(&esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid).unwrap();
 
     let latest_sequencer_commit_tx =

@@ -63,7 +63,7 @@ pub const MAX_CUSTOM_INPUTS: usize = 100;
 
 pub const DEFAULT_CONFIRMATION_TARGET: u16 = 1;
 
-pub const ENV_BTC_NETWORK: &str = "BTC_NETWORK";
+pub const ENV_BITCOIN_NETWORK: &str = "BITCOIN_NETWORK";
 pub const ENV_GOAT_NETWORK: &str = "GOAT_NETWORK";
 
 pub const ENV_WATCHTOWER_PROOF_WAIT_SECS: &str = "WATCHTOWER_PROOF_WAIT_SECS";
@@ -116,7 +116,7 @@ pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
 pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
 
 pub fn get_network() -> Network {
-    let network = std::env::var(ENV_BTC_NETWORK).unwrap_or("testnet".to_string());
+    let network = std::env::var(ENV_BITCOIN_NETWORK).unwrap_or("testnet".to_string());
     match network.as_str() {
         "bitcoin" => Network::Bitcoin,
         "testnet" => Network::Testnet,

@@ -26,7 +26,7 @@ async fn main() {
         &args.watchtower_challenge_init_txid,
         &args.watchtower_challenge_txids,
         &args.watchtower_public_keys,
-        args.btc_network,
+        args.bitcoin_network,
     )
     .await
     .unwrap();

@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-export BITCOIN_NETWORK=regtest
 CMD="cargo run -r --bin header-chain-proof --package header-chain-proof"
 DATA="data/header-chain"
 

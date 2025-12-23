@@ -51,7 +51,7 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     }
                     info!("Commit chain proof generate task: generate proof, args: {args:?}");
 
-                    let commits = match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.start, args.batch_size, args.btc_network).await {
+                    let commits = match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.start, args.batch_size, args.bitcoin_network).await {
                         Ok(d) => d,
                         Err(err) => {
                             tracing::error!("Fetch commit chain error, {err:?}");

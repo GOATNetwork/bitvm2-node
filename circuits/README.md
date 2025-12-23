@@ -33,8 +33,17 @@ docker compose up -d
 ## Bitcoin Header Chain
 
 ```
+# regtest 
+# export BITCOIN_NETWOKR=regtest
+
+# testnet
+# export BITCOIN_NETWOKR=testnet
+# export ESPLORA_URL=https://mempool.space/testnet/api
+
+
 bash cron-header-chain-proof.sh $start $batch
 ```
+
 
 ## Sequencer Set Commit Chain
 

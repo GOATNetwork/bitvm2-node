@@ -38,7 +38,7 @@ Create a `.env` file and include necessary environment variables:
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `ACTOR` | The role of the node (`Committee`, `Operator`, `Challenger`, `Watchtower`) | Yes |
-| `BTC_NETWORK` | Bitcoin network (`bitcoin`, `testnet`, `regtest`) | Yes |
+| `BITCOIN_NETWORK` | Bitcoin network (`bitcoin`, `testnet`, `regtest`) | Yes |
 | `GOAT_NETWORK` | Goat network (`main`, `test`) | Yes |
 | `GOAT_CHAIN_URL` | RPC URL for the Goat chain | Yes |
 | `GOAT_PROOF_BUILD_URL` | URL for the proof builder service | Yes |
@@ -81,7 +81,7 @@ RUST_LOG=info
 
 # required
 ACTOR=Committee
-BTC_NETWORK=testnet # bitcoin / testnet / regtest
+BITCOIN_NETWORK=testnet # bitcoin / testnet / regtest
 GOAT_NETWORK=test # main / test
 GOAT_CHAIN_URL=https://rpc.testnet3.goat.network
 GOAT_PROOF_BUILD_URL=...
@@ -125,7 +125,7 @@ RUST_LOG=info
 
 # required
 ACTOR=Operator
-BTC_NETWORK=testnet # bitcoin / testnet / regtest
+BITCOIN_NETWORK=testnet # bitcoin / testnet / regtest
 GOAT_NETWORK=test # main / test
 GOAT_CHAIN_URL=https://rpc.testnet3.goat.network
 GOAT_PROOF_BUILD_URL=...
@@ -160,7 +160,7 @@ RUST_LOG=info
 
 # required
 ACTOR=Challenger
-BTC_NETWORK=testnet # bitcoin / testnet / regtest
+BITCOIN_NETWORK=testnet # bitcoin / testnet / regtest
 GOAT_NETWORK=test # main / test
 GOAT_CHAIN_URL=https://rpc.testnet3.goat.network
 GOAT_PROOF_BUILD_URL=...
@@ -195,7 +195,7 @@ RUST_LOG=info
 
 # required
 ACTOR=Watchtower
-BTC_NETWORK=testnet # bitcoin / testnet / regtest
+BITCOIN_NETWORK=testnet # bitcoin / testnet / regtest
 GOAT_NETWORK=test # main / test
 GOAT_CHAIN_URL=https://rpc.testnet3.goat.network
 GOAT_PROOF_BUILD_URL=...

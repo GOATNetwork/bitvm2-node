@@ -6,7 +6,7 @@
 //! Required environment variables:
 //! - BITVM_SECRET: Hex private key or seed:... used to derive the node keypair (for signing and fee inputs)
 //! - GOAT_PRIVATE_KEY or GOAT_ADDRESS: EVM address used in OP_RETURN (challenge sender identity)
-//! - BTC_NETWORK: bitcoin | testnet | signet | regtest (defaults to testnet if unset)
+//! - BITCOIN_NETWORK: bitcoin | testnet | signet | regtest (defaults to testnet if unset)
 //!
 //! Optional:
 //! - ESPLORA URL may be overridden via --esplora-url, otherwise defaults to mempool.space endpoints.
@@ -35,7 +35,7 @@ use store::create_local_db;
     name = "send-challenge",
     version,
     about = "Broadcast a Challenge transaction for a graph (reads graph from local DB)",
-    long_about = "Broadcast a Challenge transaction for a graph (reads graph from local DB).\n\nENV required:\n  - BITVM_SECRET: node BTC key (hex) or seed:...\n  - GOAT_PRIVATE_KEY or GOAT_ADDRESS: challenger EVM identity for OP_RETURN\n  - BTC_NETWORK: bitcoin | testnet | signet | regtest (default: testnet)"
+    long_about = "Broadcast a Challenge transaction for a graph (reads graph from local DB).\n\nENV required:\n  - BITVM_SECRET: node BTC key (hex) or seed:...\n  - GOAT_PRIVATE_KEY or GOAT_ADDRESS: challenger EVM identity for OP_RETURN\n  - BITCOIN_NETWORK: bitcoin | testnet | signet | regtest (default: testnet)"
 )]
 struct Args {
     /// Instance UUID of the graph (for sanity; not used for lookup strictly)

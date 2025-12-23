@@ -30,8 +30,8 @@ use tokio::time::sleep;
 use tracing_subscriber::EnvFilter;
 
 use bitvm2_noded::env::{
-    ENV_BITVM_SECRET, ENV_BTC_NETWORK, ENV_GOAT_ADDRESS, get_goat_network, get_node_goat_address,
-    goat_config_from_env,
+    ENV_BITCOIN_NETWORK, ENV_BITVM_SECRET, ENV_GOAT_ADDRESS, get_goat_network,
+    get_node_goat_address, goat_config_from_env,
 };
 use bitvm2_noded::utils::{
     broadcast_tx, get_fee_rate, get_proper_utxo_set, node_p2wsh_address, node_sign,
@@ -49,7 +49,7 @@ struct Args {
     command: Commands,
 
     /// Bitcoin network
-    #[arg(long, env = ENV_BTC_NETWORK, default_value = "testnet")]
+    #[arg(long, env = ENV_BITCOIN_NETWORK, default_value = "testnet")]
     network: String,
 
     /// Esplora base URL (for Bitcoin RPC via Esplora)

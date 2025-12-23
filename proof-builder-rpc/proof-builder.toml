@@ -1,5 +1,5 @@
 [header_chain]
-enable = true
+enable = false
 init_input = false 
 esplora_url = "http://127.0.0.1:3002"
 start = 503050
@@ -12,10 +12,10 @@ batch_size = 10
 #output_proof = "../circuits/data/header-chain/1000-10.bin"
 input_proof = "../circuits/data/header-chain/0-503050.bin"
 output_proof = "../circuits/data/header-chain/503050-10.bin"
-btc_network = "regtest"
+bitcoin_network = "regtest"
 
 [commit_chain]
-enable = true 
+enable = false 
 esplora_url = "http://127.0.0.1:3002"
 commit_info = "../circuits/data/commit-chain/commit_info.json.0"
 commits = "../circuits/data/commit-chain/commits.bin"
@@ -24,7 +24,7 @@ start = 0
 batch_size = 1
 input_proof = "../circuits/data/commit-chain/0-1.bin"
 output_proof = "../circuits/data/commit-chain/0-1.bin"
-btc_network = "regtest"
+bitcoin_network = "regtest"
 
 [state_chain]
 enable = true 
@@ -34,18 +34,18 @@ l2_contract_address = "0x26Aa99d72f5f85D60A1B44773B3897793981B7F7"
 #proceed_withdraw_method_id = "0xc3342df3"
 proceed_withdraw_method_id = "0xd3d8a3f4"
 #start = 9511050
-start = 9830602
+start = 9831028
 batch_size = 10
 execution_layer_rpc = "https://rpc.testnet3.goat.network"
 blocks = "../circuits/data/state-chain/blocks-9830602-10.json"
 ## input_proof is optional when init_input=true
-input_proof = "../circuits/data/state-chain/9830602-10.bin"
-output_proof = "../circuits/data/state-chain/9830602-10.bin"
+input_proof = "../circuits/data/state-chain/9831028-10.bin"
+output_proof = "../circuits/data/state-chain/9831028-10.bin"
 goat_network = "goattest"
 cosmos_rpc_url = "https://cosmos.testnet3.goat.network"
 
 [watchtower]
-enable = true 
+enable = false 
 esplora_url = "http://127.0.0.1:3002"
 genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
 latest_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
@@ -54,10 +54,10 @@ commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
 state_chain_input_proof = "../circuits/data/state-chain/9830602-10.bin"
 output = "../circuits/data/watchtower/output.bin"
 index = 1
-btc_network = "regtest"
+bitcoin_network = "regtest"
 
 [operator]
-enable = true 
+enable = false 
 esplora_url = "http://127.0.0.1:3002"
 genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
 latest_sequencer_commit_txid = "b8e0c71b8a2b7c8c7e6f5e4d3c2b1a0099887766554433221100ffeeddccbbaa"
@@ -73,4 +73,4 @@ included_watchtowers = "1"
 graph_id="0x00112233445566778899aabbccddeeff"
 execution_layer_block_number = 9511055
 index = 1
-btc_network = "regtest"
+bitcoin_network = "regtest"

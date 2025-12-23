@@ -51,7 +51,7 @@ pub(crate) fn spawn_header_chain_proof_task(
                         args.batch_size,
                         &args.block_headers,
                         args.force_fetch,
-                        args.btc_network,
+                        args.bitcoin_network,
                     ).await {
                         Ok(data) => data,
                         Err(err) => {

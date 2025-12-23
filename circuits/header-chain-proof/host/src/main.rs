@@ -10,6 +10,7 @@ async fn main() {
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+    tracing::info!("args: {args:?}");
 
     let total_block_headers = fetch_header_chain(
         &args.esplora_url,
@@ -17,7 +18,7 @@ async fn main() {
         args.batch_size,
         &args.block_headers,
         args.force_fetch,
-        args.btc_network,
+        args.bitcoin_network,
     )
     .await
     .unwrap();

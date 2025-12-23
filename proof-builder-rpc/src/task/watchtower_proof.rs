@@ -42,7 +42,7 @@ pub(crate) fn spawn_watchtower_proof_task(
                     info!("Watchtower proof generate task: generate proof, args: {args:?}");
 
                     let (block_pos, target_block, latest_sequencer_commit_tx) =
-                        match fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid, args.btc_network).await {
+                        match fetch_target_block(&args.esplora_url, &args.latest_sequencer_commit_txid, args.bitcoin_network).await {
                             Ok(data) => data,
                             Err(e) => {
                                 tracing::error!("Fetch target block error: {e}");
