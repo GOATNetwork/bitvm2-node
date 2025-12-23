@@ -781,7 +781,6 @@ async fn process_kickoff_graph(
         Some(txid) => txid,
         None => {
             // kickoff output not spent, check if we need to send Take1Ready
-
             let height = {
                 let mut storage_processor = local_db.acquire().await?;
                 storage_processor

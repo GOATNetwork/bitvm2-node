@@ -769,16 +769,6 @@ mod tests {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    fn load_test_bitvm2_graph() -> Bitvm2Graph {
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("tests_data/test_bitvm2_graph.json");
-        serde_json::from_str(
-            &fs::read_to_string(&path).expect("fail to read test bitvm_graph.json"),
-        )
-        .unwrap()
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_proof_api() -> Result<(), Box<dyn std::error::Error>> {
         init(None);
