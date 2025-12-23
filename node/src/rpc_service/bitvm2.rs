@@ -30,8 +30,9 @@ pub const ASSERT_STEP_INIT: &str = "Assert init";
 pub const ASSERT_STEP_COMMIT: &str = "Assert Commit";
 
 const BRIDGE_IN_FAIL_AS_UTXO_BEEN_SPENT: &str = "Your UTXO has already been spent.";
-const BRIDGE_IN_FAIL_AS_NO_ENOUGH_COMMITTEES: &str = "Unfortunately, no enough committee answered.";
-const BRIDGE_IN_FAIL_AS_PRESIGNED_FAILED: &str = "Unfortunately, the verification failed.";
+// const BRIDGE_IN_FAIL_AS_NO_ENOUGH_COMMITTEES: &str = "Unfortunately, no enough committee answered.";
+const BRIDGE_IN_FAIL_AS_PRESIGNED_FAILED: &str = "Unfortunately, the presigned failed.";
+const BRIDGE_IN_FAIL_AS_VERIFICATION_FAILED: &str = "Unfortunately, the verification failed.";
 
 const BRIDGE_IN_FAIL_AS_L2_MINTED_FAILED: &str = "Unfortunately, PegBTC minted failed.";
 
@@ -53,7 +54,7 @@ const GRAPH_OPERATOR_CHALLENGE_STATUS_DURATION_SECS: i64 = 3600 * 9;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeInPrepareRequest {
     pub instance_id: String,            // UUID
-    pub network: String,                // testnet | mainnet
+    pub contract_address: String,       // gateway address
     pub from_addr: String,              // BTC /charge
     pub to_addr: String,                // BTC /charge
     pub bridge_request_tx_hash: String, // goat tx hash
@@ -63,11 +64,10 @@ pub struct BridgeInPrepareResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeOutInitTagRequest {
-    pub instance_id: String, // UUID
-    pub network: String,     // testnet | mainnet
-    pub from_addr: String,   // goat addr
-    pub to_addr: String,     // btc addr
-    pub escrow_hash: String, // goat tx hash
+    pub contract_address: String, // gateway address
+    pub from_addr: String,        // goat addr
+    pub to_addr: String,          // btc addr
+    pub escrow_hash: String,      // goat tx hash
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BridgeOutInitTagResponse {}
@@ -220,7 +220,7 @@ async fn get_instance_status_extra(
             }
             InstanceBridgeInStatus::NoEnoughCommitteesAnswered => {
                 status_extra.is_failed = true;
-                status_extra.error = Some(BRIDGE_IN_FAIL_AS_NO_ENOUGH_COMMITTEES.to_string());
+                status_extra.error = Some(BRIDGE_IN_FAIL_AS_VERIFICATION_FAILED.to_string());
                 status_extra.user_action = StatusUserAction::Cancel;
             }
             InstanceBridgeInStatus::PresignedFailed => {

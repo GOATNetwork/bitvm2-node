@@ -1,7 +1,12 @@
-use crate::env::GraphBtcTxName;
+use crate::env::{
+    ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_GOAT_SWAP_CONTRACT_ADDRESS, GraphBtcTxName,
+    get_goat_address_from_env, get_network,
+};
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
-use crate::rpc_service::response::{ApiErrorExt, ApiResult, ErrorResponse, ok_response};
+use crate::rpc_service::response::{
+    ApiErrorExt, ApiResult, ErrorResponse, error_response, ok_response,
+};
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::scheduled_tasks::graph_maintenance_tasks::{
@@ -10,6 +15,7 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 use crate::utils::{
     find_instances_by_escrow_hash, gen_instance_parameters_local, parse_graph_raw_data,
 };
+use alloy::primitives::Address;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
@@ -66,18 +72,34 @@ pub async fn instance_settings(
 /// `instance_settings` to know the supported `bridge_in_amount` list and then submit a
 /// bridge-in request using one of those amounts.
 ///
+/// This function creates or updates a bridge-in instance record with status `UserIniting`.
+/// The network configuration is read from the environment variable `ENV_BTC_NETWORK`, not
+/// from the request body.
+///
 /// # Request Body
 ///
-/// - `instance_id`: UUID of the bridge-in request created earlier
-/// - `network`: Target Bitcoin network (e.g. `testnet3`, `mainnet`)
-/// - `from_addr`: Funding Bitcoin address selected by the user
-/// - `to_addr`: Destination address that receives bridged assets on L2
-/// - `bridge_request_tx_hash`: Goat chain transaction hash referencing the bridge intent
+/// - `instance_id`: UUID of the bridge-in request (must be a valid UUID format)
+/// - `contract_address`: GOAT chain contract address (gateway contract address). Must match
+///   the gateway contract address configured in environment variables.
+/// - `network`: Target Bitcoin network (e.g. `testnet3`, `mainnet`). Note: This field is
+///   present in the request but the actual network is determined from environment configuration.
+/// - `from_addr`: Funding Bitcoin address selected by the user (must be a valid BTC address)
+/// - `to_addr`: Destination address on GOAT chain that receives bridged assets (must be a valid GOAT address)
+/// - `bridge_request_tx_hash`: GOAT chain transaction hash referencing the bridge intent
+///
+/// # Validation
+///
+/// The function validates:
+/// - `contract_address` matches the configured gateway contract address
+/// - `from_addr` is a valid Bitcoin address
+/// - `to_addr` is a valid GOAT chain address
+/// - `instance_id` is a valid UUID format
 ///
 /// # Returns
 ///
-/// - `200 OK`: Request is valid and can proceed to the next step of bridge-in workflow
-/// - Response body currently acts as an acknowledgment placeholder for future metadata
+/// - `200 OK`: Request is valid and instance record created/updated successfully
+/// - `500 Internal Server Error`: Validation failed, contract address mismatch, or database error
+/// - Response body is an empty object `{}`
 ///
 /// # Example
 ///
@@ -85,7 +107,7 @@ pub async fn instance_settings(
 /// PUT /v1/instances/bridge-in-request-tag
 /// {
 ///   "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///   "network": "testnet",
+///   "contract_address": "0xabcdef1234567890abcdef1234567890abcdef12",
 ///   "from_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
 ///   "to_addr": "0x1234567890abcdef1234567890abcdef12345678",
 ///   "bridge_request_tx_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e"
@@ -101,13 +123,24 @@ pub async fn bridge_in_request_tag(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeInPrepareRequest>,
 ) -> ApiResult<BridgeInPrepareResponse> {
-    InputValidator::validate_btc_address(
-        &payload.from_addr,
-        Some(payload.network.clone()),
-        "from_addr",
-    )?;
+    InputValidator::validate_btc_address(&payload.from_addr, None, "from_addr")?;
     let to_addr = InputValidator::validate_goat_address(&payload.to_addr, "to_addr")?;
     let instance_id = InputValidator::validate_uuid(&payload.instance_id, "instance_id")?;
+    let contract_address =
+        InputValidator::validate_goat_address(&payload.contract_address, "contract_address")?;
+    let gateway_contract: Address = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
+        .ok_or(anyhow::anyhow!("need to set swap contract address"))
+        .api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
+    if contract_address != gateway_contract.to_string() {
+        return error_response(
+            format!(
+                "Invalid contract address: input: {contract_address}, expect:{gateway_contract}"
+            ),
+            format!(
+                "Invalid contract address: input: {contract_address}, expect:{gateway_contract}"
+            ),
+        );
+    }
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
     let current_time = current_time_secs();
@@ -115,7 +148,7 @@ pub async fn bridge_in_request_tag(
         .upsert_instance(&Instance {
             instance_id,
             is_bridge_in: true,
-            network: payload.network,
+            network: get_network().to_string(),
             from_addr: payload.from_addr,
             to_addr,
             input_utxos: "[]".to_string(),
@@ -136,31 +169,45 @@ pub async fn bridge_in_request_tag(
 /// in the bridge-out workflow, used to prepare bridging assets from L2 (GOAT) to L1 (Bitcoin). Clients should
 /// provide an escrow hash (`escrow_hash`) to associate with an escrow contract already created on the GOAT chain.
 ///
+/// If an instance with the same `escrow_hash` already exists, the function updates the existing instance
+/// if it is in `Initialize` status. Otherwise, a new instance is created with an auto-generated UUID.
+/// The network configuration is read from the environment variable `ENV_BTC_NETWORK`.
+///
 /// # Request Body
 ///
-/// - `instance_id`: Unique identifier (UUID) for the bridge-out request
-/// - `network`: Target Bitcoin network (e.g., `testnet3`, `mainnet`)
-/// - `from_addr`: User's source address on the GOAT chain
-/// - `to_addr`: Bitcoin destination address that receives the bridged assets
-/// - `escrow_hash`: Hash of the escrow contract on the GOAT chain, referencing the escrow transaction for the bridge intent
+/// - `contract_address`: GOAT chain contract address (swap contract address). Must match the swap contract
+///   address configured in environment variables.
+/// - `from_addr`: User's source address on the GOAT chain (must be a valid GOAT address)
+/// - `to_addr`: Bitcoin destination address that receives the bridged assets (must be a valid BTC address)
+/// - `escrow_hash`: Hash of the escrow contract on the GOAT chain (32-byte hex string), referencing the escrow
+///   transaction for the bridge intent. Used to identify existing instances.
+///
+/// # Validation
+///
+/// The function validates:
+/// - `contract_address` matches the configured swap contract address
+/// - `from_addr` is a valid GOAT chain address
+/// - `to_addr` is a valid Bitcoin address
+/// - `escrow_hash` is a valid 32-byte hex string
 ///
 /// # Returns
 ///
-/// - `200 OK`: Request is valid and can proceed to the next step of bridge-out workflow
-/// - Response body currently acts as an acknowledgment placeholder for future metadata
+/// - `200 OK`: Request is valid and instance record created/updated successfully
+/// - `500 Internal Server Error`: Validation failed, contract address mismatch, or database error
+/// - Response body is an empty object `{}`
 ///
 /// # Use Case
 ///
 /// Frontend applications use this endpoint to initiate the bridge-out flow, recording the user's intent to bridge
-/// from L2 to L1 into the system.
+/// from L2 to L1 into the system. The endpoint handles both new instance creation and updates to existing instances
+/// based on the escrow hash.
 ///
 /// # Example
 ///
 /// ```http
 /// PUT /v1/instances/bridge-out-init-tag
 /// {
-///   "instance_id": "123e4567-e89b-12d3-a456-426614174000",
-///   "network": "testnet",
+///   "contract_address": "0xabcdef1234567890abcdef1234567890abcdef12",
 ///   "from_addr": "0x1234567890abcdef1234567890abcdef12345678",
 ///   "to_addr": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
 ///   "escrow_hash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e"
@@ -176,13 +223,20 @@ pub async fn bridge_out_init_tag(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeOutInitTagRequest>,
 ) -> ApiResult<BridgeOutInitTagResponse> {
-    let instance_id = InputValidator::validate_uuid(&payload.instance_id, "instance_id")?;
+    let instance_id = Uuid::new_v4();
     let from_addr = InputValidator::validate_goat_address(&payload.from_addr, "from_addr")?;
-    InputValidator::validate_btc_address(
-        &payload.to_addr,
-        Some(payload.network.clone()),
-        "network and to_addr",
-    )?;
+    InputValidator::validate_btc_address(&payload.to_addr, None, "network and to_addr")?;
+    let contract_address =
+        InputValidator::validate_goat_address(&payload.contract_address, "contract_address")?;
+    let swap_contract: Address = get_goat_address_from_env(ENV_GOAT_SWAP_CONTRACT_ADDRESS)
+        .ok_or(anyhow::anyhow!("need to set swap contract address"))
+        .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
+    if contract_address != swap_contract.to_string() {
+        return error_response(
+            format!("Invalid contract address: input: {contract_address}, expect:{swap_contract}"),
+            format!("Invalid contract address: input: {contract_address}, expect:{swap_contract}"),
+        );
+    }
     let escrow_hash = InputValidator::validate_hex(&payload.escrow_hash, true, 32, "escrow_hash")?;
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
@@ -195,7 +249,7 @@ pub async fn bridge_out_init_tag(
         None => Instance {
             instance_id,
             from_addr,
-            network: payload.network.clone(),
+            network: get_network().to_string(),
             input_utxos: "[]".to_string(),
             escrow_hash: Some(escrow_hash),
             status: InstanceBridgeOutStatus::Initialize.to_string(),
@@ -206,7 +260,7 @@ pub async fn bridge_out_init_tag(
     };
     if instance.status == InstanceBridgeOutStatus::Initialize.to_string() {
         instance.to_addr = payload.to_addr;
-        instance.network = payload.network;
+        instance.network = get_network().to_string();
         storage_process
             .upsert_instance(&instance)
             .await

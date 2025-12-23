@@ -647,7 +647,7 @@ mod tests {
                 url: format!("http://{addr}{}", routes::v1::INSTANCES_BRIDGE_IN_REQUEST_TAG),
                 json_payload: Some(json!({
                     "instance_id": bridge_in_request_tag_id,
-                    "network": "testnet",
+                    "contract_address": "0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f",
                     "bridge_request_tx_hash":  format!("0x{}", hex::encode(generate_random_bytes(32))),
                     "from_addr": get_rand_btc_address_p2wpkh(get_network()),
                     "to_addr": format!("0x{}", hex::encode(generate_random_bytes(20)))

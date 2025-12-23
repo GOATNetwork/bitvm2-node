@@ -35,6 +35,34 @@ pub fn to_api_error<E: std::fmt::Display>(
 }
 
 /// Helper function to create a successful ApiResult response
+///
+/// Wraps the provided data in an `Ok` variant with HTTP 200 status code.
+/// The data type `T` must implement `Serialize` for JSON serialization.
+///
+/// # Parameters
+///
+/// - `data`: The data to be serialized and returned in the response
+///
+/// # Returns
+///
+/// Returns `ApiResult<T>` with `Ok((StatusCode::OK, Json(data)))`
 pub fn ok_response<T: Serialize>(data: T) -> ApiResult<T> {
     Ok((StatusCode::OK, Json(data)))
+}
+
+/// Helper function to create an error ApiResult response
+///
+/// Creates an error response with HTTP 500 status code. The error type `T` is not
+/// used in the error case but is required for type compatibility with `ApiResult<T>`.
+///
+/// # Parameters
+///
+/// - `error`: Error code string identifier
+/// - `message`: Human-readable error message
+///
+/// # Returns
+///
+/// Returns `ApiResult<T>` with `Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse)))`
+pub fn error_response<T>(error: String, message: String) -> ApiResult<T> {
+    Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error, message })))
 }
