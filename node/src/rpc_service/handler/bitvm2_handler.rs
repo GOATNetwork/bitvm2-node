@@ -1258,8 +1258,10 @@ pub async fn get_graph_tx(
 
     let mut storage_process = app_state.local_db.acquire().await.api_error("GET_GRAPH_TX_ERROR")?;
 
-    let graph_raw_data =
-        storage_process.find_graph_raw_data(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
+    let graph_raw_data = storage_process
+        .find_graph_raw_data(&graph_id_uuid)
+        .await
+        .api_error("GET_GRAPH_TX_ERROR")?;
     let graph = storage_process.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
 
     if let (Some(graph_raw_data), Some(graph)) = (graph_raw_data, graph) {

@@ -21,26 +21,6 @@ fn is_loop_detected(host: &str, request_host: Option<&str>) -> bool {
     }
 }
 
-/// Creates mock proof description data for testing purposes.
-fn create_mock_proof_desc(proof_type: String) -> ProofDesc {
-    ProofDesc {
-        block_start: 10000,
-        block_end: 20000,
-        proof_type,
-        state: ProofState::Proven.to_string(),
-        proving_cycles: 10000,
-        proving_time: 100000,
-        total_time_to_proof: 100010,
-        proof_size: 333.0,
-        zkm_version: "zkm_1.0.0".to_string(),
-        pub_values: hex::encode(generate_random_bytes(64)),
-        prev_proof_number: Some(1000),
-        next_proof_number: Some(1000),
-        created_at: current_time_secs(),
-        updated_at: current_time_secs(),
-    }
-}
-
 /// Handles forwarding to proof builder service or returning mock data.
 async fn handle_proof_desc_forwarding(
     uri: &Uri,
@@ -74,8 +54,8 @@ async fn handle_proof_desc_forwarding(
             ok_response(resp)
         }
         None => ok_response(ProofDescResponse {
-            proof_desc: Some(create_mock_proof_desc(proof_type)),
-            error: None,
+            proof_desc: None,
+            error: Some("env GOAT_PROOF_BUILD_URL need to been set".to_string()),
         }),
     }
 }
