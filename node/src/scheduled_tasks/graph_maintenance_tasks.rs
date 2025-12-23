@@ -785,7 +785,7 @@ async fn process_kickoff_graph(
             let height = {
                 let mut storage_processor = local_db.acquire().await?;
                 storage_processor
-                    .get_graph_btc_tx_vout_monitor(&graph.graph_id, &kickoff_txid.into())
+                    .find_graph_btc_tx_vout_monitor(&graph.graph_id, &kickoff_txid.into())
                     .await?
                     .unwrap_or_default()
                     .height
@@ -933,7 +933,7 @@ async fn process_watchtower_challenge_monitoring(
     let out_monitor = {
         let mut storage_processor = local_db.acquire().await?;
         storage_processor
-            .get_graph_btc_tx_vout_monitor(&graph.graph_id, &watchtower_challenge_init_txid.into())
+            .find_graph_btc_tx_vout_monitor(&graph.graph_id, &watchtower_challenge_init_txid.into())
             .await?
     };
 
@@ -1292,7 +1292,7 @@ async fn process_assert_commit_monitoring(
     let out_monitor = {
         let mut storage_processor = local_db.acquire().await?;
         storage_processor
-            .get_graph_btc_tx_vout_monitor(&graph.graph_id, &assert_init_txid.into())
+            .find_graph_btc_tx_vout_monitor(&graph.graph_id, &assert_init_txid.into())
             .await?
     };
 
@@ -1472,7 +1472,7 @@ async fn find_challenge_nack_tx(
 ) -> anyhow::Result<Option<(Txid, i32)>> {
     info!("find_challenge_nack_tx for graph_id: {graph_id}");
     let out_monitor = storage_processor
-        .get_graph_btc_tx_vout_monitor(graph_id, watchtower_challenge_init_txid)
+        .find_graph_btc_tx_vout_monitor(graph_id, watchtower_challenge_init_txid)
         .await?;
 
     let Some(out_monitor) = out_monitor else {
@@ -1507,7 +1507,7 @@ async fn find_assert_timeout_tx(
 ) -> anyhow::Result<Option<(Txid, i32)>> {
     info!("find_assert_timeout_tx for graph_id: {graph_id}");
     let out_monitor =
-        storage_processor.get_graph_btc_tx_vout_monitor(graph_id, assert_init_txid).await?;
+        storage_processor.find_graph_btc_tx_vout_monitor(graph_id, assert_init_txid).await?;
 
     let Some(out_monitor) = out_monitor else {
         return Ok(None);
@@ -1560,7 +1560,7 @@ async fn detect_kickoff_ref_disprove_tx(
     let out_monitor = {
         let mut storage_processor = local_db.acquire().await?;
         storage_processor
-            .get_graph_btc_tx_vout_monitor(&graph.graph_id, &kickoff_txid.into())
+            .find_graph_btc_tx_vout_monitor(&graph.graph_id, &kickoff_txid.into())
             .await?
     };
 
@@ -1869,7 +1869,7 @@ async fn detect_take2(
             trace!("detect_take2 graph_id {} take2 or disprove is not on chain", graph.graph_id);
             let mut storage_processor = local_db.acquire().await?;
             let watchtower_init_height = storage_processor
-                .get_graph_btc_tx_vout_monitor(
+                .find_graph_btc_tx_vout_monitor(
                     &graph.graph_id,
                     &watchtower_challenge_init_txid.into(),
                 )
@@ -1878,7 +1878,7 @@ async fn detect_take2(
                 .height;
 
             let assert_init_height = storage_processor
-                .get_graph_btc_tx_vout_monitor(&graph.graph_id, &assert_init_txid.into())
+                .find_graph_btc_tx_vout_monitor(&graph.graph_id, &assert_init_txid.into())
                 .await?
                 .unwrap_or_default()
                 .height;

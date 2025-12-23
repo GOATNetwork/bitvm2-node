@@ -314,7 +314,7 @@ pub async fn get_instance_escrow_data(
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
     match storage_process
-        .get_graph_goat_tx_record(
+        .find_graph_goat_tx_record(
             &instance_id,
             &Uuid::nil(),
             &GoatTxType::SwapInitialize.to_string(),
@@ -1050,7 +1050,7 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
         GraphBtcTxName::WatchtowerChallengeInit => {
             if let Some(tx) = graph.watchtower_challenge_init_txid.clone()
                 && let Some(vout_monitor) =
-                    storage_processor.get_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
+                    storage_processor.find_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
                 && let Ok(monitor_data) =
                     serde_json::from_str::<WTInitTxVoutMonitorData>(&vout_monitor.monitor_data)
                 && let Ok(challenge_status) =
@@ -1139,7 +1139,7 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
         GraphBtcTxName::AssertInit => {
             if let Some(tx) = graph.assert_init_txid.clone()
                 && let Some(vout_monitor) =
-                    storage_processor.get_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
+                    storage_processor.find_graph_btc_tx_vout_monitor(&graph.graph_id, &tx).await?
                 && let Ok(monitor_data) =
                     serde_json::from_str::<AssertInitTxVoutMonitorData>(&vout_monitor.monitor_data)
                 && let Ok(challenge_status) =
@@ -1259,7 +1259,7 @@ pub async fn get_graph_tx(
     let mut storage_process = app_state.local_db.acquire().await.api_error("GET_GRAPH_TX_ERROR")?;
 
     let graph_raw_data =
-        storage_process.get_graph_raw_data(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
+        storage_process.find_graph_raw_data(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
     let graph = storage_process.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
 
     if let (Some(graph_raw_data), Some(graph)) = (graph_raw_data, graph) {
@@ -1475,7 +1475,7 @@ pub async fn get_graph_txn(
         };
 
         let graph_raw_data = storage_processor
-            .get_graph_raw_data(&graph.graph_id)
+            .find_graph_raw_data(&graph.graph_id)
             .await
             .api_error("GET_GRAPH_TXN_ERROR")?
             .ok_or_else(|| {

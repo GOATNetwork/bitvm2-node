@@ -539,7 +539,7 @@ async fn handle_bridge_in_events<'a>(
                 )
                 .await?
                 && let Some(tx_record) = storage_processor
-                    .get_graph_goat_tx_record(
+                    .find_graph_goat_tx_record(
                         instance_id,
                         &Uuid::nil(),
                         &GoatTxType::BridgeInRequest.to_string(),
@@ -1129,7 +1129,7 @@ async fn get_watch_contract<'a>(
         ),
     };
 
-    if let Some(mut watch_contract) = storage_processor.get_watch_contract(contract_addr).await? {
+    if let Some(mut watch_contract) = storage_processor.find_watch_contract(contract_addr).await? {
         if from_height > watch_contract.from_height {
             watch_contract.from_height = from_height;
         }

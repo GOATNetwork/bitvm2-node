@@ -1949,7 +1949,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(result.rows_affected())
     }
 
-    pub async fn get_graph_raw_data(
+    pub async fn find_graph_raw_data(
         &mut self,
         graph_id: &Uuid,
     ) -> anyhow::Result<Option<GraphRawData>> {
@@ -2061,7 +2061,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn get_watch_contract(
+    pub async fn find_watch_contract(
         &mut self,
         addr: &str,
     ) -> anyhow::Result<Option<WatchContract>> {
@@ -2124,7 +2124,7 @@ impl<'a> StorageProcessor<'a> {
     ) -> anyhow::Result<()> {
         let mut update_goat_tx_record = goat_tx_record.clone();
         if let Some(goat_tx_record_store) = self
-            .get_graph_goat_tx_record(
+            .find_graph_goat_tx_record(
                 &goat_tx_record.instance_id,
                 &goat_tx_record.graph_id,
                 &goat_tx_record.tx_type,
@@ -2175,7 +2175,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
-    pub async fn get_graph_goat_tx_record(
+    pub async fn find_graph_goat_tx_record(
         &mut self,
         instance_id: &Uuid,
         graph_id: &Uuid,
@@ -2230,58 +2230,6 @@ impl<'a> StorageProcessor<'a> {
         .await?)
     }
 
-    pub async fn get_goat_tx_records_by_height_range_and_filters(
-        &mut self,
-        tx_type: &str,
-        processing_status: &str,
-        start_number: i64,
-        end_number: i64,
-    ) -> anyhow::Result<Vec<i64>> {
-        let records = sqlx::query!(
-            "SELECT DISTINCT height
-            FROM goat_tx_record
-            WHERE tx_type = ?
-                AND processing_status = ?
-                AND height > ?
-                AND height <= ?
-                ORDER BY height ASC",
-            tx_type,
-            processing_status,
-            start_number,
-            end_number,
-        )
-        .fetch_all(self.conn())
-        .await?;
-        Ok(records.iter().map(|v| v.height).collect())
-    }
-
-    pub async fn get_tx_info_for_gen_proof(
-        &mut self,
-        block_number: i64,
-        goat_tx_type: &str,
-    ) -> anyhow::Result<Vec<(Uuid, String, String)>> {
-        #[derive(sqlx::FromRow)]
-        struct TxInfoRow {
-            graph_id: Uuid,
-            zkm_version: String,
-            tx_hash: String,
-        }
-        let tx_info_rows = sqlx::query_as!(
-            TxInfoRow,
-            "SELECT g.graph_id AS \"graph_id:Uuid\",
-                    g.zkm_version AS zkm_version, gtr.tx_hash AS tx_hash
-             FROM graph g
-                     INNER JOIN goat_tx_record gtr ON g.graph_id = gtr.graph_id
-             WHERE gtr.height = ?
-               AND gtr.tx_type = ?",
-            block_number,
-            goat_tx_type
-        )
-        .fetch_all(self.conn())
-        .await?;
-        Ok(tx_info_rows.into_iter().map(|v| (v.graph_id, v.tx_hash, v.zkm_version)).collect())
-    }
-
     pub async fn update_goat_tx_record_processing_status(
         &mut self,
         graph_id: &Uuid,
@@ -2303,38 +2251,6 @@ impl<'a> StorageProcessor<'a> {
         .execute(self.conn())
         .await?;
         Ok(())
-    }
-
-    pub async fn get_socket_addr_for_graph_query_proof(
-        &mut self,
-        ids: &[Uuid],
-        goat_tx_type: &str,
-    ) -> anyhow::Result<HashMap<Uuid, (String, i64)>> {
-        #[derive(sqlx::FromRow)]
-        struct SocketInfoRow {
-            pub graph_id: Uuid,
-            pub socket_addr: String,
-            pub height: i64,
-        }
-        let query_str = format!(
-            "WITH filtered_tx AS (SELECT graph_id, height FROM goat_tx_record WHERE tx_type = \'{goat_tx_type}\')
-            SELECT g.graph_id AS graph_id, n.socket_addr, COALESCE(ft.height, 0) AS height
-            FROM graph g
-                     JOIN node n
-                          ON g.operator = n.btc_pub_key
-                     LEFT JOIN filtered_tx ft ON g.graph_id = ft.graph_id
-            WHERE hex(g.graph_id)
-                      COLLATE NOCASE IN ({})",
-            create_place_holders(ids)
-        );
-        let mut query_as = sqlx::query_as::<_, SocketInfoRow>(&query_str);
-        for id in ids {
-            query_as = query_as.bind(hex::encode(id));
-        }
-        let rows = query_as.fetch_all(self.conn()).await?;
-        let res: HashMap<Uuid, (String, i64)> =
-            rows.into_iter().map(|v| (v.graph_id, (v.socket_addr, v.height))).collect();
-        Ok(res)
     }
 
     pub async fn upsert_graph_btc_tx_vout_monitor(
@@ -2364,7 +2280,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    pub async fn get_graph_btc_tx_vout_monitor(
+    pub async fn find_graph_btc_tx_vout_monitor(
         &mut self,
         graph_id: &Uuid,
         txid: &SerializableTxid,

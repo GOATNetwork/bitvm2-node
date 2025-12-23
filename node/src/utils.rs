@@ -3372,7 +3372,7 @@ pub async fn get_current_prekickoff_tx(
 
     if !graphs.is_empty()
         && let Some(graph_raw_data) =
-            storage_processor.get_graph_raw_data(&graphs[0].graph_id).await?
+            storage_processor.find_graph_raw_data(&graphs[0].graph_id).await?
     {
         let simplified_graph =
             parse_graph_raw_data(graph_raw_data.raw_data, graphs[0].graph_id).await?;
@@ -3676,7 +3676,7 @@ pub async fn get_graph(
     graph_id: Uuid,
 ) -> Result<Option<SimplifiedBitvm2Graph>> {
     let mut storage_process = local_db.acquire().await?;
-    if let Some(graph_raw_data) = storage_process.get_graph_raw_data(&graph_id).await?
+    if let Some(graph_raw_data) = storage_process.find_graph_raw_data(&graph_id).await?
         && let Ok(simplified_graph) = parse_graph_raw_data(graph_raw_data.raw_data, graph_id).await
     {
         Ok(Some(simplified_graph))

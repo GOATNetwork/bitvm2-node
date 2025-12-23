@@ -392,7 +392,7 @@ pub async fn get_bridge_out_deadline<'a>(
     instance_id: &Uuid,
 ) -> anyhow::Result<i64> {
     let deadline = if let Some(tx_record) = storage_processor
-        .get_graph_goat_tx_record(
+        .find_graph_goat_tx_record(
             instance_id,
             &Uuid::nil(),
             &GoatTxType::SwapInitialize.to_string(),
