@@ -14,7 +14,7 @@ dotenv = { workspace = true }
 anyhow = { workspace = true }
 store = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-tokio-util = "0.7.15"
+tokio-util.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 serde = { workspace = true, default-features = false, features = ["derive"] }
@@ -37,7 +37,7 @@ util = { workspace = true }
 serde_json = { workspace = true }
 
 #config
-toml = "0.8"
+toml.workspace = true
 
 [lints]
 workspace = true
