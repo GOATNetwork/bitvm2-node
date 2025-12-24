@@ -243,15 +243,12 @@ mod tests {
         generate_local_key, generate_random_bytes, get_rand_btc_address_p2wpkh,
         get_rand_goat_address, temp_sqlite_db_path,
     };
-    use bitvm2_lib::types::Bitvm2Graph;
     use client::Utxo;
     use http::Method;
     use prometheus_client::registry::Registry;
     use reqwest::Client;
     use secp256k1::Secp256k1;
     use serde_json::{Value, json};
-    use std::fs;
-    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use store::localdb::LocalDB;

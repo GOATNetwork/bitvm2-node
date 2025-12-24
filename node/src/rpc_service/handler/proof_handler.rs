@@ -1,15 +1,13 @@
 use crate::env::get_proof_build_rpc_host;
+use crate::rpc_service::AppState;
 use crate::rpc_service::proof::{
-    ChainProofDescRequest, OperatorProofDescRequest, ProofDesc, ProofDescResponse,
+    ChainProofDescRequest, OperatorProofDescRequest, ProofDescResponse,
 };
 use crate::rpc_service::response::{ApiResult, ok_response, to_api_error};
-use crate::rpc_service::{AppState, current_time_secs};
-use crate::utils::generate_random_bytes;
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, Request, Uri};
 use std::sync::Arc;
-use store::ProofState;
 
 /// Checks if the request host matches the configured proof builder host to prevent forwarding loops.
 fn is_loop_detected(host: &str, request_host: Option<&str>) -> bool {
@@ -26,7 +24,6 @@ async fn handle_proof_desc_forwarding(
     uri: &Uri,
     headers: &HeaderMap,
     app_state: Arc<AppState>,
-    proof_type: String,
     error_code: &str,
 ) -> ApiResult<ProofDescResponse> {
     match get_proof_build_rpc_host() {
@@ -128,7 +125,7 @@ async fn handle_proof_desc_forwarding(
 /// ```
 #[axum::debug_handler]
 pub async fn get_chain_proof_desc(
-    Query(params): Query<ChainProofDescRequest>,
+    Query(_params): Query<ChainProofDescRequest>,
     State(app_state): State<Arc<AppState>>,
     request: Request<Body>,
 ) -> ApiResult<ProofDescResponse> {
@@ -136,7 +133,6 @@ pub async fn get_chain_proof_desc(
         request.uri(),
         request.headers(),
         app_state,
-        params.proof_type.to_string(),
         "GET_CHAIN_PROOF_ERROR",
     )
     .await
@@ -218,7 +214,6 @@ pub async fn get_operator_proof_desc(
         request.uri(),
         request.headers(),
         app_state,
-        "OperatorProof".to_string(),
         "GET_OPERATOR_PROOF_ERROR",
     )
     .await
