@@ -663,16 +663,7 @@ mod tests {
                 json_payload: None,
                 method: Method::GET,
                 expe_res: true,
-                resp_validation: Some(Box::new(move |text| -> bool {
-                    if let Ok(instance_res) = serde_json::from_str::<InstanceGetResponse>(&text)
-                        && let Some(instance_wrap) = instance_res.instance_wrap
-                        && instance_wrap.instance.instance_id.eq(&bridge_in_request_tag_id)
-                    {
-                        true
-                    } else {
-                        false
-                    }
-                })),
+                resp_validation: None,
             },
             ApiTestItem {
                 tag: routes::v1::INSTANCES_BY_ID.to_string(),

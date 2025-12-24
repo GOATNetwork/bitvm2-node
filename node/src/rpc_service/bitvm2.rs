@@ -533,6 +533,15 @@ impl GraphExtended {
             &graph.status,
             graph.init_withdraw_tx_hash.is_some(),
         );
+        if ![
+            GraphStatus::Disprove.to_string(),
+            GraphStatus::Challenge.to_string(),
+            GraphStatus::OperatorTake2.to_string(),
+        ]
+        .contains(&graph.status)
+        {
+            graph.proceed_withdraw_height = 0;
+        }
         graph.status = graph.convert_to_display_status();
         let challenge_sub_status =
             match serde_json::from_str::<ChallengeSubStatus>(&graph.sub_status) {
