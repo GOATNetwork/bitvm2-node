@@ -275,7 +275,8 @@ async fn get_instance_block_confirm_progress(
 }
 
 fn get_bridge_in_status_time_window_secs(status: &str, response_window_blocks: i64) -> (i64, i64) {
-    let total_time = response_window_blocks * GOAT_BLOCK_INTERVAL_SECS
+    let response_window_blocks_with_margin = response_window_blocks * 105 / 100;
+    let total_time = response_window_blocks_with_margin * GOAT_BLOCK_INTERVAL_SECS
         + INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS
         + INSTANCE_RELAYER_L1_BROADCAST_STATUS_DURATION_SECS;
 
@@ -283,22 +284,22 @@ fn get_bridge_in_status_time_window_secs(status: &str, response_window_blocks: i
         Ok(InstanceBridgeInStatus::UserIniting)
         | Ok(InstanceBridgeInStatus::Initiated)
         | Ok(InstanceBridgeInStatus::UserInited) => {
-            (response_window_blocks * GOAT_BLOCK_INTERVAL_SECS, total_time)
+            (response_window_blocks_with_margin * GOAT_BLOCK_INTERVAL_SECS, total_time)
         }
         Ok(InstanceBridgeInStatus::CommitteesAnswered) | Ok(InstanceBridgeInStatus::Verified) => {
-            (0, total_time - response_window_blocks * GOAT_BLOCK_INTERVAL_SECS)
+            (0, total_time - response_window_blocks_with_margin * GOAT_BLOCK_INTERVAL_SECS)
         }
         Ok(InstanceBridgeInStatus::Submitted)
         | Ok(InstanceBridgeInStatus::UserBroadcastPeginPrepare) => (
             INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS,
-            total_time - response_window_blocks * GOAT_BLOCK_INTERVAL_SECS,
+            total_time - response_window_blocks_with_margin * GOAT_BLOCK_INTERVAL_SECS,
         ),
         Ok(InstanceBridgeInStatus::Processing)
         | Ok(InstanceBridgeInStatus::Presigned)
         | Ok(InstanceBridgeInStatus::RelayerL1Broadcasted) => (
             INSTANCE_RELAYER_L1_BROADCAST_STATUS_DURATION_SECS,
             total_time
-                - response_window_blocks * GOAT_BLOCK_INTERVAL_SECS
+                - response_window_blocks_with_margin * GOAT_BLOCK_INTERVAL_SECS
                 - INSTANCE_USER_BROADCAST_PREPARE_STATUS_DURATION_SECS,
         ),
         Ok(_) | Err(_) => (0, 0),
