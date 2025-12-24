@@ -2426,7 +2426,9 @@ pub async fn recv_and_dispatch(
             // update
             // 1. check the withdraw status on GoatChain, if the withdraw is invalid, sign & broadcast watchtower-challenge txn
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
-            if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
+            if crate::env::should_always_challenge()
+                || [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status)
+            {
                 let watchtower_proof = match get_watchtower_commitment(
                     local_db,
                     http_client,

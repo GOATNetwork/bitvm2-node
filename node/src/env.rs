@@ -71,6 +71,8 @@ pub const ENV_OPERATOR_PROOF_WAIT_SECS: &str = "OPERATOR_PROOF_WAIT_SECS";
 pub const DEFAULT_WATCHTOWER_PROOF_WAIT_SECS: usize = 30;
 pub const DEFAULT_OPERATOR_PROOF_WAIT_SECS: usize = 30;
 
+pub const ENV_ALWAYS_CHALLENGE: &str = "ALWAYS_CHALLENGE";
+
 // fee estimate
 // TODO: more precise fee estimation
 pub const CHEKSIG_P2WSH_INPUT_VBYTES: u64 = 100;
@@ -491,4 +493,11 @@ pub fn get_operator_proof_wait_secs() -> usize {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(DEFAULT_OPERATOR_PROOF_WAIT_SECS)
+}
+
+pub fn should_always_challenge() -> bool {
+    match std::env::var(ENV_ALWAYS_CHALLENGE) {
+        Ok(val) => val.to_lowercase() == "true",
+        Err(_) => false,
+    }
 }
