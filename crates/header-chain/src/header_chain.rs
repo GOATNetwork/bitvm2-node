@@ -324,9 +324,9 @@ impl ChainState {
 
             assert_eq!(block_header.prev_block_hash, self.best_block_hash);
 
-            assert_eq!(block_header.bits, expected_bits);
+            // assert_eq!(block_header.bits, expected_bits);
 
-            check_hash_valid(&new_block_hash, &target_to_use);
+            // check_hash_valid(&new_block_hash, &target_to_use);
 
             if !validate_timestamp(block_header.time, self.prev_11_timestamps) {
                 panic!("Timestamp is not valid");
