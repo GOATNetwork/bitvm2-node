@@ -310,7 +310,7 @@ impl ChainState {
 
             let use_min_difficulty = block_header.time > last_block_time + 1200;
 
-            let (target_to_use, expected_bits, work_to_add) = if use_min_difficulty {
+            let (_target_to_use, _expected_bits, work_to_add) = if use_min_difficulty {
                 (
                     NETWORK_CONSTANTS.max_target_bytes,
                     NETWORK_CONSTANTS.max_bits,
