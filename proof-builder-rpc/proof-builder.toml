@@ -1,5 +1,5 @@
 [header_chain]
-enable = false
+enable = true
 init_input = false 
 esplora_url = "http://127.0.0.1:3002"
 start = 503050

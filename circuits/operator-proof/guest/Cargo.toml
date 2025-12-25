@@ -23,7 +23,7 @@ tracing = { version = "0.1", features = ["max_level_trace"] }
 bitcoin = { version = "0.32.6", features = ["serde", "rand", "secp-recovery"] }
 
 alloy-primitives = { version = "1.2", features = ["sha3-keccak", "map-foldhash", "serde"], default-features = false }
-revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-31.0.2", features = ["serde", "bn"], default-features = false }
+#revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-31.0.2", features = ["serde", "bn"], default-features = false }
 sha2 = "0.10.9"
 serde_cbor = "0.11.2"
 

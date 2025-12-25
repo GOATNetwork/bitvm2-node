@@ -19,7 +19,7 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-ver
 tracing = { version = "0.1", features = ["max_level_trace"] }
 
 alloy-primitives = { version = "1.2", default-features = false, features = ["sha3-keccak", "map-foldhash", "serde"] }
-revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-31.0.2", features = ["serde", "bn"], default-features = false }
+#revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-31.0.2", features = ["serde", "bn"], default-features = false }
 sha2 = "0.10.9"
 
 
