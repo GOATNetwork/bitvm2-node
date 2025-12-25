@@ -11,7 +11,6 @@ use primitives::genesis::Genesis;
 use proof_builder::ProofRequest;
 use proof_builder::{LongRunning, ProofBuilder};
 use reth_chainspec::ChainSpec;
-use rpc_db::RpcDb;
 use state_chain::*;
 use std::sync::Arc;
 use url::Url;
@@ -125,15 +124,15 @@ async fn fetch_exection_layer_block(
     // Setup the provider.
     let rpc_url = Url::parse(&execution_layer_rpc)?;
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
-    let rpc_db = RpcDb::new(provider.clone(), provider.clone(), execution_layer_block_number - 1);
+    //let rpc_db = RpcDb::new(provider.clone(), provider.clone(), execution_layer_block_number - 1);
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
     let custom_beneficiary = None;
-    let host_executor = EthHostExecutor::eth(chain_spec.clone(), custom_beneficiary);
+    let host_executor = EthHostExecutor::eth(chain_spec, custom_beneficiary);
     // Execute the host.
     let client_input = host_executor
         .execute(
             execution_layer_block_number,
-            &rpc_db,
+            &provider,
             &provider,
             genesis.clone(),
             custom_beneficiary,

@@ -24,8 +24,8 @@ tracing = { workspace = true, features = ["max_level_trace"] }
 alloy-primitives = { workspace = true, features = ["sha3-keccak", "map-foldhash", "serde"] }
 revm-database-interface = { workspace = true, features = ["serde"]}
 
-revm = { workspace = true, features = ["serde", "kzg-rs", "bn"], default-features = false }
-sha2 = "0.10.8"
+revm = { workspace = true, branch = "patch-31.0.2", features = ["serde", "bn"], default-features = false }
+sha2 = "0.10.9"
 hex = "0.4.3"
 
 prost = { version = "0.13", features = ["prost-derive"], default-features = false }

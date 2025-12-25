@@ -26,7 +26,6 @@ serde_json.workspace = true
 
 alloy-primitives.workspace = true
 url.workspace = true
-rpc-db.workspace = true
 guest-executor.workspace = true
 host-executor.workspace = true
 reth-chainspec = { workspace = true, default-features = false }

@@ -29,7 +29,6 @@ state-chain = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 primitives.workspace = true
 reth-chainspec.workspace = true
-rpc-db.workspace = true
 url.workspace = true
 host-executor.workspace = true
 alloy-provider.workspace = true

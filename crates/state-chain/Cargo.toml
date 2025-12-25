@@ -22,15 +22,15 @@ tracing = { workspace = true, features = ["max_level_trace"] }
 alloy-primitives = { workspace = true, features = ["sha3-keccak", "map-foldhash", "serde"] }
 revm-database-interface = { workspace = true, features = ["serde"]}
 
-revm = { workspace = true, features = ["serde", "kzg-rs", "bn"], default-features = false }
-sha2 = "0.10.8"
+revm = { workspace = true, features = ["serde", "bn"], default-features = false }
+sha2 = "0.10.9"
 hex = "0.4.3"
 
 prost = { version = "0.13", features = ["prost-derive"], default-features = false }
 prost-derive = { version = "0.13", default-features = true }
 base64 = "0.21"
 
-alloy-consensus = { git = "https://github.com/ziren-patches/alloy", branch = "patch-0.14.0", default-features = false, features = ["serde", "serde-bincode-compat"] }
+alloy-consensus = { git = "https://github.com/ziren-patches/alloy", branch = "patch-1.0.41", default-features = false, features = ["serde", "serde-bincode-compat"] }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
