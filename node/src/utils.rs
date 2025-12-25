@@ -3449,6 +3449,7 @@ pub async fn generate_instance(
         parameters: None,
         escrow_hash: None,
         bridge_out_lock_time: 0,
+        post_pegin_txhash: None,
         status_updated_at: params.pegin_timestamp,
         created_at: current_time,
         updated_at: current_time,

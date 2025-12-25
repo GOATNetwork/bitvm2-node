@@ -211,6 +211,7 @@ pub struct InstanceUpdate {
     pub btc_txid: Option<SerializableTxid>,
     pub status: Option<String>,
     pub pegin_confirm_txid: Option<String>,
+    pub post_pegin_txhash: Option<String>,
     pub btc_height: Option<i64>,
     pub committees_answers: Option<HashMap<String, Vec<u8>>>,
     pub bridge_out_lock_time: Option<i64>,
@@ -227,6 +228,7 @@ impl InstanceUpdate {
             btc_txid: None,
             status: None,
             pegin_confirm_txid: None,
+            post_pegin_txhash: None,
             btc_height: None,
             committees_answers: None,
             bridge_out_lock_time: None,
@@ -241,6 +243,7 @@ impl InstanceUpdate {
             btc_txid: None,
             status: None,
             pegin_confirm_txid: None,
+            post_pegin_txhash: None,
             btc_height: None,
             committees_answers: None,
             bridge_out_lock_time: None,
@@ -276,6 +279,12 @@ impl InstanceUpdate {
         self
     }
 
+    /// Set post pegin information
+    pub fn with_post_pegin(mut self, txid: String) -> Self {
+        self.post_pegin_txhash = Some(txid);
+        self
+    }
+
     /// Set committees answers
     pub fn with_committees_answers(mut self, committees_answers: HashMap<String, Vec<u8>>) -> Self {
         self.committees_answers = Some(committees_answers);
@@ -301,6 +310,7 @@ impl InstanceUpdate {
             || self.btc_txid.is_some()
             || self.status.is_some()
             || self.pegin_confirm_txid.is_some()
+            || self.post_pegin_txhash.is_some()
             || self.btc_height.is_some()
             || self.committees_answers.is_some()
             || self.bridge_out_lock_time.is_some()
@@ -317,6 +327,10 @@ impl InstanceUpdate {
 
         if let Some(ref txid) = self.pegin_confirm_txid {
             query_builder.set_field("pegin_confirm_txid", QueryParam::Text(txid.clone()));
+        }
+
+        if let Some(ref txid) = self.post_pegin_txhash {
+            query_builder.set_field("post_pegin_txhash", QueryParam::Text(txid.clone()));
         }
 
         if let Some(pegin_prepare_height) = self.btc_height {
@@ -739,8 +753,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, is_bridge_in,  network, from_addr, to_addr, amount, fees, input_utxos, status, goat_tx_hash, goat_tx_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers,
-                       pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, bridge_out_lock_time,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, bridge_out_lock_time, post_pegin_txhash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             instance.instance_id,
             instance.is_bridge_in,
             instance.network,
@@ -765,6 +779,7 @@ impl<'a> StorageProcessor<'a> {
             instance.status_updated_at,
             instance.escrow_hash,
             instance.bridge_out_lock_time,
+            instance.post_pegin_txhash,
             instance.created_at,
             instance.updated_at
         )

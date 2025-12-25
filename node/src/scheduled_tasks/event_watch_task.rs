@@ -531,16 +531,17 @@ async fn handle_bridge_in_events<'a>(
     bridge_in_events: Vec<BridgeInEvent>,
 ) -> anyhow::Result<()> {
     for event in bridge_in_events {
-        if let Ok(instance_id) = &Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id)) {
+        if let Ok(instance_id) = Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id)) {
             if !storage_processor
-                .update_instance_status(
-                    instance_id,
-                    &InstanceBridgeInStatus::RelayerL2Minted.to_string(),
+                .update_instance(
+                    &InstanceUpdate::new_with_instance_id(instance_id)
+                        .with_status(InstanceBridgeInStatus::RelayerL2Minted.to_string())
+                        .with_post_pegin(event.transaction_hash),
                 )
                 .await?
                 && let Some(tx_record) = storage_processor
                     .find_graph_goat_tx_record(
-                        instance_id,
+                        &instance_id,
                         &Uuid::nil(),
                         &GoatTxType::BridgeInRequest.to_string(),
                     )
@@ -570,15 +571,13 @@ async fn handle_bridge_in_events<'a>(
                     storage_processor
                         .update_goat_tx_record_processing_status(
                             &Uuid::nil(),
-                            instance_id,
+                            &instance_id,
                             &GoatTxType::BridgeInRequest.to_string(),
                             &GoatTxProcessingStatus::Skipped.to_string(),
                         )
                         .await?;
                 }
             }
-        } else {
-            warn!("failed to parse instance id:{event:?}");
         }
     }
     Ok(())

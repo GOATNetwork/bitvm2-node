@@ -406,6 +406,7 @@ pub async fn get_instance_escrow_data(
 ///       "confirmations": 0,
 ///       "target_confirmations": 6,
 ///       "waiting_time_in_secs": 60,
+///       "post_pegin_txhash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
 ///       "current_status_waiting_time_in_secs": 30,
 ///       "status_extra": {
 ///         "user_action": "None",
@@ -527,6 +528,7 @@ pub async fn get_instances(
 ///       "parameters": null,
 ///       "escrow_hash": null,
 ///       "bridge_out_lock_time": 0,
+///       "post_pegin_txhash": "0xf6d6523a4344806aca5c66f23554bc574cb93634572f5e115cc630b3d8db3c6e",
 ///       "status_updated_at": 1699123456,
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456

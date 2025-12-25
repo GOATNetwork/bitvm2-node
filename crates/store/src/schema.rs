@@ -254,6 +254,7 @@ pub struct Instance {
     pub parameters: Option<String>,
     pub escrow_hash: Option<String>,
     pub bridge_out_lock_time: i64,
+    pub post_pegin_txhash: Option<String>,
     pub status_updated_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
