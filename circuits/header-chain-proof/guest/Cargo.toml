@@ -23,12 +23,12 @@ tracing = { version = "0.1", features = ["max_level_trace"] }
 
 bitcoin = { version = "0.32.6", features = ["serde", "rand", "secp-recovery"] }
 
-sha2 = "0.10.8"
+sha2 = "0.10.9"
 
 
 [patch.crates-io]
 # Precompile patches
-sha2 = { git = "https://github.com/ziren-patches/RustCrypto-hashes", branch = "patch-sha2-0.10.8", package = "sha2" }
+sha2 = { git = "https://github.com/ziren-patches/RustCrypto-hashes", branch = "patch-sha2-0.10.9", package = "sha2" }
 bn = { git = "https://github.com/ziren-patches/bn", branch = "patch-0.6.0", package = "substrate-bn" }
 k256 = { git = "https://github.com/ziren-patches/elliptic-curves", branch = "patch-k256-0.13.4" }
 p256 = { git = "https://github.com/ziren-patches/elliptic-curves", branch = "patch-p256-0.13.2" }

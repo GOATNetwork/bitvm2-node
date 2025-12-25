@@ -33,6 +33,7 @@ echo "Start i=$start, batch=$batch"
 
 while true; do
   echo "Running for i=$start"
+  #cp $DATA/${start}-${batch}.bin.blocks $DATA/block_headers.bin
   RUST_LOG=info $CMD -- \
     --start "$start" \
     --batch-size $batch \
