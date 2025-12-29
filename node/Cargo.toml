@@ -78,7 +78,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 thiserror = "2.0"
 
-bitcoin = { workspace = true }
+bitcoin = { workspace = true, features = ["serde"] }
 bitcoin-script = { workspace = true }
 alloy = { workspace = true, features = ["full", "serde"] }
 

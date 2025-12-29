@@ -8,9 +8,8 @@
 //! ```
 use bitcoin::CompressedPublicKey;
 use bitcoin::{
-    Address, Amount, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction,
-    TxIn, TxOut, Txid, Witness, absolute::LockTime, hashes::Hash, key::Keypair,
-    transaction::Version,
+    Address, Amount, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction, TxIn,
+    TxOut, Txid, Witness, absolute::LockTime, hashes::Hash, key::Keypair, transaction::Version,
 };
 use bitvm2_noded::env::{
     ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS,
@@ -35,7 +34,7 @@ use bitcoin_light_client_circuit::{
     /*create_dummy_publisher_keys,*/ create_fee_tx, create_sequencer_update_partial_tx,
     decode_eth_address, estimate_tx_vbytes,
 };
-use commit_chain::{create_sequencer_update_script, finalize, CommitInfo, sign_raw};
+use commit_chain::{CommitInfo, create_sequencer_update_script, finalize, sign_raw};
 use tendermint::validator::Info;
 
 use reqwest::Url;
@@ -76,34 +75,20 @@ struct Args {
 
 #[derive(Default, Serialize, Deserialize)]
 struct OutputData {
-    funding_input_txid: Option<String>,
-    funding_input_vout: Option<u32>,
-
-    fee_txid: Option<String>,
-    fee_tx_vout: Option<u32>,
-
-    update_connector_txid: Option<String>,
-    update_connector_vout: Option<u32>,
+    funding_input: Option<OutPoint>,
+    fee_tx: Option<OutPoint>,
+    update_connector: Option<OutPoint>,
 }
 impl OutputData {
     fn merge(&mut self, other: OutputData) {
-        if other.fee_txid.is_some() {
-            self.fee_txid = other.fee_txid;
+        if other.fee_tx.is_some() {
+            self.fee_tx = other.fee_tx;
         }
-        if other.fee_tx_vout.is_some() {
-            self.fee_tx_vout = other.fee_tx_vout;
+        if other.funding_input.is_some() {
+            self.funding_input = other.funding_input;
         }
-        if other.funding_input_txid.is_some() {
-            self.funding_input_txid = other.funding_input_txid;
-        }
-        if other.funding_input_vout.is_some() {
-            self.funding_input_vout = other.funding_input_vout;
-        }
-        if other.update_connector_txid.is_some() {
-            self.update_connector_txid = other.update_connector_txid;
-        }
-        if other.update_connector_vout.is_some() {
-            self.update_connector_vout = other.update_connector_vout;
+        if other.update_connector.is_some() {
+            self.update_connector = other.update_connector;
         }
     }
 }
@@ -118,7 +103,7 @@ async fn save_commit_info(
     let file = std::fs::File::open(output_file)?;
     let output: OutputData = serde_json::from_reader(file).unwrap();
 
-    let txid = &output.update_connector_txid.unwrap();
+    let txid = &output.update_connector.unwrap().txid.to_string();
     let genesis_txid = if !init_genesis {
         std::fs::read_to_string(format!("{output_file}.genesis")).unwrap()
     } else {
@@ -222,7 +207,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_file = &args.output_file;
     let cached_data = std::fs::read(output_file);
     let cached_output: OutputData = match cached_data {
-        Ok(data) => serde_json::from_slice(&data).unwrap(),
+        Ok(data) => serde_json::from_slice(&data).unwrap_or_else(|e| {
+            eprintln!("Failed to parse output file (possibly schema change), using default: {}", e);
+            OutputData::default()
+        }),
         _ => OutputData::default(),
     };
 
@@ -244,27 +232,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             goat_evm_address,
             total,
         } => {
+            let funding_input = match (funding_input_txid, funding_input_vout) {
+                (Some(txid), Some(vout)) => {
+                    Some(OutPoint::new(Txid::from_str(&txid).unwrap(), vout))
+                }
+                _ => None,
+            };
             action_push_fee_tx(
                 &btc_client,
                 fund_btc_key_wif,
                 owner_btc_key_wif,
                 total,
                 args.fee_rate,
-                funding_input_txid,
-                funding_input_vout,
+                funding_input,
                 goat_evm_address,
                 output_file,
             )
             .await
         }
-        Commands::SignSeq { owner_btc_key_wif, goat_block_number, publisher_btc_pubkeys, next_publisher_btc_pubkeys } => {
+        Commands::SignSeq {
+            owner_btc_key_wif,
+            goat_block_number,
+            publisher_btc_pubkeys,
+            next_publisher_btc_pubkeys,
+        } => {
             let (sequencer_set_hash, _) =
                 fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
 
-            let (fee_txid, fee_tx_vout) =
-                (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
-            let (update_connector_txid, update_connector_vout) =
-                (cached_output.update_connector_txid.clone(), cached_output.update_connector_vout);
+            let fee_tx = cached_output.fee_tx.unwrap();
+            let update_connector = cached_output.update_connector;
 
             action_sign_sequencer_set_update(
                 &btc_client,
@@ -273,10 +269,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 publisher_btc_pubkeys,
                 next_publisher_btc_pubkeys,
                 args.fee_rate,
-                fee_txid,
-                fee_tx_vout,
-                update_connector_txid,
-                update_connector_vout,
+                fee_tx,
+                update_connector,
                 sequencer_set_hash,
                 goat_block_number,
             )
@@ -293,10 +287,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (sequencer_set_hash, cosmos_block_number) =
                 fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
             let sequencers = fetch_validators(&args.cosmos_rpc_url, cosmos_block_number).await?;
-            let (fee_txid, fee_tx_vout) =
-                (cached_output.fee_txid.clone(), cached_output.fee_tx_vout.unwrap());
-            let (update_connector_txid, update_connector_vout) =
-                (cached_output.update_connector_txid.clone(), cached_output.update_connector_vout);
+            let fee_tx = cached_output.fee_tx.unwrap();
+            let update_connector = cached_output.update_connector;
 
             action_push_sequencer_set_update(
                 &btc_client,
@@ -305,10 +297,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 publisher_btc_pubkeys.clone(),
                 next_publisher_btc_pubkeys,
                 args.fee_rate,
-                fee_txid,
-                fee_tx_vout,
-                update_connector_txid,
-                update_connector_vout,
+                fee_tx,
+                update_connector,
                 goat_block_number,
                 sequencer_set_hash,
                 output_file,
@@ -368,7 +358,7 @@ async fn push_sequencer_set_publish_tx(
 ) -> Result<Txid, Box<dyn std::error::Error>> {
     let secp = secp256k1::Secp256k1::new();
     let sig_hash_type = EcdsaSighashType::AllPlusAnyoneCanPay;
-    let mut input_index = 0; 
+    let mut input_index = 0;
     if let Some(_) = update_connector_value {
         println!("Standard spending flow for sequencer set publish tx");
         input_index += 1;
@@ -454,10 +444,8 @@ async fn action_push_sequencer_set_update(
     btc_public_keys: Vec<secp256k1::PublicKey>,
     next_btc_public_keys: Vec<secp256k1::PublicKey>,
     fee_rate: u64,
-    fee_txid: Option<String>,
-    fee_tx_vout: u32,
-    update_connector_txid: Option<String>,
-    update_connector_vout: Option<u32>,
+    fee_tx_outpoint: OutPoint,
+    update_connector: Option<OutPoint>,
     goat_block_number: u64,
     sequencer_set_hash: [u8; 32],
     output_file: &str,
@@ -496,22 +484,17 @@ async fn action_push_sequencer_set_update(
     println!("replenish fee: {replenish_fee:?}");
     println!("sigs: {sigs:?}");
     // read public key and threshold from smart contract, which is consistency with btc_public_keys
-    let fee_tx = btc_client
-        .get_tx(&fee_txid.as_ref().unwrap().parse()?)
-        .await?
-        .expect("fee tx doesn't exist");
+    let fee_tx = btc_client.get_tx(&fee_tx_outpoint.txid).await?.expect("fee tx doesn't exist");
 
     // update the sequencer set publish tx with multisig signatures
     let (update_connector, update_connector_value, replenish_fee_connector_value) =
-        match &update_connector_txid {
-            Some(update_connector_txid) => {
-                let tmp_txid = Txid::from_str(update_connector_txid).unwrap();
-                let tmp_tx = btc_client.get_tx(&tmp_txid).await?.unwrap();
-                let tmp_vout = update_connector_vout.unwrap();
+        match &update_connector {
+            Some(update_connector) => {
+                let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
                 (
-                    Some(OutPoint::new(tmp_txid, tmp_vout)),
-                    Some(tmp_tx.output[tmp_vout as usize].value),
-                    Some(fee_tx.output[fee_tx_vout as usize].value),
+                    Some(*update_connector),
+                    Some(tmp_tx.output[update_connector.vout as usize].value),
+                    Some(fee_tx.output[fee_tx_outpoint.vout as usize].value),
                 )
             }
             None => (None, None, Some(replenish_fee)),
@@ -521,7 +504,7 @@ async fn action_push_sequencer_set_update(
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         sequencer_set_hash,
         &update_connector,
-        &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
+        &Some(fee_tx_outpoint),
         next_update_connector_address.clone(),
         relayer_fee,
     )?;
@@ -545,11 +528,8 @@ async fn action_push_sequencer_set_update(
     )
     .await?;
 
-    let output = OutputData {
-        update_connector_txid: Some(txid.to_string()),
-        update_connector_vout: Some(0),
-        ..Default::default()
-    };
+    let output =
+        OutputData { update_connector: Some(OutPoint::new(txid, 0)), ..Default::default() };
     save_output(output, output_file);
 
     Ok(())
@@ -563,10 +543,8 @@ async fn action_sign_sequencer_set_update(
     btc_public_keys: Vec<secp256k1::PublicKey>,
     next_btc_public_keys: Vec<secp256k1::PublicKey>,
     fee_rate: u64,
-    fee_txid: Option<String>,
-    fee_tx_vout: u32,
-    update_connector_txid: Option<String>,
-    update_connector_vout: Option<u32>,
+    fee_tx_outpoint: OutPoint,
+    update_connector: Option<OutPoint>,
     sequencer_set_hash: [u8; 32],
     goat_block_number: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -585,21 +563,15 @@ async fn action_sign_sequencer_set_update(
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as u64
         + relayer_fee;
 
-    let fee_tx = btc_client
-        .get_tx(&fee_txid.as_ref().unwrap().parse()?)
-        .await?
-        .expect("fee tx doesn't exist");
-    // update the sequencer set publish tx with multisig signatures
+    let fee_tx = btc_client.get_tx(&fee_tx_outpoint.txid).await?.expect("fee tx doesn't exist");
     let (update_connector, _update_connector_value, _replenish_fee_connector_value) =
-        match &update_connector_txid {
-            Some(update_connector_txid) => {
-                let tmp_txid = Txid::from_str(update_connector_txid).unwrap();
-                let tmp_tx = btc_client.get_tx(&tmp_txid).await?.unwrap();
-                let tmp_vout = update_connector_vout.unwrap();
+        match &update_connector {
+            Some(update_connector) => {
+                let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
                 (
-                    Some(OutPoint::new(tmp_txid, tmp_vout)),
-                    Some(tmp_tx.output[tmp_vout as usize].value),
-                    Some(fee_tx.output[fee_tx_vout as usize].value),
+                    Some(*update_connector),
+                    Some(tmp_tx.output[update_connector.vout as usize].value),
+                    Some(fee_tx.output[fee_tx_outpoint.vout as usize].value),
                 )
             }
             None => (None, None, Some(replenish_fee)),
@@ -608,29 +580,22 @@ async fn action_sign_sequencer_set_update(
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         sequencer_set_hash,
         &update_connector,
-        &Some(OutPoint { txid: fee_tx.compute_txid(), vout: fee_tx_vout }),
+        &Some(fee_tx_outpoint),
         next_update_connector_address.clone(),
         relayer_fee,
     )?;
 
     let owner_private_key = PrivateKey::from_wif(owner_btc_key_wif.as_ref().unwrap())?;
 
-    let fee_tx = btc_client
-        .get_tx(&fee_txid.as_ref().unwrap().parse()?)
-        .await?
-        .expect("fee tx doesn't exist");
+    let fee_tx = btc_client.get_tx(&fee_tx_outpoint.txid).await?.expect("fee tx doesn't exist");
 
-    let (update_connector_value, _replenish_fee_connector_value) = match &update_connector_txid {
+    let (update_connector_value, _replenish_fee_connector_value) = match &update_connector {
         None => (None, Some(replenish_fee)),
-        Some(update_connector_txid) => {
+        Some(update_connector) => {
             // digest the previous commit tx's output utxo
             let (_update_connector, update_connector_value) = {
-                let tmp_txid = update_connector_txid.parse()?;
-                let tmp_tx = btc_client.get_tx(&tmp_txid).await?.unwrap();
-                (
-                    Some(OutPoint::new(tmp_txid, update_connector_vout.unwrap())),
-                    tmp_tx.output[update_connector_vout.unwrap() as usize].value,
-                )
+                let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
+                (Some(*update_connector), tmp_tx.output[update_connector.vout as usize].value)
             };
             (Some(update_connector_value), Some(fee_tx.output[0].value))
         }
@@ -671,8 +636,7 @@ async fn action_push_fee_tx(
     owner_btc_key_wif: Option<String>,
     total: u32,
     fee_rate: u64,
-    funding_input_txid: Option<String>,
-    funding_input_vout: Option<u32>,
+    funding_input: Option<OutPoint>,
     goat_evm_address: [u8; 20],
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -687,18 +651,18 @@ async fn action_push_fee_tx(
 
     // TODO: can be public key
     let owner_private_key = PrivateKey::from_wif(owner_btc_key_wif.as_ref().unwrap())?;
-    let funder_address =
-        node_p2wsh_address(btc_client.network(), &PublicKey::from_private_key(&secp, &feepayer_private_key));
+    let funder_address = node_p2wsh_address(
+        btc_client.network(),
+        &PublicKey::from_private_key(&secp, &feepayer_private_key),
+    );
     let owner_p2wpkh = Address::p2wpkh(
         &CompressedPublicKey::from_private_key(&secp, &owner_private_key)?,
         btc_client.network(),
     );
 
-    let (first_input_utxo, first_input_value) = if let (Some(txid_str), Some(vout)) =
-        (&funding_input_txid, funding_input_vout)
-    {
-        let tmp_tx = btc_client.get_tx(&Txid::from_str(txid_str).unwrap()).await?.unwrap();
-        (OutPoint::new(Txid::from_str(txid_str).unwrap(), vout), tmp_tx.output[vout as usize].value)
+    let (first_input_utxo, first_input_value) = if let Some(funding_input) = funding_input {
+        let tmp_tx = btc_client.get_tx(&funding_input.txid).await?.unwrap();
+        (funding_input, tmp_tx.output[funding_input.vout as usize].value)
     } else {
         // use the first UTXO from regtest address
         let utxos = btc_client.get_address_utxo(funder_address.clone()).await?;
@@ -719,8 +683,7 @@ async fn action_push_fee_tx(
     let txid =
         push_fee_tx(&mut fee_tx, first_input_value, &feepayer_private_key, btc_client).await?;
 
-    let output =
-        OutputData { fee_txid: Some(txid.to_string()), fee_tx_vout: Some(0), ..Default::default() };
+    let output = OutputData { fee_tx: Some(OutPoint::new(txid, 0)), ..Default::default() };
     save_output(output, output_file);
     Ok(())
 }
@@ -737,11 +700,8 @@ async fn action_fund_publishers(
     let funder_private_key = PrivateKey::from_wif(&fund_btc_key_wif.unwrap())?;
     let txn = fund_publishers(&funder_private_key, btc_public_keys, btc_client).await?;
 
-    let output = OutputData {
-        funding_input_txid: Some(txn.0.to_string()),
-        funding_input_vout: Some(txn.1),
-        ..Default::default()
-    };
+    let output =
+        OutputData { funding_input: Some(OutPoint::new(txn.0, txn.1)), ..Default::default() };
     save_output(output, output_file);
     Ok(())
 }
@@ -753,8 +713,10 @@ async fn fund_publishers(
 ) -> Result<(Txid, u32), Box<dyn std::error::Error>> {
     println!("network: {:?}", btc_client.network());
     let secp = Secp256k1::new();
-    let from_address =
-        node_p2wsh_address(btc_client.network(), &PublicKey::from_private_key(&secp, fund_private_key));
+    let from_address = node_p2wsh_address(
+        btc_client.network(),
+        &PublicKey::from_private_key(&secp, fund_private_key),
+    );
     println!("Funding publishers from address: {from_address}");
     let utxos = btc_client.get_address_utxo(from_address.clone()).await?;
     println!("utxo: {utxos:?}");
