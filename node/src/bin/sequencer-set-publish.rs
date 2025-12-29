@@ -95,7 +95,7 @@ impl OutputData {
 
 async fn save_commit_info(
     output_file: &str,
-    btc_public_keys: &Vec<secp256k1::PublicKey>,
+    btc_public_keys: &[secp256k1::PublicKey],
     sequencers: Vec<Info>,
     init_genesis: bool,
     commit_info_file: &str,
@@ -208,7 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cached_data = std::fs::read(output_file);
     let cached_output: OutputData = match cached_data {
         Ok(data) => serde_json::from_slice(&data).unwrap_or_else(|e| {
-            eprintln!("Failed to parse output file (possibly schema change), using default: {}", e);
+            eprintln!("Failed to parse output file (possibly schema change), using default: {e:?}");
             OutputData::default()
         }),
         _ => OutputData::default(),
@@ -359,7 +359,7 @@ async fn push_sequencer_set_publish_tx(
     let secp = secp256k1::Secp256k1::new();
     let sig_hash_type = EcdsaSighashType::AllPlusAnyoneCanPay;
     let mut input_index = 0;
-    if let Some(_) = update_connector_value {
+    if update_connector_value.is_some() {
         println!("Standard spending flow for sequencer set publish tx");
         input_index += 1;
         finalize(sequencer_set_publish_tx, publisher_sigs, redeem_script)?;
