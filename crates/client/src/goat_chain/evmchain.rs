@@ -1,15 +1,15 @@
 use crate::Utxo;
 use crate::goat_chain::DisproveTxType;
 use crate::goat_chain::chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, SequencerSet, WithdrawData,
+    BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, SequencerSetUpdateWitness,
+    WithdrawData,
 };
 use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
-use alloy::primitives::{Address, Bytes, FixedBytes, U256};
+use alloy::primitives::{Address, U256};
 use alloy::rpc::types::{
     TransactionReceipt,
     trace::geth::{GethDebugTracingOptions, GethTrace},
 };
-use alloy::signers::Signature;
 use bitcoin::Txid;
 use bitcoin::hashes::Hash;
 use uuid::Uuid;
@@ -304,56 +304,6 @@ impl EvmChain {
     pub async fn btc_spv_latest_height(&self) -> anyhow::Result<u64> {
         self.adaptor.btc_spv_latest_height().await
     }
-    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
-        self.adaptor.seq_set_pub_get_last_block_height().await
-    }
-
-    pub async fn seq_set_pub_calc_commitment(
-        &self,
-        height: U256,
-    ) -> anyhow::Result<FixedBytes<32>> {
-        self.adaptor.seq_set_pub_calc_commitment(height).await
-    }
-
-    pub async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
-        self.adaptor.seq_set_pub_multi_sig_verifier_get_owners().await
-    }
-
-    pub async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
-        self.adaptor.seq_set_pub_multi_sig_verifier_get_nonce().await
-    }
-
-    pub async fn seq_set_pub_get_publisher_public_keys(
-        &self,
-        publisher: Address,
-    ) -> anyhow::Result<Bytes> {
-        self.adaptor.seq_set_pub_get_publisher_public_keys(publisher).await
-    }
-
-    pub async fn seq_set_pub_update_sequencer_set(
-        &self,
-        sequencer_set: &SequencerSet,
-        signature: &Signature,
-    ) -> anyhow::Result<String> {
-        self.adaptor.seq_set_pub_update_sequencer_set(sequencer_set, signature).await
-    }
-
-    pub async fn seq_set_pub_update_publisher_set(
-        &self,
-        new_publishers: Vec<Address>,
-        new_publisher_btc_pubkeys: &[Vec<u8>],
-        signatures: &[Vec<u8>],
-        height: U256,
-    ) -> anyhow::Result<String> {
-        self.adaptor
-            .seq_set_pub_update_publisher_set(
-                new_publishers,
-                new_publisher_btc_pubkeys,
-                signatures,
-                height,
-            )
-            .await
-    }
     pub async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
         self.adaptor.stake_mana_stake_token_address().await
     }
@@ -448,5 +398,20 @@ impl EvmChain {
 
     pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64> {
         self.adaptor.peg_btc_balance(address).await
+    }
+
+    pub async fn ss_update_sequencer_set(
+        &self,
+        goat_height: U256,
+        witness: SequencerSetUpdateWitness,
+    ) -> anyhow::Result<String> {
+        self.adaptor.ss_update_sequencer_set(goat_height, witness).await
+    }
+
+    pub async fn ss_get_sequencer_set_update_witness(
+        &self,
+        goat_height: U256,
+    ) -> anyhow::Result<Vec<SequencerSetUpdateWitness>> {
+        self.adaptor.ss_get_sequencer_set_update_witness(goat_height).await
     }
 }

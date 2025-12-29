@@ -1,12 +1,11 @@
 use crate::btc_chain::MerkleProofExtend;
 use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
-use alloy::primitives::{Address, Bytes, FixedBytes, U256};
+use alloy::primitives::{Address, U256};
 use alloy::rpc::types::{
     TransactionReceipt,
     trace::geth::{GethDebugTracingOptions, GethTrace},
 };
-use alloy::signers::Signature;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
@@ -142,26 +141,17 @@ pub trait ChainAdaptor: Send + Sync {
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
     async fn btc_spv_latest_height(&self) -> anyhow::Result<u64>;
 
-    async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64>;
-    async fn seq_set_pub_calc_commitment(&self, height: U256) -> anyhow::Result<FixedBytes<32>>;
-    async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>>;
-    async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256>;
-    async fn seq_set_pub_get_publisher_public_keys(
+    async fn ss_update_sequencer_set(
         &self,
-        publisher: Address,
-    ) -> anyhow::Result<Bytes>;
-    async fn seq_set_pub_update_sequencer_set(
-        &self,
-        sequencer_set: &SequencerSet,
-        signature: &Signature,
+        goat_height: U256,
+        witness: SequencerSetUpdateWitness,
     ) -> anyhow::Result<String>;
-    async fn seq_set_pub_update_publisher_set(
+
+    async fn ss_get_sequencer_set_update_witness(
         &self,
-        new_publishers: Vec<Address>,
-        new_publisher_btc_pubkeys: &[Vec<u8>],
-        signatures: &[Vec<u8>],
-        height: U256,
-    ) -> anyhow::Result<String>;
+        goat_height: U256,
+    ) -> anyhow::Result<Vec<SequencerSetUpdateWitness>>;
+
     async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]>;
     async fn stake_mana_pubkey_to_address(&self, pubkey: &[u8; 32]) -> anyhow::Result<[u8; 20]>;
     async fn stake_mana_stake_of(&self, operator: &[u8; 20]) -> anyhow::Result<u64>;
@@ -353,12 +343,10 @@ impl From<MerkleProofExtend> for BitcoinTxProof {
 }
 
 #[derive(Clone, Debug)]
-pub struct SequencerSet {
-    pub sequencer_set_hash: [u8; 32],
-    pub publishers_hash: [u8; 32],
-    pub next_publishers_hash: [u8; 32],
-    pub p2wsh_sig_hash: [u8; 32],
-    pub goat_block_number: u64,
+pub struct SequencerSetUpdateWitness {
+    pub sig_hash: [u8; 32],
+    pub btc_pub_key: Vec<u8>,
+    pub btc_sig: Vec<u8>,
 }
 
 pub fn get_chain_adaptor(

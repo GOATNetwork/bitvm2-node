@@ -1,7 +1,6 @@
 // Gateway rate multiplier constant
 const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
-use alloy::consensus::crypto::secp256k1::recover_signer;
-use alloy::primitives::{Address, B256, Bytes, FixedBytes, Signature, U256};
+use alloy::primitives::{Address, U256};
 use alloy::rpc::types::{
     TransactionReceipt,
     trace::geth::{GethDebugTracingOptions, GethTrace},
@@ -12,10 +11,9 @@ use bitcoin::{PublicKey, Transaction, Txid, XOnlyPublicKey};
 use uuid::Uuid;
 pub mod utils;
 use crate::btc_chain::{BTCClient, MerkleProofExtend};
-pub use chain_adaptor::SequencerSet;
 pub use chain_adaptor::{
-    BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, PeginStatus, WithdrawData,
-    WithdrawStatus, get_chain_adaptor,
+    BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, PeginStatus,
+    SequencerSetUpdateWitness, WithdrawData, WithdrawStatus, get_chain_adaptor,
 };
 pub use goat_adaptor::GoatInitConfig;
 mod chain_adaptor;
@@ -588,75 +586,11 @@ impl GOATClient {
         self.chain_service.btc_spv_latest_height().await
     }
 
-    pub async fn seq_set_pub_calc_commitment(
-        &self,
-        height: U256,
-    ) -> anyhow::Result<FixedBytes<32>> {
-        self.chain_service.seq_set_pub_calc_commitment(height).await
-    }
-
-    pub async fn seq_set_pub_multi_sig_verifier_get_owners(&self) -> anyhow::Result<Vec<Address>> {
-        self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await
-    }
     pub async fn gateway_get_graph_ids_by_instance_id(
         &self,
         instance_id: &Uuid,
     ) -> anyhow::Result<Vec<Uuid>> {
         self.chain_service.gateway_get_graph_ids_by_instance_id(instance_id).await
-    }
-    pub async fn seq_set_pub_multi_sig_verifier_get_nonce(&self) -> anyhow::Result<U256> {
-        self.chain_service.seq_set_pub_multi_sig_verifier_get_nonce().await
-    }
-
-    pub async fn seq_set_pub_get_publisher_public_keys(
-        &self,
-        publisher: Address,
-    ) -> anyhow::Result<Bytes> {
-        self.chain_service.seq_set_pub_get_publisher_public_keys(publisher).await
-    }
-
-    pub async fn seq_set_pub_update_sequencer_set(
-        &self,
-        sequencer_set: &SequencerSet,
-        sign: &Signature,
-    ) -> anyhow::Result<String> {
-        let latest_height = self.chain_service.seq_set_pub_get_last_block_height().await?;
-        if latest_height > sequencer_set.goat_block_number {
-            bail!(
-                "InvalidGOATHeight, input latest block number: {latest_height} is greater than sequencer_set: {}.",
-                sequencer_set.goat_block_number
-            );
-        }
-        let addr = recover_signer(sign, B256::from_slice(&sequencer_set.p2wsh_sig_hash))?;
-        let addr_exp = self.chain_service.get_default_signer_address();
-        println!("addr_exp: {addr_exp}, act: {addr}");
-        if addr != addr_exp {
-            bail!("P2WSHSignatureMismatch, exp:{addr_exp}, act:{addr}");
-        }
-
-        let owners = self.chain_service.seq_set_pub_multi_sig_verifier_get_owners().await?;
-        if !owners.contains(&addr) {
-            bail!("Publisher {addr} is not a multi-sig-verifier owner");
-        }
-
-        // TODO: add more pre-checks
-        self.chain_service.seq_set_pub_update_sequencer_set(sequencer_set, sign).await
-    }
-    pub async fn seq_set_pub_update_publisher_set(
-        &self,
-        new_publishers: Vec<Address>,
-        new_publisher_btc_pubkeys: &[Vec<u8>],
-        signatures: &[Vec<u8>],
-        height: U256,
-    ) -> anyhow::Result<String> {
-        self.chain_service
-            .seq_set_pub_update_publisher_set(
-                new_publishers,
-                new_publisher_btc_pubkeys,
-                signatures,
-                height,
-            )
-            .await
     }
 
     pub async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
@@ -717,9 +651,6 @@ impl GOATClient {
         self.chain_service.committee_mana_verify_signatures(msg_hash, signs).await
     }
 
-    pub async fn seq_set_pub_get_last_block_height(&self) -> anyhow::Result<u64> {
-        self.chain_service.seq_set_pub_get_last_block_height().await
-    }
     pub async fn committee_mana_get_committee_peer_id(
         &self,
         member: &[u8; 20],
@@ -758,6 +689,23 @@ impl GOATClient {
 
     pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64> {
         self.chain_service.peg_btc_balance(address).await
+    }
+
+    pub async fn ss_update_sequencer_set(
+        &self,
+        goat_height: u64,
+        witness: SequencerSetUpdateWitness,
+    ) -> anyhow::Result<String> {
+        let goat_height = U256::from(goat_height);
+        self.chain_service.ss_update_sequencer_set(goat_height, witness).await
+    }
+
+    pub async fn ss_get_sequencer_set_update_witness(
+        &self,
+        goat_height: u64,
+    ) -> anyhow::Result<Vec<SequencerSetUpdateWitness>> {
+        let goat_height = U256::from(goat_height);
+        self.chain_service.ss_get_sequencer_set_update_witness(goat_height).await
     }
 }
 
