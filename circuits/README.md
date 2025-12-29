@@ -47,12 +47,12 @@ bash cron-header-chain-proof.sh $start $batch
 
 ## Sequencer Set Commit Chain
 
-* Publish sequencer set commitment
+* Publish sequencer set commitment with correct envs `BITCOIN_NETWORK` and `ESPLORA_URL`.
 
+Example: 
 ```bash
 cd node
-export GOAT_BLOCK_NUMBER=9511050
-bash -x ssp-ci.sh $GOAT_BLOCK_NUMBER
+GOAT_BLOCK_NUMBER=9511050 bash -x ssp-ci.sh
 ```
 All the initial publishers are hardcoded. In the `ssp-ci.sh`, we simutate 2-round publisher rotations.
 `GOAT_BLOCK_NUMBER` is the GOAT's current block number, which is used as the key to fetch sequencer set commitment.

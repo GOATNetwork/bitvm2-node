@@ -7,9 +7,9 @@ use proof_builder::{ProofBuilder, ProofRequest};
 async fn main() {
     dotenv::dotenv().ok();
     let args = Args::parse();
-    tracing::info!("args: {:?}", args);
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+    tracing::info!("args: {:?}", args);
 
     let commits = fetch_commit_chain(
         &args.esplora_url,

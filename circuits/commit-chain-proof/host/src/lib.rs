@@ -28,7 +28,7 @@ pub struct Args {
     #[arg(long, env, default_value_t = Network::Regtest)]
     pub bitcoin_network: Network,
 
-    #[arg(long, default_value = "http://127.0.0.1:3002")]
+    #[arg(long, env, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
 
     #[arg(long, env)]
@@ -92,6 +92,7 @@ pub async fn fetch_commit_chain(
     let mut commits: Vec<CircuitCommit> = vec![];
     for _i in start..start + batch_size {
         let txid = Txid::from_str(&ci.txid)?;
+        println!("network: {:?}, txid: {txid:?}", btc_client.network());
         let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
         let proof = btc_client.get_merkle_proof_extend(&txid).await?;
         let block_height = proof.height as u32;
