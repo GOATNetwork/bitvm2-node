@@ -36,7 +36,7 @@ const BRIDGE_IN_FAIL_AS_VERIFICATION_FAILED: &str = "Unfortunately, the verifica
 
 const BRIDGE_IN_FAIL_AS_L2_MINTED_FAILED: &str = "Unfortunately, PegBTC minted failed.";
 
-const BRIDGE_IN_FAIL_AS_TIMEOUT: &str = "Unfortunately timeout.";
+const BRIDGE_IN_FAIL_AS_TIMEOUT: &str = "The operation timed out. Please try again.";
 const _BRIDGE_OUT_FAIL_AS_CLAIM_TIMEOUT: &str =
     "Claim timed out. Please initiate a new transaction.";
 const _BRIDGE_IN_FAIL_AS_L1_LOCK_TIMEOUT: &str =
