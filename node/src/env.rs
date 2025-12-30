@@ -21,6 +21,7 @@ use strum::{Display, EnumString};
 use tracing::{info, warn};
 use zeroize::Zeroizing;
 
+pub const ENV_BTC_CHAIN_URL: &str = "BTC_CHAIN_URL";
 pub const ENV_GOAT_CHAIN_URL: &str = "GOAT_CHAIN_URL";
 pub const ENV_PROOF_BUILD_URL: &str = "GOAT_PROOF_BUILD_URL";
 pub const ENV_GOAT_GATEWAY_CONTRACT_ADDRESS: &str = "GOAT_GATEWAY_CONTRACT_ADDRESS";
@@ -30,6 +31,9 @@ pub const ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS: &str =
 pub const ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS: &str =
     "ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS";
 pub const ENV_ENABLE_RELAYER: &str = "ENABLE_RELAYER";
+pub const ENV_ENABLE_UPDATE_SPV_CONTRACT: &str = "ENABLE_UPDATE_SPV_CONTRACT";
+pub const ENV_BTC_BLOCK_CONFIRMS: &str = "BTC_BLOCK_CONFIRMS";
+
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
 pub const ENV_GOAT_GATEWAY_EVENT_THE_GRAPH_URL: &str = "GOAT_GATEWAY_EVENT_THE_GRAPH_URL";
@@ -199,6 +203,20 @@ pub fn is_relayer() -> bool {
     };
     enable_relayer && get_actor() == Actor::Committee
 }
+
+pub fn is_enable_update_spv_contract() -> bool {
+    match std::env::var(ENV_ENABLE_UPDATE_SPV_CONTRACT) {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+
+pub fn get_btc_block_confirms() -> u64 {
+    std::env::var(ENV_BTC_BLOCK_CONFIRMS)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(3)
+}
 pub fn get_node_goat_private_key() -> anyhow::Result<String> {
     std::env::var(ENV_GOAT_PRIVATE_KEY).map_err(|_| anyhow::anyhow!("Goat private key is missing"))
 }
@@ -321,11 +339,15 @@ pub enum GraphBtcTxName {
     #[strum(serialize = "take2.hex")]
     Take2,
 }
+pub fn get_btc_url_from_env() -> Option<String> {
+    std::env::var(ENV_BTC_CHAIN_URL).ok()
+}
 
 pub fn get_goat_url_from_env() -> Url {
-    let rpc_url_str =
-        std::env::var(ENV_GOAT_CHAIN_URL).expect("Failed to read {ENV_GOAT_CHAIN_URL} variable");
-    rpc_url_str.parse::<Url>().unwrap_or_else(|_| panic!("Failed to parse {rpc_url_str} to URL"))
+    std::env::var(ENV_GOAT_CHAIN_URL)
+        .ok()
+        .and_then(|url_str| url_str.parse::<Url>().ok())
+        .unwrap_or_else(|| panic!("Fail to get url from env"))
 }
 
 pub fn get_goat_address_from_env(var_name: &str) -> Option<EvmAddress> {

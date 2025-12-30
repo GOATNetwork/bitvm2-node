@@ -140,6 +140,11 @@ pub trait ChainAdaptor: Send + Sync {
 
     async fn btc_spv_blockhash(&self, height: u64) -> anyhow::Result<[u8; 32]>;
     async fn btc_spv_latest_height(&self) -> anyhow::Result<u64>;
+    async fn btc_spv_post_block_hash(
+        &self,
+        height: u64,
+        header_hash: &[u8; 32],
+    ) -> anyhow::Result<String>;
 
     async fn ss_update_sequencer_set(
         &self,

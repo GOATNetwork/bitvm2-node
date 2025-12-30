@@ -7,7 +7,7 @@ mod response;
 pub mod routes;
 pub mod validation;
 
-use crate::env::{get_goat_network, get_network, goat_config_from_env};
+use crate::env::{get_btc_url_from_env, get_goat_network, get_network, goat_config_from_env};
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
@@ -75,7 +75,7 @@ impl AppState {
         peer_id: String,
         registry: Arc<Mutex<Registry>>,
     ) -> anyhow::Result<Arc<AppState>> {
-        let btc_client = BTCClient::new(get_network(), None);
+        let btc_client = BTCClient::new(get_network(), get_btc_url_from_env().as_deref());
         let goat_client = GOATClient::new(goat_config_from_env().await, get_goat_network());
         let metrics_state = MetricsState::new(registry);
         let http_client = HttpAsyncClient::new(None);
