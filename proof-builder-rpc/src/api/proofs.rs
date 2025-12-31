@@ -81,19 +81,18 @@ impl ProofData {
     pub(super) fn load_proof_data(path: &str, proof_type: ProofType) -> Self {
         let mut proof_data = ProofData::default();
         match proof_type {
-            ProofType::HeaderChain | ProofType::CommitChain | ProofType::StateChain => {
+            ProofType::HeaderChain
+            | ProofType::CommitChain
+            | ProofType::StateChain
+            | ProofType::Watchtower => {
                 proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
-                proof_data.vk = fs::read(format!("{path}.vk")).unwrap_or_default();
+                proof_data.public_inputs =
+                    fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
+                proof_data.vk = fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default();
             }
             ProofType::Operator => {
                 proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
                 proof_data.vk = fs::read(format!("{path}.vk.bin")).unwrap_or_default();
-                proof_data.public_inputs =
-                    fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
-            }
-            ProofType::Watchtower => {
-                proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
-                proof_data.vk = fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default();
                 proof_data.public_inputs =
                     fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
             }
