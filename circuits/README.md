@@ -153,7 +153,8 @@ We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optiona
 * Generate state-chain proof. 
 
 ```
-export EL_START_BLOCK_NUMBER=9511050
+#export EL_START_BLOCK_NUMBER=9511050
+export EL_START_BLOCK_NUMBER=9911050
 export BATCH_SIZE=10
 export L2_CONTRACT_ADDRESS=0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f
 

@@ -97,7 +97,7 @@ zkm-sdk = { workspace = true }
 zkm-verifier = { workspace = true }
 borsh = {version = "1.5.3", features = ["derive"] }
 
-util = { workspace = true }
+#util = { workspace = true }
 bitvm = { workspace = true }
 goat = { workspace = true }
 bitvm2-lib = { workspace = true }
