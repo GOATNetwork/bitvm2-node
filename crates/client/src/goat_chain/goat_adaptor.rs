@@ -1125,8 +1125,8 @@ impl ChainAdaptor for GoatAdaptor {
 
         let tx_request = btc_spv
             .postBlockHashBatch(
-                heights.iter().map(|height| U256::from(height.clone())).collect::<Vec<U256>>(),
-                header_hashes.into_iter().map(|v| FixedBytes::from_slice(v)).collect::<Vec<_>>(),
+                heights.iter().map(|height| U256::from(*height)).collect::<Vec<U256>>(),
+                header_hashes.iter().map(|v| FixedBytes::from_slice(v)).collect::<Vec<_>>(),
             )
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
