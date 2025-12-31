@@ -172,6 +172,8 @@ sol!(
     interface IBitcoinSPV {
         function blockHash(uint256 height) external view returns (bytes32);
         function latestHeight() external view returns (uint256);
+        function postBlockHash(uint256 height, bytes32 headerHash) external;
+        function postBlockHashBatch(uint256[] calldata heights, bytes32[] calldata headerHashes) external;
     }
 );
 
@@ -1099,7 +1101,39 @@ impl ChainAdaptor for GoatAdaptor {
             .try_into()
             .map_err(|e| anyhow::anyhow!("latestConfirmedHeight error :{e:?}"))?)
     }
+    async fn btc_spv_post_block_hash(
+        &self,
+        height: u64,
+        header_hash: &[u8; 32],
+    ) -> anyhow::Result<String> {
+        let btc_spv = self.get_btc_spv()?;
+        let tx_request = btc_spv
+            .postBlockHash(U256::from(height), FixedBytes::from_slice(header_hash))
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
+    }
 
+    async fn btc_spv_post_block_hash_batch(
+        &self,
+        heights: &[u64],
+        header_hashes: &[[u8; 32]],
+    ) -> anyhow::Result<String> {
+        let btc_spv = self.get_btc_spv()?;
+
+        let tx_request = btc_spv
+            .postBlockHashBatch(
+                heights.iter().map(|height| U256::from(*height)).collect::<Vec<U256>>(),
+                header_hashes.iter().map(|v| FixedBytes::from_slice(v)).collect::<Vec<_>>(),
+            )
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
+    }
     async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
         let stake_management = self.get_stake_management()?;
         Ok(stake_management.stakeTokenAddress().call().await?.into_array())

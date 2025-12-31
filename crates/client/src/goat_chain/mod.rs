@@ -402,12 +402,12 @@ impl GOATClient {
         let block_hash_online = self.btc_spv_blockhash(tx_proof_data.height).await?;
         if block_hash_online != tx_proof_data.block_hash {
             tracing::warn!(
-                "instance_id:{instance_id}  block_hash mismatch, from chain:{},  in contract:{}",
+                "instance_id:{instance_id}  block_hash mismatch, from chain:{}, in contract:{}",
                 hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
             bail!(
-                "instance_id:{instance_id}  block_hash mismatch, from chain:{},  in contract:{}",
+                "instance_id:{instance_id}  block_hash mismatch, from chain:{}, in contract:{}",
                 hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
@@ -586,6 +586,21 @@ impl GOATClient {
         self.chain_service.btc_spv_latest_height().await
     }
 
+    pub async fn btc_spv_post_block_hash(
+        &self,
+        height: u64,
+        header_hash: &[u8; 32],
+    ) -> anyhow::Result<String> {
+        self.chain_service.btc_spv_post_block_hash(height, header_hash).await
+    }
+
+    pub async fn btc_spv_post_block_hash_batch(
+        &self,
+        heights: &[u64],
+        header_hashes: &[[u8; 32]],
+    ) -> anyhow::Result<String> {
+        self.chain_service.btc_spv_post_block_hash_batch(heights, header_hashes).await
+    }
     pub async fn gateway_get_graph_ids_by_instance_id(
         &self,
         instance_id: &Uuid,

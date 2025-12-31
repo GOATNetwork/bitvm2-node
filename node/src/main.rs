@@ -2,8 +2,8 @@
 use base64::Engine;
 use bitvm2_lib::actors::Actor;
 use bitvm2_noded::env::{
-    self, ENV_PEER_KEY, check_node_info, get_goat_network, get_ipfs_url, get_network,
-    get_node_pubkey, goat_config_from_env,
+    self, ENV_PEER_KEY, check_node_info, get_btc_url_from_env, get_goat_network, get_ipfs_url,
+    get_network, get_node_pubkey, goat_config_from_env,
 };
 use clap::{Parser, Subcommand};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
@@ -146,7 +146,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_db = store::create_local_db(&opt.db_path).await;
     let handler = BitvmNodeProcessor {
         local_db: local_db.clone(),
-        btc_client: BTCClient::new(get_network(), None),
+        btc_client: BTCClient::new(get_network(), get_btc_url_from_env().as_deref()),
         goat_client: GOATClient::new(env::goat_config_from_env().await, env::get_goat_network()),
         http_client: HttpAsyncClient::new(None),
         ipfs: IPFS::new(&get_ipfs_url()),
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     task_handles.push(tokio::spawn(async move {
         let goat_client =
             Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
-        let btc_client = Arc::new(BTCClient::new(get_network(), None));
+        let btc_client = Arc::new(BTCClient::new(get_network(), get_btc_url_from_env().as_deref()));
         match run_watch_event_task(
             actor_clone2,
             local_db_clone2,
@@ -219,7 +219,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     task_handles.push(tokio::spawn(async move {
         let goat_client =
             Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
-        let btc_client = Arc::new(BTCClient::new(get_network(), None));
+        let btc_client = Arc::new(BTCClient::new(get_network(), get_btc_url_from_env().as_deref()));
         match run_maintenance_tasks(
             actor_clone3,
             local_db_clone3,

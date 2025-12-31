@@ -1,5 +1,3 @@
-use std::vec;
-
 use crate::types::{
     Bitvm2Graph, Bitvm2GraphParameters, Groth16Proof, OperatorWotsPublicKeys,
     OperatorWotsSecretKeys, OperatorWotsSignatures, PublicInputs, VerifyingKey,

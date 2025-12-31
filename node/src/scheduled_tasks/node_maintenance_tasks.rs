@@ -5,7 +5,7 @@ use std::str::FromStr;
 use store::localdb::{LocalDB, NodeQuery};
 use tracing::info;
 
-pub async fn node_available_pbtc_update_monitor(
+pub(crate) async fn node_available_pbtc_update_monitor(
     local_db: &LocalDB,
     goat_client: &GOATClient,
 ) -> anyhow::Result<()> {

@@ -2,9 +2,10 @@ mod event_watch_task;
 pub mod graph_maintenance_tasks;
 pub mod instance_maintenance_tasks;
 mod node_maintenance_tasks;
+mod spv_maintenance_tasks;
 
 use crate::action::GOATMessageContent;
-use crate::env::is_relayer;
+use crate::env::{is_enable_update_spv_contract, is_relayer};
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
     scan_obsolete_sibling_graphs,
@@ -14,6 +15,7 @@ use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_expiration_monitor, instance_window_expiration_monitor,
 };
 use crate::scheduled_tasks::node_maintenance_tasks::node_available_pbtc_update_monitor;
+use crate::scheduled_tasks::spv_maintenance_tasks::spv_header_hash_update;
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
@@ -54,6 +56,12 @@ async fn run(
         && let Err(err) = node_available_pbtc_update_monitor(local_db, goat_client).await
     {
         warn!("node_available_pbtc_update_monitor, err {:?}", err)
+    }
+
+    if is_enable_update_spv_contract()
+        && let Err(err) = spv_header_hash_update(btc_client, goat_client).await
+    {
+        warn!("spv_header_hash_update, err {:?}", err)
     }
 
     if is_processing_gateway_history_events(local_db, goat_client).await? {

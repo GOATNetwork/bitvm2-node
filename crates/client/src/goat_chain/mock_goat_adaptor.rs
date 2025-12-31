@@ -332,6 +332,22 @@ impl ChainAdaptor for MockAdaptor {
         Ok(0)
     }
 
+    async fn btc_spv_post_block_hash(
+        &self,
+        _height: u64,
+        _header_hash: &[u8; 32],
+    ) -> anyhow::Result<String> {
+        Ok(hex::encode(generate_random_bytes(32)))
+    }
+
+    async fn btc_spv_post_block_hash_batch(
+        &self,
+        _heights: &[u64],
+        _header_hashes: &[[u8; 32]],
+    ) -> anyhow::Result<String> {
+        Ok(hex::encode(generate_random_bytes(32)))
+    }
+
     async fn ss_update_sequencer_set(
         &self,
         _goat_height: U256,
