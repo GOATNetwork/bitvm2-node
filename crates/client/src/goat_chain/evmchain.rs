@@ -311,6 +311,14 @@ impl EvmChain {
     ) -> anyhow::Result<String> {
         self.adaptor.btc_spv_post_block_hash(height, header_hash).await
     }
+
+    pub async fn btc_spv_post_block_hash_batch(
+        &self,
+        heights: &[u64],
+        header_hashes: &[[u8; 32]],
+    ) -> anyhow::Result<String> {
+        self.adaptor.btc_spv_post_block_hash_batch(heights, header_hashes).await
+    }
     pub async fn stake_mana_stake_token_address(&self) -> anyhow::Result<[u8; 20]> {
         self.adaptor.stake_mana_stake_token_address().await
     }

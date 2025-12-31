@@ -594,6 +594,13 @@ impl GOATClient {
         self.chain_service.btc_spv_post_block_hash(height, header_hash).await
     }
 
+    pub async fn btc_spv_post_block_hash_batch(
+        &self,
+        heights: &[u64],
+        header_hashes: &[[u8; 32]],
+    ) -> anyhow::Result<String> {
+        self.chain_service.btc_spv_post_block_hash_batch(heights, header_hashes).await
+    }
     pub async fn gateway_get_graph_ids_by_instance_id(
         &self,
         instance_id: &Uuid,
