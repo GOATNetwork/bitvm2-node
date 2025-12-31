@@ -232,8 +232,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         {
             Ok(tag) => Ok(tag),
             Err(e) => {
-                tracing::error!("Watch event task error: {}", e);
-                Err("watch_error".to_string())
+                tracing::error!("Maintenance task error: {}", e);
+                Err("maintenance_error".to_string())
             }
         }
     }));
