@@ -72,9 +72,15 @@ pub fn watch_longest_chain(
     let expected_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
     assert_eq!(commit_sequencer_set_hash, expected_seqeuencer_set_hash);
 
-    //let commitment = commit_chain::extract_op_return(&commit_chain_output.commit_txn.output);
-    //assert!(commitment[0..32], commit_sequencer_set_hash);
-    //assert!(commitment[32..64], state_chain_output.chain_state.latest_evm_block_hash);
+    // check commit chain's genesis block
+    let commitment =
+        commit_chain::extract_op_return_data(&commit_chain_output.chain_state.commit_txn.output);
+    if let tendermint::Hash::Sha256(x) = expected_seqeuencer_set_hash {
+        assert_eq!(commitment[0..32], x);
+    } else {
+        panic!("Invalid commitment: inconsistent sequencer set hash");
+    };
+    assert_eq!(commitment[32..64], state_chain_output.chain_state.genesis_evm_block_hash[..]);
 
     println!("commit public inputs");
     // commit public inputs
@@ -242,6 +248,16 @@ pub fn propose_longest_chain(
     // check the equivalence of sequencer set
     let commit_sequencer_set_hash = sequencer_hash(&commit_chain_output.chain_state.sequencers);
     let expected_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
+
+    // check commit chain's genesis block
+    let commitment =
+        commit_chain::extract_op_return_data(&commit_chain_output.chain_state.commit_txn.output);
+    if let tendermint::Hash::Sha256(x) = expected_seqeuencer_set_hash {
+        assert_eq!(commitment[0..32], x);
+    } else {
+        panic!("Invalid commitment: inconsistent sequencer set hash");
+    };
+    assert_eq!(commitment[32..64], state_chain_output.chain_state.genesis_evm_block_hash[..]);
 
     assert_eq!(commit_sequencer_set_hash, expected_seqeuencer_set_hash);
 
