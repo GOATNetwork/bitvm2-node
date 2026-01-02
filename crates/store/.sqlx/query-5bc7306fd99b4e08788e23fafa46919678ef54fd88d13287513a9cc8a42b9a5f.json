@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE goat_tx_record\n             SET processing_status = ?\n             where instance_id = ?\n               AND graph_id = ?\n               AND tx_type = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "5bc7306fd99b4e08788e23fafa46919678ef54fd88d13287513a9cc8a42b9a5f"
+}

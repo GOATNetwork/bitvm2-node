@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                graph_id AS  \"graph_id:Uuid\",\n                instance_id AS  \"instance_id:Uuid\",\n                process_data,\n                is_endorsed,\n                created_at,\n                updated_at\n             FROM pegin_graph_process_data\n             WHERE graph_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "graph_id:Uuid",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "instance_id:Uuid",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "process_data",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_endorsed",
+        "ordinal": 3,
+        "type_info": "Bool"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ac6bd6320b6528a6926e9f8390a43281faf5e6df70930a6dd38c3d9c3d254631"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO watch_contract (contract_addr, the_graph_url, gap, from_height, status, extra, updated_at, created_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?)\n             ON CONFLICT (contract_addr) DO UPDATE SET the_graph_url = excluded.the_graph_url,\n                                            gap            = excluded.gap,\n                                            from_height    = excluded.from_height,\n                                            status         = excluded.status,\n                                            extra          = excluded.extra,\n                                            updated_at     = excluded.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "34fdf7dc8d12875fc51fb50afb83a10cd00aa69286f5d4ea2127e00aaf11b9eb"
+}

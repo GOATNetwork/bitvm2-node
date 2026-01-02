@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT count(*) AS length\n               FROM pegin_graph_process_data\n               WHERE instance_id = ? AND is_endorsed = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "length",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b5317ab21d42adb9b52c81ede4bc0a66f917d857b6c323c7ae75d01a84d88ae0"
+}
