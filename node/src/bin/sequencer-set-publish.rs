@@ -148,6 +148,10 @@ fn save_output(input: OutputData, output_file: &str) {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    Pubkey {
+        #[arg(long, short, value_delimiter = ',')]
+        btc_key_wifs: Vec<String>,
+    },
     Fund {
         #[arg(long, env = "FUND_BTC_KEY_WIF")]
         fund_btc_key_wif: Option<String>,
@@ -215,6 +219,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     match args.command {
+        Commands::Pubkey { btc_key_wifs } => {
+            // calculate compressed public key
+            btc_key_wifs.iter().for_each(|btc_key_wif| {
+                let secp = secp256k1::Secp256k1::new();
+                let private_key = PrivateKey::from_wif(&btc_key_wif).expect("Invalid BTC WIF Key");
+                println!("Public Key: {}", private_key.public_key(&secp));
+            });
+            Ok(())
+        }
         Commands::Fund { fund_btc_key_wif, btc_public_keys } => {
             action_fund_publishers(
                 &btc_client,
