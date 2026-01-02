@@ -570,21 +570,6 @@ async fn action_sign_sequencer_set_update(
     let replenish_fee = Amount::from_sat(fee_rate)
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as u64
         + relayer_fee;
-
-    let fee_tx = btc_client.get_tx(&fee_tx_outpoint.txid).await?.expect("fee tx doesn't exist");
-    let (update_connector, _update_connector_value, _replenish_fee_connector_value) =
-        match &update_connector {
-            Some(update_connector) => {
-                let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
-                (
-                    Some(*update_connector),
-                    Some(tmp_tx.output[update_connector.vout as usize].value),
-                    Some(fee_tx.output[fee_tx_outpoint.vout as usize].value),
-                )
-            }
-            None => (None, None, Some(replenish_fee)),
-        };
-
     let mut commitment = [0u8; 64];
     commitment[0..32].copy_from_slice(&sequencer_set_hash);
     commitment[32..].copy_from_slice(&goat_block_hash[0..32]);
@@ -609,7 +594,7 @@ async fn action_sign_sequencer_set_update(
                 let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
                 (Some(*update_connector), tmp_tx.output[update_connector.vout as usize].value)
             };
-            (Some(update_connector_value), Some(fee_tx.output[0].value))
+            (Some(update_connector_value), Some(fee_tx.output[fee_tx_outpoint.vout as usize].value))
         }
     };
 
