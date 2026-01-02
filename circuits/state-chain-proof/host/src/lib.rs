@@ -83,7 +83,7 @@ impl LongRunning for Args {
             next_args.start,
             self.batch_size
         );
-        next_args.blocks = format!("{}.blocks", next_args.output_proof);
+        next_args.blocks = format!("{}.blocks", next_args.input_proof);
         next_args
     }
 }
@@ -195,10 +195,28 @@ pub async fn fetch_state_chain(
 
     for i in start..(start + batch_size) {
         let (_, cl_block_number, _goat_block_hash) =
-            fetch_cbft_validator_info(cosmos_rpc_url, i).await?;
-        let cosmos_txns = fetch_cbft_tx_data(cosmos_rpc_url, cl_block_number).await?;
-        let cosmos_block = fetch_cosmos_block(cosmos_rpc_url, cl_block_number).await?;
-        let evm_block = fetch_exection_layer_block(&execution_layer_rpc, i, &genesis).await?;
+            fetch_cbft_validator_info(cosmos_rpc_url, i).await.map_err(|e| {
+                tracing::error!("fetch_cbft_tx_data: {e:?}");
+                // GOAT's block time is 3 seconds
+                proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
+            })?;
+        let cosmos_txns =
+            fetch_cbft_tx_data(cosmos_rpc_url, cl_block_number).await.map_err(|e| {
+                tracing::error!("fetch_cbft_tx_data: {e:?}");
+                proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
+            })?;
+        let cosmos_block =
+            fetch_cosmos_block(cosmos_rpc_url, cl_block_number).await.map_err(|e| {
+                tracing::error!("fetch_cosmos_block: {e:?}");
+                proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
+            })?;
+
+        let evm_block =
+            fetch_exection_layer_block(&execution_layer_rpc, i, &genesis).await.map_err(|e| {
+                tracing::error!("fetch_exection_layer_block: {e:?}");
+                proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
+            })?;
+        println!("block: {i}, cl_block_number: {cl_block_number}, txns: {}", cosmos_txns.len());
 
         let withdrawals = if !graph_block_numbers.is_empty() {
             let indices: Vec<usize> = graph_block_numbers
@@ -270,15 +288,17 @@ impl ProofBuilder for StateChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof)).unwrap();
+            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof))
+                .context("Read public input")?;
             Some(public_inputs)
         };
 
         let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash) = match prev_receipt.clone() {
             Some(public_inputs) => {
                 let proof_bytes =
-                    fs::read(input_proof).context("Failed to read input proof file").unwrap();
-                let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof)).unwrap();
+                    fs::read(input_proof).context("Failed to read input proof file")?;
+                let zkm_vk_hash =
+                    fs::read(&format!("{}.vk_hash.bin", input_proof)).context("Read vk_hash")?;
                 let prev_output: StateChainCircuitOutput =
                     zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                 (

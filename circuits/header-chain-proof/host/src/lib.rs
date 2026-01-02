@@ -98,7 +98,7 @@ pub async fn fetch_header_chain(
     writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64))?;
 
     let mut i = start;
-    let mut retries = 3;
+    let mut retries = 9;
     while i < start + batch_size {
         tracing::info!("get block by height: {i}");
         match btc_client.get_block_by_height(i as u32).await {
@@ -113,7 +113,7 @@ pub async fn fetch_header_chain(
             Err(e) => {
                 tracing::error!("get block by height {i} error, {e:?}");
                 retries -= 1;
-                tokio::time::sleep(tokio::time::Duration::from_millis(10000 - retries * 2000))
+                tokio::time::sleep(tokio::time::Duration::from_millis(10000 - retries * 1000))
                     .await;
                 if retries == 0 {
                     anyhow::bail!("get block error");

@@ -32,9 +32,9 @@ INSERT INTO long_running_task_proof (
     extra
 ) VALUES (
     0,
-    503050,
+    116000,
     'header-chain',
-    '../circuits/data/header-chain/0-503050.bin',
+    '../circuits/data/header-chain/0-116000.bin',
     3147770424,
     2,
     637403,

@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::config::ProofBuilderConfig;
-use crate::task::{fetch_latest_long_running_task, update_long_running_task};
+use crate::task::{create_long_running_task, fetch_latest_long_running_task};
 
 #[tracing::instrument(level = "info", skip(cancellation_token))]
 pub(crate) fn spawn_header_chain_proof_task(
@@ -18,6 +18,7 @@ pub(crate) fn spawn_header_chain_proof_task(
     cancellation_token: CancellationToken,
 ) -> JoinHandle<anyhow::Result<header_chain_proof::Args>> {
     let mut args = args.clone();
+    let mut large_interval = interval;
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(initial_delay)) => {}
@@ -29,8 +30,7 @@ pub(crate) fn spawn_header_chain_proof_task(
         let builder = HeaderChainProofBuilder::new();
         loop {
             tokio::select! {
-                // TODO: handle err and retry
-                _ = tokio::time::sleep(Duration::from_secs(interval)) => {
+                _ = tokio::time::sleep(Duration::from_secs(large_interval)) => {
                     let next_task = fetch_latest_long_running_task(&local_db, HeaderChainProofBuilder::name()).await?;
                     if let Some(next_task) = next_task {
                         info!("Header chain's next task: {next_task:?}");
@@ -56,9 +56,11 @@ pub(crate) fn spawn_header_chain_proof_task(
                         Ok(data) => data,
                         Err(err) => {
                             tracing::error!("Fetch header blocks error, {err:?}");
+                            large_interval = 30;
                             continue;
                         }
                     };
+                    large_interval = interval;
 
                     let ctx =
                        ProofRequest::HeaderChainProofRequest {
@@ -80,7 +82,7 @@ pub(crate) fn spawn_header_chain_proof_task(
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
                     let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
-                    update_long_running_task(&local_db, args.start as u64, args.batch_size as u64, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, HeaderChainProofBuilder::name(), proving_duration as i64, proving_time as i64, zkm_version).await?;
+                    create_long_running_task(&local_db, args.start as u64, args.batch_size as u64, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, HeaderChainProofBuilder::name(), proving_duration as i64, proving_time as i64, store::ProofState::Proven, zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args, HeaderChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {

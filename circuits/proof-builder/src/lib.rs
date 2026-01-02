@@ -2,12 +2,13 @@ use anyhow::Result;
 use bitcoin::{Block, ScriptBuf, Transaction, TxOut};
 use commit_chain::CircuitCommit;
 use header_chain::{CircuitBlockHeader, CircuitTransaction};
+use serde::{Deserialize, Serialize};
 use state_chain::CircuitStateBlock;
 use thiserror::Error;
 use zkm_sdk::{ProverClient, ZKMProofWithPublicValues};
 use zkm_sdk::{ZKMProvingKey, ZKMVerifyingKey};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProofRequest {
     HeaderChainProofRequest {
         init_input: bool,

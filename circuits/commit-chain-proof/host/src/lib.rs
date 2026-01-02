@@ -70,7 +70,7 @@ impl LongRunning for Args {
             std::path::Path::new(&self.output_proof).parent().unwrap().to_str().unwrap(),
             next_args.start,
         );
-        next_args.commits = format!("{}.commits", next_args.output_proof);
+        next_args.commits = format!("{}.commits", next_args.input_proof);
         next_args
     }
 }
@@ -175,15 +175,17 @@ impl ProofBuilder for CommitChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof)).unwrap();
+            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof))
+                .context("Read public input")?;
             //let prev: CommitChainCircuitOutput = serde_json::from_slice(&public_inputs).unwrap();
             Some(public_inputs)
         };
         let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash) = match prev_receipt.clone() {
             Some(public_inputs) => {
                 let proof_bytes =
-                    fs::read(input_proof).context("Failed to read input proof file").unwrap();
-                let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof)).unwrap();
+                    fs::read(input_proof).context("Failed to read input proof file")?;
+                let zkm_vk_hash =
+                    fs::read(&format!("{}.vk_hash.bin", input_proof)).context("Read vk hash")?;
                 let prev_output: CommitChainCircuitOutput =
                     zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                 (

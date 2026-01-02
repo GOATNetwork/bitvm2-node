@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
         info!("start generate proof tasks");
         let cancel_token_clone = cancellation_token.clone();
         task_handles.push(tokio::spawn(async move {
-            match run_generate_proof_tasks(cfg, local_db, 5, cancel_token_clone).await {
+            match run_generate_proof_tasks(cfg, local_db, 1, cancel_token_clone).await {
                 Ok(tag) => Ok(tag),
                 Err(e) => {
                     tracing::error!("Main program is exiting: {e:?}");

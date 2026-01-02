@@ -154,7 +154,7 @@ We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optiona
 
 ```
 #export EL_START_BLOCK_NUMBER=9511050
-export EL_START_BLOCK_NUMBER=9911050
+export EL_START_BLOCK_NUMBER=9917590
 export BATCH_SIZE=10
 export L2_CONTRACT_ADDRESS=0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f
 
@@ -172,7 +172,7 @@ If a challenge is happened, each watchtower should broadcast a `watchtower-chall
 export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .txid)
-export HEADER_CHAIN_INPUT_PROOF="data/header-chain/503050-10.bin"
+export HEADER_CHAIN_INPUT_PROOF="data/header-chain/0-116000.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/0-1.bin"
 export LATEST_STATE_BLOCK_HASH="0x7908184bce067fa5a4508d309cbaf22dd1e0b586ad2dd42c0e51a5308a7bd815"
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"
@@ -216,7 +216,7 @@ After calling the [`proceedWithdraw`](https://github.com/GOATNetwork/bitvm2-L2-c
 export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .genesis_txid)
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.2 | jq -r .txid)
-export HEADER_CHAIN_INPUT_PROOF="data/header-chain/503050-10.bin"
+export HEADER_CHAIN_INPUT_PROOF="data/header-chain/0-116000.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/2-1.bin"
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"
 export LATEST_STATE_BLOCK_HASH="0x7908184bce067fa5a4508d309cbaf22dd1e0b586ad2dd42c0e51a5308a7bd815"

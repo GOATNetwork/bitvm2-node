@@ -8941,6 +8941,7 @@ dependencies = [
  "bitcoin-light-client-circuit",
  "commit-chain",
  "header-chain",
+ "serde",
  "sha2 0.10.9",
  "state-chain",
  "thiserror 1.0.69",

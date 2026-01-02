@@ -319,7 +319,7 @@ pub(crate) async fn fetch_on_demand_task(
 
 /// table schema: (start, end, path_to_proof, cycles, update_time, table_name)
 /// * table_name: header-chain | state-chain | commit-chain
-pub(crate) async fn update_long_running_task(
+pub(crate) async fn create_long_running_task(
     local_db: &LocalDB,
     start: u64,
     batch_size: u64,
@@ -330,6 +330,7 @@ pub(crate) async fn update_long_running_task(
     chain_name: String,
     total_time_to_proof: i64,
     proving_time: i64,
+    proof_state: ProofState,
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
@@ -342,7 +343,7 @@ pub(crate) async fn update_long_running_task(
             public_value_hex: Some(public_value_hex),
             proof_size,
             cycles: cycles as i64,
-            proof_state: ProofState::Proven.to_i64(),
+            proof_state: proof_state.to_i64(),
             total_time_to_proof,
             proving_time,
             zkm_version,
@@ -350,6 +351,44 @@ pub(crate) async fn update_long_running_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
+        .await?)
+}
+
+pub(crate) async fn update_long_running_task(
+    local_db: &LocalDB,
+    start_index: i64,
+    batch_size: i64,
+    path_to_proof: String,
+    public_value_hex: String,
+    proof_size: i64,
+    cycles: u64,
+    chain_name: String,
+    proving_time: i64,
+    zkm_version: String,
+) -> anyhow::Result<u64> {
+    let mut storage_processor = local_db.acquire().await?;
+    let task = storage_processor
+        .find_long_running_task_proof_including_block_number(start_index as i64, chain_name.clone())
+        .await?;
+    if task.is_none() {
+        anyhow::bail!(
+            "Long running task not found for chain: {chain_name}, start_index: {start_index}"
+        );
+    }
+    let total_time_to_proof = (current_time_secs() - task.unwrap().created_at) * 1000;
+    Ok(storage_processor
+        .update_long_running_task_proof_success(
+            start_index,
+            &chain_name,
+            batch_size,
+            path_to_proof,
+            public_value_hex,
+            proof_size,
+            cycles as i64,
+            total_time_to_proof,
+            proving_time,
+            &zkm_version,
+        )
         .await?)
 }
 
