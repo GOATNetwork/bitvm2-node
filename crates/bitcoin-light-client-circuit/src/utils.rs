@@ -104,6 +104,10 @@ pub fn create_sequencer_update_partial_tx(
     next_update_connector: Address,
     relayer_fee: Amount,
 ) -> Result<Transaction, Box<dyn std::error::Error>> {
+    assert!(
+        update_connector.is_some() || replenish_fee_connector.is_some(),
+        "At least one of update_connector or replenish_fee_connector must be provided"
+    );
     let txout_next_connector =
         TxOut { value: relayer_fee, script_pubkey: next_update_connector.script_pubkey() };
 

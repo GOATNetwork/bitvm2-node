@@ -60,7 +60,7 @@ struct Args {
     #[arg(long, env, default_value = "https://rpc.testnet3.goat.network")]
     goat_rpc_url: String,
 
-    #[clap(long, env, default_value = "https://cosmos.testnet3.goat.network/")]
+    #[clap(long, env, default_value = "https://rpc.testnet3.goat.network/goat-rpc")]
     cosmos_rpc_url: String,
 
     #[arg(long, env, default_value_t = 2, env = "FEE_RATE")]
@@ -73,7 +73,7 @@ struct Args {
     output_file: String,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 struct OutputData {
     funding_input: Option<OutPoint>,
     fee_tx: Option<OutPoint>,
@@ -184,9 +184,9 @@ enum Commands {
     },
     Payfee {
         #[arg(long, env = "FUND_BTC_KEY_WIF")]
-        fund_btc_key_wif: Option<String>,
-        #[arg(long, env = "OWNER_BTC_KEY_WIF")]
-        owner_btc_key_wif: Option<String>,
+        fund_btc_key_wif: String,
+        #[arg(long, env = "OWNER_BTC_PUBLIC_KEY")]
+        owner_btc_public_key: String,
         #[arg(long)]
         funding_input_txid: Option<String>,
         #[arg(long)]
@@ -217,6 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         _ => OutputData::default(),
     };
+    println!("cached output: {:?}", cached_output);
 
     match args.command {
         Commands::Pubkey { btc_key_wifs } => {
@@ -239,7 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Payfee {
             fund_btc_key_wif,
-            owner_btc_key_wif,
+            owner_btc_public_key,
             funding_input_txid,
             funding_input_vout,
             goat_evm_address,
@@ -253,8 +254,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             action_push_fee_tx(
                 &btc_client,
-                fund_btc_key_wif,
-                owner_btc_key_wif,
+                &fund_btc_key_wif,
+                &owner_btc_public_key,
                 total,
                 args.fee_rate,
                 funding_input,
@@ -302,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
 
             let sequencers = fetch_validators(&args.cosmos_rpc_url, cosmos_block_number).await?;
-            let fee_tx = cached_output.fee_tx.unwrap();
+            let fee_tx = cached_output.fee_tx;
             let update_connector = cached_output.update_connector;
 
             action_push_sequencer_set_update(
@@ -460,8 +461,8 @@ async fn action_push_sequencer_set_update(
     btc_public_keys: Vec<secp256k1::PublicKey>,
     next_btc_public_keys: Vec<secp256k1::PublicKey>,
     fee_rate: u64,
-    fee_tx_outpoint: OutPoint,
-    update_connector: Option<OutPoint>,
+    fee_tx_outpoint: Option<OutPoint>,
+    update_connector_outpoint: Option<OutPoint>,
     goat_block_number: u64,
     sequencer_set_hash: [u8; 32],
     goat_block_hash: [u8; 32],
@@ -494,28 +495,35 @@ async fn action_push_sequencer_set_update(
     let next_redeem_script = create_sequencer_update_script(&next_btc_public_keys, next_threshold);
     let next_update_connector_address = Address::p2wsh(&next_redeem_script, btc_client.network());
 
-    let replenish_fee = Amount::from_sat(fee_rate)
-        * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as u64
-        + relayer_fee;
-
-    println!("replenish fee: {replenish_fee:?}");
     println!("sigs: {sigs:?}");
-    // read public key and threshold from smart contract, which is consistency with btc_public_keys
-    let fee_tx = btc_client.get_tx(&fee_tx_outpoint.txid).await?.expect("fee tx doesn't exist");
 
     // update the sequencer set publish tx with multisig signatures
-    let (update_connector, update_connector_value, replenish_fee_connector_value) =
-        match &update_connector {
-            Some(update_connector) => {
-                let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
-                (
-                    Some(*update_connector),
-                    Some(tmp_tx.output[update_connector.vout as usize].value),
-                    Some(fee_tx.output[fee_tx_outpoint.vout as usize].value),
-                )
+    let (update_connector, update_connector_value) = match &update_connector_outpoint {
+        Some(update_connector) => {
+            let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
+            (Some(*update_connector), Some(tmp_tx.output[update_connector.vout as usize].value))
+        }
+        None => (None, None),
+    };
+
+    let (replenish_fee_connector, replenish_fee_connector_value) = match &fee_tx_outpoint {
+        Some(fee_tx_outpoint) => match btc_client.get_tx(&fee_tx_outpoint.txid).await? {
+            Some(fee_tx) => {
+                (Some(*fee_tx_outpoint), Some(fee_tx.output[fee_tx_outpoint.vout as usize].value))
             }
-            None => (None, None, Some(replenish_fee)),
-        };
+            None => {
+                panic!("Fee tx {} not found, treating as genesis commit tx", fee_tx_outpoint.txid)
+            }
+        },
+        None => {
+            let replenish_fee = Amount::from_sat(fee_rate)
+                * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73)
+                    as u64
+                + relayer_fee;
+            println!("replenish fee: {replenish_fee:?}");
+            (None, Some(replenish_fee))
+        }
+    };
 
     // Skip construction of the genesis tx
     let mut commitment = [0u8; 64];
@@ -524,7 +532,7 @@ async fn action_push_sequencer_set_update(
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,
         &update_connector,
-        &Some(fee_tx_outpoint),
+        &replenish_fee_connector,
         next_update_connector_address.clone(),
         relayer_fee,
     )?;
@@ -596,9 +604,6 @@ async fn action_sign_sequencer_set_update(
     )?;
 
     let owner_private_key = PrivateKey::from_wif(owner_btc_key_wif.as_ref().unwrap())?;
-
-    let fee_tx = btc_client.get_tx(&fee_tx_outpoint.txid).await?.expect("fee tx doesn't exist");
-
     let (update_connector_value, _replenish_fee_connector_value) = match &update_connector {
         None => (None, Some(replenish_fee)),
         Some(update_connector) => {
@@ -607,6 +612,8 @@ async fn action_sign_sequencer_set_update(
                 let tmp_tx = btc_client.get_tx(&update_connector.txid).await?.unwrap();
                 (Some(*update_connector), tmp_tx.output[update_connector.vout as usize].value)
             };
+            let fee_tx =
+                btc_client.get_tx(&fee_tx_outpoint.txid).await?.expect("fee tx doesn't exist");
             (Some(update_connector_value), Some(fee_tx.output[fee_tx_outpoint.vout as usize].value))
         }
     };
@@ -642,8 +649,9 @@ async fn action_sign_sequencer_set_update(
 #[allow(clippy::too_many_arguments)]
 async fn action_push_fee_tx(
     btc_client: &BTCClient,
-    fund_btc_key_wif: Option<String>,
-    owner_btc_key_wif: Option<String>,
+    fund_btc_key_wif: &String,
+    //owner_btc_key_wif: &String,
+    owner_btc_public_key: &str,
     total: u32,
     fee_rate: u64,
     funding_input: Option<OutPoint>,
@@ -657,18 +665,14 @@ async fn action_push_fee_tx(
         * estimate_tx_vbytes(&[(threshold, total)], &[("p2wsh", 3)], 73) as u64
         + relayer_fee;
 
-    let feepayer_private_key = PrivateKey::from_wif(fund_btc_key_wif.as_ref().unwrap())?;
+    let feepayer_private_key = PrivateKey::from_wif(fund_btc_key_wif)?;
 
-    // TODO: can be public key
-    let owner_private_key = PrivateKey::from_wif(owner_btc_key_wif.as_ref().unwrap())?;
+    let owner_pubkey = CompressedPublicKey::from_str(&owner_btc_public_key)?;
     let funder_address = node_p2wsh_address(
         btc_client.network(),
         &PublicKey::from_private_key(&secp, &feepayer_private_key),
     );
-    let owner_p2wpkh = Address::p2wpkh(
-        &CompressedPublicKey::from_private_key(&secp, &owner_private_key)?,
-        btc_client.network(),
-    );
+    let owner_p2wpkh = Address::p2wpkh(&owner_pubkey, btc_client.network());
 
     let (first_input_utxo, first_input_value) = if let Some(funding_input) = funding_input {
         let tmp_tx = btc_client.get_tx(&funding_input.txid).await?.unwrap();
