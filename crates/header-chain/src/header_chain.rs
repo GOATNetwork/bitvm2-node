@@ -204,7 +204,7 @@ impl ChainState {
             0
         };
 
-        println!("network: {}", NETWORK_TYPE);
+        println!("network: {NETWORK_TYPE}");
         for block_header in block_headers {
             self.block_height = self.block_height.wrapping_add(1);
             let (target_to_use, expected_bits, work_to_add) = if IS_TESTNET4 {

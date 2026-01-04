@@ -217,14 +217,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         _ => OutputData::default(),
     };
-    println!("cached output: {:?}", cached_output);
 
     match args.command {
         Commands::Pubkey { btc_key_wifs } => {
             // calculate compressed public key
             btc_key_wifs.iter().for_each(|btc_key_wif| {
                 let secp = secp256k1::Secp256k1::new();
-                let private_key = PrivateKey::from_wif(&btc_key_wif).expect("Invalid BTC WIF Key");
+                let private_key = PrivateKey::from_wif(btc_key_wif).expect("Invalid BTC WIF Key");
                 println!("Hex Private Key: {}", private_key.inner.display_secret());
                 println!("Public Key: {}", private_key.public_key(&secp));
             });
@@ -650,7 +649,7 @@ async fn action_sign_sequencer_set_update(
 #[allow(clippy::too_many_arguments)]
 async fn action_push_fee_tx(
     btc_client: &BTCClient,
-    fund_btc_key_wif: &String,
+    fund_btc_key_wif: &str,
     owner_btc_public_key: &str,
     total: u32,
     fee_rate: u64,
@@ -667,7 +666,7 @@ async fn action_push_fee_tx(
 
     let feepayer_private_key = PrivateKey::from_wif(fund_btc_key_wif)?;
 
-    let owner_pubkey = CompressedPublicKey::from_str(&owner_btc_public_key)?;
+    let owner_pubkey = CompressedPublicKey::from_str(owner_btc_public_key)?;
     let funder_address = node_p2wsh_address(
         btc_client.network(),
         &PublicKey::from_private_key(&secp, &feepayer_private_key),
