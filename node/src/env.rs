@@ -215,7 +215,7 @@ pub fn get_btc_block_confirms() -> u64 {
     std::env::var(ENV_BTC_BLOCK_CONFIRMS)
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(3)
+        .unwrap_or(6)
 }
 pub fn get_node_goat_private_key() -> anyhow::Result<String> {
     std::env::var(ENV_GOAT_PRIVATE_KEY).map_err(|_| anyhow::anyhow!("Goat private key is missing"))
