@@ -100,7 +100,7 @@ pub async fn fetch_commit_chain(
 
         let op_return_data = extract_op_return_data(&commit_txn.output);
         let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
-        sequencer_set_hash.copy_from_slice(&op_return_data);
+        sequencer_set_hash.copy_from_slice(&op_return_data[0..32]);
 
         if let tendermint::Hash::Sha256(expected_hash) = sequencer_hash(&ci.sequencers) {
             assert_eq!(expected_hash, sequencer_set_hash);

@@ -13,7 +13,7 @@ output_proof = "../circuits/data/header-chain/116000-10.bin"
 bitcoin_network = "testnet4"
 
 [commit_chain]
-enable = false 
+enable = true 
 esplora_url = "http://127.0.0.1:13002"
 commit_info = "../circuits/data/commit-chain/commit_info.json.0"
 commits = "../circuits/data/commit-chain/commits.bin"
@@ -32,15 +32,15 @@ l2_contract_address = "0x26Aa99d72f5f85D60A1B44773B3897793981B7F7"
 #proceed_withdraw_method_id = "0xc3342df3"
 proceed_withdraw_method_id = "0xd3d8a3f4"
 #start = 9511050
-start = 10156007
+start = 10196849
 batch_size = 40
 execution_layer_rpc = "https://rpc.testnet3.goat.network"
 blocks = "../circuits/data/state-chain/state.blocks"
 ## input_proof is optional when init_input=true
-input_proof = "../circuits/data/state-chain/10156007-40.bin"
-output_proof = "../circuits/data/state-chain/10156007-40.bin"
+input_proof = "../circuits/data/state-chain/10196849-40.bin"
+output_proof = "../circuits/data/state-chain/10196849-40.bin"
 goat_network = "goattest"
-cosmos_rpc_url = "https://cosmos.testnet3.goat.network"
+cosmos_rpc_url = "https://rpc.testnet3.goat.network/goat-rpc"
 
 [watchtower]
 enable = false 
@@ -49,7 +49,7 @@ genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6
 latest_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
 header_chain_input_proof = "../circuits/data/header-chain/0-116000.bin"
 commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
-state_chain_input_proof = "../circuits/data/state-chain/10156007-40.bin"
+state_chain_input_proof = "../circuits/data/state-chain/10196849-40.bin"
 output = "../circuits/data/watchtower/output.bin"
 index = 1
 bitcoin_network = "testnet4"
@@ -65,7 +65,7 @@ watchtower_public_keys = "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035
 
 header_chain_input_proof = "../circuits/data/header-chain/0-116000.bin"
 commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
-state_chain_input_proof = "../circuits/data/state-chain/10156007-40.bin"
+state_chain_input_proof = "../circuits/data/state-chain/10196849-40.bin"
 output = "../circuits/data/operator/output.bin"
 included_watchtowers = "1"
 graph_id="0x00112233445566778899aabbccddeeff"

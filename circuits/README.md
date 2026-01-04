@@ -1,6 +1,6 @@
-# BitVM2 Circuits 
+# BitVM2 Circuits
 
-## Overview 
+## Overview
 
 Trust Setup: choose a snapshot of GOAT Pre Alpha Mainnet, which consists of (Seqeuncer Set, EVM Block Hash)
 
@@ -13,25 +13,32 @@ Main components:
 Circuits:
 
 * Watchtower proof(latest_sequencer_commit_txid, genesis_sequencer_commit_txid, header_chain_proof, commit_chain_proof, state_chain_proof, SPV)
+
 > * Constraints:
+>>
 >> * The latest_sequencer_commit_txid is included in the header chain proof
 >> * The latest_sequencer_commit_txid is the latest commit txn in the commit chain
 >> * The state chain's latest block(EVM block) is signed by the sequencer set in the latest block of commit chain
+>>
 > * Outputs: total_work, the bitcoin block height that includes the latest sequencer set commitment
 
-
 * Operator proof:
+
 > * Constraints:
+
 >> * The latest_sequencer_commit_txid is included in the header chain proof
 >> * The latest_sequencer_commit_txid is the latest commit txn in the commit chain
 >> * The state chain's latest block(EVM block) is signed by the sequencer set in the latest block of commit chain
 >> * For each watchtower proof,
+
 >>> * The watchtower challenge transaction is valid
 >>> * The proof is valid
 >>> * The graph is as same as the operator's graph id
 >>> * The operator's total work >= Watchtowers' largest total work
->>> * The operator's block height that includes the latest sequencer commit transaction is larger than the watchtower's 
+>>> * The operator's block height that includes the latest sequencer commit transaction is larger than the watchtower's
+
 >> * Verify that the withdrawal state change in the Gateway contract is correct
+
 > * Outputs: latest block hash of the header chain, hash(graph_id, operator's genesis sequencer commit transaction id, included_watchtowers)
 
 ## Circuit Upgrade
@@ -42,19 +49,18 @@ Given that the interval between Peg-in and Peg-out may extend over several month
 
 2. Modifications of guest program: Arise from protocol changes in Bitcoin, Cosmos, or Geth, result in different ELF and guest verification key.
 
-
 For case 1, Ziren's proof network can keep multiple recursion verification keys, and load the correct key with respect to the version in the proof.
 
-For case 2, 
-> * If there is no Ziren upgrade during this interval, and the inputs of the proof aggregation are compressed proofs, but with different `start_pc`, `pc`, etc. 
+For case 2,
+
+> * If there is no Ziren upgrade during this interval, and the inputs of the proof aggregation are compressed proofs, but with different `start_pc`, `pc`, etc.
 > * If there is some Ziren upgrades during this interval, once we support the multiple verification keys in Ziren, this problem can be reduced to the former one.
 
-
-With multiple proof recursions, we generate a Groth16 proof, and verify with `Groth16Verifier::verify(proof, zkm_public_values, zkm_vk_hash, groth16_vk)`. 
+With multiple proof recursions, we generate a Groth16 proof, and verify with `Groth16Verifier::verify(proof, zkm_public_values, zkm_vk_hash, groth16_vk)`.
 
 ## Preparation
 
-```
+```bash
 mkdir -p data/header-chain
 mkdir -p data/commit-chain
 mkdir -p data/state-chain
@@ -85,16 +91,17 @@ docker compose up -d
 bash cron-header-chain-proof.sh $start $batch
 ```
 
-
 ## Sequencer Set Commit Chain
 
 * Publish sequencer set commitment with correct envs `BITCOIN_NETWORK` and `ESPLORA_URL`.
 
-Example: 
+Example:
+
 ```bash
 cd node
 GOAT_BLOCK_NUMBER=9511050 bash -x ssp-ci.sh
 ```
+
 All the initial publishers are hardcoded. In the `ssp-ci.sh`, we simutate 2-round publisher rotations.
 `GOAT_BLOCK_NUMBER` is the GOAT's current block number, which is used as the key to fetch sequencer set commitment.
 
@@ -126,8 +133,8 @@ After publishing, a `commit_info.json` of format as below will be generated.
 ]
 ```
 
-* txid: the publisher's commitment transaction of Cosmos sequencer set. 
-* threshold: the number of publisher's signature 
+* txid: the publisher's commitment transaction of Cosmos sequencer set.
+* threshold: the number of publisher's signature
 * publisher_public_keys: the publisher's compressed public keys
 * sequencers: sequencer's public keys, obtained from cosmos's `/validators`.
 
@@ -150,7 +157,7 @@ State Chain represents the L2's state transition, which checks the EVM's executi
 We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optionally, the block may contain a `proceedWithdraw` transaction.
 
 * Submit the `proceedWithdraw` transaction on GOAT Network.
-* Generate state-chain proof. 
+* Generate state-chain proof.
 
 ```
 #export EL_START_BLOCK_NUMBER=9511050
@@ -200,6 +207,7 @@ RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- 
 cd crates/bitvm2-ga
 cargo test -r test_take2
 ```
+
 Make sure the operator has enough balance, if not, run this command to fund the operator.
 
 ```
@@ -210,7 +218,7 @@ Get the withdraw-challenge-init-txid , graph-id, watchtower's challenge transact
 
 * Generate proofs
 
-After calling the [`proceedWithdraw`](https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L588), we generate the operator proof with corresponding `graph_id` and transaction id. 
+After calling the [`proceedWithdraw`](https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L588), we generate the operator proof with corresponding `graph_id` and transaction id.
 
 ```
 export BITCOIN_NETWORK=regtest

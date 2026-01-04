@@ -1,3 +1,8 @@
+#!/bin/bash
+
+###
+# This is for integration test on Regtest only.
+###
 set -e
 source .env
 

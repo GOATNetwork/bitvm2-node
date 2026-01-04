@@ -123,15 +123,15 @@ pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
 pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
 
 pub fn get_network() -> Network {
-    let network = std::env::var(ENV_BITCOIN_NETWORK).unwrap_or("testnet".to_string());
+    let network = std::env::var(ENV_BITCOIN_NETWORK).unwrap_or("testnet4".to_string());
     match network.as_str() {
         "bitcoin" => Network::Bitcoin,
-        "testnet" => Network::Testnet,
+        "testnet4" => Network::Testnet4,
         "signet" => Network::Signet,
         "regtest" => Network::Regtest,
         _ => {
             warn!(
-                "Unknown BTC network: {network}, expect bitcoin, testnet, signet or regtest, return testnet by default"
+                "Unknown BTC network: {network}, expect bitcoin, testnet4, signet or regtest, return testnet by default"
             );
             Network::Testnet
         }

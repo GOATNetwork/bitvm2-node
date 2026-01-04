@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
-CMD="cargo run -r --bin header-chain-proof --package header-chain-proof"
+#CMD="cargo run -r --bin header-chain-proof --package header-chain-proof --"
+CMD="../target/release/header-chain-proof"
 DATA="data/header-chain"
 
 _start=0
@@ -24,7 +25,7 @@ function find_input_proof() {
 if [ $start -ne 0 ]; then
   input_file=$(find_input_proof $start)
 else
-  RUST_LOG=info $CMD -- --start 0 --batch-size $batch --init-input --output-proof "${DATA}/0-${batch}.bin" --block-headers $DATA/block_headers.bin --force-fetch
+  RUST_LOG=info $CMD --start 0 --batch-size $batch --init-input --output-proof "${DATA}/0-${batch}.bin" --block-headers $DATA/block_headers.bin --force-fetch
   input_file="0-${batch}.bin"
   start=$batch
 fi
@@ -34,7 +35,7 @@ echo "Start i=$start, batch=$batch"
 while true; do
   echo "Running for i=$start"
   #cp $DATA/${start}-${batch}.bin.blocks $DATA/block_headers.bin
-  RUST_LOG=info $CMD -- \
+  RUST_LOG=info $CMD \
     --start "$start" \
     --batch-size $batch \
     --block-headers $DATA/block_headers.bin \

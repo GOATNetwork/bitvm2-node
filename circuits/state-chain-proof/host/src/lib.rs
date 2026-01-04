@@ -42,7 +42,7 @@ pub struct Args {
     #[clap(long, env, default_value = "goattest")]
     pub goat_network: String,
 
-    #[clap(long, env, default_value = "https://cosmos.testnet3.goat.network/")]
+    #[clap(long, env, default_value = "https://rpc.testnet3.goat.network/goat-rpc")]
     pub cosmos_rpc_url: String,
 
     #[arg(long, default_value = "blocks.bin")]

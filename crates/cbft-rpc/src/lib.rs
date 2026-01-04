@@ -71,7 +71,7 @@ pub async fn fetch_cbft_validator_info(
     // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
     // 1. fetch the latest cosmos block height
     // 2. binary search cosmos block height between goat block height and latest cosmos block height
-    // > 2.1. fetch the block info and parse the first transction: // curl "https://cosmos.testnet3.goat.network/block?height=5756784" | jq .result.block.data
+    // > 2.1. fetch the block info and parse the first transction: // curl "https://rpc.testnet3.goat.network/goat-rpcblock?height=5756784" | jq .result.block.data
     let mut block_height = goat_block_height;
     let mut sequencer_hash = [0u8; 32];
     let mut goat_block_hash = [0u8; 32];
@@ -160,7 +160,7 @@ mod tests {
     async fn test_create_cosmos_light_client() {
         let block_number = 10000;
         let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
-            .unwrap_or("https://cosmos.testnet3.goat.network/".to_string());
+            .unwrap_or("https://rpc.testnet3.goat.network/goat-rpc".to_string());
         let result = fetch_cbft_tx_data(&cosmos_rpc_url, block_number).await;
         assert!(result.is_ok());
     }
@@ -168,7 +168,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_validators() {
         let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
-            .unwrap_or("https://cosmos.testnet3.goat.network/".to_string());
+            .unwrap_or("https://rpc.testnet3.goat.network/goat-rpc".to_string());
         let evm_block_number = 9511050;
         let (sequencer_hash, block_number, _) =
             fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number).await.unwrap();

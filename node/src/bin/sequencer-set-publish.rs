@@ -225,6 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             btc_key_wifs.iter().for_each(|btc_key_wif| {
                 let secp = secp256k1::Secp256k1::new();
                 let private_key = PrivateKey::from_wif(&btc_key_wif).expect("Invalid BTC WIF Key");
+                println!("Hex Private Key: {}", private_key.inner.display_secret());
                 println!("Public Key: {}", private_key.public_key(&secp));
             });
             Ok(())
@@ -650,7 +651,6 @@ async fn action_sign_sequencer_set_update(
 async fn action_push_fee_tx(
     btc_client: &BTCClient,
     fund_btc_key_wif: &String,
-    //owner_btc_key_wif: &String,
     owner_btc_public_key: &str,
     total: u32,
     fee_rate: u64,

@@ -21,7 +21,6 @@ pub const NETWORK_TYPE: &str = {
     match option_env!("BITCOIN_NETWORK") {
         Some(network) if matches!(network.as_bytes(), b"mainnet") => "mainnet",
         Some(network) if matches!(network.as_bytes(), b"testnet4") => "testnet4",
-        Some(network) if matches!(network.as_bytes(), b"testnet") => "testnet",
         Some(network) if matches!(network.as_bytes(), b"signet") => "signet",
         Some(network) if matches!(network.as_bytes(), b"regtest") => "regtest",
         None => "mainnet",
@@ -54,16 +53,6 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
             ),
             max_target_bytes: [
                 127, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0,
-            ],
-        },
-        Some(n) if matches!(n.as_bytes(), b"testnet") => NetworkConstants {
-            max_bits: 0x1D00FFFF,
-            max_target: U256::from_be_hex(
-                "00000000FFFF0000000000000000000000000000000000000000000000000000",
-            ),
-            max_target_bytes: [
-                0, 0, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0,
             ],
         },
@@ -215,6 +204,7 @@ impl ChainState {
             0
         };
 
+        println!("network: {}", NETWORK_TYPE);
         for block_header in block_headers {
             self.block_height = self.block_height.wrapping_add(1);
             let (target_to_use, expected_bits, work_to_add) = if IS_TESTNET4 {

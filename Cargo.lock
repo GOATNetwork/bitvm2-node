@@ -103,7 +103,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 [[package]]
 name = "alloy"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-contract",
@@ -166,7 +166,7 @@ dependencies = [
 [[package]]
 name = "alloy-consensus"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-eips 1.2.1",
  "alloy-primitives",
@@ -205,7 +205,7 @@ dependencies = [
 [[package]]
 name = "alloy-consensus-any"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-eips 1.2.1",
@@ -218,7 +218,7 @@ dependencies = [
 [[package]]
 name = "alloy-contract"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-dyn-abi",
@@ -330,7 +330,7 @@ dependencies = [
 [[package]]
 name = "alloy-eips"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-eip2124",
  "alloy-eip2930",
@@ -385,7 +385,7 @@ dependencies = [
 [[package]]
 name = "alloy-genesis"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-eips 1.2.1",
  "alloy-primitives",
@@ -438,7 +438,7 @@ dependencies = [
 [[package]]
 name = "alloy-json-rpc"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -477,7 +477,7 @@ dependencies = [
 [[package]]
 name = "alloy-network"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-consensus-any 1.2.1",
@@ -514,7 +514,7 @@ dependencies = [
 [[package]]
 name = "alloy-network-primitives"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-eips 1.2.1",
@@ -623,7 +623,7 @@ dependencies = [
 [[package]]
 name = "alloy-provider"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-chains",
  "alloy-consensus 1.2.1",
@@ -668,7 +668,7 @@ dependencies = [
 [[package]]
 name = "alloy-pubsub"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-json-rpc 1.2.1",
  "alloy-primitives",
@@ -733,7 +733,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-client"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-json-rpc 1.2.1",
  "alloy-primitives",
@@ -769,7 +769,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-anvil",
@@ -785,7 +785,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types-anvil"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-eth 1.2.1",
@@ -806,7 +806,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types-any"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus-any 1.2.1",
  "alloy-rpc-types-eth 1.2.1",
@@ -827,7 +827,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types-debug"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "derive_more 2.1.1",
@@ -851,7 +851,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types-engine"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-eips 1.2.1",
@@ -887,7 +887,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types-eth"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-consensus-any 1.2.1",
@@ -920,7 +920,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types-trace"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-eth 1.2.1",
@@ -933,7 +933,7 @@ dependencies = [
 [[package]]
 name = "alloy-rpc-types-txpool"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-eth 1.2.1",
@@ -954,7 +954,7 @@ dependencies = [
 [[package]]
 name = "alloy-serde"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "serde",
@@ -993,7 +993,7 @@ dependencies = [
 [[package]]
 name = "alloy-signer"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -1007,7 +1007,7 @@ dependencies = [
 [[package]]
 name = "alloy-signer-local"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-consensus 1.2.1",
  "alloy-network 1.2.1",
@@ -1118,7 +1118,7 @@ dependencies = [
 [[package]]
 name = "alloy-transport"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-json-rpc 1.2.1",
  "auto_impl",
@@ -1154,7 +1154,7 @@ dependencies = [
 [[package]]
 name = "alloy-transport-http"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-json-rpc 1.2.1",
  "alloy-transport 1.2.1",
@@ -1168,7 +1168,7 @@ dependencies = [
 [[package]]
 name = "alloy-transport-ipc"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-json-rpc 1.2.1",
  "alloy-pubsub",
@@ -1187,7 +1187,7 @@ dependencies = [
 [[package]]
 name = "alloy-transport-ws"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "alloy-pubsub",
  "alloy-transport 1.2.1",
@@ -1247,7 +1247,7 @@ dependencies = [
 [[package]]
 name = "alloy-tx-macros"
 version = "1.2.1"
-source = "git+https://github.com/alloy-rs/alloy#e551ce428a6ec50e4de61809dd9670366de12693"
+source = "git+https://github.com/alloy-rs/alloy#c442efbe3a0248ea14610a88be1fabc1bc8ec14e"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -3023,9 +3023,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.53"
+version = "4.5.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9e340e012a1bf4935f5282ed1436d1489548e8f72308207ea5df0e23d2d03f8"
+checksum = "c6e6ff9dcd79cff5cd969a17a545d79e84ab086e444102a591e288a8aa3ce394"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -3033,9 +3033,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.53"
+version = "4.5.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d76b5d13eaa18c901fd2f7fca939fefe3a0727a953561fefdf3b2922b8569d00"
+checksum = "fa42cf4d2b7a41bc8f663a7cab4031ebafa1bf3875705bfaf8466dc60ab52c00"
 dependencies = [
  "anstream",
  "anstyle",
@@ -5723,7 +5723,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.4",
  "tower-service",
- "webpki-roots 1.0.4",
+ "webpki-roots 1.0.5",
 ]
 
 [[package]]
@@ -6344,9 +6344,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.178"
+version = "0.2.179"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
+checksum = "c5a2d376baa530d1238d133232d15e239abad80d05838b4b59354e5268af431f"
 
 [[package]]
 name = "libgit2-sys"
@@ -8427,9 +8427,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pest"
-version = "2.8.4"
+version = "2.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbcfd20a6d4eeba40179f05735784ad32bdaef05ce8e8af05f180d45bb3e7e22"
+checksum = "2c9eb05c21a464ea704b53158d358a31e6425db2f63a1a7312268b05fe2b75f7"
 dependencies = [
  "memchr",
  "ucd-trie",
@@ -9575,7 +9575,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 1.0.4",
+ "webpki-roots 1.0.5",
 ]
 
 [[package]]
@@ -11750,7 +11750,7 @@ dependencies = [
 [[package]]
 name = "substrate-bn"
 version = "0.6.0"
-source = "git+https://github.com/ziren-patches/bn?branch=patch-0.6.0#aba71380457d798039111e6cc0fdf2e0718c6766"
+source = "git+https://github.com/ziren-patches/bn.git?branch=patch-0.6.0#aba71380457d798039111e6cc0fdf2e0718c6766"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -12154,9 +12154,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.48.0"
+version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408"
+checksum = "72a2903cd7736441aac9df9d7688bd0ce48edccaadf181c3b90be801e81d3d86"
 dependencies = [
  "bytes",
  "libc",
@@ -13166,14 +13166,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.4",
+ "webpki-roots 1.0.5",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.4"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2878ef029c47c6e8cf779119f20fcf52bde7ad42a731b2a304bc221df17571e"
+checksum = "12bed680863276c63889429bfd6cab3b99943659923822de1c8a39c49e4d722c"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -13902,7 +13902,7 @@ dependencies = [
 [[package]]
 name = "zkm-build"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -13913,7 +13913,7 @@ dependencies = [
 [[package]]
 name = "zkm-core-executor"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "anyhow",
  "bincode",
@@ -13951,7 +13951,7 @@ dependencies = [
 [[package]]
 name = "zkm-core-machine"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -14003,7 +14003,7 @@ dependencies = [
 [[package]]
 name = "zkm-cuda"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "bincode",
  "ctrlc",
@@ -14021,7 +14021,7 @@ dependencies = [
 [[package]]
 name = "zkm-curves"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "cfg-if",
  "curve25519-dalek",
@@ -14045,7 +14045,7 @@ dependencies = [
 [[package]]
 name = "zkm-derive"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -14054,7 +14054,7 @@ dependencies = [
 [[package]]
 name = "zkm-lib"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -14067,7 +14067,7 @@ dependencies = [
 [[package]]
 name = "zkm-primitives"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "bincode",
  "hex",
@@ -14085,7 +14085,7 @@ dependencies = [
 [[package]]
 name = "zkm-prover"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "anyhow",
  "bincode",
@@ -14123,7 +14123,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-circuit"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "hashbrown 0.14.5",
  "itertools 0.13.0",
@@ -14156,7 +14156,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-compiler"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "backtrace",
  "itertools 0.13.0",
@@ -14177,7 +14177,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-core"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "backtrace",
  "ff 0.13.1",
@@ -14214,7 +14214,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-derive"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -14223,7 +14223,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-gnark-ffi"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "anyhow",
  "bincode",
@@ -14247,7 +14247,7 @@ dependencies = [
 [[package]]
 name = "zkm-sdk"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "alloy-primitives",
  "alloy-signer 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -14294,7 +14294,7 @@ dependencies = [
 [[package]]
 name = "zkm-stark"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "arrayref",
  "hashbrown 0.14.5",
@@ -14336,7 +14336,7 @@ dependencies = [
 [[package]]
 name = "zkm-verifier"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -14358,7 +14358,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "strum_macros 0.26.4",
- "substrate-bn 0.6.0 (git+https://github.com/ziren-patches/bn?branch=patch-0.6.0)",
+ "substrate-bn 0.6.0 (git+https://github.com/ziren-patches/bn.git?branch=patch-0.6.0)",
  "thiserror 2.0.17",
  "zkm-core-executor",
  "zkm-core-machine",
@@ -14371,7 +14371,7 @@ dependencies = [
 [[package]]
 name = "zkm-zkvm"
 version = "1.2.3"
-source = "git+https://github.com/ProjectZKM/Ziren#44c893854e3ff79afdfb561cd22e0bd6a5d3a385"
+source = "git+https://github.com/ProjectZKM/Ziren#3fe07c52ac4b49e3faafda27cbbb447595614928"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -14389,9 +14389,9 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "1.0.5"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3280a1b827474fcd5dbef4b35a674deb52ba5c312363aef9135317df179d81b"
+checksum = "4ee2a72b10d087f75fb2e1c2c7343e308fe6970527c22a41caf8372e165ff5c1"
 
 [[package]]
 name = "zstd"
