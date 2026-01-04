@@ -108,11 +108,12 @@ pub mod todo_funcs {
     // other operations
     pub fn avg_block_time_secs(network: Network) -> u64 {
         match network {
-            Network::Bitcoin => 600, // 10 minutes
-            Network::Testnet => 300, // 5 minutes
-            Network::Regtest => 60,  // 1 minute
-            Network::Signet => 60,   // 1 minute
-            _ => 600,                // default to 10 minutes
+            Network::Bitcoin => 600,  // 10 minutes
+            Network::Testnet => 300,  // 5 minutes
+            Network::Testnet4 => 300, // 5 minutes
+            Network::Regtest => 60,   // 1 minute
+            Network::Signet => 60,    // 1 minute
+                                       // _ => 600,                // default to 10 minutes
         }
     }
     pub fn assert_commmit_num() -> usize {
@@ -1639,7 +1640,7 @@ pub async fn get_disprove_scripts(graph_params: &Bitvm2GraphParameters) -> Resul
 pub async fn get_fee_rate(client: &BTCClient) -> Result<f64> {
     match client.network() {
         //TODO mempool api /fee-estimates failed, fix it latter
-        Network::Testnet | Network::Regtest => Ok(2.0),
+        Network::Testnet | Network::Testnet4 | Network::Regtest => Ok(2.0),
         _ => {
             let res = client.get_fee_estimates().await?;
             Ok(*res.get(&DEFAULT_CONFIRMATION_TARGET).ok_or(anyhow!(
@@ -2081,7 +2082,7 @@ pub async fn build_cpfp_txns(
     parent_tx_total_input_amount: Amount,
 ) -> Result<Option<Transaction>> {
     let network = get_network();
-    if network == Network::Regtest || network == Network::Testnet {
+    if network == Network::Regtest || network == Network::Testnet || network == Network::Testnet4 {
         // skip cpfp in test network for testing convenience
         return Ok(None);
     }

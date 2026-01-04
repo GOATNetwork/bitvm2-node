@@ -49,11 +49,11 @@ struct Args {
     command: Commands,
 
     /// Bitcoin network
-    #[arg(long, env = ENV_BITCOIN_NETWORK, default_value = "testnet")]
+    #[arg(long, env = ENV_BITCOIN_NETWORK, default_value = "testnet4")]
     network: String,
 
     /// Esplora base URL (for Bitcoin RPC via Esplora)
-    #[arg(long, default_value = "https://mempool.space/testnet/api")]
+    #[arg(long, default_value = "https://mempool.space/testnet4/api")]
     esplora_url: String,
 }
 
@@ -140,13 +140,14 @@ async fn main() -> Result<()> {
     let network = match network {
         "bitcoin" => Network::Bitcoin,
         "testnet" => Network::Testnet,
+        "testnet4" => Network::Testnet4,
         "signet" => Network::Signet,
         "regtest" => Network::Regtest,
         _ => {
             tracing::warn!(
                 "Unknown BTC network: {network}, expect bitcoin, testnet, signet or regtest, return testnet by default"
             );
-            Network::Testnet
+            Network::Testnet4
         }
     };
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));

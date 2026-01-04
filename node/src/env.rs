@@ -133,7 +133,7 @@ pub fn get_network() -> Network {
             warn!(
                 "Unknown BTC network: {network}, expect bitcoin, testnet4, signet or regtest, return testnet by default"
             );
-            Network::Testnet
+            Network::Testnet4
         }
     }
 }
