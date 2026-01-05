@@ -912,6 +912,12 @@ pub(crate) async fn refresh_graph(
             return Ok((GraphStatus::OperatorKickOff, None));
         }
     }
+    if let Some(spent_txid) =
+        outpoint_spent_txid(btc_client, &kickoff_txid, connector_a_vout).await?
+        && spent_txid != take1_txid
+    {
+        update_graph_challenge_txid(local_db, graph_id, spent_txid).await?;
+    }
     // check Take2/Disprove
     let take2_txid = graph.take2.tx().compute_txid();
     if current_status == GraphStatus::Challenge {
@@ -4103,6 +4109,25 @@ pub async fn graph_exists(local_db: &LocalDB, instance_id: Uuid, graph_id: Uuid)
     } else {
         Ok(false)
     }
+}
+
+pub async fn update_graph_challenge_txid(
+    local_db: &LocalDB,
+    graph_id: Uuid,
+    txid: Txid,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    if let Some(graph) = storage_processor.find_graph(&graph_id).await?
+        && graph.challenge_txid.is_none()
+    {
+        info!("update_graph_challenge_txid update challenge_txid: {txid} for graph {graph_id}");
+        storage_processor
+            .update_graph(&GraphUpdate::new(graph_id).with_challenge_txid(txid.into()))
+            .await?;
+    } else {
+        info!("update_graph_challenge_txid no need to challenge_txid for graph {graph_id}");
+    }
+    Ok(())
 }
 
 pub async fn update_graph_status(
