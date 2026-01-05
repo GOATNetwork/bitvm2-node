@@ -47,6 +47,12 @@ pub(crate) fn spawn_commit_chain_proof_task(
                             args.start,
                             args.batch_size
                         );
+                        args.commits = format!(
+                            "{}/{}-{}.bin.commits",
+                            std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
+                            args.start,
+                            args.batch_size
+                        );
                         args.init_input = false;
                     }
                     info!("Commit chain proof generate task: generate proof, args: {args:?}");

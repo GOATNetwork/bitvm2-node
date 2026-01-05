@@ -100,6 +100,7 @@ pub trait LongRunning {
 
 #[derive(Debug, Default)]
 pub struct OnDemandTask {
+    pub task_index: i64,
     pub latest_sequencer_commit_txid: String,
     pub header_chain_input_proof: String,
     pub commit_chain_input_proof: String,
