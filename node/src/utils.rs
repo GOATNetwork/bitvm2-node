@@ -912,12 +912,15 @@ pub(crate) async fn refresh_graph(
             return Ok((GraphStatus::OperatorKickOff, None));
         }
     }
-    if let Some(spent_txid) =
-        outpoint_spent_txid(btc_client, &kickoff_txid, connector_a_vout).await?
-        && spent_txid != take1_txid
-    {
-        update_graph_challenge_txid(local_db, graph_id, spent_txid).await?;
-    }
+    update_graph_challenge_txid(
+        btc_client,
+        local_db,
+        graph_id,
+        kickoff_txid,
+        connector_a_vout,
+        take1_txid,
+    )
+    .await?;
     // check Take2/Disprove
     let take2_txid = graph.take2.tx().compute_txid();
     if current_status == GraphStatus::Challenge {
@@ -4111,18 +4114,37 @@ pub async fn graph_exists(local_db: &LocalDB, instance_id: Uuid, graph_id: Uuid)
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_graph_challenge_txid(
+    btc_client: &BTCClient,
     local_db: &LocalDB,
     graph_id: Uuid,
-    txid: Txid,
+    kickoff_txid: Txid,
+    connector_a_vout: u64,
+    take1_txid: Txid,
 ) -> Result<()> {
-    let mut storage_processor = local_db.acquire().await?;
-    if let Some(graph) = storage_processor.find_graph(&graph_id).await?
-        && graph.challenge_txid.is_none()
+    let graph = {
+        let mut storage_processor = local_db.acquire().await?;
+        match storage_processor.find_graph(&graph_id).await? {
+            Some(graph) => graph,
+            None => {
+                warn!("graph{graph_id} not in db");
+                return Ok(());
+            }
+        }
+    };
+
+    if graph.challenge_txid.is_none()
+        && let Some(spent_txid) =
+            outpoint_spent_txid(btc_client, &kickoff_txid, connector_a_vout).await?
+        && spent_txid != take1_txid
     {
-        info!("update_graph_challenge_txid update challenge_txid: {txid} for graph {graph_id}");
+        info!(
+            "update_graph_challenge_txid update challenge_txid: {spent_txid} for graph {graph_id}"
+        );
+        let mut storage_processor = local_db.acquire().await?;
         storage_processor
-            .update_graph(&GraphUpdate::new(graph_id).with_challenge_txid(txid.into()))
+            .update_graph(&GraphUpdate::new(graph_id).with_challenge_txid(spent_txid.into()))
             .await?;
     } else {
         info!("update_graph_challenge_txid no need to challenge_txid for graph {graph_id}");
