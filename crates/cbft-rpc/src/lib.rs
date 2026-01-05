@@ -9,10 +9,12 @@ use tendermint::vote::Power;
 use tendermint_light_client_verifier::types::{
     Header, LightBlock, PeerId, SignedHeader, Validator, ValidatorSet,
 };
+use tracing::info;
 
 fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>)> {
     let block_data_json: Value = serde_json::from_str(block_data)?;
     let block = block_data_json.get("result").and_then(|result| result.get("block"));
+    info!("block: {:?}", block);
     let header =
         block.and_then(|block| block.get("header")).ok_or(anyhow!("Unable to extract header"))?;
     let header: Header = serde_json::from_value(header.clone())?;
@@ -64,15 +66,37 @@ pub async fn fetch_validators(cosmos_rpc_url: &str, block_height: u64) -> Result
     Ok(validator_set)
 }
 
+pub async fn get_cosmos_block_height_at(
+    cosmos_rpc_url: &str,
+    cosmos_block_hash: [u8; 32],
+) -> Result<u64> {
+    // get cosmos block height from block hash: curl https://rpc.testnet3.goat.network/goat-rpc/block_by_hash?hash=0xd2e236b8f89278a527a042727cd4eebb59a566006a844f294da54ed727b95470
+    let resp = reqwest::get(format!(
+        "{cosmos_rpc_url}/block_by_hash?hash=0x{}",
+        hex::encode(cosmos_block_hash)
+    )).await?
+      .text()
+      .await?;
+
+    info!("block by hash {}, {}", hex::encode(cosmos_block_hash), resp);
+    let (header, _) = parse_block_data(&resp)?;
+
+    Ok(header.height.into())
+}
+
 pub async fn fetch_cbft_validator_info(
     cosmos_rpc_url: &str,
     goat_block_height: u64,
+    cosmos_block_height_at: Option<u64>,
 ) -> Result<([u8; 32], u64, [u8; 32])> {
     // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
     // 1. fetch the latest cosmos block height
     // 2. binary search cosmos block height between goat block height and latest cosmos block height
     // > 2.1. fetch the block info and parse the first transction: // curl "https://rpc.testnet3.goat.network/goat-rpcblock?height=5756784" | jq .result.block.data
-    let mut block_height = goat_block_height;
+    let mut block_height = match cosmos_block_height_at {
+        Some(height) => height,
+        None => goat_block_height,
+    };
     let mut sequencer_hash = [0u8; 32];
     let mut goat_block_hash = [0u8; 32];
 
@@ -171,10 +195,10 @@ mod tests {
             .unwrap_or("https://rpc.testnet3.goat.network/goat-rpc".to_string());
         let evm_block_number = 9511050;
         let (sequencer_hash, block_number, _) =
-            fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number).await.unwrap();
+            fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number, None).await.unwrap();
 
-        println!("hex sequencer_hash: {}", hex::encode(sequencer_hash));
-        println!("cosmos block number: {}", block_number);
+        info!("hex sequencer_hash: {}", hex::encode(sequencer_hash));
+        info!("cosmos block number: {}", block_number);
 
         let validators = fetch_validators(&cosmos_rpc_url, block_number).await.unwrap();
         let validators_info: Vec<commit_chain::SequencerInfo> =

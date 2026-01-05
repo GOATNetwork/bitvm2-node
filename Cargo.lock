@@ -2926,6 +2926,7 @@ dependencies = [
  "tendermint",
  "tendermint-light-client-verifier",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -5,7 +5,7 @@ use alloy_provider::Provider;
 use alloy_provider::{RootProvider, network::Ethereum};
 use anyhow::Context;
 use bitcoin_light_client_circuit::EthClientExecutorInput;
-use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block};
+use cbft_rpc::{fetch_cbft_tx_data, fetch_cbft_validator_info, fetch_cosmos_block, get_cosmos_block_height_at};
 use host_executor::EthHostExecutor;
 use primitives::genesis::Genesis;
 use proof_builder::ProofRequest;
@@ -194,8 +194,27 @@ pub async fn fetch_state_chain(
     .await?;
 
     for i in start..(start + batch_size) {
+
+        let evm_block =
+           fetch_exection_layer_block(&execution_layer_rpc, i, &genesis).await.map_err(|e| {
+               tracing::error!("fetch_exection_layer_block: {e:?}");
+               proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
+           })?;
+
+        let evm_block_hash = evm_block.current_block.hash_slow(); 
+        let parent_beacon_block_root = evm_block.current_block.header.parent_beacon_block_root.unwrap();
+        println!("evm block hash: {}, parent_beacon_block_root: {}", hex::encode(&evm_block_hash), hex::encode(&parent_beacon_block_root));
+
+        let cosmos_block_height = match get_cosmos_block_height_at(
+            cosmos_rpc_url,
+            *parent_beacon_block_root,
+        ).await {
+            Ok(d) => Some(d),
+            Err(_) => Some(i),
+        };
+
         let (_, cl_block_number, _goat_block_hash) =
-            fetch_cbft_validator_info(cosmos_rpc_url, i).await.map_err(|e| {
+            fetch_cbft_validator_info(cosmos_rpc_url, i, cosmos_block_height).await.map_err(|e| {
                 tracing::error!("fetch_cbft_tx_data: {e:?}");
                 // GOAT's block time is 3 seconds
                 proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
@@ -211,11 +230,7 @@ pub async fn fetch_state_chain(
                 proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
             })?;
 
-        let evm_block =
-            fetch_exection_layer_block(&execution_layer_rpc, i, &genesis).await.map_err(|e| {
-                tracing::error!("fetch_exection_layer_block: {e:?}");
-                proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
-            })?;
+       
         println!("block: {i}, cl_block_number: {cl_block_number}, txns: {}", cosmos_txns.len());
 
         let withdrawals = if !graph_block_numbers.is_empty() {

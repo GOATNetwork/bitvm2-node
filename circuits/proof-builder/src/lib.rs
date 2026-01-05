@@ -71,6 +71,8 @@ pub enum ProofError {
     InputNotReady(u64),
     #[error("File {0} not found")]
     FileNotExit(String),
+    #[error("Other error: {0}")]
+    Other(String),
 }
 
 pub trait ProofBuilder {

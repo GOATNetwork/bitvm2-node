@@ -18,6 +18,7 @@ tendermint-light-client-verifier = { workspace = true, default-features = false,
   "rust-crypto",
 ] }
 anyhow = { workspace = true }
+tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

@@ -271,7 +271,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             next_publisher_btc_pubkeys,
         } => {
             let (sequencer_set_hash, _, goat_block_hash) =
-                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
+                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None).await?;
 
             let fee_tx = cached_output.fee_tx.unwrap();
             let update_connector = cached_output.update_connector;
@@ -300,7 +300,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commit_info,
         } => {
             let (sequencer_set_hash, cosmos_block_number, goat_block_hash) =
-                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number).await?;
+                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None).await?;
 
             let sequencers = fetch_validators(&args.cosmos_rpc_url, cosmos_block_number).await?;
             let fee_tx = cached_output.fee_tx;
@@ -734,7 +734,6 @@ async fn fund_publishers(
     let utxos = btc_client.get_address_utxo(from_address.clone()).await?;
     println!("utxo: {utxos:?}");
     assert!(!utxos.is_empty(), "No UTXO found to fund publishers");
-
     let mut total_value = 0;
     for utxo in &utxos {
         total_value += utxo.value.to_sat();
