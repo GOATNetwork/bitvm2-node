@@ -161,6 +161,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         "commit-chain".to_string()
     }
 
+    #[tracing::instrument(level = "info", skip(self))]
     fn build_proof(
         &self,
         ctx: &proof_builder::ProofRequest,

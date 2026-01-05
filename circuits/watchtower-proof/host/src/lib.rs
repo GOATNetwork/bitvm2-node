@@ -111,6 +111,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
         "watchtower-chain".to_string()
     }
 
+    #[tracing::instrument(level = "info", skip(self))]
     fn build_proof(
         &self,
         ctx: &ProofRequest,
@@ -206,7 +207,11 @@ impl ProofBuilder for WatchtowerProofBuilder {
             .iter()
             .position(|h| h.compute_block_hash() == *target_block.block_hash().as_byte_array());
         tracing::info!("block found: {:?}", found);
-        assert!(found.is_some());
+        if found.is_none() {
+            anyhow::bail!(
+                "Latest sequencer set commitment tx is not included in header chain blocks"
+            );
+        }
 
         tracing::info!("construct spv");
         let spv = build_spv(
