@@ -17,6 +17,7 @@ tendermint = { workspace = true, default-features = false, features = ["secp256k
 tendermint-light-client-verifier = { workspace = true, default-features = false, features = [
   "rust-crypto",
 ] }
+tendermint-rpc = { workspace = true, features = ["http-client"] }
 anyhow = { workspace = true }
 tracing.workspace = true
 

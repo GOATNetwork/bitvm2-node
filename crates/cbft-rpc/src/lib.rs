@@ -3,13 +3,14 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as b64;
 use serde_json::Value;
 use state_chain::parse_cbft_tx_payload;
-use tendermint::PublicKey;
+use tendermint::{PublicKey, block};
 use tendermint::validator::Info;
 use tendermint::vote::Power;
 use tendermint_light_client_verifier::types::{
     Header, LightBlock, PeerId, SignedHeader, Validator, ValidatorSet,
 };
 use tracing::info;
+use tendermint_rpc::{Client, HttpClient};
 
 fn parse_block_data(block_data: &str) -> Result<(Header, Vec<String>)> {
     let block_data_json: Value = serde_json::from_str(block_data)?;
@@ -66,22 +67,21 @@ pub async fn fetch_validators(cosmos_rpc_url: &str, block_height: u64) -> Result
     Ok(validator_set)
 }
 
+// get cosmos block height from block hash: curl https://rpc.testnet3.goat.network/goat-rpc/block_by_hash?hash=0xd2e236b8f89278a527a042727cd4eebb59a566006a844f294da54ed727b95470
 pub async fn get_cosmos_block_height_at(
     cosmos_rpc_url: &str,
     cosmos_block_hash: [u8; 32],
-) -> Result<u64> {
-    // get cosmos block height from block hash: curl https://rpc.testnet3.goat.network/goat-rpc/block_by_hash?hash=0xd2e236b8f89278a527a042727cd4eebb59a566006a844f294da54ed727b95470
-    let resp = reqwest::get(format!(
-        "{cosmos_rpc_url}/block_by_hash?hash=0x{}",
-        hex::encode(cosmos_block_hash)
-    )).await?
-      .text()
-      .await?;
-
-    info!("block by hash {}, {}", hex::encode(cosmos_block_hash), resp);
-    let (header, _) = parse_block_data(&resp)?;
-
-    Ok(header.height.into())
+) -> Result<Option<u64>> {
+    let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
+    match rpc.block_by_hash(tendermint::Hash::Sha256(cosmos_block_hash)).await {
+        Ok(resp) => {
+            match resp.block {
+                Some(b) => Ok(Some(b.header.height.into())),
+                None => Ok(None), 
+            }
+        },
+        Err(e) => anyhow::bail!("Error fetching block by hash: {:?}", e),
+    }
 }
 
 pub async fn fetch_cbft_validator_info(

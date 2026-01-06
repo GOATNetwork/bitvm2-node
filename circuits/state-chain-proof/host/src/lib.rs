@@ -209,8 +209,8 @@ pub async fn fetch_state_chain(
             cosmos_rpc_url,
             *parent_beacon_block_root,
         ).await {
-            Ok(d) => Some(d),
-            Err(_) => Some(i),
+            Ok(d) => d,
+            Err(_) =>None,
         };
 
         let (_, cl_block_number, _goat_block_hash) =
