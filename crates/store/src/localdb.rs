@@ -1684,6 +1684,38 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected() > 0)
     }
 
+    pub async fn update_messages_state_by_business_id(
+        &mut self,
+        business_id: &Uuid,
+        msg_type: Option<String>,
+        old_state: String,
+        new_state: String,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let res = match msg_type {
+            Some(msg_type) => {
+                sqlx::query!(
+                    "Update message Set state = ?, updated_at = ? WHERE business_id = ? AND msg_type = ? AND state = ?",
+                    new_state,
+                    current_time,
+                    business_id,
+                    msg_type,
+                    old_state
+                ).execute(self.conn()).await?
+            }
+            None => {
+                sqlx::query!(
+                    "Update message Set state = ?, updated_at = ? WHERE business_id = ? AND state = ?",
+                    new_state,
+                    current_time,
+                    business_id,
+                    old_state
+                ).execute(self.conn()).await?
+            }
+        };
+        Ok(res.rows_affected() > 0)
+    }
+
     pub async fn update_messages_lock_time_until(
         &mut self,
         message_id: &str,

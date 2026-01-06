@@ -40,7 +40,8 @@ use std::time::Duration;
 use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, Instance,
-    InstanceBridgeInStatus, InstanceBridgeOutStatus, WatchContract, WatchContractStatus,
+    InstanceBridgeInStatus, InstanceBridgeOutStatus, MessageState, WatchContract,
+    WatchContractStatus,
 };
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
@@ -427,6 +428,15 @@ async fn handle_withdraw_paths_events<'a>(
             })
             .await?;
         storage_processor.update_graph(&GraphUpdate::new(graph_id).with_status(status)).await?;
+        // cancel unfinished p2p message
+        storage_processor
+            .update_messages_state_by_business_id(
+                &graph_id,
+                None,
+                MessageState::Pending.to_string(),
+                MessageState::Cancelled.to_string(),
+            )
+            .await?;
     }
     Ok(())
 }
@@ -465,6 +475,15 @@ async fn handle_withdraw_disproved_events<'a>(
         storage_processor
             .update_graph(
                 &GraphUpdate::new(graph_id).with_status(GraphStatus::Disprove.to_string()),
+            )
+            .await?;
+        // cancel unfinished p2p message
+        storage_processor
+            .update_messages_state_by_business_id(
+                &graph_id,
+                None,
+                MessageState::Pending.to_string(),
+                MessageState::Cancelled.to_string(),
             )
             .await?;
     }

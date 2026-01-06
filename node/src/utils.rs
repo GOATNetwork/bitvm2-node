@@ -63,7 +63,7 @@ use store::localdb::{
 };
 use store::{
     ByteArray32, Graph, GraphRawData, GraphStatus, Instance, InstanceBridgeInStatus, Message,
-    MessageState, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
+    MessageState, MessageType, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 use zkm_sdk::ZKM_CIRCUIT_VERSION;
@@ -3005,16 +3005,34 @@ pub async fn upsert_message(
     lock_time: i64,
 ) -> Result<()> {
     let message = GOATMessage::from_typed(actor.clone(), &message_content)?;
-    let msg_type = get_goat_message_content_type(&message_content).to_string();
-    let message_id = generate_message_id(business_id, msg_type.clone(), sub_type);
+    let msg_type = get_goat_message_content_type(&message_content);
+    let message_id = generate_message_id(business_id, msg_type.to_string().clone(), sub_type);
     if is_update || storage_processor.find_messages_by_id(&message_id).await?.is_none() {
+        if let Some(cancel_msg_type) = match msg_type {
+            MessageType::WatchtowerChallengeTimeout => {
+                Some(MessageType::WatchtowerChallengeInitSent.to_string())
+            }
+            MessageType::AssertCommitTimeout => Some(MessageType::AssertInitReady.to_string()),
+            _ => None,
+        } {
+            // cancel unfinished p2p message
+            storage_processor
+                .update_messages_state_by_business_id(
+                    &business_id,
+                    Some(cancel_msg_type),
+                    MessageState::Pending.to_string(),
+                    MessageState::Cancelled.to_string(),
+                )
+                .await?;
+        }
+
         storage_processor
             .upsert_message(Message {
                 message_id,
                 business_id,
                 actor: actor.to_string(),
                 from_peer,
-                msg_type,
+                msg_type: msg_type.to_string(),
                 content: serde_json::to_vec(&message)?,
                 weight,
                 lock_time_until: current_time_secs() + lock_time,
