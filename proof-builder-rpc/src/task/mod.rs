@@ -308,7 +308,7 @@ pub(crate) async fn fetch_on_demand_task(
             } else {
                 d
             }
-        },
+        }
         None => {
             tracing::info!(
                 "State chain proof is not ready for block: {execution_layer_block_number}, record not found"
