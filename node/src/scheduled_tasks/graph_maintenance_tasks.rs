@@ -1813,12 +1813,12 @@ async fn process_graph_watchtower_assert_disproved(
                 0,
             )
             .await?;
-            tx.commit().await?;
         }
         None => {
             trace!("process_graph_watchtower_assert_disproved get disproved tx is none");
         }
     }
+    tx.commit().await?;
     Ok(())
 }
 

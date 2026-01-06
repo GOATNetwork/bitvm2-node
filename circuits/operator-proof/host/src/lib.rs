@@ -11,13 +11,12 @@ use bitcoin_light_client_circuit::build_spv;
 use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
-use commit_chain::{CircuitCommit, CommitChainCircuitInput, CommitChainPrevProofType};
+use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
-use state_chain::{CircuitStateBlock, StateChainCircuitInput, StateChainPrevProofType};
-use std::io::Read;
+use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
@@ -73,16 +72,11 @@ pub struct Args {
 
     #[clap(long, env, default_value = "commit-proof.bin")]
     pub output: String,
-
-    #[clap(long, env, default_value_t = 0)]
-    pub index: usize,
 }
 
 impl LongRunning for Args {
     fn rotate(&self) -> Self {
-        let mut next_args = self.clone();
-        next_args.index = self.index + 1;
-        next_args
+        self.clone()
     }
 }
 
@@ -208,6 +202,7 @@ impl ProofBuilder for OperatorProofBuilder {
         "operator-chain".to_string()
     }
 
+    #[tracing::instrument(level = "info", skip(self))]
     fn build_proof(
         &self,
         ctx: &ProofRequest,
@@ -235,17 +230,7 @@ impl ProofBuilder for OperatorProofBuilder {
         };
 
         // --- header chain --- //
-        // --- header chain --- //
         let header_chain_input = {
-            let mut reader =
-                std::fs::File::open(&format!("{header_chain_input_proof}.blocks")).unwrap();
-            let mut headers: Vec<u8> = Vec::new();
-            reader.read_to_end(&mut headers)?;
-            let block_headers: Vec<_> = headers
-                .chunks(80)
-                .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-                .collect::<Vec<CircuitBlockHeader>>();
-
             let zkm_public_values =
                 fs::read(&format!("{}.public_inputs.bin", header_chain_input_proof)).unwrap();
             let zkm_proof = fs::read(header_chain_input_proof)
@@ -261,15 +246,12 @@ impl ProofBuilder for OperatorProofBuilder {
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
-                block_headers,
+                block_headers: vec![],
             }
         };
 
         // --- commit chain --- //
         let commit_chain_input = {
-            let reader =
-                std::fs::File::open(&format!("{commit_chain_input_proof}.commits")).unwrap();
-            let commits: Vec<CircuitCommit> = serde_json::from_reader(reader)?;
             let zkm_public_values =
                 fs::read(&format!("{}.public_inputs.bin", commit_chain_input_proof)).unwrap();
             let zkm_proof = fs::read(commit_chain_input_proof)
@@ -284,14 +266,12 @@ impl ProofBuilder for OperatorProofBuilder {
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
-                commits,
+                commits: vec![],
             }
         };
 
         // --- state chain --- //
         let state_chain_input = {
-            let reader = std::fs::File::open(&format!("{state_chain_input_proof}.blocks")).unwrap();
-            let states: Vec<CircuitStateBlock> = serde_json::from_reader(reader)?;
             let zkm_proof = fs::read(state_chain_input_proof)
                 .context("Failed to read input proof file")
                 .unwrap();
@@ -306,7 +286,7 @@ impl ProofBuilder for OperatorProofBuilder {
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
-                blocks: states,
+                blocks: vec![],
             }
         };
 
@@ -315,18 +295,6 @@ impl ProofBuilder for OperatorProofBuilder {
 
         let operator_genesis_sequencer_commit_txid =
             Txid::from_str(&genesis_sequencer_commit_txid)?;
-        /*
-        let operator_latest_sequencer_commit_txn =
-            btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
-        //println!("operator_latest_seqeuncer_commit_txn: {:?}", operator_latest_sequencer_commit_txn);
-
-        // TODO: replace it by `get_raw_transaction_info`
-        let tx_merkle_proof =
-            btc_client.get_merkle_proof(&latest_sequencer_commit_txid).await.unwrap().unwrap();
-        let block_pos = tx_merkle_proof.block_height;
-        tracing::info!("block height: {block_pos}");
-        let target_block = btc_client.get_block_by_height(block_pos).await.unwrap();
-        */
 
         let bitcoin_block_headers = {
             let headers: Vec<u8> = std::fs::read(&format!("{header_chain_input_proof}.blocks"))
@@ -336,6 +304,17 @@ impl ProofBuilder for OperatorProofBuilder {
                 .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
                 .collect::<Vec<CircuitBlockHeader>>()
         };
+
+        let found = bitcoin_block_headers
+            .iter()
+            .position(|h| h.compute_block_hash() == *target_block.block_hash().as_byte_array());
+        tracing::info!("block found: {:?}", found);
+        if found.is_none() {
+            anyhow::bail!(
+                "Latest sequencer set commitment tx is not included in header chain blocks"
+            );
+        }
+
         tracing::info!("block headers: {:?}", bitcoin_block_headers.len());
         tracing::info!("construct spv");
         let spv = build_spv(

@@ -30,11 +30,13 @@ pub(crate) fn spawn_watchtower_proof_task(
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     // fetch args from the database by instance id and graph id.
-                    if let Some(next_task) = fetch_on_demand_task(&local_db, args.index, true).await? {
+                    let task_index;
+                    if let Some(next_task) = fetch_on_demand_task(&local_db, true).await? {
                         args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
                         args.header_chain_input_proof = next_task.header_chain_input_proof;
                         args.commit_chain_input_proof = next_task.commit_chain_input_proof;
                         args.state_chain_input_proof = next_task.state_chain_input_proof;
+                        task_index = next_task.task_index;
                     } else {
                         tracing::info!("Wait for the next task");
                         continue;
@@ -71,8 +73,8 @@ pub(crate) fn spawn_watchtower_proof_task(
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
                     let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
-                    let affected = update_watchtower_task(&local_db, args.index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proving_duration as i64, proving_time as i64, zkm_version).await?;
-                    tracing::info!("update watchtower task: {args:?}, cycles: {cycles}, index: {}, affected row: {affected}", args.index);
+                    let affected = update_watchtower_task(&local_db, task_index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proving_duration as i64, proving_time as i64, zkm_version).await?;
+                    tracing::info!("update watchtower task: {args:?}, cycles: {cycles}, index: {}, affected row: {affected}", task_index);
                     args = ProofBuilderConfig::run_next(args, WatchtowerProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {

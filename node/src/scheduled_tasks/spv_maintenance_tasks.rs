@@ -10,6 +10,7 @@ pub(crate) async fn spv_header_hash_update(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
+    info!("start in spv_header_hash_update");
     let block_confirms = get_btc_block_confirms();
     loop {
         let last_height = goat_client.btc_spv_latest_height().await?;
@@ -23,8 +24,7 @@ pub(crate) async fn spv_header_hash_update(
         let mut header_hashes = Vec::with_capacity(len);
         for height in last_height + 1..=target_height {
             heights.push(height);
-            let mut header_hash = btc_client.get_block_hash(height as u32).await?.to_byte_array();
-            header_hash.reverse();
+            let header_hash = btc_client.get_block_hash(height as u32).await?.to_byte_array();
             header_hashes.push(header_hash);
         }
 

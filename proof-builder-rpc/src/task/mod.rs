@@ -192,7 +192,6 @@ pub(crate) async fn fetch_latest_long_running_task(
 #[tracing::instrument(level = "info", skip(local_db))]
 pub(crate) async fn fetch_on_demand_task(
     local_db: &LocalDB,
-    index: usize,
     is_watchtower: bool,
 ) -> anyhow::Result<Option<OnDemandTask>> {
     tracing::info!("Fetch task for watchtower:{is_watchtower}");
@@ -224,11 +223,12 @@ pub(crate) async fn fetch_on_demand_task(
     };
     tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
     let start = commit_chain_input_proof.block_start;
+    let batch_size = commit_chain_input_proof.block_end - commit_chain_input_proof.block_start;
     let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
     let file = std::path::Path::new(&commit_chain_input_proof)
         .parent()
         .unwrap()
-        .join(format!("commits.bin.{start}"));
+        .join(format!("{start}-{batch_size}.bin.commits"));
     let content = match std::fs::read_to_string(&file) {
         Ok(d) => d,
         Err(e) => {
@@ -241,15 +241,16 @@ pub(crate) async fn fetch_on_demand_task(
 
     tracing::info!("fetch on-demand task");
     let (
+        task_index,
         execution_layer_block_number,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         watchtower_public_keys,
     ) = if is_watchtower {
-        match storage_processor.find_watchtower_proof_by_id(index as i64).await? {
+        match storage_processor.find_next_watchtower_proof().await? {
             Some(task) => {
                 tracing::info!("watchtower task: {task:?}");
-                (task.execution_layer_block_number, None, None, None)
+                (task.id, task.execution_layer_block_number, None, None, None)
             }
             None => {
                 return Ok(None);
@@ -257,7 +258,7 @@ pub(crate) async fn fetch_on_demand_task(
         }
     } else {
         //fetch watchtower info
-        let task = match storage_processor.find_operator_proof_by_id(index as i64).await? {
+        let task = match storage_processor.find_next_operator_proof().await? {
             Some(task) => task,
             None => return Ok(None),
         };
@@ -282,6 +283,7 @@ pub(crate) async fn fetch_on_demand_task(
         let challenge_public_keys =
             watchtower_info.iter().map(|w| w.public_key.clone()).collect::<Vec<_>>();
         (
+            task.id,
             task.execution_layer_block_number,
             Some(challenge_init_txids[0].clone()),
             Some(challenge_txids),
@@ -307,6 +309,7 @@ pub(crate) async fn fetch_on_demand_task(
     let state_chain_input_proof = state_chain_input_proof.path_to_proof.unwrap();
 
     Ok(Some(OnDemandTask {
+        task_index,
         latest_sequencer_commit_txid,
         header_chain_input_proof,
         commit_chain_input_proof,
@@ -437,7 +440,7 @@ pub(crate) async fn find_watchtower_task(
 
 pub(crate) async fn update_watchtower_task(
     local_db: &LocalDB,
-    index: usize,
+    index: i64,
     path_to_proof: String,
     public_value_hex: String,
     proof_size: i64,
@@ -449,7 +452,7 @@ pub(crate) async fn update_watchtower_task(
     let mut storage_processor = local_db.acquire().await?;
     Ok(storage_processor
         .update_watchtower_proof_success(
-            index as i64,
+            index,
             path_to_proof,
             public_value_hex,
             proof_size,
@@ -499,7 +502,7 @@ pub(crate) async fn find_operator_task(
 
 pub(crate) async fn update_operator_task(
     local_db: &LocalDB,
-    index: usize,
+    index: i64,
     path_to_proof: String,
     public_value_hex: String,
     proof_size: i64,
@@ -511,7 +514,7 @@ pub(crate) async fn update_operator_task(
     let mut storage_processor = local_db.acquire().await?;
     Ok(storage_processor
         .update_operator_proof_success(
-            index as i64,
+            index,
             path_to_proof,
             public_value_hex,
             proof_size,

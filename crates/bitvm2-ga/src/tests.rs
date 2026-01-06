@@ -47,6 +47,7 @@ mod tests {
             Ok(v) => match v.to_lowercase().as_str() {
                 "regtest" => Network::Regtest,
                 "testnet" => Network::Testnet,
+                "testnet4" => Network::Testnet4,
                 "signet" => Network::Signet,
                 "bitcoin" | "mainnet" => Network::Bitcoin,
                 _ => Network::Regtest,
@@ -60,6 +61,7 @@ mod tests {
         let v = match n {
             Network::Regtest => "regtest",
             Network::Testnet => "testnet",
+            Network::Testnet4 => "testnet4",
             Network::Signet => "signet",
             Network::Bitcoin => "bitcoin",
             _ => "regtest",

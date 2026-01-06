@@ -2646,10 +2646,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn find_operator_proof_by_id(
-        &mut self,
-        index: i64,
-    ) -> anyhow::Result<Option<OperatorProof>> {
+    pub async fn find_next_operator_proof(&mut self) -> anyhow::Result<Option<OperatorProof>> {
         let res = sqlx::query_as::<_, OperatorProof>(
             "SELECT id,
                         instance_id,
@@ -2667,10 +2664,10 @@ impl<'a> StorageProcessor<'a> {
                         created_at,
                         updated_at
                  FROM operator_proof
-                 WHERE proof_state != 2 and id = ?
-                 ORDER BY id ASC",
+                 WHERE proof_state != 2
+                 ORDER BY id ASC
+                 LIMIT 1",
         )
-        .bind(index)
         .fetch_optional(self.conn())
         .await?;
         Ok(res)
@@ -2840,10 +2837,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn find_watchtower_proof_by_id(
-        &mut self,
-        index: i64,
-    ) -> anyhow::Result<Option<WatchtowerProof>> {
+    pub async fn find_next_watchtower_proof(&mut self) -> anyhow::Result<Option<WatchtowerProof>> {
         let res = sqlx::query_as::<_, WatchtowerProof>(
             "SELECT id,
                          instance_id,
@@ -2864,10 +2858,10 @@ impl<'a> StorageProcessor<'a> {
                          created_at,
                          updated_at
                   FROM watchtower_proof
-                  WHERE proof_state != 2 and id = ?
-                  ORDER BY id ASC",
+                  WHERE proof_state != 2
+                  ORDER BY id ASC
+                  lIMIT 1",
         )
-        .bind(index)
         .fetch_optional(self.conn())
         .await?;
         Ok(res)

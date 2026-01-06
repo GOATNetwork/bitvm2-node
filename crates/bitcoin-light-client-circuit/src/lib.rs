@@ -11,13 +11,13 @@ use bitcoin::Transaction;
 use bitcoin::hashes::{Hash, HashEngine, sha256};
 use commit_chain::sequencer_hash;
 use commit_chain::{
-    CommitChainCircuitInput, commit_chain_circuit, extract_data_from_commitment_outputs,
+    CommitChainCircuitInput, CommitChainPrevProofType, extract_data_from_commitment_outputs,
 };
 use header_chain::{
-    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, MMRHost,
-    SPV, header_chain_circuit, verify_merkle_proof,
+    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput,
+    HeaderChainPrevProofType, MMRHost, SPV, verify_merkle_proof,
 };
-use state_chain::{StateChainCircuitInput, state_chain_circuit};
+use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use zkm_verifier::Groth16Verifier;
 
 use bitcoin::{ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
@@ -44,7 +44,16 @@ pub fn watch_longest_chain(
     // verify latest_sequencer_commit is valid:
     //   * Check both latest_sequencer_commit_txid and genesis_sequencer_commit_txid are in all_sequencer_commit_txids (which is a private input)
     //   * Check latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
-    let commit_chain_output = commit_chain_circuit(commit_chain);
+    // verify the commit chain proof
+    verify_proof(
+        &commit_chain.zkm_proof,
+        &commit_chain.zkm_public_values,
+        &commit_chain.zkm_vk_hash,
+    )
+    .expect("Failed to verify commit chain proof");
+    let CommitChainPrevProofType::PrevProof(commit_chain_output) = &commit_chain.prev_proof else {
+        panic!("Only PrevProof is supported in watch_longest_chain");
+    };
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
         Txid::from_byte_array(latest_sequencer_commit_txid)
@@ -53,14 +62,26 @@ pub fn watch_longest_chain(
 
     println!("header chain: applying: {}", header_chain.block_headers.len());
     // verify header_chain is valid
-    let btc_header_chain_output = header_chain_circuit(header_chain);
+    verify_proof(
+        &header_chain.zkm_proof,
+        &header_chain.zkm_public_values,
+        &header_chain.zkm_vk_hash,
+    )
+    .expect("Failed to verify header chain proof");
 
+    let HeaderChainPrevProofType::PrevProof(btc_header_chain_output) = &header_chain.prev_proof
+    else {
+        panic!("Only PrevProof is supported in watch_longest_chain");
+    };
     // verify that the latest_sequecner_commit_tx is in the header chain
     println!("SPV");
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
-    // check latest block is signed by the sequenecers
-    let state_chain_output = state_chain_circuit(state_chain);
+    verify_proof(&state_chain.zkm_proof, &state_chain.zkm_public_values, &state_chain.zkm_vk_hash)
+        .expect("Failed to verify state chain proof");
+    let StateChainPrevProofType::PrevProof(state_chain_output) = &state_chain.prev_proof else {
+        panic!("Only PrevProof is supported in watch_longest_chain");
+    };
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =
@@ -116,7 +137,15 @@ pub fn propose_longest_chain(
 ) -> ([u8; 32], [u8; 32], [u8; 32]) {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
-    let commit_chain_output = commit_chain_circuit(commit_chain.clone());
+    verify_proof(
+        &commit_chain.zkm_proof,
+        &commit_chain.zkm_public_values,
+        &commit_chain.zkm_vk_hash,
+    )
+    .expect("Failed to verify commit chain proof");
+    let CommitChainPrevProofType::PrevProof(commit_chain_output) = &commit_chain.prev_proof else {
+        panic!("Only PrevProof is supported in propose_longest_chain");
+    };
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
         operator_latest_sequencer_commit_txn.compute_txid()
@@ -128,7 +157,17 @@ pub fn propose_longest_chain(
 
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     // verify operator_header_chain is valid
-    let btc_header_chain_output = header_chain_circuit(operator_header_chain.clone());
+    verify_proof(
+        &operator_header_chain.zkm_proof,
+        &operator_header_chain.zkm_public_values,
+        &operator_header_chain.zkm_vk_hash,
+    )
+    .expect("Failed to verify header chain proof");
+    let HeaderChainPrevProofType::PrevProof(btc_header_chain_output) =
+        &operator_header_chain.prev_proof
+    else {
+        panic!("Only PrevProof is supported in propose_longest_chain");
+    };
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
     let operator_consensus_block_height = U32::from(commit_chain_output.chain_state.block_height);
     // commit header chain best block hash as pis
@@ -187,7 +226,7 @@ pub fn propose_longest_chain(
                 }
             };
 
-            match verify_watchtower_proof(&proof, &public_values, vk) {
+            match verify_proof(&proof, &public_values, &vk) {
                 Ok(_) => {}
                 Err(err) => {
                     println!("Watchtower[{i}] invalid proof: {err}");
@@ -239,7 +278,11 @@ pub fn propose_longest_chain(
         }
     }
     assert!(is_found, "Graph id {graph_id:?} is not included in current state chain");
-    let state_chain_output = state_chain_circuit(state_chain);
+    verify_proof(&state_chain.zkm_proof, &state_chain.zkm_public_values, &state_chain.zkm_vk_hash)
+        .expect("Failed to verify state chain proof");
+    let StateChainPrevProofType::PrevProof(state_chain_output) = &state_chain.prev_proof else {
+        panic!("Only PrevProof is supported in propose_longest_chain");
+    };
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =
@@ -429,16 +472,16 @@ pub fn parse_watchtower_commitment(
 }
 
 // Check the public values are consistent with the total work and block hash
-pub fn verify_watchtower_proof(
+pub fn verify_proof(
     proof: &[u8],
-    zkm_public_values: &[u8; PUBLIC_INPUTS_SIZE],
-    zkm_vk_hash: [u8; VK_HASH_SIZE],
+    zkm_public_values: &[u8],
+    zkm_vk_hash: &[u8],
 ) -> Result<(), String> {
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
     let zkm_vk_hash = String::from_utf8(zkm_vk_hash.to_vec()).map_err(|e| e.to_string())?;
     match Groth16Verifier::verify(proof, zkm_public_values, &zkm_vk_hash, groth16_vk) {
         Ok(_) => Ok(()),
-        Err(err) => Err(format!("head chain Groth16 proof, err: {err:?}")),
+        Err(err) => Err(format!("Verify Groth16 proof, err: {err:?}")),
     }
 }
 

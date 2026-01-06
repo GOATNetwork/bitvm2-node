@@ -8,6 +8,7 @@ use alloy::rpc::types::{
 use anyhow::bail;
 use bitcoin::hashes::Hash;
 use bitcoin::{PublicKey, Transaction, Txid, XOnlyPublicKey};
+use tracing::info;
 use uuid::Uuid;
 pub mod utils;
 use crate::btc_chain::{BTCClient, MerkleProofExtend};
@@ -406,11 +407,22 @@ impl GOATClient {
                 hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
-            bail!(
-                "instance_id:{instance_id}  block_hash mismatch, from chain:{}, in contract:{}",
-                hex::encode(tx_proof_data.block_hash),
-                hex::encode(block_hash_online)
-            );
+            if is_enable_update_spv_contract() {
+                // todo remove me later
+                info!(
+                    "Btc chain rollback, update_spv_contract for height:{}",
+                    tx_proof_data.height
+                );
+                self.chain_service
+                    .btc_spv_post_block_hash(tx_proof_data.height, &tx_proof_data.block_hash)
+                    .await?;
+            } else {
+                bail!(
+                    "instance_id:{instance_id}  block_hash mismatch, from chain:{}, in contract:{}",
+                    hex::encode(tx_proof_data.block_hash),
+                    hex::encode(block_hash_online)
+                );
+            }
         }
         let pegin_amount_sats = tx.output[0].value.to_sat();
         let min_pegin_fee_sats = self.gateway_get_min_pegin_fee_sats().await?;
@@ -546,11 +558,23 @@ impl GOATClient {
                 hex::encode(tx_proof_data.block_hash),
                 hex::encode(block_hash_online)
             );
-            bail!(
-                "graph:{tag} at {graph_id}block_hash mismatch, from chain:{},  in contract:{}",
-                hex::encode(tx_proof_data.block_hash),
-                hex::encode(block_hash_online)
-            );
+
+            if is_enable_update_spv_contract() {
+                // todo remove me later
+                info!(
+                    "Btc chain rollback, need to update_spv_contract for height:{}",
+                    tx_proof_data.height
+                );
+                self.chain_service
+                    .btc_spv_post_block_hash(tx_proof_data.height, &tx_proof_data.block_hash)
+                    .await?;
+            } else {
+                bail!(
+                    "graph:{tag} at {graph_id}block_hash mismatch, from chain:{},  in contract:{}",
+                    hex::encode(tx_proof_data.block_hash),
+                    hex::encode(block_hash_online)
+                );
+            }
         }
         Ok(tx_proof_data)
     }
@@ -730,6 +754,14 @@ pub fn tx_reconstruct(tx: &bitcoin::Transaction) -> BitcoinTx {
         lock_time: tx.lock_time.to_consensus_u32(),
         input_vector: bitcoin::consensus::serialize(&tx.input),
         output_vector: bitcoin::consensus::serialize(&tx.output),
+    }
+}
+
+// remove me later
+fn is_enable_update_spv_contract() -> bool {
+    match std::env::var("ENABLE_UPDATE_SPV_CONTRACT") {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
     }
 }
 

@@ -35,13 +35,13 @@ impl BTCClient {
     pub fn from_str(network: &str, esplora_url: Option<&str>) -> Self {
         BTCClient {
             chain_service: BitcoinChain::new(get_btc_chain_adapter(
-                Network::from_str(network).unwrap_or(Network::Testnet),
+                Network::from_str(network).unwrap_or(Network::Testnet4),
                 esplora_url,
             )),
         }
     }
     pub fn new_mock_client() -> (Self, MockBitcoinAdaptor) {
-        let mock_adaptor = MockBitcoinAdaptor::new(Network::Testnet);
+        let mock_adaptor = MockBitcoinAdaptor::new(Network::Testnet4);
         let chain_service = BitcoinChain::new(Box::new(mock_adaptor.clone()));
         (BTCClient { chain_service }, mock_adaptor)
     }
