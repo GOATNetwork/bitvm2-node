@@ -4,11 +4,11 @@ use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use sha2::{Digest, Sha256};
-use util::get_btc_block_confirms;
 use std::{
     fs,
     io::{Read, Seek},
 };
+use util::get_btc_block_confirms;
 use zkm_sdk::ZKMProofKind;
 use zkm_sdk::{HashableKey, Prover, ProverClient, ZKMProofWithPublicValues, ZKMStdin, include_elf};
 static ELF_ID: OnceLock<String> = OnceLock::new();
@@ -108,7 +108,7 @@ pub async fn fetch_header_chain(
         if i as u32 + confirmations > tip_height {
             tracing::info!("current tip height: {tip_height}, wait for new block");
             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-            continue;   
+            continue;
         }
         match btc_client.get_block_by_height(i as u32).await {
             Ok(block) => {
