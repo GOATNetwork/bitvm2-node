@@ -2,7 +2,6 @@
 set -e
 CMD="cargo run -r --bin state-chain-proof --package state-chain-proof"
 DATA="data/state-chain"
-
 _start=$EL_START_BLOCK_NUMBER
 start=${1:-$_start}
 _batch=2000

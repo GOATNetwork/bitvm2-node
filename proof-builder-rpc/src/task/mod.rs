@@ -299,11 +299,21 @@ pub(crate) async fn fetch_on_demand_task(
         )
         .await?
     {
-        Some(d) => d,
+        Some(d) => {
+            if d.proof_state != ProofState::Proven.to_i64() {
+                tracing::info!(
+                    "State chain proof is not ready for block: {execution_layer_block_number}, proof not ready"
+                );
+                return Ok(None);
+            } else {
+                d
+            }
+        },
         None => {
-            anyhow::bail!(
-                "State chain proof is not ready for block: {execution_layer_block_number}"
+            tracing::info!(
+                "State chain proof is not ready for block: {execution_layer_block_number}, record not found"
             );
+            return Ok(None);
         }
     };
     let state_chain_input_proof = state_chain_input_proof.path_to_proof.unwrap();

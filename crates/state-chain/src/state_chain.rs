@@ -21,7 +21,7 @@ pub enum StateChainPrevProofType {
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CircuitStateBlock {
-    pub cosmos_txns: Vec<String>,
+    pub cosmos_txns: Vec<Vec<u8>>,
     // Cosmos light block
     pub cosmos_block: Vec<u8>,
     pub evm_block: EthClientExecutorInput,

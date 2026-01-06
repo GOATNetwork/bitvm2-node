@@ -1,5 +1,3 @@
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as b64;
 use core::time::Duration;
 use cosmos_sdk_proto::cosmos::tx::v1beta1::Tx;
 use prost::Message;
@@ -53,14 +51,8 @@ fn compute_merkle_root(items: &[[u8; 32]]) -> [u8; 32] {
     }
 }
 
-fn merkle_root_from_base64_txns(txns_b64: &[String]) -> [u8; 32] {
-    let tx_hashes: Vec<[u8; 32]> = txns_b64
-        .iter()
-        .map(|s| {
-            let raw = b64.decode(s).expect("bad base64 tx");
-            Sha256::digest(&raw).into()
-        })
-        .collect();
+fn merkle_root_from_base64_txns(txns_b64: &[Vec<u8>]) -> [u8; 32] {
+    let tx_hashes: Vec<[u8; 32]> = txns_b64.iter().map(|s| Sha256::digest(s).into()).collect();
 
     compute_merkle_root(&tx_hashes)
 }
@@ -133,9 +125,8 @@ pub fn verify_sequencer_set(light_block_1: LightBlock, light_block_2: LightBlock
 }
 
 // we can not move it to cbft-rpc since it'll get non-std involved.
-pub fn parse_cbft_tx_payload(tx_b64: &str) -> Option<ExecutionPayload> {
-    let txns_b64 = b64.decode(tx_b64).unwrap();
-    let tx = Tx::decode(&txns_b64[..]).unwrap();
+pub fn parse_cbft_tx_payload(tx_bytes: &[u8]) -> Option<ExecutionPayload> {
+    let tx = Tx::decode(tx_bytes).unwrap();
 
     // check consistance of GOAT block hash
     if let Some(tx_body) = tx.body {
@@ -154,7 +145,7 @@ pub fn check_el_block_from_payload(
     el_block_number: u64,
     el_block_hash: &[u8; 32],
     el_parent_block_hash: &[u8; 32],
-    txs: &[String],
+    txs: &[Vec<u8>],
     actual_data_hash: &[u8; 32],
 ) {
     if let Some(payload) = parse_cbft_tx_payload(&txs[0]) {
@@ -188,6 +179,7 @@ mod tests {
         // https://explorer.goat.network/block/5756298
         // curl "http://127.0.0.1:26657/block?height=5756784" | jq .result.block.data
         let cosmos_txns: Vec<String> = serde_json::from_str(&LB_1_JSON_TXNS).unwrap();
+        let cosmos_txns = cosmos_txns.into_iter().map(|s| base64::decode(s).unwrap()).collect::<Vec<_>>();
         // loght block 5756784
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
 
@@ -210,6 +202,7 @@ mod tests {
         // curl "http://127.0.0.1:26657/block?height=5756785" | jq .result.block.data
         // https://explorer.goat.network/block/5756299
         let cosmos_txns: Vec<String> = serde_json::from_str(&LB_2_JSON_TXNS).unwrap();
+        let cosmos_txns = cosmos_txns.into_iter().map(|s| base64::decode(s).unwrap()).collect::<Vec<_>>();
         check_el_block_from_payload(
             5756299,
             &hex::decode("56473094ffd5bc070446fdbaaf2b443b9beffb82dded0e053eb6b25c7d60be0b")
