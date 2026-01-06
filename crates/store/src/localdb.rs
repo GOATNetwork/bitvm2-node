@@ -2467,6 +2467,41 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
+    pub async fn find_latest_long_running_task_proof_by_name_and_state(
+        &mut self,
+        chain_name: String,
+        proof_state: i64,
+    ) -> anyhow::Result<Option<LongRunningTaskProof>> {
+        let res = sqlx::query_as!(
+            LongRunningTaskProof,
+            "SELECT
+                block_start,
+                block_end,
+                chain_name,
+                path_to_proof,
+                public_value_hex,
+                proof_size,
+                cycles,
+                proof_state,
+                total_time_to_proof,
+                proving_time,
+                zkm_version,
+                extra,
+                updated_at,
+                created_at
+            FROM long_running_task_proof
+            WHERE chain_name = ?
+            AND proof_state = ?
+            ORDER BY block_start DESC
+            LIMIT 1",
+            chain_name,
+            proof_state,
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
     pub async fn find_latest_long_running_task_proof_by_name(
         &mut self,
         chain_name: String,

@@ -6,7 +6,10 @@ use std::time::Duration;
 use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use crate::task::ProofState::Proven;
+use crate::task::fetch_latest_long_running_task_by_state;
 
+#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 async fn spawn_state_chain_ctx_builder(
     args: state_chain_proof::Args,
     local_db: LocalDB,
@@ -101,8 +104,9 @@ async fn spawn_state_chain_ctx_builder(
     }
 }
 
+#[tracing::instrument(level = "info", skip(cancellation_token))]
 async fn spawn_state_chain_prover(
-    mut start_index: u64,
+    start_index: u64,
     batch_size: u64,
     input_proof: String,
     local_db: LocalDB,
@@ -111,10 +115,11 @@ async fn spawn_state_chain_prover(
 ) -> anyhow::Result<()> {
     let builder = StateChainProofBuilder::new();
 
+    let mut start_index = start_index;
     loop {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(interval)) => {
-                tracing::info!("prover: start proving");
+                tracing::info!("prover: start proving, block_start: {start_index}, batch_size: {batch_size}");
 
                 let snap_path = std::path::Path::new(&input_proof).parent().unwrap().to_str().unwrap();
                 let args: state_chain_proof::Args = match std::fs::read(&format!("{}/{}.args", snap_path, start_index)) {
@@ -147,7 +152,7 @@ async fn spawn_state_chain_prover(
                 let (public_value_hex, proof_size) =
                     builder.save_proof(&ctx, &input, cycles, proof)?;
 
-                update_long_running_task(
+                let affteced = update_long_running_task(
                     &local_db,
                     start_index as i64,
                     batch_size as i64,
@@ -159,6 +164,7 @@ async fn spawn_state_chain_prover(
                     proving_time as i64,
                     zkm_version,
                 ).await?;
+                tracing::info!("Updated long running task, affected rows: {affteced}");
                 start_index += batch_size;
             }
             _ = cancellation_token.cancelled() => {
@@ -168,7 +174,7 @@ async fn spawn_state_chain_prover(
     }
 }
 
-#[tracing::instrument(level = "info", skip(cancellation_token))]
+#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 pub(crate) fn spawn_state_chain_proof_task(
     args: state_chain_proof::Args,
     local_db: LocalDB,
@@ -185,6 +191,22 @@ pub(crate) fn spawn_state_chain_proof_task(
             interval,
             cancellation_token.clone(),
         ));
+
+        let next_task =
+            fetch_latest_long_running_task_by_state(&local_db, StateChainProofBuilder::name(), Proven as i64).await?;
+
+        let mut args = args.clone();
+        if let Some(next_task) = next_task {
+            args.start = next_task.block_end as u64;
+            args.input_proof = next_task.path_to_proof.unwrap();
+            args.output_proof = format!(
+                "{}/{}-{}.bin",
+                std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
+                args.start,
+                args.batch_size
+            );
+            args.init_input = false;
+        }
 
         let input_proof = args.input_proof.clone();
         let prover = tokio::spawn(spawn_state_chain_prover(

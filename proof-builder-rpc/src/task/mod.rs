@@ -188,6 +188,16 @@ pub(crate) async fn fetch_latest_long_running_task(
     storage_processor.find_latest_long_running_task_proof_by_name(chain_name).await
 }
 
+pub(crate) async fn fetch_latest_long_running_task_by_state(
+    local_db: &LocalDB,
+    chain_name: String,
+    proof_state: i64,
+) -> anyhow::Result<Option<LongRunningTaskProof>> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor.find_latest_long_running_task_proof_by_name_and_state(chain_name, proof_state).await
+}
+
+
 // fetch next task from watchtower or operator.
 #[tracing::instrument(level = "info", skip(local_db))]
 pub(crate) async fn fetch_on_demand_task(
