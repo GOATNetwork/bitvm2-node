@@ -65,7 +65,7 @@ pub async fn fetch_cbft_validator_info(
                 goat_block_hash = payload.block_hash.try_into().unwrap();
                 break;
             }
-            if payload.block_number < block_height as u64 {
+            if payload.block_number < block_height {
                 block_height += block_height - payload.block_number;
             } else {
                 block_height -= 1;
