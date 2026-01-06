@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 hex.workspace = true
+bitcoin.workspace = true
 
 [lints]
 workspace = true

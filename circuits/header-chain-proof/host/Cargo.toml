@@ -23,12 +23,14 @@ futures-util = {  workspace = true }
 sha2 = { workspace = true }
 lazy_static = { workspace = true } 
 rand = { workspace = true }
-
 borsh = { workspace = true }
+
+# bitvm2 node 
 header-chain = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
 proof-builder = { workspace = true }
+util = { workspace = true }
 
 # Ziren
 zkm-sdk.workspace = true

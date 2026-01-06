@@ -211,12 +211,13 @@ pub fn is_enable_update_spv_contract() -> bool {
     }
 }
 
-pub fn get_btc_block_confirms() -> u64 {
+pub fn get_btc_block_confirms(network: Network) -> u32 {
     std::env::var(ENV_BTC_BLOCK_CONFIRMS)
         .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(6)
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(util::get_btc_block_confirms(network))
 }
+
 pub fn get_node_goat_private_key() -> anyhow::Result<String> {
     std::env::var(ENV_GOAT_PRIVATE_KEY).map_err(|_| anyhow::anyhow!("Goat private key is missing"))
 }

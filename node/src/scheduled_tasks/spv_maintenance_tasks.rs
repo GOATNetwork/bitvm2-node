@@ -11,7 +11,7 @@ pub(crate) async fn spv_header_hash_update(
     goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
     info!("start in spv_header_hash_update");
-    let block_confirms = get_btc_block_confirms();
+    let block_confirms = get_btc_block_confirms(btc_client.network()) as u64;
     loop {
         let last_height = goat_client.btc_spv_latest_height().await?;
         let btc_height = btc_client.get_height().await? as u64;

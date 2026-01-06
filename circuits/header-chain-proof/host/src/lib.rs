@@ -4,6 +4,7 @@ use client::btc_chain::BTCClient;
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use sha2::{Digest, Sha256};
+use util::get_btc_block_confirms;
 use std::{
     fs,
     io::{Read, Seek},
@@ -97,10 +98,18 @@ pub async fn fetch_header_chain(
 
     writer.seek(std::io::SeekFrom::Start((block_headers.len() * 80) as u64))?;
 
+    let confirmations = get_btc_block_confirms(btc_client.network());
+
     let mut i = start;
     let mut retries = 9;
     while i < start + batch_size {
         tracing::info!("get block by height: {i}");
+        let tip_height = btc_client.get_height().await?;
+        if i as u32 + confirmations > tip_height {
+            tracing::info!("current tip height: {tip_height}, wait for new block");
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+            continue;   
+        }
         match btc_client.get_block_by_height(i as u32).await {
             Ok(block) => {
                 tracing::info!("block_id {i}: {}", block.block_hash().to_string());

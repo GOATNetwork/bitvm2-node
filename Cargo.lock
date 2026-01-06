@@ -2646,6 +2646,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber 0.3.22",
+ "util",
  "uuid 1.19.0",
  "zeroize",
  "zkm-sdk",
@@ -5346,6 +5347,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber 0.3.22",
+ "util",
  "zkm-build",
  "zkm-prover",
  "zkm-sdk",
@@ -12943,6 +12945,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "util"
 version = "0.3.1"
 dependencies = [
+ "bitcoin 0.32.8",
  "hex",
 ]
 
