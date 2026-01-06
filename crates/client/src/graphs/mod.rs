@@ -1,3 +1,5 @@
+use crate::graphs::graph_query::get_meta_data_query;
+
 pub mod graph_query;
 #[derive(Clone)]
 pub struct GraphQueryClient {
@@ -32,5 +34,10 @@ impl GraphQueryClient {
             .await
             .map_err(|err| anyhow::format_err!("{err}"))?;
         Ok(response["data"].clone())
+    }
+
+    pub async fn get_sync_block_height(&self, subgraph_url: &str) -> anyhow::Result<Option<i64>> {
+        let query_res = self.execute_query(subgraph_url, &get_meta_data_query()).await?;
+        Ok(query_res["_meta"]["block"]["number"].clone().as_i64())
     }
 }

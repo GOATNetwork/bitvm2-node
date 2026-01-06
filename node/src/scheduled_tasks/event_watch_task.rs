@@ -839,13 +839,21 @@ pub async fn fetch_history_events(
     let async_fn = || async move {
         let task_name = watch_events_config.get_watch_contract_type().to_string();
         loop {
-            let current_finalized = goat_client.get_finalized_block_number().await;
-            if current_finalized.is_err() {
-                warn!("fail to get finalize block, will try later");
-                sleep(Duration::from_millis(500)).await;
-                continue;
-            }
-            let current_finalized = current_finalized?;
+            // let current_finalized = goat_client.get_finalized_block_number().await;
+            let current_finalized = match query_client
+                .get_sync_block_height(&watch_contract.the_graph_url)
+                .await
+            {
+                Ok(Some(v)) => v,
+                Ok(None) | Err(_) => {
+                    warn!(
+                        "fetch_history_events:fail to get graph sync block height, will try later"
+                    );
+                    sleep(Duration::from_millis(500)).await;
+                    continue;
+                }
+            };
+
             if watch_contract.from_height > current_finalized {
                 info!(
                     "Contract {task_name} fetch history events will finish, as current finalize height: {current_finalized} is litter than watch from height: {}",
@@ -948,7 +956,15 @@ pub async fn monitor_events_item(
     )
     .await?;
     let query_client = GraphQueryClient::new();
-    let current_finalized = goat_client.get_finalized_block_number().await?;
+    // let current_finalized = goat_client.get_finalized_block_number().await?;
+    let current_finalized =
+        match query_client.get_sync_block_height(&watch_contract.the_graph_url).await {
+            Ok(Some(v)) => v,
+            Ok(None) | Err(_) => {
+                warn!("monitor_events_item:fail to get graph sync block height, will try later");
+                return Ok(());
+            }
+        };
 
     if watch_contract.from_height == 0 || watch_contract.from_height >= current_finalized {
         warn!(
@@ -1179,6 +1195,7 @@ pub async fn is_processing_gateway_history_events(
     let gateway_contract: EvmAddress = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
         .ok_or(anyhow::anyhow!("need to set gateway contract address"))?;
     let mut storage_processor = local_db.acquire().await?;
+    // use finalized block height to judge is processing history events
     let current_finalized = goat_client.get_finalized_block_number().await?;
     let watch_contract = get_watch_contract(
         &mut storage_processor,

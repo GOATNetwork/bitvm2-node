@@ -244,6 +244,14 @@ impl SwapEventEntity {
     }
 }
 
+pub fn get_meta_data_query() -> String {
+    let mut builder = QueryBuilder::new();
+    let tag = "_meta".to_string();
+    builder = builder.add_query(&tag);
+    builder = builder.add_field(&tag, "block { number }");
+    builder.build()
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum UserGraphWithdrawEvent {
     InitWithdraw(InitWithdrawEvent),
@@ -571,6 +579,16 @@ struct SingleQuery {
     skip: Option<usize>,
 }
 
+impl SingleQuery {
+    pub fn has_conditions(&self) -> bool {
+        !self.filters.is_empty()
+            || self.order_by.is_some()
+            || self.order_direction.is_some()
+            || self.first.is_some()
+            || self.skip.is_some()
+    }
+}
+
 impl Default for QueryBuilder {
     fn default() -> Self {
         Self::new()
@@ -627,7 +645,11 @@ impl QueryBuilder {
     pub fn build(self) -> String {
         let mut query = String::from("query {");
         for q in self.queries {
-            query.push_str(&format!("\n{}(", q.entity));
+            let has_conditions = q.has_conditions();
+            query.push_str(&format!("\n{}", q.entity));
+            if has_conditions {
+                query.push_str("(");
+            }
             // Add where clause if there are filters
             if !q.filters.is_empty() {
                 query.push_str("where: {");
@@ -647,8 +669,11 @@ impl QueryBuilder {
             if let Some(skip) = q.skip {
                 query.push_str(&format!("skip: {skip},"));
             }
+            if has_conditions {
+                query.push_str(") ");
+            }
             // Add fields
-            query.push_str(") {");
+            query.push_str("{");
             for field in q.fields {
                 query.push_str(&format!("{field} "));
             }
