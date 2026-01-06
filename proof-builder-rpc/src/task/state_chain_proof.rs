@@ -1,3 +1,5 @@
+use crate::task::ProofState::Proven;
+use crate::task::fetch_latest_long_running_task_by_state;
 use crate::task::{create_long_running_task, update_long_running_task};
 use crate::{ProofBuilderConfig, task::fetch_latest_long_running_task};
 use proof_builder::{ProofBuilder, ProofRequest};
@@ -6,8 +8,6 @@ use std::time::Duration;
 use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use crate::task::ProofState::Proven;
-use crate::task::fetch_latest_long_running_task_by_state;
 
 #[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 async fn spawn_state_chain_ctx_builder(
@@ -104,7 +104,7 @@ async fn spawn_state_chain_ctx_builder(
     }
 }
 
-#[tracing::instrument(level = "info", skip(cancellation_token))]
+#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 async fn spawn_state_chain_prover(
     start_index: u64,
     batch_size: u64,
@@ -192,8 +192,12 @@ pub(crate) fn spawn_state_chain_proof_task(
             cancellation_token.clone(),
         ));
 
-        let next_task =
-            fetch_latest_long_running_task_by_state(&local_db, StateChainProofBuilder::name(), Proven as i64).await?;
+        let next_task = fetch_latest_long_running_task_by_state(
+            &local_db,
+            StateChainProofBuilder::name(),
+            Proven as i64,
+        )
+        .await?;
 
         let mut args = args.clone();
         if let Some(next_task) = next_task {
