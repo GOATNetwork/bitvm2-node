@@ -2423,6 +2423,19 @@ pub async fn recv_and_dispatch(
                 );
                 return Ok(());
             }
+            if outpoint_spent_txid(
+                btc_client,
+                &watchtower_challenge_init_txid,
+                2 * node_index as u64,
+            )
+            .await?
+            .is_some()
+            {
+                tracing::warn!(
+                    "Ignore WatchtowerChallengeInitSent for {instance_id}:{graph_id}: watchtower challenge connector already spent"
+                );
+                return Ok(());
+            }
             // update
             // 1. check the withdraw status on GoatChain, if the withdraw is invalid, sign & broadcast watchtower-challenge txn
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
