@@ -1725,6 +1725,10 @@ pub async fn get_watchtower_commitment(
         && let (Some(challenge_txid), Some(challenge_init_txid)) =
             (graph.challenge_txid, graph.watchtower_challenge_init_txid)
     {
+        if graph.proceed_withdraw_height <= 0 {
+            warn!("graph {graph_id} proceed_withdraw_height <= 0, waiting to been updated");
+            return Ok((None, get_watchtower_proof_wait_secs()));
+        }
         let url = format!(
             "http://{}{}",
             get_proof_build_rpc_host()
@@ -1768,6 +1772,10 @@ pub async fn get_operator_proof(
 ) -> Result<(Option<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)>, usize)> {
     let mut storage_processor = local_db.acquire().await?;
     if let Some(graph) = storage_processor.find_graph(&graph_id).await? {
+        if graph.proceed_withdraw_height <= 0 {
+            warn!("graph {graph_id} proceed_withdraw_height <= 0, waiting to been updated");
+            return Ok((None, get_operator_proof_wait_secs()));
+        }
         let url = format!(
             "http://{}{}",
             get_proof_build_rpc_host()
@@ -1815,7 +1823,9 @@ pub async fn get_operator_proof_vk(
     graph_id: Uuid,
 ) -> Result<VerifyingKey> {
     let mut storage_processor = local_db.acquire().await?;
-    if let Some(graph) = storage_processor.find_graph(&graph_id).await? {
+    if let Some(graph) = storage_processor.find_graph(&graph_id).await?
+        && graph.proceed_withdraw_height > 0
+    {
         let url = format!(
             "http://{}{}",
             get_proof_build_rpc_host()
@@ -1838,14 +1848,9 @@ pub async fn get_operator_proof_vk(
             None => bail!("failed to get Groth16Proof"),
         }
     } else {
-        warn!("graph:{graph_id} not found");
-        bail!("No graph in db");
+        warn!("graph:{graph_id} not found or proceed_withdraw_height <= 0");
+        bail!("No graph in db or proceed_withdraw_height <= 0");
     }
-    // todo update
-    // let zkm_v1_vk_bytes = hex::decode(
-    //     "e2f26dbea299f5223b646cb1fb33eadb059d9407559d7441dfd902e3a79a4d2dabb73dc17fbc13021e2471e0c08bd67d8401f52b73d6d07483794cad4778180e0c06f33bbc4c79a9cadef253a68084d382f17788f885c9afd176f7cb2f036789edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19ffdb10cf9f7e2b08673477187c33a695a397702cf22005900724518b57f92f2ce08f8dfe36ca3eff63b1743d64812936d8cab0d74c063d260e20a9a3339b2a8c0300000000000000d17e1efc51d15eef04bde8dc794edc9e5788eb7539171d3a49d970ab9215b89c9ab6c5ab119ca81927393ef29332a1d15ac5f197b878ea89a1f8f686b747011eaad636dcb52cdfd674d155ddd67d21186fbdd1c0a62ebd74dcd6ddc6784b819e",
-    // )?;
-    // Ok(goat::proof::deserialize_vk(zkm_v1_vk_bytes))
 }
 
 const ASSERT_COMMIT_CACHE_VERSION: u32 = 1;
