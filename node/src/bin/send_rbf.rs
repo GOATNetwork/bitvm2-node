@@ -58,8 +58,8 @@ struct Args {
     fee_amount: u64,
 
     /// Optional esplora base URL override
-    #[arg(long = "esplora-url")]
-    esplora_url: Option<String>,
+    #[arg(long, default_value = "https://mempool.space/testnet4/api")]
+    esplora_url: String,
 }
 
 #[derive(Clone, Debug)]
@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let network = get_network();
-    let btc_client = BTCClient::new(network, args.esplora_url.as_deref());
+    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
 
     let node_keypair = get_bitvm_key()?;
     let node_address = node_p2wsh_address(network, &node_keypair.public_key().into());

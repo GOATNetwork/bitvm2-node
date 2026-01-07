@@ -238,12 +238,12 @@ pub fn build_challenge_incomplete_kickoff_tx(
 
 pub fn nack_timelock(network: Network) -> u32 {
     num_blocks_per_network(network, ACK_TIMELOCK) // actual delay on bitcoin network
-        + if network == Network::Testnet || network == Network::Testnet4 { 6 } else { 0 } // Testnet extra delay
+        + if network == Network::Testnet || network == Network::Testnet4 { 18 } else { 0 } // Testnet extra delay
 }
 
 pub fn commit_blockhash_timeout_timelock(network: Network) -> u32 {
     num_blocks_per_network(network, CONNECTOR_G_TIMELOCK)
-        + if network == Network::Testnet || network == Network::Testnet4 { 6 } else { 0 } // Testnet extra delay
+        + if network == Network::Testnet || network == Network::Testnet4 { 18 } else { 0 } // Testnet extra delay
 }
 
 pub fn assert_commit_timeout_timelock(network: Network) -> u32 {

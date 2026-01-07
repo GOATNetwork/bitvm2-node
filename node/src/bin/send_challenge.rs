@@ -51,8 +51,8 @@ struct Args {
     db_path: String,
 
     /// Esplora base URL (optional override for Bitcoin RPC via Esplora)
-    #[arg(long)]
-    esplora_url: Option<String>,
+    #[arg(long, default_value = "https://mempool.space/testnet4/api")]
+    esplora_url: String,
 }
 
 #[tokio::main]
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let network = get_network();
-    let btc_client = BTCClient::new(network, args.esplora_url.as_deref());
+    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
 
     // Open local DB and load graph
     let local_db = create_local_db(&args.db_path).await;

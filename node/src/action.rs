@@ -2923,6 +2923,16 @@ pub async fn recv_and_dispatch(
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let operator_graph_keypair = operator_master_key.master_keypair();
             let assert_init_txid = graph.assert_init.tx().compute_txid();
+            // uncomment the following lines when operator proof is available 
+            // let (proof_opt, wait_secs) =
+            //     get_operator_proof(local_db, http_client, instance_id, graph_id).await?;
+            // if proof_opt.is_none() {
+            //     tracing::warn!(
+            //         "Retry AssertInitReady for {instance_id}:{graph_id} later: operator proof not ready, retry after {wait_secs} seconds"
+            //     );
+            //     push_local_unhandled_messages(local_db, graph_id, &message, wait_secs).await?;
+            //     return Ok(());
+            // }
             // 1. sign & broadcast assert-init txn
             if !tx_on_chain(btc_client, &assert_init_txid).await? {
                 let watchtower_challenge_init_txid =
