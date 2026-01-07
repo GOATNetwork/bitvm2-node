@@ -1,5 +1,5 @@
 use crate::ProofBuilderConfig;
-use crate::task::{fetch_on_demand_task, update_watchtower_task, ProofState};
+use crate::task::{ProofState, fetch_on_demand_task, update_watchtower_task};
 use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;

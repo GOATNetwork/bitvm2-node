@@ -1,6 +1,6 @@
 use crate::{
     config::ProofBuilderConfig,
-    task::{fetch_on_demand_task, update_operator_task, ProofState},
+    task::{ProofState, fetch_on_demand_task, update_operator_task},
 };
 use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{ProofBuilder, ProofRequest};

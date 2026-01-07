@@ -16,7 +16,7 @@ use header_chain::{
     CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
-use state_chain::{CircuitStateBlock, StateChainCircuitInput, StateChainPrevProofType};
+use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
 use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
@@ -271,40 +271,6 @@ impl ProofBuilder for OperatorProofBuilder {
 
         // --- state chain --- //
         let state_chain_input = {
-            let blocks: Vec<CircuitStateBlock> = {
-                // find the previous blocks
-                let next_block_path = std::path::Path::new(state_chain_input_proof);
-                let parent = next_block_path.parent().unwrap();
-
-                // Parse start and batch_size from the file stem
-                let stem = next_block_path.file_stem().unwrap().to_str().unwrap();
-                let parts: Vec<&str> = stem.split('-').collect();
-                if parts.len() != 2 {
-                    panic!("Invalid file stem format: expected 'start-batch_size'");
-                }
-                let start: u64 = parts[0].parse().expect("Failed to parse start as u64");
-                let batch_size: u64 = parts[1].parse().expect("Failed to parse batch_size as u64");
-
-                let path = format!("{}/{}-{}.bin.blocks",
-                    parent.to_str().unwrap(),
-                    start - batch_size,
-                    batch_size,
-                );
-                tracing::info!("state chain block path: {path:?}");
-                let reader = std::fs::File::open(&path)?;
-                serde_json::from_reader(reader)?
-            }; 
-            // print all the graph id
-            for block in &blocks {
-                tracing::info!("block[{}].withdrawl: {:?}", block.evm_block.current_block.header.number, block.withdrawals);
-                for withdrawal in &block.withdrawals {
-                    let graph_ids = &withdrawal.2;
-                    for graph_id in graph_ids {
-                        tracing::info!("graph id: {}", hex::encode(graph_id));
-                    }
-                }
-            }
-
             let zkm_proof = fs::read(state_chain_input_proof)
                 .context("Failed to read input proof file")
                 .unwrap();
@@ -319,7 +285,7 @@ impl ProofBuilder for OperatorProofBuilder {
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
-                blocks,
+                blocks: vec![],
             }
         };
 

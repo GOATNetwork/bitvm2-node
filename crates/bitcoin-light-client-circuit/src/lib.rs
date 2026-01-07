@@ -268,16 +268,7 @@ pub fn propose_longest_chain(
     }
 
     println!("verify el block");
-    let mut is_found = false;
-    for block in &state_chain.blocks {
-        if let Some(withdrawals) = &block.withdrawals
-            && withdrawals.2.contains(&graph_id)
-        {
-            is_found = true;
-            break;
-        }
-    }
-    assert!(is_found, "Graph id {graph_id:?} is not included in current state chain");
+
     verify_proof(&state_chain.zkm_proof, &state_chain.zkm_public_values, &state_chain.zkm_vk_hash)
         .expect("Failed to verify state chain proof");
     let StateChainPrevProofType::PrevProof(state_chain_output) = &state_chain.prev_proof else {
@@ -303,6 +294,15 @@ pub fn propose_longest_chain(
     assert_eq!(commitment[32..64], state_chain_output.chain_state.genesis_evm_block_hash[..]);
 
     assert_eq!(commit_sequencer_set_hash, expected_seqeuencer_set_hash);
+
+    let mut is_found = false;
+    for withdrawal in &state_chain_output.chain_state.withdrawals {
+        if withdrawal.2.contains(&graph_id) {
+            is_found = true;
+            break;
+        }
+    }
+    assert!(is_found, "Graph id {graph_id:?} is not included in current state chain");
 
     // (operator_total_work, included_watchtowers, graph_id, operator_genesis_sequencer_commit_txid, btc_best_block_hash)
     //(hash_operator_inputs(graph_id, operator_genesis_sequencer_commit_txid), btc_best_block_hash)
