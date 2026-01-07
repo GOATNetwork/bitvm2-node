@@ -393,12 +393,13 @@ pub fn get_goat_swap_event_filter_gap_from_env() -> i64 {
 
 pub fn get_goat_gateway_the_graph_urls_from_env() -> String {
     std::env::var(ENV_GOAT_GATEWAY_EVENT_THE_GRAPH_URL)
-        .unwrap_or( "https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/bitvm2_gateway_ga_dev_0/0.0.3/gn".to_string())
+        .unwrap_or("https://graph.goat.network/subgraphs/name/bitvm2_gateway_dev".to_string())
 }
 
 pub fn get_goat_swap_the_graph_urls_from_env() -> String {
-    std::env::var(ENV_GOAT_SWAP_EVENT_THE_GRAPH_URL)
-        .unwrap_or( "https://api.goat.0xgraph.xyz/api/public/1030419e-065f-45e9-8cf5-69c42207cbc7/subgraphs/escrow_manager_ga_dev_0/0.0.1/gn".to_string())
+    std::env::var(ENV_GOAT_SWAP_EVENT_THE_GRAPH_URL).unwrap_or(
+        "https://graph.goat.network/subgraphs/name/bitvm2_escrow_manager_dev".to_string(),
+    )
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {

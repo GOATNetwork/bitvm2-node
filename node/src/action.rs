@@ -2923,7 +2923,7 @@ pub async fn recv_and_dispatch(
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let operator_graph_keypair = operator_master_key.master_keypair();
             let assert_init_txid = graph.assert_init.tx().compute_txid();
-            // uncomment the following lines when operator proof is available 
+            // uncomment the following lines when operator proof is available
             // let (proof_opt, wait_secs) =
             //     get_operator_proof(local_db, http_client, instance_id, graph_id).await?;
             // if proof_opt.is_none() {
