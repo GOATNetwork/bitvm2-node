@@ -1,5 +1,5 @@
 [header_chain]
-enable = true
+enable = false 
 init_input = false 
 esplora_url = "http://127.0.0.1:13002"
 start = 116000
@@ -13,7 +13,7 @@ output_proof = "../circuits/data/header-chain/116000-10.bin"
 bitcoin_network = "testnet4"
 
 [commit_chain]
-enable = true 
+enable = false 
 esplora_url = "http://127.0.0.1:13002"
 commit_info = "../circuits/data/commit-chain/commit_info.json.0"
 commits = "../circuits/data/commit-chain/commits.bin"
@@ -25,7 +25,7 @@ output_proof = "../circuits/data/commit-chain/0-1.bin"
 bitcoin_network = "testnet4"
 
 [state_chain]
-enable = true 
+enable = false 
 init_input = true 
 #l2_contract_address = "0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f"
 l2_contract_address = "0x26Aa99d72f5f85D60A1B44773B3897793981B7F7"
@@ -45,8 +45,8 @@ cosmos_rpc_url = "https://rpc.testnet3.goat.network/goat-rpc"
 [watchtower]
 enable = false 
 esplora_url = "http://127.0.0.1:13002"
-genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
-latest_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
+genesis_sequencer_commit_txid = "eae1e2638ce347deadcef7d6c4f0dd6776317adb9ee2abdd2514aa3cdc41c9c9"
+latest_sequencer_commit_txid = "3b915823880bb347b102731d3d2d4538673f8e3a1b453858d89476381029f9b0"
 header_chain_input_proof = "../circuits/data/header-chain/0-116000.bin"
 commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
 state_chain_input_proof = "../circuits/data/state-chain/10207974-40.bin"
@@ -55,20 +55,20 @@ index = 1
 bitcoin_network = "testnet4"
 
 [operator]
-enable = false 
+enable = true 
 esplora_url = "http://127.0.0.1:13002"
-genesis_sequencer_commit_txid = "ed4b561af5cf1d419bed69a007ceba38da6e1f343e56aa6492afd34d26ce0c75"
-latest_sequencer_commit_txid = "b8e0c71b8a2b7c8c7e6f5e4d3c2b1a0099887766554433221100ffeeddccbbaa"
-watchtower_challenge_init_txid = "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246"
-watchtower_challenge_txids = "3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0"
-watchtower_public_keys = "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651" 
+genesis_sequencer_commit_txid = "eae1e2638ce347deadcef7d6c4f0dd6776317adb9ee2abdd2514aa3cdc41c9c9"
+latest_sequencer_commit_txid = "3b915823880bb347b102731d3d2d4538673f8e3a1b453858d89476381029f9b0"
+watchtower_challenge_init_txid = "ad62af8aec5c7eb4966170b1931d9348292cd7797d5dc8c436afecb5e9c38bde"
+watchtower_challenge_txids = "5d6d5e49efddef613ca98d72987ee806c987df488a8479e69f2fe419b5321bf1"
+watchtower_public_keys = "03e7a08db9093c279535bd0078582469b82bf9f12c6dcb7588e187d2b9cc724279" 
 
-header_chain_input_proof = "../circuits/data/header-chain/0-116000.bin"
-commit_chain_input_proof = "../circuits/data/commit-chain/2-1.bin"
-state_chain_input_proof = "../circuits/data/state-chain/10207974-40.bin"
+header_chain_input_proof = "/home/ubuntu/data/proof-builder-rpc/circuits/data/header-chain/117590-10.bin"
+commit_chain_input_proof = "/home/ubuntu/data/proof-builder-rpc/circuits/data/commit-chain/6-1.bin"
+state_chain_input_proof =  "/home/ubuntu/data/proof-builder-rpc/circuits/data/state-chain/10285644-40.bin"
 output = "../circuits/data/operator/output.bin"
 included_watchtowers = "1"
-graph_id="0x00112233445566778899aabbccddeeff"
-execution_layer_block_number = 9511055
+graph_id="91931F68ABC34F9EB6EED37264581B2C"
+execution_layer_block_number = 10285657
 index = 1
 bitcoin_network = "testnet4"

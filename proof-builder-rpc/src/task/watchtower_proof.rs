@@ -1,5 +1,5 @@
 use crate::ProofBuilderConfig;
-use crate::task::{fetch_on_demand_task, update_watchtower_task};
+use crate::task::{fetch_on_demand_task, update_watchtower_task, ProofState};
 use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use watchtower_proof::{WatchtowerProofBuilder, fetch_target_block};
 
-#[tracing::instrument(level = "info", skip(cancellation_token))]
+#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 pub(crate) fn spawn_watchtower_proof_task(
     args: watchtower_proof::Args,
     local_db: LocalDB,
@@ -39,6 +39,7 @@ pub(crate) fn spawn_watchtower_proof_task(
                         task_index = next_task.task_index;
                     } else {
                         tracing::info!("Wait for the next task");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
                         continue;
                     };
                     info!("Watchtower proof generate task: generate proof, args: {args:?}");
@@ -48,6 +49,7 @@ pub(crate) fn spawn_watchtower_proof_task(
                             Ok(data) => data,
                             Err(e) => {
                                 tracing::error!("Fetch target block error: {e}");
+                                tokio::time::sleep(Duration::from_secs(5)).await;
                                 continue;
                             }
                         };
@@ -63,17 +65,26 @@ pub(crate) fn spawn_watchtower_proof_task(
                             latest_sequencer_commit_tx,
                     };
                     let proving_start = tokio::time::Instant::now();
-                    let (input, proof, cycles, proving_time) = match builder.build_proof(&ctx) {
-                        Ok(d) => d,
+                    let (cycles, proving_time, public_value_hex, proof_size, proof_state, zkm_version) = match builder.build_proof(&ctx) {
+                        Ok((input, proof, cycles, proving_time)) => {
+                            let zkm_version = proof.zkm_version.clone();
+                            let (public_value_hex, proof_size, proof_state) = match builder.save_proof(&ctx, &input, cycles, proof) {
+                                Ok((pvh, pf)) => (pvh, pf, ProofState::Proven),
+                                Err(e) => {
+                                    tracing::error!("Generate watchtower proof, error: {e:?}");
+                                    ("".to_string(), 0, ProofState::Failed)
+                                }
+                            };
+                            (cycles, proving_time, public_value_hex, proof_size, proof_state, zkm_version)
+                        },
                         Err(err) => {
                             tracing::error!("Build proof error: {err}");
-                            continue;
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            (0u64, 0.0, "".to_string(), 0usize, ProofState::Failed, "".to_string())
                         }
                     };
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
-                    let zkm_version = proof.zkm_version.clone();
-                    let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
-                    let affected = update_watchtower_task(&local_db, task_index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proving_duration as i64, proving_time as i64, zkm_version).await?;
+                    let affected = update_watchtower_task(&local_db, task_index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proof_state, proving_duration as i64, proving_time as i64, zkm_version).await?;
                     tracing::info!("update watchtower task: {args:?}, cycles: {cycles}, index: {}, affected row: {affected}", task_index);
                     args = ProofBuilderConfig::run_next(args, WatchtowerProofBuilder::name())?;
                 }

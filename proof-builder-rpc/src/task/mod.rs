@@ -468,18 +468,20 @@ pub(crate) async fn update_watchtower_task(
     public_value_hex: String,
     proof_size: i64,
     cycles: u64,
+    proof_state: ProofState,
     total_time_to_proof: i64,
     proving_time: i64,
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
     Ok(storage_processor
-        .update_watchtower_proof_success(
+        .update_watchtower_proof(
             index,
             path_to_proof,
             public_value_hex,
             proof_size,
             cycles as i64,
+            proof_state.to_i64(),
             total_time_to_proof,
             proving_time,
             &zkm_version,
@@ -530,18 +532,20 @@ pub(crate) async fn update_operator_task(
     public_value_hex: String,
     proof_size: i64,
     cycles: u64,
+    proof_state: ProofState,
     total_time_to_proof: i64,
     proving_time: i64,
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
     Ok(storage_processor
-        .update_operator_proof_success(
+        .update_operator_proof(
             index,
             path_to_proof,
             public_value_hex,
             proof_size,
             cycles as i64,
+            proof_state.to_i64(),
             total_time_to_proof,
             proving_time,
             &zkm_version,

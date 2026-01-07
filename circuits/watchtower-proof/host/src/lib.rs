@@ -111,7 +111,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
         "watchtower-chain".to_string()
     }
 
-    #[tracing::instrument(level = "info", skip(self))]
     fn build_proof(
         &self,
         ctx: &ProofRequest,
