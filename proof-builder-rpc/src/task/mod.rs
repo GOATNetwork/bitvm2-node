@@ -461,6 +461,24 @@ pub(crate) async fn find_watchtower_task(
         .await
 }
 
+pub(crate) async fn update_watchtower_task_state(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    public_key: &str,
+    proof_state: ProofState,
+) -> anyhow::Result<u64> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor
+        .update_watchtower_proof_state_with_instance_graph_pubkey(
+            &instance_id,
+            &graph_id,
+            public_key,
+            proof_state.to_i64(),
+        )
+        .await
+}
+
 pub(crate) async fn update_watchtower_task(
     local_db: &LocalDB,
     index: i64,
@@ -521,6 +539,22 @@ pub(crate) async fn find_operator_task(
 ) -> anyhow::Result<Option<OperatorProof>> {
     let mut storage_processor = local_db.acquire().await?;
     storage_processor.find_operator_proof_by_instance_and_graph(&instance_id, &graph_id).await
+}
+
+pub(crate) async fn update_operator_task_state(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    proof_state: ProofState,
+) -> anyhow::Result<u64> {
+    let mut storage_processor = local_db.acquire().await?;
+    storage_processor
+        .update_operator_proof_state_with_instance_graph(
+            &instance_id,
+            &graph_id,
+            proof_state.to_i64(),
+        )
+        .await
 }
 
 pub(crate) async fn update_operator_task(

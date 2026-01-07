@@ -8,7 +8,8 @@ mod validation;
 use crate::api::metrics_service::{ApiMetricsState, metrics_handler, metrics_middleware};
 use crate::api::proof_handler::{
     get_chain_proof_task_desc, get_operator_proof_task_desc, post_operator_proof_task,
-    post_watchtower_proof_task,
+    post_watchtower_proof_task, update_operator_proof_task_timeout,
+    update_watchtower_proof_task_timeout,
 };
 use axum::http::Method;
 use axum::routing::{get, post};
@@ -41,7 +42,12 @@ pub(crate) async fn serve(
         .route(routes::METRICS, get(metrics_handler))
         .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_task_desc))
         .route(routes::v1::PROOFS_WATCHTOWER_PROOF, post(post_watchtower_proof_task))
+        .route(
+            routes::v1::PROOFS_WATCHTOWER_PROOF_TIMEOUT,
+            post(update_watchtower_proof_task_timeout),
+        )
         .route(routes::v1::PROOFS_OPERATOR_PROOF, post(post_operator_proof_task))
+        .route(routes::v1::PROOFS_OPERATOR_PROOF_TIMEOUT, post(update_operator_proof_task_timeout))
         .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_task_desc))
         .layer(middleware::from_fn_with_state(api_state.clone(), metrics_middleware))
         .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![

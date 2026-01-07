@@ -1755,6 +1755,32 @@ impl<'a> StorageProcessor<'a> {
         Ok(())
     }
 
+    pub async fn find_message_by_business_id(
+        &mut self,
+        business_id: &Uuid,
+        msg_type: &str,
+    ) -> anyhow::Result<Option<Message>> {
+        let res = sqlx::query_as!(
+            Message,
+            "SELECT message_id,
+                    business_id AS \"business_id:Uuid\",
+                    from_peer,
+                    actor,
+                    msg_type,
+                    content,
+                    message_version,
+                    state,
+                    weight,
+                    lock_time_until
+             FROM message
+             WHERE business_id = ? AND msg_type = ?",
+            business_id,
+            msg_type,
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
     pub async fn find_messages_by_id(
         &mut self,
         message_id: &str,
@@ -2637,6 +2663,28 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    pub async fn update_operator_proof_state_with_instance_graph(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE operator_proof
+             SET proof_state = ?,
+                 updated_at = ?
+             WHERE instance_id = ? AND graph_id = ?",
+            proof_state,
+            current_time,
+            instance_id,
+            graph_id
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn update_operator_proof_state(
         &mut self,
         id: i64,
@@ -2776,6 +2824,31 @@ impl<'a> StorageProcessor<'a> {
             zkm_version,
             current_time,
             id,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+    pub async fn update_watchtower_proof_state_with_instance_graph_pubkey(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        public_key: &str,
+        proof_state: i64,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE watchtower_proof
+             SET proof_state = ?,
+                 updated_at = ?
+             WHERE   instance_id = ?
+                    AND graph_id = ?
+                    AND  public_key = ?",
+            proof_state,
+            current_time,
+            instance_id,
+            graph_id,
+            public_key
         )
         .execute(self.conn())
         .await?;

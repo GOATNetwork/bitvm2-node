@@ -83,3 +83,32 @@ pub struct WatchtowerProofResponse {
     pub proof_data: Option<ProofData>,
     pub error: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OperatorProofTimeoutUpdateRequest {
+    pub instance_id: String,
+    pub graph_id: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OperatorProofTimeoutUpdateResponse {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub data: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WatchtowerProofTimeoutUpdateRequest {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub public_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WatchtowerProofTimeoutUpdateResponse {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub public_key: String,
+    pub data: Option<String>,
+    pub error: Option<String>,
+}
