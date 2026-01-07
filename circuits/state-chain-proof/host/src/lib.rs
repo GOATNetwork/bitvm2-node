@@ -382,11 +382,6 @@ impl ProofBuilder for StateChainProofBuilder {
         let ProofRequest::StateChainProofRequest { output_proof, .. } = ctx else {
             anyhow::bail!("Invalid state chain inputs");
         };
-        //fs::write(output_proof, bincode::serialize(&proof)?)?;
-        //let public_value_hex = hex::encode(proof.public_values.as_slice());
-        //let proof_size = proof.bytes().len();
-        //fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;
-        //fs::write(&format!("{}.in", output_proof), input)?;
         std::fs::write(&format!("{}", output_proof), proof.bytes())?;
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();

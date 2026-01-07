@@ -1,3 +1,4 @@
+use crate::task::ProofState;
 use crate::task::ProofState::Proven;
 use crate::task::fetch_latest_long_running_task_by_state;
 use crate::task::{create_long_running_task, update_long_running_task};
@@ -27,17 +28,22 @@ async fn spawn_state_chain_ctx_builder(
                 ).await?;
 
                 if let Some(next_task) = next_task {
-                    args.start = next_task.block_end as u64;
-                    args.input_proof = next_task.path_to_proof.unwrap();
-                    args.output_proof = format!(
-                        "{}/{}-{}.bin",
-                        std::path::Path::new(&args.output_proof)
-                            .parent().unwrap()
-                            .to_str().unwrap(),
-                        args.start,
-                        args.batch_size
-                    );
-                    args.init_input = false;
+                    // check if we should use the args from the config file.
+                    if args.start == next_task.block_start as u64 && next_task.block_end == 0 {
+                        tracing::info!("Use args from config file for the first task, start: {}, batch_size: {}", args.start, args.batch_size);
+                    } else {
+                        args.start = next_task.block_end as u64;
+                        args.input_proof = next_task.path_to_proof.unwrap();
+                        args.output_proof = format!(
+                            "{}/{}-{}.bin",
+                            std::path::Path::new(&args.output_proof)
+                                .parent().unwrap()
+                                .to_str().unwrap(),
+                            args.start,
+                            args.batch_size
+                        );
+                        args.init_input = false;
+                    }
                 }
 
                 tracing::info!("ctx builder: fetching blocks, args={args:?}");
@@ -91,7 +97,7 @@ async fn spawn_state_chain_ctx_builder(
                     StateChainProofBuilder::name(),
                     0,
                     0,
-                    store::ProofState::Proving,
+                    store::ProofState::New,
                     "".to_string(),
                 ).await?;
 
@@ -128,9 +134,8 @@ async fn spawn_state_chain_prover(
                         tracing::error!("Read args: {snap_path}, {e:?}");
                         continue;
                     }
-                }
+                };
 
-                ;
                 let ctx: ProofRequest = match &std::fs::read(&format!("{}/{}.ctx", snap_path, start_index)) {
                     Ok(x) => serde_json::from_slice(&x)?,
                     Err(e) => {
@@ -138,6 +143,21 @@ async fn spawn_state_chain_prover(
                         continue;
                     }
                 };
+
+                let affteced = update_long_running_task(
+                    &local_db,
+                    start_index as i64,
+                    batch_size as i64,
+                    args.output_proof.clone(),
+                    "".to_string(),
+                    0,
+                    0,
+                    ProofState::Proving,
+                    StateChainProofBuilder::name(),
+                    0,
+                    "".to_string(),
+                ).await?;
+                tracing::info!("Updated long running task to proving state, affected rows: {affteced}");
 
                 let (input, proof, cycles, proving_time) =
                     match builder.build_proof(&ctx) {
@@ -160,11 +180,12 @@ async fn spawn_state_chain_prover(
                     public_value_hex,
                     proof_size as i64,
                     cycles,
+                    ProofState::Proven,
                     StateChainProofBuilder::name(),
                     proving_time as i64,
                     zkm_version,
                 ).await?;
-                tracing::info!("Updated long running task, affected rows: {affteced}");
+                tracing::info!("Updated long running task to proven state, affected rows: {affteced}");
                 start_index += batch_size;
             }
             _ = cancellation_token.cancelled() => {
@@ -195,7 +216,7 @@ pub(crate) fn spawn_state_chain_proof_task(
         let next_task = fetch_latest_long_running_task_by_state(
             &local_db,
             StateChainProofBuilder::name(),
-            Proven as i64,
+            Proven.to_i64(),
         )
         .await?;
 
