@@ -10,12 +10,14 @@ use crate::api::proof_handler::{
     get_chain_proof_task_desc, get_operator_proof_task_desc, post_operator_proof_task,
     post_watchtower_proof_task,
 };
+use axum::http::Method;
 use axum::routing::{get, post};
 use axum::{Router, middleware};
 use std::sync::Arc;
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
+use tower_http::cors::{Any, CorsLayer};
 
 struct ApiState {
     pub local_db: LocalDB,
@@ -42,6 +44,13 @@ pub(crate) async fn serve(
         .route(routes::v1::PROOFS_OPERATOR_PROOF, post(post_operator_proof_task))
         .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_task_desc))
         .layer(middleware::from_fn_with_state(api_state.clone(), metrics_middleware))
+        .layer(CorsLayer::new().allow_headers(Any).allow_origin(Any).allow_methods(vec![
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ]))
         .with_state(api_state);
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("RPC listening on {}", listener.local_addr()?);

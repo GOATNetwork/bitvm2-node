@@ -36,8 +36,9 @@ operator-proof = { workspace = true }
 util = { workspace = true }
 serde_json = { workspace = true }
 
+
 #config
 toml.workspace = true
-
+tower-http = { version = "0.6.2", features = ["cors", "trace"] }
 [lints]
 workspace = true
