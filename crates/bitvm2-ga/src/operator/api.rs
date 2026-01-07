@@ -960,7 +960,7 @@ pub fn take1_timelock(network: Network) -> u32 {
 pub fn take2_timelocks(network: Network) -> (u32, u32) {
     (
         num_blocks_per_network(network, CONNECTOR_F_TIMELOCK)
-            + if network == Network::Testnet || network == Network::Testnet4 { 12 } else { 0 }, // Testnet extra delay
+            + if network == Network::Testnet || network == Network::Testnet4 { 24 } else { 0 }, // Testnet extra delay
         num_blocks_per_network(network, CONNECTOR_D_TIMELOCK)
             + if network == Network::Testnet || network == Network::Testnet4 { 6 } else { 0 }, // Testnet extra delay
     )
@@ -968,4 +968,5 @@ pub fn take2_timelocks(network: Network) -> (u32, u32) {
 
 pub fn watchtower_challenge_timeout_timelock(network: Network) -> u32 {
     num_blocks_per_network(network, WATCHTOWER_CHALLENGE_TIMELOCK)
+        + if network == Network::Testnet || network == Network::Testnet4 { 12 } else { 0 } // Testnet extra delay
 }

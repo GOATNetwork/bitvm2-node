@@ -70,10 +70,14 @@ use zkm_sdk::ZKM_CIRCUIT_VERSION;
 
 use crate::env;
 use crate::rpc_service::proof::{
-    OperatorProofRequest, OperatorProofResponse, ProofData, WatchtowerProofRequest,
-    WatchtowerProofResponse,
+    OperatorProofRequest, OperatorProofResponse, OperatorProofTimeoutUpdateRequest,
+    OperatorProofTimeoutUpdateResponse, ProofData, WatchtowerProofRequest, WatchtowerProofResponse,
+    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
 };
-use crate::rpc_service::routes::v1::{NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE};
+use crate::rpc_service::routes::v1::{
+    NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE, PROOFS_OPERATOR_PROOF_TIMEOUT,
+    PROOFS_WATCHTOWER_PROOF_TIMEOUT,
+};
 use crate::scheduled_tasks::get_goat_message_content_type;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertCommitStatus, ChallengeSubStatus, CommitBlockHashStatus, WatchtowerChallengeStatus,
@@ -3015,20 +3019,12 @@ pub async fn upsert_message(
     if is_update || storage_processor.find_messages_by_id(&message_id).await?.is_none() {
         if let Some(cancel_msg_type) = match msg_type {
             MessageType::WatchtowerChallengeTimeout => {
-                Some(MessageType::WatchtowerChallengeInitSent.to_string())
+                Some(MessageType::WatchtowerChallengeInitSent)
             }
-            MessageType::AssertCommitTimeout => Some(MessageType::AssertInitReady.to_string()),
+            MessageType::AssertCommitTimeout => Some(MessageType::AssertInitReady),
             _ => None,
         } {
-            // cancel unfinished p2p message
-            storage_processor
-                .update_messages_state_by_business_id(
-                    &business_id,
-                    Some(cancel_msg_type),
-                    MessageState::Pending.to_string(),
-                    MessageState::Cancelled.to_string(),
-                )
-                .await?;
+            notify_to_cancel_proof_task(storage_processor, business_id, cancel_msg_type).await?;
         }
 
         storage_processor
@@ -3047,6 +3043,90 @@ pub async fn upsert_message(
             .await?;
     } else {
         info!("{message_id} is already created for create action");
+    }
+
+    Ok(())
+}
+
+pub async fn notify_to_cancel_proof_task(
+    storage_processor: &mut StorageProcessor<'_>,
+    business_id: Uuid,
+    msg_type: MessageType,
+) -> Result<()> {
+    if !matches!(msg_type, MessageType::WatchtowerChallengeInitSent | MessageType::AssertInitReady)
+    {
+        warn!("notify_to_cancel_proof_task: input wrong message type:{msg_type}");
+        return Ok(());
+    }
+
+    let host = match get_proof_build_rpc_host() {
+        Some(host) => host,
+        None => {
+            warn!("notify_to_cancel_proof_task:failed to get proof_build_rpc_host");
+            return Ok(());
+        }
+    };
+
+    if let Some(message) =
+        storage_processor.find_message_by_business_id(&business_id, &msg_type.to_string()).await?
+        && let Some(graph) = storage_processor.find_graph(&business_id).await?
+    {
+        if MessageState::Pending.to_string() != message.state {
+            warn!(
+                "message {business_id}, msg_type: {msg_type} no need to cancel.as state is {}",
+                message.state
+            );
+            return Ok(());
+        }
+
+        // It will only be called a few times under limited conditions, so we just create a new object
+        let http_client = HttpAsyncClient::new(None);
+        let notify_result = match msg_type {
+            MessageType::WatchtowerChallengeInitSent => {
+                let url = format!("http://{host}{}", PROOFS_WATCHTOWER_PROOF_TIMEOUT);
+                let response  = http_client
+                    .post_response_json::<WatchtowerProofTimeoutUpdateResponse, WatchtowerProofTimeoutUpdateRequest>(
+                        &url,
+                        &WatchtowerProofTimeoutUpdateRequest {
+                            instance_id: graph.instance_id.to_string(),
+                            graph_id: graph.graph_id.to_string(),
+                            public_key: get_node_pubkey()?.to_string(),
+
+                        },
+                    )
+                    .await?;
+                info!("call {}, response:{:?}", PROOFS_WATCHTOWER_PROOF_TIMEOUT, response);
+                response.data.is_some()
+            }
+            MessageType::AssertInitReady => {
+                let url = format!("http://{host}{}", PROOFS_OPERATOR_PROOF_TIMEOUT);
+                let response  = http_client
+                    .post_response_json::<OperatorProofTimeoutUpdateResponse, OperatorProofTimeoutUpdateRequest>(
+                        &url,
+                        &OperatorProofTimeoutUpdateRequest {
+                            instance_id: graph.instance_id.to_string(),
+                            graph_id: graph.graph_id.to_string(),
+                        },
+                    )
+                    .await?;
+                info!("call {}, response:{:?}", PROOFS_OPERATOR_PROOF_TIMEOUT, response);
+                response.data.is_some()
+            }
+            _ => false,
+        };
+        if notify_result {
+            // cancel unfinished p2p message; when notify success!
+            storage_processor
+                .update_messages_state_by_business_id(
+                    &business_id,
+                    Some(msg_type.to_string()),
+                    MessageState::Pending.to_string(),
+                    MessageState::Cancelled.to_string(),
+                )
+                .await?;
+        }
+    } else {
+        warn!("message {business_id}, msg_type: {msg_type} or graph {business_id} not fund in DB");
     }
 
     Ok(())

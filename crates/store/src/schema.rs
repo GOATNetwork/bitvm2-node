@@ -431,7 +431,6 @@ pub struct GraphBtcTxVoutMonitor {
 #[derive(Clone, Debug, Display, EnumString)]
 pub enum MessageState {
     Pending,
-    Processing,
     Processed,
     Failed,
     Expired,

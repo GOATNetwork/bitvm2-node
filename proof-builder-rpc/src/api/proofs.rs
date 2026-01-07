@@ -77,6 +77,35 @@ pub(super) struct ProofData {
     pub public_inputs: Vec<u8>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct OperatorProofTimeoutUpdateRequest {
+    pub instance_id: String,
+    pub graph_id: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct OperatorProofTimeoutUpdateResponse {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub data: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct WatchtowerProofTimeoutUpdateRequest {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub public_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct WatchtowerProofTimeoutUpdateResponse {
+    pub instance_id: String,
+    pub graph_id: String,
+    pub public_key: String,
+    pub data: Option<String>,
+    pub error: Option<String>,
+}
+
 impl ProofData {
     pub(super) fn load_proof_data(path: &str, proof_type: ProofType) -> Self {
         let mut proof_data = ProofData::default();

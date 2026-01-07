@@ -1,13 +1,15 @@
 use crate::api::ApiState;
 use crate::api::proofs::{
     ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
-    ProofData, ProofDesc, ProofDescResponse, ProofType, WatchtowerProofRequest,
-    WatchtowerProofResponse,
+    OperatorProofTimeoutUpdateRequest, OperatorProofTimeoutUpdateResponse, ProofData, ProofDesc,
+    ProofDescResponse, ProofType, WatchtowerProofRequest, WatchtowerProofResponse,
+    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
 };
 use crate::api::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::api::validation::InputValidator;
 use crate::task::{
     add_operator_task, add_watchtower_task, find_operator_task, find_watchtower_task,
+    update_operator_task_state, update_watchtower_task_state,
 };
 use axum::Json;
 use axum::extract::{Query, State};
@@ -178,6 +180,30 @@ pub(super) async fn post_operator_proof_task(
         }
     }
 }
+#[axum::debug_handler]
+pub(super) async fn update_operator_proof_task_timeout(
+    State(api_state): State<Arc<ApiState>>,
+    Json(payload): Json<OperatorProofTimeoutUpdateRequest>,
+) -> ApiResult<OperatorProofTimeoutUpdateResponse> {
+    let instance_id = InputValidator::validate_uuid(&payload.instance_id, "instance_id")?;
+    let graph_id = InputValidator::validate_uuid(&payload.graph_id, "graph_id")?;
+    match update_operator_task_state(&api_state.local_db, instance_id, graph_id, ProofState::Failed)
+        .await
+    {
+        Ok(rows_affected) => ok_response(OperatorProofTimeoutUpdateResponse {
+            instance_id: instance_id.to_string(),
+            graph_id: graph_id.to_string(),
+            data: Some(format!("{rows_affected} rows affected")),
+            error: None,
+        }),
+        Err(error) => ok_response(OperatorProofTimeoutUpdateResponse {
+            instance_id: instance_id.to_string(),
+            graph_id: graph_id.to_string(),
+            data: None,
+            error: Some(format!("update error: {error}")),
+        }),
+    }
+}
 
 #[axum::debug_handler]
 pub(super) async fn post_watchtower_proof_task(
@@ -235,5 +261,38 @@ pub(super) async fn post_watchtower_proof_task(
                 error: Some("No proof found".to_string()),
             })
         }
+    }
+}
+
+#[axum::debug_handler]
+pub(super) async fn update_watchtower_proof_task_timeout(
+    State(api_state): State<Arc<ApiState>>,
+    Json(payload): Json<WatchtowerProofTimeoutUpdateRequest>,
+) -> ApiResult<WatchtowerProofTimeoutUpdateResponse> {
+    let instance_id = InputValidator::validate_uuid(&payload.instance_id, "instance_id")?;
+    let graph_id = InputValidator::validate_uuid(&payload.graph_id, "graph_id")?;
+    match update_watchtower_task_state(
+        &api_state.local_db,
+        instance_id,
+        graph_id,
+        &payload.public_key,
+        ProofState::Failed,
+    )
+    .await
+    {
+        Ok(rows_affected) => ok_response(WatchtowerProofTimeoutUpdateResponse {
+            instance_id: instance_id.to_string(),
+            graph_id: graph_id.to_string(),
+            public_key: payload.public_key.clone(),
+            data: Some(format!("{rows_affected} rows affected")),
+            error: None,
+        }),
+        Err(error) => ok_response(WatchtowerProofTimeoutUpdateResponse {
+            instance_id: instance_id.to_string(),
+            graph_id: graph_id.to_string(),
+            public_key: payload.public_key.clone(),
+            data: None,
+            error: Some(format!("update error: {error}")),
+        }),
     }
 }
