@@ -648,7 +648,7 @@ impl QueryBuilder {
             let has_conditions = q.has_conditions();
             query.push_str(&format!("\n{}", q.entity));
             if has_conditions {
-                query.push_str("(");
+                query.push('(');
             }
             // Add where clause if there are filters
             if !q.filters.is_empty() {
@@ -673,7 +673,7 @@ impl QueryBuilder {
                 query.push_str(") ");
             }
             // Add fields
-            query.push_str("{");
+            query.push('{');
             for field in q.fields {
                 query.push_str(&format!("{field} "));
             }
