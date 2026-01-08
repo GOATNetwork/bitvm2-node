@@ -17,6 +17,7 @@ state-chain = { path = "../state-chain" }
 # Ziren
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
+zkm-primitives = { git = "https://github.com/ProjectZKM/Ziren" }
 #zkm-verifier = { path = "../../../Ziren/crates/verifier" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 
