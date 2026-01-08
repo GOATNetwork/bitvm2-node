@@ -1,8 +1,6 @@
 //! Generate operator proof
 use alloy_primitives::U256;
 use anyhow::Context;
-use ark_serialize::CanonicalSerialize;
-use ark_serialize::Read;
 use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
     hashes::Hash,
@@ -23,7 +21,6 @@ use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
 };
-use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 use clap::Parser;
 /// The arguments for the cli.
@@ -390,14 +387,8 @@ mod tests {
     use super::*;
     use ark_bn254::Bn254;
 
-    use ark_groth16::PreparedVerifyingKey;
     use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
-    use ark_serialize::CanonicalDeserialize;
-    use bitvm2_lib::types::{
-        Bitvm2Graph, Bitvm2GraphParameters, Bitvm2InstanceParameters, Groth16Proof, GuestInputs,
-        PrekickoffParameters, PublicInputs, SimplifiedBitvm2Graph, UserInfo, VerifyingKey,
-    };
-    use zkm_verifier::load_ark_groth16_verifying_key_from_bytes;
+    use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
     #[tokio::test]
     #[ignore = "local test"]
