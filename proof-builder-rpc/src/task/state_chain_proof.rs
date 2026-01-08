@@ -1,5 +1,4 @@
-use crate::task::ProofState;
-use crate::task::ProofState::Proven;
+use crate::task::ProofState::{Failed, New, Proven, Proving};
 use crate::task::fetch_latest_long_running_task_by_state;
 use crate::task::{create_long_running_task, update_long_running_task};
 use crate::{ProofBuilderConfig, task::fetch_latest_long_running_task};
@@ -29,7 +28,7 @@ async fn spawn_state_chain_ctx_builder(
 
                 if let Some(next_task) = next_task {
                     // check if we should use the args from the config file.
-                    if args.start == next_task.block_start as u64 && next_task.block_end == 0 {
+                    if args.start > next_task.block_start as u64 && next_task.block_end == 0 {
                         tracing::info!("Use args from config file for the first task, start: {}, batch_size: {}", args.start, args.batch_size);
                     } else {
                         args.start = next_task.block_end as u64;
@@ -86,7 +85,7 @@ async fn spawn_state_chain_ctx_builder(
                 std::fs::write(&format!("{}/{}.args", snap_path, args.start), serde_json::to_string(&args)?)?;
                 std::fs::write(&format!("{}/{}.ctx", snap_path, args.start), serde_json::to_string(&ctx)?)?;
 
-                create_long_running_task(
+                let affected = match create_long_running_task(
                     &local_db,
                     args.start,
                     args.batch_size,
@@ -97,10 +96,16 @@ async fn spawn_state_chain_ctx_builder(
                     StateChainProofBuilder::name(),
                     0,
                     0,
-                    store::ProofState::New,
+                    New,
                     "".to_string(),
-                ).await?;
-
+                ).await {
+                    Ok(affected) => affected,
+                    Err(e) => {
+                        tracing::error!("Create long running task error: {e:?}");
+                        continue;
+                    }
+                };
+                tracing::info!("Created long running task for state chain proof ctx builder, affected rows: {affected}");
                 args = ProofBuilderConfig::run_next(args, StateChainProofBuilder::name())?;
             }
             _ = cancellation_token.cancelled() => {
@@ -129,7 +134,13 @@ async fn spawn_state_chain_prover(
 
                 let snap_path = std::path::Path::new(&input_proof).parent().unwrap().to_str().unwrap();
                 let args: state_chain_proof::Args = match std::fs::read(&format!("{}/{}.args", snap_path, start_index)) {
-                    Ok(x) => serde_json::from_slice(&x)?,
+                    Ok(x) => match serde_json::from_slice(&x) {
+                        Ok(args) => args,
+                        Err(e) => {
+                            tracing::error!("Deserialize args error: {e:?}, path: {snap_path}/{start_index}.args");
+                            continue;
+                        }
+                    },
                     Err(e) => {
                         tracing::error!("Read args: {snap_path}, {e:?}");
                         continue;
@@ -137,14 +148,20 @@ async fn spawn_state_chain_prover(
                 };
 
                 let ctx: ProofRequest = match &std::fs::read(&format!("{}/{}.ctx", snap_path, start_index)) {
-                    Ok(x) => serde_json::from_slice(&x)?,
+                    Ok(x) => match serde_json::from_slice(&x) {
+                        Ok(ctx) => ctx,
+                        Err(e) => {
+                            tracing::error!("Deserialize ctx error: {e:?}, path: {snap_path}/{start_index}.ctx");
+                            continue;
+                        }
+                    },
                     Err(e) => {
                         tracing::error!("Read ctx: {snap_path}/{start_index}.ctx, {e:?}");
                         continue;
                     }
                 };
 
-                let affteced = update_long_running_task(
+                let affteced = match update_long_running_task(
                     &local_db,
                     start_index as i64,
                     batch_size as i64,
@@ -152,11 +169,17 @@ async fn spawn_state_chain_prover(
                     "".to_string(),
                     0,
                     0,
-                    ProofState::Proving,
+                    Proving,
                     StateChainProofBuilder::name(),
                     0,
                     "".to_string(),
-                ).await?;
+                ).await {
+                    Ok(affected) => affected,
+                    Err(e) => {
+                        tracing::error!("Update long running task to proving state error: {e:?}");
+                        continue;
+                    }
+                };
                 tracing::info!("Updated long running task to proving state, affected rows: {affteced}");
 
                 let (input, proof, cycles, proving_time) =
@@ -169,10 +192,15 @@ async fn spawn_state_chain_prover(
                     };
 
                 let zkm_version = proof.zkm_version.clone();
-                let (public_value_hex, proof_size) =
-                    builder.save_proof(&ctx, &input, cycles, proof)?;
+                let (public_value_hex, proof_size) = match builder.save_proof(&ctx, &input, cycles, proof) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::error!("Save proof error: {e}");
+                        continue;
+                    }
+                };
 
-                let affteced = update_long_running_task(
+                let affteced = match update_long_running_task(
                     &local_db,
                     start_index as i64,
                     batch_size as i64,
@@ -180,11 +208,17 @@ async fn spawn_state_chain_prover(
                     public_value_hex,
                     proof_size as i64,
                     cycles,
-                    ProofState::Proven,
+                    Proven,
                     StateChainProofBuilder::name(),
                     proving_time as i64,
                     zkm_version,
-                ).await?;
+                ).await {
+                    Ok(affected) => affected,
+                    Err(e) => {
+                        tracing::error!("Update long running task to proven state error: {e:?}");
+                        continue;
+                    }
+                };
                 tracing::info!("Updated long running task to proven state, affected rows: {affteced}");
                 start_index += batch_size;
             }
@@ -209,21 +243,41 @@ pub(crate) fn spawn_state_chain_proof_task(
         let ctx_builder = tokio::spawn(spawn_state_chain_ctx_builder(
             args.clone(),
             local_db.clone(),
-            interval,
+            interval + 1,
             cancellation_token.clone(),
         ));
 
-        let next_task = fetch_latest_long_running_task_by_state(
+        let mut cur_task = fetch_latest_long_running_task_by_state(
             &local_db,
             StateChainProofBuilder::name(),
             Proven.to_i64(),
         )
         .await?;
 
+        let cur_task_failed = fetch_latest_long_running_task_by_state(
+            &local_db,
+            StateChainProofBuilder::name(),
+            Failed.to_i64(),
+        )
+        .await?;
+
+        if let Some(task_failed) = cur_task_failed {
+            if let Some(ref task) = cur_task {
+                if task.block_start == task_failed.block_start
+                    && task.block_end == task_failed.block_end
+                {
+                    cur_task = Some(task_failed);
+                } else {
+                    // load from config
+                    cur_task = None;
+                }
+            }
+        };
+
         let mut args = args.clone();
-        if let Some(next_task) = next_task {
-            args.start = next_task.block_end as u64;
-            args.input_proof = next_task.path_to_proof.unwrap();
+        if let Some(cur_task) = cur_task {
+            args.start = cur_task.block_end as u64;
+            args.input_proof = cur_task.path_to_proof.unwrap();
             args.output_proof = format!(
                 "{}/{}-{}.bin",
                 std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
