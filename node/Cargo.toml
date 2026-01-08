@@ -23,6 +23,10 @@ path = "src/bin/sequencer-set-publish.rs"
 name = "send-rbf"
 path = "src/bin/send_rbf.rs"
 
+[[bin]]
+name = "update-db"
+path = "src/bin/db_inject.rs"
+
 [dependencies]
 libp2p = { workspace = true, features = [
     "autonat",
