@@ -66,7 +66,8 @@ use store::{
     MessageState, MessageType, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
-use zkm_sdk::ZKM_CIRCUIT_VERSION;
+use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
+use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 use crate::env;
 use crate::rpc_service::proof::{
@@ -1803,12 +1804,19 @@ pub async fn get_operator_proof(
                     get_guest_constant_value(instance_id, graph_id).await?,
                     [0xffu8; 32], // use [0u8; 32] to test non-inclusion challenge
                 ];
+
+                let proof: ZKMProofWithPublicValues =
+                    bincode::deserialize(proof_data.proof.as_slice()).unwrap();
+                let groth16_vk = &GROTH16_VK_BYTES;
+                let vk_hash = String::from_utf8(proof_data.vk.to_vec()).unwrap();
+                let ark_proof = convert_ark(&proof, &vk_hash, groth16_vk).unwrap();
+
                 Ok((
                     Some((
                         guest_inputs,
-                        Groth16Proof::deserialize_compressed(proof_data.proof.as_slice())?,
-                        PublicInputs::deserialize_compressed(proof_data.public_inputs.as_slice())?,
-                        VerifyingKey::deserialize_compressed(proof_data.vk.as_slice())?,
+                        ark_proof.proof.clone(),
+                        ark_proof.public_inputs.into(),
+                        ark_proof.groth16_vk.into(),
                     )),
                     0,
                 ))
@@ -3083,7 +3091,7 @@ pub async fn notify_to_cancel_proof_task(
         let http_client = HttpAsyncClient::new(None);
         let notify_result = match msg_type {
             MessageType::WatchtowerChallengeInitSent => {
-                let url = format!("http://{host}{}", PROOFS_WATCHTOWER_PROOF_TIMEOUT);
+                let url = format!("http://{host}{PROOFS_WATCHTOWER_PROOF_TIMEOUT}");
                 let response  = http_client
                     .post_response_json::<WatchtowerProofTimeoutUpdateResponse, WatchtowerProofTimeoutUpdateRequest>(
                         &url,
@@ -3099,7 +3107,7 @@ pub async fn notify_to_cancel_proof_task(
                 response.data.is_some()
             }
             MessageType::AssertInitReady => {
-                let url = format!("http://{host}{}", PROOFS_OPERATOR_PROOF_TIMEOUT);
+                let url = format!("http://{host}{PROOFS_OPERATOR_PROOF_TIMEOUT}");
                 let response  = http_client
                     .post_response_json::<OperatorProofTimeoutUpdateResponse, OperatorProofTimeoutUpdateRequest>(
                         &url,

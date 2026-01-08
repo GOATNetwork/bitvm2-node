@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-#[tracing::instrument(level = "info", skip(cancellation_token))]
+#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 pub(crate) fn spawn_commit_chain_proof_task(
     args: commit_chain_proof::Args,
     local_db: LocalDB,

@@ -39,6 +39,11 @@ pub(crate) fn spawn_operator_proof_task(
                         args.header_chain_input_proof = next_task.header_chain_input_proof;
                         args.commit_chain_input_proof = next_task.commit_chain_input_proof;
                         args.state_chain_input_proof = next_task.state_chain_input_proof;
+                        args.graph_id = next_task.graph_id.unwrap();
+                        args.output = format!("{}/{}.bin",
+                            std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
+                            args.graph_id
+                        );
                         args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
                         args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.unwrap().join(",");
                         args.watchtower_public_keys = next_task.watchtower_public_keys.unwrap().join(",");

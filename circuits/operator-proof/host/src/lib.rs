@@ -2,6 +2,7 @@
 use alloy_primitives::U256;
 use anyhow::Context;
 use ark_serialize::CanonicalSerialize;
+use ark_serialize::Read;
 use bitcoin::{
     Network, ScriptBuf, Transaction, TxOut, Txid,
     hashes::Hash,
@@ -202,6 +203,7 @@ impl ProofBuilder for OperatorProofBuilder {
         "operator-chain".to_string()
     }
 
+    #[tracing::instrument(level = "info", skip(self, ctx))]
     fn build_proof(
         &self,
         ctx: &ProofRequest,
@@ -374,28 +376,49 @@ impl ProofBuilder for OperatorProofBuilder {
         let ProofRequest::OperatorProofRequest { output, .. } = ctx else {
             anyhow::bail!("invalid context");
         };
-        //fs::write(&args.output, bincode::serialize(&proof).unwrap()).unwrap();
-        //fs::write(&format!("{}.vk", args.output), bincode::serialize(&proof_vk).unwrap()).unwrap();
-        //println!("Generate proof successfully, proof: {:?}", proof);
+        let public_value_hex = hex::encode(proof.public_values.to_vec());
+        let proof_size = proof.bytes().len();
+        std::fs::write(&format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
+        let proof = bincode::serialize(&proof).unwrap();
+        std::fs::write(&format!("{}", output), proof)?;
+        Ok((public_value_hex, proof_size))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_bn254::Bn254;
+
+    use ark_groth16::PreparedVerifyingKey;
+    use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+    use ark_serialize::CanonicalDeserialize;
+    use bitvm2_lib::types::{
+        Bitvm2Graph, Bitvm2GraphParameters, Bitvm2InstanceParameters, Groth16Proof, GuestInputs,
+        PrekickoffParameters, PublicInputs, SimplifiedBitvm2Graph, UserInfo, VerifyingKey,
+    };
+    use zkm_verifier::load_ark_groth16_verifying_key_from_bytes;
+
+    #[tokio::test]
+    #[ignore = "local test"]
+    async fn test_parse_operator_proof() {
+        let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/operator/86f23e650f6d447885ca320e6ba27abd.bin";
+        let proof_bytes = std::fs::read(proof_path).unwrap();
+        let vk_bytes = fs::read(format!("{proof_path}.vk_hash.bin")).unwrap();
+
+        let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes).unwrap();
 
         let groth16_vk = &GROTH16_VK_BYTES;
-        let ark_proof = convert_ark(&proof, self.verifying_key.bytes32().as_ref(), groth16_vk)?;
+        let vk_hash = String::from_utf8(vk_bytes).unwrap();
+        let ark_proof = convert_ark(&proof, &vk_hash, groth16_vk).unwrap();
 
-        let mut writer = std::fs::File::create(format!("{}", output))?;
-        let proof_size = ark_proof.proof.serialized_size(ark_serialize::Compress::Yes);
-        ark_proof.proof.serialize_compressed(&mut writer)?;
-
-        let mut writer = std::fs::File::create(format!("{}.vk.bin", output))?;
-        ark_proof.groth16_vk.serialize_compressed(&mut writer)?;
-
-        let mut writer = std::fs::File::create(format!("{}.public_inputs.bin", output))?;
-        ark_proof.public_inputs.serialize_compressed(&mut writer)?;
-
-        let content = std::fs::read(format!("{}.public_inputs.bin", output))
-            .context("failed to read public inputs")?;
-        let public_value_hex = hex::encode(content);
-
-        tracing::info!("Generate proof successfully, Ark proof: {:?}", ark_proof);
-        Ok((public_value_hex, proof_size))
+        // Verify the arkworks proof.
+        let ok = Groth16::<Bn254, LibsnarkReduction>::verify_proof(
+            &ark_proof.groth16_vk,
+            &ark_proof.proof,
+            &ark_proof.public_inputs,
+        )
+        .unwrap();
+        assert!(ok);
     }
 }

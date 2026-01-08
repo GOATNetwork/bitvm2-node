@@ -175,6 +175,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
         "header-chain".to_string()
     }
 
+    #[tracing::instrument(level = "info", skip(self, ctx))]
     fn build_proof(
         &self,
         ctx: &ProofRequest,

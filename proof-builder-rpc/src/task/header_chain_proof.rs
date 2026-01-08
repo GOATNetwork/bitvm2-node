@@ -9,7 +9,7 @@ use tracing::info;
 use crate::config::ProofBuilderConfig;
 use crate::task::{create_long_running_task, fetch_latest_long_running_task};
 
-#[tracing::instrument(level = "info", skip(cancellation_token))]
+#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 pub(crate) fn spawn_header_chain_proof_task(
     args: header_chain_proof::Args,
     local_db: LocalDB,

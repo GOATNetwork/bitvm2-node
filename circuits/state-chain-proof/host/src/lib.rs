@@ -295,6 +295,7 @@ impl ProofBuilder for StateChainProofBuilder {
         "state-chain".to_string()
     }
 
+    #[tracing::instrument(level = "info", skip(self, ctx))]
     fn build_proof(
         &self,
         ctx: &ProofRequest,

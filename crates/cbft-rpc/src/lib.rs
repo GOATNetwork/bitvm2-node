@@ -12,7 +12,7 @@ pub async fn fetch_validators(cosmos_rpc_url: &str, block_height: u64) -> Result
         .validators(Height::try_from(block_height).unwrap(), tendermint_rpc::Paging::All)
         .await
         .map_err(|e| {
-            anyhow!("Error fetching validators for block height {}: {:?}", block_height, e)
+            anyhow!("Error fetching validators for block height {block_height}: {e:?}")
         })?;
     Ok(validators_response.validators)
 }
@@ -28,7 +28,7 @@ pub async fn get_cosmos_block_height_at(
             Some(b) => Ok(Some(b.header.height.into())),
             None => Ok(None),
         },
-        Err(e) => anyhow::bail!("Error fetching block by hash: {:?}", e),
+        Err(e) => anyhow::bail!("Error fetching block by hash: {e:?}"),
     }
 }
 
@@ -53,7 +53,7 @@ pub async fn fetch_cbft_validator_info(
     let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
     while max_retries > 0 {
         let block_data = rpc.block(Height::from(block_height as u32)).await.map_err(|e| {
-            anyhow!("Error fetching block data for height {}: {:?}", block_height, e)
+            anyhow!("Error fetching block data for height {block_height}: {e:?}")
         })?;
         let header = &block_data.block.header;
         let tx_data = &block_data.block.data;
@@ -85,7 +85,7 @@ pub async fn fetch_cbft_tx_data(cosmos_rpc_url: &str, height: u64) -> Result<Vec
     let block_data = rpc
         .block(Height::from(height as u32))
         .await
-        .map_err(|e| anyhow!("Error fetching block data for height {}: {:?}", height, e))?;
+        .map_err(|e| anyhow!("Error fetching block data for height {height}: {e:?}"))?;
 
     let tx_data = block_data.block.data;
     Ok(tx_data)
@@ -97,12 +97,12 @@ pub async fn fetch_cosmos_block(cosmos_rpc_url: &str, height: u64) -> Result<Lig
     let commit_resp = rpc
         .commit(Height::try_from(height).unwrap())
         .await
-        .map_err(|e| anyhow!("Error fetching commit data for height {}: {:?}", height, e))?;
+        .map_err(|e| anyhow!("Error fetching commit data for height {height}: {e:?}"))?;
     let signed_header = commit_resp.signed_header;
     let validators_response = rpc
         .validators(Height::try_from(height).unwrap(), tendermint_rpc::Paging::All)
         .await
-        .map_err(|e| anyhow!("Error fetching validators for block height {}: {:?}", height, e))?;
+        .map_err(|e| anyhow!("Error fetching validators for block height {height}: {e:?}"))?;
     let validators = validators_response.validators;
     let next_validators_response = rpc
         .validators(Height::try_from(height + 1).unwrap(), tendermint_rpc::Paging::All)
@@ -111,7 +111,7 @@ pub async fn fetch_cosmos_block(cosmos_rpc_url: &str, height: u64) -> Result<Lig
             anyhow!("Error fetching validators for block height {}: {:?}", height + 1, e)
         })?;
     let next_validators = next_validators_response.validators;
-    let status_resp = rpc.status().await.map_err(|e| anyhow!("Error fetching status: {:?}", e))?;
+    let status_resp = rpc.status().await.map_err(|e| anyhow!("Error fetching status: {e:?}"))?;
     let peer_id: PeerId = status_resp.node_info.id;
 
     let light_block = LightBlock::new(

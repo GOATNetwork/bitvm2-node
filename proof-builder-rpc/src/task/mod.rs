@@ -205,8 +205,8 @@ pub(crate) async fn fetch_on_demand_task(
     local_db: &LocalDB,
     is_watchtower: bool,
 ) -> anyhow::Result<Option<OnDemandTask>> {
-    tracing::info!("Fetch task for watchtower:{is_watchtower}");
-    // btc header chain: always fetch the latest
+    // btc header chain: always fetch the latest.
+    // FIXME: make sure the header-chain has included the latest commitment transaction
     let mut storage_processor = local_db.acquire().await?;
     let header_chain_input_proof = match storage_processor
         .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
@@ -250,18 +250,25 @@ pub(crate) async fn fetch_on_demand_task(
     let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
     let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
 
-    tracing::info!("fetch on-demand task");
     let (
         task_index,
         execution_layer_block_number,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         watchtower_public_keys,
+        graph_id,
     ) = if is_watchtower {
         match storage_processor.find_next_watchtower_proof().await? {
             Some(task) => {
                 tracing::info!("watchtower task: {task:?}");
-                (task.id, task.execution_layer_block_number, None, None, None)
+                (
+                    task.id,
+                    task.execution_layer_block_number,
+                    None,
+                    None,
+                    None,
+                    Some(task.graph_id.as_simple().to_string()),
+                )
             }
             None => {
                 return Ok(None);
@@ -299,6 +306,7 @@ pub(crate) async fn fetch_on_demand_task(
             Some(challenge_init_txids[0].clone()),
             Some(challenge_txids),
             Some(challenge_public_keys),
+            Some(task.graph_id.as_simple().to_string()),
         )
     };
 
@@ -338,6 +346,7 @@ pub(crate) async fn fetch_on_demand_task(
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         watchtower_public_keys,
+        graph_id,
     }))
 }
 

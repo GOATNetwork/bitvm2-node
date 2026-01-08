@@ -113,17 +113,12 @@ impl ProofData {
             ProofType::HeaderChain
             | ProofType::CommitChain
             | ProofType::StateChain
-            | ProofType::Watchtower => {
+            | ProofType::Watchtower
+            | ProofType::Operator => {
                 proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
                 proof_data.public_inputs =
                     fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
                 proof_data.vk = fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default();
-            }
-            ProofType::Operator => {
-                proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
-                proof_data.vk = fs::read(format!("{path}.vk.bin")).unwrap_or_default();
-                proof_data.public_inputs =
-                    fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
             }
         }
         proof_data

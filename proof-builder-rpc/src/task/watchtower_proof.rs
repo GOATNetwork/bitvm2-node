@@ -36,6 +36,10 @@ pub(crate) fn spawn_watchtower_proof_task(
                         args.header_chain_input_proof = next_task.header_chain_input_proof;
                         args.commit_chain_input_proof = next_task.commit_chain_input_proof;
                         args.state_chain_input_proof = next_task.state_chain_input_proof;
+                        args.output = format!("{}/{}.bin",
+                            std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
+                            next_task.task_index,
+                        );
                         task_index = next_task.task_index;
                     } else {
                         tracing::info!("Wait for the next task");

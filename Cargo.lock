@@ -7842,6 +7842,7 @@ dependencies = [
  "bitcoin 0.32.8",
  "bitcoin-light-client-circuit",
  "bitcoin-script",
+ "bitvm2-lib",
  "borsh",
  "cbft-rpc",
  "chrono",

@@ -111,4 +111,5 @@ pub struct OnDemandTask {
     pub watchtower_challenge_init_txid: Option<String>,
     pub watchtower_challenge_txids: Option<Vec<String>>,
     pub watchtower_public_keys: Option<Vec<String>>,
+    pub graph_id: Option<String>,
 }
