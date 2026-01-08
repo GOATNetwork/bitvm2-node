@@ -11,9 +11,7 @@ pub async fn fetch_validators(cosmos_rpc_url: &str, block_height: u64) -> Result
     let validators_response = rpc
         .validators(Height::try_from(block_height).unwrap(), tendermint_rpc::Paging::All)
         .await
-        .map_err(|e| {
-            anyhow!("Error fetching validators for block height {block_height}: {e:?}")
-        })?;
+        .map_err(|e| anyhow!("Error fetching validators for block height {block_height}: {e:?}"))?;
     Ok(validators_response.validators)
 }
 
@@ -52,9 +50,10 @@ pub async fn fetch_cbft_validator_info(
     let mut max_retries = 100;
     let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
     while max_retries > 0 {
-        let block_data = rpc.block(Height::from(block_height as u32)).await.map_err(|e| {
-            anyhow!("Error fetching block data for height {block_height}: {e:?}")
-        })?;
+        let block_data = rpc
+            .block(Height::from(block_height as u32))
+            .await
+            .map_err(|e| anyhow!("Error fetching block data for height {block_height}: {e:?}"))?;
         let header = &block_data.block.header;
         let tx_data = &block_data.block.data;
         let validators_hash = header.validators_hash.as_bytes();
