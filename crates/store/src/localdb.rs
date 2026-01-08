@@ -1493,33 +1493,14 @@ impl<'a> StorageProcessor<'a> {
 
     // Do not update the `updated_at` field; this field is updated based on heartbeat messages
     // and is used to determine whether a node is alive.
-    pub async fn add_node_reward_by_addr(
+    pub async fn update_node_reward_by_peer_id(
         &mut self,
-        goat_addr: &str,
-        reward_add: i64,
+        peer_id: &str,
+        reward: &str,
     ) -> anyhow::Result<()> {
-        sqlx::query!(
-            r#"UPDATE node SET reward = reward + ? WHERE goat_addr = ?"#,
-            reward_add,
-            goat_addr
-        )
-        .execute(self.conn())
-        .await?;
-        Ok(())
-    }
-
-    pub async fn add_node_peg_btc_by_addr(
-        &mut self,
-        goat_addr: &str,
-        peg_btc: i64,
-    ) -> anyhow::Result<()> {
-        sqlx::query!(
-            r#"UPDATE node SET available_peg_btc = ? WHERE goat_addr = ?"#,
-            peg_btc,
-            goat_addr
-        )
-        .execute(self.conn())
-        .await?;
+        sqlx::query!(r#"UPDATE node SET reward = reward + ? WHERE peer_id = ?"#, reward, peer_id)
+            .execute(self.conn())
+            .await?;
         Ok(())
     }
 

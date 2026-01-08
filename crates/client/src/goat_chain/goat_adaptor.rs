@@ -1314,14 +1314,9 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64> {
+    async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
         let peg_btc = self.get_peg_btc()?;
-        Ok(peg_btc
-            .balanceOf(Address::from_slice(address))
-            .call()
-            .await?
-            .try_into()
-            .map_err(|e| anyhow::anyhow!("balanceOf error :{e:?}"))?)
+        Ok(peg_btc.balanceOf(Address::from_slice(address)).call().await?)
     }
 
     async fn ss_update_sequencer_set(

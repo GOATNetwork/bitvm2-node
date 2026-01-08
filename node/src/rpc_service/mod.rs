@@ -5,6 +5,7 @@ mod node;
 pub(crate) mod proof;
 mod response;
 pub mod routes;
+pub(super) mod utils;
 pub mod validation;
 
 use crate::env::{get_btc_url_from_env, get_goat_network, get_network, goat_config_from_env};
@@ -230,6 +231,7 @@ async fn print_req_and_resp_detail(
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
     use crate::env::{
         ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_PROOF_SEVER_URL, get_network,
     };
@@ -251,6 +253,7 @@ mod tests {
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use alloy::primitives::U256;
     use store::localdb::LocalDB;
     use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, create_local_db};
     use tokio::time::sleep;
@@ -389,9 +392,9 @@ mod tests {
             goat_addr: get_rand_goat_address(),
             btc_pub_key: pub_key.clone(),
             socket_addr: "".to_string(),
-            reward: 0,
+            reward: "0".to_string(),
             service_fee_rate: 0.0,
-            available_peg_btc: 0,
+            available_peg_btc: U256::from_str("4700000000000000000000000").unwrap_or_default().to_string(),
             updated_at: current_time_secs(),
             created_at: current_time_secs(),
         });
@@ -403,9 +406,9 @@ mod tests {
             goat_addr: goat_addr.clone(),
             btc_pub_key: pub_key.clone(),
             socket_addr: "".to_string(),
-            reward: 0,
+            reward: "0".to_string(),
             service_fee_rate: 0.0,
-            available_peg_btc: 0,
+            available_peg_btc: U256::from_str("4700000000000000000000000").unwrap_or_default().to_string(),
             updated_at: current_time_secs(),
             created_at: current_time_secs(),
         });

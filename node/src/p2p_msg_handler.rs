@@ -242,7 +242,7 @@ mod tests {
                             socket_addr: "test".to_string(),
                             node_name: "".to_string(),
                             service_fee_rate: 0.0,
-                            available_peg_btc: 0,
+                            available_peg_btc: "0".to_string(),
                         },
                     )
                     .await

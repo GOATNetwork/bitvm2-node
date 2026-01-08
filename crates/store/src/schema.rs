@@ -163,9 +163,9 @@ pub struct Node {
     pub goat_addr: String,
     pub btc_pub_key: String,
     pub socket_addr: String,
-    pub reward: i64,
+    pub reward: String,
     pub service_fee_rate: f64,
-    pub available_peg_btc: i64,
+    pub available_peg_btc: String,
     pub updated_at: i64,
     pub created_at: i64,
 }

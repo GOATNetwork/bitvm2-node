@@ -1,4 +1,7 @@
+use super::utils::{deserialize_u256, serialize_u256};
+use alloy::primitives::U256;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use store::{Node, NodesOverview};
 
 pub const ALIVE_TIME_JUDGE_THRESHOLD: i64 = 4 * 3600;
@@ -40,11 +43,13 @@ pub struct NodeDesc {
     pub actor: String,
     pub name: String,
     pub service_fee_rate: f64,
-    pub available_peg_btc: i64,
+    #[serde(serialize_with = "serialize_u256", deserialize_with = "deserialize_u256")]
+    pub available_peg_btc: U256,
     pub goat_addr: String,
     pub btc_pub_key: String,
     pub socket_addr: String,
-    pub reward: i64,
+    #[serde(serialize_with = "serialize_u256", deserialize_with = "deserialize_u256")]
+    pub reward: U256,
     pub updated_at: i64,
     pub status: String, //dynamic status: online/offline
 }
@@ -70,8 +75,8 @@ impl ToNodeDesc for Node {
             goat_addr: self.goat_addr.clone(),
             btc_pub_key: self.btc_pub_key.clone(),
             socket_addr: self.socket_addr.clone(),
-            reward: self.reward,
-            available_peg_btc: self.available_peg_btc,
+            reward: U256::from_str(&self.reward).unwrap_or_default(),
+            available_peg_btc: U256::from_str(&self.available_peg_btc).unwrap_or_default(),
         }
     }
 }

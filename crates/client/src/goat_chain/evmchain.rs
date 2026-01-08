@@ -411,7 +411,7 @@ impl EvmChain {
             .await
     }
 
-    pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64> {
+    pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
         self.adaptor.peg_btc_balance(address).await
     }
 

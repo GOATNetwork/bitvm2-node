@@ -726,7 +726,7 @@ impl GOATClient {
         self.chain_service.committee_mana_remove_watchtower(watchtower, nonce, auth_signs).await
     }
 
-    pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<u64> {
+    pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
         self.chain_service.peg_btc_balance(address).await
     }
 

@@ -3328,9 +3328,9 @@ pub async fn save_node_info(local_db: &LocalDB, node_info: &NodeInfo) -> Result<
             goat_addr: node_info.goat_addr.clone(),
             btc_pub_key: node_info.btc_pub_key.clone(),
             socket_addr: node_info.socket_addr.clone(),
-            reward: 0,
+            reward: "0".to_string(),
             service_fee_rate: node_info.service_fee_rate,
-            available_peg_btc: node_info.available_peg_btc,
+            available_peg_btc: node_info.available_peg_btc.clone(),
             updated_at: current_time,
             created_at: current_time,
         })

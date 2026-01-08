@@ -373,6 +373,13 @@ impl WithdrawPathsEvent {
             }
         }
     }
+
+    pub fn reward_amount_str(&self) -> String {
+        match self {
+            WithdrawPathsEvent::WithdrawHappyEvent(v) => v.reward_amount_sats.clone(),
+            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => v.reward_amount_sats.clone(),
+        }
+    }
     pub fn operator_addr(&self) -> String {
         match self {
             WithdrawPathsEvent::WithdrawHappyEvent(v) => v.operator_addr.clone(),

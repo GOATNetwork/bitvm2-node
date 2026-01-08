@@ -24,37 +24,37 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
-        "ordinal": 4,
-        "type_info": "Integer"
-      },
-      {
-        "name": "updated_at",
-        "ordinal": 5,
-        "type_info": "Integer"
-      },
-      {
         "name": "socket_addr",
-        "ordinal": 6,
+        "ordinal": 4,
         "type_info": "Text"
       },
       {
-        "name": "reward",
-        "ordinal": 7,
-        "type_info": "Integer"
-      },
-      {
         "name": "node_name",
-        "ordinal": 8,
+        "ordinal": 5,
         "type_info": "Text"
       },
       {
         "name": "service_fee_rate",
-        "ordinal": 9,
+        "ordinal": 6,
         "type_info": "Float"
       },
       {
         "name": "available_peg_btc",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "reward",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
         "ordinal": 10,
         "type_info": "Integer"
       }

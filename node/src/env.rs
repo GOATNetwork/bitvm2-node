@@ -313,7 +313,7 @@ pub fn get_local_node_info() -> NodeInfo {
         socket_addr,
         node_name: get_node_name(),
         service_fee_rate: get_operator_node_service_fee_rate(),
-        available_peg_btc: 0,
+        available_peg_btc: "0".to_string(),
     }
 }
 pub fn get_committee_member_num() -> usize {

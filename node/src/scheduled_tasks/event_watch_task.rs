@@ -13,7 +13,7 @@ use crate::utils::{
     GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance, outpoint_available,
     reflect_goat_address, strip_hex_prefix_owned,
 };
-use alloy::primitives::Address as EvmAddress;
+use alloy::primitives::{Address as EvmAddress, U256};
 use alloy::sol_types::SolValue;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -34,10 +34,11 @@ use client::graphs::graph_query::{
 use goat::transactions::base::Input;
 use secp256k1::XOnlyPublicKey;
 use std::collections::HashMap;
+use std::ops::AddAssign;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB, StorageProcessor};
+use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB, NodeQuery, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, Instance,
     InstanceBridgeInStatus, InstanceBridgeOutStatus, MessageState, WatchContract,
@@ -387,7 +388,7 @@ async fn handle_withdraw_paths_events<'a>(
     withdraw_paths_events: Vec<WithdrawPathsEvent>,
 ) -> anyhow::Result<()> {
     for event in withdraw_paths_events {
-        let reward_add: i64 = event.reward_amount_sats();
+        let reward_add = U256::from_str(&event.reward_amount_str()).unwrap_or_default();
         let (flag, goat_addr) = reflect_goat_address(Some(event.operator_addr()));
         if !flag {
             warn!(
@@ -397,7 +398,7 @@ async fn handle_withdraw_paths_events<'a>(
             );
             continue;
         }
-        storage_processor.add_node_reward_by_addr(&goat_addr.unwrap(), reward_add).await?;
+        add_node_reward(storage_processor, &goat_addr.unwrap(), reward_add).await?;
         let (graph_id, instance_id, tx_type, status) = match event.clone() {
             WithdrawPathsEvent::WithdrawHappyEvent(v) => (
                 v.graph_id.clone(),
@@ -447,8 +448,6 @@ async fn handle_withdraw_disproved_events<'a>(
 ) -> anyhow::Result<()> {
     for event in withdraw_disproved_events {
         let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id))?;
-        let challenger_reward_add: i64 = event.challenger_amount_sats.parse::<i64>()?;
-        let disprover_reward_add: i64 = event.disprover_amount_sats.parse::<i64>()?;
         let (flag, challenger_addr) = reflect_goat_address(Some(event.challenger_addr.clone()));
         if !flag {
             warn!(
@@ -466,12 +465,18 @@ async fn handle_withdraw_disproved_events<'a>(
             continue;
         }
 
-        storage_processor
-            .add_node_reward_by_addr(&challenger_addr.unwrap(), challenger_reward_add)
-            .await?;
-        storage_processor
-            .add_node_reward_by_addr(&disprover_addr.unwrap(), disprover_reward_add)
-            .await?;
+        add_node_reward(
+            storage_processor,
+            &challenger_addr.unwrap(),
+            U256::from_str(&event.challenger_amount_sats).unwrap_or_default(),
+        )
+        .await?;
+        add_node_reward(
+            storage_processor,
+            &disprover_addr.unwrap(),
+            U256::from_str(&event.disprover_amount_sats).unwrap_or_default(),
+        )
+        .await?;
         storage_processor
             .update_graph(
                 &GraphUpdate::new(graph_id).with_status(GraphStatus::Disprove.to_string()),
@@ -1205,4 +1210,20 @@ pub async fn is_processing_gateway_history_events(
     .await?;
     Ok(watch_contract.from_height + watch_contract.gap < current_finalized
         || watch_contract.status == WatchContractStatus::Syncing.to_string())
+}
+
+async fn add_node_reward(
+    storage_processor: &mut StorageProcessor<'_>,
+    goat_addr: &str,
+    add_value: U256,
+) -> anyhow::Result<()> {
+    let (nodes, _) = storage_processor
+        .find_nodes(&NodeQuery::default().with_goat_addr(goat_addr.to_string()))
+        .await?;
+    for node in nodes {
+        let mut reward = U256::from_str(&node.reward).unwrap_or_default();
+        reward.add_assign(&add_value);
+        storage_processor.update_node_reward_by_peer_id(&node.peer_id, &reward.to_string()).await?
+    }
+    Ok(())
 }
