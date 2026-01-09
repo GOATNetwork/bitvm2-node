@@ -12,6 +12,8 @@ Based on `crates/store/src/schema.rs::GraphStatus` and `node/src/scheduled_tasks
 
 ### Main Graph Status Transitions
 
+From `crates/store/src/schema.rs::GraphStatus`:
+
 ```mermaid
 ---
 title: Graph Lifecycle - GraphStatus Transitions
@@ -27,9 +29,9 @@ stateDiagram-v2
     PreKickoff --> Skipped: Guardian/ForceSkip triggered
     
     OperatorKickOff --> Challenge: WatchtowerChallengeInit confirmed
-    OperatorKickOff --> OperatorTake1: Timeout (Take1 path)
+    OperatorKickOff --> OperatorTake1: Timeout without challenge
     
-    Challenge --> Disprove: Challenge detected or timeout
+    Challenge --> Disprove: Challenge or timeout detected
     Challenge --> OperatorTake1: All resolved normally
     
     Disprove --> OperatorTake2: Disprove verified
@@ -40,10 +42,17 @@ stateDiagram-v2
     Obsoleted --> [*]
     
     note right of Challenge
-        Involves three sub-processes:
-        - WatchtowerChallengeStatus
-        - CommitBlockHashStatus
-        - AssertCommitStatus
+        Tracked by ChallengeSubStatus:
+        - watchtower_challenge_status
+        - commit_blockhash_status
+        - assert_commit_status
+    end note
+    
+    note right of OperatorPresigned
+        Frontend-only states for UI:
+        - Created, Presigned, L2Recorded
+        - OperatorKickOffing, Challenging
+        - Disproving
     end note
 ```
 
@@ -134,9 +143,11 @@ From `src/scheduled_tasks/graph_maintenance_tasks.rs::WatchtowerChallengeItemSta
 title: WatchtowerChallengeItemStatus - Individual Watchtower Tracking
 ---
 stateDiagram-v2
-    [*] --> OperatorInit
+    [*] --> None
     
-    OperatorInit --> Challenge: Watchtower sends challenge
+    None --> OperatorInit: WatchtowerChallengeInitTx confirmed
+    
+    OperatorInit --> Challenge: Watchtower sends challenge tx
     OperatorInit --> ChallengeTimeout: Timelock expires without challenge
     
     Challenge --> OperatorACK: Operator accepts challenge claim
@@ -147,9 +158,9 @@ stateDiagram-v2
     OperatorNACK --> [*]
     ChallengeTimeout --> [*]
     
-    note right of Challenge
-        Per-watchtower ACK/NACK determines
-        disprove necessity
+    note right of OperatorInit
+        Watchtower index state is tracked in
+        WTInitTxVoutMonitorData.data_map
     end note
 ```
 
@@ -167,6 +178,12 @@ pub struct ChallengeSubStatus {
     pub disprove_type: Option<DisproveTxType>,
     pub disprove_index: i32,
 }
+
+// Helper methods:
+pub fn is_watchtower_challenge_normal_finished(&self) -> bool
+pub fn is_disproved(&self) -> bool
+pub fn is_normal_finished(&self) -> bool
+pub fn is_assert_commit_normal_finished(&self) -> bool
 ```
 
 ### WTInitTxVoutMonitorData
@@ -182,14 +199,70 @@ pub struct WTInitTxVoutMonitorData {
 }
 ```
 
-Tracks per-watchtower status during challenge phase. If any item transitions to `Challenge`, `ChallengeTimeout`, or `OperatorNACK`, it's added to `require_disproved_indexes`.
+- `data_map`: Tracks status for each watchtower index
+- `require_disproved_indexes`: Indices requiring disprove (populated when item status changes to ChallengeTimeout or OperatorNACK)
+- `commit_blockhash_status`: Synchronized with WatchtowerChallengeStatus
+- `is_challenge_timeout_sent`: Flag for timeout message tracking
+
+### Status Enums
+
+```rust
+pub enum WatchtowerChallengeStatus {
+    None,
+    OperatorInit,
+    WatchtowerChallenge,
+    WatchtowerChallengeTimeout,
+    OperatorACKTimeout,
+    WatchtowerChallengeNormalFinished,
+    WatchtowerChallengeDisproveFinished,
+}
+
+pub enum CommitBlockHashStatus {
+    None,
+    WatchtowerChallengeProcessed,
+    OperatorCommit,
+    OperatorCommitTimeout,
+}
+
+pub enum AssertCommitStatus {
+    None,
+    OperatorInit,
+    OperatorCommit,
+    OperatorCommitTimeout,
+}
+
+pub enum WatchtowerChallengeItemStatus {
+    None,
+    OperatorInit,
+    Challenge,
+    ChallengeTimeout,
+    OperatorACK,
+    OperatorNACK,
+}
+```
 
 ## Key Implementation Files
 
-- `src/action.rs` - Message dispatch via `recv_and_dispatch()`
-- `src/scheduled_tasks/graph_maintenance_tasks.rs` - Main challenge monitoring logic:
-  - `process_watchtower_challenge_monitoring()` - Track challenges
-  - `process_commit_blockhash_monitoring()` - Track blockhash commitment
-  - `process_assert_commit_monitoring()` - Track assert phase
-- `src/utils.rs` - Graph refresh: `refresh_graph()` updates status based on Bitcoin state
-- `crates/store/src/schema.rs` - `GraphStatus` and related enums
+### Main Files
+
+- `src/action.rs` - Message handling
+  - `recv_and_dispatch()` - Routes incoming messages by type
+  - Handles WatchtowerChallengeSent, OperatorAckTimeout, etc.
+
+- `src/scheduled_tasks/graph_maintenance_tasks.rs` - Challenge phase monitoring
+  - `process_watchtower_challenge_monitoring()` - Tracks watchtower challenges per index
+  - `process_commit_blockhash_monitoring()` - Monitors operator blockhash commitment
+  - `process_assert_commit_monitoring()` - Tracks assertion phase
+  - `detect_take1()` - Checks happy path withdrawal conditions
+  - `detect_take2()` - Checks disprove path withdrawal conditions
+
+- `src/utils.rs` - Graph state updates
+  - `refresh_graph()` - Scans Bitcoin and updates graph status
+  - `get_watchtower_commitment()` - Fetches watchtower proofs
+  - `get_operator_proof()` - Fetches operator proofs
+
+### Data Definitions
+
+- `crates/store/src/schema.rs` - Core enums
+  - `GraphStatus` - Main graph states
+  - Related `DisproveTxType`, `ProofState` enums
