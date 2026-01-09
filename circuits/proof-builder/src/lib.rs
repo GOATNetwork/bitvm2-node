@@ -31,7 +31,7 @@ pub enum ProofRequest {
         output_proof: String,
         batch_size: u64,
         start: u64,
-        l2_contract_address: String,
+        l2_contract_addresses: String,
         blocks: Vec<CircuitStateBlock>,
     },
     WatchtowerProofRequest {

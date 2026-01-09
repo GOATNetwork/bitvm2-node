@@ -26,7 +26,7 @@ pub struct CircuitStateBlock {
     pub cosmos_block: Vec<u8>,
     pub evm_block: EthClientExecutorInput,
     // (gateway contracts, withdraw_data_base_slot, [graph_ids])
-    pub withdrawals: Option<(Address, [u8; 32], Vec<[u8; 16]>)>,
+    pub withdrawals: Vec<(Address, [u8; 32], Vec<[u8; 16]>)>,
 }
 
 /// The latest seqeuncer set
@@ -97,9 +97,7 @@ impl StateChainState {
                     &block.cosmos_txns,
                     &data_hash,
                 );
-                if let Some(w) = block.withdrawals {
-                    self.withdrawals.push(w);
-                }
+                self.withdrawals.extend_from_slice(&block.withdrawals);
             }
             self.evm_block_height += 1;
             self.latest_evm_block_hash = current_block_hash;
@@ -111,7 +109,7 @@ impl StateChainState {
 // https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L192
 // Get base slot:  forge inspect src/GatewayDebug.sol:GatewayDebug storage-layout
 pub fn execute_el_block_and_check_withdraw_tx(
-    withdrawals: &Option<WithdrawalSlot>,
+    withdrawals: &Vec<WithdrawalSlot>,
     input: EthClientExecutorInput,
 ) -> Header {
     // verify the state transition and withdraw status
@@ -121,18 +119,18 @@ pub fn execute_el_block_and_check_withdraw_tx(
     );
 
     let mut storage_info = None;
-    if withdrawals.is_some() {
+    withdrawals.iter().for_each(|withdrawal| {
         let mut tuple = vec![];
-        for graph_id in &withdrawals.as_ref().unwrap().2 {
+        for graph_id in &withdrawal.2 {
             let mut data = [0u8; 32 * 2];
             data[0..16].copy_from_slice(graph_id);
-            data[32..].copy_from_slice(&withdrawals.as_ref().unwrap().1);
+            data[32..].copy_from_slice(&withdrawal.1);
             let slot_id = B256::from(keccak256(data));
             // FIXME: hardcode the value to 1 for now
-            tuple.push((withdrawals.as_ref().unwrap().0, slot_id.into(), U256::ONE));
+            tuple.push((withdrawal.0, slot_id.into(), U256::ONE));
         }
         storage_info = Some(tuple);
-    }
+    });
 
     let (header, _) = executor.execute(input, storage_info).expect("failed to execute client");
     //let block_hash = header.hash_slow();

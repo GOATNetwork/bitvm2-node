@@ -48,8 +48,8 @@ async fn spawn_state_chain_ctx_builder(
                 tracing::info!("ctx builder: fetching blocks, args={args:?}");
 
                 let blocks = match fetch_state_chain(
-                    &args.l2_contract_address,
-                    &args.proceed_withdraw_method_id,
+                    &args.l2_contract_addresses,
+                    &args.proceed_withdraw_method_ids,
                     args.start,
                     args.batch_size,
                     &args.execution_layer_rpc,
@@ -75,7 +75,7 @@ async fn spawn_state_chain_ctx_builder(
                     input_proof: args.input_proof.clone(),
                     output_proof: args.output_proof.clone(),
                     start: args.start,
-                    l2_contract_address: args.l2_contract_address.clone(),
+                    l2_contract_addresses: args.l2_contract_addresses.clone(),
                     batch_size: args.batch_size,
                     blocks,
                 };

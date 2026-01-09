@@ -63,12 +63,12 @@ pub struct Args {
     #[clap(long, env, default_value_t = 0)]
     pub start: u64,
 
-    #[clap(long, env, default_value = "99f6Dc59fB6B5b13578BeBb223e373Cb817Ac8f6")]
-    pub l2_contract_address: String,
+    #[clap(long, env)]
+    pub l2_contract_addresses: String,
 
     // https://explorer.testnet3.goat.network/address/0x9F0A61ce47678F43A326dB9F8964C56a924cd3D0?tab=read_write_contract
-    #[clap(long, env, default_value = "0xc3342df3")]
-    pub proceed_withdraw_method_id: String,
+    #[clap(long, env)]
+    pub proceed_withdraw_method_ids: String,
 }
 
 impl LongRunning for Args {
@@ -88,17 +88,16 @@ impl LongRunning for Args {
     }
 }
 
-async fn fetch_withdrawal(
+async fn fetch_withdrawal_events(
     execution_layer_rpc: &str,
-    l2_contract_address: &Address,
-    proceed_withdraw_method_id: &[u8; 4],
+    l2_contract_addresses: &[Address],
+    proceed_withdraw_method_ids: &[[u8; 4]],
     start: u64,
     batch_size: u64,
-) -> anyhow::Result<(Vec<u64>, Vec<[u8; 16]>)> {
+) -> anyhow::Result<Vec<(u64, [u8; 16], Address)>> {
     let rpc_url = Url::parse(&execution_layer_rpc)?;
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
-    let mut block_numbers = vec![];
-    let mut graph_ids: Vec<[u8; 16]> = vec![];
+    let mut withdrawals = vec![];
     for i in start..start + batch_size {
         let block = match provider.get_block(i.into()).await {
             Ok(Some(x)) => x,
@@ -125,15 +124,20 @@ async fn fetch_withdrawal(
             };
             let to = txn.to();
             let input = txn.input();
-            if to == Some(*l2_contract_address) && &input[0..4] == proceed_withdraw_method_id {
-                let graph_id: [u8; 16] = input[4..16 + 4].try_into().unwrap();
-                block_numbers.push(i);
-                graph_ids.push(graph_id);
-                println!("block: {i}, graph_id: {:?}", hex::encode(graph_id));
-            }
+            l2_contract_addresses.iter().zip(proceed_withdraw_method_ids.iter()).for_each(
+                |(l2_contract_address, proceed_withdraw_method_id)| {
+                    if to == Some(*l2_contract_address)
+                        && &input[0..4] == proceed_withdraw_method_id
+                    {
+                        let graph_id: [u8; 16] = input[4..16 + 4].try_into().unwrap();
+                        withdrawals.push((i, graph_id, *l2_contract_address));
+                        println!("block: {i}, graph_id: {:?}", hex::encode(graph_id));
+                    }
+                },
+            );
         }
     }
-    Ok((block_numbers, graph_ids))
+    Ok(withdrawals)
 }
 
 // https://github.com/ProjectZKM/reth-processor/blob/stateless/crates/executor/host/tests/integration.rs#L69
@@ -164,8 +168,8 @@ async fn fetch_exection_layer_block(
 }
 
 pub async fn fetch_state_chain(
-    l2_contract_address: &str,
-    proceed_withdraw_method_id: &str,
+    l2_contract_addresses: &str,
+    proceed_withdraw_method_ids: &str,
     start: u64,
     batch_size: u64,
     execution_layer_rpc: &str,
@@ -173,21 +177,26 @@ pub async fn fetch_state_chain(
     genesis: &str,
     cosmos_rpc_url: &str,
 ) -> anyhow::Result<Vec<CircuitStateBlock>> {
+    let l2_contract_addresses: Vec<Address> = l2_contract_addresses
+        .split(',')
+        .map(|s| {
+            let addr = s.trim().trim_start_matches("0x");
+            let bytes: [u8; 20] = hex::decode(addr).unwrap().try_into().unwrap();
+            Address::from(bytes)
+        })
+        .collect();
+    let proceed_withdraw_method_ids: Vec<[u8; 4]> =
+        proceed_withdraw_method_ids.split(',').map(|s| hex_parse::<4>(s).unwrap()).collect();
+
     let genesis = if genesis == "goattest" { Genesis::GoatTestnet } else { Genesis::GOAT };
     assert!(start > 0, "Don't get genesis block from the consensus layer.");
     let mut blocks: Vec<_> = Vec::new();
-    let addr = l2_contract_address.trim_prefix("0x");
-    let bytes: [u8; 20] = hex::decode(addr)?.try_into().unwrap();
-    let l2_contract_address = Address::from(bytes);
     let base_slot: [u8; 32] = U256::from(16).to_be_bytes().try_into()?;
-
-    let proceed_withdraw_method_id =
-        hex_parse::<4>(proceed_withdraw_method_id).map_err(|e| anyhow::anyhow!(e))?;
     // fetch graph_block_numbers and graph_ids between in goat block(start, start + batch_size)
-    let (graph_block_numbers, graph_ids) = fetch_withdrawal(
+    let withdrawal_events = fetch_withdrawal_events(
         execution_layer_rpc,
-        &l2_contract_address,
-        &proceed_withdraw_method_id,
+        &l2_contract_addresses,
+        &proceed_withdraw_method_ids,
         start,
         batch_size,
     )
@@ -237,23 +246,20 @@ pub async fn fetch_state_chain(
             cosmos_txns.len()
         );
 
-        let withdrawals = if !graph_block_numbers.is_empty() {
-            let indices: Vec<usize> = graph_block_numbers
+        // for block i, find the contract call with graph_id in its input
+        let mut withdrawals: Vec<(Address, [u8; 32], Vec<[u8; 16]>)> = Vec::new();
+        withdrawal_events.iter().enumerate().filter(|&(_, &val)| val.0 == i).for_each(|(i, _)| {
+            let graph_id = withdrawal_events[i].1;
+            let l2_contract_address = withdrawal_events[i].2;
+            let graph_ids = withdrawals
                 .iter()
-                .enumerate()
-                .filter(|&(_, &val)| val == i)
-                .map(|(i, _)| i)
-                .collect();
-            let hit_graph_ids: Vec<_> = indices.iter().map(|&x| graph_ids[x].clone()).collect();
-            if hit_graph_ids.len() > 0 {
-                tracing::info!("block_id: {i}, check graph_ids: {:?}", hit_graph_ids);
-                Some((l2_contract_address, base_slot, hit_graph_ids))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+                .find(|(addr, _, _)| *addr == l2_contract_address)
+                .map(|(_, _, graph_ids)| graph_ids.clone())
+                .unwrap_or(vec![graph_id]);
+            withdrawals.push((l2_contract_address, base_slot, graph_ids));
+        });
+
+        // merge the graph ids of a same contract into one
 
         let cosmos_block = serde_json::to_vec(&cosmos_block)?;
         tracing::info!("[push] block: {}, withdrawals: {:?}", i, withdrawals);
