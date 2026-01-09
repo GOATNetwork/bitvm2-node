@@ -1,0 +1,1 @@
+killall -9 bitvm2-noded
