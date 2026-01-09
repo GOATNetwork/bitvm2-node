@@ -163,7 +163,7 @@ We generate `state-chain-proof` periodically, like by 5 GOAT EVM blocks. Optiona
 export BATCH_SIZE=10
 export L2_CONTRACT_ADDRESS=0x21f619040AC2eAcacEF8Fe17Ae8bDF53ec69C66f
 
-export EL_START_BLOCK_NUMBER=10259087
+export EL_START_BLOCK_NUMBER=10346748
 export start=$EL_START_BLOCK_NUMBER
 bash cron-state-chain-proof.sh $start $BATCH_SIZE
 ```
