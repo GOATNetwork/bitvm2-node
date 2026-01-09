@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT * from bridge_out_global_stats WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "initial_txn",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "initial_amount",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "claim_txn",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "claim_amount",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "refund_txn",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "refund_amount",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3915d073a4229493290b26e33ae39898d8c9a91b02e41bde24235b33ce933d95"
+}

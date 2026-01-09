@@ -10,8 +10,8 @@ use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
 use crate::utils::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::utils::{
-    GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance, outpoint_available,
-    reflect_goat_address, strip_hex_prefix_owned,
+    GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance,
+    get_bridge_out_global_stats, outpoint_available, reflect_goat_address, strip_hex_prefix_owned,
 };
 use alloy::primitives::{Address as EvmAddress, U256};
 use alloy::sol_types::SolValue;
@@ -651,7 +651,7 @@ async fn handle_swap_init_events<'a>(
                 )
             };
             if let Some(mut instance) = instance {
-                instance.amount = escrow_data.amount.to::<i64>();
+                instance.bridge_out_amount = escrow_data.amount.to_string();
                 instance.goat_tx_hash = event.transaction_hash.clone();
                 instance.goat_tx_height = event.block_number.parse::<i64>()?;
                 instance.user_change_addr = escrow_data.claimer.to_string();
@@ -660,6 +660,14 @@ async fn handle_swap_init_events<'a>(
                     get_timestamp_from_contract_data(&escrow_data.refundData.0);
                 instance.status_updated_at = create_time;
                 storage_processor.upsert_instance(&instance).await?;
+                let mut bridge_out_global_stats =
+                    get_bridge_out_global_stats(storage_processor).await?;
+                let mut initial_amount =
+                    U256::from_str(&bridge_out_global_stats.initial_amount).unwrap_or_default();
+                initial_amount.add_assign(&escrow_data.amount);
+                bridge_out_global_stats.initial_amount = initial_amount.to_string();
+                bridge_out_global_stats.initial_txn += 1;
+                storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
             }
             storage_processor
                 .upsert_goat_tx_record(&GoatTxRecord {
@@ -726,6 +734,16 @@ async fn handle_swap_claim_events<'a>(
                         .with_to_addr(to_addr.to_string()),
                 )
                 .await?;
+
+            let mut bridge_out_global_stats =
+                get_bridge_out_global_stats(storage_processor).await?;
+            let mut claim_amount =
+                U256::from_str(&bridge_out_global_stats.claim_amount).unwrap_or_default();
+            claim_amount
+                .add_assign(&U256::from_str(&instance.bridge_out_amount).unwrap_or_default());
+            bridge_out_global_stats.claim_amount = claim_amount.to_string();
+            bridge_out_global_stats.claim_txn += 1;
+            storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
         } else {
             warn!("failed to parse claim_data for event:{event:?}");
         }
@@ -738,12 +756,25 @@ async fn handle_swap_refund_events<'a>(
     refund_events: Vec<SwapRefundEvent>,
 ) -> anyhow::Result<()> {
     for event in refund_events {
-        storage_processor
-            .update_instance(
-                &InstanceUpdate::new_with_escrow_hash(event.escrow_hash.clone())
-                    .with_status(InstanceBridgeOutStatus::Refund.to_string()),
-            )
-            .await?;
+        if let Some(instance) =
+            find_instances_by_escrow_hash(storage_processor, &event.escrow_hash).await?
+        {
+            storage_processor
+                .update_instance(
+                    &InstanceUpdate::new_with_escrow_hash(event.escrow_hash.clone())
+                        .with_status(InstanceBridgeOutStatus::Refund.to_string()),
+                )
+                .await?;
+            let mut bridge_out_global_stats =
+                get_bridge_out_global_stats(storage_processor).await?;
+            let mut refund_amount =
+                U256::from_str(&bridge_out_global_stats.refund_amount).unwrap_or_default();
+            refund_amount
+                .add_assign(&U256::from_str(&instance.bridge_out_amount).unwrap_or_default());
+            bridge_out_global_stats.refund_amount = refund_amount.to_string();
+            bridge_out_global_stats.refund_txn += 1;
+            storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
+        }
     }
     Ok(())
 }

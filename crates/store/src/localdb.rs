@@ -1,8 +1,9 @@
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance, LongRunningTaskProof,
-    Message, MessageBroadcast, Node, NodesOverview, OperatorProof, PeginGraphProcessData,
-    PeginInstanceProcessData, SerializableTxid, WatchContract, WatchtowerProof,
+    BridgeOutGlobalStats, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance,
+    LongRunningTaskProof, Message, MessageBroadcast, Node, NodesOverview, OperatorProof,
+    PeginGraphProcessData, PeginInstanceProcessData, SerializableTxid, WatchContract,
+    WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -753,8 +754,8 @@ impl<'a> StorageProcessor<'a> {
             "INSERT OR
             REPLACE INTO instance (instance_id, is_bridge_in,  network, from_addr, to_addr, amount, fees, input_utxos, status, goat_tx_hash, goat_tx_height,
                         user_xonly_pubkey, user_change_addr, user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers,
-                       pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, bridge_out_lock_time, post_pegin_txhash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, bridge_out_lock_time, post_pegin_txhash, bridge_out_amount,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)",
             instance.instance_id,
             instance.is_bridge_in,
             instance.network,
@@ -780,6 +781,7 @@ impl<'a> StorageProcessor<'a> {
             instance.escrow_hash,
             instance.bridge_out_lock_time,
             instance.post_pegin_txhash,
+            instance.bridge_out_amount,
             instance.created_at,
             instance.updated_at
         )
@@ -3011,6 +3013,48 @@ impl<'a> StorageProcessor<'a> {
             .execute(self.conn())
             .await?;
         Ok(res.rows_affected())
+    }
+
+    pub async fn upsert_bridge_out_global_stats(
+        &mut self,
+        bridge_out_stats: &BridgeOutGlobalStats,
+    ) -> anyhow::Result<()> {
+        sqlx::query!(
+            r#"INSERT INTO bridge_out_global_stats (id, initial_txn, initial_amount, claim_txn, claim_amount, refund_txn,
+                                                   refund_amount,updated_at, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT (id) DO UPDATE SET initial_txn    = excluded.initial_txn,
+                                             initial_amount = excluded.initial_amount,
+                                             claim_txn      = excluded.claim_txn,
+                                             claim_amount   = excluded.claim_amount,
+                                             refund_txn     = excluded.refund_txn,
+                                             refund_amount  = excluded.refund_amount,
+                                             updated_at     = excluded.updated_at"#,
+            bridge_out_stats.id,
+            bridge_out_stats.initial_txn,
+            bridge_out_stats.initial_amount,
+            bridge_out_stats.claim_txn,
+            bridge_out_stats.claim_amount,
+            bridge_out_stats.refund_txn,
+            bridge_out_stats.refund_amount,
+            bridge_out_stats.updated_at,
+            bridge_out_stats.created_at,
+        ).execute(self.conn())
+            .await?;
+        Ok(())
+    }
+    pub async fn find_bridge_out_global_stats_by_id(
+        &mut self,
+        id: i64,
+    ) -> anyhow::Result<Option<BridgeOutGlobalStats>> {
+        let res = sqlx::query_as!(
+            BridgeOutGlobalStats,
+            r#"SELECT * from bridge_out_global_stats WHERE id = ?"#,
+            id
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
     }
 }
 

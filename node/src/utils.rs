@@ -61,8 +61,9 @@ use store::localdb::{
     GraphQuery, GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor,
 };
 use store::{
-    ByteArray32, Graph, GraphRawData, GraphStatus, Instance, InstanceBridgeInStatus, Message,
-    MessageState, MessageType, Node, PeginGraphProcessData, PeginInstanceProcessData, UInt64Array3,
+    BridgeOutGlobalStats, ByteArray32, Graph, GraphRawData, GraphStatus, Instance,
+    InstanceBridgeInStatus, Message, MessageState, MessageType, Node, PeginGraphProcessData,
+    PeginInstanceProcessData, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
@@ -88,7 +89,7 @@ use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus}
 use client::http_client::async_client::HttpAsyncClient;
 use tracing::{error, info, warn};
 use uuid::Uuid;
-
+pub(crate) const BRIDGE_OUT_GLOBAL_STATS_ID: i64 = 1;
 pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
 
@@ -3606,6 +3607,7 @@ pub async fn generate_instance(
         escrow_hash: None,
         bridge_out_lock_time: 0,
         post_pegin_txhash: None,
+        bridge_out_amount: "0".to_string(),
         status_updated_at: params.pegin_timestamp,
         created_at: current_time,
         updated_at: current_time,
@@ -4447,4 +4449,22 @@ pub(super) async fn find_instances_by_escrow_hash<'a>(
 
 pub async fn get_guest_constant_value(_instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
     Ok(hash_operator_constant(graph_id.into_bytes(), get_genesis_sequencer_commit_id()))
+}
+pub(crate) async fn get_bridge_out_global_stats<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+) -> Result<BridgeOutGlobalStats> {
+    match storage_processor.find_bridge_out_global_stats_by_id(BRIDGE_OUT_GLOBAL_STATS_ID).await? {
+        Some(global_stats) => Ok(global_stats),
+        None => Ok(BridgeOutGlobalStats {
+            id: BRIDGE_OUT_GLOBAL_STATS_ID,
+            initial_txn: 0,
+            initial_amount: "0".to_string(),
+            claim_txn: 0,
+            claim_amount: "0".to_string(),
+            refund_txn: 0,
+            refund_amount: "0".to_string(),
+            created_at: 0,
+            updated_at: 0,
+        }),
+    }
 }

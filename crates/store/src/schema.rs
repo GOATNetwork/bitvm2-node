@@ -255,7 +255,20 @@ pub struct Instance {
     pub escrow_hash: Option<String>,
     pub bridge_out_lock_time: i64,
     pub post_pegin_txhash: Option<String>,
+    pub bridge_out_amount: String,
     pub status_updated_at: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct BridgeOutGlobalStats {
+    pub id: i64,
+    pub initial_txn: i64,
+    pub initial_amount: String,
+    pub claim_txn: i64,
+    pub claim_amount: String,
+    pub refund_txn: i64,
+    pub refund_amount: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

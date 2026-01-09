@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO bridge_out_global_stats (id, initial_txn, initial_amount, claim_txn, claim_amount, refund_txn,\n                                                   refund_amount,updated_at, created_at)\n              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\n              ON CONFLICT (id) DO UPDATE SET initial_txn    = excluded.initial_txn,\n                                             initial_amount = excluded.initial_amount,\n                                             claim_txn      = excluded.claim_txn,\n                                             claim_amount   = excluded.claim_amount,\n                                             refund_txn     = excluded.refund_txn,\n                                             refund_amount  = excluded.refund_amount,\n                                             updated_at     = excluded.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "29c7bb9fb40d42067c40ce3a6d097442733571faeb9c8e03b8fd19081237e892"
+}

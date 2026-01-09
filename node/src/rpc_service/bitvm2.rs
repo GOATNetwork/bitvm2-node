@@ -1,19 +1,22 @@
+use super::utils::{deserialize_u256, serialize_u256};
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertCommitStatus, ChallengeSubStatus, WatchtowerChallengeStatus,
 };
 use crate::utils::{check_bridge_in_uxto_available_or_self_spent, reflect_goat_address};
 use alloy::hex::ToHexExt;
+use alloy::primitives::U256;
 use bitcoin::Txid;
 use client::Utxo;
 use client::btc_chain::BTCClient;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::str::FromStr;
 use store::localdb::GraphQuery;
 use store::{
-    Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, ProofState,
-    SerializableTxid,
+    ByteArray32, Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
+    ProofState, SerializableTxid, UInt64Array3,
 };
 use strum::{Display, EnumString};
 use tracing::warn;
@@ -118,8 +121,78 @@ pub struct StatusExtra {
     pub error: Option<String>,
 }
 #[derive(Deserialize, Serialize, Default)]
+pub struct InstanceDisplay {
+    pub instance_id: Uuid,
+    pub is_bridge_in: bool,
+    pub network: String,
+    pub from_addr: String,
+    pub to_addr: String, // goat deposit addr
+    #[serde(serialize_with = "serialize_u256", deserialize_with = "deserialize_u256")]
+    pub amount: U256,
+    pub fees: UInt64Array3,
+    pub input_utxos: String,  // init should been []
+    pub status: String,       // InstanceBridgeInStatus | InstanceBridgeOutStatus
+    pub goat_tx_hash: String, // bridgeIn:pegin Request tx || bridgeOut goat tx
+    pub goat_tx_height: i64,
+    pub user_xonly_pubkey: ByteArray32,
+    pub user_change_addr: String,
+    pub user_refund_addr: String,
+    pub btc_txid: Option<SerializableTxid>, // bridgeIn: Pegin Prepare Request tx || bridgeOut Btc tx
+    pub btc_height: i64,
+    pub pegin_confirm_txid: Option<SerializableTxid>, // btc txid
+    pub pegin_cancel_txid: Option<SerializableTxid>,  // btc txid
+    pub committees_answers: IndexMap<String, Vec<u8>>,
+    pub pegin_data_tx_hash: String,
+    pub parameters: Option<String>,
+    pub escrow_hash: Option<String>,
+    pub bridge_out_lock_time: i64,
+    pub post_pegin_txhash: Option<String>,
+    pub status_updated_at: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+impl From<Instance> for InstanceDisplay {
+    fn from(instance: Instance) -> Self {
+        let amount = if instance.is_bridge_in {
+            U256::from(instance.amount)
+        } else {
+            U256::from_str(&instance.bridge_out_amount).unwrap_or_default()
+        };
+        Self {
+            instance_id: instance.instance_id,
+            is_bridge_in: instance.is_bridge_in,
+            network: instance.network,
+            from_addr: instance.from_addr,
+            to_addr: instance.to_addr,
+            amount,
+            fees: instance.fees,
+            input_utxos: instance.input_utxos,
+            status: instance.status,
+            goat_tx_hash: instance.goat_tx_hash,
+            goat_tx_height: instance.goat_tx_height,
+            user_xonly_pubkey: instance.user_xonly_pubkey,
+            user_change_addr: instance.user_change_addr,
+            user_refund_addr: instance.user_refund_addr,
+            btc_txid: instance.btc_txid,
+            btc_height: instance.btc_height,
+            pegin_confirm_txid: instance.pegin_confirm_txid,
+            pegin_cancel_txid: instance.pegin_cancel_txid,
+            committees_answers: instance.committees_answers,
+            pegin_data_tx_hash: instance.pegin_data_tx_hash,
+            parameters: instance.parameters,
+            escrow_hash: instance.escrow_hash,
+            bridge_out_lock_time: instance.bridge_out_lock_time,
+            post_pegin_txhash: instance.post_pegin_txhash,
+            status_updated_at: instance.status_updated_at,
+            created_at: instance.created_at,
+            updated_at: instance.updated_at,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Default)]
 pub struct InstanceExtended {
-    pub instance: Instance,
+    pub instance: InstanceDisplay,
     pub utxo: Vec<Utxo>,
     pub waiting_time_in_secs: i64,
     pub current_status_waiting_time_in_secs: i64,
@@ -175,7 +248,7 @@ impl InstanceExtended {
             target_confirmations,
             status_extra,
             utxo: utxos,
-            instance,
+            instance: instance.into(),
         })
     }
 }
@@ -363,7 +436,8 @@ pub struct InstanceOverviewResponse {
 pub struct InstanceOverview {
     pub total_bridge_in_amount: i64,
     pub total_bridge_in_txn: i64,
-    pub total_bridge_out_amount: i64,
+    #[serde(serialize_with = "serialize_u256", deserialize_with = "deserialize_u256")]
+    pub total_bridge_out_amount: U256,
     pub total_bridge_out_txn: i64,
     pub total_peg_out_amount: i64,
     pub total_peg_out_txn: i64,

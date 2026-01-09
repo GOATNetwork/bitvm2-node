@@ -28,10 +28,7 @@ fn parse_value_to_u256(value: &serde_json::Value) -> Result<U256, String> {
     U256::from_str(&s).map_err(|e| format!("Failed to parse U256 from '{}': {}", s, e))
 }
 
-pub(super) fn serialize_u256<S>(
-    value: &U256,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+pub(super) fn serialize_u256<S>(value: &U256, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -44,9 +41,7 @@ where
     }
 }
 
-pub(super) fn deserialize_u256<'de, D>(
-    deserializer: D,
-) -> Result<U256, D::Error>
+pub(super) fn deserialize_u256<'de, D>(deserializer: D) -> Result<U256, D::Error>
 where
     D: Deserializer<'de>,
 {

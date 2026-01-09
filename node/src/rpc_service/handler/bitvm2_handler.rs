@@ -13,9 +13,10 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertInitTxVoutMonitorData, ChallengeSubStatus, WTInitTxVoutMonitorData,
 };
 use crate::utils::{
-    find_instances_by_escrow_hash, gen_instance_parameters_local, parse_graph_raw_data,
+    find_instances_by_escrow_hash, gen_instance_parameters_local, get_bridge_out_global_stats,
+    parse_graph_raw_data,
 };
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
@@ -24,6 +25,7 @@ use client::goat_chain::DisproveTxType;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::default::Default;
+use std::str::FromStr;
 use std::sync::Arc;
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
 use store::{
@@ -153,6 +155,7 @@ pub async fn bridge_in_request_tag(
             to_addr,
             input_utxos: "[]".to_string(),
             status: InstanceBridgeInStatus::UserIniting.to_string(),
+            bridge_out_amount: "0".to_string(),
             status_updated_at: current_time,
             created_at: current_time,
             updated_at: current_time,
@@ -253,6 +256,7 @@ pub async fn bridge_out_init_tag(
             input_utxos: "[]".to_string(),
             escrow_hash: Some(escrow_hash),
             status: InstanceBridgeOutStatus::Initialize.to_string(),
+            bridge_out_amount: "0".to_string(),
             status_updated_at: current_time,
             created_at: current_time,
             ..Default::default()
@@ -641,8 +645,7 @@ pub async fn get_instances_overview(
         .await
         .api_error("INSTANCE_OVERVIEW_ERROR")?;
 
-    let (bridge_out_sum, bridge_out_count) = storage_process
-        .get_sum_bridge_txn(false, &[InstanceBridgeOutStatus::Claim.to_string()])
+    let bridge_out_global_stats = get_bridge_out_global_stats(&mut storage_process)
         .await
         .api_error("INSTANCE_OVERVIEW_ERROR")?;
 
@@ -664,8 +667,8 @@ pub async fn get_instances_overview(
         instances_overview: InstanceOverview {
             total_bridge_in_amount: bridge_in_sum,
             total_bridge_in_txn: bridge_in_count,
-            total_bridge_out_amount: bridge_out_sum,
-            total_bridge_out_txn: bridge_out_count,
+            total_bridge_out_amount: U256::from_str(&bridge_out_global_stats.claim_amount).unwrap(),
+            total_bridge_out_txn: bridge_out_global_stats.claim_txn,
             total_peg_out_amount: pegout_sum,
             total_peg_out_txn: pegout_count,
             online_nodes: alive,
