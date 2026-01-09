@@ -4318,7 +4318,7 @@ pub async fn update_graph_status(
         Some(graph) => {
             if graph.status == new_status.to_string()
                 && let Some(sub_status) = sub_status
-                && sub_status != ChallengeSubStatus::default()
+                && sub_status == ChallengeSubStatus::default()
             {
                 warn!(
                     "graph: {graph_id}, new_status: {new_status} is equal old status and ChallengeSubStatus is None, so not update"

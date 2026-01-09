@@ -18,7 +18,7 @@ services:
     container_name: electrs-regtest
     restart: unless-stopped
     ports:
-      - "3002:3002"
+      - "13002:3002"
     depends_on:
       - bitcoind
     entrypoint: >

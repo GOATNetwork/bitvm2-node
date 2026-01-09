@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This document describes how to deploy the different roles in the BitVM2 system: Committee, Operator, Challenger, Watchtower, and Relayer, by manually compiling and running the node.
+This document describes how to deploy the different roles in the BitVM2 system: Committee, Operator, Challenger, Watchtower, and Relayer, by manually compiling and running the [node](../node/README.md).
 
 ## Prerequisites
 
@@ -217,3 +217,5 @@ BOOTNODES=... # empty if this is the first node
   --p2p-port 8443 \
   --db-path ./watchtower.db
 ```
+
+For `sequencer-set-publish` and `proof-builder-rpc` deployment and failure recovery, please refer to the [Proof Builder RPC README](../proof-builder-rpc/README.md) for detailed instructions.
