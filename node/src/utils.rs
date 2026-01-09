@@ -1841,6 +1841,19 @@ struct CachedAssertCommitInputs {
     inputs: Vec<CachedAssertCommitInput>,
 }
 
+fn embed_txin_into_dummy_tx(txin: &TxIn) -> Transaction {
+    Transaction {
+        version: bitcoin::transaction::Version(2),
+        lock_time: bitcoin::absolute::LockTime::ZERO,
+        input: vec![txin.clone()],
+        output: vec![],
+    }
+}
+
+fn extract_txin_from_dummy_tx(tx: &Transaction) -> TxIn {
+    tx.input[0].clone()
+}
+
 fn assert_commit_cache_path(graph_id: Uuid) -> PathBuf {
     Path::new(ASSERT_COMMITS_CACHE_DIR).join(format!("{graph_id}.json"))
 }
@@ -1874,8 +1887,11 @@ fn load_assert_commit_inputs_from_cache(graph_id: Uuid) -> Option<Vec<(TxIn, Amo
     }
     let mut inputs = Vec::with_capacity(cached.inputs.len());
     for item in cached.inputs {
-        match deserialize::<TxIn>(&item.txin) {
-            Ok(txin) => inputs.push((txin, Amount::from_sat(item.amount_sat))),
+        match deserialize::<Transaction>(&item.txin) {
+            Ok(txin_embed_tx) => inputs.push((
+                extract_txin_from_dummy_tx(&txin_embed_tx),
+                Amount::from_sat(item.amount_sat),
+            )),
             Err(err) => {
                 warn!("failed to decode txin from cache {path:?}: {err:?}");
                 return None;
@@ -1895,7 +1911,7 @@ fn store_assert_commit_inputs_in_cache(graph_id: Uuid, inputs: &[(TxIn, Amount)]
         inputs: inputs
             .iter()
             .map(|(txin, amount)| CachedAssertCommitInput {
-                txin: serialize(txin),
+                txin: serialize(&embed_txin_into_dummy_tx(txin)),
                 amount_sat: amount.to_sat(),
             })
             .collect(),
