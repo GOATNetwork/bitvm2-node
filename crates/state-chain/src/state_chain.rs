@@ -118,18 +118,16 @@ pub fn execute_el_block_and_check_withdraw_tx(
         input.custom_beneficiary,
     );
 
-    let mut storage_info = None;
+    let mut storage_info = vec![];
     withdrawals.iter().for_each(|withdrawal| {
-        let mut tuple = vec![];
         for graph_id in &withdrawal.2 {
             let mut data = [0u8; 32 * 2];
             data[0..16].copy_from_slice(graph_id);
             data[32..].copy_from_slice(&withdrawal.1);
             let slot_id = B256::from(keccak256(data));
             // FIXME: hardcode the value to 1 for now
-            tuple.push((withdrawal.0, slot_id.into(), U256::ONE));
+            storage_info.push((withdrawal.0, slot_id.into(), U256::ONE));
         }
-        storage_info = Some(tuple);
     });
 
     let (header, _) = executor.execute(input, storage_info).expect("failed to execute client");
