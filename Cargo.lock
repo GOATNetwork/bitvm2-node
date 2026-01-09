@@ -2588,6 +2588,7 @@ dependencies = [
  "sha2 0.10.9",
  "strum 0.26.3",
  "tokio",
+ "tracing",
  "uuid 1.19.0",
 ]
 

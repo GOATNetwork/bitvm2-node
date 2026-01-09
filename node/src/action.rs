@@ -3255,7 +3255,15 @@ pub async fn recv_and_dispatch(
                     disprove_scripts.to_vec(),
                     Some(*disprover_evm_address.as_ref()),
                 )?;
-                todo_funcs::broadcast_nonstandard_tx(btc_client, &disprove_tx).await?;
+                let challenger_master_key = ChallengerMasterKey::new(get_bitvm_key()?);
+                let challenger_master_keypair = challenger_master_key.master_keypair();
+                build_sign_and_broadcast_non_standard_tx(
+                    btc_client,
+                    challenger_master_keypair,
+                    disprove_tx,
+                    connector_e_input.amount,
+                )
+                .await?;
             } else {
                 tracing::info!(
                     "All assertions valid for {instance_id}:{graph_id}, no need to disprove"

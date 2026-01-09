@@ -2079,6 +2079,68 @@ pub async fn build_sign_and_broadcast_tx(
     }
 }
 
+pub async fn build_sign_and_broadcast_non_standard_tx(
+    client: &BTCClient,
+    node_keypair: Keypair,
+    mut tx: Transaction,
+    total_input_amount: Amount,
+) -> Result<Txid> {
+    let fixed_inputs_num = tx.input.len();
+    let total_output_amount: Amount = tx.output.iter().map(|o| o.value).sum();
+    let fee_rate = get_fee_rate(client).await?;
+    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
+    let shortfall =
+        Amount::from_sat(total_output_amount.to_sat().saturating_sub(total_input_amount.to_sat()));
+    match get_proper_utxo_set(
+        client,
+        tx.weight().to_vbytes_ceil(),
+        node_address.clone(),
+        shortfall,
+        fee_rate,
+    )
+    .await?
+    {
+        Some((inputs, _, change_amount)) => {
+            for input in &inputs {
+                tx.input.push(TxIn {
+                    previous_output: input.outpoint,
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: Witness::default(),
+                });
+            }
+            if change_amount > Amount::from_sat(DUST_AMOUNT) {
+                tx.output.push(TxOut {
+                    script_pubkey: node_address.script_pubkey(),
+                    value: change_amount,
+                });
+            }
+            for (i, input) in inputs.iter().enumerate() {
+                node_sign(
+                    &mut tx,
+                    i + fixed_inputs_num,
+                    input.amount,
+                    EcdsaSighashType::All,
+                    &node_keypair,
+                )?;
+            }
+            todo_funcs::broadcast_nonstandard_tx(client, &tx).await?;
+            Ok(tx.compute_txid())
+        }
+        None => {
+            let current_balance = client
+                .get_address_utxo(node_address)
+                .await?
+                .iter()
+                .map(|u| u.value)
+                .sum::<Amount>();
+            bail!(SpecialError::InsufficientBalance(format!(
+                "Not enough balance to complete the transaction, current_balance: {current_balance} < shortfall: {shortfall}"
+            )));
+        }
+    }
+}
+
 pub async fn build_cpfp_txns(
     btc_client: &BTCClient,
     parent_tx: &Transaction,

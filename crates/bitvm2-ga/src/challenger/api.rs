@@ -71,14 +71,35 @@ pub fn verify_operator_commits(
         <&[ScriptBuf; GUEST_VALIDATION_TAPS]>::try_from(guest_validation_scripts).unwrap();
     let proof_validation_scripts =
         <&[ScriptBuf; NUM_TAPS]>::try_from(proof_validation_scripts).unwrap();
-    Ok(validate_assert(
+    let res = validate_assert(
         extract_blockhash_commit_witness(&operator_commit_blockhash_txin)?,
         extract_assert_commit_witness(operator_assert_commit_txins)?,
         preimages,
         guest_validation_scripts,
         vk,
         proof_validation_scripts,
-    ))
+    );
+    if let Some((_, scr)) = &res {
+        let guest_index_opt = guest_validation_scripts.iter().position(|s| s == scr);
+        if guest_index_opt.is_some() {
+            tracing::info!(
+                "Disprove witness validated against guest validation scripts at index {}",
+                guest_index_opt.unwrap()
+            );
+        } else {
+            let proof_index_opt = proof_validation_scripts.iter().position(|s| s == scr);
+            match proof_index_opt {
+                Some(idx) => tracing::info!(
+                    "Disprove witness validated against proof validation scripts at index {}",
+                    idx
+                ),
+                None => tracing::warn!(
+                    "Disprove witness script not found in either guest or proof validation scripts"
+                ),
+            }
+        }
+    }
+    Ok(res)
 }
 
 /// challenge has a pre-signed SinglePlusAnyoneCanPay input and output
