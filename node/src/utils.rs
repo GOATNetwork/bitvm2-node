@@ -1711,8 +1711,7 @@ fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Ve
     if proof_data.vk.len() != VK_HASH_SIZE {
         bail!("invalid vk_hash length");
     }
-    let vk_hash = String::from_utf8(proof_data.vk).map_err(|_| anyhow!("invalid vk_hash utf8"))?;
-    Ok(build_watchtower_commitment(graph_id, proof, public_inputs, &vk_hash))
+    Ok(build_watchtower_commitment(graph_id, proof, public_inputs, &proof_data.vk))
 }
 
 // proof network
@@ -1804,12 +1803,13 @@ pub async fn get_operator_proof(
                     get_guest_constant_value(instance_id, graph_id).await?,
                     [0xffu8; 32], // use [0u8; 32] to test non-inclusion challenge
                 ];
-
+                info!("get_operator_proof get proof successfully");
                 let proof: ZKMProofWithPublicValues =
                     bincode::deserialize(proof_data.proof.as_slice()).unwrap();
+                info!("get_operator_proof parse proof successfully");
                 let groth16_vk = &GROTH16_VK_BYTES;
-                let vk_hash = String::from_utf8(proof_data.vk.to_vec()).unwrap();
-                let ark_proof = convert_ark(&proof, &vk_hash, groth16_vk).unwrap();
+                let ark_proof = convert_ark(&proof, &proof_data.vk, groth16_vk).unwrap();
+                info!("get_operator_proof parse proof successfully");
 
                 Ok((
                     Some((
@@ -2698,6 +2698,7 @@ pub async fn operator_send_assert_commit(
                 return Ok((None, false, Some(wait_secs)));
             }
         };
+        info!("operator_send_assert_commit start operator_sign_assert_commit");
         let inputs = operator_sign_assert_commit(
             node_keypair,
             graph,
@@ -2707,6 +2708,8 @@ pub async fn operator_send_assert_commit(
             groth16_pubin,
             &vk,
         )?;
+
+        info!("operator_send_assert_commit start store_assert_commit_inputs_in_cache");
         if let Err(err) = store_assert_commit_inputs_in_cache(graph_id, &inputs) {
             tracing::warn!("failed to write assert-commit cache for graph_id:{graph_id}: {err:?}");
         }

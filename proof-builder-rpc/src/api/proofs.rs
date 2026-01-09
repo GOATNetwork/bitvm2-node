@@ -73,7 +73,7 @@ pub(super) struct OperatorProofRequest {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub(super) struct ProofData {
     pub proof: Vec<u8>,
-    pub vk: Vec<u8>,
+    pub vk: String,
     pub public_inputs: Vec<u8>,
 }
 
@@ -118,7 +118,9 @@ impl ProofData {
                 proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
                 proof_data.public_inputs =
                     fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
-                proof_data.vk = fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default();
+                proof_data.vk =
+                    String::from_utf8(fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default())
+                        .unwrap_or_default();
             }
         }
         proof_data

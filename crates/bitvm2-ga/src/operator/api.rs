@@ -850,6 +850,7 @@ pub fn operator_sign_assert_commit(
     groth16_pubin: PublicInputs,
     vk: &VerifyingKey,
 ) -> Result<Vec<(TxIn, Amount)>> {
+    println!("operator_send_assert_commit start operator_sign_assert_commit");
     let operator_context = graph.parameters.get_operator_context(operator_keypair)?;
     if !is_valid_wots_secrets(wots_secret_keys, &graph.parameters.operator_wots_pubkeys) {
         bail!("provided WOTS secret keys do not match expected public keys".to_string())
