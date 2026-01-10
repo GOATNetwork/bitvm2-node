@@ -5,6 +5,7 @@
 use crate::env::{
     get_bitvm_key, get_local_node_info, get_network, get_node_goat_address, is_relayer,
 };
+use crate::graph_compensate_event::compensate_graph_events;
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
