@@ -6,9 +6,9 @@ use crate::env::{
     get_goat_gateway_the_graph_urls_from_env, get_goat_swap_event_filter_from_from_env,
     get_goat_swap_event_filter_gap_from_env, get_goat_swap_the_graph_urls_from_env, get_network,
 };
+use crate::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
-use crate::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::utils::{
     GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance, outpoint_available,
     reflect_goat_address, strip_hex_prefix_owned,

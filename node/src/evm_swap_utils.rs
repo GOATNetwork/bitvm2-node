@@ -1,9 +1,7 @@
 use crate::evm_swap_utils::IEscrowManager::{EscrowData, IEscrowManagerCalls};
 use alloy::primitives::Address as EvmAddress;
 use bitcoin::consensus::encode::deserialize;
-use bitcoin::{
-    Transaction, Txid,
-};
+use bitcoin::{Transaction, Txid};
 use client::goat_chain::GOATClient;
 use serde::{Deserialize, Serialize};
 
@@ -300,8 +298,8 @@ pub async fn extract_claim_data_from_tx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     use bitcoin::hashes::Hash;
+    use std::str::FromStr;
     #[tokio::test]
     #[ignore = "broken rpc"]
     async fn test_find_escrow_data() {

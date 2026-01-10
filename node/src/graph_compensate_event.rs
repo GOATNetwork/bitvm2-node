@@ -1,14 +1,12 @@
-use crate::action::{
-    GOATMessage, GOATMessageContent, push_local_unhandled_messages,
-};
+use crate::action::{GOATMessage, GOATMessageContent, push_local_unhandled_messages};
 use crate::utils::{get_graph, outpoint_spent_txid};
 use anyhow::{Result, anyhow, bail};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::types::Bitvm2Graph;
 use client::btc_chain::BTCClient;
 use goat::transactions::pre_signed::PreSignedTransaction;
-use store::localdb::LocalDB;
 use store::GraphStatus;
+use store::localdb::LocalDB;
 
 use crate::scheduled_tasks::graph_maintenance_tasks::ChallengeSubStatus;
 use client::goat_chain::DisproveTxType;

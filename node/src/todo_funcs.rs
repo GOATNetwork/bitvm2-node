@@ -4,14 +4,9 @@ use crate::error::SpecialError;
 use crate::utils::verify_graph_endorsement;
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Result, bail};
-use bitcoin::{
-    Amount, Network,
-    PublicKey,
-};
+use bitcoin::{Amount, Network, PublicKey};
 use bitvm2_lib::keys::OperatorMasterKey;
-use bitvm2_lib::types::{
-    Bitvm2Graph, SimplifiedBitvm2Graph,
-};
+use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use goat::connectors::assert_connectors::chunk_assert_commit;
 use goat::disprove_scripts::NUM_GUEST_PUBS_ASSERT;
@@ -233,11 +228,9 @@ pub async fn validate_finalized_graph(
         }
 
         // cryptographically verify the endorsement against the graph digest
-        let ok = verify_graph_endorsement(goat_client, evm_addr, &full_graph, sig)
-            .await
-            .map_err(|e| {
-                SpecialError::InvalidGraph(format!("failed to verify endorsement: {e}"))
-            })?;
+        let ok = verify_graph_endorsement(goat_client, evm_addr, &full_graph, sig).await.map_err(
+            |e| SpecialError::InvalidGraph(format!("failed to verify endorsement: {e}")),
+        )?;
         if !ok {
             bail!(SpecialError::InvalidGraph("invalid endorsement signature".to_string()));
         }

@@ -1,12 +1,12 @@
 pub mod action;
+pub mod cached_assert_commit_inputs;
 pub mod env;
 pub mod evm_swap_utils;
+pub mod graph_compensate_event;
 pub mod metrics_service;
 pub mod middleware;
 pub mod p2p_msg_handler;
 pub mod todo_funcs;
-pub mod graph_compensate_event;
-pub mod cached_assert_commit_inputs;
 
 pub mod rpc_service;
 mod scheduled_tasks;

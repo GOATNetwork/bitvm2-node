@@ -5,8 +5,8 @@
 use crate::env::{
     get_bitvm_key, get_local_node_info, get_network, get_node_goat_address, is_relayer,
 };
-use crate::graph_compensate_event::compensate_graph_events;
 use crate::error::SpecialError;
+use crate::graph_compensate_event::compensate_graph_events;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::*;
@@ -608,7 +608,8 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle CreateGraph for {instance_id}:{graph_id}");
             // 1. check graph data & operator stake
             if let Err(e) =
-                crate::todo_funcs::validate_init_graph(local_db, btc_client, goat_client, &graph).await
+                crate::todo_funcs::validate_init_graph(local_db, btc_client, goat_client, &graph)
+                    .await
             {
                 if let Some(msg) = e.downcast_ref::<SpecialError>() {
                     match msg {
@@ -1226,7 +1227,8 @@ pub async fn recv_and_dispatch(
             );
             // 1. check graph data & ipfs cid
             if let Err(e) =
-                crate::todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
+                crate::todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs)
+                    .await
             {
                 if let Some(msg) = e.downcast_ref::<SpecialError>() {
                     match msg {
@@ -1329,7 +1331,8 @@ pub async fn recv_and_dispatch(
             );
             // 1. check graph data & ipfs cid
             if let Err(e) =
-                crate::todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
+                crate::todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs)
+                    .await
             {
                 if let Some(msg) = e.downcast_ref::<SpecialError>() {
                     match msg {
@@ -1625,7 +1628,8 @@ pub async fn recv_and_dispatch(
                 let pegin_height = match btc_client.get_tx_status(&pegin_txid).await?.block_height {
                     Some(height) => height as u64,
                     None => {
-                        let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
+                        let delay_secs =
+                            crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
                         push_local_unhandled_messages(
                             local_db,
                             instance_id,
@@ -2540,9 +2544,13 @@ pub async fn recv_and_dispatch(
                     );
                     continue;
                 }
-                let preimage =
-                    crate::todo_funcs::get_preimage(local_db, instance_id, graph_id, watchtower_index)
-                        .await?;
+                let preimage = crate::todo_funcs::get_preimage(
+                    local_db,
+                    instance_id,
+                    graph_id,
+                    watchtower_index,
+                )
+                .await?;
                 let (ack_txin, ack_txin_amount) = operator_sign_ack(
                     operator_graph_keypair,
                     &mut graph,
@@ -2797,7 +2805,8 @@ pub async fn recv_and_dispatch(
             let wots_secret_keys =
                 operator_master_key.wots_keypair_for_graph(graph.parameters.graph_id).0;
             let blockhash_wots_secret_key = &wots_secret_keys[0];
-            let blockhash = crate::todo_funcs::get_operator_proof_blockhash(instance_id, graph_id).await?;
+            let blockhash =
+                crate::todo_funcs::get_operator_proof_blockhash(instance_id, graph_id).await?;
             let (operator_commit_blockhash_txin, operator_commit_blockhash_txin_amount) =
                 operator_sign_blockhash_commit(
                     operator_graph_keypair,
@@ -3008,7 +3017,8 @@ pub async fn recv_and_dispatch(
                     push_local_unhandled_messages(local_db, graph_id, &message, wait_secs).await?;
                     return Ok(());
                 } else if let Some(split_txid) = split_txid_opt {
-                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    let delay_secs =
+                        crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
                     tracing::warn!(
                         "Retry AssertInitReady for {instance_id}:{graph_id} later: fee_inputs_split_tx {split_txid} broadcasted, retry after {delay_secs} seconds"
                     );
@@ -3020,7 +3030,8 @@ pub async fn recv_and_dispatch(
                     )
                     .await?;
                 } else if has_pending_fee_input {
-                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    let delay_secs =
+                        crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
                     tracing::warn!(
                         "Retry AssertInitReady for {instance_id}:{graph_id} later: some fee inputs are pending, retry after {delay_secs} seconds",
                     );

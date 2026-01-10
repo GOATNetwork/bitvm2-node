@@ -1,9 +1,7 @@
 use crate::env::*;
 use anyhow::Result;
 use bitcoin::consensus::encode::{deserialize, serialize};
-use bitcoin::{
-    Amount, Transaction, TxIn,
-};
+use bitcoin::{Amount, Transaction, TxIn};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
@@ -86,7 +84,10 @@ pub(crate) fn load_assert_commit_inputs_from_cache(graph_id: Uuid) -> Option<Vec
     Some(inputs)
 }
 
-pub(crate) fn store_assert_commit_inputs_in_cache(graph_id: Uuid, inputs: &[(TxIn, Amount)]) -> Result<()> {
+pub(crate) fn store_assert_commit_inputs_in_cache(
+    graph_id: Uuid,
+    inputs: &[(TxIn, Amount)],
+) -> Result<()> {
     fs::create_dir_all(ASSERT_COMMITS_CACHE_DIR)?;
     let path = assert_commit_cache_path(graph_id);
     let file = File::create(&path)?;

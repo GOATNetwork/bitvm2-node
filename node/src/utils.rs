@@ -1,7 +1,8 @@
-use crate::action::{
-    GOATMessage, GOATMessageContent, NodeInfo, send_to_peer,
+use crate::action::{GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
+use crate::cached_assert_commit_inputs::{
+    cleanup_assert_commit_cache, load_assert_commit_inputs_from_cache,
+    store_assert_commit_inputs_in_cache,
 };
-use crate::cached_assert_commit_inputs::{cleanup_assert_commit_cache, load_assert_commit_inputs_from_cache, store_assert_commit_inputs_in_cache};
 use crate::env::*;
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
@@ -1078,11 +1079,8 @@ pub async fn build_sign_and_broadcast_non_standard_tx(
                     &node_keypair,
                 )?;
             }
-            let _ = match broadcast_tx(client, &tx).await {
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::error!("failed to broadcast non-standard tx: {e}");
-                }
+            if let Err(e) = broadcast_tx(client, &tx).await {
+                tracing::error!("failed to broadcast non-standard tx: {e}");
             };
             Ok(tx.compute_txid())
         }
@@ -1493,11 +1491,13 @@ pub async fn build_graph_params(
     let watchtower_pubkeys = goat_client.committee_mana_get_watchtowers().await?;
     let mut hashlocks = vec![];
     for index in 0..watchtower_pubkeys.len() {
-        let preimage = crate::todo_funcs::get_preimage(local_db, instance_id, graph_id, index).await?;
+        let preimage =
+            crate::todo_funcs::get_preimage(local_db, instance_id, graph_id, index).await?;
         let hashlock = hash160(&preimage);
         hashlocks.push(hashlock);
     }
-    let guest_constant_value = crate::todo_funcs::get_guest_constant_value(instance_id, graph_id).await?;
+    let guest_constant_value =
+        crate::todo_funcs::get_guest_constant_value(instance_id, graph_id).await?;
     Ok(Bitvm2GraphParameters {
         instance_parameters,
         prekickoff_parameters,
