@@ -607,7 +607,7 @@ pub async fn recv_and_dispatch(
             tracing::info!("Handle CreateGraph for {instance_id}:{graph_id}");
             // 1. check graph data & operator stake
             if let Err(e) =
-                todo_funcs::validate_init_graph(local_db, btc_client, goat_client, &graph).await
+                crate::todo_funcs::validate_init_graph(local_db, btc_client, goat_client, &graph).await
             {
                 if let Some(msg) = e.downcast_ref::<SpecialError>() {
                     match msg {
@@ -1225,7 +1225,7 @@ pub async fn recv_and_dispatch(
             );
             // 1. check graph data & ipfs cid
             if let Err(e) =
-                todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
+                crate::todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
             {
                 if let Some(msg) = e.downcast_ref::<SpecialError>() {
                     match msg {
@@ -1255,7 +1255,7 @@ pub async fn recv_and_dispatch(
             mark_graph_as_endorsed(local_db, instance_id, graph_id).await?;
             // 3. if endorsed graph count >= threshold, generate & broadcast PeginConfirmNonce
             if get_endorsed_graph_count(local_db, instance_id).await?
-                >= todo_funcs::min_required_operator()
+                >= crate::todo_funcs::min_required_operator()
             {
                 let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
                 let local_committee_pubkey =
@@ -1328,7 +1328,7 @@ pub async fn recv_and_dispatch(
             );
             // 1. check graph data & ipfs cid
             if let Err(e) =
-                todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
+                crate::todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
             {
                 if let Some(msg) = e.downcast_ref::<SpecialError>() {
                     match msg {
@@ -1624,7 +1624,7 @@ pub async fn recv_and_dispatch(
                 let pegin_height = match btc_client.get_tx_status(&pegin_txid).await?.block_height {
                     Some(height) => height as u64,
                     None => {
-                        let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
+                        let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
                         push_local_unhandled_messages(
                             local_db,
                             instance_id,
@@ -1640,7 +1640,7 @@ pub async fn recv_and_dispatch(
                 };
                 let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
                 if goat_confirmed_height < pegin_height {
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network())
                         * (pegin_height - goat_confirmed_height);
                     push_local_unhandled_messages(
                         local_db,
@@ -1803,7 +1803,7 @@ pub async fn recv_and_dispatch(
                     tracing::info!(
                         "Operator {operator_pubkey} skipped obsoleted graph {current_instance_id}:{current_graph_id}"
                     );
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
                     push_local_unhandled_messages(
                         local_db,
                         current_graph_id,
@@ -1825,7 +1825,7 @@ pub async fn recv_and_dispatch(
                     tracing::info!(
                         "Operator {operator_pubkey} skipped non-posted graph {current_instance_id}:{current_graph_id}"
                     );
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
                     push_local_unhandled_messages(
                         local_db,
                         current_graph_id,
@@ -1901,7 +1901,7 @@ pub async fn recv_and_dispatch(
             let kickoff_height = match btc_client.get_tx_status(&kickoff_txid).await?.block_height {
                 Some(height) => height as u64,
                 None => {
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 blocks
                     push_local_unhandled_messages(
                         local_db,
                         graph_id,
@@ -1917,7 +1917,7 @@ pub async fn recv_and_dispatch(
             };
             let goat_confirmed_btc_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_btc_height < kickoff_height {
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network())
                     * (kickoff_height - goat_confirmed_btc_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
@@ -2008,7 +2008,7 @@ pub async fn recv_and_dispatch(
             if [WithdrawStatus::None, WithdrawStatus::Canceled].contains(&withdraw_status) {
                 if kickoff_height >= goat_confirmed_btc_height {
                     let delay_secs = (kickoff_height + 1 - goat_confirmed_btc_height)
-                        * todo_funcs::avg_block_time_secs(btc_client.network()) as u32;
+                        * crate::todo_funcs::avg_block_time_secs(btc_client.network()) as u32;
                     push_local_unhandled_messages(
                         local_db,
                         graph_id,
@@ -2540,7 +2540,7 @@ pub async fn recv_and_dispatch(
                     continue;
                 }
                 let preimage =
-                    todo_funcs::get_preimage(local_db, instance_id, graph_id, watchtower_index)
+                    crate::todo_funcs::get_preimage(local_db, instance_id, graph_id, watchtower_index)
                         .await?;
                 let (ack_txin, ack_txin_amount) = operator_sign_ack(
                     operator_graph_keypair,
@@ -2796,7 +2796,7 @@ pub async fn recv_and_dispatch(
             let wots_secret_keys =
                 operator_master_key.wots_keypair_for_graph(graph.parameters.graph_id).0;
             let blockhash_wots_secret_key = &wots_secret_keys[0];
-            let blockhash = todo_funcs::get_operator_proof_blockhash(instance_id, graph_id).await?;
+            let blockhash = crate::todo_funcs::get_operator_proof_blockhash(instance_id, graph_id).await?;
             let (operator_commit_blockhash_txin, operator_commit_blockhash_txin_amount) =
                 operator_sign_blockhash_commit(
                     operator_graph_keypair,
@@ -2976,7 +2976,7 @@ pub async fn recv_and_dispatch(
                     None => broadcast_tx(btc_client, &assert_init_tx).await?,
                 };
                 // assert-commit should be broadcasted after assert-init is confirmed (wait for 1 block)
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network());
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network());
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
                 return Ok(());
@@ -2992,7 +2992,7 @@ pub async fn recv_and_dispatch(
             // 2. sign & broadcast assert-commit txns
             if !tx_confirmed(btc_client, &assert_init_txid).await? {
                 // assert-commit should be broadcasted after assert-init is confirmed (wait for 1 block)
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network());
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network());
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
                 return Ok(());
@@ -3007,7 +3007,7 @@ pub async fn recv_and_dispatch(
                     push_local_unhandled_messages(local_db, graph_id, &message, wait_secs).await?;
                     return Ok(());
                 } else if let Some(split_txid) = split_txid_opt {
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
                     tracing::warn!(
                         "Retry AssertInitReady for {instance_id}:{graph_id} later: fee_inputs_split_tx {split_txid} broadcasted, retry after {delay_secs} seconds"
                     );
@@ -3019,7 +3019,7 @@ pub async fn recv_and_dispatch(
                     )
                     .await?;
                 } else if has_pending_fee_input {
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 2;
                     tracing::warn!(
                         "Retry AssertInitReady for {instance_id}:{graph_id} later: some fee inputs are pending, retry after {delay_secs} seconds",
                     );
@@ -3429,7 +3429,7 @@ pub async fn recv_and_dispatch(
             {
                 Some(height) => height as u64,
                 None => {
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
                     push_local_unhandled_messages(
                         local_db,
                         graph_id,
@@ -3445,7 +3445,7 @@ pub async fn recv_and_dispatch(
             };
             let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_height < challenge_finish_height {
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network())
                     * (challenge_finish_height - goat_confirmed_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
@@ -3611,7 +3611,7 @@ pub async fn recv_and_dispatch(
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
             if withdraw_status == WithdrawStatus::Initialized {
                 // Kickoff not posted yet, wait for it
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 6; // wait for 6 blocks
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 6; // wait for 6 blocks
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
                 tracing::info!(
@@ -3628,7 +3628,7 @@ pub async fn recv_and_dispatch(
             let take1_height = match btc_client.get_tx_status(&take1_txid).await?.block_height {
                 Some(height) => height as u64,
                 None => {
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
                     push_local_unhandled_messages(
                         local_db,
                         graph_id,
@@ -3644,7 +3644,7 @@ pub async fn recv_and_dispatch(
             };
             let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_height < take1_height {
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network())
                     * (take1_height - goat_confirmed_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
@@ -3834,7 +3834,7 @@ pub async fn recv_and_dispatch(
             let withdraw_status = goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
             if withdraw_status == WithdrawStatus::Initialized {
                 // Kickoff not posted yet, wait for it
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()) * 6; // wait for 6 blocks
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()) * 6; // wait for 6 blocks
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
                 tracing::info!(
@@ -3851,7 +3851,7 @@ pub async fn recv_and_dispatch(
             let take2_height = match btc_client.get_tx_status(&take2_txid).await?.block_height {
                 Some(height) => height as u64,
                 None => {
-                    let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
+                    let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network()); // wait for 1 block
                     push_local_unhandled_messages(
                         local_db,
                         graph_id,
@@ -3867,7 +3867,7 @@ pub async fn recv_and_dispatch(
             };
             let goat_confirmed_height = goat_client.btc_spv_latest_height().await?;
             if goat_confirmed_height < take2_height {
-                let delay_secs = todo_funcs::avg_block_time_secs(btc_client.network())
+                let delay_secs = crate::todo_funcs::avg_block_time_secs(btc_client.network())
                     * (take2_height - goat_confirmed_height);
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;

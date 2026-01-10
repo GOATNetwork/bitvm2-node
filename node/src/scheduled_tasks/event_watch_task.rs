@@ -8,7 +8,7 @@ use crate::env::{
 };
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
-use crate::utils::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
+use crate::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::utils::{
     GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance, outpoint_available,
     reflect_goat_address, strip_hex_prefix_owned,

@@ -3,7 +3,7 @@ use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::event_watch_task::generate_instance_from_bridge_in_request_event;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
-use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
+use crate::evm_swap_utils::IEscrowManager::EscrowData;
 use crate::utils::{
     check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local, upsert_message,
 };
