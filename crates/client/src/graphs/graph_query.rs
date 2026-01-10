@@ -366,10 +366,10 @@ impl WithdrawPathsEvent {
     pub fn reward_amount_sats(&self) -> i64 {
         match self {
             WithdrawPathsEvent::WithdrawHappyEvent(v) => {
-                v.reward_amount_sats.parse::<i64>().expect("fail to decode block number")
+                v.reward_amount_sats.parse::<i64>().expect("fail to decode reward amount sats")
             }
             WithdrawPathsEvent::WithdrawUnhappyEvent(v) => {
-                v.reward_amount_sats.parse::<i64>().expect("fail to decode block number")
+                v.reward_amount_sats.parse::<i64>().expect("fail to decode reward amount sats")
             }
         }
     }
