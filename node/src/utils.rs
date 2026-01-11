@@ -30,7 +30,7 @@ use bitvm2_lib::types::{
     PrekickoffParameters, PublicInputs, SimplifiedBitvm2Graph, UserInfo, VerifyingKey,
 };
 use bitvm2_lib::watchtower::*;
-use client::{Utxo as ClientUtxo};
+use client::Utxo as ClientUtxo;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
 use goat::connectors::{
@@ -82,12 +82,12 @@ use crate::scheduled_tasks::get_goat_message_content_type;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertCommitStatus, ChallengeSubStatus, CommitBlockHashStatus, WatchtowerChallengeStatus,
 };
+use bitcoin_light_client_circuit::hash_operator_constant;
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
 use client::http_client::async_client::HttpAsyncClient;
 use tracing::{error, info, warn};
 use uuid::Uuid;
-use bitcoin_light_client_circuit::hash_operator_constant;
 
 pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
@@ -1791,7 +1791,11 @@ pub async fn get_operator_proof(
                 info!("get_operator_proof get proof successfully");
                 let proof: ZKMProofWithPublicValues =
                     bincode::deserialize(proof_data.proof.as_slice()).unwrap();
-                let (best_btc_block_hash, constant, _included_watchtower): ([u8; 32], [u8; 32], [u8; 32]) = proof.public_values.clone().read();
+                let (best_btc_block_hash, constant, _included_watchtower): (
+                    [u8; 32],
+                    [u8; 32],
+                    [u8; 32],
+                ) = proof.public_values.clone().read();
                 //proof.public_values.head();
                 info!("get_operator_proof parse proof successfully");
                 let groth16_vk = &GROTH16_VK_BYTES;

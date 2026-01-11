@@ -111,8 +111,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
     let operator_latest_sequencer_commit_txn =
         btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
 
-    let tx_status=
-        btc_client.get_tx_status(&latest_sequencer_commit_txid).await.unwrap();
+    let tx_status = btc_client.get_tx_status(&latest_sequencer_commit_txid).await.unwrap();
     let block_pos = tx_status.block_height.unwrap();
     tracing::info!("block height: {block_pos}");
     let target_block = btc_client.get_block_by_height(block_pos).await.unwrap();

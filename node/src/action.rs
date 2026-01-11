@@ -5,13 +5,13 @@
 use crate::env::{
     get_bitvm_key, get_local_node_info, get_network, get_node_goat_address, is_relayer,
 };
-use bitcoin::hashes::Hash;
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::*;
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Result, anyhow, bail};
+use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Txid};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm2_lib::actors::Actor;
@@ -2790,21 +2790,22 @@ pub async fn recv_and_dispatch(
                         if let Some(block_height) = tx_status.block_height {
                             if block_height > largest_watchtower_challenge_block_height {
                                 largest_watchtower_challenge_block_height = block_height;
-                                largest_watchtower_challenge_block_hash = tx_status.block_hash.unwrap().to_byte_array();
+                                largest_watchtower_challenge_block_hash =
+                                    tx_status.block_hash.unwrap().to_byte_array();
                             }
                         } else {
                             tracing::warn!(
                                 "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index}: watchtower challenge tx {txid} not confirmed yet"
                             );
                             return Ok(());
-                        }  
-                    },
+                        }
+                    }
                     Ok(None) => {
                         tracing::warn!(
                             "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index}: watchtower challenge connector not spent yet"
                         );
                         return Ok(());
-                    },
+                    }
                     Err(e) => {
                         tracing::warn!(
                             "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}: watchtower challenge connector {watchtower_index} not spent yet, error: {e:?}"

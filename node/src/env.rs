@@ -16,10 +16,10 @@ use goat::constants::{CONNECTOR_Z_TIMELOCK, NUM_BLOCKS_PER_HOUR};
 use libp2p::PeerId;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
-use util::hex_parse;
 use std::str::FromStr;
 use strum::{Display, EnumString};
 use tracing::{info, warn};
+use util::hex_parse;
 use zeroize::Zeroizing;
 
 pub const ENV_BTC_CHAIN_URL: &str = "BTC_CHAIN_URL";
