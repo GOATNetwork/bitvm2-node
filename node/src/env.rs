@@ -16,6 +16,7 @@ use goat::constants::{CONNECTOR_Z_TIMELOCK, NUM_BLOCKS_PER_HOUR};
 use libp2p::PeerId;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
+use util::hex_parse;
 use std::str::FromStr;
 use strum::{Display, EnumString};
 use tracing::{info, warn};
@@ -525,4 +526,9 @@ pub fn should_always_challenge() -> bool {
         Ok(val) => val.to_lowercase() == "true",
         Err(_) => false,
     }
+}
+
+pub fn get_genesis_sequencer_commit_id() -> [u8; 32] {
+    let hexed = std::env::var("GENESIS_SEQUENCER_COMMIT_ID").unwrap();
+    hex_parse::<32>(&hexed).unwrap()
 }

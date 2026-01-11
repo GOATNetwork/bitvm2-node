@@ -109,7 +109,7 @@ pub struct OnDemandTask {
     pub state_chain_input_proof: String,
 
     pub watchtower_challenge_init_txid: Option<String>,
-    pub watchtower_challenge_txids: Option<Vec<String>>,
-    pub watchtower_public_keys: Option<Vec<String>>,
+    pub watchtower_challenge_txids: Vec<String>,
+    pub watchtower_public_keys: Vec<String>,
     pub graph_id: Option<String>,
 }

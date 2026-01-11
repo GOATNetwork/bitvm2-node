@@ -31,7 +31,12 @@ pub(crate) fn spawn_watchtower_proof_task(
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     // fetch args from the database by instance id and graph id.
                     let task_index;
-                    if let Some(next_task) = fetch_on_demand_task(&local_db, true).await? {
+                    if let Some(next_task) = fetch_on_demand_task(
+                        &local_db,
+                        true,
+                        args.bitcoin_network,
+                        &args.esplora_url,
+                    ).await? {
                         args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
                         args.header_chain_input_proof = next_task.header_chain_input_proof;
                         args.commit_chain_input_proof = next_task.commit_chain_input_proof;

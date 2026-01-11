@@ -9,10 +9,11 @@ use crate::task::{
     header_chain_proof::spawn_header_chain_proof_task, operator_proof::spawn_operator_proof_task,
     state_chain_proof::spawn_state_chain_proof_task, watchtower_proof::spawn_watchtower_proof_task,
 };
+use client::btc_chain::BTCClient;
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
-use bitcoin::Txid;
+use bitcoin::{Network, Txid};
 use commit_chain::CircuitCommit;
 use std::str::FromStr;
 use std::time::UNIX_EPOCH;
@@ -204,23 +205,11 @@ pub(crate) async fn fetch_latest_long_running_task_by_state(
 pub(crate) async fn fetch_on_demand_task(
     local_db: &LocalDB,
     is_watchtower: bool,
+    bitcoin_network: Network,
+    esplora_url: &str,
 ) -> anyhow::Result<Option<OnDemandTask>> {
     // btc header chain: always fetch the latest.
-    // FIXME: make sure the header-chain has included the latest commitment transaction
-    let mut storage_processor = local_db.acquire().await?;
-    let header_chain_input_proof = match storage_processor
-        .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
-        .await?
-    {
-        Some(d) => d,
-        None => {
-            tracing::error!("Header chain input proof is not ready");
-            return Ok(None);
-        }
-    };
-    tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
-    let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
-
+    let mut storage_processor = local_db.acquire().await?; 
     // commit chain: always fetch the latest
     let commit_chain_input_proof = match storage_processor
         .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
@@ -261,12 +250,14 @@ pub(crate) async fn fetch_on_demand_task(
         match storage_processor.find_next_watchtower_proof().await? {
             Some(task) => {
                 tracing::info!("watchtower task: {task:?}");
+                let challenge_txids: Vec<String> = vec![task.challenge_txid.0.to_string()];
+                let pubkeys: Vec<String> = vec![task.public_key.clone()];
                 (
                     task.id,
                     task.execution_layer_block_number,
                     None,
-                    None,
-                    None,
+                    challenge_txids,
+                    pubkeys,
                     Some(task.graph_id.as_simple().to_string()),
                 )
             }
@@ -296,19 +287,74 @@ pub(crate) async fn fetch_on_demand_task(
                 );
             }
         }
-        let challenge_txids =
+        let challenge_txids: Vec<String> =
             watchtower_info.iter().map(|w| w.challenge_txid.0.to_string()).collect::<Vec<_>>();
-        let challenge_public_keys =
+        let challenge_public_keys: Vec<String> =
             watchtower_info.iter().map(|w| w.public_key.clone()).collect::<Vec<_>>();
         (
             task.id,
             task.execution_layer_block_number,
             Some(challenge_init_txids[0].clone()),
-            Some(challenge_txids),
-            Some(challenge_public_keys),
+            challenge_txids,
+            challenge_public_keys,
             Some(task.graph_id.as_simple().to_string()),
         )
     };
+
+    let btc_block_number = {
+        let btc_client = BTCClient::new(bitcoin_network, Some(esplora_url));
+        let mut block_number = 0; 
+        for challenge_txid in watchtower_challenge_txids.iter() {
+            // get block number by block hash
+            let txid = Txid::from_str(challenge_txid).unwrap();
+            match btc_client.get_tx_status(&txid).await {
+                Ok(tx) => {
+                    if let Some(height) = tx.block_height {
+                        if (height as i64) < block_number {
+                            tracing::error!("Challenge txid {} is included in block {}, which is before the current block number {}", challenge_txid, height, block_number);
+                            block_number = height as i64;
+                        }
+                    } else {
+                        tracing::error!("Challenge txid {} is not confirmed yet", challenge_txid);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to get tx status for txid {}, error: {}", challenge_txid, e);
+                }
+            }
+        }
+        block_number
+    }; 
+    let header_chain_input_proof = if btc_block_number > 0 {
+        match storage_processor
+            .find_long_running_task_proof_including_block_number(
+                btc_block_number,
+                HeaderChainProofBuilder::name(),
+            )
+            .await?
+        {
+            Some(d) => d,
+            None => {
+                tracing::error!("Header chain input proof is not ready for block: {btc_block_number}");
+                return Ok(None);
+            }
+        }
+    } else {
+        match storage_processor
+            .find_latest_long_running_task_proof_by_name(
+                HeaderChainProofBuilder::name()
+            )
+            .await?
+        {
+            Some(d) => d,
+            None => {
+                tracing::error!("Header chain input proof is not ready");
+                return Ok(None);
+            }
+        }
+    };
+    tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
+    let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
 
     // state chain: find the proof that includes the execution_layer_block_number
     let state_chain_input_proof = match storage_processor

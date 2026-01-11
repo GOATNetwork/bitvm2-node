@@ -34,7 +34,9 @@ pub(crate) fn spawn_operator_proof_task(
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     // fetch args from the database.
                     let task_index;
-                    if let Some(next_task) = fetch_on_demand_task(&local_db, false).await? {
+                    if let Some(next_task) = fetch_on_demand_task(
+                        &local_db, false, args.bitcoin_network, &args.esplora_url,
+                    ).await? {
                         args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
                         args.header_chain_input_proof = next_task.header_chain_input_proof;
                         args.commit_chain_input_proof = next_task.commit_chain_input_proof;
@@ -45,8 +47,8 @@ pub(crate) fn spawn_operator_proof_task(
                             args.graph_id
                         );
                         args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
-                        args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.unwrap().join(",");
-                        args.watchtower_public_keys = next_task.watchtower_public_keys.unwrap().join(",");
+                        args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.join(",");
+                        args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
                         task_index = next_task.task_index;
                     } else {
                         tracing::info!("Wait for the next task");

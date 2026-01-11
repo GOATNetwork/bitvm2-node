@@ -81,10 +81,10 @@ pub fn verify_operator_commits(
     );
     if let Some((_, scr)) = &res {
         let guest_index_opt = guest_validation_scripts.iter().position(|s| s == scr);
-        if guest_index_opt.is_some() {
+        if let Some(guest_index) = guest_index_opt {
             tracing::info!(
                 "Disprove witness validated against guest validation scripts at index {}",
-                guest_index_opt.unwrap()
+                guest_index
             );
         } else {
             let proof_index_opt = proof_validation_scripts.iter().position(|s| s == scr);

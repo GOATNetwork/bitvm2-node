@@ -5,6 +5,7 @@
 use crate::env::{
     get_bitvm_key, get_local_node_info, get_network, get_node_goat_address, is_relayer,
 };
+use bitcoin::hashes::Hash;
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
@@ -2773,20 +2774,43 @@ pub async fn recv_and_dispatch(
             let watchtower_challenge_init_txid =
                 graph.watchtower_challenge_init.tx().compute_txid();
             // 1. check that all WatchtowerChallenge Connectors are spent
+            let mut largest_watchtower_challenge_block_height = 0u32;
+            let mut largest_watchtower_challenge_block_hash = [0u8; 32];
             for watchtower_index in 0..graph.parameters.watchtower_pubkeys.len() {
                 let watchtower_challenge_vout = 2 * watchtower_index as u32;
-                if outpoint_spent_txid(
+                match outpoint_spent_txid(
                     btc_client,
                     &watchtower_challenge_init_txid,
                     watchtower_challenge_vout as u64,
                 )
-                .await?
-                .is_none()
+                .await
                 {
-                    tracing::warn!(
-                        "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}: watchtower challenge connector {watchtower_index} not spent yet"
-                    );
-                    return Ok(());
+                    Ok(Some(txid)) => {
+                        let tx_status = btc_client.get_tx_status(&txid).await?;
+                        if let Some(block_height) = tx_status.block_height {
+                            if block_height > largest_watchtower_challenge_block_height {
+                                largest_watchtower_challenge_block_height = block_height;
+                                largest_watchtower_challenge_block_hash = tx_status.block_hash.unwrap().to_byte_array();
+                            }
+                        } else {
+                            tracing::warn!(
+                                "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index}: watchtower challenge tx {txid} not confirmed yet"
+                            );
+                            return Ok(());
+                        }  
+                    },
+                    Ok(None) => {
+                        tracing::warn!(
+                            "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index}: watchtower challenge connector not spent yet"
+                        );
+                        return Ok(());
+                    },
+                    Err(e) => {
+                        tracing::warn!(
+                            "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}: watchtower challenge connector {watchtower_index} not spent yet, error: {e:?}"
+                        );
+                        return Ok(());
+                    }
                 }
             }
             // 2. sign & broadcast commit-blockhash txn
@@ -2796,12 +2820,11 @@ pub async fn recv_and_dispatch(
             let wots_secret_keys =
                 operator_master_key.wots_keypair_for_graph(graph.parameters.graph_id).0;
             let blockhash_wots_secret_key = &wots_secret_keys[0];
-            let blockhash = todo_funcs::get_operator_proof_blockhash(instance_id, graph_id).await?;
             let (operator_commit_blockhash_txin, operator_commit_blockhash_txin_amount) =
                 operator_sign_blockhash_commit(
                     operator_graph_keypair,
                     &mut graph,
-                    &blockhash,
+                    &largest_watchtower_challenge_block_hash,
                     blockhash_wots_secret_key,
                 )?;
             build_sign_and_broadcast_tx(

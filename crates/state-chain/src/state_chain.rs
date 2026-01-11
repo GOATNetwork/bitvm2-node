@@ -109,7 +109,7 @@ impl StateChainState {
 // https://github.com/GOATNetwork/bitvm2-L2-contracts/blob/main/src/Gateway.sol#L192
 // Get base slot:  forge inspect src/GatewayDebug.sol:GatewayDebug storage-layout
 pub fn execute_el_block_and_check_withdraw_tx(
-    withdrawals: &Vec<WithdrawalSlot>,
+    withdrawals: &[WithdrawalSlot],
     input: EthClientExecutorInput,
 ) -> Header {
     // verify the state transition and withdraw status

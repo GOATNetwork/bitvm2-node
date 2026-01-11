@@ -30,7 +30,7 @@ use bitvm2_lib::types::{
     PrekickoffParameters, PublicInputs, SimplifiedBitvm2Graph, UserInfo, VerifyingKey,
 };
 use bitvm2_lib::watchtower::*;
-use client::Utxo as ClientUtxo;
+use client::{Utxo as ClientUtxo};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
 use goat::connectors::{
@@ -82,12 +82,12 @@ use crate::scheduled_tasks::get_goat_message_content_type;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     AssertCommitStatus, ChallengeSubStatus, CommitBlockHashStatus, WatchtowerChallengeStatus,
 };
-use crate::utils::todo_funcs::get_guest_constant_value;
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
 use client::http_client::async_client::HttpAsyncClient;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use bitcoin_light_client_circuit::hash_operator_constant;
 
 pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
@@ -98,16 +98,6 @@ pub mod todo_funcs {
     use goat::{
         connectors::assert_connectors::chunk_assert_commit, disprove_scripts::NUM_GUEST_PUBS_ASSERT,
     };
-
-    pub async fn get_operator_proof_blockhash(
-        instance_id: Uuid,
-        graph_id: Uuid,
-    ) -> Result<[u8; 32]> {
-        Ok([0xbbu8; 32])
-    }
-    pub async fn get_guest_constant_value(instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
-        Ok([0xccu8; 32])
-    }
 
     // other operations
     pub fn avg_block_time_secs(network: Network) -> u64 {
@@ -1798,13 +1788,11 @@ pub async fn get_operator_proof(
 
         match response.proof_data {
             Some(proof_data) => {
-                let guest_inputs = [
-                    get_guest_constant_value(instance_id, graph_id).await?,
-                    [0xffu8; 32], // use [0u8; 32] to test non-inclusion challenge
-                ];
                 info!("get_operator_proof get proof successfully");
                 let proof: ZKMProofWithPublicValues =
                     bincode::deserialize(proof_data.proof.as_slice()).unwrap();
+                let (best_btc_block_hash, constant, _included_watchtower): ([u8; 32], [u8; 32], [u8; 32]) = proof.public_values.clone().read();
+                //proof.public_values.head();
                 info!("get_operator_proof parse proof successfully");
                 let groth16_vk = &GROTH16_VK_BYTES;
                 let ark_proof = convert_ark(&proof, &proof_data.vk, groth16_vk).unwrap();
@@ -1812,7 +1800,7 @@ pub async fn get_operator_proof(
 
                 Ok((
                     Some((
-                        guest_inputs,
+                        [best_btc_block_hash, constant],
                         ark_proof.proof.clone(),
                         ark_proof.public_inputs.into(),
                         ark_proof.groth16_vk.into(),
@@ -2538,7 +2526,7 @@ pub async fn build_graph_params(
         let hashlock = hash160(&preimage);
         hashlocks.push(hashlock);
     }
-    let guest_constant_value = todo_funcs::get_guest_constant_value(instance_id, graph_id).await?;
+    let guest_constant_value = get_guest_constant_value(instance_id, graph_id).await?;
     Ok(Bitvm2GraphParameters {
         instance_parameters,
         prekickoff_parameters,
@@ -4451,4 +4439,8 @@ pub(super) async fn find_instances_by_escrow_hash<'a>(
         )
         .await?;
     if size > 0 { Ok(Some(instances[0].clone())) } else { Ok(None) }
+}
+
+pub async fn get_guest_constant_value(_instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
+    Ok(hash_operator_constant(graph_id.into_bytes(), get_genesis_sequencer_commit_id()))
 }
