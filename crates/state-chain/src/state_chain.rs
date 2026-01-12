@@ -26,7 +26,7 @@ pub struct CircuitStateBlock {
     pub cosmos_block: Vec<u8>,
     pub evm_block: EthClientExecutorInput,
     // (gateway contracts, withdraw_data_base_slot, [graph_ids])
-    pub withdrawals: Vec<(Address, [u8; 32], Vec<[u8; 16]>)>,
+    pub withdrawals: Vec<WithdrawalSlot>,
 }
 
 /// The latest seqeuncer set
@@ -36,7 +36,7 @@ pub struct StateChainState {
     pub genesis_evm_block_hash: [u8; 32],
     pub latest_evm_block_hash: [u8; 32],
     pub latest_cosmos_block: Vec<u8>,
-    pub withdrawals: Vec<(Address, [u8; 32], Vec<[u8; 16]>)>,
+    pub withdrawals: Vec<WithdrawalSlot>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
