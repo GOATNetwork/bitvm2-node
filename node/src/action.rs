@@ -2795,8 +2795,15 @@ pub async fn recv_and_dispatch(
                             }
                         } else {
                             tracing::warn!(
-                                "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index}: watchtower challenge tx {txid} not confirmed yet"
+                                "Retry OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index} later: watchtower challenge tx {txid} not confirmed yet"
                             );
+                            push_local_unhandled_messages(
+                                local_db,
+                                graph_id,
+                                &message,
+                                todo_funcs::avg_block_time_secs(btc_client.network()) as usize,
+                            )
+                            .await?;
                             return Ok(());
                         }
                     }
