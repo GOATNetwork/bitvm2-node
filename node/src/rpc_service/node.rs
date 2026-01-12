@@ -50,6 +50,7 @@ pub struct NodeDesc {
     pub socket_addr: String,
     #[serde(serialize_with = "serialize_u256", deserialize_with = "deserialize_u256")]
     pub reward: U256,
+    pub created_at: i64,
     pub updated_at: i64,
     pub status: String, //dynamic status: online/offline
 }
@@ -77,6 +78,7 @@ impl ToNodeDesc for Node {
             socket_addr: self.socket_addr.clone(),
             reward: U256::from_str(&self.reward).unwrap_or_default(),
             available_peg_btc: U256::from_str(&self.available_peg_btc).unwrap_or_default(),
+            created_at: self.created_at,
         }
     }
 }

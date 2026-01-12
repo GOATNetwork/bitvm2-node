@@ -9,7 +9,6 @@ use crate::utils::reflect_goat_address;
 use axum::extract::{Path, Query, State};
 use bitvm2_lib::actors::Actor;
 use std::sync::Arc;
-use store::Node;
 use store::localdb::NodeQuery;
 
 /// Get node list
@@ -215,7 +214,7 @@ pub async fn get_nodes_overview(
 pub async fn get_node(
     Path(peer_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
-) -> ApiResult<Option<Node>> {
+) -> ApiResult<Option<NodeDesc>> {
     // Validate peer_id format
     InputValidator::validate_peer_id(&peer_id, "peer_id")?;
 
@@ -228,7 +227,10 @@ pub async fn get_node(
             .api_error("GET_NODE_ERROR")?;
     }
 
-    let res = storage_process.node_by_id(peer_id.as_str()).await.api_error("GET_NODE_ERROR")?;
+    let res =
+        storage_process.node_by_id(peer_id.as_str()).await.api_error("GET_NODE_ERROR")?.map(|v| {
+            v.to_node_desc(current_time_secs() - ALIVE_TIME_JUDGE_THRESHOLD, &app_state.peer_id)
+        });
 
     ok_response(res)
 }
