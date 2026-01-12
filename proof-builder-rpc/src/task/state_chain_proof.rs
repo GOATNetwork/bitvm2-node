@@ -268,8 +268,10 @@ pub(crate) fn spawn_state_chain_proof_task(
                 {
                     cur_task = Some(task_failed);
                 } else {
-                    // load from config
-                    cur_task = None;
+                    if task.block_start < args.start as i64 {
+                        // load from config
+                        cur_task = None;
+                    }
                 }
             }
         };

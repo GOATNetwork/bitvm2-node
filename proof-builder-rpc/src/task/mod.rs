@@ -344,14 +344,25 @@ pub(crate) async fn fetch_on_demand_task(
         {
             Some(d) => d,
             None => {
-                tracing::error!(
+                tracing::warn!(
                     "Header chain input proof is not ready for block: {btc_block_number}"
                 );
                 return Ok(None);
             }
         }
     } else {
-        anyhow::bail!("Header chain input proof is not ready..");
+        let header_chain_input_proof = match storage_processor
+            .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
+            .await?
+        {
+            Some(d) => d,
+            None => {
+                tracing::warn!("Header chain input proof is not ready");
+                return Ok(None);
+            }
+        };
+        tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
+        header_chain_input_proof
     };
     tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
