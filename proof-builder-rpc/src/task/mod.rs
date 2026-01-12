@@ -351,16 +351,7 @@ pub(crate) async fn fetch_on_demand_task(
             }
         }
     } else {
-        match storage_processor
-            .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
-            .await?
-        {
-            Some(d) => d,
-            None => {
-                tracing::error!("Header chain input proof is not ready");
-                return Ok(None);
-            }
-        }
+        anyhow::bail!("Header chain input proof is not ready..");
     };
     tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
