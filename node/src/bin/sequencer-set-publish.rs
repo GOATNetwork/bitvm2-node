@@ -15,8 +15,8 @@ use bitvm2_noded::env::{
     ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS,
     ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS, get_goat_address_from_env, get_network,
 };
-use bitvm2_noded::utils::broadcast_tx;
 use bitvm2_noded::utils::wait_tx_confirmation;
+use bitvm2_noded::utils::{broadcast_tx, get_fee_rate};
 use bitvm2_noded::utils::{node_p2wsh_address, node_sign};
 use clap::{Parser, Subcommand};
 use client::btc_chain::BTCClient;
@@ -27,6 +27,7 @@ use dotenv::dotenv;
 use tracing_subscriber::EnvFilter;
 
 use cbft_rpc::{fetch_cbft_validator_info, fetch_validators};
+const RELAYER_FEE: u64 = 500; // satoshis, just to make sure the tx gets mined in time. This is not the actual fee amount.
 
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
@@ -62,9 +63,6 @@ struct Args {
 
     #[clap(long, env, default_value = "https://rpc.testnet3.goat.network/goat-rpc")]
     cosmos_rpc_url: String,
-
-    #[arg(long, env, default_value_t = 2, env = "FEE_RATE")]
-    fee_rate: u64, // sat/vbyte
 
     #[arg(long, env, env = "GOAT_EVM_PRVKEY")]
     goat_evm_prvkey: Option<String>,
@@ -257,7 +255,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &fund_btc_key_wif,
                 &owner_btc_public_key,
                 total,
-                args.fee_rate,
                 funding_input,
                 goat_evm_address,
                 output_file,
@@ -282,7 +279,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 owner_btc_key_wif,
                 publisher_btc_pubkeys,
                 next_publisher_btc_pubkeys,
-                args.fee_rate,
                 fee_tx,
                 update_connector,
                 sequencer_set_hash,
@@ -312,7 +308,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 owner_btc_key_wif,
                 publisher_btc_pubkeys.clone(),
                 next_publisher_btc_pubkeys,
-                args.fee_rate,
                 fee_tx,
                 update_connector,
                 goat_block_number,
@@ -460,7 +455,6 @@ async fn action_push_sequencer_set_update(
     owner_btc_key_wif: Option<String>,
     btc_public_keys: Vec<secp256k1::PublicKey>,
     next_btc_public_keys: Vec<secp256k1::PublicKey>,
-    fee_rate: u64,
     fee_tx_outpoint: Option<OutPoint>,
     update_connector_outpoint: Option<OutPoint>,
     goat_block_number: u64,
@@ -489,8 +483,6 @@ async fn action_push_sequencer_set_update(
     let total = next_btc_public_keys.len();
     let next_threshold = (2 * total).div_ceil(3);
 
-    let relayer_fee = Amount::from_sat(500);
-
     let redeem_script = create_sequencer_update_script(&btc_public_keys, threshold);
     let next_redeem_script = create_sequencer_update_script(&next_btc_public_keys, next_threshold);
     let next_update_connector_address = Address::p2wsh(&next_redeem_script, btc_client.network());
@@ -516,10 +508,12 @@ async fn action_push_sequencer_set_update(
             }
         },
         None => {
-            let replenish_fee = Amount::from_sat(fee_rate)
+            let fee_rate = get_fee_rate(btc_client).await?;
+            let replenish_fee = fee_rate
                 * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73)
-                    as u64
-                + relayer_fee;
+                    as f64
+                + RELAYER_FEE as f64;
+            let replenish_fee = Amount::from_sat(replenish_fee.ceil() as u64);
             println!("replenish fee: {replenish_fee:?}");
             (None, Some(replenish_fee))
         }
@@ -534,7 +528,7 @@ async fn action_push_sequencer_set_update(
         &update_connector,
         &replenish_fee_connector,
         next_update_connector_address.clone(),
-        relayer_fee,
+        Amount::from_sat(RELAYER_FEE),
     )?;
 
     let secp = secp256k1::Secp256k1::new();
@@ -570,7 +564,6 @@ async fn action_sign_sequencer_set_update(
     owner_btc_key_wif: Option<String>,
     btc_public_keys: Vec<secp256k1::PublicKey>,
     next_btc_public_keys: Vec<secp256k1::PublicKey>,
-    fee_rate: u64,
     fee_tx_outpoint: OutPoint,
     update_connector: Option<OutPoint>,
     sequencer_set_hash: [u8; 32],
@@ -582,15 +575,15 @@ async fn action_sign_sequencer_set_update(
     let next_total = next_btc_public_keys.len();
     let next_threshold = (2 * next_total).div_ceil(3);
 
-    let relayer_fee = Amount::from_sat(500);
-
     let redeem_script = create_sequencer_update_script(&btc_public_keys, threshold);
     let next_redeem_script = create_sequencer_update_script(&next_btc_public_keys, next_threshold);
     let next_update_connector_address = Address::p2wsh(&next_redeem_script, btc_client.network());
 
-    let replenish_fee = Amount::from_sat(fee_rate)
-        * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as u64
-        + relayer_fee;
+    let fee_rate = get_fee_rate(btc_client).await?;
+    let replenish_fee = fee_rate
+        * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as f64
+        + RELAYER_FEE as f64;
+    let replenish_fee = Amount::from_sat(replenish_fee.ceil() as u64);
     let mut commitment = [0u8; 64];
     commitment[0..32].copy_from_slice(&sequencer_set_hash);
     commitment[32..].copy_from_slice(&goat_block_hash[0..32]);
@@ -600,7 +593,7 @@ async fn action_sign_sequencer_set_update(
         &update_connector,
         &Some(fee_tx_outpoint),
         next_update_connector_address.clone(),
-        relayer_fee,
+        Amount::from_sat(RELAYER_FEE),
     )?;
 
     let owner_private_key = PrivateKey::from_wif(owner_btc_key_wif.as_ref().unwrap())?;
@@ -652,17 +645,17 @@ async fn action_push_fee_tx(
     fund_btc_key_wif: &str,
     owner_btc_public_key: &str,
     total: u32,
-    fee_rate: u64,
     funding_input: Option<OutPoint>,
     goat_evm_address: [u8; 20],
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let fee_rate = get_fee_rate(btc_client).await?;
     let threshold = (2 * total).div_ceil(3);
     let secp = secp256k1::Secp256k1::new();
-    let relayer_fee = Amount::from_sat(500);
-    let replenish_fee = Amount::from_sat(fee_rate)
-        * estimate_tx_vbytes(&[(threshold, total)], &[("p2wsh", 3)], 73) as u64
-        + relayer_fee;
+    let replenish_fee = fee_rate
+        * estimate_tx_vbytes(&[(threshold, total)], &[("p2wsh", 3)], 73) as f64
+        + RELAYER_FEE as f64;
+    let replenish_fee = Amount::from_sat(replenish_fee.ceil() as u64);
 
     let feepayer_private_key = PrivateKey::from_wif(fund_btc_key_wif)?;
 
@@ -691,7 +684,7 @@ async fn action_push_fee_tx(
         replenish_fee,
         owner_p2wpkh,
         funder_address,
-        relayer_fee,
+        Amount::from_sat(RELAYER_FEE),
     )?;
     let txid =
         push_fee_tx(&mut fee_tx, first_input_value, &feepayer_private_key, btc_client).await?;

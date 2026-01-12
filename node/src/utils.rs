@@ -1716,8 +1716,8 @@ pub async fn get_watchtower_commitment(
 ) -> Result<(Option<Vec<u8>>, usize)> {
     let mut storage_processor = local_db.acquire().await?;
     if let Some(graph) = storage_processor.find_graph(&graph_id).await?
-        && let (Some(challenge_txid), Some(challenge_init_txid)) =
-            (graph.challenge_txid, graph.watchtower_challenge_init_txid)
+        && let (Some(watchtower_challenge_txid), Some(challenge_init_txid)) =
+            (graph.watchtower_challenge_txid, graph.watchtower_challenge_init_txid)
     {
         if graph.proceed_withdraw_height <= 0 {
             warn!("graph {graph_id} proceed_withdraw_height <= 0, waiting to been updated");
@@ -2531,7 +2531,7 @@ pub async fn build_graph_params(
         let hashlock = hash160(&preimage);
         hashlocks.push(hashlock);
     }
-    let guest_constant_value = get_guest_constant_value(instance_id, graph_id).await?;
+    let guest_constant_value = get_guest_constant_value(instance_id, graph_id)?;
     Ok(Bitvm2GraphParameters {
         instance_parameters,
         prekickoff_parameters,
@@ -4447,7 +4447,7 @@ pub(super) async fn find_instances_by_escrow_hash<'a>(
     if size > 0 { Ok(Some(instances[0].clone())) } else { Ok(None) }
 }
 
-pub async fn get_guest_constant_value(_instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
+pub fn get_guest_constant_value(_instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
     Ok(hash_operator_constant(graph_id.into_bytes(), get_genesis_sequencer_commit_id()))
 }
 pub(crate) async fn get_bridge_out_global_stats<'a>(

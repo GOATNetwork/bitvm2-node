@@ -388,13 +388,16 @@ mod tests {
     use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
     #[tokio::test]
-    #[ignore = "local test"]
+    //#[ignore = "local test"]
     async fn test_parse_operator_proof() {
-        let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/operator/86f23e650f6d447885ca320e6ba27abd.bin";
+        let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/operator/366fb3e0ed2442d39e2cb1e6dda1b08b.bin";
         let proof_bytes = std::fs::read(proof_path).unwrap();
         let vk_bytes = fs::read(format!("{proof_path}.vk_hash.bin")).unwrap();
 
         let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes).unwrap();
+
+        let a: ([u8; 32], [u8; 32], [u8; 32]) = proof.public_values.clone().read();
+        println!("block hash: {:?}, constant: {:?}, included map: {:?}", hex::encode(a.0), hex::encode(a.1), U256::from_le_bytes(a.2.clone()));
 
         let groth16_vk = &GROTH16_VK_BYTES;
         let vk_hash = String::from_utf8(vk_bytes).unwrap();

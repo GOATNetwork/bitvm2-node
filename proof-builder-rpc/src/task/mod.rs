@@ -311,7 +311,7 @@ pub(crate) async fn fetch_on_demand_task(
                 Ok(tx) => {
                     if let Some(height) = tx.block_height {
                         if (height as i64) < block_number {
-                            tracing::error!(
+                            tracing::info!(
                                 "Challenge txid {} is included in block {}, which is before the current block number {}",
                                 challenge_txid,
                                 height,
@@ -320,11 +320,11 @@ pub(crate) async fn fetch_on_demand_task(
                             block_number = height as i64;
                         }
                     } else {
-                        tracing::error!("Challenge txid {} is not confirmed yet", challenge_txid);
+                        tracing::warn!("Challenge txid {} is not confirmed yet", challenge_txid);
                     }
                 }
                 Err(e) => {
-                    tracing::error!(
+                    tracing::warn!(
                         "Failed to get tx status for txid {}, error: {}",
                         challenge_txid,
                         e
@@ -334,6 +334,13 @@ pub(crate) async fn fetch_on_demand_task(
         }
         block_number
     };
+
+    tracing::info!("is_watchtower {is_watchtower}, btc_block_number {btc_block_number}, execution_layer_block_number {execution_layer_block_number}");
+    if !is_watchtower && btc_block_number == 0 {
+        tracing::warn!("Watchtower challenge tx is not confirmed yet.");
+        return Ok(None);
+    }
+
     let header_chain_input_proof = if btc_block_number > 0 {
         match storage_processor
             .find_long_running_task_proof_including_block_number(
