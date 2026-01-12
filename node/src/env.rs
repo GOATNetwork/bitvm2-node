@@ -77,6 +77,7 @@ pub const DEFAULT_WATCHTOWER_PROOF_WAIT_SECS: usize = 60;
 pub const DEFAULT_OPERATOR_PROOF_WAIT_SECS: usize = 60;
 
 pub const ENV_ALWAYS_CHALLENGE: &str = "ALWAYS_CHALLENGE";
+pub const ENV_GENESIS_SEQUENCER_COMMIT_TXID: &str = "GENESIS_SEQUENCER_COMMIT_TXID";
 
 // fee estimate
 // TODO: more precise fee estimation
@@ -529,6 +530,6 @@ pub fn should_always_challenge() -> bool {
 }
 
 pub fn get_genesis_sequencer_commit_id() -> [u8; 32] {
-    let hexed = std::env::var("GENESIS_SEQUENCER_COMMIT_ID").unwrap();
+    let hexed = std::env::var(ENV_GENESIS_SEQUENCER_COMMIT_TXID).unwrap();
     hex_parse::<32>(&hexed).unwrap()
 }
