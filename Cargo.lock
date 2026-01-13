@@ -9022,7 +9022,6 @@ dependencies = [
  "operator-proof",
  "prometheus-client",
  "proof-builder",
- "rand 0.8.5",
  "serde",
  "serde_json",
  "state-chain-proof",

@@ -3,6 +3,7 @@ use crate::{
     task::{ProofState, fetch_on_demand_task, update_operator_task},
 };
 use alloy_primitives::U256;
+use bitcoin_light_client_circuit::le_bits_to_u256;
 use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
@@ -51,8 +52,7 @@ pub(crate) fn spawn_operator_proof_task(
                         args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.join(",");
                         args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
                         // LE array to string, e.g. [1, 1, 1, 0] => 7
-                        args.included_watchtowers = next_task.included_watchtowers.iter().rev()
-                            .fold(U256::ZERO, |acc, &b| (acc << 1) + if b { U256::ONE } else { U256::ZERO }).to_string();
+                        args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers);
                         task_index = next_task.task_index;
                     } else {
                         tracing::info!("Wait for the next task");
@@ -139,28 +139,4 @@ pub(crate) fn spawn_operator_proof_task(
             }
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bitcoin_light_client_circuit::u256_to_le_bits;
-    #[test]
-    fn test_included_watchtower() {
-        let mut included_watchtowers = vec![false; 256];
-        // set random bit to true, with random length between 1 and 256
-        let len = rand::random::<usize>() % 256;
-        for i in 0..len {
-            included_watchtowers[i] = true;
-        }
-
-        let included_watchtowers_u256 = included_watchtowers
-            .iter()
-            .rev()
-            .fold(U256::ZERO, |acc, &b| (acc << 1) + if b { U256::ONE } else { U256::ZERO });
-        println!("included_watchtowers_u256: {included_watchtowers_u256}");
-
-        let result = u256_to_le_bits(included_watchtowers_u256);
-        assert_eq!(result.to_vec(), included_watchtowers);
-    }
 }

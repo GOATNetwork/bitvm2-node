@@ -37,16 +37,11 @@ watchtower-proof = { workspace = true }
 operator-proof = { workspace = true }
 util = { workspace = true }
 client = { workspace = true }
-
+bitcoin-light-client-circuit.workspace = true
 
 #config
 toml.workspace = true
 tower-http = { version = "0.6.2", features = ["cors", "trace"] }
-
-
-[dev-dependencies]
-bitcoin-light-client-circuit.workspace = true
-rand.workspace = true
 
 [lints]
 workspace = true

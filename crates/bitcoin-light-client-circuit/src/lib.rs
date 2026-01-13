@@ -124,6 +124,16 @@ pub fn u256_to_le_bits(u: U256) -> [bool; 256] {
     bits
 }
 
+pub fn le_bits_to_u256(bits: &[bool; 256]) -> U256 {
+    let mut u = U256::ZERO;
+    for (i, bit) in bits.iter().enumerate() {
+        if *bit {
+            u = u + (U256::ONE << i); // Set the i-th bit if it's true
+        }
+    }
+    u
+}
+
 // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
 #[allow(clippy::too_many_arguments)]
 pub fn propose_longest_chain(
@@ -560,5 +570,14 @@ mod tests {
 
         let op_return_data = commit_chain::extract_op_return_data(&tx.output);
         assert_eq!(expected_op_data.to_vec(), op_return_data);
+    }
+
+    #[test]
+    fn test_u256_to_le_bits() {
+        // generate random u256
+        let u = U256::from(rand::random::<u128>());
+        let bits = u256_to_le_bits(u);
+        let reconstructed = le_bits_to_u256(&bits);
+        assert_eq!(u, reconstructed);
     }
 }
