@@ -314,16 +314,17 @@ pub(crate) async fn fetch_on_demand_task(
             let txid = Txid::from_str(challenge_txid).unwrap();
             match btc_client.get_tx_status(&txid).await {
                 Ok(tx) => {
-                    if let Some(height) = tx.block_height {
-                        if (height as i64) < block_number {
-                            tracing::info!(
-                                "Challenge txid {} is included in block {}, which is before the current block number {}",
-                                challenge_txid,
-                                height,
-                                block_number
-                            );
-                            block_number = height as i64;
-                        }
+                    if let Some(height) = tx.block_height
+                        && tx.confirmed
+                        && (height as i64) < block_number
+                    {
+                        tracing::info!(
+                            "Challenge txid {} is included in block {}, which is before the current block number {}",
+                            challenge_txid,
+                            height,
+                            block_number
+                        );
+                        block_number = height as i64;
                     } else {
                         tracing::warn!("Challenge txid {} is not confirmed yet", challenge_txid);
                     }

@@ -3250,16 +3250,7 @@ pub async fn recv_and_dispatch(
                 txins
             };
             // 2. check assertions committed by Operator, if any assertion is invalid, sign & broadcast disprove txn
-            let (proof_data, _) = get_operator_proof(
-                local_db,
-                http_client,
-                &graph,
-                btc_client,
-                instance_id,
-                graph_id,
-            )
-            .await?;
-            let (_, _, _, vk) = proof_data.ok_or_else(|| anyhow!("Operator proof not found"))?;
+            let vk = crate::vk::get_vk(&graph.parameters.zkm_version).await?;
             let disprove_scripts = get_disprove_scripts(&graph.parameters).await?;
             let disprove_scripts = disprove_scripts
                 .try_into()

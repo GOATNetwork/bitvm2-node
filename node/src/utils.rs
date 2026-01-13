@@ -1789,6 +1789,13 @@ pub async fn get_operator_proof(
             }))
             .await?;
 
+        if challenge_finish_txids.iter().any(|txid| txid.is_none()) {
+            warn!(
+                "No enough watchtower challenge finish tx found for graph {graph_id}, waiting for watchtower challenge to be submitted"
+            );
+            return Ok((None, get_operator_proof_wait_secs()));
+        }
+
         let challenge_timeout_txids: Vec<Option<Txid>> =
             try_join_all((0..num_challenger).map(|i| {
                 let connector_vout = i as u32 * 2 + 1;

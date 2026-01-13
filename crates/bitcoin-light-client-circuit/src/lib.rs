@@ -128,7 +128,7 @@ pub fn le_bits_to_u256(bits: &[bool; 256]) -> U256 {
     let mut u = U256::ZERO;
     for (i, bit) in bits.iter().enumerate() {
         if *bit {
-            u = u + (U256::ONE << i); // Set the i-th bit if it's true
+            u += U256::ONE << i; // Set the i-th bit if it's true
         }
     }
     u
@@ -574,10 +574,20 @@ mod tests {
 
     #[test]
     fn test_u256_to_le_bits() {
+        use std::str::FromStr;
         // generate random u256
         let u = U256::from(rand::random::<u128>());
         let bits = u256_to_le_bits(u);
         let reconstructed = le_bits_to_u256(&bits);
         assert_eq!(u, reconstructed);
+
+        let u_str = u.to_string();
+        let u = U256::from_str(&u_str).unwrap();
+        let bits = u256_to_le_bits(u);
+        let reconstructed2 = le_bits_to_u256(&bits);
+        assert_eq!(u, reconstructed);
+        assert_eq!(u, reconstructed2);
+        let reconstructed_str = reconstructed2.to_string();
+        assert_eq!(u_str, reconstructed_str);
     }
 }
