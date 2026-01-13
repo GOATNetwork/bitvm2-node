@@ -116,7 +116,7 @@ pub fn watch_longest_chain(
     (btc_header_chain_output.chain_state.total_work, commit_chain_output.chain_state.block_height)
 }
 
-fn u256_to_bits(u: U256) -> [bool; 256] {
+pub fn u256_to_le_bits(u: U256) -> [bool; 256] {
     let mut bits = [false; 256];
     for (i, item) in bits.iter_mut().enumerate() {
         *item = u.bit(i); // U256 provides `.bit(n)` method
@@ -187,7 +187,7 @@ pub fn propose_longest_chain(
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // parse included_watchtowers into bits array
-    let included_watchertowers_bits = u256_to_bits(included_watchtowers);
+    let included_watchertowers_bits = u256_to_le_bits(included_watchtowers);
     println!("included watchtowers:{included_watchertowers_bits:?}");
     // For each watchtowers, if the included_watchtowers[i] is true,
     //   verify the watchtower_challenge_txns[i] is valid

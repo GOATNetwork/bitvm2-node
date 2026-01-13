@@ -25,6 +25,7 @@ uuid = { workspace = true }
 bitcoin = { workspace = true }
 strum = { workspace = true }
 serde_json = { workspace = true }
+alloy-primitives = { workspace = true }
 
 # proofs
 proof-builder = { workspace = true }
@@ -41,5 +42,11 @@ client = { workspace = true }
 #config
 toml.workspace = true
 tower-http = { version = "0.6.2", features = ["cors", "trace"] }
+
+
+[dev-dependencies]
+bitcoin-light-client-circuit.workspace = true
+rand.workspace = true
+
 [lints]
 workspace = true

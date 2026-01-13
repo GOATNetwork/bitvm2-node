@@ -244,6 +244,7 @@ pub(crate) async fn fetch_on_demand_task(
         execution_layer_block_number,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
+        included_watchtowers,
         watchtower_public_keys,
         graph_id,
     ) = if is_watchtower {
@@ -257,6 +258,7 @@ pub(crate) async fn fetch_on_demand_task(
                     task.execution_layer_block_number,
                     None,
                     challenge_txids,
+                    vec![],
                     pubkeys,
                     Some(task.graph_id.as_simple().to_string()),
                 )
@@ -291,11 +293,13 @@ pub(crate) async fn fetch_on_demand_task(
             watchtower_info.iter().map(|w| w.challenge_txid.0.to_string()).collect::<Vec<_>>();
         let challenge_public_keys: Vec<String> =
             watchtower_info.iter().map(|w| w.public_key.clone()).collect::<Vec<_>>();
+        let included_watchtowers: Vec<bool> = watchtower_info.iter().map(|w| w.included).collect::<Vec<_>>();
         (
             task.id,
             task.execution_layer_block_number,
             Some(challenge_init_txids[0].clone()),
             challenge_txids,
+            included_watchtowers,
             challenge_public_keys,
             Some(task.graph_id.as_simple().to_string()),
         )
@@ -411,6 +415,7 @@ pub(crate) async fn fetch_on_demand_task(
         state_chain_input_proof,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
+        included_watchtowers,
         watchtower_public_keys,
         graph_id,
     }))
@@ -736,6 +741,6 @@ mod tests {
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let number = 9511055;
-        add_operator_task(&local_db, instance_id, graph_id, number, vec![]).await.unwrap();
+        add_operator_task(&local_db, instance_id, graph_id, number, vec![], vec![]).await.unwrap();
     }
 }

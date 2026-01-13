@@ -708,6 +708,7 @@ pub struct WatchtowerProof {
     pub proving_time: i64,
     pub zkm_version: String,
     pub node_index: i32,
+    pub included: bool,
     pub extra: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,

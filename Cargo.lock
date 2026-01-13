@@ -9006,9 +9006,11 @@ dependencies = [
 name = "proof-builder-rpc"
 version = "0.3.1"
 dependencies = [
+ "alloy-primitives",
  "anyhow",
  "axum 0.8.8",
  "bitcoin 0.32.8",
+ "bitcoin-light-client-circuit",
  "clap",
  "client",
  "commit-chain",
@@ -9020,6 +9022,7 @@ dependencies = [
  "operator-proof",
  "prometheus-client",
  "proof-builder",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "state-chain-proof",
