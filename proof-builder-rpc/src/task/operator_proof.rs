@@ -84,25 +84,25 @@ pub(crate) fn spawn_operator_proof_task(
                     };
                     let ctx = ProofRequest::OperatorProofRequest {
                         included_watchtowers: args.included_watchtowers.clone(),
-                            graph_id: hex_parse::<16>(&args.graph_id).unwrap(),
-                            genesis_sequencer_commit_txid: args.genesis_sequencer_commit_txid.clone(),
+                        graph_id: hex_parse::<16>(&args.graph_id).unwrap(),
+                        genesis_sequencer_commit_txid: args.genesis_sequencer_commit_txid.clone(),
 
-                            header_chain_input_proof: args.header_chain_input_proof.clone(),
-                            commit_chain_input_proof: args.commit_chain_input_proof.clone(),
-                            state_chain_input_proof: args.state_chain_input_proof.clone(),
-                            execution_layer_block_number: args.execution_layer_block_number,
+                        header_chain_input_proof: args.header_chain_input_proof.clone(),
+                        commit_chain_input_proof: args.commit_chain_input_proof.clone(),
+                        state_chain_input_proof: args.state_chain_input_proof.clone(),
+                        execution_layer_block_number: args.execution_layer_block_number,
 
-                            output: args.output.clone(),
+                        output: args.output.clone(),
 
-                            block_pos,
-                            target_block,
-                            operator_latest_sequencer_commit_txn,
+                        block_pos,
+                        target_block,
+                        operator_latest_sequencer_commit_txn,
 
-                            watchtower_challenge_txns,
-                            watchtower_challenge_txn_prev_outs,
-                            watchtower_challenge_txn_prev_indices,
-                            watchtower_challenge_txn_pubkeys,
-                            watchtower_challenge_txn_scripts,
+                        watchtower_challenge_txns,
+                        watchtower_challenge_txn_prev_outs,
+                        watchtower_challenge_txn_prev_indices,
+                        watchtower_challenge_txn_pubkeys,
+                        watchtower_challenge_txn_scripts,
                     };
                     let proving_start = tokio::time::Instant::now();
                     let (cycles, proving_time, public_value_hex, proof_size, proof_state, zkm_version) = match builder.build_proof(&ctx) {

@@ -19,7 +19,6 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use strum::{Display, EnumString};
 use tracing::{info, warn};
-use util::hex_parse;
 use zeroize::Zeroizing;
 
 pub const ENV_BTC_CHAIN_URL: &str = "BTC_CHAIN_URL";
@@ -530,6 +529,8 @@ pub fn should_always_challenge() -> bool {
 }
 
 pub fn get_genesis_sequencer_commit_id() -> [u8; 32] {
+    use bitcoin::hashes::Hash;
     let hexed = std::env::var(ENV_GENESIS_SEQUENCER_COMMIT_TXID).unwrap();
-    hex_parse::<32>(&hexed).unwrap()
+    let txid = bitcoin::Txid::from_str(&hexed).expect("Invalid genesis sequencer commit txid");
+    txid.to_byte_array()
 }

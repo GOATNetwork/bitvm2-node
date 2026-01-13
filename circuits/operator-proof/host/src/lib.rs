@@ -397,7 +397,12 @@ mod tests {
         let proof: ZKMProofWithPublicValues = bincode::deserialize(&proof_bytes).unwrap();
 
         let a: ([u8; 32], [u8; 32], [u8; 32]) = proof.public_values.clone().read();
-        println!("block hash: {:?}, constant: {:?}, included map: {:?}", hex::encode(a.0), hex::encode(a.1), U256::from_le_bytes(a.2.clone()));
+        println!(
+            "block hash: {:?}, constant: {:?}, included map: {:?}",
+            hex::encode(a.0),
+            hex::encode(a.1),
+            U256::from_le_bytes(a.2.clone())
+        );
 
         let groth16_vk = &GROTH16_VK_BYTES;
         let vk_hash = String::from_utf8(vk_bytes).unwrap();

@@ -571,11 +571,11 @@ pub async fn detect_take1_or_challenge(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip(local_db, btc_client))]
 pub async fn process_graph_challenge(
     local_db: &LocalDB,
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
-    info!("start tick action: process_graph_challenge");
     let graphs = {
         let mut storage_processor = local_db.acquire().await?;
         fetch_on_turn_graph_by_status(&mut storage_processor, &GraphStatus::Challenge.to_string())
@@ -594,19 +594,16 @@ pub async fn process_graph_challenge(
             Ok(sub_status) => sub_status,
             Err(_) => {
                 warn!(
-                    "process_graph_challenge failed to deserialize sub_status at graph:{}, {}",
+                    "failed to deserialize sub_status at graph:{}, {}",
                     graph.graph_id, graph.sub_status
                 );
                 continue;
             }
         };
         if !sub_status.is_disproved() && !sub_status.is_normal_finished() {
-            trace!("process_graph_challenge graph:{} is not disproved", graph.graph_id);
+            trace!("graph:{} is not disproved", graph.graph_id);
             if !sub_status.is_watchtower_challenge_normal_finished() {
-                info!(
-                    "process_graph_challenge graph:{} watchtower challenge is processing",
-                    graph.graph_id
-                );
+                info!("graph:{} watchtower challenge is processing", graph.graph_id);
                 process_watchtower_challenge_monitoring(
                     btc_client,
                     local_db,
@@ -616,10 +613,7 @@ pub async fn process_graph_challenge(
                 )
                 .await?;
             } else if !sub_status.is_assert_commit_normal_finished() {
-                info!(
-                    "process_graph_challenge graph:{} assert commit is processing",
-                    graph.graph_id
-                );
+                info!("graph:{} assert commit is processing", graph.graph_id);
                 process_assert_commit_monitoring(
                     btc_client,
                     local_db,
@@ -646,10 +640,7 @@ pub async fn process_graph_challenge(
                 0,
             )
             .await?;
-            info!(
-                "process_graph_challenge graph:{} watchtower challenge and assert commit is finished",
-                graph.graph_id
-            );
+            info!("graph:{} watchtower challenge and assert commit is finished", graph.graph_id);
             if let Some((actor, message_content)) =
                 detect_take2(btc_client, local_db, &graph, current_height).await?
             {
@@ -668,10 +659,7 @@ pub async fn process_graph_challenge(
                 .await?;
             }
         } else {
-            info!(
-                "process_graph_challenge graph:{} is disproved, waiting dispove tx sent",
-                graph.graph_id
-            )
+            info!("graph:{} is disproved, waiting dispove tx sent", graph.graph_id)
         }
         process_graph_watchtower_assert_disproved(btc_client, local_db, &graph, &mut sub_status)
             .await?;
@@ -892,6 +880,7 @@ pub async fn scan_obsolete_sibling_graphs(local_db: &LocalDB) -> anyhow::Result<
 }
 
 /// Process watchtower challenge monitoring
+#[tracing::instrument(level = "info", skip(btc_client, local_db))]
 async fn process_watchtower_challenge_monitoring(
     btc_client: &BTCClient,
     local_db: &LocalDB,
@@ -899,9 +888,8 @@ async fn process_watchtower_challenge_monitoring(
     sub_status: &mut ChallengeSubStatus,
     current_height: i64,
 ) -> anyhow::Result<()> {
-    trace!("process_watchtower_challenge_monitoring start");
     let timelock_config = get_challenge_timelock_config();
-    info!("process_watchtower_challenge_monitoring timelock_config: {timelock_config:?}");
+    info!("timelock_config: {timelock_config:?}");
     let (kickoff_txid, watchtower_challenge_init_txid, blockhash_commit_timeout_txid): (
         Txid,
         Txid,
@@ -922,7 +910,7 @@ async fn process_watchtower_challenge_monitoring(
         ),
         _ => {
             warn!(
-                "process_watchtower_challenge_monitoring graph_id {}  kickoff txid, watchtower challenge init txid  or blockhash commit timeout txid is none",
+                "graph_id {}  kickoff txid, watchtower challenge init txid  or blockhash commit timeout txid is none",
                 graph.graph_id
             );
             return Ok(());
@@ -937,18 +925,14 @@ async fn process_watchtower_challenge_monitoring(
     };
 
     if let Some(out_monitor) = out_monitor {
-        let mut vout_monitor_data = match parse_monitor_data::<WTInitTxVoutMonitorData>(
-            &out_monitor.monitor_data,
-        ) {
-            Ok(vout_monitor_data) => vout_monitor_data,
-            Err(_) => {
-                warn!(
-                    "process_watchtower_challenge_monitoring graph_id {} fail to parse monitor data",
-                    graph.graph_id
-                );
-                return Ok(());
-            }
-        };
+        let mut vout_monitor_data =
+            match parse_monitor_data::<WTInitTxVoutMonitorData>(&out_monitor.monitor_data) {
+                Ok(vout_monitor_data) => vout_monitor_data,
+                Err(_) => {
+                    warn!("graph_id {} fail to parse monitor data", graph.graph_id);
+                    return Ok(());
+                }
+            };
         let is_challenge_timeout =
             out_monitor.height + timelock_config.watchtower_challenge_timelock < current_height;
         let is_ack_timeout =
@@ -978,7 +962,7 @@ async fn process_watchtower_challenge_monitoring(
                 && blockhash_commit_timeout_txid != spend_txid
             {
                 info!(
-                    "process_watchtower_challenge_monitoring graph id :{} sub status update to CommitBlockHashStatus::OperatorCommit",
+                    "graph id :{} sub status update to CommitBlockHashStatus::OperatorCommit",
                     graph.graph_id
                 );
                 vout_monitor_data.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
@@ -987,7 +971,7 @@ async fn process_watchtower_challenge_monitoring(
             }
         } else if is_blockhash_commit_timeout {
             info!(
-                "process_watchtower_challenge_monitoring graph id :{} sub status update to CommitBlockHashStatus::OperatorCommitTimeout",
+                "graph id :{} sub status update to CommitBlockHashStatus::OperatorCommitTimeout",
                 graph.graph_id
             );
             vout_monitor_data.commit_blockhash_status =
@@ -1010,7 +994,7 @@ async fn process_watchtower_challenge_monitoring(
         if !is_ack_timeout {
             if is_challenge_timeout {
                 info!(
-                    "process_watchtower_challenge_monitoring watchtower challenge timeout for graph id :{}, vout_monitor_data:{:?}",
+                    "watchtower challenge timeout for graph id :{}, vout_monitor_data:{:?}",
                     graph.graph_id, vout_monitor_data
                 );
                 let watchtower_indexes: Vec<usize> = vout_monitor_data
@@ -1074,7 +1058,7 @@ async fn process_watchtower_challenge_monitoring(
                         .any(|(_, v)| *v == WatchtowerChallengeItemStatus::OperatorInit)
                 {
                     info!(
-                        "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::Challenge",
+                        "graph id :{} sub status update to WatchtowerChallengeStatus::Challenge",
                         graph.graph_id
                     );
                     // all in challenge
@@ -1113,21 +1097,18 @@ async fn process_watchtower_challenge_monitoring(
                     WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
             }
         } else {
-            info!(
-                "process_watchtower_challenge_monitoring graph id :{} ack timeout",
-                graph.graph_id
-            );
+            info!("graph id :{} ack timeout", graph.graph_id);
             vout_monitor_data.update_disprove_indexes();
             if vout_monitor_data.require_disproved_indexes.is_empty() {
                 trace!(
-                    "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::OperatorACK",
+                    "graph id :{} sub status update to WatchtowerChallengeStatus::OperatorACK",
                     graph.graph_id
                 );
                 sub_status.watchtower_challenge_status =
                     WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished;
             } else {
                 trace!(
-                    "process_watchtower_challenge_monitoring graph id :{} sub status update to WatchtowerChallengeStatus::OperatorNACK",
+                    "graph id :{} sub status update to WatchtowerChallengeStatus::OperatorNACK",
                     graph.graph_id
                 );
                 sub_status.watchtower_challenge_status =
@@ -1194,16 +1175,13 @@ async fn process_watchtower_challenge_monitoring(
             tx.commit().await?;
         }
     } else {
-        trace!(
-            "process_watchtower_challenge_monitoring graph id :{} watchtower challenge init is not on chain",
-            graph.graph_id
-        );
+        trace!("graph id :{} watchtower challenge init is not on chain", graph.graph_id);
         // Create monitor if watchtower challenge init transaction is detected
         if let Some(spent_txid) = outpoint_spent_txid(btc_client, &kickoff_txid, 1).await?
             && spent_txid == watchtower_challenge_init_txid
         {
             info!(
-                "process_watchtower_challenge_monitoring graph_id: {} watchtower_challenge_init_txid {} has been broadcasted",
+                "graph_id: {} watchtower_challenge_init_txid {} has been broadcasted",
                 graph.graph_id,
                 watchtower_challenge_init_txid.to_string()
             );

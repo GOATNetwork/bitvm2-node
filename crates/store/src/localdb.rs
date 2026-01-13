@@ -2846,6 +2846,35 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    pub async fn update_watchtower_proof_challenge_txid(
+        &mut self,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        node_index: i32,
+        challenge_txid: &str,
+        included: bool,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query!(
+            "UPDATE watchtower_proof
+             SET challenge_txid = ?,
+                included =?,
+                updated_at = ?
+             WHERE instance_id = ?
+                AND graph_id = ?
+                AND node_index = ?",
+            challenge_txid,
+            included,
+            current_time,
+            instance_id,
+            graph_id,
+            node_index,
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn find_watchtower_proof_by_instance_and_graph(
         &mut self,
         instance_id: &Uuid,

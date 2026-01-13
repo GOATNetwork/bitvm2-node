@@ -54,6 +54,8 @@ pub struct OperatorProofRequest {
     pub instance_id: String,
     pub graph_id: String,
     pub execution_layer_block_number: i64,
+    pub watchtower_challenge_txids: Vec<String>,
+    pub included_watchtowers: Vec<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,6 +75,7 @@ pub struct WatchtowerProofRequest {
     pub instance_id: String,
     pub graph_id: String,
     pub public_key: String,
+    // it's updated by operators and used for generating operator proof.
     pub challenge_txid: String,
     pub challenge_init_txid: String,
     pub execution_layer_block_number: i64,

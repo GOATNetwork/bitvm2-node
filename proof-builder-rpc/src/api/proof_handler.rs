@@ -159,7 +159,7 @@ pub(super) async fn post_operator_proof_task(
         Some(operator_proof) => ok_response(OperatorProofResponse {
             proof_data: None,
             error: Some(format!(
-                "No proof is not ready, state {}, path:{:?}",
+                "The proof is not ready, state {}, path:{:?}",
                 operator_proof.proof_state, operator_proof.path_to_proof
             )),
         }),
@@ -170,6 +170,8 @@ pub(super) async fn post_operator_proof_task(
                 instance_id,
                 graph_id,
                 payload.execution_layer_block_number,
+                payload.watchtower_challenge_txids.clone(),
+                payload.included_watchtowers.clone(),
             )
             .await
             .api_error("POST_OPERATOR_PROOF_TASK_ERROR")?;

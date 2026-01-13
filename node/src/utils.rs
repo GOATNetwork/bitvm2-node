@@ -33,6 +33,7 @@ use bitvm2_lib::watchtower::*;
 use client::Utxo as ClientUtxo;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use esplora_client::Utxo;
+use futures::future::try_join_all;
 use goat::connectors::{
     base::TaprootConnector,
     kickoff_connectors::{ForceSkipConnector, KickoffConnector, PrekickoffConnector},
@@ -1716,8 +1717,8 @@ pub async fn get_watchtower_commitment(
 ) -> Result<(Option<Vec<u8>>, usize)> {
     let mut storage_processor = local_db.acquire().await?;
     if let Some(graph) = storage_processor.find_graph(&graph_id).await?
-        && let (Some(watchtower_challenge_txid), Some(challenge_init_txid)) =
-            (graph.watchtower_challenge_txid, graph.watchtower_challenge_init_txid)
+        && let (Some(challenge_txid), Some(challenge_init_txid)) =
+            (graph.challenge_txid, graph.watchtower_challenge_init_txid)
     {
         if graph.proceed_withdraw_height <= 0 {
             warn!("graph {graph_id} proceed_withdraw_height <= 0, waiting to been updated");
@@ -1761,6 +1762,8 @@ pub async fn get_watchtower_commitment(
 pub async fn get_operator_proof(
     local_db: &LocalDB,
     http_client: &HttpAsyncClient,
+    bitvm_graph: &Bitvm2Graph,
+    btc_client: &BTCClient,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<(Option<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)>, usize)> {
@@ -1770,6 +1773,54 @@ pub async fn get_operator_proof(
             warn!("graph {graph_id} proceed_withdraw_height <= 0, waiting to been updated");
             return Ok((None, get_operator_proof_wait_secs()));
         }
+        let watchtower_challenge_init_txid = graph
+            .watchtower_challenge_init_txid
+            .ok_or_else(|| anyhow::anyhow!("watchtower_challenge_init_txid is none"))?;
+
+        let num_challenger = bitvm_graph.parameters.watchtower_pubkeys.len();
+        let challenge_finish_txids: Vec<Option<Txid>> =
+            try_join_all((0..num_challenger).map(|i| {
+                let connector_vout = i as u32 * 2;
+                outpoint_spent_txid(
+                    btc_client,
+                    &watchtower_challenge_init_txid.0,
+                    connector_vout.into(),
+                )
+            }))
+            .await?;
+
+        let challenge_timeout_txids: Vec<Option<Txid>> =
+            try_join_all((0..num_challenger).map(|i| {
+                let connector_vout = i as u32 * 2 + 1;
+                outpoint_spent_txid(
+                    btc_client,
+                    &watchtower_challenge_init_txid.0,
+                    connector_vout.into(),
+                )
+            }))
+            .await?;
+
+        // calculate challenge txid and included watchtower map
+        let mut included_watchtowers: Vec<bool> = vec![false; num_challenger];
+        let watchtower_challenge_txids: Vec<String> = (included_watchtowers
+            .iter_mut()
+            .zip(challenge_finish_txids.iter()))
+        .zip(challenge_timeout_txids.iter())
+        .filter_map(|((included, finish_txid), timeout_txid)| {
+            if finish_txid.is_some() && timeout_txid.is_some() && finish_txid != timeout_txid {
+                *included = true;
+            }
+            Some(finish_txid.unwrap().to_string())
+        })
+        .collect();
+
+        if watchtower_challenge_txids.len() != num_challenger {
+            warn!(
+                "No enough watchtower challenge tx found for graph {graph_id}, waiting for watchtower challenge to be submitted"
+            );
+            return Ok((None, get_operator_proof_wait_secs()));
+        }
+
         let url = format!(
             "http://{}{}",
             get_proof_build_rpc_host()
@@ -1783,6 +1834,8 @@ pub async fn get_operator_proof(
                     instance_id: instance_id.to_string(),
                     graph_id: graph_id.to_string(),
                     execution_layer_block_number: graph.proceed_withdraw_height,
+                    watchtower_challenge_txids,
+                    included_watchtowers,
                 },
             )
             .await?;
@@ -1792,11 +1845,12 @@ pub async fn get_operator_proof(
                 info!("get_operator_proof get proof successfully");
                 let proof: ZKMProofWithPublicValues =
                     bincode::deserialize(proof_data.proof.as_slice()).unwrap();
-                let (best_btc_block_hash, constant, _included_watchtower): (
+                let (_best_btc_block_hash, constant, included_watchtower): (
                     [u8; 32],
                     [u8; 32],
                     [u8; 32],
                 ) = proof.public_values.clone().read();
+                // TODO: additionally check constant and included_watchtower with included_watchtowers.
                 //proof.public_values.head();
                 info!("get_operator_proof parse proof successfully");
                 let groth16_vk = &GROTH16_VK_BYTES;
@@ -1805,7 +1859,7 @@ pub async fn get_operator_proof(
 
                 Ok((
                     Some((
-                        [best_btc_block_hash, constant],
+                        [constant, included_watchtower],
                         ark_proof.proof.clone(),
                         ark_proof.public_inputs.into(),
                         ark_proof.groth16_vk.into(),
@@ -2718,6 +2772,8 @@ pub async fn operator_send_assert_commit(
         let (guest_inputs, proof, groth16_pubin, vk) = match get_operator_proof(
             local_db,
             http_client,
+            graph,
+            btc_client,
             instance_id,
             graph_id,
         )

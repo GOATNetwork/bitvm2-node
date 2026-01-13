@@ -335,7 +335,9 @@ pub(crate) async fn fetch_on_demand_task(
         block_number
     };
 
-    tracing::info!("is_watchtower {is_watchtower}, btc_block_number {btc_block_number}, execution_layer_block_number {execution_layer_block_number}");
+    tracing::info!(
+        "is_watchtower {is_watchtower}, btc_block_number {btc_block_number}, execution_layer_block_number {execution_layer_block_number}"
+    );
     if !is_watchtower && btc_block_number == 0 {
         tracing::warn!("Watchtower challenge tx is not confirmed yet.");
         return Ok(None);
@@ -592,9 +594,25 @@ pub(crate) async fn add_operator_task(
     instance_id: Uuid,
     graph_id: Uuid,
     execution_layer_block_number: i64,
+    watchtower_challenge_txids: Vec<String>,
+    included_watchtowers: Vec<bool>,
 ) -> anyhow::Result<u64> {
-    let mut storage_processor = local_db.acquire().await?;
-    Ok(storage_processor
+    let mut storage_processor = local_db.start_transaction().await?;
+    // update watchtower's challenge txid.
+
+    for (i, txid) in watchtower_challenge_txids.iter().enumerate() {
+        storage_processor
+            .update_watchtower_proof_challenge_txid(
+                &instance_id,
+                &graph_id,
+                i as i32,
+                txid,
+                included_watchtowers[i],
+            )
+            .await?;
+    }
+
+    let affected_rows = storage_processor
         .create_operator_proof(&OperatorProof {
             id: 1,
             instance_id,
@@ -606,7 +624,9 @@ pub(crate) async fn add_operator_task(
             cycles: 0,
             ..Default::default()
         })
-        .await?)
+        .await?;
+    storage_processor.commit().await?;
+    Ok(affected_rows)
 }
 
 pub(crate) async fn find_operator_task(
@@ -716,6 +736,6 @@ mod tests {
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let number = 9511055;
-        add_operator_task(&local_db, instance_id, graph_id, number).await.unwrap();
+        add_operator_task(&local_db, instance_id, graph_id, number, vec![]).await.unwrap();
     }
 }
