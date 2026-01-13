@@ -2881,24 +2881,7 @@ impl<'a> StorageProcessor<'a> {
         graph_id: &Uuid,
     ) -> anyhow::Result<Vec<WatchtowerProof>> {
         let res = sqlx::query_as::<_, WatchtowerProof>(
-            "SELECT id,
-                         instance_id,
-                         graph_id,
-                         public_key,
-                         challenge_txid,
-                         challenge_init_txid,
-                         execution_layer_block_number,
-                         path_to_proof,
-                         public_value_hex,
-                         proof_size,
-                         cycles,
-                         proof_state,
-                         total_time_to_proof,
-                         proving_time,
-                         zkm_version,
-                         extra,
-                         created_at,
-                         updated_at
+            "SELECT *
                   FROM watchtower_proof
                   WHERE instance_id = ?
                     AND graph_id = ?",
@@ -2917,24 +2900,7 @@ impl<'a> StorageProcessor<'a> {
         public_key: &str,
     ) -> anyhow::Result<Option<WatchtowerProof>> {
         let res = sqlx::query_as::<_, WatchtowerProof>(
-            "SELECT id,
-                         instance_id,
-                         graph_id,
-                         public_key,
-                         challenge_txid,
-                         challenge_init_txid,
-                         execution_layer_block_number,
-                         path_to_proof,
-                         public_value_hex,
-                         proof_size,
-                         cycles,
-                         proof_state,
-                         total_time_to_proof,
-                         proving_time,
-                         zkm_version,
-                         extra,
-                         created_at,
-                         updated_at
+            "SELECT *
                   FROM watchtower_proof
                   WHERE instance_id = ?
                     AND graph_id = ?
@@ -2948,57 +2914,9 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn find_watchtower_proofs_unproved(
-        &mut self,
-    ) -> anyhow::Result<Vec<WatchtowerProof>> {
-        let res = sqlx::query_as::<_, WatchtowerProof>(
-            "SELECT id,
-                         instance_id,
-                         graph_id,
-                         public_key,
-                         challenge_txid,
-                         challenge_init_txid,
-                         execution_layer_block_number,
-                         path_to_proof,
-                         public_value_hex,
-                         proof_size,
-                         cycles,
-                         proof_state,
-                         total_time_to_proof,
-                         proving_time,
-                         zkm_version,
-                         extra,
-                         created_at,
-                         updated_at
-                  FROM watchtower_proof
-                  WHERE proof_state != 2
-                  ORDER BY id ASC",
-        )
-        .fetch_all(self.conn())
-        .await?;
-        Ok(res)
-    }
-
     pub async fn find_next_watchtower_proof(&mut self) -> anyhow::Result<Option<WatchtowerProof>> {
         let res = sqlx::query_as::<_, WatchtowerProof>(
-            "SELECT id,
-                         instance_id,
-                         graph_id,
-                         public_key,
-                         challenge_txid,
-                         challenge_init_txid,
-                         execution_layer_block_number,
-                         path_to_proof,
-                         public_value_hex,
-                         proof_size,
-                         cycles,
-                         proof_state,
-                         total_time_to_proof,
-                         proving_time,
-                         zkm_version,
-                         extra,
-                         created_at,
-                         updated_at
+            "SELECT *
                   FROM watchtower_proof
                   WHERE proof_state == 0
                   ORDER BY id ASC
