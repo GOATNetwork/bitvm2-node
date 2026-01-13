@@ -1813,11 +1813,11 @@ pub async fn get_operator_proof(
             .iter_mut()
             .zip(challenge_finish_txids.iter()))
         .zip(challenge_timeout_txids.iter())
-        .filter_map(|((included, finish_txid), timeout_txid)| {
+        .map(|((included, finish_txid), timeout_txid)| {
             if finish_txid.is_some() && timeout_txid.is_some() && finish_txid != timeout_txid {
                 *included = true;
             }
-            Some(finish_txid.unwrap().to_string())
+            finish_txid.unwrap().to_string()
         })
         .collect();
 
