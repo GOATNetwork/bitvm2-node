@@ -316,7 +316,7 @@ pub(crate) async fn fetch_on_demand_task(
                 Ok(tx) => {
                     if let Some(height) = tx.block_height
                         && tx.confirmed
-                        && (height as i64) < block_number
+                        && (height as i64) > block_number
                     {
                         tracing::info!(
                             "Challenge txid {} is included in block {}, which is before the current block number {}",
