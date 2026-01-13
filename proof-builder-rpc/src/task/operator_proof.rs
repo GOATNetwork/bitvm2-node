@@ -2,6 +2,7 @@ use crate::{
     config::ProofBuilderConfig,
     task::{ProofState, fetch_on_demand_task, update_operator_task},
 };
+use alloy_primitives::U256;
 use operator_proof::{OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
@@ -10,7 +11,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use util::hex_parse;
-use alloy_primitives::U256;
 
 #[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 pub(crate) fn spawn_operator_proof_task(
@@ -50,7 +50,7 @@ pub(crate) fn spawn_operator_proof_task(
                         args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
                         args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.join(",");
                         args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
-                        // LE array to string, e.g. [1, 1, 1, 0] => 7 
+                        // LE array to string, e.g. [1, 1, 1, 0] => 7
                         args.included_watchtowers = next_task.included_watchtowers.iter().rev()
                             .fold(U256::ZERO, |acc, &b| (acc << 1) + if b { U256::ONE } else { U256::ZERO }).to_string();
                         task_index = next_task.task_index;
@@ -154,7 +154,9 @@ mod tests {
             included_watchtowers[i] = true;
         }
 
-        let included_watchtowers_u256 = included_watchtowers.iter().rev()
+        let included_watchtowers_u256 = included_watchtowers
+            .iter()
+            .rev()
             .fold(U256::ZERO, |acc, &b| (acc << 1) + if b { U256::ONE } else { U256::ZERO });
         println!("included_watchtowers_u256: {included_watchtowers_u256}");
 

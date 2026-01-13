@@ -293,7 +293,8 @@ pub(crate) async fn fetch_on_demand_task(
             watchtower_info.iter().map(|w| w.challenge_txid.0.to_string()).collect::<Vec<_>>();
         let challenge_public_keys: Vec<String> =
             watchtower_info.iter().map(|w| w.public_key.clone()).collect::<Vec<_>>();
-        let included_watchtowers: Vec<bool> = watchtower_info.iter().map(|w| w.included).collect::<Vec<_>>();
+        let included_watchtowers: Vec<bool> =
+            watchtower_info.iter().map(|w| w.included).collect::<Vec<_>>();
         (
             task.id,
             task.execution_layer_block_number,
