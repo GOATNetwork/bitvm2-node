@@ -388,7 +388,7 @@ mod tests {
     use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
     #[tokio::test]
-    //#[ignore = "local test"]
+    #[ignore = "local test"]
     async fn test_parse_operator_proof() {
         let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/operator/366fb3e0ed2442d39e2cb1e6dda1b08b.bin";
         let proof_bytes = std::fs::read(proof_path).unwrap();
