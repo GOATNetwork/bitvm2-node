@@ -149,7 +149,7 @@ mod tests {
     fn test_included_watchtower() {
         let mut included_watchtowers = vec![false; 256];
         // set random bit to true, with random length between 1 and 256
-        let len = rand::random::<usize>() % 256 + 1;
+        let len = rand::random::<usize>() % 256;
         for i in 0..len {
             included_watchtowers[i] = true;
         }
