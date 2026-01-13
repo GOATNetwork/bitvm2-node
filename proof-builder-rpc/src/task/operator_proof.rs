@@ -51,7 +51,7 @@ pub(crate) fn spawn_operator_proof_task(
                         args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.join(",");
                         args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
                         // LE array to string, e.g. [1, 1, 1, 0] => 7
-                        args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers.try_into().unwrap()).to_string();
+                        args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers).to_string();
                         task_index = next_task.task_index;
                     } else {
                         tracing::info!("Wait for the next task");

@@ -124,7 +124,7 @@ pub fn u256_to_le_bits(u: U256) -> [bool; 256] {
     bits
 }
 
-pub fn le_bits_to_u256(bits: &[bool; 256]) -> U256 {
+pub fn le_bits_to_u256(bits: &[bool]) -> U256 {
     let mut u = U256::ZERO;
     for (i, bit) in bits.iter().enumerate() {
         if *bit {
