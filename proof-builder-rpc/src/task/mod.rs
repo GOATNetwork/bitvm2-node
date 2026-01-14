@@ -22,7 +22,7 @@ use uuid::Uuid;
 use futures::future::Either;
 use proof_builder::{OnDemandTask, ProofBuilder};
 use store::localdb::LocalDB;
-use store::{LongRunningTaskProof, OperatorProof, ProofState, WatchtowerProof};
+use store::{LongRunningTaskProof, OperatorProof, ProofState, SerializableTxid, WatchtowerProof};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -200,45 +200,21 @@ pub(crate) async fn fetch_latest_long_running_task_by_state(
         .await
 }
 
-// fetch next task from watchtower or operator.
-#[tracing::instrument(level = "info", skip(local_db))]
-pub(crate) async fn fetch_on_demand_task(
-    local_db: &LocalDB,
+async fn read_watchtower_challenge_details<'a>(
+    storage_processor: &mut store::localdb::StorageProcessor<'a>,
     is_watchtower: bool,
     bitcoin_network: Network,
     esplora_url: &str,
-) -> anyhow::Result<Option<OnDemandTask>> {
-    // btc header chain: always fetch the latest.
-    let mut storage_processor = local_db.acquire().await?;
-    // commit chain: always fetch the latest
-    let commit_chain_input_proof = match storage_processor
-        .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
-        .await?
-    {
-        Some(d) => d,
-        None => {
-            tracing::error!("Commit chain input proof is not ready");
-            return Ok(None);
-        }
-    };
-    tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
-    let start = commit_chain_input_proof.block_start;
-    let batch_size = commit_chain_input_proof.block_end - commit_chain_input_proof.block_start;
-    let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
-    let file = std::path::Path::new(&commit_chain_input_proof)
-        .parent()
-        .unwrap()
-        .join(format!("{start}-{batch_size}.bin.commits"));
-    let content = match std::fs::read_to_string(&file) {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::error!("read {file:?} error, {e}");
-            return Ok(None);
-        }
-    };
-    let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
-    let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
-
+) -> anyhow::Result<(
+    i64,
+    i64,
+    Option<String>,
+    Vec<String>,
+    Vec<bool>,
+    Vec<String>,
+    Option<String>,
+    i64,
+)> {
     let (
         task_index,
         execution_layer_block_number,
@@ -264,22 +240,29 @@ pub(crate) async fn fetch_on_demand_task(
                 )
             }
             None => {
-                return Ok(None);
+                anyhow::bail!("no watchtower task found")
             }
         }
     } else {
         //fetch watchtower info
         let task = match storage_processor.find_next_operator_proof().await? {
             Some(task) => task,
-            None => return Ok(None),
+            None => anyhow::bail!("no operator task found"),
         };
         tracing::info!("operator task: {task:?}");
-        let watchtower_info = storage_processor
+        let watchtower_info: Vec<WatchtowerProof> = storage_processor
             .find_watchtower_proof_by_instance_and_graph(&task.instance_id, &task.graph_id)
             .await?;
         tracing::info!("watchtower info: {watchtower_info:?}");
         let challenge_init_txids =
             watchtower_info.iter().map(|w| w.challenge_init_txid.0.to_string()).collect::<Vec<_>>();
+        if challenge_init_txids.is_empty() {
+            anyhow::bail!(
+                "No watchtower challenge info found for instance {} and graph_id {}",
+                task.instance_id,
+                task.graph_id
+            );
+        }
         if let Some(first) = challenge_init_txids.first() {
             if !challenge_init_txids.iter().all(|x| first == x) {
                 anyhow::bail!(
@@ -344,6 +327,74 @@ pub(crate) async fn fetch_on_demand_task(
     tracing::info!(
         "is_watchtower {is_watchtower}, btc_block_number {btc_block_number}, execution_layer_block_number {execution_layer_block_number}"
     );
+    Ok((
+        task_index,
+        execution_layer_block_number,
+        watchtower_challenge_init_txid,
+        watchtower_challenge_txids,
+        included_watchtowers,
+        watchtower_public_keys,
+        graph_id,
+        btc_block_number,
+    ))
+}
+
+// fetch next task from watchtower or operator.
+#[tracing::instrument(level = "info", skip(local_db))]
+pub(crate) async fn fetch_on_demand_task(
+    local_db: &LocalDB,
+    is_watchtower: bool,
+    bitcoin_network: Network,
+    esplora_url: &str,
+) -> anyhow::Result<Option<OnDemandTask>> {
+    // btc header chain: always fetch the latest.
+    let mut storage_processor = local_db.acquire().await?;
+    // commit chain: always fetch the latest
+    let commit_chain_input_proof = match storage_processor
+        .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
+        .await?
+    {
+        Some(d) => d,
+        None => {
+            tracing::error!("Commit chain input proof is not ready");
+            return Ok(None);
+        }
+    };
+    tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
+    let start = commit_chain_input_proof.block_start;
+    let batch_size = commit_chain_input_proof.block_end - commit_chain_input_proof.block_start;
+    let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
+    let file = std::path::Path::new(&commit_chain_input_proof)
+        .parent()
+        .unwrap()
+        .join(format!("{start}-{batch_size}.bin.commits"));
+    let content = match std::fs::read_to_string(&file) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("read {file:?} error, {e}");
+            return Ok(None);
+        }
+    };
+    let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
+    let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
+
+    let (
+        task_index,
+        execution_layer_block_number,
+        watchtower_challenge_init_txid,
+        watchtower_challenge_txids,
+        included_watchtowers,
+        watchtower_public_keys,
+        graph_id,
+        btc_block_number,
+    ) = read_watchtower_challenge_details(
+        &mut storage_processor,
+        is_watchtower,
+        bitcoin_network,
+        esplora_url,
+    )
+    .await?;
+
     if !is_watchtower && btc_block_number == 0 {
         tracing::warn!("Watchtower challenge tx is not confirmed yet.");
         return Ok(None);
@@ -596,6 +647,7 @@ pub(crate) async fn update_watchtower_task(
 /// * execution_layer_block_number: proceedWithdraw's block number
 /// * index: incremental id
 /// Invocated by API
+#[tracing::instrument(level = "info", skip(local_db))]
 pub(crate) async fn add_operator_task(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -605,10 +657,47 @@ pub(crate) async fn add_operator_task(
     included_watchtowers: Vec<bool>,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.start_transaction().await?;
-    // update watchtower's challenge txid.
 
+    let existing_watchtower_proof_task = storage_processor
+        .find_watchtower_proof_by_instance_and_graph(&instance_id, &graph_id)
+        .await?;
+    tracing::info!("existing_watchtower_proof_task: {:?}", existing_watchtower_proof_task);
+    let timeout_watchtower_challenge_txids: Vec<String> = watchtower_challenge_txids
+        .iter()
+        .filter(|txid| {
+            !existing_watchtower_proof_task.iter().any(|task| {
+                task.challenge_txid.0.to_string() == **txid
+                    && task.challenge_init_txid.0.to_string() == **txid
+            })
+        })
+        .cloned()
+        .collect();
+    tracing::info!("timeout_watchtower_challenge_txids: {:?}", timeout_watchtower_challenge_txids);
+    // insert timeout watchtower proof task with failed state.
+    for txid in timeout_watchtower_challenge_txids.iter() {
+        let node_index = watchtower_challenge_txids.iter().position(|t| t == txid).unwrap() as i32;
+        let task = WatchtowerProof {
+            id: 1,
+            instance_id,
+            graph_id,
+            challenge_init_txid: SerializableTxid::default(),
+            challenge_txid: Txid::from_str(txid)?.into(),
+            proof_state: ProofState::Failed.to_i64(),
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+            execution_layer_block_number,
+            node_index,
+            ..Default::default()
+        };
+        let affected = storage_processor.create_watchtower_proof(&task).await?;
+        tracing::info!(
+            "mark timeout watchtower proof as failed, txid: {txid}, affected rows: {affected}",
+        );
+    }
+
+    // update watchtower's challenge txid.
     for (i, txid) in watchtower_challenge_txids.iter().enumerate() {
-        storage_processor
+        let affected = storage_processor
             .update_watchtower_proof_challenge_txid(
                 &instance_id,
                 &graph_id,
@@ -617,6 +706,7 @@ pub(crate) async fn add_operator_task(
                 included_watchtowers[i],
             )
             .await?;
+        tracing::info!("update watchtower proof, node_index: {i} affected rows: {affected}",);
     }
 
     let affected_rows = storage_processor
@@ -703,11 +793,12 @@ mod tests {
     use store::create_local_db;
     use uuid::Uuid;
 
+    use crate::task::read_watchtower_challenge_details;
+
     use super::add_operator_task;
     use super::add_watchtower_task;
 
     #[tokio::test]
-    #[ignore]
     async fn test_add_watchtower_task() {
         let db_path = std::env::var("TEST_DB")
             .unwrap_or("sqlite:/tmp/.bitvm2-node-sd.db?mode=rwc".to_string());
@@ -735,14 +826,36 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_add_operator_proof() {
-        let db_path = std::env::var("TEST_DB")
-            .unwrap_or("sqlite:/tmp/.bitvm2-node-sd.db?mode=rwc".to_string());
+        tracing_subscriber::fmt::init();
+        let db_path =
+            std::env::var("TEST_DB").unwrap_or("sqlite:.bitvm2-node-sd.db?mode=rwc".to_string());
         let local_db = create_local_db(&db_path).await;
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let number = 9511055;
-        add_operator_task(&local_db, instance_id, graph_id, number, vec![], vec![]).await.unwrap();
+        let watchtower_challenge_txids = vec![
+            "4506cf35cd70b3006fe3ce4a87ca1f9b0a76f348cfb529423e2d4c163c28d604".to_string(),
+            "f16286f143430a229c6d068798cd9ba751e83202de5045cc788aab227114cdb2".to_string(),
+        ];
+        let included_watchtowers = vec![true, false];
+        add_operator_task(
+            &local_db,
+            instance_id,
+            graph_id,
+            number,
+            watchtower_challenge_txids,
+            included_watchtowers,
+        )
+        .await
+        .unwrap();
+
+        //let is_watchtower = false;
+        //let bitcoin_network = bitcoin::Network::Regtest;
+        //let esplora_url = "http://localhost:13002";
+        //let mut storage_processor = local_db.acquire().await.unwrap();
+        //let result = read_watchtower_challenge_details(&mut storage_processor, is_watchtower, bitcoin_network, esplora_url).await.unwrap();
+        //println!("result: {:?}", result);
+        //assert!(result.3.len() == 2);
     }
 }

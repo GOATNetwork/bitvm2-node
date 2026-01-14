@@ -2937,8 +2937,9 @@ impl<'a> StorageProcessor<'a> {
                                    path_to_proof,
                                    public_value_hex, proof_size,
                                    cycles, proof_state, total_time_to_proof, proving_time,
-                                   zkm_version, extra, updated_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                   zkm_version, node_index, included,
+                                   extra, updated_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             watchtower_proof.instance_id,
             watchtower_proof.graph_id,
             watchtower_proof.public_key,
@@ -2953,6 +2954,8 @@ impl<'a> StorageProcessor<'a> {
             watchtower_proof.total_time_to_proof,
             watchtower_proof.proving_time,
             watchtower_proof.zkm_version,
+            watchtower_proof.node_index,
+            watchtower_proof.included,
             watchtower_proof.extra,
             watchtower_proof.updated_at,
             watchtower_proof.created_at,

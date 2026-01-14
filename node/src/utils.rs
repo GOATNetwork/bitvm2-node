@@ -64,7 +64,7 @@ use store::localdb::{
 use store::{
     BridgeOutGlobalStats, ByteArray32, Graph, GraphRawData, GraphStatus, Instance,
     InstanceBridgeInStatus, Message, MessageState, MessageType, Node, PeginGraphProcessData,
-    PeginInstanceProcessData, UInt64Array3,
+    PeginInstanceProcessData, SerializableTxid, UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
@@ -1756,6 +1756,52 @@ pub async fn get_watchtower_commitment(
     }
 }
 
+#[tracing::instrument(name = "get_watchtower_challenge_info", skip(btc_client))]
+pub async fn get_watchtower_challenge_info(
+    btc_client: &BTCClient,
+    watchtower_challenge_init_txid: SerializableTxid,
+    num_challenger: usize,
+) -> Result<(Vec<String>, Vec<bool>)> {
+    let challenge_finish_txids: Vec<Option<Txid>> = try_join_all((0..num_challenger).map(|i| {
+        let connector_vout = i as u32 * 2;
+        outpoint_spent_txid(btc_client, &watchtower_challenge_init_txid.0, connector_vout.into())
+    }))
+    .await?;
+
+    if challenge_finish_txids.iter().any(|txid| txid.is_none()) {
+        bail!(
+            "No enough watchtower challenge tx found for graph, expected {num_challenger} but got {}. Waiting for watchtower challenge to be submitted",
+            challenge_finish_txids.iter().filter(|txid| txid.is_some()).count()
+        );
+    }
+
+    let challenge_timeout_txids: Vec<Option<Txid>> = try_join_all((0..num_challenger).map(|i| {
+        let connector_vout = i as u32 * 2 + 1;
+        outpoint_spent_txid(btc_client, &watchtower_challenge_init_txid.0, connector_vout.into())
+    }))
+    .await?;
+
+    // calculate challenge txid and included watchtower map
+    let mut included_watchtowers: Vec<bool> = vec![false; num_challenger];
+    let watchtower_challenge_txids: Vec<String> =
+        (included_watchtowers.iter_mut().zip(challenge_finish_txids.iter()))
+            .zip(challenge_timeout_txids.iter())
+            .map(|((included, finish_txid), timeout_txid)| {
+                if finish_txid.is_some() && timeout_txid.is_some() && finish_txid != timeout_txid {
+                    *included = true;
+                }
+                finish_txid.unwrap().to_string()
+            })
+            .collect();
+
+    if watchtower_challenge_txids.len() != num_challenger {
+        bail!(
+            "challenge txids length mismatch with num_challenger, expected {num_challenger} but got {}",
+            watchtower_challenge_txids.len()
+        );
+    }
+    Ok((watchtower_challenge_txids, included_watchtowers))
+}
 /// Returns:
 /// - `Ok(Some(OperatorProof), _)` if operator proof is available
 /// - `Ok(None, wait_secs)` if operator proof is not yet available, with suggested wait time
@@ -1773,61 +1819,25 @@ pub async fn get_operator_proof(
             warn!("graph {graph_id} proceed_withdraw_height <= 0, waiting to been updated");
             return Ok((None, get_operator_proof_wait_secs()));
         }
+
         let watchtower_challenge_init_txid = graph
             .watchtower_challenge_init_txid
             .ok_or_else(|| anyhow::anyhow!("watchtower_challenge_init_txid is none"))?;
-
         let num_challenger = bitvm_graph.parameters.watchtower_pubkeys.len();
-        let challenge_finish_txids: Vec<Option<Txid>> =
-            try_join_all((0..num_challenger).map(|i| {
-                let connector_vout = i as u32 * 2;
-                outpoint_spent_txid(
-                    btc_client,
-                    &watchtower_challenge_init_txid.0,
-                    connector_vout.into(),
-                )
-            }))
-            .await?;
-
-        if challenge_finish_txids.iter().any(|txid| txid.is_none()) {
-            warn!(
-                "No enough watchtower challenge finish tx found for graph {graph_id}, waiting for watchtower challenge to be submitted"
-            );
-            return Ok((None, get_operator_proof_wait_secs()));
-        }
-
-        let challenge_timeout_txids: Vec<Option<Txid>> =
-            try_join_all((0..num_challenger).map(|i| {
-                let connector_vout = i as u32 * 2 + 1;
-                outpoint_spent_txid(
-                    btc_client,
-                    &watchtower_challenge_init_txid.0,
-                    connector_vout.into(),
-                )
-            }))
-            .await?;
-
-        // calculate challenge txid and included watchtower map
-        let mut included_watchtowers: Vec<bool> = vec![false; num_challenger];
-        let watchtower_challenge_txids: Vec<String> = (included_watchtowers
-            .iter_mut()
-            .zip(challenge_finish_txids.iter()))
-        .zip(challenge_timeout_txids.iter())
-        .map(|((included, finish_txid), timeout_txid)| {
-            if finish_txid.is_some() && timeout_txid.is_some() && finish_txid != timeout_txid {
-                *included = true;
-            }
-            finish_txid.unwrap().to_string()
-        })
-        .collect();
-
-        if watchtower_challenge_txids.len() != num_challenger {
-            warn!(
-                "No enough watchtower challenge tx found for graph {graph_id}, waiting for watchtower challenge to be submitted"
-            );
-            return Ok((None, get_operator_proof_wait_secs()));
-        }
-
+        let (watchtower_challenge_txids, included_watchtowers) =
+            match get_watchtower_challenge_info(
+                btc_client,
+                watchtower_challenge_init_txid,
+                num_challenger,
+            )
+            .await
+            {
+                Ok(info) => info,
+                Err(e) => {
+                    warn!("Failed to get watchtower challenge info: {e}");
+                    return Ok((None, get_operator_proof_wait_secs()));
+                }
+            };
         let url = format!(
             "http://{}{}",
             get_proof_build_rpc_host()
@@ -4529,5 +4539,26 @@ pub(crate) async fn get_bridge_out_global_stats<'a>(
             created_at: 0,
             updated_at: 0,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "test on regtest"]
+    async fn test_get_watchtower_challenge_info() {
+        let init_txid =
+            Txid::from_str("2bb03cb075c95d94c298d139242bcd42c366b7105df34591e77e3ac11ac29386")
+                .unwrap();
+        let init_txid = SerializableTxid(init_txid.into());
+        let number_challenge = 2;
+        let esplora_url = "http://localhost:13002".to_string();
+        let btc_client = BTCClient::new(get_network(), Some(&esplora_url));
+
+        let result =
+            get_watchtower_challenge_info(&btc_client, init_txid, number_challenge).await.unwrap();
+        println!("result: {result:#?}");
     }
 }
