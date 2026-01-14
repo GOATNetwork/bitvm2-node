@@ -665,9 +665,9 @@ pub(crate) async fn add_operator_task(
     let timeout_watchtower_challenge_txids: Vec<String> = watchtower_challenge_txids
         .iter()
         .filter(|txid| {
-            !existing_watchtower_proof_task.iter().any(|task| {
-                task.challenge_txid.0.to_string() == **txid
-            })
+            !existing_watchtower_proof_task
+                .iter()
+                .any(|task| task.challenge_txid.0.to_string() == **txid)
         })
         .cloned()
         .collect();
@@ -789,10 +789,10 @@ pub(crate) fn current_time_secs() -> i64 {
 mod tests {
     use std::str::FromStr;
 
-    use store::create_local_db;
-    use uuid::Uuid;
     use super::add_operator_task;
     use super::add_watchtower_task;
+    use store::create_local_db;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn test_add_watchtower_task() {
