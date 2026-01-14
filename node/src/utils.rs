@@ -1858,7 +1858,7 @@ pub async fn get_operator_proof(
                         .parameters
                         .watchtower_pubkeys
                         .iter()
-                        .map(|pk| pk.to_string())
+                        .map(|pk| pk.public_key(secp256k1::Parity::Even).to_string())
                         .collect(),
                 },
             )

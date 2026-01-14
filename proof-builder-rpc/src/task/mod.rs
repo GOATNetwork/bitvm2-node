@@ -695,7 +695,7 @@ pub(crate) async fn add_operator_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             execution_layer_block_number,
-            public_key: watchtower_challenge_pubkeys[node_index as usize].clone(),
+            public_key: watchtower_challenge_pubkeys[node_index as usize].clone(), // Note: this is a fake public key.
             node_index,
             ..Default::default()
         };
