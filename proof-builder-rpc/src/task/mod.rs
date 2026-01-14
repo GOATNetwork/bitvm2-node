@@ -667,7 +667,6 @@ pub(crate) async fn add_operator_task(
         .filter(|txid| {
             !existing_watchtower_proof_task.iter().any(|task| {
                 task.challenge_txid.0.to_string() == **txid
-                    && task.challenge_init_txid.0.to_string() == **txid
             })
         })
         .cloned()
@@ -792,9 +791,6 @@ mod tests {
 
     use store::create_local_db;
     use uuid::Uuid;
-
-    use crate::task::read_watchtower_challenge_details;
-
     use super::add_operator_task;
     use super::add_watchtower_task;
 
@@ -850,6 +846,7 @@ mod tests {
         .await
         .unwrap();
 
+        //use crate::task::read_watchtower_challenge_details;
         //let is_watchtower = false;
         //let bitcoin_network = bitcoin::Network::Regtest;
         //let esplora_url = "http://localhost:13002";
