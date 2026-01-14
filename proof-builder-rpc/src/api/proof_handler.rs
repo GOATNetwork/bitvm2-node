@@ -172,6 +172,8 @@ pub(super) async fn post_operator_proof_task(
                 payload.execution_layer_block_number,
                 payload.watchtower_challenge_txids.clone(),
                 payload.included_watchtowers.clone(),
+                payload.watchtower_challenge_init_txid.clone(),
+                payload.watchtower_challenge_pubkeys.clone(),
             )
             .await
             .api_error("POST_OPERATOR_PROOF_TASK_ERROR")?;

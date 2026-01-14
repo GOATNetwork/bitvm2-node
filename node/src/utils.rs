@@ -1759,7 +1759,7 @@ pub async fn get_watchtower_commitment(
 #[tracing::instrument(name = "get_watchtower_challenge_info", skip(btc_client))]
 pub async fn get_watchtower_challenge_info(
     btc_client: &BTCClient,
-    watchtower_challenge_init_txid: SerializableTxid,
+    watchtower_challenge_init_txid: &SerializableTxid,
     num_challenger: usize,
 ) -> Result<(Vec<String>, Vec<bool>)> {
     let challenge_finish_txids: Vec<Option<Txid>> = try_join_all((0..num_challenger).map(|i| {
@@ -1827,7 +1827,7 @@ pub async fn get_operator_proof(
         let (watchtower_challenge_txids, included_watchtowers) =
             match get_watchtower_challenge_info(
                 btc_client,
-                watchtower_challenge_init_txid,
+                &watchtower_challenge_init_txid,
                 num_challenger,
             )
             .await
@@ -1853,6 +1853,13 @@ pub async fn get_operator_proof(
                     execution_layer_block_number: graph.proceed_withdraw_height,
                     watchtower_challenge_txids,
                     included_watchtowers,
+                    watchtower_challenge_init_txid: watchtower_challenge_init_txid.0.to_string(),
+                    watchtower_challenge_pubkeys: bitvm_graph
+                        .parameters
+                        .watchtower_pubkeys
+                        .iter()
+                        .map(|pk| pk.to_string())
+                        .collect(),
                 },
             )
             .await?;
@@ -4558,7 +4565,7 @@ mod tests {
         let btc_client = BTCClient::new(get_network(), Some(&esplora_url));
 
         let result =
-            get_watchtower_challenge_info(&btc_client, init_txid, number_challenge).await.unwrap();
+            get_watchtower_challenge_info(&btc_client, &init_txid, number_challenge).await.unwrap();
         println!("result: {result:#?}");
     }
 }

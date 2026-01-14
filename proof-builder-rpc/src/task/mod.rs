@@ -22,7 +22,7 @@ use uuid::Uuid;
 use futures::future::Either;
 use proof_builder::{OnDemandTask, ProofBuilder};
 use store::localdb::LocalDB;
-use store::{LongRunningTaskProof, OperatorProof, ProofState, SerializableTxid, WatchtowerProof};
+use store::{LongRunningTaskProof, OperatorProof, ProofState, WatchtowerProof};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -254,7 +254,7 @@ async fn read_watchtower_challenge_details<'a>(
             .find_watchtower_proof_by_instance_and_graph(&task.instance_id, &task.graph_id)
             .await?;
         tracing::info!("watchtower info: {watchtower_info:?}");
-        let challenge_init_txids =
+        let challenge_init_txids: Vec<String> =
             watchtower_info.iter().map(|w| w.challenge_init_txid.0.to_string()).collect::<Vec<_>>();
         if challenge_init_txids.is_empty() {
             anyhow::bail!(
@@ -281,7 +281,7 @@ async fn read_watchtower_challenge_details<'a>(
         (
             task.id,
             task.execution_layer_block_number,
-            Some(challenge_init_txids[0].clone()),
+            challenge_init_txids.first().cloned(),
             challenge_txids,
             included_watchtowers,
             challenge_public_keys,
@@ -387,13 +387,20 @@ pub(crate) async fn fetch_on_demand_task(
         watchtower_public_keys,
         graph_id,
         btc_block_number,
-    ) = read_watchtower_challenge_details(
+    ) = match read_watchtower_challenge_details(
         &mut storage_processor,
         is_watchtower,
         bitcoin_network,
         esplora_url,
     )
-    .await?;
+    .await
+    {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Failed to read watchtower challenge details, error: {}", e);
+            return Ok(None);
+        }
+    };
 
     if !is_watchtower && btc_block_number == 0 {
         tracing::warn!("Watchtower challenge tx is not confirmed yet.");
@@ -655,6 +662,8 @@ pub(crate) async fn add_operator_task(
     execution_layer_block_number: i64,
     watchtower_challenge_txids: Vec<String>,
     included_watchtowers: Vec<bool>,
+    watchtower_challenge_init_txid: String,
+    watchtower_challenge_pubkeys: Vec<String>,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.start_transaction().await?;
 
@@ -664,12 +673,13 @@ pub(crate) async fn add_operator_task(
     tracing::info!("existing_watchtower_proof_task: {:?}", existing_watchtower_proof_task);
     let timeout_watchtower_challenge_txids: Vec<String> = watchtower_challenge_txids
         .iter()
-        .filter(|txid| {
+        .enumerate()
+        .filter(|(node_index, _)| {
             !existing_watchtower_proof_task
                 .iter()
-                .any(|task| task.challenge_txid.0.to_string() == **txid)
+                .any(|task| task.node_index as usize == *node_index)
         })
-        .cloned()
+        .map(|(_, txid)| txid.clone())
         .collect();
     tracing::info!("timeout_watchtower_challenge_txids: {:?}", timeout_watchtower_challenge_txids);
     // insert timeout watchtower proof task with failed state.
@@ -679,12 +689,13 @@ pub(crate) async fn add_operator_task(
             id: 1,
             instance_id,
             graph_id,
-            challenge_init_txid: SerializableTxid::default(),
+            challenge_init_txid: Txid::from_str(&watchtower_challenge_init_txid)?.into(),
             challenge_txid: Txid::from_str(txid)?.into(),
             proof_state: ProofState::Failed.to_i64(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             execution_layer_block_number,
+            public_key: watchtower_challenge_pubkeys[node_index as usize].clone(),
             node_index,
             ..Default::default()
         };

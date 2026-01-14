@@ -56,6 +56,8 @@ pub struct OperatorProofRequest {
     pub execution_layer_block_number: i64,
     pub watchtower_challenge_txids: Vec<String>,
     pub included_watchtowers: Vec<bool>,
+    pub watchtower_challenge_init_txid: String,
+    pub watchtower_challenge_pubkeys: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
