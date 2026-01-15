@@ -2635,7 +2635,7 @@ pub async fn operator_skip_graph(btc_client: &BTCClient, graph: &mut Bitvm2Graph
     let operator_graph_keypair = operator_master_key.master_keypair();
     let mut prekickoff_tx = operator_sign_prekickoff_input_0(operator_graph_keypair, graph)?;
     if prekickoff_tx.input.len() != 1 {
-        let operator_nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce);
+        let operator_nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce - 1);
         for i in 1..prekickoff_tx.input.len() {
             let input_value = graph.cur_prekickoff.input_amounts[i];
             node_sign(
