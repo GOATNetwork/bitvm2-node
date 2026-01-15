@@ -32,7 +32,6 @@ use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
-use store::ipfs::IPFS;
 use store::localdb::LocalDB;
 use store::{GraphStatus, MessageState};
 use tracing::warn;
@@ -308,7 +307,6 @@ pub async fn handle_self_p2p_msg(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     http_client: &HttpAsyncClient,
-    ipfs: &IPFS,
     actor: Actor,
     from_peer_id: PeerId,
     id: MessageId,
@@ -336,7 +334,6 @@ pub async fn handle_self_p2p_msg(
             btc_client,
             goat_client,
             http_client,
-            ipfs,
             actor.clone(),
             from_peer_id,
             id.clone(),
@@ -385,7 +382,6 @@ pub async fn recv_and_dispatch(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     http_client: &HttpAsyncClient,
-    _ipfs: &IPFS,
     actor: Actor,
     from_peer_id: PeerId,
     id: MessageId,
@@ -942,7 +938,7 @@ pub async fn recv_and_dispatch(
                 pub_nonces,
             )
             .await?;
-            // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to IPFS, broadcast GraphFinalize
+            // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to DB, broadcast GraphFinalize
             // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
             // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
             try_finalize_graph(
@@ -1107,7 +1103,7 @@ pub async fn recv_and_dispatch(
                 committee_partial_sigs,
             )
             .await?;
-            // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to IPFS, broadcast GraphFinalize
+            // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to DB, broadcast GraphFinalize
             // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
             // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
             try_finalize_graph(swarm, local_db, goat_client, instance_id, graph_id, None, true)
@@ -1195,7 +1191,7 @@ pub async fn recv_and_dispatch(
                 committee_sig_for_graph,
             )
             .await?;
-            // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to IPFS, broadcast GraphFinalize
+            // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to DB, broadcast GraphFinalize
             // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
             // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
             try_finalize_graph(
@@ -1224,7 +1220,7 @@ pub async fn recv_and_dispatch(
                 "Handle GraphFinalize for {instance_id}:{graph_id} from {}",
                 from_peer_id.to_string()
             );
-            // 1. check graph data & ipfs cid
+            // 1. check graph data
             if let Err(e) =
                 todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
             {
@@ -1327,7 +1323,7 @@ pub async fn recv_and_dispatch(
                 "Handle GraphFinalize for {instance_id}:{graph_id} from {}",
                 from_peer_id.to_string()
             );
-            // 1. check graph data & ipfs cid
+            // 1. check graph data
             if let Err(e) =
                 todo_funcs::validate_finalized_graph(goat_client, &graph, &endorse_sigs).await
             {

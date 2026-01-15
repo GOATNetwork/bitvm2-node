@@ -1,10 +1,4 @@
 use crate::api::ApiState;
-use crate::api::proofs::{
-    ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
-    OperatorProofTimeoutUpdateRequest, OperatorProofTimeoutUpdateResponse, ProofData, ProofDesc,
-    ProofDescResponse, ProofType, WatchtowerProofRequest, WatchtowerProofResponse,
-    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
-};
 use crate::api::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::api::validation::InputValidator;
 use crate::task::{
@@ -13,6 +7,13 @@ use crate::task::{
 };
 use axum::Json;
 use axum::extract::{Query, State};
+use proof_builder::{
+    ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRpcRequest,
+    OperatorProofRpcResponse, OperatorProofTimeoutUpdateRequest,
+    OperatorProofTimeoutUpdateResponse, ProofData, ProofDesc, ProofDescResponse, ProofType,
+    WatchtowerProofRpcRequest, WatchtowerProofRpcResponse, WatchtowerProofTimeoutUpdateRequest,
+    WatchtowerProofTimeoutUpdateResponse,
+};
 use std::sync::Arc;
 use store::ProofState;
 use tracing::info;
@@ -136,8 +137,8 @@ pub(super) async fn get_operator_proof_task_desc(
 #[axum::debug_handler]
 pub(super) async fn post_operator_proof_task(
     State(api_state): State<Arc<ApiState>>,
-    Json(payload): Json<OperatorProofRequest>,
-) -> ApiResult<OperatorProofResponse> {
+    Json(payload): Json<OperatorProofRpcRequest>,
+) -> ApiResult<OperatorProofRpcResponse> {
     let instance_id = InputValidator::validate_uuid(&payload.instance_id, "instance_id")?;
     let graph_id = InputValidator::validate_uuid(&payload.graph_id, "graph_id")?;
     let operator_proof = find_operator_task(&api_state.local_db, instance_id, graph_id)
@@ -148,7 +149,7 @@ pub(super) async fn post_operator_proof_task(
             if operator_proof.proof_state == ProofState::Proven.to_i64()
                 && operator_proof.path_to_proof.is_some() =>
         {
-            ok_response(OperatorProofResponse {
+            ok_response(OperatorProofRpcResponse {
                 proof_data: Some(ProofData::load_proof_data(
                     &operator_proof.path_to_proof.unwrap(),
                     ProofType::Operator,
@@ -156,7 +157,7 @@ pub(super) async fn post_operator_proof_task(
                 error: None,
             })
         }
-        Some(operator_proof) => ok_response(OperatorProofResponse {
+        Some(operator_proof) => ok_response(OperatorProofRpcResponse {
             proof_data: None,
             error: Some(format!(
                 "The proof is not ready, state {}, path:{:?}",
@@ -177,7 +178,7 @@ pub(super) async fn post_operator_proof_task(
             )
             .await
             .api_error("POST_OPERATOR_PROOF_TASK_ERROR")?;
-            ok_response(OperatorProofResponse {
+            ok_response(OperatorProofRpcResponse {
                 proof_data: None,
                 error: Some("No proof found".to_string()),
             })
@@ -218,8 +219,8 @@ pub(super) async fn update_operator_proof_task_timeout(
 #[axum::debug_handler]
 pub(super) async fn post_watchtower_proof_task(
     State(api_state): State<Arc<ApiState>>,
-    Json(payload): Json<WatchtowerProofRequest>,
-) -> ApiResult<WatchtowerProofResponse> {
+    Json(payload): Json<WatchtowerProofRpcRequest>,
+) -> ApiResult<WatchtowerProofRpcResponse> {
     let instance_id = InputValidator::validate_uuid(&payload.instance_id, "instance_id")?;
     let graph_id = InputValidator::validate_uuid(&payload.graph_id, "graph_id")?;
     let challenge_txid =
@@ -238,7 +239,7 @@ pub(super) async fn post_watchtower_proof_task(
             if watchtower_proof.proof_state == ProofState::Proven.to_i64()
                 && watchtower_proof.path_to_proof.is_some() =>
         {
-            ok_response(WatchtowerProofResponse {
+            ok_response(WatchtowerProofRpcResponse {
                 proof_data: Some(ProofData::load_proof_data(
                     &watchtower_proof.path_to_proof.unwrap(),
                     ProofType::Watchtower,
@@ -246,7 +247,7 @@ pub(super) async fn post_watchtower_proof_task(
                 error: None,
             })
         }
-        Some(watchtower_proof) => ok_response(WatchtowerProofResponse {
+        Some(watchtower_proof) => ok_response(WatchtowerProofRpcResponse {
             proof_data: None,
             error: Some(format!(
                 "No proof is not ready, state {}, path:{:?}",
@@ -266,7 +267,7 @@ pub(super) async fn post_watchtower_proof_task(
             )
             .await
             .api_error("POST_WATCHTOWER_PROOF_TASK_ERROR")?;
-            ok_response(WatchtowerProofResponse {
+            ok_response(WatchtowerProofRpcResponse {
                 proof_data: None,
                 error: Some("No proof found".to_string()),
             })

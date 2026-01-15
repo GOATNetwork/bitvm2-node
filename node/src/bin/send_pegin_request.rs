@@ -6,8 +6,6 @@
 //! - cancel: build, sign and broadcast the pegin refund transaction on Bitcoin
 //!
 
-use alloy::primitives::Address as EvmAddress;
-use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::{Result, anyhow};
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::EcdsaSighashType;
@@ -16,13 +14,11 @@ use bitcoin::{Network, TapSighashType, XOnlyPublicKey};
 use bitvm2_lib::types::Bitvm2InstanceParameters;
 use clap::{Parser, Subcommand};
 use client::btc_chain::BTCClient;
-use client::goat_chain::utils::get_gateway_relay_contracts;
-use client::goat_chain::{GOATClient, GoatInitConfig, GoatNetwork, Utxo as ClientUtxo};
+use client::goat_chain::{GOATClient, Utxo as ClientUtxo};
 use dotenv::dotenv;
 use goat::connectors::base::TaprootConnector;
 use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::pre_signed::{PreSignedTransaction, pre_sign_taproot_input_default};
-use reqwest::Url;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::time::Duration;
@@ -400,38 +396,4 @@ async fn action_cancel(
     broadcast_tx(btc_client, pegin_refund.tx()).await?;
     tracing::info!("Broadcasted pegin cancel/refund tx: {}", pegin_refund.tx().compute_txid());
     Ok(())
-}
-
-#[allow(dead_code)]
-async fn build_goat_client(
-    rpc_url: Url,
-    goat_network: GoatNetwork,
-    gateway_address: EvmAddress,
-    private_key: &str,
-) -> GOATClient {
-    let provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-    let chain_id = provider
-        .get_chain_id()
-        .await
-        .unwrap_or_else(|_| panic!("cannot get chain_id from {rpc_url}")) as u32;
-
-    let (committee_management_address, stake_management_address, btc_spv_address, peg_btc_address) =
-        get_gateway_relay_contracts(&provider, gateway_address)
-            .await
-            .expect("fail to get committee and stake management contract online addresses");
-
-    let cfg = GoatInitConfig {
-        rpc_url,
-        chain_id,
-        private_key: Some(private_key.to_string()),
-        gateway_address: Some(gateway_address),
-        sequencer_set_publisher_address: None,
-        committee_management_address: Some(committee_management_address),
-        stake_management_address: Some(stake_management_address),
-        multi_sig_verifier_address: None,
-        btc_spv_address: Some(btc_spv_address),
-        peg_btc_address: Some(peg_btc_address),
-    };
-
-    GOATClient::new(cfg, goat_network)
 }

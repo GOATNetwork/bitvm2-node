@@ -416,7 +416,7 @@ async fn push_sequencer_set_publish_tx(
 async fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
     let network = get_network();
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
-    let config = GoatInitConfig::new("https://rpc.testnet3.goat.network".parse::<Url>()?)
+    let config = GoatInitConfig::new(args.goat_rpc_url.parse::<Url>()?)
         .await?
         .with_sequencer_set_publisher_address(get_goat_address_from_env(
             ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS,

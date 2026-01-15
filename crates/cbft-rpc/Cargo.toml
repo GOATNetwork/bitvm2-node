@@ -9,9 +9,9 @@ serde_json = { workspace = true }
 hex = { workspace = true }
 base64 = { workspace = true }
 
-bitcoin-light-client-circuit = { workspace = true }
+#bitcoin-light-client-circuit = { workspace = true }
 state-chain = { workspace = true }
-commit-chain = { workspace = true }
+#commit-chain = { workspace = true }
 
 tendermint = { workspace = true, default-features = false, features = ["secp256k1"] }
 tendermint-light-client-verifier = { workspace = true, default-features = false, features = [

@@ -57,7 +57,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::ipfs::IPFS;
 use store::localdb::{
     GraphQuery, GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor,
 };
@@ -71,11 +70,6 @@ use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
 use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 use crate::env;
-use crate::rpc_service::proof::{
-    OperatorProofRequest, OperatorProofResponse, OperatorProofTimeoutUpdateRequest,
-    OperatorProofTimeoutUpdateResponse, ProofData, WatchtowerProofRequest, WatchtowerProofResponse,
-    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
-};
 use crate::rpc_service::routes::v1::{
     NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE, PROOFS_OPERATOR_PROOF_TIMEOUT,
     PROOFS_WATCHTOWER_PROOF_TIMEOUT,
@@ -88,6 +82,12 @@ use bitcoin_light_client_circuit::hash_operator_constant;
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
 use client::http_client::async_client::HttpAsyncClient;
+use proof_builder::{
+    OperatorProofRpcRequest, OperatorProofRpcResponse, OperatorProofTimeoutUpdateRequest,
+    OperatorProofTimeoutUpdateResponse, ProofData, WatchtowerProofRpcRequest,
+    WatchtowerProofRpcResponse, WatchtowerProofTimeoutUpdateRequest,
+    WatchtowerProofTimeoutUpdateResponse,
+};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 pub(crate) const BRIDGE_OUT_GLOBAL_STATS_ID: i64 = 1;
@@ -126,9 +126,7 @@ pub mod todo_funcs {
         // todo!("get min required watchtower number")
         1
     }
-    pub async fn publish_graph_to_ipfs(ipfs: &IPFS, graph: &Bitvm2Graph) -> Result<String> {
-        todo!("publish graph to ipfs")
-    }
+
     pub async fn validate_init_graph(
         local_db: &LocalDB,
         btc_client: &BTCClient,
@@ -1731,9 +1729,9 @@ pub async fn get_watchtower_commitment(
             NODES_WATCHTOWER_BASE
         );
         let response = http_client
-            .post_response_json::<WatchtowerProofResponse, WatchtowerProofRequest>(
+            .post_response_json::<WatchtowerProofRpcResponse, WatchtowerProofRpcRequest>(
                 &url,
-                &WatchtowerProofRequest {
+                &WatchtowerProofRpcRequest {
                     instance_id: instance_id.to_string(),
                     graph_id: graph_id.to_string(),
                     public_key: env::get_node_pubkey()?.to_string(),
@@ -1845,9 +1843,9 @@ pub async fn get_operator_proof(
             NODES_OPERATOR_BASE
         );
         let response = http_client
-            .post_response_json::<OperatorProofResponse, OperatorProofRequest>(
+            .post_response_json::<OperatorProofRpcResponse, OperatorProofRpcRequest>(
                 &url,
-                &OperatorProofRequest {
+                &OperatorProofRpcRequest {
                     instance_id: instance_id.to_string(),
                     graph_id: graph_id.to_string(),
                     execution_layer_block_number: graph.proceed_withdraw_height,
@@ -3265,14 +3263,6 @@ pub async fn get_bitvm2_graph_from_db(
     Err(anyhow!("graph:{graph_id} not found"))
 }
 
-pub async fn publish_graph_to_ipfs(
-    _ipfs: &IPFS,
-    _graph_id: Uuid,
-    _graph: &Bitvm2Graph,
-) -> Result<String> {
-    todo!("publish_graph_to_ipfs")
-}
-
 pub async fn get_graph_status(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -3754,7 +3744,6 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
         kickoff_index: graph_nonce as i64,
         from_addr: "".to_string(),
         to_addr: "".to_string(),
-        graph_ipfs_base_url: "".to_string(),
         amount: bitvm2_graph.parameters.instance_parameters.pegin_amount.to_sat() as i64,
         challenge_amount: bitvm2_graph.parameters.challenge_amount.to_sat() as i64,
         status,

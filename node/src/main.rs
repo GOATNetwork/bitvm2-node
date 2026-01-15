@@ -2,8 +2,8 @@
 use base64::Engine;
 use bitvm2_lib::actors::Actor;
 use bitvm2_noded::env::{
-    self, ENV_PEER_KEY, check_node_info, get_btc_url_from_env, get_goat_network, get_ipfs_url,
-    get_network, get_node_pubkey, goat_config_from_env,
+    self, ENV_PEER_KEY, check_node_info, get_btc_url_from_env, get_goat_network, get_network,
+    get_node_pubkey, goat_config_from_env,
 };
 use clap::{Parser, Subcommand};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
@@ -11,7 +11,6 @@ use libp2p::PeerId;
 use libp2p_metrics::Registry;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-use store::ipfs::IPFS;
 use tracing_subscriber::EnvFilter;
 
 use bitvm2_noded::utils::{
@@ -149,7 +148,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         btc_client: BTCClient::new(get_network(), get_btc_url_from_env().as_deref()),
         goat_client: GOATClient::new(env::goat_config_from_env().await, env::get_goat_network()),
         http_client: HttpAsyncClient::new(None),
-        ipfs: IPFS::new(&get_ipfs_url()),
     };
 
     let actor_clone1 = actor.clone();

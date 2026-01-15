@@ -1,9 +1,8 @@
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     BridgeOutGlobalStats, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance,
-    LongRunningTaskProof, Message, MessageBroadcast, Node, NodesOverview, OperatorProof,
-    PeginGraphProcessData, PeginInstanceProcessData, SerializableTxid, WatchContract,
-    WatchtowerProof,
+    LongRunningTaskProof, Message, Node, NodesOverview, OperatorProof, PeginGraphProcessData,
+    PeginInstanceProcessData, SerializableTxid, WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -502,7 +501,6 @@ pub struct GraphUpdate {
     pub graph_id: Uuid,
     pub status: Option<String>,
     pub sub_status: Option<String>,
-    pub ipfs_base_url: Option<String>,
     pub challenge_txid: Option<SerializableTxid>,
     pub disprove_txid: Option<SerializableTxid>,
     pub bridge_out_start_at: Option<i64>,
@@ -517,7 +515,6 @@ impl GraphUpdate {
             graph_id,
             status: None,
             sub_status: None,
-            ipfs_base_url: None,
             challenge_txid: None,
             disprove_txid: None,
             bridge_out_start_at: None,
@@ -534,12 +531,6 @@ impl GraphUpdate {
     /// Set sub_status
     pub fn with_sub_status(mut self, sub_status: String) -> Self {
         self.sub_status = Some(sub_status);
-        self
-    }
-
-    /// Set IPFS base URL
-    pub fn with_ipfs_base_url(mut self, ipfs_base_url: String) -> Self {
-        self.ipfs_base_url = Some(ipfs_base_url);
         self
     }
 
@@ -577,7 +568,6 @@ impl GraphUpdate {
     pub fn has_updates(&self) -> bool {
         self.status.is_some()
             || self.sub_status.is_some()
-            || self.ipfs_base_url.is_some()
             || self.challenge_txid.is_some()
             || self.disprove_txid.is_some()
             || self.bridge_out_start_at.is_some()
@@ -595,9 +585,6 @@ impl GraphUpdate {
         }
         if let Some(ref sub_status) = self.sub_status {
             query_builder.set_field("sub_status", QueryParam::Text(sub_status.clone()));
-        }
-        if let Some(ref ipfs_base_url) = self.ipfs_base_url {
-            query_builder.set_field("graph_ipfs_base_url", QueryParam::Text(ipfs_base_url.clone()));
         }
         if let Some(ref challenge_txid) = self.challenge_txid {
             query_builder.set_field("challenge_txid", QueryParam::BTCTxid(challenge_txid.clone()));
@@ -1114,19 +1101,18 @@ impl<'a> StorageProcessor<'a> {
             serde_json::to_string(&graph.assert_commit_timeout_txids)?;
         let res = sqlx::query!(
             "INSERT OR
-             REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, graph_ipfs_base_url, amount, challenge_amount,
+             REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, amount, challenge_amount,
                     status, sub_status, operator_pubkey, cur_prekickoff_txid, next_prekickoff, force_skip_kickoff_txid,
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, disprove_txid,  watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
                     bridge_out_start_at, zkm_version, status_updated_at, proceed_withdraw_height,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
             graph.from_addr,
             graph.to_addr,
-            graph.graph_ipfs_base_url,
             graph.amount,
             graph.challenge_amount,
             graph.status,
@@ -1211,7 +1197,6 @@ impl<'a> StorageProcessor<'a> {
                     kickoff_index,
                     from_addr,
                     to_addr,
-                    graph_ipfs_base_url,
                     amount,
                     challenge_amount,
                     status,
@@ -2078,20 +2063,6 @@ impl<'a> StorageProcessor<'a> {
             Some(row) => Ok((row.msg_times, row.updated_at)),
             None => Ok((0, 0)),
         }
-    }
-
-    pub async fn find_message_broadcasts(
-        &mut self,
-        graph_status: &str,
-    ) -> anyhow::Result<Vec<MessageBroadcast>> {
-        let records = sqlx::query_as!(
-            MessageBroadcast,
-            "SELECT graph_id AS \"graph_id:Uuid\", graph_status, msg_type, msg_times, created_at, updated_at
-            FROM message_broadcast
-            WHERE graph_status = ? ",
-            graph_status
-        ).fetch_all(self.conn()).await?;
-        Ok(records)
     }
 
     pub async fn add_message_broadcast_times(

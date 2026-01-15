@@ -4,17 +4,17 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bitcoin = { workspace = true, features = ["serde", "rand", "secp-recovery"] }
+#bitcoin = { workspace = true, features = ["serde", "rand", "secp-recovery"] }
 #secp256k1 = { version = "0.30.0" }
 
 bincode = "1.3.3"
 # workspace
 guest-executor = { workspace = true } 
-header-chain = { path = "../header-chain" }
+#header-chain = { path = "../header-chain" }
 
 # Ziren
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
-zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
+#zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
 #zkm-verifier = { path = "../../../Ziren/crates/verifier" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 

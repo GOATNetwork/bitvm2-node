@@ -5,12 +5,12 @@ edition.workspace = true
 
 [dependencies]
 bitcoin = { workspace = true, features = ["serde", "rand", "secp-recovery"] }
-#secp256k1 = { version = "0.30.0" }
+secp256k1 = { version = "0.30.0" }
 
 bincode = "1.3.3"
 # workspace
-guest-executor = { workspace = true } 
-header-chain = { path = "../header-chain" }
+#guest-executor = { workspace = true } 
+#header-chain = { path = "../header-chain" }
 
 # Ziren
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
@@ -22,7 +22,7 @@ zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", 
 tracing = { workspace = true, features = ["max_level_trace"] }
 
 alloy-primitives = { workspace = true, features = ["sha3-keccak", "map-foldhash", "serde"] }
-revm-database-interface = { workspace = true, features = ["serde"]}
+#revm-database-interface = { workspace = true, features = ["serde"]}
 
 #revm = { workspace = true, features = ["serde", "bn"], default-features = false }
 sha2 = "0.10.9"
@@ -34,7 +34,7 @@ base64 = "0.21"
 
 serde = { workspace = true, features = ["derive"] }
 
-cosmos-sdk-proto = { version = "0.27", default-features = false, features = ["serde"] }
+#cosmos-sdk-proto = { version = "0.27", default-features = false, features = ["serde"] }
 tendermint = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = ["secp256k1"] }
 tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = [
   "rust-crypto",

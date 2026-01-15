@@ -18,7 +18,7 @@ use bitvm2_lib::operator::{
     take1_timelock, take2_timelocks, watchtower_challenge_timeout_timelock,
 };
 use client::btc_chain::BTCClient;
-use client::goat_chain::{DisproveTxType, GOATClient};
+use client::goat_chain::DisproveTxType;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use store::localdb::{GraphUpdate, LocalDB, StorageProcessor};
@@ -406,13 +406,6 @@ where
 {
     serde_json::from_str(monitor_data)
         .map_err(|e| anyhow::anyhow!("Failed to parse monitor data: {e}"))
-}
-
-#[allow(dead_code)]
-pub async fn get_initialized_graphs(goat_client: &GOATClient) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
-    // call L2 contract : getInitializedInstanceIds
-    // returns Vec<(instance_id, graph_id)>
-    goat_client.gateway_get_initialized_ids().await
 }
 
 pub async fn get_user_init_withdraw_graphs<'a>(

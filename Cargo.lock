@@ -2407,7 +2407,6 @@ dependencies = [
  "tracing",
  "zkm-primitives",
  "zkm-verifier",
- "zkm-zkvm",
 ]
 
 [[package]]
@@ -2571,11 +2570,9 @@ dependencies = [
  "bincode",
  "bitcoin 0.31.2",
  "bitcoin 0.32.8",
- "bitcoin-light-client-circuit",
  "bitcoin-script",
  "bitcoincore-rpc",
  "bitvm",
- "clap",
  "client",
  "esplora-client",
  "goat",
@@ -2615,7 +2612,7 @@ dependencies = [
  "clap",
  "client",
  "commit-chain",
- "dirs",
+ "dirs 6.0.0",
  "dotenv",
  "esplora-client",
  "futures",
@@ -2624,15 +2621,16 @@ dependencies = [
  "http 1.4.0",
  "http-body-util",
  "indexmap 2.13.0",
- "indicatif",
+ "indicatif 0.18.3",
  "libp2p",
  "libp2p-metrics",
  "libp2p-swarm-derive",
  "musig2",
  "once_cell",
  "prometheus-client",
+ "proof-builder",
  "rand 0.8.5",
- "reqwest 0.12.28",
+ "reqwest 0.11.27",
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
@@ -2921,10 +2919,8 @@ version = "0.3.1"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
- "bitcoin-light-client-circuit",
- "commit-chain",
  "hex",
- "reqwest 0.12.28",
+ "reqwest 0.11.27",
  "serde_json",
  "state-chain",
  "tendermint",
@@ -3078,11 +3074,10 @@ dependencies = [
  "esplora-client",
  "hex",
  "rand 0.8.5",
- "reqwest 0.12.28",
+ "reqwest 0.11.27",
  "serde",
  "serde_json",
  "strum 0.26.3",
- "tempfile",
  "tokio",
  "tracing",
  "uuid 1.19.0",
@@ -3166,15 +3161,12 @@ dependencies = [
  "bitcoin 0.32.8",
  "blake3",
  "borsh",
- "cosmos-sdk-proto",
- "guest-executor",
- "header-chain",
  "hex",
  "prost 0.13.5",
  "prost-build 0.13.5",
  "prost-derive 0.13.5",
  "rand 0.8.5",
- "revm-database-interface",
+ "secp256k1 0.30.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3196,7 +3188,6 @@ dependencies = [
  "bincode",
  "bitcoin 0.32.8",
  "borsh",
- "cbft-rpc",
  "chrono",
  "clap",
  "client",
@@ -3205,7 +3196,6 @@ dependencies = [
  "futures-util",
  "hex",
  "lazy_static",
- "logroller",
  "proof-builder",
  "serde",
  "serde_json",
@@ -3214,7 +3204,6 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "zkm-build",
  "zkm-prover",
@@ -3242,6 +3231,19 @@ dependencies = [
  "once_cell",
  "unicode-width",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "console"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03e45a4a8926227e4197636ba97a9fc9b00477e9f4bd711395687c5f0734bec4"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "unicode-width",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3865,7 +3867,16 @@ version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.4.1",
+]
+
+[[package]]
+name = "dirs"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+dependencies = [
+ "dirs-sys 0.5.0",
 ]
 
 [[package]]
@@ -3886,8 +3897,20 @@ checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
 dependencies = [
  "libc",
  "option-ext",
- "redox_users",
+ "redox_users 0.4.6",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users 0.5.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3897,7 +3920,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ebda144c4fe02d1f7ea1a7d9641b6fc6b580adcfa024ae48797ecdeb6825b4d"
 dependencies = [
  "libc",
- "redox_users",
+ "redox_users 0.4.6",
  "winapi",
 ]
 
@@ -4492,7 +4515,7 @@ checksum = "66244a771d9163282646dbeffe0e6eca4dda4146b6498644e678ac6089b11edd"
 dependencies = [
  "cfg-if",
  "const-hex",
- "dirs",
+ "dirs 5.0.1",
  "dunce",
  "ethers-core",
  "glob",
@@ -5343,14 +5366,12 @@ dependencies = [
  "header-chain",
  "hex",
  "lazy_static",
- "logroller",
  "proof-builder",
  "rand 0.8.5",
  "serde",
  "sha2 0.10.9",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "util",
  "zkm-build",
@@ -5761,22 +5782,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyper-tls"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper 1.8.1",
- "hyper-util",
- "native-tls",
- "tokio",
- "tokio-native-tls",
- "tower-service",
-]
-
-[[package]]
 name = "hyper-util"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5795,11 +5800,9 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "socket2 0.6.1",
- "system-configuration 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
- "windows-registry",
 ]
 
 [[package]]
@@ -6061,10 +6064,23 @@ version = "0.17.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
 dependencies = [
- "console",
+ "console 0.15.11",
  "number_prefix",
  "portable-atomic",
  "unicode-width",
+ "web-time",
+]
+
+[[package]]
+name = "indicatif"
+version = "0.18.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9375e112e4b463ec1b1c6c011953545c65a30164fbab5b581df32b3abf0dcb88"
+dependencies = [
+ "console 0.16.2",
+ "portable-atomic",
+ "unicode-width",
+ "unit-prefix",
  "web-time",
 ]
 
@@ -6948,19 +6964,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "logroller"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83db12bbf439ebe64c0b0e4402f435b6f866db498fc1ae17e1b5d1a01625e2be"
-dependencies = [
- "chrono",
- "flate2",
- "regex",
- "thiserror 1.0.69",
- "tracing-subscriber 0.3.22",
-]
-
-[[package]]
 name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7084,16 +7087,6 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
-
-[[package]]
-name = "mime_guess"
-version = "2.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
-dependencies = [
- "mime",
- "unicase",
-]
 
 [[package]]
 name = "minimal-lexical"
@@ -7857,7 +7850,6 @@ dependencies = [
  "bitcoin-script",
  "bitvm2-lib",
  "borsh",
- "cbft-rpc",
  "chrono",
  "clap",
  "client",
@@ -7867,12 +7859,9 @@ dependencies = [
  "guest-executor",
  "header-chain",
  "hex",
- "host-executor",
  "lazy_static",
- "logroller",
  "primitives",
  "proof-builder",
- "provider",
  "reth-chainspec",
  "serde",
  "serde_json",
@@ -7880,7 +7869,6 @@ dependencies = [
  "state-chain",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "url",
  "util",
@@ -8995,12 +8983,12 @@ version = "0.3.1"
 dependencies = [
  "anyhow",
  "bitcoin 0.32.8",
- "bitcoin-light-client-circuit",
  "commit-chain",
  "header-chain",
  "serde",
  "sha2 0.10.9",
  "state-chain",
+ "strum 0.26.3",
  "thiserror 1.0.69",
  "zkm-prover",
  "zkm-sdk",
@@ -9217,18 +9205,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
 dependencies = [
  "prost 0.14.3",
-]
-
-[[package]]
-name = "provider"
-version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor?branch=feat%2Fslot-state-check#3acc2f71b15468ff60ff518553f7d94e57da72f5"
-dependencies = [
- "alloy-json-rpc 1.0.41",
- "alloy-provider 1.0.41",
- "alloy-rpc-client 1.0.41",
- "alloy-transport 1.0.41",
- "url",
 ]
 
 [[package]]
@@ -9494,6 +9470,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_users"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
+dependencies = [
+ "getrandom 0.2.17",
+ "libredox",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ref-cast"
 version = "1.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9559,7 +9546,7 @@ dependencies = [
  "http-body 0.4.6",
  "hyper 0.14.32",
  "hyper-rustls 0.24.2",
- "hyper-tls 0.5.0",
+ "hyper-tls",
  "ipnet",
  "js-sys",
  "log",
@@ -9599,22 +9586,15 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-core",
- "futures-util",
- "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.8.1",
  "hyper-rustls 0.27.7",
- "hyper-tls 0.6.0",
  "hyper-util",
  "js-sys",
  "log",
- "mime",
- "mime_guess",
- "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -9625,16 +9605,13 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper 1.0.2",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.26.4",
- "tokio-util",
  "tower 0.5.3",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
  "web-sys",
  "webpki-roots 1.0.5",
 ]
@@ -11604,12 +11581,10 @@ dependencies = [
  "alloy-primitives",
  "base64 0.21.7",
  "bincode",
- "bitcoin 0.32.8",
  "blake3",
  "borsh",
  "cosmos-sdk-proto",
  "guest-executor",
- "header-chain",
  "hex",
  "pbjson",
  "pbjson-build",
@@ -11626,7 +11601,6 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "zkm-verifier",
- "zkm-zkvm",
 ]
 
 [[package]]
@@ -11651,7 +11625,6 @@ dependencies = [
  "hex",
  "host-executor",
  "lazy_static",
- "logroller",
  "primitives",
  "proof-builder",
  "reth-chainspec",
@@ -11661,7 +11634,6 @@ dependencies = [
  "state-chain",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "url",
  "util",
@@ -11689,20 +11661,16 @@ version = "0.3.1"
 dependencies = [
  "anyhow",
  "bitcoin 0.32.8",
- "futures",
  "hex",
  "indexmap 2.13.0",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sqlx",
  "strum 0.26.3",
  "tempfile",
  "tokio",
- "tokio-util",
  "tracing",
  "uuid 1.19.0",
- "walkdir",
 ]
 
 [[package]]
@@ -11853,7 +11821,7 @@ version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11297baafe5fa0c99d5722458eac6a5e25c01eb1b8e5cd137f54079093daa7a4"
 dependencies = [
- "dirs",
+ "dirs 5.0.1",
  "fs2",
  "hex",
  "once_cell",
@@ -12626,18 +12594,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-appender"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
-dependencies = [
- "crossbeam-channel",
- "thiserror 2.0.17",
- "time",
- "tracing-subscriber 0.3.22",
-]
-
-[[package]]
 name = "tracing-attributes"
 version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12848,12 +12804,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
-name = "unicase"
-version = "2.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
-
-[[package]]
 name = "unicode-bidi"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12897,6 +12847,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unit-prefix"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81e544489bf3d8ef66c953931f56617f423cd4b5494be343d9b9d3dda037b9a3"
 
 [[package]]
 name = "universal-hash"
@@ -13217,7 +13173,6 @@ dependencies = [
  "header-chain",
  "hex",
  "lazy_static",
- "logroller",
  "proof-builder",
  "serde",
  "serde_json",
@@ -13225,7 +13180,6 @@ dependencies = [
  "state-chain",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "zkm-build",
  "zkm-prover",
@@ -13425,17 +13379,6 @@ name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
-
-[[package]]
-name = "windows-registry"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02752bf7fbdcce7f2a27a742f798510f3e5ad88dbe84871e5168e2120c3d5720"
-dependencies = [
- "windows-link",
- "windows-result 0.4.1",
- "windows-strings",
-]
 
 [[package]]
 name = "windows-result"
@@ -14199,7 +14142,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "clap",
- "dirs",
+ "dirs 5.0.1",
  "eyre",
  "itertools 0.13.0",
  "lru 0.12.5",
@@ -14364,12 +14307,12 @@ dependencies = [
  "async-trait",
  "bincode",
  "cfg-if",
- "dirs",
+ "dirs 5.0.1",
  "ethers",
  "futures",
  "hashbrown 0.14.5",
  "hex",
- "indicatif",
+ "indicatif 0.17.11",
  "itertools 0.13.0",
  "log",
  "num-bigint 0.4.6",

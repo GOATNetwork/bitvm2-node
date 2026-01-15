@@ -17,9 +17,11 @@ zkm-verifier.workspace = true
 #
 header-chain.workspace = true
 commit-chain.workspace = true
-bitcoin-light-client-circuit.workspace = true
+#bitcoin-light-client-circuit.workspace = true
 state-chain.workspace = true
 bitcoin = { workspace = true }
+
+strum = { workspace = true, features = ["derive"] }
 
 [lints]
 workspace = true

@@ -8,15 +8,6 @@ pub const ALIVE_TIME_JUDGE_THRESHOLD: i64 = 4 * 3600;
 pub const NODE_STATUS_ONLINE: &str = "Online";
 pub const NODE_STATUS_OFFLINE: &str = "Offline";
 
-/// node_overview
-#[derive(Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct NodeListRequest {
-    pub actor: String,
-    pub offset: u32,
-    pub limit: u32,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct NodeQueryParams {
     pub actor: Option<String>,

@@ -16,6 +16,8 @@ CREATE TABLE watchtower_proof
     `proof_state`         BIGINT NOT NULL DEFAULT 0 CHECK (proof_state IN (0, 1, 2, 3)),
     `total_time_to_proof` BIGINT NOT NULL DEFAULT 0,
     `proving_time`        BIGINT NOT NULL DEFAULT 0,
+    `node_index` INTEGER NOT NULL DEFAULT 0,
+    `included` BOOLEAN NOT NULL DEFAULT 0,
     `zkm_version`         TEXT   NOT NULL DEFAULT '',
     `extra`               TEXT,
     `created_at`          BIGINT NOT NULL DEFAULT 0,

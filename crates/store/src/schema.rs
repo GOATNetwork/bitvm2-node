@@ -394,7 +394,6 @@ pub struct Graph {
     pub kickoff_index: i64,
     pub from_addr: String,
     pub to_addr: String, //operator_receive_address
-    pub graph_ipfs_base_url: String,
     pub amount: i64,
     pub challenge_amount: i64,
     pub status: String,     // GraphStatus
@@ -519,16 +518,6 @@ pub enum MessageType {
     SyncGraphRequest,
     SyncGraph,
     InstanceDiscarded,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct MessageBroadcast {
-    pub graph_id: Uuid,
-    pub graph_status: String,
-    pub msg_type: String,
-    pub msg_times: i64,
-    pub updated_at: i64,
-    pub created_at: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]

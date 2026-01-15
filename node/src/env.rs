@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::action::NodeInfo;
 use alloy::primitives::Address as EvmAddress;
 use alloy::primitives::Address;
@@ -56,12 +55,10 @@ pub const ENV_BITVM_SECRET: &str = "BITVM_SECRET";
 pub const ENV_PEER_KEY: &str = "PEER_KEY";
 pub const ENV_PROOF_SEVER_URL: &str = "PROOF_SEVER_URL";
 pub const ENV_ACTOR: &str = "ACTOR";
-pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
 pub const ENV_EXTERNAL_SOCKET_ADDR: &str = "EXTERNAL_SOCKET_ADDR";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
 pub const ASSERT_COMMITS_CACHE_DIR: &str = "cache/assert_commits_cache/";
-pub const IPFS_GRAPH_CACHE_DIR: &str = "cache/graph_cache/";
 pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
 pub const MAX_CUSTOM_INPUTS: usize = 100;
 
@@ -190,11 +187,6 @@ pub fn get_peer_id() -> String {
     ))
     .expect("failed to gen keypair");
     key_pair.public().to_peer_id().to_string()
-}
-
-pub fn get_ipfs_url() -> String {
-    let default_url: &str = "http://44.229.236.82:5001";
-    std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
 }
 
 pub fn is_relayer() -> bool {

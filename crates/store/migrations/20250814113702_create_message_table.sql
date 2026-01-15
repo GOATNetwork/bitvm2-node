@@ -11,6 +11,7 @@ CREATE TABLE message
     `state`           TEXT   NOT NULL DEFAULT 'pending',
     `lock_time_until` BIGINT NOT NULL DEFAULT 0,
     `weight`          BIGINT NOT NULL DEFAULT 0,
+    `message_version` BIGINT NOT NULL DEFAULT 0,
     `created_at`      BIGINT NOT NULL DEFAULT 0,
     `updated_at`      BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (`message_id`)

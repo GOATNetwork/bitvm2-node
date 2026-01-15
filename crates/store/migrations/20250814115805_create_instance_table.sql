@@ -25,5 +25,10 @@ CREATE TABLE instance
     `parameters`         TEXT,
     `created_at`         BIGINT          NOT NULL DEFAULT 0,
     `updated_at`         BIGINT          NOT NULL DEFAULT 0,
+    `escrow_hash` TXET,
+    `bridge_out_lock_time` BIGINT NOT NULL DEFAULT 0,
+    `post_pegin_txhash` TEXT,
+    `status_updated_at` BIGINT NOT NULL DEFAULT 0,
+    `bridge_out_amount` TEXT NOT NULL DEFAULT '0',
     PRIMARY KEY (`instance_id`)
 );

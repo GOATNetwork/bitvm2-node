@@ -1,7 +1,7 @@
 use thiserror::Error;
 
-#[allow(dead_code)]
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum SpecialError {
     #[error("Invalid Pegin Request: {0}")]
     InvalidPeginRequest(String),

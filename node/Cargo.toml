@@ -71,7 +71,7 @@ tokio-util = "0.7.15"
 
 http-body-util = "0.1"
 axum = { workspace = true, features = ["macros", "json"] }
-reqwest = { version = "0.12.15", features = ["json"] }
+reqwest = { workspace = true, features = ["json"] }
 tower-http = { version = "0.6.2", features = ["cors", "trace"] }
 http = { workspace = true }
 stun-client = "0.1.4"
@@ -94,12 +94,12 @@ once_cell = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-groth16 = { workspace = true }
 
-indicatif = "0.17.8"
-dirs = "5.0.1"
+indicatif.workspace = true
+dirs.workspace = true 
 
 zkm-sdk = { workspace = true }
 zkm-verifier = { workspace = true }
-borsh = {version = "1.5.3", features = ["derive"] }
+borsh = { workspace = true, features = ["derive"] }
 
 util = { workspace = true }
 bitvm = { workspace = true }
@@ -110,6 +110,8 @@ client = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 commit-chain = { workspace = true }
 cbft-rpc = { workspace = true }
+proof-builder = { workspace = true }
+
 [features]
 default = []
 tests = []
