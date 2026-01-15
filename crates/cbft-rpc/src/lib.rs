@@ -140,12 +140,12 @@ mod tests {
     async fn test_fetch_validators() {
         let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
             .unwrap_or("https://rpc.testnet3.goat.network/goat-rpc".to_string());
-        let evm_block_number = 9511050;
+        let evm_block_number = 10508093;
         let (sequencer_hash, block_number, _) =
             fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number, None).await.unwrap();
 
-        info!("hex sequencer_hash: {}", hex::encode(sequencer_hash));
-        info!("cosmos block number: {}", block_number);
+        println!("hex sequencer_hash: {}", hex::encode(sequencer_hash));
+        println!("cosmos block number: {}", block_number);
 
         let validators = fetch_validators(&cosmos_rpc_url, block_number).await.unwrap();
         let validators_info: Vec<commit_chain::SequencerInfo> =

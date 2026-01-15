@@ -407,35 +407,16 @@ pub(crate) async fn fetch_on_demand_task(
         return Ok(None);
     }
 
-    let header_chain_input_proof = if btc_block_number > 0 {
-        match storage_processor
-            .find_long_running_task_proof_including_block_number(
-                btc_block_number,
-                HeaderChainProofBuilder::name(),
-            )
-            .await?
-        {
-            Some(d) => d,
-            None => {
-                tracing::warn!(
-                    "Header chain input proof is not ready for block: {btc_block_number}"
-                );
-                return Ok(None);
-            }
+    // If we finish the sequencer set commitment shortly, the latest commit txid is confirmed after `btc_block_number`, and leads to the latest_commit_txid not included in header chain proof.
+    let header_chain_input_proof = match storage_processor
+        .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
+        .await?
+    {
+        Some(d) => d,
+        None => {
+            tracing::warn!("Header chain input proof is not ready");
+            return Ok(None);
         }
-    } else {
-        let header_chain_input_proof = match storage_processor
-            .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
-            .await?
-        {
-            Some(d) => d,
-            None => {
-                tracing::warn!("Header chain input proof is not ready");
-                return Ok(None);
-            }
-        };
-        tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
-        header_chain_input_proof
     };
     tracing::info!("header_chain_input_proof: {header_chain_input_proof:?}");
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();

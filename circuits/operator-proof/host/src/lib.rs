@@ -385,6 +385,8 @@ mod tests {
     use ark_bn254::Bn254;
 
     use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+    use commit_chain::{CommitChainCircuitOutput, sequencer_hash};
+    use zkm_sdk::ZKMPublicValues;
     use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
     #[tokio::test]

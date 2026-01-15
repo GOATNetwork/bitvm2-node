@@ -42,6 +42,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::str::FromStr;
+use util::hex_parse;
 
 pub fn decode_btc_public_keys(pubkey: &str) -> Result<secp256k1::PublicKey, String> {
     secp256k1::PublicKey::from_str(pubkey.trim())
@@ -165,6 +166,8 @@ enum Commands {
         publisher_btc_pubkeys: Vec<secp256k1::PublicKey>,
         #[arg(long, env = "NEXT_PUBLISHER_BTC_PUBKEYS", value_delimiter = ',', value_parser = decode_btc_public_keys)]
         next_publisher_btc_pubkeys: Vec<secp256k1::PublicKey>,
+        #[arg(long, env = "GOAT_GENESIS_BLOCK_HASH", value_parser = hex_parse::<32>)]
+        goat_genesis_block_hash: [u8; 32],
     },
     PushSeq {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
@@ -177,6 +180,8 @@ enum Commands {
         next_publisher_btc_pubkeys: Vec<secp256k1::PublicKey>,
         #[arg(long, default_value_t = false)]
         init_genesis: bool,
+        #[arg(long, env = "GOAT_GENESIS_BLOCK_HASH", value_parser = hex_parse::<32>)]
+        goat_genesis_block_hash: [u8; 32],
         #[arg(long)]
         commit_info: String,
     },
@@ -266,9 +271,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             goat_block_number,
             publisher_btc_pubkeys,
             next_publisher_btc_pubkeys,
+            goat_genesis_block_hash,
         } => {
-            let (sequencer_set_hash, _, goat_block_hash) =
+            let (sequencer_set_hash, cl_block_number, _) =
                 fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None).await?;
+            println!("cl block number: {cl_block_number}, el block number: {goat_block_number}");
 
             let fee_tx = cached_output.fee_tx.unwrap();
             let update_connector = cached_output.update_connector;
@@ -282,7 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fee_tx,
                 update_connector,
                 sequencer_set_hash,
-                goat_block_hash,
+                goat_genesis_block_hash,
                 goat_block_number,
             )
             .await
@@ -293,9 +300,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             publisher_btc_pubkeys,
             next_publisher_btc_pubkeys,
             init_genesis,
+            goat_genesis_block_hash,
             commit_info,
         } => {
-            let (sequencer_set_hash, cosmos_block_number, goat_block_hash) =
+            println!("goat genesis block hash: {:#?}", hex::encode(goat_genesis_block_hash));
+            let (sequencer_set_hash, cosmos_block_number, _) =
                 fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None).await?;
 
             let sequencers = fetch_validators(&args.cosmos_rpc_url, cosmos_block_number).await?;
@@ -312,7 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 update_connector,
                 goat_block_number,
                 sequencer_set_hash,
-                goat_block_hash,
+                goat_genesis_block_hash,
                 output_file,
             )
             .await?;
@@ -407,6 +416,10 @@ async fn push_sequencer_set_publish_tx(
 
     println!("Sequencer set publish txid: {:#?}", sequencer_set_publish_tx.compute_txid());
     println!("Sequencer set publish: {sequencer_set_publish_tx:#?}");
+    println!(
+        "Sequencer set publish hex: {}",
+        hex::encode(bitcoin::consensus::encode::serialize(sequencer_set_publish_tx))
+    );
     broadcast_tx(btc_client, sequencer_set_publish_tx).await?;
     wait_tx_confirmation(btc_client, &sequencer_set_publish_tx.compute_txid(), 3, 1000).await?;
     println!("Sequencer set publish tx confirmed");
@@ -416,7 +429,7 @@ async fn push_sequencer_set_publish_tx(
 async fn init_clients(args: &Args) -> Result<(BTCClient, GOATClient), anyhow::Error> {
     let network = get_network();
     let btc_client = BTCClient::new(network, Some(&args.esplora_url));
-    let config = GoatInitConfig::new("https://rpc.testnet3.goat.network".parse::<Url>()?)
+    let config = GoatInitConfig::new(args.goat_rpc_url.parse::<Url>()?)
         .await?
         .with_sequencer_set_publisher_address(get_goat_address_from_env(
             ENV_GOAT_SEQUENCER_SET_PUBLISHER_CONTRACT_ADDRESS,
@@ -459,7 +472,7 @@ async fn action_push_sequencer_set_update(
     update_connector_outpoint: Option<OutPoint>,
     goat_block_number: u64,
     sequencer_set_hash: [u8; 32],
-    goat_block_hash: [u8; 32],
+    goat_genesis_block_hash: [u8; 32],
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let witnesses = goat_client.ss_get_sequencer_set_update_witness(goat_block_number).await?;
@@ -522,7 +535,7 @@ async fn action_push_sequencer_set_update(
     // Skip construction of the genesis tx
     let mut commitment = [0u8; 64];
     commitment[0..32].copy_from_slice(&sequencer_set_hash);
-    commitment[32..].copy_from_slice(&goat_block_hash[0..32]);
+    commitment[32..].copy_from_slice(&goat_genesis_block_hash[0..32]);
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,
         &update_connector,
@@ -567,7 +580,7 @@ async fn action_sign_sequencer_set_update(
     fee_tx_outpoint: OutPoint,
     update_connector: Option<OutPoint>,
     sequencer_set_hash: [u8; 32],
-    goat_block_hash: [u8; 32],
+    goat_genesis_block_hash: [u8; 32],
     goat_block_number: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let total = btc_public_keys.len();
@@ -586,7 +599,7 @@ async fn action_sign_sequencer_set_update(
     let replenish_fee = Amount::from_sat(replenish_fee.ceil() as u64);
     let mut commitment = [0u8; 64];
     commitment[0..32].copy_from_slice(&sequencer_set_hash);
-    commitment[32..].copy_from_slice(&goat_block_hash[0..32]);
+    commitment[32..].copy_from_slice(&goat_genesis_block_hash[0..32]);
 
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,

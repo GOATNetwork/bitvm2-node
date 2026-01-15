@@ -275,3 +275,30 @@ impl ProofBuilder for CommitChainProofBuilder {
         Ok((public_value_hex, proof_size))
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use tracing::info;
+
+    #[test]
+    #[ignore = "local test"]
+    fn test_parse_commit_chain_proof() {
+        let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/commit-chain/10-1.bin.public_inputs.bin";
+        let proof_bytes = std::fs::read(proof_path).unwrap();
+        let mut pis = zkm_sdk::ZKMPublicValues::from(&proof_bytes);
+        let public_input: CommitChainCircuitOutput = pis.read();
+        let hash = sequencer_hash(&public_input.chain_state.sequencers);
+        println!("proof: {public_input:?}, hash : {:?}", hash);
+
+        //let input_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/commit-chain/commit_info.json.8";
+        let input_path = "/home/ubuntu/data/stephen/bitvm2-node/circuits/data/commit-chain/commit_info.json.latest";
+        let input_bytes = std::fs::read(input_path).unwrap();
+        let commit_info: CommitInfo = serde_json::from_slice(&input_bytes).unwrap();
+        info!("commit info: {:?}", commit_info);
+        let hash_expected = sequencer_hash(&commit_info.sequencers);
+        info!("hash expected: {:?}", hash_expected);
+        assert_eq!(hash, hash_expected);
+    }
+}
