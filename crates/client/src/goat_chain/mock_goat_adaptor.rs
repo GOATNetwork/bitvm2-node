@@ -79,7 +79,7 @@ impl ChainAdaptor for MockAdaptor {
     }
 
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
-        info!("call is_tx_execute_success");
+        info!("call get_tx_receipt");
         Ok(if let Ok(tx_receipt) = self.tx_receipts.lock() {
             tx_receipt.get(tx_hash).cloned()
         } else {
