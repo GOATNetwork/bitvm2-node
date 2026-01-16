@@ -4559,7 +4559,7 @@ mod tests {
         let init_txid =
             Txid::from_str("2bb03cb075c95d94c298d139242bcd42c366b7105df34591e77e3ac11ac29386")
                 .unwrap();
-        let init_txid = SerializableTxid(init_txid.into());
+        let init_txid = SerializableTxid(init_txid);
         let number_challenge = 2;
         let esplora_url = "http://localhost:13002".to_string();
         let btc_client = BTCClient::new(get_network(), Some(&esplora_url));
