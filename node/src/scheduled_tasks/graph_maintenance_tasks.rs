@@ -949,27 +949,29 @@ async fn process_watchtower_challenge_monitoring(
             out_monitor.height
         );
 
-        if !is_blockhash_commit_timeout
-            && vout_monitor_data.commit_blockhash_status
-                == CommitBlockHashStatus::WatchtowerChallengeProcessed
-        {
-            if let Some(spend_txid) = outpoint_spent_txid(
+        // 1) Prefer detecting operator commit first; if found, skip timeout handling
+        if vout_monitor_data.commit_blockhash_status != CommitBlockHashStatus::OperatorCommit
+            && let Some(spend_txid) = outpoint_spent_txid(
                 btc_client,
                 &watchtower_challenge_init_txid,
                 (out_monitor.vout_len - CONNECTOR_G_MARGIN) as u64,
             )
             .await?
-                && blockhash_commit_timeout_txid != spend_txid
-            {
-                info!(
-                    "graph id :{} sub status update to CommitBlockHashStatus::OperatorCommit",
-                    graph.graph_id
-                );
-                vout_monitor_data.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
-                sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
-                data_change = true;
-            }
-        } else if is_blockhash_commit_timeout {
+            && blockhash_commit_timeout_txid != spend_txid
+        {
+            info!(
+                "graph id :{} sub status update to CommitBlockHashStatus::OperatorCommit",
+                graph.graph_id
+            );
+            vout_monitor_data.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
+            sub_status.commit_blockhash_status = CommitBlockHashStatus::OperatorCommit;
+            data_change = true;
+        }
+
+        // 2) Mark timeout only when commit is absent and timelock has passed
+        if is_blockhash_commit_timeout
+            && vout_monitor_data.commit_blockhash_status != CommitBlockHashStatus::OperatorCommit
+        {
             info!(
                 "graph id :{} sub status update to CommitBlockHashStatus::OperatorCommitTimeout",
                 graph.graph_id
