@@ -42,6 +42,7 @@ pub(crate) fn spawn_operator_proof_task(
                         args.header_chain_input_proof = next_task.header_chain_input_proof;
                         args.commit_chain_input_proof = next_task.commit_chain_input_proof;
                         args.state_chain_input_proof = next_task.state_chain_input_proof;
+                        args.operator_blockhash_commit_txid = next_task.operator_blockhash_commit_txid.unwrap();
                         args.graph_id = next_task.graph_id.unwrap();
                         args.output = format!("{}/{}.bin",
                             std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
@@ -61,17 +62,20 @@ pub(crate) fn spawn_operator_proof_task(
                     info!("Operator proof generate task: generate proof, args: {args:?}");
 
                     let (
-                        block_pos,
-                        target_block,
+                        block_pos_ss_commit,
+                        target_block_ss_commit,
+                        block_pos_operator_blockhash,
+                        target_block_operator_blockhash,
                         operator_latest_sequencer_commit_txn,
+                        operator_blockhash_commit_txn,
                         watchtower_challenge_txns,
                         watchtower_challenge_txn_prev_outs,
-                        watchtower_challenge_txn_prev_indices,
                         watchtower_challenge_txn_pubkeys,
                         watchtower_challenge_txn_scripts,
                     ) = match fetch_target_block_and_watchtower_tx(
                         &args.esplora_url,
                         &args.latest_sequencer_commit_txid,
+                        &args.operator_blockhash_commit_txid,
                         &args.watchtower_challenge_init_txid,
                         &args.watchtower_challenge_txids,
                         &args.watchtower_public_keys,
@@ -97,13 +101,16 @@ pub(crate) fn spawn_operator_proof_task(
 
                         output: args.output.clone(),
 
-                        block_pos,
-                        target_block,
+                        block_pos_ss_commit,
+                        target_block_ss_commit,
                         operator_latest_sequencer_commit_txn,
+
+                        block_pos_operator_blockhash,
+                        target_block_operator_blockhash,
+                        operator_blockhash_commit_txn,
 
                         watchtower_challenge_txns,
                         watchtower_challenge_txn_prev_outs,
-                        watchtower_challenge_txn_prev_indices,
                         watchtower_challenge_txn_pubkeys,
                         watchtower_challenge_txn_scripts,
                     };

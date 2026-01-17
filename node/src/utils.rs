@@ -1812,6 +1812,7 @@ pub async fn get_operator_proof(
     btc_client: &BTCClient,
     instance_id: Uuid,
     graph_id: Uuid,
+    blockhash_commit_txid: SerializableTxid,
 ) -> Result<(Option<(GuestInputs, Groth16Proof, PublicInputs, VerifyingKey)>, usize)> {
     let mut storage_processor = local_db.acquire().await?;
     if let Some(graph) = storage_processor.find_graph(&graph_id).await? {
@@ -1850,6 +1851,7 @@ pub async fn get_operator_proof(
                 &OperatorProofRequest {
                     instance_id: instance_id.to_string(),
                     graph_id: graph_id.to_string(),
+                    blockhash_commit_txid: blockhash_commit_txid.0.to_string(),
                     execution_layer_block_number: graph.proceed_withdraw_height,
                     watchtower_challenge_txids,
                     included_watchtowers,
@@ -2793,6 +2795,24 @@ pub async fn operator_send_assert_commit(
         inputs
     } else {
         let wots_secret_keys = operator_master_key.wots_keypair_for_graph(graph_id).0;
+        let connector_g_vout = graph.parameters.watchtower_pubkeys.len() * 2;
+        let blockhash_commit_txid = match outpoint_spent_txid(
+            btc_client,
+            &graph.watchtower_challenge_init.tx().compute_txid(),
+            connector_g_vout as u64,
+        )
+        .await
+        {
+            Ok(Some(txid)) => txid,
+            Ok(None) => {
+                bail!(
+                    "challenge-init connector G not spent yet, cannot generate assert-commit proof"
+                );
+            }
+            Err(e) => {
+                bail!("failed to check challenge-init connector G spent status: {e}");
+            }
+        };
         let (guest_inputs, proof, groth16_pubin, vk) = match get_operator_proof(
             local_db,
             http_client,
@@ -2800,6 +2820,7 @@ pub async fn operator_send_assert_commit(
             btc_client,
             instance_id,
             graph_id,
+            blockhash_commit_txid.into(),
         )
         .await?
         {

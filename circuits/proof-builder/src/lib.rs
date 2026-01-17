@@ -1,7 +1,7 @@
 use anyhow::Result;
 use bitcoin::{Block, ScriptBuf, Transaction, TxOut};
 use commit_chain::CircuitCommit;
-use header_chain::{CircuitBlockHeader, CircuitTransaction};
+use header_chain::CircuitBlockHeader;
 use serde::{Deserialize, Serialize};
 use state_chain::CircuitStateBlock;
 use thiserror::Error;
@@ -54,12 +54,17 @@ pub enum ProofRequest {
         state_chain_input_proof: String,
         execution_layer_block_number: u64,
         output: String,
-        target_block: Block,
-        block_pos: u32,
+
+        target_block_ss_commit: Block,
+        block_pos_ss_commit: u32,
         operator_latest_sequencer_commit_txn: Transaction,
-        watchtower_challenge_txns: Vec<CircuitTransaction>,
+
+        target_block_operator_blockhash: Block,
+        block_pos_operator_blockhash: u32,
+        operator_blockhash_commit_txn: Transaction,
+
+        watchtower_challenge_txns: Vec<Transaction>,
         watchtower_challenge_txn_prev_outs: Vec<TxOut>,
-        watchtower_challenge_txn_prev_indices: Vec<usize>,
         watchtower_challenge_txn_pubkeys: Vec<bitcoin::secp256k1::PublicKey>,
         watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
     },
@@ -113,4 +118,5 @@ pub struct OnDemandTask {
     pub included_watchtowers: Vec<bool>,
     pub watchtower_public_keys: Vec<String>,
     pub graph_id: Option<String>,
+    pub operator_blockhash_commit_txid: Option<String>,
 }

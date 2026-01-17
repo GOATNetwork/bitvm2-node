@@ -719,6 +719,7 @@ pub struct OperatorProof {
     pub id: i64,
     pub instance_id: Uuid,
     pub graph_id: Uuid,
+    pub blockhash_commit_txid: SerializableTxid,
     pub execution_layer_block_number: i64,
     pub path_to_proof: Option<String>,
     pub public_value_hex: Option<String>,

@@ -141,17 +141,16 @@ pub fn propose_longest_chain(
     graph_id: [u8; GRAPH_ID_SIZE],                    // pis
     operator_genesis_sequencer_commit_txid: [u8; 32], // pis
 
-    operator_latest_sequencer_commit_txn: CircuitTransaction,
-    watchtower_challenge_txns: Vec<CircuitTransaction>,
+    watchtower_challenge_txns: Vec<Transaction>,
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
     watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
     watchtower_challenge_txn_prev_outs: Vec<TxOut>,
-    watchtower_challenge_txn_prev_indices: Vec<usize>,
 
     operator_header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
     state_chain: StateChainCircuitInput,
-    spv: SPV,
+    spv_ss_commit: SPV,
+    spv_operator_blockhash: SPV,
 ) -> ([u8; 32], [u8; 32], [u8; 32]) {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -168,7 +167,7 @@ pub fn propose_longest_chain(
     };
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
-        operator_latest_sequencer_commit_txn.compute_txid()
+        spv_ss_commit.transaction.0.compute_txid()
     );
     assert_eq!(
         operator_genesis_sequencer_commit_txid,
@@ -194,7 +193,9 @@ pub fn propose_longest_chain(
     let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
 
     // verify that the latest_sequecner_commit_tx is in the header chain
-    assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
+    assert!(spv_ss_commit.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
+    // verify that the operator_blockhash is in the header chain
+    assert!(spv_operator_blockhash.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // parse included_watchtowers into bits array
     let included_watchertowers_bits = u256_to_le_bits(included_watchtowers);
@@ -206,16 +207,16 @@ pub fn propose_longest_chain(
     for i in 0..watchtower_challenge_txns.len() {
         if included_watchertowers_bits[i] {
             let tx = &watchtower_challenge_txns[i];
-            println!("Verify watchtower[{i}] tx: {}, {:?}", tx.0.compute_txid(), tx.0);
+            println!("Verify watchtower[{i}] tx: {}, {:?}", tx.compute_txid(), tx);
             let prev_out = &watchtower_challenge_txn_prev_outs[i];
-            let prev_index = watchtower_challenge_txn_prev_indices[i];
+            let prev_index = tx.input[0].previous_output.vout as usize;
             let pubkey = &watchtower_challenge_txn_pubkey[i];
 
             let sig = bitcoin::taproot::Signature::from_slice(&tx.input[0].witness[0]).unwrap();
             // check tx signature is valid
             match verify_taproot_leaf_schnorr_signature(
                 &watchtower_challenge_txn_scripts[i],
-                &tx.0,
+                &tx,
                 prev_index,
                 prev_out,
                 pubkey,
@@ -344,7 +345,8 @@ pub fn propose_longest_chain(
     //println!("operator public input hex: {:?}", hex::encode(operator_public_input));
 
     //operator_public_input
-    (btc_best_block_hash, constant, included_watchtowers.to_le_bytes::<32>())
+    let operator_blockhash = spv_operator_blockhash.transaction.0.compute_txid().to_byte_array();
+    (operator_blockhash, constant, included_watchtowers.to_le_bytes::<32>())
 }
 
 pub fn hash_operator_constant(

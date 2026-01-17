@@ -222,7 +222,10 @@ After calling the [`proceedWithdraw`](https://github.com/GOATNetwork/bitvm2-L2-c
 ```
 export BITCOIN_NETWORK=regtest
 export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .genesis_txid)
+
 export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.2 | jq -r .txid)
+export OPERATOR_BLOCKHASH_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.2 | jq -r .txid) 
+
 export HEADER_CHAIN_INPUT_PROOF="data/header-chain/0-116000.bin"
 export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/2-1.bin"
 export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"

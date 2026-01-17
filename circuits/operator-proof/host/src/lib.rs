@@ -11,9 +11,7 @@ use bitcoin_script::script;
 use borsh::BorshDeserialize;
 use client::btc_chain::BTCClient;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
-use header_chain::{
-    CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
-};
+use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
@@ -43,6 +41,9 @@ pub struct Args {
 
     #[clap(long, env)]
     pub latest_sequencer_commit_txid: String,
+
+    #[clap(long, env)]
+    pub operator_blockhash_commit_txid: String,
 
     #[clap(long, env)]
     pub genesis_sequencer_commit_txid: String,
@@ -90,6 +91,7 @@ static ELF_ID: OnceLock<String> = OnceLock::new();
 pub async fn fetch_target_block_and_watchtower_tx(
     esplora_url: &str,
     latest_sequencer_commit_txid: &str,
+    operator_blockhash_commit_txid: &str,
     watchtower_challenge_init_txid: &String,
     watchtower_challenge_txids: &str,
     watchtower_public_keys: &str,
@@ -97,29 +99,37 @@ pub async fn fetch_target_block_and_watchtower_tx(
 ) -> anyhow::Result<(
     u32,
     bitcoin::Block,
+    u32,
+    bitcoin::Block,
     bitcoin::Transaction,
-    Vec<CircuitTransaction>,
+    bitcoin::Transaction,
+    Vec<Transaction>,
     Vec<TxOut>,
-    Vec<usize>,
     Vec<bitcoin::secp256k1::PublicKey>,
     Vec<ScriptBuf>,
 )> {
     let watchtower_challenge_txids: Vec<&str> = watchtower_challenge_txids.split(",").collect();
     let watchtower_public_keys: Vec<&str> = watchtower_public_keys.split(",").collect();
     let btc_client = BTCClient::new(bitcoin_network, Some(&esplora_url));
+
     let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid).unwrap();
     let operator_latest_sequencer_commit_txn =
         btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
-
     let tx_status = btc_client.get_tx_status(&latest_sequencer_commit_txid).await.unwrap();
     let block_pos = tx_status.block_height.unwrap();
     tracing::info!("block height: {block_pos}");
     let target_block = btc_client.get_block_by_height(block_pos).await.unwrap();
 
+    let operator_blockhash_commit_txid = Txid::from_str(&operator_blockhash_commit_txid).unwrap();
+    let operator_blockhash_commit_txn =
+        btc_client.get_tx(&operator_blockhash_commit_txid).await.unwrap().unwrap();
+    let tx_status = btc_client.get_tx_status(&operator_blockhash_commit_txid).await.unwrap();
+    let block_pos_operator_blockhash = tx_status.block_height.unwrap();
+    let target_block_operator_blockhash = btc_client.get_block_by_height(block_pos).await.unwrap();
+
     // --- watchtower_challenge_txns --- //
     let mut watchtower_challenge_txns = Vec::new();
     let mut watchtower_challenge_txn_prev_outs: Vec<TxOut> = Vec::new();
-    let mut watchtower_challenge_txn_prev_indices: Vec<usize> = Vec::new();
     let mut watchtower_challenge_txn_pubkeys = Vec::new();
     let mut watchtower_challenge_txn_scripts: Vec<ScriptBuf> = Vec::new();
 
@@ -135,11 +145,10 @@ pub async fn fetch_target_block_and_watchtower_tx(
         let index = txn.input[0].previous_output.vout as usize;
         watchtower_challenge_txn_prev_outs
             .push(watchtower_challlenge_init_txn.output[index].clone());
-        watchtower_challenge_txn_prev_indices.push(index);
 
         let public_key = PublicKey::from_str(pk).unwrap();
         watchtower_challenge_txn_pubkeys.push(public_key.clone());
-        watchtower_challenge_txns.push(CircuitTransaction(txn));
+        watchtower_challenge_txns.push(txn);
 
         // https://github.com/GOATNetwork/BitVM/blob/GA/goat/src/transactions/watchtower_challenge.rs#L45
         // generate_pay_to_pubkey_taproot_script
@@ -157,10 +166,12 @@ pub async fn fetch_target_block_and_watchtower_tx(
     Ok((
         block_pos,
         target_block,
+        block_pos_operator_blockhash,
+        target_block_operator_blockhash,
         operator_latest_sequencer_commit_txn,
+        operator_blockhash_commit_txn,
         watchtower_challenge_txns,
         watchtower_challenge_txn_prev_outs,
-        watchtower_challenge_txn_prev_indices,
         watchtower_challenge_txn_pubkeys,
         watchtower_challenge_txn_scripts,
     ))
@@ -209,13 +220,17 @@ impl ProofBuilder for OperatorProofBuilder {
             commit_chain_input_proof,
             state_chain_input_proof,
             genesis_sequencer_commit_txid,
-            target_block,
-            block_pos,
+
+            target_block_ss_commit,
+            block_pos_ss_commit,
             operator_latest_sequencer_commit_txn,
+
+            block_pos_operator_blockhash,
+            target_block_operator_blockhash,
+            operator_blockhash_commit_txn,
 
             watchtower_challenge_txns,
             watchtower_challenge_txn_prev_outs,
-            watchtower_challenge_txn_prev_indices,
             watchtower_challenge_txn_pubkeys,
             watchtower_challenge_txn_scripts,
             ..
@@ -293,9 +308,9 @@ impl ProofBuilder for OperatorProofBuilder {
                 .collect::<Vec<CircuitBlockHeader>>()
         };
 
-        let found = bitcoin_block_headers
-            .iter()
-            .position(|h| h.compute_block_hash() == *target_block.block_hash().as_byte_array());
+        let found = bitcoin_block_headers.iter().position(|h| {
+            h.compute_block_hash() == *target_block_ss_commit.block_hash().as_byte_array()
+        });
         tracing::info!("block found: {:?}", found);
         if found.is_none() {
             anyhow::bail!(
@@ -305,10 +320,17 @@ impl ProofBuilder for OperatorProofBuilder {
 
         tracing::info!("block headers: {:?}", bitcoin_block_headers.len());
         tracing::info!("construct spv");
-        let spv = build_spv(
+        let spv_ss_commit = build_spv(
             &operator_latest_sequencer_commit_txn,
-            *block_pos,
-            target_block.clone(),
+            *block_pos_ss_commit,
+            target_block_ss_commit.clone(),
+            &bitcoin_block_headers,
+        );
+
+        let spv_operator_blockhash = build_spv(
+            &operator_blockhash_commit_txn,
+            *block_pos_operator_blockhash,
+            target_block_operator_blockhash.clone(),
             &bitcoin_block_headers,
         );
 
@@ -323,18 +345,17 @@ impl ProofBuilder for OperatorProofBuilder {
                 stdin.write(&graph_id);
 
                 stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
-                stdin.write(&operator_latest_sequencer_commit_txn);
 
                 stdin.write(&watchtower_challenge_txns);
                 stdin.write(&watchtower_challenge_txn_pubkeys);
                 stdin.write(&watchtower_challenge_txn_scripts);
                 stdin.write(&watchtower_challenge_txn_prev_outs);
-                stdin.write(&watchtower_challenge_txn_prev_indices);
 
                 stdin.write(&header_chain_input);
                 stdin.write(&commit_chain_input);
                 stdin.write(&state_chain_input);
-                stdin.write(&spv);
+                stdin.write(&spv_ss_commit);
+                stdin.write(&spv_operator_blockhash);
 
                 let elf_id = if ELF_ID.get().is_none() {
                     ELF_ID

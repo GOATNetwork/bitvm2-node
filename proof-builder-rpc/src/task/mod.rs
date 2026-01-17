@@ -12,7 +12,7 @@ use crate::task::{
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
-use bitcoin::{Network, Txid};
+use bitcoin::{Network, Txid, block};
 use client::btc_chain::BTCClient;
 use commit_chain::CircuitCommit;
 use std::str::FromStr;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 use futures::future::Either;
 use proof_builder::{OnDemandTask, ProofBuilder};
 use store::localdb::LocalDB;
-use store::{LongRunningTaskProof, OperatorProof, ProofState, WatchtowerProof};
+use store::{LongRunningTaskProof, OperatorProof, ProofState, SerializableTxid, WatchtowerProof};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -213,6 +213,7 @@ async fn read_watchtower_challenge_details<'a>(
     Vec<bool>,
     Vec<String>,
     Option<String>,
+    Option<String>,
     i64,
 )> {
     let (
@@ -223,6 +224,7 @@ async fn read_watchtower_challenge_details<'a>(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
+        operator_blockhash_commit_txid,
     ) = if is_watchtower {
         match storage_processor.find_next_watchtower_proof().await? {
             Some(task) => {
@@ -237,6 +239,7 @@ async fn read_watchtower_challenge_details<'a>(
                     vec![],
                     pubkeys,
                     Some(task.graph_id.as_simple().to_string()),
+                    None,
                 )
             }
             None => {
@@ -286,6 +289,7 @@ async fn read_watchtower_challenge_details<'a>(
             included_watchtowers,
             challenge_public_keys,
             Some(task.graph_id.as_simple().to_string()),
+            Some(task.blockhash_commit_txid.0.to_string()),
         )
     };
 
@@ -335,6 +339,7 @@ async fn read_watchtower_challenge_details<'a>(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
+        operator_blockhash_commit_txid,
         btc_block_number,
     ))
 }
@@ -386,6 +391,7 @@ pub(crate) async fn fetch_on_demand_task(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
+        operator_blockhash_commit_txid,
         btc_block_number,
     ) = match read_watchtower_challenge_details(
         &mut storage_processor,
@@ -407,7 +413,7 @@ pub(crate) async fn fetch_on_demand_task(
         return Ok(None);
     }
 
-    // If we finish the sequencer set commitment shortly, the latest commit txid is confirmed after `btc_block_number`, and leads to the latest_commit_txid not included in header chain proof.
+    // If we finish the sequencer set commitment shortly, the latest commit txid is confirmed after `btc_block_number`, which leads to the latest_commit_txid not included in header chain proof.
     let header_chain_input_proof = match storage_processor
         .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
         .await?
@@ -459,6 +465,7 @@ pub(crate) async fn fetch_on_demand_task(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
+        operator_blockhash_commit_txid,
     }))
 }
 
@@ -640,6 +647,7 @@ pub(crate) async fn add_operator_task(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
+    blockhash_commit_txid: String,
     execution_layer_block_number: i64,
     watchtower_challenge_txids: Vec<String>,
     included_watchtowers: Vec<bool>,
@@ -710,6 +718,7 @@ pub(crate) async fn add_operator_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             cycles: 0,
+            blockhash_commit_txid: Txid::from_str(&blockhash_commit_txid)?.into(),
             ..Default::default()
         })
         .await?;
@@ -826,11 +835,15 @@ mod tests {
             "4506cf35cd70b3006fe3ce4a87ca1f9b0a76f348cfb529423e2d4c163c28d604".to_string(),
             "f16286f143430a229c6d068798cd9ba751e83202de5045cc788aab227114cdb2".to_string(),
         ];
+        let blockhash_commit_txid =
+            "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
+
         let included_watchtowers = vec![true, false];
         add_operator_task(
             &local_db,
             instance_id,
             graph_id,
+            blockhash_commit_txid,
             number,
             watchtower_challenge_txids,
             included_watchtowers,

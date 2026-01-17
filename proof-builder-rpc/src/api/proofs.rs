@@ -67,6 +67,7 @@ pub(super) struct ProofDescResponse {
 pub(super) struct OperatorProofRequest {
     pub instance_id: String,
     pub graph_id: String,
+    pub blockhash_commit_txid: String,
     pub execution_layer_block_number: i64,
     pub watchtower_challenge_txids: Vec<String>,
     pub included_watchtowers: Vec<bool>,

@@ -2584,8 +2584,8 @@ impl<'a> StorageProcessor<'a> {
         let res = sqlx::query!(
             "INSERT
              INTO operator_proof (instance_id, graph_id, execution_layer_block_number, path_to_proof, public_value_hex, proof_size, cycles, proof_state, total_time_to_proof, proving_time,
-                                 zkm_version, extra, updated_at, created_at)
-             VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                 zkm_version, extra, updated_at, created_at, blockhash_commit_txid)
+             VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             operator_proof.instance_id,
             operator_proof.graph_id,
             operator_proof.execution_layer_block_number,
@@ -2600,6 +2600,7 @@ impl<'a> StorageProcessor<'a> {
             operator_proof.extra,
             operator_proof.updated_at,
             operator_proof.created_at,
+            operator_proof.blockhash_commit_txid,
         )
             .execute(self.conn())
             .await?;
@@ -2698,22 +2699,7 @@ impl<'a> StorageProcessor<'a> {
         graph_id: &Uuid,
     ) -> anyhow::Result<Option<OperatorProof>> {
         let res = sqlx::query_as::<_, OperatorProof>(
-            "SELECT id,
-                        instance_id,
-                        graph_id,
-                        execution_layer_block_number,
-                        path_to_proof,
-                        public_value_hex,
-                        proof_size,
-                        cycles,
-                        proof_state,
-                        total_time_to_proof,
-                        proving_time,
-                        zkm_version,
-                        extra,
-                        created_at,
-                        updated_at
-                 FROM operator_proof
+            "SELECT * FROM operator_proof
                  WHERE instance_id = ?
                    AND graph_id = ?",
         )
@@ -2724,50 +2710,9 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn find_operator_proofs_unproved(&mut self) -> anyhow::Result<Vec<OperatorProof>> {
-        let res = sqlx::query_as::<_, OperatorProof>(
-            "SELECT id,
-                        instance_id,
-                        graph_id,
-                        execution_layer_block_number,
-                        path_to_proof,
-                        public_value_hex,
-                        proof_size,
-                        cycles,
-                        proof_state,
-                        total_time_to_proof,
-                        proving_time,
-                        zkm_version,
-                        extra,
-                        created_at,
-                        updated_at
-                 FROM operator_proof
-                 WHERE proof_state != 2
-                 ORDER BY id ASC",
-        )
-        .fetch_all(self.conn())
-        .await?;
-        Ok(res)
-    }
-
     pub async fn find_next_operator_proof(&mut self) -> anyhow::Result<Option<OperatorProof>> {
         let res = sqlx::query_as::<_, OperatorProof>(
-            "SELECT id,
-                        instance_id,
-                        graph_id,
-                        execution_layer_block_number,
-                        path_to_proof,
-                        public_value_hex,
-                        proof_size,
-                        cycles,
-                        proof_state,
-                        total_time_to_proof,
-                        proving_time,
-                        zkm_version,
-                        extra,
-                        created_at,
-                        updated_at
-                 FROM operator_proof
+            "SELECT * FROM operator_proof
                  WHERE proof_state == 0
                  ORDER BY id ASC
                  LIMIT 1",
