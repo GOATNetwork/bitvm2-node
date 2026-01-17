@@ -55,7 +55,6 @@ pub(crate) fn spawn_operator_proof_task(
                         args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers).to_string();
                         task_index = next_task.task_index;
                     } else {
-                        tracing::info!("Wait for the next task");
                         tokio::time::sleep(Duration::from_secs(5)).await;
                         continue;
                     };

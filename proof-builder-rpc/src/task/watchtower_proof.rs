@@ -47,7 +47,6 @@ pub(crate) fn spawn_watchtower_proof_task(
                         );
                         task_index = next_task.task_index;
                     } else {
-                        tracing::info!("Wait for the next task");
                         tokio::time::sleep(Duration::from_secs(5)).await;
                         continue;
                     };
