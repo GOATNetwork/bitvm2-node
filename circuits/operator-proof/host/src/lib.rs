@@ -125,7 +125,8 @@ pub async fn fetch_target_block_and_watchtower_tx(
         btc_client.get_tx(&operator_blockhash_commit_txid).await.unwrap().unwrap();
     let tx_status = btc_client.get_tx_status(&operator_blockhash_commit_txid).await.unwrap();
     let block_pos_operator_blockhash = tx_status.block_height.unwrap();
-    let target_block_operator_blockhash = btc_client.get_block_by_height(block_pos_operator_blockhash).await.unwrap();
+    let target_block_operator_blockhash =
+        btc_client.get_block_by_height(block_pos_operator_blockhash).await.unwrap();
 
     // --- watchtower_challenge_txns --- //
     let mut watchtower_challenge_txns = Vec::new();
@@ -319,7 +320,10 @@ impl ProofBuilder for OperatorProofBuilder {
         }
 
         tracing::info!("block headers: {:?}", bitcoin_block_headers.len());
-        tracing::info!("construct spv for ss commit, {}", operator_latest_sequencer_commit_txn.compute_txid());
+        tracing::info!(
+            "construct spv for ss commit, {}",
+            operator_latest_sequencer_commit_txn.compute_txid()
+        );
         let spv_ss_commit = build_spv(
             &operator_latest_sequencer_commit_txn,
             *block_pos_ss_commit,
@@ -327,7 +331,10 @@ impl ProofBuilder for OperatorProofBuilder {
             &bitcoin_block_headers,
         );
 
-        tracing::info!("construct spv for operator blockhash commit, {}", operator_blockhash_commit_txn.compute_txid());
+        tracing::info!(
+            "construct spv for operator blockhash commit, {}",
+            operator_blockhash_commit_txn.compute_txid()
+        );
         let spv_operator_blockhash = build_spv(
             &operator_blockhash_commit_txn,
             *block_pos_operator_blockhash,

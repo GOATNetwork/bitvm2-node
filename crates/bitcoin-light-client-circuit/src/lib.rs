@@ -216,7 +216,7 @@ pub fn propose_longest_chain(
             // check tx signature is valid
             match verify_taproot_leaf_schnorr_signature(
                 &watchtower_challenge_txn_scripts[i],
-                &tx,
+                tx,
                 prev_index,
                 prev_out,
                 pubkey,
