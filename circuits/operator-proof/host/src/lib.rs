@@ -346,6 +346,7 @@ impl ProofBuilder for OperatorProofBuilder {
                 stdin.write(&graph_id);
 
                 stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
+                stdin.write(&operator_latest_sequencer_commit_txn);
 
                 stdin.write(&watchtower_challenge_txns);
                 stdin.write(&watchtower_challenge_txn_pubkeys);
