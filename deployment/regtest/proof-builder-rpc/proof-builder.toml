@@ -59,6 +59,7 @@ enable = true
 esplora_url = "http://127.0.0.1:13002"
 genesis_sequencer_commit_txid = "5d5a29e1c426abc4b947f90b93c6b043683aafad79cb3b9a9829dfd5e51cad09"
 latest_sequencer_commit_txid = "dac7516877b069dac6d2b0430e8b23812392665ecbb0c36c78c8acd12ddc929e"
+operator_blockhash_commit_txid = "dac7516877b069dac6d2b0430e8b23812392665ecbb0c36c78c8acd12ddc929e"
 watchtower_challenge_init_txid = "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246"
 watchtower_challenge_txids = "3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0"
 watchtower_public_keys = "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651" 
