@@ -12,7 +12,7 @@ use crate::task::{
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
-use bitcoin::{Network, Txid, block};
+use bitcoin::{Network, Txid};
 use client::btc_chain::BTCClient;
 use commit_chain::CircuitCommit;
 use std::str::FromStr;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 use futures::future::Either;
 use proof_builder::{OnDemandTask, ProofBuilder};
 use store::localdb::LocalDB;
-use store::{LongRunningTaskProof, OperatorProof, ProofState, SerializableTxid, WatchtowerProof};
+use store::{LongRunningTaskProof, OperatorProof, ProofState, WatchtowerProof};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 

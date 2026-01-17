@@ -381,12 +381,12 @@ pub fn words_from_bytes_be(bytes: &[u8; 32]) -> [u32; 8] {
 }
 
 pub fn build_spv(
-    latest_sequencer_commit_txn: &Transaction,
+    raw_txn: &Transaction,
     target_block_pos: u32,
     target_block: Block,
     block_headers: &[CircuitBlockHeader],
 ) -> SPV {
-    let tx: CircuitTransaction = CircuitTransaction(latest_sequencer_commit_txn.clone());
+    let tx: CircuitTransaction = CircuitTransaction(raw_txn.clone());
     let latest_sequencer_commit_txid = tx.0.compute_txid();
 
     let mut mmr_native = MMRHost::new();
