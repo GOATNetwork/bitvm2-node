@@ -2802,7 +2802,7 @@ pub async fn recv_and_dispatch(
                 operator_sign_blockhash_commit(
                     operator_graph_keypair,
                     &mut graph,
-                    &BlockHash::from(largest_watchtower_challenge_block_hash).to_byte_array(),
+                    &largest_watchtower_challenge_block_hash.to_byte_array(),
                     blockhash_wots_secret_key,
                 )?;
             build_sign_and_broadcast_tx(

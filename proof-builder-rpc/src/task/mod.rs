@@ -491,8 +491,8 @@ pub(crate) async fn fetch_on_demand_task(
 /// * table_name: header-chain | state-chain | commit-chain
 pub(crate) async fn create_long_running_task(
     local_db: &LocalDB,
-    start: u64,
-    batch_size: u64,
+    start: i64,
+    batch_size: i64,
     path_to_proof: String,
     public_value_hex: String,
     proof_size: i64,
@@ -507,7 +507,7 @@ pub(crate) async fn create_long_running_task(
     Ok(storage_processor
         .create_long_running_task_proof(&LongRunningTaskProof {
             block_start: start as i64,
-            block_end: (start + batch_size) as i64,
+            block_end: start + batch_size,
             chain_name,
             path_to_proof: Some(path_to_proof),
             public_value_hex: Some(public_value_hex),
@@ -522,6 +522,63 @@ pub(crate) async fn create_long_running_task(
             updated_at: current_time_secs(),
         })
         .await?)
+}
+
+/// This is a special function to add a new record while updating the previous record's block_end.
+pub(crate) async fn create_commit_chain_proof(
+    local_db: &LocalDB,
+    start: i64,
+    batch_size: i64,
+    path_to_proof: String,
+    public_value_hex: String,
+    proof_size: i64,
+    cycles: u64,
+    chain_name: String,
+    total_time_to_proof: i64,
+    proving_time: i64,
+    proof_state: ProofState,
+    zkm_version: String,
+) -> anyhow::Result<u64> {
+    let mut storage_processor = local_db.start_transaction().await?;
+    // we use start directly since it's block_end is initialized by u64::MAX
+    let previous_proof = storage_processor
+        .find_long_running_task_proof_including_block_number(start as i64, chain_name.clone())
+        .await?;
+    if previous_proof.is_none() {
+        anyhow::bail!("Current proof not found for block: {}, chain_name: {}", start, chain_name);
+    }
+
+    let previous_proof = previous_proof.unwrap();
+    let prev_batch_size = start as i64 - previous_proof.block_start;
+    storage_processor
+        .update_long_running_task_proof_state(
+            previous_proof.block_start,
+            &previous_proof.chain_name,
+            prev_batch_size,
+            previous_proof.proof_state,
+        )
+        .await?;
+
+    let affected = storage_processor
+        .create_long_running_task_proof(&LongRunningTaskProof {
+            block_start: start as i64,
+            block_end: start + batch_size,
+            chain_name,
+            path_to_proof: Some(path_to_proof),
+            public_value_hex: Some(public_value_hex),
+            proof_size,
+            cycles: cycles as i64,
+            proof_state: proof_state.to_i64(),
+            total_time_to_proof,
+            proving_time,
+            zkm_version,
+            extra: None,
+            created_at: current_time_secs(),
+            updated_at: current_time_secs(),
+        })
+        .await?;
+    storage_processor.commit().await?;
+    Ok(affected)
 }
 
 pub(crate) async fn update_long_running_task(
@@ -856,6 +913,9 @@ mod tests {
         let operator_committed_blockhash =
             "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
 
+        let watchtower_challenge_init_txid =
+            "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
+
         let included_watchtowers = vec![true, false];
         add_operator_task(
             &local_db,
@@ -865,6 +925,8 @@ mod tests {
             number,
             watchtower_challenge_txids,
             included_watchtowers,
+            watchtower_challenge_init_txid,
+            vec![],
         )
         .await
         .unwrap();

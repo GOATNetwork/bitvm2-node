@@ -87,8 +87,8 @@ async fn spawn_state_chain_ctx_builder(
 
                 let affected = match create_long_running_task(
                     &local_db,
-                    args.start,
-                    args.batch_size,
+                    args.start as i64,
+                    args.batch_size as i64,
                     args.output_proof.clone(),
                     "".to_string(),
                     0,
