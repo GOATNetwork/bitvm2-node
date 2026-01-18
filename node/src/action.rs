@@ -11,7 +11,7 @@ use crate::rpc_service::current_time_secs;
 use crate::utils::*;
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Result, anyhow, bail};
-use bitcoin::{BlockHash, hashes::Hash};
+use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Txid};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm2_lib::actors::Actor;

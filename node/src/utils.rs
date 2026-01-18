@@ -4598,8 +4598,7 @@ pub async fn get_largest_watchtower_challenge_block(
                 if let Some(block_height) = tx_status.block_height {
                     if block_height > largest_watchtower_challenge_block_height {
                         largest_watchtower_challenge_block_height = block_height;
-                        largest_watchtower_challenge_block_hash =
-                            tx_status.block_hash.unwrap().clone();
+                        largest_watchtower_challenge_block_hash = tx_status.block_hash.unwrap();
                     }
                 } else {
                     anyhow::bail!(
