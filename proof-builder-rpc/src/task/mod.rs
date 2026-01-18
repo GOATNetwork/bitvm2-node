@@ -181,6 +181,14 @@ pub(crate) async fn run_generate_proof_tasks(
     Ok("tasks_completed".to_string())
 }
 
+pub(crate) async fn fetch_next_commit_task_index(local_db: &LocalDB) -> anyhow::Result<usize> {
+    let mut storage_processor = local_db.acquire().await?;
+    let index = storage_processor
+        .find_all_running_task_proofs_by_name(CommitChainProofBuilder::name())
+        .await?;
+    Ok(index.len())
+}
+
 pub(crate) async fn fetch_latest_long_running_task(
     local_db: &LocalDB,
     chain_name: String,
@@ -544,8 +552,10 @@ pub(crate) async fn create_commit_chain_proof(
     let previous_proof = storage_processor
         .find_long_running_task_proof_including_block_number(start as i64, chain_name.clone())
         .await?;
+    tracing::info!("previous_proof: {previous_proof:?}");
     if let Some(previous_proof) = previous_proof {
         let prev_batch_size = start as i64 - previous_proof.block_start;
+        tracing::info!("update previous proof from {start} batch_size: {prev_batch_size}");
         storage_processor
             .update_long_running_task_proof_state(
                 previous_proof.block_start,

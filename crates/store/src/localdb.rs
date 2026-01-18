@@ -2490,6 +2490,22 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    pub async fn find_all_running_task_proofs_by_name(
+        &mut self,
+        chain_name: String,
+    ) -> anyhow::Result<Vec<LongRunningTaskProof>> {
+        let res = sqlx::query_as!(
+            LongRunningTaskProof,
+            "SELECT block_start, block_end, chain_name, path_to_proof, public_value_hex, proof_size, cycles, proof_state, total_time_to_proof, proving_time,
+                                           zkm_version, extra, updated_at, created_at FROM long_running_task_proof
+             WHERE chain_name = ?",
+            chain_name,
+        )
+            .fetch_all(self.conn())
+            .await?;
+        Ok(res)
+    }
+
     pub async fn find_long_running_task_proof_including_block_number(
         &mut self,
         block_number: i64,
