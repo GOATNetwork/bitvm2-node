@@ -338,14 +338,15 @@ pub fn propose_longest_chain(
 
     println!("btc_best_block_hash hex: {:?}", hex::encode(btc_best_block_hash));
     println!("included_watchtowers: {:?}", hex::encode(included_watchtowers.to_le_bytes::<32>()));
-    //let operator_public_input =
-    //    hash_operator_inputs(btc_best_block_hash, constant, included_watchtowers);
-    //println!("operator public input hex: {:?}", hex::encode(operator_public_input));
-    let included = operator_header_chain
-        .block_headers
-        .iter()
-        .position(|header| header.compute_block_hash() == operator_committed_blockhash);
-    assert!(included.is_some(), "operator committed blockhash is not included in header chain");
+    //let included = operator_header_chain
+    //    .block_headers
+    //    .iter()
+    //    .position(|header| header.compute_block_hash() == operator_committed_blockhash);
+    //assert!(included.is_some(), "operator committed blockhash is not included in header chain");
+    assert!(
+        operator_committed_blockhash == btc_best_block_hash,
+        "operator committed blockhash is not included in header chain"
+    );
 
     //operator_public_input
     (operator_committed_blockhash, constant, included_watchtowers.to_le_bytes::<32>())

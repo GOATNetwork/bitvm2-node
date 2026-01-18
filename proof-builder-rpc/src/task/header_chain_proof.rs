@@ -26,6 +26,11 @@ pub(crate) fn spawn_header_chain_proof_task(
                 anyhow::bail!("Header chain proof generate task cancelled");
             }
         }
+        assert_eq!(
+            args.batch_size, 1,
+            "Header chain proof batch size must be 1, current batch size: {}",
+            args.batch_size
+        );
 
         let builder = HeaderChainProofBuilder::new();
         loop {
