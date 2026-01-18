@@ -75,6 +75,31 @@ stateDiagram-v2
     end note
 ```
 
+### Challenge to OperatorTake2 Flow
+
+The path from Challenge → OperatorTake2 requires successful completion of three sub-phases:
+
+```
+Challenge (GraphStatus)
+    ↓
+1. WatchtowerChallengeStatus: None → OperatorInit → WatchtowerChallenge → WatchtowerChallengeNormalFinished
+   + CommitBlockHashStatus: None → WatchtowerChallengeProcessed → OperatorCommit
+    ↓
+2. AssertCommitStatus: None → OperatorInit → OperatorCommit
+    ↓
+   All three conditions met:
+   - WatchtowerChallengeNormalFinished ✓
+   - CommitBlockHashStatus = OperatorCommit ✓
+   - AssertCommitStatus = OperatorCommit ✓
+    ↓
+OperatorTake2
+```
+
+**Conditions for successful transition to OperatorTake2:**
+- All watchtowers acknowledge their challenges (no NACK or timeouts)
+- Operator successfully commits the blockhash
+- Operator successfully commits all assertions
+
 ### Challenge Phase: WatchtowerChallengeStatus
 
 From `src/scheduled_tasks/graph_maintenance_tasks.rs::WatchtowerChallengeStatus`:
