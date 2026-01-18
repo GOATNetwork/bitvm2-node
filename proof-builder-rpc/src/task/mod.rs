@@ -226,13 +226,15 @@ async fn read_watchtower_challenge_details<'a>(
         match storage_processor.find_next_watchtower_proof().await? {
             Some(task) => {
                 tracing::info!("watchtower task: {task:?}");
-                let challenge_txids: Vec<String> = vec![task.challenge_txid.0.to_string()];
+                // NOTE: we use watchtower challenge init txid to calculate the height
+                let watchtower_challenge_txids: Vec<String> =
+                    vec![task.challenge_init_txid.0.to_string()];
                 let pubkeys: Vec<String> = vec![task.public_key.clone()];
                 (
                     task.id,
                     task.execution_layer_block_number,
                     None,
-                    challenge_txids,
+                    watchtower_challenge_txids,
                     vec![true],
                     pubkeys,
                     Some(task.graph_id.as_simple().to_string()),
