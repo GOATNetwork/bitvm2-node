@@ -463,13 +463,8 @@ pub(crate) async fn fetch_on_demand_task(
         }
     };
     tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
-    let start = commit_chain_input_proof.block_start;
-    let batch_size = commit_chain_input_proof.block_end - commit_chain_input_proof.block_start;
     let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
-    let file = std::path::Path::new(&commit_chain_input_proof)
-        .parent()
-        .unwrap()
-        .join(format!("{start}-{batch_size}.bin.commits"));
+    let file = format!("{commit_chain_input_proof}.commits");
     let content = match std::fs::read_to_string(&file) {
         Ok(d) => d,
         Err(e) => {
