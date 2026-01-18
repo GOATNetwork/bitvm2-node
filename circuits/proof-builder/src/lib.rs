@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bitcoin::{Block, ScriptBuf, Transaction, TxOut};
+use bitcoin::{Block, BlockHash, ScriptBuf, Transaction, TxOut};
 use commit_chain::CircuitCommit;
 use header_chain::CircuitBlockHeader;
 use serde::{Deserialize, Serialize};
@@ -59,9 +59,7 @@ pub enum ProofRequest {
         block_pos_ss_commit: u32,
         operator_latest_sequencer_commit_txn: Transaction,
 
-        target_block_operator_blockhash: Block,
-        block_pos_operator_blockhash: u32,
-        operator_blockhash_commit_txn: Transaction,
+        operator_committed_blockhash: BlockHash,
 
         watchtower_challenge_txns: Vec<Transaction>,
         watchtower_challenge_txn_prev_outs: Vec<TxOut>,
@@ -118,5 +116,5 @@ pub struct OnDemandTask {
     pub included_watchtowers: Vec<bool>,
     pub watchtower_public_keys: Vec<String>,
     pub graph_id: Option<String>,
-    pub operator_blockhash_commit_txid: Option<String>,
+    pub operator_committed_blockhash: Option<String>,
 }

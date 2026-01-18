@@ -169,7 +169,7 @@ pub(super) async fn post_operator_proof_task(
                 &api_state.local_db,
                 instance_id,
                 graph_id,
-                payload.blockhash_commit_txid,
+                payload.operator_committed_blockhash,
                 payload.execution_layer_block_number,
                 payload.watchtower_challenge_txids.clone(),
                 payload.included_watchtowers.clone(),

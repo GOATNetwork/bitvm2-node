@@ -35,38 +35,45 @@ pub(crate) fn spawn_operator_proof_task(
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     // fetch args from the database.
                     let task_index;
-                    if let Some(next_task) = fetch_on_demand_task(
+                    match fetch_on_demand_task(
                         &local_db, false, args.bitcoin_network, &args.esplora_url,
-                    ).await? {
-                        args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
-                        args.header_chain_input_proof = next_task.header_chain_input_proof;
-                        args.commit_chain_input_proof = next_task.commit_chain_input_proof;
-                        args.state_chain_input_proof = next_task.state_chain_input_proof;
-                        args.operator_blockhash_commit_txid = next_task.operator_blockhash_commit_txid.unwrap();
-                        args.graph_id = next_task.graph_id.unwrap();
-                        args.output = format!("{}/{}.bin",
-                            std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
-                            args.graph_id
-                        );
-                        args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
-                        args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.join(",");
-                        args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
-                        // LE array to string, e.g. [1, 1, 1, 0] => 7
-                        args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers).to_string();
-                        task_index = next_task.task_index;
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        continue;
+                    ).await {
+                        Ok(Some(next_task)) => {
+                            args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
+                            args.header_chain_input_proof = next_task.header_chain_input_proof;
+                            args.commit_chain_input_proof = next_task.commit_chain_input_proof;
+                            args.state_chain_input_proof = next_task.state_chain_input_proof;
+                            args.operator_committed_blockhash = next_task.operator_committed_blockhash.unwrap();
+                            args.graph_id = next_task.graph_id.unwrap();
+                            args.output = format!("{}/{}.bin",
+                                std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
+                                args.graph_id
+                            );
+                            args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
+                            args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.join(",");
+                            args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
+                            // LE array to string, e.g. [1, 1, 1, 0] => 7
+                            args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers).to_string();
+                            task_index = next_task.task_index;
+                        }
+                        Ok(None) => {
+                            tracing::warn!("No on demand task found for operator proof, wait for the next round");
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to fetch on demand task for operator proof, error: {e}");
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
                     };
                     info!("Operator proof generate task: generate proof, args: {args:?}");
 
                     let (
                         block_pos_ss_commit,
                         target_block_ss_commit,
-                        block_pos_operator_blockhash,
-                        target_block_operator_blockhash,
+                        operator_committed_blockhash,
                         operator_latest_sequencer_commit_txn,
-                        operator_blockhash_commit_txn,
                         watchtower_challenge_txns,
                         watchtower_challenge_txn_prev_outs,
                         watchtower_challenge_txn_pubkeys,
@@ -74,7 +81,7 @@ pub(crate) fn spawn_operator_proof_task(
                     ) = match fetch_target_block_and_watchtower_tx(
                         &args.esplora_url,
                         &args.latest_sequencer_commit_txid,
-                        &args.operator_blockhash_commit_txid,
+                        &args.operator_committed_blockhash,
                         &args.watchtower_challenge_init_txid,
                         &args.watchtower_challenge_txids,
                         &args.watchtower_public_keys,
@@ -104,9 +111,7 @@ pub(crate) fn spawn_operator_proof_task(
                         target_block_ss_commit,
                         operator_latest_sequencer_commit_txn,
 
-                        block_pos_operator_blockhash,
-                        target_block_operator_blockhash,
-                        operator_blockhash_commit_txn,
+                        operator_committed_blockhash,
 
                         watchtower_challenge_txns,
                         watchtower_challenge_txn_prev_outs,

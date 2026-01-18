@@ -12,7 +12,7 @@ use crate::task::{
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
-use bitcoin::{Network, Txid};
+use bitcoin::{BlockHash, Network, Txid};
 use client::btc_chain::BTCClient;
 use commit_chain::CircuitCommit;
 use std::str::FromStr;
@@ -203,8 +203,6 @@ pub(crate) async fn fetch_latest_long_running_task_by_state(
 async fn read_watchtower_challenge_details<'a>(
     storage_processor: &mut store::localdb::StorageProcessor<'a>,
     is_watchtower: bool,
-    bitcoin_network: Network,
-    esplora_url: &str,
 ) -> anyhow::Result<(
     i64,
     i64,
@@ -214,7 +212,6 @@ async fn read_watchtower_challenge_details<'a>(
     Vec<String>,
     Option<String>,
     Option<String>,
-    i64,
 )> {
     let (
         task_index,
@@ -224,7 +221,7 @@ async fn read_watchtower_challenge_details<'a>(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
-        operator_blockhash_commit_txid,
+        operator_committed_blockhash,
     ) = if is_watchtower {
         match storage_processor.find_next_watchtower_proof().await? {
             Some(task) => {
@@ -236,7 +233,7 @@ async fn read_watchtower_challenge_details<'a>(
                     task.execution_layer_block_number,
                     None,
                     challenge_txids,
-                    vec![],
+                    vec![true],
                     pubkeys,
                     Some(task.graph_id.as_simple().to_string()),
                     None,
@@ -289,47 +286,12 @@ async fn read_watchtower_challenge_details<'a>(
             included_watchtowers,
             challenge_public_keys,
             Some(task.graph_id.as_simple().to_string()),
-            Some(task.blockhash_commit_txid.0.to_string()),
+            Some(task.operator_committed_blockhash),
         )
     };
 
-    let btc_block_number = {
-        let btc_client = BTCClient::new(bitcoin_network, Some(esplora_url));
-        let mut block_number = 0;
-        for challenge_txid in watchtower_challenge_txids.iter() {
-            // get block number by block hash
-            let txid = Txid::from_str(challenge_txid).unwrap();
-            match btc_client.get_tx_status(&txid).await {
-                Ok(tx) => {
-                    if let Some(height) = tx.block_height
-                        && tx.confirmed
-                        && (height as i64) > block_number
-                    {
-                        tracing::info!(
-                            "Challenge txid {} is included in block {}, which is before the current block number {}",
-                            challenge_txid,
-                            height,
-                            block_number
-                        );
-                        block_number = height as i64;
-                    } else {
-                        tracing::warn!("Challenge txid {} is not confirmed yet", challenge_txid);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to get tx status for txid {}, error: {}",
-                        challenge_txid,
-                        e
-                    );
-                }
-            }
-        }
-        block_number
-    };
-
     tracing::info!(
-        "is_watchtower {is_watchtower}, btc_block_number {btc_block_number}, execution_layer_block_number {execution_layer_block_number}"
+        "is_watchtower {is_watchtower}, operator_committed_blockhash {operator_committed_blockhash:?}, execution_layer_block_number {execution_layer_block_number}"
     );
     Ok((
         task_index,
@@ -339,8 +301,7 @@ async fn read_watchtower_challenge_details<'a>(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
-        operator_blockhash_commit_txid,
-        btc_block_number,
+        operator_committed_blockhash,
     ))
 }
 
@@ -354,35 +315,6 @@ pub(crate) async fn fetch_on_demand_task(
 ) -> anyhow::Result<Option<OnDemandTask>> {
     // btc header chain: always fetch the latest.
     let mut storage_processor = local_db.acquire().await?;
-    // commit chain: always fetch the latest
-    let commit_chain_input_proof = match storage_processor
-        .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
-        .await?
-    {
-        Some(d) => d,
-        None => {
-            tracing::error!("Commit chain input proof is not ready");
-            return Ok(None);
-        }
-    };
-    tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
-    let start = commit_chain_input_proof.block_start;
-    let batch_size = commit_chain_input_proof.block_end - commit_chain_input_proof.block_start;
-    let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
-    let file = std::path::Path::new(&commit_chain_input_proof)
-        .parent()
-        .unwrap()
-        .join(format!("{start}-{batch_size}.bin.commits"));
-    let content = match std::fs::read_to_string(&file) {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::error!("read {file:?} error, {e}");
-            return Ok(None);
-        }
-    };
-    let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
-    let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
-
     let (
         task_index,
         execution_layer_block_number,
@@ -391,16 +323,8 @@ pub(crate) async fn fetch_on_demand_task(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
-        operator_blockhash_commit_txid,
-        btc_block_number,
-    ) = match read_watchtower_challenge_details(
-        &mut storage_processor,
-        is_watchtower,
-        bitcoin_network,
-        esplora_url,
-    )
-    .await
-    {
+        operator_committed_blockhash,
+    ) = match read_watchtower_challenge_details(&mut storage_processor, is_watchtower).await {
         Ok(d) => d,
         Err(e) => {
             tracing::warn!("Failed to read watchtower challenge details, error: {}", e);
@@ -408,19 +332,79 @@ pub(crate) async fn fetch_on_demand_task(
         }
     };
 
-    if !is_watchtower && btc_block_number == 0 {
+    if !is_watchtower && operator_committed_blockhash.is_none() {
         tracing::warn!("Watchtower challenge tx is not confirmed yet.");
         return Ok(None);
     }
 
     // If we finish the sequencer set commitment shortly, the latest commit txid is confirmed after `btc_block_number`, which leads to the latest_commit_txid not included in header chain proof.
+
+    let mut largest_btc_block_height = 0;
+    let btc_client = BTCClient::new(bitcoin_network, Some(esplora_url));
+    for txid in &watchtower_challenge_txids {
+        let txid = Txid::from_str(txid)?;
+        let block_height = match btc_client.get_tx_status(&txid).await {
+            Ok(tx_status) => {
+                if let Some(block_height) = tx_status.block_height {
+                    block_height
+                } else {
+                    tracing::warn!(
+                        "Challenge tx {txid} is not confirmed yet, wait for the next round"
+                    );
+                    return Ok(None);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Challenge tx {txid} is not found in BTC node, it might be mempool tx, wait for the next round, error: {e}"
+                );
+                return Ok(None);
+            }
+        };
+        if block_height > largest_btc_block_height {
+            largest_btc_block_height = block_height;
+        }
+    }
+
+    // double check the committed block height is larger than all the watchtower challenge txns'.
+    match operator_committed_blockhash {
+        Some(ref hash) => match btc_client.get_block_by_hash(&BlockHash::from_str(hash)?).await {
+            Ok(Some(block)) => {
+                if block.bip34_block_height()? != largest_btc_block_height as u64 {
+                    anyhow::bail!(
+                        "Operator committed block {hash} is not confirmed yet, wait for the next round"
+                    );
+                }
+            }
+            Ok(None) => {
+                tracing::warn!(
+                    "Operator committed block hash {hash} is not found in BTC, it might be mempool tx, wait for the next round"
+                );
+                return Ok(None);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to fetch operator committed block height by hash {hash}, error: {e}"
+                );
+                return Ok(None);
+            }
+        },
+        None => {} // skip for watchtowers
+    };
+
     let header_chain_input_proof = match storage_processor
-        .find_latest_long_running_task_proof_by_name(HeaderChainProofBuilder::name())
+        .find_long_running_task_proof_including_block_number(
+            largest_btc_block_height as i64,
+            HeaderChainProofBuilder::name(),
+        )
         .await?
     {
         Some(d) => d,
         None => {
-            tracing::warn!("Header chain input proof is not ready");
+            tracing::warn!(
+                "Header chain proof is not ready for block: {}, proof not ready",
+                largest_btc_block_height
+            );
             return Ok(None);
         }
     };
@@ -454,6 +438,38 @@ pub(crate) async fn fetch_on_demand_task(
     };
     let state_chain_input_proof = state_chain_input_proof.path_to_proof.unwrap();
 
+    // commit chain
+    let commit_chain_input_proof = match storage_processor
+        .find_long_running_task_proof_including_block_number(
+            largest_btc_block_height as i64,
+            CommitChainProofBuilder::name(),
+        )
+        .await?
+    {
+        Some(d) => d,
+        None => {
+            tracing::error!("Commit chain input proof is not ready");
+            return Ok(None);
+        }
+    };
+    tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
+    let start = commit_chain_input_proof.block_start;
+    let batch_size = commit_chain_input_proof.block_end - commit_chain_input_proof.block_start;
+    let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
+    let file = std::path::Path::new(&commit_chain_input_proof)
+        .parent()
+        .unwrap()
+        .join(format!("{start}-{batch_size}.bin.commits"));
+    let content = match std::fs::read_to_string(&file) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("read {file:?} error, {e}");
+            return Ok(None);
+        }
+    };
+    let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
+    let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
+
     Ok(Some(OnDemandTask {
         task_index,
         latest_sequencer_commit_txid,
@@ -465,7 +481,7 @@ pub(crate) async fn fetch_on_demand_task(
         included_watchtowers,
         watchtower_public_keys,
         graph_id,
-        operator_blockhash_commit_txid,
+        operator_committed_blockhash,
     }))
 }
 
@@ -647,7 +663,7 @@ pub(crate) async fn add_operator_task(
     local_db: &LocalDB,
     instance_id: Uuid,
     graph_id: Uuid,
-    blockhash_commit_txid: String,
+    operator_committed_blockhash: String,
     execution_layer_block_number: i64,
     watchtower_challenge_txids: Vec<String>,
     included_watchtowers: Vec<bool>,
@@ -718,7 +734,7 @@ pub(crate) async fn add_operator_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             cycles: 0,
-            blockhash_commit_txid: Txid::from_str(&blockhash_commit_txid)?.into(),
+            operator_committed_blockhash,
             ..Default::default()
         })
         .await?;
@@ -835,7 +851,7 @@ mod tests {
             "4506cf35cd70b3006fe3ce4a87ca1f9b0a76f348cfb529423e2d4c163c28d604".to_string(),
             "f16286f143430a229c6d068798cd9ba751e83202de5045cc788aab227114cdb2".to_string(),
         ];
-        let blockhash_commit_txid =
+        let operator_committed_blockhash =
             "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
 
         let included_watchtowers = vec![true, false];
@@ -843,7 +859,7 @@ mod tests {
             &local_db,
             instance_id,
             graph_id,
-            blockhash_commit_txid,
+            operator_committed_blockhash,
             number,
             watchtower_challenge_txids,
             included_watchtowers,

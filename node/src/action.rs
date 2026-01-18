@@ -11,7 +11,7 @@ use crate::rpc_service::current_time_secs;
 use crate::utils::*;
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Result, anyhow, bail};
-use bitcoin::hashes::Hash;
+use bitcoin::{BlockHash, hashes::Hash};
 use bitcoin::{OutPoint, Txid};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm2_lib::actors::Actor;
@@ -2771,56 +2771,26 @@ pub async fn recv_and_dispatch(
                 None => return Ok(()),
             };
             let mut graph = Bitvm2Graph::from_simplified(&graph)?;
-            let watchtower_challenge_init_txid =
-                graph.watchtower_challenge_init.tx().compute_txid();
             // 1. check that all WatchtowerChallenge Connectors are spent
-            let mut largest_watchtower_challenge_block_height = 0u32;
-            let mut largest_watchtower_challenge_block_hash = [0u8; 32];
-            for watchtower_index in 0..graph.parameters.watchtower_pubkeys.len() {
-                let watchtower_challenge_vout = 2 * watchtower_index as u32;
-                match outpoint_spent_txid(
-                    btc_client,
-                    &watchtower_challenge_init_txid,
-                    watchtower_challenge_vout as u64,
-                )
-                .await
-                {
-                    Ok(Some(txid)) => {
-                        let tx_status = btc_client.get_tx_status(&txid).await?;
-                        if let Some(block_height) = tx_status.block_height {
-                            if block_height > largest_watchtower_challenge_block_height {
-                                largest_watchtower_challenge_block_height = block_height;
-                                largest_watchtower_challenge_block_hash =
-                                    tx_status.block_hash.unwrap().to_byte_array();
-                            }
-                        } else {
-                            tracing::warn!(
-                                "Retry OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index} later: watchtower challenge tx {txid} not confirmed yet"
-                            );
-                            push_local_unhandled_messages(
-                                local_db,
-                                graph_id,
-                                &message,
-                                todo_funcs::avg_block_time_secs(btc_client.network()) as usize,
-                            )
-                            .await?;
-                            return Ok(());
-                        }
-                    }
-                    Ok(None) => {
-                        tracing::warn!(
-                            "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}:{watchtower_index}: watchtower challenge connector not spent yet"
-                        );
-                        return Ok(());
-                    }
+            let largest_watchtower_challenge_block_hash =
+                match get_largest_watchtower_challenge_block(&graph, btc_client).await {
+                    Ok(d) => d,
                     Err(e) => {
                         tracing::warn!(
-                            "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}: watchtower challenge connector {watchtower_index} not spent yet, error: {e:?}"
-                        );
+                                "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}: failed to get
+                                    largest watchtower challenge block, error: {e:?}"
+                            );
+                        push_local_unhandled_messages(
+                            local_db,
+                            graph_id,
+                            &message,
+                            todo_funcs::avg_block_time_secs(btc_client.network()) as usize,
+                        )
+                        .await?;
                         return Ok(());
                     }
-                }
-            }
+                };
+
             // 2. sign & broadcast commit-blockhash txn
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let operator_graph_keypair = operator_master_key.master_keypair();
@@ -2832,7 +2802,7 @@ pub async fn recv_and_dispatch(
                 operator_sign_blockhash_commit(
                     operator_graph_keypair,
                     &mut graph,
-                    &largest_watchtower_challenge_block_hash,
+                    &BlockHash::from(largest_watchtower_challenge_block_hash).to_byte_array(),
                     blockhash_wots_secret_key,
                 )?;
             build_sign_and_broadcast_tx(

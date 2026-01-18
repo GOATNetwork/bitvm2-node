@@ -2,7 +2,7 @@
 use alloy_primitives::U256;
 use anyhow::Context;
 use bitcoin::{
-    Network, ScriptBuf, Transaction, TxOut, Txid,
+    BlockHash, Network, ScriptBuf, Transaction, TxOut, Txid,
     hashes::Hash,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
@@ -15,6 +15,7 @@ use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevP
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use std::str::FromStr;
+use util::get_btc_block_confirms;
 use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
@@ -43,7 +44,7 @@ pub struct Args {
     pub latest_sequencer_commit_txid: String,
 
     #[clap(long, env)]
-    pub operator_blockhash_commit_txid: String,
+    pub operator_committed_blockhash: String,
 
     #[clap(long, env)]
     pub genesis_sequencer_commit_txid: String,
@@ -91,7 +92,7 @@ static ELF_ID: OnceLock<String> = OnceLock::new();
 pub async fn fetch_target_block_and_watchtower_tx(
     esplora_url: &str,
     latest_sequencer_commit_txid: &str,
-    operator_blockhash_commit_txid: &str,
+    operator_committed_blockhash: &str,
     watchtower_challenge_init_txid: &String,
     watchtower_challenge_txids: &str,
     watchtower_public_keys: &str,
@@ -99,9 +100,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
 ) -> anyhow::Result<(
     u32,
     bitcoin::Block,
-    u32,
-    bitcoin::Block,
-    bitcoin::Transaction,
+    BlockHash,
     bitcoin::Transaction,
     Vec<Transaction>,
     Vec<TxOut>,
@@ -120,13 +119,26 @@ pub async fn fetch_target_block_and_watchtower_tx(
     tracing::info!("block height: {block_pos_ss_commit}");
     let target_block_ss_commit = btc_client.get_block_by_height(block_pos_ss_commit).await.unwrap();
 
-    let operator_blockhash_commit_txid = Txid::from_str(&operator_blockhash_commit_txid).unwrap();
-    let operator_blockhash_commit_txn =
-        btc_client.get_tx(&operator_blockhash_commit_txid).await.unwrap().unwrap();
-    let tx_status = btc_client.get_tx_status(&operator_blockhash_commit_txid).await.unwrap();
-    let block_pos_operator_blockhash = tx_status.block_height.unwrap();
+    let operator_committed_blockhash = BlockHash::from_str(operator_committed_blockhash).unwrap();
     let target_block_operator_blockhash =
-        btc_client.get_block_by_height(block_pos_operator_blockhash).await.unwrap();
+        btc_client.get_block_by_hash(&operator_committed_blockhash).await?.unwrap();
+    let block_pos_operator_committed_blockhash =
+        target_block_operator_blockhash.bip34_block_height()? as u32;
+
+    // estimate if the target blocks have been proved.
+    let tip_block = btc_client.get_height().await?;
+    let delay_blocks = get_btc_block_confirms(btc_client.network());
+    if block_pos_ss_commit + delay_blocks >= tip_block
+        || block_pos_operator_committed_blockhash + delay_blocks >= tip_block
+    {
+        anyhow::bail!(
+            "Target block is not confirmed enough, tip: {}, ss commit block: {}, operator blockhash commit block: {}, delay_blocks: {}",
+            tip_block,
+            block_pos_ss_commit,
+            block_pos_operator_committed_blockhash,
+            delay_blocks
+        );
+    }
 
     // --- watchtower_challenge_txns --- //
     let mut watchtower_challenge_txns = Vec::new();
@@ -167,10 +179,8 @@ pub async fn fetch_target_block_and_watchtower_tx(
     Ok((
         block_pos_ss_commit,
         target_block_ss_commit,
-        block_pos_operator_blockhash,
-        target_block_operator_blockhash,
+        operator_committed_blockhash,
         operator_latest_sequencer_commit_txn,
-        operator_blockhash_commit_txn,
         watchtower_challenge_txns,
         watchtower_challenge_txn_prev_outs,
         watchtower_challenge_txn_pubkeys,
@@ -226,9 +236,7 @@ impl ProofBuilder for OperatorProofBuilder {
             block_pos_ss_commit,
             operator_latest_sequencer_commit_txn,
 
-            block_pos_operator_blockhash,
-            target_block_operator_blockhash,
-            operator_blockhash_commit_txn,
+            operator_committed_blockhash,
 
             watchtower_challenge_txns,
             watchtower_challenge_txn_prev_outs,
@@ -331,17 +339,6 @@ impl ProofBuilder for OperatorProofBuilder {
             &bitcoin_block_headers,
         );
 
-        tracing::info!(
-            "construct spv for operator blockhash commit, {}",
-            operator_blockhash_commit_txn.compute_txid()
-        );
-        let spv_operator_blockhash = build_spv(
-            &operator_blockhash_commit_txn,
-            *block_pos_operator_blockhash,
-            target_block_operator_blockhash.clone(),
-            &bitcoin_block_headers,
-        );
-
         // Generate the proofs
         let (proof, cycles, proving_time) = tracing::info_span!("generate proof").in_scope(
             || -> anyhow::Result<(ZKMProofWithPublicValues, u64, f32)> {
@@ -364,7 +361,7 @@ impl ProofBuilder for OperatorProofBuilder {
                 stdin.write(&commit_chain_input);
                 stdin.write(&state_chain_input);
                 stdin.write(&spv_ss_commit);
-                stdin.write(&spv_operator_blockhash);
+                stdin.write(&operator_committed_blockhash.to_byte_array());
 
                 let elf_id = if ELF_ID.get().is_none() {
                     ELF_ID
@@ -422,7 +419,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "local test"]
     async fn test_parse_operator_proof() {
-        let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/operator/366fb3e0ed2442d39e2cb1e6dda1b08b.bin";
+        let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/operator/3c2917b82fe14ef7b8cc8bef3ecd700f.bin";
         let proof_bytes = std::fs::read(proof_path).unwrap();
         let vk_bytes = fs::read(format!("{proof_path}.vk_hash.bin")).unwrap();
 

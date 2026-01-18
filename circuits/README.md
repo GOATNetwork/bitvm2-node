@@ -221,23 +221,23 @@ After calling the [`proceedWithdraw`](https://github.com/GOATNetwork/bitvm2-L2-c
 
 ```
 export BITCOIN_NETWORK=regtest
-export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.0 | jq -r .genesis_txid)
+export DIR="/home/ubuntu/data/proof-builder-rpc/circuits"
+export GENESIS_SEQUENCER_COMMIT_TXID=$(cat ${DIR}/data/commit-chain/commit_info.json.0 | jq -r .genesis_txid)
 
-export LATEST_SEQUENCER_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.2 | jq -r .txid)
-export OPERATOR_BLOCKHASH_COMMIT_TXID=$(cat ./data/commit-chain/commit_info.json.2 | jq -r .txid) 
+export LATEST_SEQUENCER_COMMIT_TXID=$(cat ${DIR}/data/commit-chain/commit_info.json.11 | jq -r .txid)
+export OPERATOR_COMMITTED_BLOCKHASH =$(cat ${DIR}/data/commit-chain/commit_info.json.11 | jq -r .txid) 
 
-export HEADER_CHAIN_INPUT_PROOF="data/header-chain/0-116000.bin"
-export COMMIT_CHAIN_INPUT_PROOF="data/commit-chain/2-1.bin"
-export STATE_CHAIN_INPUT_PROOF="data/state-chain/9511050-10.bin"
-export LATEST_STATE_BLOCK_HASH="0x7908184bce067fa5a4508d309cbaf22dd1e0b586ad2dd42c0e51a5308a7bd815"
+export HEADER_CHAIN_INPUT_PROOF="$DIR/data/header-chain/1024-1.bin"
+export COMMIT_CHAIN_INPUT_PROOF="$DIR/data/commit-chain/11-1.bin"
+export STATE_CHAIN_INPUT_PROOF="$DIR/data/state-chain/10558271-40.bin"
 
-export GRAPH_ID="0x00112233445566778899aabbccddeeff"
-export EXECUTION_LAYER_BLOCK_NUMBER=9511055
+export GRAPH_ID="3C2917B82FE14EF7B8CC8BEF3ECD700F"
+export EXECUTION_LAYER_BLOCK_NUMBER=10558309
 
-export INCLUDED_WATCHTOWERS=1
-export WATCHTOWER_PUBLIC_KEYS="0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651"
-export WATCHTOWER_CHALLENGE_TXIDS="3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0"
-export WATCHTOWER_CHALLENGE_INIT_TXID="7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246"
+export INCLUDED_WATCHTOWERS=0
+export WATCHTOWER_PUBLIC_KEYS="02e7a08db9093c279535bd0078582469b82bf9f12c6dcb7588e187d2b9cc724279,02f6dce5d37a801064bdf42759dba98afccc80440c32cdc3a8d85c0ed9ae2e749b"
+export WATCHTOWER_CHALLENGE_TXIDS="6247824c7c96c4701ef52163316d938412b15cf15962622b3c63f3cf41193f96,fe96c90162c369f45ae4f08140c6197a15c5f3cfe23f04be60f18802e97f4f91"
+export WATCHTOWER_CHALLENGE_INIT_TXID="e7723e03ac97172cf033e40d4b9d9c0e22efa7a41eb855a1576f467684a0f6b3"
 
 RUST_LOG=info cargo run --package operator-proof --bin operator-proof -r -- --output "data/operator-proof/output.bin"
 ```

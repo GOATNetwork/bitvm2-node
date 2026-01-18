@@ -1,5 +1,4 @@
 //! Generate operator proof
-use bitcoin::constants::TARGET_BLOCK_SPACING;
 use clap::Parser;
 use operator_proof::{Args, OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{ProofBuilder, ProofRequest};
@@ -15,10 +14,8 @@ async fn main() {
     let (
         block_pos_ss_commit,
         target_block_ss_commit,
-        block_pos_operator_blockhash,
-        target_block_operator_blockhash,
+        operator_committed_blockhash,
         operator_latest_sequencer_commit_txn,
-        operator_blockhash_commit_txn,
         watchtower_challenge_txns,
         watchtower_challenge_txn_prev_outs,
         watchtower_challenge_txn_pubkeys,
@@ -26,7 +23,7 @@ async fn main() {
     ) = fetch_target_block_and_watchtower_tx(
         &args.esplora_url,
         &args.latest_sequencer_commit_txid,
-        &args.operator_blockhash_commit_txid,
+        &args.operator_committed_blockhash,
         &args.watchtower_challenge_init_txid,
         &args.watchtower_challenge_txids,
         &args.watchtower_public_keys,
@@ -52,9 +49,7 @@ async fn main() {
         block_pos_ss_commit,
         target_block_ss_commit,
         operator_latest_sequencer_commit_txn,
-        block_pos_operator_blockhash,
-        target_block_operator_blockhash,
-        operator_blockhash_commit_txn,
+        operator_committed_blockhash,
 
         watchtower_challenge_txns,
         watchtower_challenge_txn_prev_outs,

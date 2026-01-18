@@ -31,25 +31,34 @@ pub(crate) fn spawn_watchtower_proof_task(
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                     // fetch args from the database by instance id and graph id.
                     let task_index;
-                    if let Some(next_task) = fetch_on_demand_task(
+                    match fetch_on_demand_task(
                         &local_db,
                         true,
                         args.bitcoin_network,
                         &args.esplora_url,
-                    ).await? {
-                        args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
-                        args.header_chain_input_proof = next_task.header_chain_input_proof;
-                        args.commit_chain_input_proof = next_task.commit_chain_input_proof;
-                        args.state_chain_input_proof = next_task.state_chain_input_proof;
-                        args.output = format!("{}/{}.bin",
-                            std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
-                            next_task.task_index,
-                        );
-                        task_index = next_task.task_index;
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        continue;
-                    };
+                    ).await {
+                        Ok(Some(next_task)) => {
+                            args.latest_sequencer_commit_txid = next_task.latest_sequencer_commit_txid;
+                            args.header_chain_input_proof = next_task.header_chain_input_proof;
+                            args.commit_chain_input_proof = next_task.commit_chain_input_proof;
+                            args.state_chain_input_proof = next_task.state_chain_input_proof;
+                            args.output = format!("{}/{}.bin",
+                                std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
+                                next_task.task_index,
+                            );
+                            task_index = next_task.task_index;
+                        },
+                        Ok(None) => {
+                            tracing::warn!("No on demand task found for watchtower proof, wait for the next round");
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to fetch on demand task for watchtower proof, error: {e}");
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                    }
                     info!("Watchtower proof generate task: generate proof, args: {args:?}");
 
                     let (block_pos, target_block, latest_sequencer_commit_tx) =

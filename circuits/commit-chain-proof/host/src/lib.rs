@@ -94,9 +94,9 @@ pub async fn fetch_commit_chain(
     for _i in start..start + batch_size {
         let txid = Txid::from_str(&ci.txid)?;
         println!("network: {:?}, txid: {txid:?}", btc_client.network());
+        let commit_txn = btc_client.get_tx_status(&txid).await?;
+        let block_height = commit_txn.block_height.unwrap();
         let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
-        let proof = btc_client.get_merkle_proof_extend(&txid).await?;
-        let block_height = proof.height as u32;
 
         let op_return_data = extract_op_return_data(&commit_txn.output);
         let mut sequencer_set_hash: [u8; 32] = [0u8; 32];

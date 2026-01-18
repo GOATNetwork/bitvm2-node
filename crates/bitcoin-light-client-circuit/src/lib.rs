@@ -150,7 +150,7 @@ pub fn propose_longest_chain(
     commit_chain: CommitChainCircuitInput,
     state_chain: StateChainCircuitInput,
     spv_ss_commit: SPV,
-    spv_operator_blockhash: SPV,
+    operator_committed_blockhash: [u8; 32],
 ) -> ([u8; 32], [u8; 32], [u8; 32]) {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
@@ -194,8 +194,6 @@ pub fn propose_longest_chain(
 
     // verify that the latest_sequecner_commit_tx is in the header chain
     assert!(spv_ss_commit.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
-    // verify that the operator_blockhash is in the header chain
-    assert!(spv_operator_blockhash.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
     // parse included_watchtowers into bits array
     let included_watchertowers_bits = u256_to_le_bits(included_watchtowers);
@@ -343,10 +341,14 @@ pub fn propose_longest_chain(
     //let operator_public_input =
     //    hash_operator_inputs(btc_best_block_hash, constant, included_watchtowers);
     //println!("operator public input hex: {:?}", hex::encode(operator_public_input));
+    let included = operator_header_chain
+        .block_headers
+        .iter()
+        .position(|header| header.compute_block_hash() == operator_committed_blockhash);
+    assert!(included.is_some(), "operator committed blockhash is not included in header chain");
 
     //operator_public_input
-    let operator_blockhash = spv_operator_blockhash.transaction.0.compute_txid().to_byte_array();
-    (operator_blockhash, constant, included_watchtowers.to_le_bytes::<32>())
+    (operator_committed_blockhash, constant, included_watchtowers.to_le_bytes::<32>())
 }
 
 pub fn hash_operator_constant(
