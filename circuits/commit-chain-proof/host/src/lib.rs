@@ -79,51 +79,48 @@ pub async fn fetch_commit_chain(
     esplora_url: &str,
     commit_info_file: &str,
     commits_file: &str,
-    start: usize,
-    batch_size: usize,
     network: Network,
 ) -> anyhow::Result<Vec<CircuitCommit>> {
     let btc_client = BTCClient::new(network, Some(&esplora_url));
 
-    let rdr = std::fs::File::open(commit_info_file).context("read error")?;
+    tracing::info!(
+        "Fetching commit chain, commit_info_file: {}, commits_file: {}",
+        commit_info_file,
+        commits_file
+    );
+    let rdr = std::fs::File::open(commit_info_file).context(&("read error"))?;
     let ci: CommitInfo = serde_json::from_reader(rdr)?;
-    // NOTE: we support one commit-info per commit file currently
-    assert_eq!(batch_size, 1);
-
     let mut commits: Vec<CircuitCommit> = vec![];
-    for _i in start..start + batch_size {
-        let txid = Txid::from_str(&ci.txid)?;
-        println!("network: {:?}, txid: {txid:?}", btc_client.network());
-        let commit_txn = btc_client.get_tx_status(&txid).await?;
-        let block_height = commit_txn.block_height.unwrap();
-        let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
+    let txid = Txid::from_str(&ci.txid)?;
+    let commit_txn = btc_client.get_tx_status(&txid).await?;
+    let block_height = commit_txn.block_height.unwrap();
+    let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
 
-        let op_return_data = extract_op_return_data(&commit_txn.output);
-        let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
-        sequencer_set_hash.copy_from_slice(&op_return_data[0..32]);
+    let op_return_data = extract_op_return_data(&commit_txn.output);
+    let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
+    sequencer_set_hash.copy_from_slice(&op_return_data[0..32]);
 
-        if let tendermint::Hash::Sha256(expected_hash) = sequencer_hash(&ci.sequencers) {
-            assert_eq!(expected_hash, sequencer_set_hash);
-        } else {
-            panic!("Invalid sequencer set hash");
-        }
-
-        let publisher_public_keys = ci
-            .publisher_public_keys
-            .iter()
-            .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
-            .collect();
-        tracing::info!("sequencer_hash: {:?}", sequencer_hash(&ci.sequencers));
-        let commit = CircuitCommit {
-            commit_txn,
-            sequencers: ci.sequencers.clone(),
-            publisher_public_keys,
-            threshold: ci.threshold,
-            genesis_txid: Txid::from_str(&ci.genesis_txid)?.as_raw_hash().to_byte_array(),
-            block_height,
-        };
-        commits.push(commit);
+    if let tendermint::Hash::Sha256(expected_hash) = sequencer_hash(&ci.sequencers) {
+        assert_eq!(expected_hash, sequencer_set_hash);
+    } else {
+        panic!("Invalid sequencer set hash");
     }
+
+    let publisher_public_keys = ci
+        .publisher_public_keys
+        .iter()
+        .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
+        .collect();
+    tracing::info!("sequencer_hash: {:?}", sequencer_hash(&ci.sequencers));
+    let commit = CircuitCommit {
+        commit_txn,
+        sequencers: ci.sequencers.clone(),
+        publisher_public_keys,
+        threshold: ci.threshold,
+        genesis_txid: Txid::from_str(&ci.genesis_txid)?.as_raw_hash().to_byte_array(),
+        block_height,
+    };
+    commits.push(commit);
     std::fs::write(&commits_file, serde_json::to_vec(&commits)?)
         .expect(&format!("write {commits_file} error"));
     Ok(commits)

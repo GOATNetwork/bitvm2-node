@@ -15,8 +15,6 @@ async fn main() {
         &args.esplora_url,
         &args.commit_info,
         &args.commits,
-        args.start,
-        args.batch_size,
         args.bitcoin_network,
     )
     .await

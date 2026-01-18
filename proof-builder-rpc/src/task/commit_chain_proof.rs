@@ -37,9 +37,8 @@ pub(crate) fn spawn_commit_chain_proof_task(
                         args.start = next_task.block_end as usize;
                         args.input_proof = next_task.path_to_proof.unwrap();
                         args.commit_info = format!(
-                            "{}/commit_info.json.{}",
+                            "{}/commit_info.json.latest",
                             std::path::Path::new(&args.output_proof).parent().unwrap().to_str().unwrap(),
-                            args.start,
                         );
                         args.output_proof = format!(
                             "{}/{}-{}.bin",
@@ -57,10 +56,10 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     }
                     info!("Commit chain proof generate task: generate proof, args: {args:?}");
 
-                    let commits = match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.start, args.batch_size, args.bitcoin_network).await {
+                    let commits = match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.bitcoin_network).await {
                         Ok(d) => d,
                         Err(err) => {
-                            tracing::info!("Fetch commit chain error, {err:?}, continuing");
+                            tracing::warn!("Fetch commit chain error, {err:?}, continuing");
                             continue;
                         }
                     };
@@ -85,7 +84,7 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     let zkm_version = proof.zkm_version.clone();
                     let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
 
-                    create_commit_chain_proof(&local_db, block_start, i64::MAX, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, CommitChainProofBuilder::name(), proving_duration as i64, proving_time as i64, store::ProofState::Proven,zkm_version).await?;
+                    create_commit_chain_proof(&local_db, block_start, args.batch_size as i64, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, CommitChainProofBuilder::name(), proving_duration as i64, proving_time as i64, store::ProofState::Proven,zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args, CommitChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {

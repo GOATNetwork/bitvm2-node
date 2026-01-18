@@ -544,21 +544,17 @@ pub(crate) async fn create_commit_chain_proof(
     let previous_proof = storage_processor
         .find_long_running_task_proof_including_block_number(start as i64, chain_name.clone())
         .await?;
-    if previous_proof.is_none() {
-        anyhow::bail!("Current proof not found for block: {}, chain_name: {}", start, chain_name);
+    if let Some(previous_proof) = previous_proof {
+        let prev_batch_size = start as i64 - previous_proof.block_start;
+        storage_processor
+            .update_long_running_task_proof_state(
+                previous_proof.block_start,
+                &previous_proof.chain_name,
+                prev_batch_size,
+                previous_proof.proof_state,
+            )
+            .await?;
     }
-
-    let previous_proof = previous_proof.unwrap();
-    let prev_batch_size = start as i64 - previous_proof.block_start;
-    storage_processor
-        .update_long_running_task_proof_state(
-            previous_proof.block_start,
-            &previous_proof.chain_name,
-            prev_batch_size,
-            previous_proof.proof_state,
-        )
-        .await?;
-
     let affected = storage_processor
         .create_long_running_task_proof(&LongRunningTaskProof {
             block_start: start as i64,
