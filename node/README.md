@@ -79,26 +79,74 @@ stateDiagram-v2
 
 The path from Challenge → OperatorTake2 requires successful completion of three sub-phases:
 
-```
-Challenge (GraphStatus)
-    ↓
-1. WatchtowerChallengeStatus: None → OperatorInit → WatchtowerChallenge → WatchtowerChallengeNormalFinished
-   + CommitBlockHashStatus: None → WatchtowerChallengeProcessed → OperatorCommit
-    ↓
-2. AssertCommitStatus: None → OperatorInit → OperatorCommit
-    ↓
-   All three conditions met:
-   - WatchtowerChallengeNormalFinished ✓
-   - CommitBlockHashStatus = OperatorCommit ✓
-   - AssertCommitStatus = OperatorCommit ✓
-    ↓
-OperatorTake2
+```mermaid
+---
+title: Challenge Phase Flow to OperatorTake2
+---
+stateDiagram-v2
+    [*] --> Challenge
+    
+    Challenge --> WTPhase: Enter Watchtower Challenge Phase
+    Challenge --> Disprove: Challenge/Timeout<br/>detected
+    
+    WTPhase --> WTInit: WatchtowerChallengeInitTx<br/>confirmed
+    WTInit --> WTChallenge: Watchtowers may challenge
+    WTInit --> WTTimeout: No watchtower<br/>challenges
+    
+    WTChallenge --> WTAllACK: All watchtowers ACK
+    WTChallenge --> Disprove: Any NACK or timeout
+    
+    WTTimeout --> Disprove: Timeout expired
+    
+    WTAllACK --> BlockHashPhase: Proceed to BlockHash Phase
+    
+    BlockHashPhase --> BlockHashWait: Wait for<br/>WatchtowerChallenge<br/>completion
+    BlockHashWait --> BlockHashCommit: Operator commits<br/>blockhash
+    BlockHashWait --> Disprove: Commit timeout
+    
+    BlockHashCommit --> AssertPhase: Proceed to Assert Phase
+    
+    AssertPhase --> AssertInit: AssertInitTx confirmed
+    AssertInit --> AssertCommit: Operator commits<br/>assertions
+    AssertInit --> Disprove: Assert timeout
+    
+    AssertCommit --> CheckComplete: All phases complete?
+    
+    CheckComplete --> OperatorTake2: Yes - All conditions met<br/>✓ WatchtowerChallengeNormalFinished<br/>✓ BlockHash committed<br/>✓ Assertions committed
+    CheckComplete --> Disprove: No - Missing conditions
+    
+    OperatorTake2 --> [*]
+    Disprove --> [*]
+    
+    note right of Challenge
+        Initial state when
+        WatchtowerChallengeInit
+        confirmed on Bitcoin
+    end note
+    
+    note right of WTPhase
+        Monitor each watchtower
+        for challenges or timeout
+    end note
+    
+    note right of BlockHashPhase
+        Only proceeds after
+        WatchtowerChallengeStatus
+        reaches normal finish
+    end note
+    
+    note right of AssertPhase
+        Operator must commit
+        all assertions within
+        timelock window
+    end note
 ```
 
-**Conditions for successful transition to OperatorTake2:**
-- All watchtowers acknowledge their challenges (no NACK or timeouts)
-- Operator successfully commits the blockhash
-- Operator successfully commits all assertions
+**Transition Conditions to OperatorTake2:**
+- `watchtower_challenge_status == WatchtowerChallengeNormalFinished`
+- `commit_blockhash_status == OperatorCommit`
+- `assert_commit_status == OperatorCommit`
+- `disprove_type == None` (no errors detected)
 
 ### Challenge Phase: WatchtowerChallengeStatus
 
