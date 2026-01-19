@@ -521,16 +521,6 @@ pub enum MessageType {
     InstanceDiscarded,
 }
 
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct MessageBroadcast {
-    pub graph_id: Uuid,
-    pub graph_status: String,
-    pub msg_type: String,
-    pub msg_times: i64,
-    pub updated_at: i64,
-    pub created_at: i64,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
 pub enum WatchContractStatus {
     #[default]

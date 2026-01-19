@@ -1,9 +1,8 @@
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     BridgeOutGlobalStats, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance,
-    LongRunningTaskProof, Message, MessageBroadcast, Node, NodesOverview, OperatorProof,
-    PeginGraphProcessData, PeginInstanceProcessData, SerializableTxid, WatchContract,
-    WatchtowerProof,
+    LongRunningTaskProof, Message, Node, NodesOverview, OperatorProof, PeginGraphProcessData,
+    PeginInstanceProcessData, SerializableTxid, WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -2078,20 +2077,6 @@ impl<'a> StorageProcessor<'a> {
             Some(row) => Ok((row.msg_times, row.updated_at)),
             None => Ok((0, 0)),
         }
-    }
-
-    pub async fn find_message_broadcasts(
-        &mut self,
-        graph_status: &str,
-    ) -> anyhow::Result<Vec<MessageBroadcast>> {
-        let records = sqlx::query_as!(
-            MessageBroadcast,
-            "SELECT graph_id AS \"graph_id:Uuid\", graph_status, msg_type, msg_times, created_at, updated_at
-            FROM message_broadcast
-            WHERE graph_status = ? ",
-            graph_status
-        ).fetch_all(self.conn()).await?;
-        Ok(records)
     }
 
     pub async fn add_message_broadcast_times(

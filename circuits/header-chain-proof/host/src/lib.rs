@@ -197,7 +197,9 @@ impl ProofBuilder for HeaderChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof)).unwrap();
+            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof)).expect(
+                &format!("Failed to read public inputs from {}.public_inputs.bin", input_proof),
+            );
             Some(public_inputs)
         };
 

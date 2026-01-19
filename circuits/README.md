@@ -84,7 +84,7 @@ docker compose up -d
 # export BITCOIN_NETWOKR=regtest
 
 # testnet
-# export BITCOIN_NETWOKR=testnet
+# export BITCOIN_NETWOKR=testnet4
 # export ESPLORA_URL=https://mempool.space/testnet/api
 
 
