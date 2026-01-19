@@ -33,6 +33,8 @@ CREATE TABLE graph
     `init_withdraw_tx_hash`              TEXT,
     `bridge_out_start_at`                BIGINT          NOT NULL DEFAULT 0,
     `zkm_version`                        TEXT            NOT NULL DEFAULT '',
+    `status_updated_at`                  BIGINT          NOT NULL DEFAULT 0,
+    `proceed_withdraw_height`            BIGINT          NOT NULL DEFAULT 0,
     `created_at`                         BIGINT          NOT NULL DEFAULT 0,
     `updated_at`                         BIGINT          NOT NULL DEFAULT 0,
     PRIMARY KEY (`graph_id`)
