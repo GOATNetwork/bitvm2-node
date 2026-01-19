@@ -4555,27 +4555,6 @@ pub(crate) async fn get_bridge_out_global_stats<'a>(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    #[ignore = "test on regtest"]
-    async fn test_get_watchtower_challenge_info() {
-        let init_txid =
-            Txid::from_str("2bb03cb075c95d94c298d139242bcd42c366b7105df34591e77e3ac11ac29386")
-                .unwrap();
-        let init_txid = SerializableTxid(init_txid);
-        let number_challenge = 2;
-        let esplora_url = "http://localhost:13002".to_string();
-        let btc_client = BTCClient::new(get_network(), Some(&esplora_url));
-
-        let result =
-            get_watchtower_challenge_info(&btc_client, &init_txid, number_challenge).await.unwrap();
-        println!("result: {result:#?}");
-    }
-}
-
 pub async fn get_largest_watchtower_challenge_block(
     graph: &Bitvm2Graph,
     btc_client: &BTCClient,
@@ -4622,4 +4601,25 @@ pub async fn get_largest_watchtower_challenge_block(
         }
     }
     Ok(largest_watchtower_challenge_block_hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "test on regtest"]
+    async fn test_get_watchtower_challenge_info() {
+        let init_txid =
+            Txid::from_str("2bb03cb075c95d94c298d139242bcd42c366b7105df34591e77e3ac11ac29386")
+                .unwrap();
+        let init_txid = SerializableTxid(init_txid);
+        let number_challenge = 2;
+        let esplora_url = "http://localhost:13002".to_string();
+        let btc_client = BTCClient::new(get_network(), Some(&esplora_url));
+
+        let result =
+            get_watchtower_challenge_info(&btc_client, &init_txid, number_challenge).await.unwrap();
+        println!("result: {result:#?}");
+    }
 }
