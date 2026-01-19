@@ -31,7 +31,6 @@ else
 fi
 
 echo "Start i=$start, batch=$batch"
-exit
 
 while true; do
   echo "Running for i=$start"
