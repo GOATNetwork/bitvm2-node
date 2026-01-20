@@ -274,8 +274,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             next_publisher_btc_pubkeys,
             goat_genesis_block_hash,
         } => {
-            let (sequencer_set_hash, cl_block_number, _) =
-                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None).await?;
+            let (sequencer_set_hash, cl_block_number) =
+                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None, 1000)
+                    .await?;
             println!("cl block number: {cl_block_number}, el block number: {goat_block_number}");
 
             let fee_tx = cached_output.fee_tx.unwrap();
@@ -305,8 +306,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commit_info,
         } => {
             println!("goat genesis block hash: {:#?}", hex::encode(goat_genesis_block_hash));
-            let (sequencer_set_hash, cosmos_block_number, _) =
-                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None).await?;
+            let (sequencer_set_hash, cosmos_block_number) =
+                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None, 1000)
+                    .await?;
 
             let sequencers = fetch_validators(&args.cosmos_rpc_url, cosmos_block_number).await?;
             let fee_tx = cached_output.fee_tx;

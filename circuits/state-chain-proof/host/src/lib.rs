@@ -220,8 +220,8 @@ pub async fn fetch_state_chain(
                 Err(_) => None,
             };
 
-        let (_, cl_block_number, _goat_block_hash) =
-            fetch_cbft_validator_info(cosmos_rpc_url, i, parent_cosmos_block_height)
+        let (_, cl_block_number) =
+            fetch_cbft_validator_info(cosmos_rpc_url, i, parent_cosmos_block_height, 1000)
                 .await
                 .map_err(|e| {
                     tracing::error!("fetch_cbft_validator_info: {e:?}");

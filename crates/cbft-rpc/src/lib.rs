@@ -30,12 +30,20 @@ pub async fn get_cosmos_block_height_at(
     }
 }
 
+/// Calculate cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
+/// 1. Fetch the latest cosmos block height
+/// 2. Search cosmos block height from parent_cosmos_block_height(parent beacon block root).
+/// > 2.1. fetch the block info and parse the first transction:
+/// ```
+///     curl "https://rpc.testnet3.goat.network/goat-rpcblock?height=5756784" | jq .result.block.data
+/// ```
 #[tracing::instrument(level = "info")]
 pub async fn fetch_cbft_validator_info(
     cosmos_rpc_url: &str,
     goat_block_height: u64,
     parent_cosmos_block_height: Option<u64>,
-) -> Result<([u8; 32], u64, [u8; 32])> {
+    mut max_offset: u64,
+) -> Result<([u8; 32], u64)> {
     // Linear search starting from `parent_cosmos_block_height` (or `goat_block_height`)
     // upward until we find the CBFT transaction with matching goat_block_height.
     let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
@@ -45,9 +53,7 @@ pub async fn fetch_cbft_validator_info(
         None => goat_block_height,
     };
 
-    let mut max_retries: usize = 1000;
-
-    while max_retries > 0 {
+    while max_offset > 0 {
         let block_data = rpc
             .block(Height::try_from(block_height).unwrap())
             .await
@@ -63,18 +69,14 @@ pub async fn fetch_cbft_validator_info(
                     let sequencer_hash: [u8; 32] = validators_hash
                         .try_into()
                         .map_err(|_| anyhow!("Invalid validators_hash length"))?;
-                    let goat_block_hash: [u8; 32] = payload
-                        .block_hash
-                        .try_into()
-                        .map_err(|_| anyhow!("Invalid block_hash length"))?;
-                    return Ok((sequencer_hash, block_height, goat_block_hash));
+                    return Ok((sequencer_hash, block_height));
                 }
             }
         }
 
         // Move to next block
         block_height = block_height.saturating_add(1);
-        max_retries -= 1;
+        max_offset -= 1;
     }
 
     anyhow::bail!("Can not find the cosmos block for goat block height {goat_block_height}");
@@ -141,8 +143,8 @@ mod tests {
         let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
             .unwrap_or("https://rpc.testnet3.goat.network/goat-rpc".to_string());
         let evm_block_number = 10627151;
-        let (sequencer_hash, block_number, _) =
-            fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number, None).await.unwrap();
+        let (sequencer_hash, block_number) =
+            fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number, None, 1000).await.unwrap();
 
         println!("hex sequencer_hash: {}", hex::encode(sequencer_hash));
         println!("cosmos block number: {}", block_number);
