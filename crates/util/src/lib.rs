@@ -14,7 +14,7 @@ pub fn get_btc_block_confirms(network: Network) -> u32 {
     match network {
         Network::Bitcoin => 6,
         Network::Testnet => 10,
-        Network::Testnet4 => 10,
+        Network::Testnet4 => 6,
         Network::Signet => 6,
         Network::Regtest => 1,
     }

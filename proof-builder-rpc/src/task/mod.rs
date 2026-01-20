@@ -648,6 +648,7 @@ pub(crate) async fn add_watchtower_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             execution_layer_block_number,
+            included: true,
             ..Default::default()
         })
         .await?)
