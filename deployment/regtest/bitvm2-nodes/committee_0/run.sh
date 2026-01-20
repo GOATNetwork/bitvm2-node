@@ -1,1 +1,1 @@
-nohup ../bitvm2-noded  --rpc-addr 0.0.0.0:8900   --db-path sqlite:$PWD/bitvm2-node.db --p2p-port 8443   >$PWD/$(date +'%Y%m%d').log 2>&1 &
+nohup ../bitvm2-noded  --rpc-addr 0.0.0.0:8900   --db-path sqlite:$PWD/bitvm2-node.db --p2p-port 8444   >$PWD/$(date +'%Y%m%d').log 2>&1 &
