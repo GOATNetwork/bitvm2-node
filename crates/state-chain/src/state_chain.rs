@@ -101,7 +101,7 @@ impl StateChainState {
             }
             self.evm_block_height += 1;
             self.latest_evm_block_hash = current_block_hash;
-            self.latest_cosmos_block = block.cosmos_block.clone();
+            self.latest_cosmos_block = block.cosmos_block;
         }
     }
 }
