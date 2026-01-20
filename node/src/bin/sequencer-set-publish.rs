@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::str::FromStr;
 use util::hex_parse;
+const FEE_RATE_FACTOR: f64 = 5.0;
 
 pub fn decode_btc_public_keys(pubkey: &str) -> Result<secp256k1::PublicKey, String> {
     secp256k1::PublicKey::from_str(pubkey.trim())
@@ -361,7 +362,7 @@ async fn push_fee_tx(
     )?;
     println!("Fee txid: {:#?}", fee_tx.compute_txid());
     broadcast_tx(btc_client, fee_tx).await?;
-    wait_tx_confirmation(btc_client, &fee_tx.compute_txid(), 3, 1000).await?;
+    wait_tx_confirmation(btc_client, &fee_tx.compute_txid(), 3, 10000).await?;
     println!("Fee tx confirmed");
     Ok(fee_tx.compute_txid())
 }
@@ -421,7 +422,7 @@ async fn push_sequencer_set_publish_tx(
         hex::encode(bitcoin::consensus::encode::serialize(sequencer_set_publish_tx))
     );
     broadcast_tx(btc_client, sequencer_set_publish_tx).await?;
-    wait_tx_confirmation(btc_client, &sequencer_set_publish_tx.compute_txid(), 3, 1000).await?;
+    wait_tx_confirmation(btc_client, &sequencer_set_publish_tx.compute_txid(), 3, 10000).await?;
     println!("Sequencer set publish tx confirmed");
     Ok(sequencer_set_publish_tx.compute_txid())
 }
@@ -521,7 +522,7 @@ async fn action_push_sequencer_set_update(
             }
         },
         None => {
-            let fee_rate = get_fee_rate(btc_client).await?;
+            let fee_rate = get_fee_rate(btc_client).await? * FEE_RATE_FACTOR;
             let replenish_fee = fee_rate
                 * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73)
                     as f64
@@ -592,7 +593,7 @@ async fn action_sign_sequencer_set_update(
     let next_redeem_script = create_sequencer_update_script(&next_btc_public_keys, next_threshold);
     let next_update_connector_address = Address::p2wsh(&next_redeem_script, btc_client.network());
 
-    let fee_rate = get_fee_rate(btc_client).await?;
+    let fee_rate = get_fee_rate(btc_client).await? * FEE_RATE_FACTOR;
     let replenish_fee = fee_rate
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as f64
         + RELAYER_FEE as f64;
@@ -662,7 +663,7 @@ async fn action_push_fee_tx(
     goat_evm_address: [u8; 20],
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let fee_rate = get_fee_rate(btc_client).await?;
+    let fee_rate = get_fee_rate(btc_client).await? * FEE_RATE_FACTOR;
     let threshold = (2 * total).div_ceil(3);
     let secp = secp256k1::Secp256k1::new();
     let replenish_fee = fee_rate
@@ -801,7 +802,7 @@ async fn fund_publishers(
     println!("Funding txid: {:#?}", tx.compute_txid());
     broadcast_tx(btc_client, &tx).await?;
     assert!(
-        wait_tx_confirmation(btc_client, &tx.compute_txid(), 3, 1000).await?,
+        wait_tx_confirmation(btc_client, &tx.compute_txid(), 3, 10000).await?,
         "Funding tx not confirmed"
     );
     Ok((tx.compute_txid(), current_tx_vout as u32))

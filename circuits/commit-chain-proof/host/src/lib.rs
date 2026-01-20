@@ -93,7 +93,10 @@ pub async fn fetch_commit_chain(
     let mut commits: Vec<CircuitCommit> = vec![];
     let txid = Txid::from_str(&ci.txid)?;
     let commit_txn = btc_client.get_tx_status(&txid).await?;
-    let block_height = commit_txn.block_height.unwrap();
+    let block_height = match commit_txn.block_height {
+        Some(h) => h,
+        None => anyhow::bail!("Commit transaction: {txid} is not confirmed yet"),
+    };
     let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
 
     let op_return_data = extract_op_return_data(&commit_txn.output);

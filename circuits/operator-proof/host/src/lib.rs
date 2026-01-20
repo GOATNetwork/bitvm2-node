@@ -111,17 +111,35 @@ pub async fn fetch_target_block_and_watchtower_tx(
     let watchtower_public_keys: Vec<&str> = watchtower_public_keys.split(",").collect();
     let btc_client = BTCClient::new(bitcoin_network, Some(&esplora_url));
 
-    let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid).unwrap();
+    let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid)?;
     let operator_latest_sequencer_commit_txn =
-        btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
-    let tx_status = btc_client.get_tx_status(&latest_sequencer_commit_txid).await.unwrap();
-    let block_pos_ss_commit = tx_status.block_height.unwrap();
-    tracing::info!("block height: {block_pos_ss_commit}");
-    let target_block_ss_commit = btc_client.get_block_by_height(block_pos_ss_commit).await.unwrap();
+        match btc_client.get_tx(&latest_sequencer_commit_txid).await? {
+            Some(tx) => tx,
+            None => anyhow::bail!(
+                "Failed to fetch latest sequencer commit txn: {}",
+                latest_sequencer_commit_txid
+            ),
+        };
+    let tx_status = btc_client.get_tx_status(&latest_sequencer_commit_txid).await?;
+    let block_pos_ss_commit = match tx_status.block_height {
+        Some(height) => height as u32,
+        None => anyhow::bail!(
+            "Latest sequencer commit txn is not confirmed yet: {}",
+            latest_sequencer_commit_txid
+        ),
+    };
+    tracing::info!("block height of latest ss commit txid: {block_pos_ss_commit}");
+    let target_block_ss_commit = btc_client.get_block_by_height(block_pos_ss_commit).await?;
 
-    let operator_committed_blockhash = BlockHash::from_str(operator_committed_blockhash).unwrap();
+    let operator_committed_blockhash = BlockHash::from_str(operator_committed_blockhash)?;
     let target_block_operator_blockhash =
-        btc_client.get_block_by_hash(&operator_committed_blockhash).await?.unwrap();
+        match btc_client.get_block_by_hash(&operator_committed_blockhash).await? {
+            Some(block) => block,
+            None => anyhow::bail!(
+                "Failed to fetch operator committed blockhash: {}",
+                operator_committed_blockhash
+            ),
+        };
     let block_pos_operator_committed_blockhash =
         target_block_operator_blockhash.bip34_block_height()? as u32;
 
@@ -147,12 +165,21 @@ pub async fn fetch_target_block_and_watchtower_tx(
     let mut watchtower_challenge_txn_scripts: Vec<ScriptBuf> = Vec::new();
 
     let watchtower_challlenge_init_txn: Transaction =
-        btc_client.get_tx(&watchtower_challenge_init_txid.parse().unwrap()).await.unwrap().unwrap();
+        match btc_client.get_tx(&watchtower_challenge_init_txid.parse().unwrap()).await? {
+            Some(tx) => tx,
+            None => anyhow::bail!(
+                "Failed to fetch watchtower challenge init txn: {}",
+                watchtower_challenge_init_txid
+            ),
+        };
 
     for (id, pk) in watchtower_challenge_txids.iter().zip(watchtower_public_keys.iter()) {
         tracing::info!("txid: {}, pk: {}", id, pk);
-        let txid = id.parse().unwrap();
-        let txn = btc_client.get_tx(&txid).await.unwrap().unwrap();
+        let txid = id.parse()?;
+        let txn = match btc_client.get_tx(&txid).await? {
+            Some(tx) => tx,
+            None => anyhow::bail!("Failed to fetch watchtower challenge txn: {}", id),
+        };
         // get prev outs
         // FIXME: update the index
         let index = txn.input[0].previous_output.vout as usize;
