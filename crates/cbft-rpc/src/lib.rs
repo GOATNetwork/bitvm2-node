@@ -64,13 +64,13 @@ pub async fn fetch_cbft_validator_info(
 
         if !tx_data.is_empty() {
             // NOTE: the first CBFT tx includes the payload.
-            if let Some(payload) = parse_cbft_tx_payload(&tx_data[0]) {
-                if payload.block_number == goat_block_height {
-                    let sequencer_hash: [u8; 32] = validators_hash
-                        .try_into()
-                        .map_err(|_| anyhow!("Invalid validators_hash length"))?;
-                    return Ok((sequencer_hash, block_height));
-                }
+            if let Some(payload) = parse_cbft_tx_payload(&tx_data[0])
+                && payload.block_number == goat_block_height
+            {
+                let sequencer_hash: [u8; 32] = validators_hash
+                    .try_into()
+                    .map_err(|_| anyhow!("Invalid validators_hash length"))?;
+                return Ok((sequencer_hash, block_height));
             }
         }
 
