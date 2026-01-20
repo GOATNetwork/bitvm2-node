@@ -142,7 +142,8 @@ async fn spawn_state_chain_prover(
                         }
                     },
                     Err(e) => {
-                        tracing::error!("Read args: {snap_path}, {e:?}");
+                        tracing::warn!("Read args: {snap_path}, {e:?}");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
                         continue;
                     }
                 };
@@ -151,12 +152,12 @@ async fn spawn_state_chain_prover(
                     Ok(x) => match serde_json::from_slice(&x) {
                         Ok(ctx) => ctx,
                         Err(e) => {
-                            tracing::error!("Deserialize ctx error: {e:?}, path: {snap_path}/{start_index}.ctx");
+                            tracing::warn!("Deserialize ctx error: {e:?}, path: {snap_path}/{start_index}.ctx");
                             continue;
                         }
                     },
                     Err(e) => {
-                        tracing::error!("Read ctx: {snap_path}/{start_index}.ctx, {e:?}");
+                        tracing::warn!("Read ctx: {snap_path}/{start_index}.ctx, {e:?}");
                         continue;
                     }
                 };

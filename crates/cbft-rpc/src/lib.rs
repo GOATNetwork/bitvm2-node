@@ -34,49 +34,50 @@ pub async fn get_cosmos_block_height_at(
 pub async fn fetch_cbft_validator_info(
     cosmos_rpc_url: &str,
     goat_block_height: u64,
-    cosmos_block_height_at: Option<u64>,
+    parent_cosmos_block_height: Option<u64>,
 ) -> Result<([u8; 32], u64, [u8; 32])> {
-    // find cosmos height by goat block height, goat_block_height should be always less than or equal to cosmos_block_height
-    // 1. fetch the latest cosmos block height
-    // 2. binary search cosmos block height between goat block height and latest cosmos block height
-    // > 2.1. fetch the block info and parse the first transction: // curl "https://rpc.testnet3.goat.network/goat-rpcblock?height=5756784" | jq .result.block.data
-    let mut block_height = match cosmos_block_height_at {
-        Some(height) => height,
+    // Linear search starting from `parent_cosmos_block_height` (or `goat_block_height`)
+    // upward until we find the CBFT transaction with matching goat_block_height.
+    let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
+
+    let mut block_height: u64 = match parent_cosmos_block_height {
+        Some(h) => h,
         None => goat_block_height,
     };
-    let mut sequencer_hash = [0u8; 32];
-    let mut goat_block_hash = [0u8; 32];
 
-    let mut max_retries = 100;
-    let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
+    let mut max_retries: usize = 1000;
+
     while max_retries > 0 {
         let block_data = rpc
-            .block(Height::from(block_height as u32))
+            .block(Height::try_from(block_height).unwrap())
             .await
             .map_err(|e| anyhow!("Error fetching block data for height {block_height}: {e:?}"))?;
         let header = &block_data.block.header;
         let tx_data = &block_data.block.data;
         let validators_hash = header.validators_hash.as_bytes();
 
-        if let Some(payload) = parse_cbft_tx_payload(&tx_data[0]) {
-            if payload.block_number == goat_block_height {
-                sequencer_hash = validators_hash.try_into().unwrap();
-                goat_block_hash = payload.block_hash.try_into().unwrap();
-                break;
-            }
-            if payload.block_number < block_height {
-                block_height += block_height - payload.block_number;
-            } else {
-                block_height -= 1;
+        if !tx_data.is_empty() {
+            // NOTE: the first CBFT tx includes the payload.
+            if let Some(payload) = parse_cbft_tx_payload(&tx_data[0]) {
+                if payload.block_number == goat_block_height {
+                    let sequencer_hash: [u8; 32] = validators_hash
+                        .try_into()
+                        .map_err(|_| anyhow!("Invalid validators_hash length"))?;
+                    let goat_block_hash: [u8; 32] = payload
+                        .block_hash
+                        .try_into()
+                        .map_err(|_| anyhow!("Invalid block_hash length"))?;
+                    return Ok((sequencer_hash, block_height, goat_block_hash));
+                }
             }
         }
+
+        // Move to next block
+        block_height = block_height.saturating_add(1);
         max_retries -= 1;
     }
-    if max_retries == 0 {
-        anyhow::bail!("Can not find the cosmos block for goat block height {goat_block_height}");
-    }
 
-    Ok((sequencer_hash, block_height, goat_block_hash))
+    anyhow::bail!("Can not find the cosmos block for goat block height {goat_block_height}");
 }
 
 pub async fn fetch_cbft_tx_data(cosmos_rpc_url: &str, height: u64) -> Result<Vec<Vec<u8>>> {
@@ -126,7 +127,6 @@ pub async fn fetch_cosmos_block(cosmos_rpc_url: &str, height: u64) -> Result<Lig
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tracing::info;
     #[tokio::test]
     async fn test_create_cosmos_light_client() {
         let block_number = 10000;
@@ -140,7 +140,7 @@ mod tests {
     async fn test_fetch_validators() {
         let cosmos_rpc_url = std::env::var("COSMOS_RPC_URL")
             .unwrap_or("https://rpc.testnet3.goat.network/goat-rpc".to_string());
-        let evm_block_number = 10508093;
+        let evm_block_number = 10627151;
         let (sequencer_hash, block_number, _) =
             fetch_cbft_validator_info(&cosmos_rpc_url, evm_block_number, None).await.unwrap();
 
