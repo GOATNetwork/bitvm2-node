@@ -11,12 +11,7 @@ use std::sync::Arc;
 
 /// Checks if the request host matches the configured proof builder host to prevent forwarding loops.
 fn is_loop_detected(host: &str, request_host: Option<&str>) -> bool {
-    if let Some(request_host) = request_host {
-        host == request_host
-            || host.starts_with(&format!("{}:", request_host.split(':').next().unwrap_or("")))
-    } else {
-        false
-    }
+    request_host == Some(host)
 }
 
 /// Handles forwarding to proof builder service or returning mock data.
