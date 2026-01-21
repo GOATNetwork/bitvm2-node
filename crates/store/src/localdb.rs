@@ -1292,6 +1292,23 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
+    pub async fn get_graph_id_by_instance_id(
+        &mut self,
+        instance_id: &Uuid,
+        operator_pubkey: &str,
+    ) -> anyhow::Result<Option<Uuid>> {
+        let res = sqlx::query_as::<_, Graph>(
+            "SELECT *
+             FROM graph
+             WHERE instance_id = ? AND operator_pubkey = ?",
+        )
+        .bind(instance_id)
+        .bind(operator_pubkey)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res.map(|graph| graph.graph_id))
+    }
+
     pub async fn get_graph_pre_kickoff_chain_by_cur_pre_kickoff(
         &mut self,
         current_pre_kickoff: SerializableTxid,

@@ -500,6 +500,23 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::ConfirmInstance(ConfirmInstance { instance_id }), Actor::Operator) => {
             // triggered by PeginDeposit tx
             tracing::info!("Handle ConfirmInstance for {instance_id}");
+            // 0. check if graph already created
+            let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+            let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
+            if let Some(graph) =
+                get_graph_by_instance_id(local_db, instance_id, &local_operator_pubkey).await?
+            {
+                let graph_id = graph.parameters.graph_id;
+                tracing::info!("Graph already created for {instance_id}, graph_id: {}", graph_id);
+                let message_content = GOATMessageContent::CreateGraph(CreateGraph {
+                    instance_id,
+                    graph_id,
+                    graph_nonce: graph.parameters.graph_nonce,
+                    graph,
+                });
+                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                return Ok(());
+            }
             // 1. read & check parameters
             let instance_params = match read_instance_info_from_goat(goat_client, instance_id).await
             {
@@ -531,8 +548,6 @@ pub async fn recv_and_dispatch(
             // 2. save the instance data to local db
             store_instance_parameters(local_db, &instance_params).await?;
             // 3. create & presign graph
-            let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-            let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
             let (graph_nonce, cur_prekickoff_tx) =
                 match get_current_prekickoff_tx(local_db, &local_operator_pubkey).await? {
                     Some(v) => v,
