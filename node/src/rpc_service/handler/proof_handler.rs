@@ -11,7 +11,24 @@ use std::sync::Arc;
 
 /// Checks if the request host matches the configured proof builder host to prevent forwarding loops.
 fn is_loop_detected(host: &str, request_host: Option<&str>) -> bool {
-    request_host == Some(host)
+    if let Some(req_host) = request_host {
+        let mut clean_host = host;
+
+        // Remove scheme if present (e.g. "http://")
+        if let Some(rest) = clean_host.strip_prefix("http://") {
+            clean_host = rest;
+        } else if let Some(rest) = clean_host.strip_prefix("https://") {
+            clean_host = rest;
+        }
+
+        // Remove trailing slash
+        clean_host = clean_host.trim_end_matches('/');
+
+        // Case-insensitive comparison
+        clean_host.eq_ignore_ascii_case(req_host)
+    } else {
+        false
+    }
 }
 
 /// Handles forwarding to proof builder service or returning mock data.
