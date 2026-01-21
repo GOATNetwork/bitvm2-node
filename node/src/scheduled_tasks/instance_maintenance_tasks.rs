@@ -266,7 +266,6 @@ pub async fn instance_btc_tx_monitor(
                 InstanceQuery::default()
                     .with_is_bridge_in(true)
                     .with_statuses(vec![
-                        InstanceBridgeInStatus::UserInited.to_string(),
                         InstanceBridgeInStatus::CommitteesAnswered.to_string(),
                         InstanceBridgeInStatus::Presigned.to_string(),
                         InstanceBridgeInStatus::Timeout.to_string(),
@@ -280,9 +279,6 @@ pub async fn instance_btc_tx_monitor(
     for instance in instances {
         let (txid_op, next_status) = match InstanceBridgeInStatus::from_str(&instance.status) {
             Ok(status) => match status {
-                InstanceBridgeInStatus::UserInited => {
-                    (None, InstanceBridgeInStatus::CommitteesAnswered)
-                }
                 InstanceBridgeInStatus::CommitteesAnswered => {
                     (instance.btc_txid.clone(), InstanceBridgeInStatus::UserBroadcastPeginPrepare)
                 }
@@ -356,11 +352,7 @@ pub async fn instance_btc_tx_monitor(
                 "instance:{}, status{}, check tx_id:{:?} is not chain ",
                 instance.instance_id, instance.status, txid_op
             );
-            if [
-                InstanceBridgeInStatus::UserInited,
-                InstanceBridgeInStatus::UserBroadcastPeginPrepare,
-            ]
-            .contains(&next_status)
+            if next_status == InstanceBridgeInStatus::UserBroadcastPeginPrepare
                 && let utxos = serde_json::from_str::<Vec<Utxo>>(&instance.input_utxos)?
                 && let Some(user_prepare_tx) = instance.btc_txid
                 && !check_bridge_in_uxto_available_or_self_spent(
