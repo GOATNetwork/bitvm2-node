@@ -1292,7 +1292,7 @@ impl<'a> StorageProcessor<'a> {
         Ok(res)
     }
 
-    pub async fn get_graph_id_by_instance_id(
+    pub async fn get_graph_id_by_instance_id_and_operator_pubkey(
         &mut self,
         instance_id: &Uuid,
         operator_pubkey: &str,

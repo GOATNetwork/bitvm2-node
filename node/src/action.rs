@@ -503,8 +503,12 @@ pub async fn recv_and_dispatch(
             // 0. check if graph already created
             let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
             let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
-            if let Some(graph) =
-                get_graph_by_instance_id(local_db, instance_id, &local_operator_pubkey).await?
+            if let Some(graph) = get_graph_by_instance_id_and_operator_pubkey(
+                local_db,
+                instance_id,
+                &local_operator_pubkey,
+            )
+            .await?
             {
                 let graph_id = graph.parameters.graph_id;
                 tracing::info!("Graph already created for {instance_id}, graph_id: {}", graph_id);

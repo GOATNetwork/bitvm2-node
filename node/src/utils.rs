@@ -3930,14 +3930,14 @@ pub async fn get_graph(
     }
 }
 
-pub async fn get_graph_by_instance_id(
+pub async fn get_graph_by_instance_id_and_operator_pubkey(
     local_db: &LocalDB,
     instance_id: Uuid,
     operator_pubkey: &PublicKey,
 ) -> Result<Option<SimplifiedBitvm2Graph>> {
     let mut storage_process = local_db.acquire().await?;
     if let Some(graph_id) = storage_process
-        .get_graph_id_by_instance_id(&instance_id, &operator_pubkey.to_string())
+        .get_graph_id_by_instance_id_and_operator_pubkey(&instance_id, &operator_pubkey.to_string())
         .await?
         && let Some(graph_raw_data) = storage_process.find_graph_raw_data(&graph_id).await?
         && let Ok(simplified_graph) = parse_graph_raw_data(graph_raw_data.raw_data, graph_id).await
