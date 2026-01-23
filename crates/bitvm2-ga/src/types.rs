@@ -571,7 +571,7 @@ pub mod node_serializer {
                 E: DeError,
             {
                 let digit_len = W::TOTAL_DIGIT_LEN as usize;
-                if src.len().checked_sub(*cursor).map_or(true, |r| r < N) {
+                if src.len().checked_sub(*cursor).is_none_or(|r| r < N) {
                     return Err(E::custom(format!(
                         "{label}: not enough elements: need {N}, have {}",
                         src.len() - *cursor
