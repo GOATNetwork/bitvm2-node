@@ -63,10 +63,9 @@ impl P2pMessageHandler for BitvmNodeProcessor {
             }
             TickMessageType::RegularlyAction => {
                 tracing::debug!("Handling regular action tick message");
-                let tick_data = serde_cbor::to_vec(&GOATMessage {
-                    actor: actor.clone(),
-                    content: GOATMessageContent::Tick, 
-                })?;
+                let tick_data =
+                    GOATMessage { actor: actor.clone(), content: GOATMessageContent::Tick }
+                        .serialize_message()?;
 
                 handle_self_p2p_msg(
                     swarm,
@@ -214,7 +213,7 @@ mod tests {
                 tracing::info!("recv_and_dispatch receive local message");
                 return Ok(());
             }
-            let message: GOATMessage = serde_cbor::from_slice(message)?;
+            let message = GOATMessage::deserialize_message(message)?;
             let content: &GOATMessageContent = message.content()?;
             if let (GOATMessageContent::RequestNodeInfo(node_info), _) = (content, actor) {
                 save_node_info(&self.local_db, &node_info).await.expect("save_node_info");

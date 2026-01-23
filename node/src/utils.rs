@@ -3164,7 +3164,7 @@ pub async fn upsert_message(
                 actor: actor.to_string(),
                 from_peer,
                 msg_type: msg_type.to_string(),
-                content: serde_cbor::to_vec(&message)?,
+                content: message.serialize_message()?,
                 weight,
                 lock_time_until: current_time_secs() + lock_time,
                 state: MessageState::Pending.to_string(),

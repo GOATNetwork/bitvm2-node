@@ -300,6 +300,16 @@ impl GOATMessage {
     pub fn default_message_id() -> MessageId {
         MessageId(b"__inner_message_id__".to_vec())
     }
+
+    pub fn serialize_message(&self) -> Result<Vec<u8>> {
+        let message_bytes = serde_cbor::to_vec(self)?;
+        Ok(message_bytes)
+    }
+
+    pub fn deserialize_message(message: &[u8]) -> Result<GOATMessage> {
+        let message: GOATMessage = serde_cbor::from_slice(message)?;
+        Ok(message)
+    }
 }
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_self_p2p_msg(
@@ -318,7 +328,7 @@ pub async fn handle_self_p2p_msg(
         tracing::warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
         return Ok(());
     }
-    let message: GOATMessage = serde_cbor::from_slice(message)?;
+    let message = GOATMessage::deserialize_message(message)?;
     tracing::info!(
         "Got self p2p message: {} with id: {} from peer: {:?}",
         &message.actor.to_string(),
@@ -397,7 +407,7 @@ pub async fn recv_and_dispatch(
     // Determine whether the message comes from this node itself to optionally skip validations
     let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
 
-    let message: GOATMessage = serde_cbor::from_slice(message)?;
+    let message = GOATMessage::deserialize_message(message)?;
     // FIXME: don't clone
     let content: GOATMessageContent = message.content().clone();
     match (content, actor) {
@@ -1296,10 +1306,7 @@ pub async fn recv_and_dispatch(
                             pub_nonce: pub_nonce.clone(),
                             nonce_sig,
                         });
-                    send_to_peer(
-                        swarm,
-                        GOATMessage::new(Actor::Committee, message_content)?,
-                    )?;
+                    send_to_peer(swarm, GOATMessage::new(Actor::Committee, message_content)?)?;
                     store_committee_pub_nonce_for_instance(
                         local_db,
                         instance_id,
@@ -4062,7 +4069,7 @@ pub fn send_to_peer(swarm: &mut Swarm<AllBehaviours>, message: GOATMessage) -> R
     let actor = message.actor.to_string();
     let topic = crate::middleware::get_topic_name(&actor);
     let gossipsub_topic = gossipsub::IdentTopic::new(topic);
-    Ok(swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, serde_cbor::to_vec(&message)?)?)
+    Ok(swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, message.serialize_message()?)?)
 }
 
 pub async fn push_local_unhandled_messages(
