@@ -4000,7 +4000,6 @@ pub async fn recv_and_dispatch(
             let message_content = GOATMessageContent::ResponseNodeInfo(get_local_node_info());
             send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
         }
-
         (GOATMessageContent::ResponseNodeInfo(node_info), _) => {
             save_node_info(local_db, &node_info).await?;
         }
