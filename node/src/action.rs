@@ -302,12 +302,12 @@ impl GOATMessage {
     }
 
     pub fn serialize_message(&self) -> Result<Vec<u8>> {
-        let message_bytes = serde_cbor::to_vec(self).unwrap();
+        let message_bytes = serde_json::to_vec(self).unwrap();
         Ok(message_bytes)
     }
 
     pub fn deserialize_message(message: &[u8]) -> Result<GOATMessage> {
-        let message: GOATMessage = serde_cbor::from_slice(message).unwrap();
+        let message: GOATMessage = serde_json::from_slice(message).unwrap();
         Ok(message)
     }
 }

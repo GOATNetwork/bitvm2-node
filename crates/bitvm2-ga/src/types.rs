@@ -553,6 +553,8 @@ pub mod node_serializer {
             let expected =
                 NUM_GUEST_PUBS_EXTRA + NUM_GUEST_PUBS_ASSERT + NUM_PUBS + NUM_U256 + NUM_HASH;
 
+            println!("expected wots pubkey count: {}", expected);
+
             if all.len() != expected {
                 return Err(D::Error::custom(format!(
                     "Invalid WOTS pubkey count: expected {expected}, got {}",
@@ -571,6 +573,13 @@ pub mod node_serializer {
                 E: DeError,
             {
                 let digit_len = W::TOTAL_DIGIT_LEN as usize;
+                println!("src.len(): {}, cursor: {}, N: {N}, checked {}", src.len(), *cursor, src.len() - *cursor >= N);
+                if src.len().checked_sub(*cursor).map_or(true, |r| r < N) {
+                    return Err(E::custom(format!(
+                        "{label}: not enough elements: need {N}, have {}",
+                        src.len() - *cursor
+                    )));
+                }
                 let slice = &src[*cursor..*cursor + N];
 
                 let mut out: Vec<<W as Wots>::PublicKey> = Vec::with_capacity(N);
@@ -599,39 +608,52 @@ pub mod node_serializer {
 
                 *cursor += N;
 
+                println!("out.len = {}", out.len());
                 out.try_into().map_err(|_| E::custom(format!("{label} array size mismatch")))
             }
 
+            println!("pk0 begin");
             let pk0 = extract_wots_pubkeys::<Wots32, NUM_GUEST_PUBS_EXTRA, D::Error>(
                 &all,
                 &mut cursor,
                 "guestpk.extra",
             )?;
 
+            println!("pk1 begin");
             let pk1 = extract_wots_pubkeys::<Wots32, NUM_GUEST_PUBS_ASSERT, D::Error>(
                 &all,
                 &mut cursor,
                 "guestpk.assert",
             )?;
 
+            println!("pk2 begin");
             let pk20 = extract_wots_pubkeys::<Wots32, NUM_PUBS, D::Error>(
                 &all,
                 &mut cursor,
                 "groth16pk.pub",
             )?;
 
+            println!("pk21 begin");
             let pk21 = extract_wots_pubkeys::<Wots32, NUM_U256, D::Error>(
                 &all,
                 &mut cursor,
                 "groth16pk.wots256",
             )?;
 
-            let pk22 = extract_wots_pubkeys::<Wots16, NUM_HASH, D::Error>(
+            println!("pk22 begin: {NUM_HASH}");
+            let pk22 = match extract_wots_pubkeys::<Wots16, NUM_HASH, D::Error>(
                 &all,
                 &mut cursor,
                 "groth16pk.wots_hash",
-            )?;
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("Error extracting pk22: {}", e);
+                    return Err(e);
+                }
+            };
 
+            println!("return");
             Ok((pk0, pk1, Box::new((pk20, pk21, pk22))))
         }
     }
