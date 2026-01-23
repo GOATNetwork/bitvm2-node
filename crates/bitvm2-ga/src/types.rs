@@ -573,7 +573,12 @@ pub mod node_serializer {
                 E: DeError,
             {
                 let digit_len = W::TOTAL_DIGIT_LEN as usize;
-                println!("src.len(): {}, cursor: {}, N: {N}, checked {}", src.len(), *cursor, src.len() - *cursor >= N);
+                println!(
+                    "src.len(): {}, cursor: {}, N: {N}, checked {}",
+                    src.len(),
+                    *cursor,
+                    src.len() - *cursor >= N
+                );
                 if src.len().checked_sub(*cursor).map_or(true, |r| r < N) {
                     return Err(E::custom(format!(
                         "{label}: not enough elements: need {N}, have {}",
@@ -608,8 +613,18 @@ pub mod node_serializer {
 
                 *cursor += N;
 
-                println!("out.len = {}", out.len());
-                out.try_into().map_err(|_| E::custom(format!("{label} array size mismatch")))
+                println!("out.len = {}, expected: {}", out.len(), N);
+                let res: [W::PublicKey; N] = match out.try_into() {
+                    Ok(arr) => arr,
+                    Err(e) => {
+                        println!("Failed to convert to array of size {N}");
+                        return Err(E::custom(format!(
+                            "{label}: failed to convert to array of size {N}"
+                        )));
+                    }
+                };
+                println!("1111111111111111111111111");
+                Ok(res)
             }
 
             println!("pk0 begin");
@@ -646,7 +661,10 @@ pub mod node_serializer {
                 &mut cursor,
                 "groth16pk.wots_hash",
             ) {
-                Ok(v) => v,
+                Ok(v) => {
+                    println!("pk22 extracted successfully");
+                    v.clone()
+                }
                 Err(e) => {
                     println!("Error extracting pk22: {}", e);
                     return Err(e);

@@ -3164,7 +3164,7 @@ pub async fn upsert_message(
                 actor: actor.to_string(),
                 from_peer,
                 msg_type: msg_type.to_string(),
-                content: message.serialize_message()?,
+                content: message.serialize_message().await?,
                 weight,
                 lock_time_until: current_time_secs() + lock_time,
                 state: MessageState::Pending.to_string(),
@@ -3450,7 +3450,7 @@ pub async fn detect_heart_beat(swarm: &mut Swarm<AllBehaviours>) -> Result<()> {
     // send to actor
     let actors = get_rpc_support_actors();
     for actor in actors {
-        match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())) {
+        match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())).await {
             Ok(_) => {}
             Err(err) => warn!("{err}"),
         }

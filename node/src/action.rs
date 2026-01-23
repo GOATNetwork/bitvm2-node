@@ -301,14 +301,20 @@ impl GOATMessage {
         MessageId(b"__inner_message_id__".to_vec())
     }
 
-    pub fn serialize_message(&self) -> Result<Vec<u8>> {
-        let message_bytes = serde_json::to_vec(self).unwrap();
-        Ok(message_bytes)
+    pub async fn serialize_message(&self) -> Result<Vec<u8>> {
+        let cloned = self.clone();
+        match tokio::task::spawn_blocking(move || serde_json::to_vec(&cloned)).await.unwrap() {
+            Ok(v) => Ok(v),
+            Err(e) => Err(anyhow!("serialize_message error: {}", e)),
+        }
     }
 
-    pub fn deserialize_message(message: &[u8]) -> Result<GOATMessage> {
-        let message: GOATMessage = serde_json::from_slice(message).unwrap();
-        Ok(message)
+    pub async fn deserialize_message(message: &[u8]) -> Result<GOATMessage> {
+        let cloned = message.to_vec();
+        match tokio::task::spawn_blocking(move || serde_json::from_slice(&cloned)).await.unwrap() {
+            Ok(v) => Ok(v),
+            Err(e) => Err(anyhow!("deserialize_message error: {}", e)),
+        }
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -328,7 +334,7 @@ pub async fn handle_self_p2p_msg(
         tracing::warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
         return Ok(());
     }
-    let message = GOATMessage::deserialize_message(message)?;
+    let message = GOATMessage::deserialize_message(message).await?;
     tracing::info!(
         "Got self p2p message: {} with id: {} from peer: {:?}",
         &message.actor.to_string(),
@@ -407,7 +413,7 @@ pub async fn recv_and_dispatch(
     // Determine whether the message comes from this node itself to optionally skip validations
     let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
 
-    let message = GOATMessage::deserialize_message(message)?;
+    let message = GOATMessage::deserialize_message(message).await?;
     // FIXME: don't clone
     let content: GOATMessageContent = message.content().clone();
     match (content, actor) {
@@ -529,12 +535,20 @@ pub async fn recv_and_dispatch(
                     graph,
                 });
                 let msg = GOATMessage::new(Actor::All, message_content);
-                let data = msg.serialize_message().unwrap();
-                std::fs::write(format!("/tmp/confirm_instance_{}_{}.msg", instance_id, graph_id), &data).unwrap();
-                let msg_expeceted = GOATMessage::deserialize_message(&data).unwrap();
-                std::fs::write(format!("/tmp/confirm_instance_expected_{}_{}.msg", instance_id, graph_id), &serde_cbor::to_vec(&msg_expeceted).unwrap()).unwrap();
+                let data = msg.serialize_message().await.unwrap();
+                std::fs::write(
+                    format!("/tmp/confirm_instance_{}_{}.msg", instance_id, graph_id),
+                    &data,
+                )
+                .unwrap();
+                let msg_expeceted = GOATMessage::deserialize_message(&data).await.unwrap();
+                std::fs::write(
+                    format!("/tmp/confirm_instance_expected_{}_{}.msg", instance_id, graph_id),
+                    &serde_cbor::to_vec(&msg_expeceted).unwrap(),
+                )
+                .unwrap();
 
-                send_to_peer(swarm, msg)?;
+                send_to_peer(swarm, msg).await?;
                 return Ok(());
             }
             // 1. read & check parameters
@@ -601,7 +615,7 @@ pub async fn recv_and_dispatch(
                 graph_nonce,
                 graph: graph.to_simplified()?,
             });
-            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
         }
         (GOATMessageContent::ConfirmInstance(ConfirmInstance { instance_id }), _) => {
             // triggered by PeginDeposit tx
@@ -679,7 +693,7 @@ pub async fn recv_and_dispatch(
                 pub_nonces: pub_nonces.clone(),
                 nonce_sigs,
             });
-            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
             store_committee_pub_nonces_for_graph(
                 local_db,
                 instance_id,
@@ -725,7 +739,7 @@ pub async fn recv_and_dispatch(
                     committee_partial_sigs,
                     agg_nonces,
                 });
-                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
             }
         }
         (
@@ -854,7 +868,7 @@ pub async fn recv_and_dispatch(
                     committee_partial_sigs: committee_partial_sigs.clone(),
                     agg_nonces,
                 });
-                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
                 store_committee_partial_sigs_for_graph(
                     local_db,
                     instance_id,
@@ -882,7 +896,7 @@ pub async fn recv_and_dispatch(
                         committee_sig_for_graph: committee_sig_for_graph.as_bytes().to_vec(),
                         committee_evm_address,
                     });
-                    send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+                    send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
                 }
             }
         }
@@ -1084,7 +1098,7 @@ pub async fn recv_and_dispatch(
                     committee_sig_for_graph: committee_sig_for_graph.as_bytes().to_vec(),
                     committee_evm_address,
                 });
-                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
             }
         }
         (
@@ -1312,7 +1326,8 @@ pub async fn recv_and_dispatch(
                             pub_nonce: pub_nonce.clone(),
                             nonce_sig,
                         });
-                    send_to_peer(swarm, GOATMessage::new(Actor::Committee, message_content))?;
+                    send_to_peer(swarm, GOATMessage::new(Actor::Committee, message_content))
+                        .await?;
                     store_committee_pub_nonce_for_instance(
                         local_db,
                         instance_id,
@@ -1474,7 +1489,7 @@ pub async fn recv_and_dispatch(
                         partial_sig,
                         endorse_sig: endorse_sig.as_bytes().to_vec(),
                     });
-                send_to_peer(swarm, GOATMessage::new(Actor::Committee, message_content))?;
+                send_to_peer(swarm, GOATMessage::new(Actor::Committee, message_content)).await?;
                 store_committee_partial_sig_for_instance(
                     local_db,
                     instance_id,
@@ -3964,7 +3979,7 @@ pub async fn recv_and_dispatch(
                 let message_content =
                     GOATMessageContent::SyncGraph(SyncGraph { instance_id, graph_id, graph });
                 let message = GOATMessage::new(Actor::All, message_content);
-                send_to_peer(swarm, message)?;
+                send_to_peer(swarm, message).await?;
             } else {
                 // TODO: if no relayer has the graph, how to recover?
                 tracing::warn!("Graph not found for SyncGraphRequest {instance_id}:{graph_id}");
@@ -4011,7 +4026,7 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::RequestNodeInfo(node_info), _) => {
             save_node_info(local_db, &node_info).await?;
             let message_content = GOATMessageContent::ResponseNodeInfo(get_local_node_info());
-            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
         }
 
         (GOATMessageContent::ResponseNodeInfo(node_info), _) => {
@@ -4065,17 +4080,23 @@ pub async fn try_finalize_graph(
                 endorse_sigs: endorsements,
                 graph: simplified_graph,
             });
-            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
         }
     }
     Ok(())
 }
 
-pub fn send_to_peer(swarm: &mut Swarm<AllBehaviours>, message: GOATMessage) -> Result<MessageId> {
+pub async fn send_to_peer(
+    swarm: &mut Swarm<AllBehaviours>,
+    message: GOATMessage,
+) -> Result<MessageId> {
     let actor = message.actor.to_string();
     let topic = crate::middleware::get_topic_name(&actor);
     let gossipsub_topic = gossipsub::IdentTopic::new(topic);
-    Ok(swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, message.serialize_message()?)?)
+    Ok(swarm
+        .behaviour_mut()
+        .gossipsub
+        .publish(gossipsub_topic, message.serialize_message().await?)?)
 }
 
 pub async fn push_local_unhandled_messages(
@@ -4145,6 +4166,6 @@ pub async fn try_send_sync_graph_request(
     let message_content =
         GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id });
     let message = GOATMessage::new(Actor::All, message_content);
-    send_to_peer(swarm, message)?;
+    send_to_peer(swarm, message).await?;
     Ok(())
 }

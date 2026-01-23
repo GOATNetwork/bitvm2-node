@@ -65,7 +65,8 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                 tracing::debug!("Handling regular action tick message");
                 let tick_data =
                     GOATMessage { actor: actor.clone(), content: GOATMessageContent::Tick }
-                        .serialize_message()?;
+                        .serialize_message()
+                        .await?;
 
                 handle_self_p2p_msg(
                     swarm,
@@ -92,7 +93,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
     ) -> anyhow::Result<()> {
         if topic == Actor::All.to_string() {
             let message_content = GOATMessageContent::RequestNodeInfo(get_local_node_info());
-            match send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)) {
+            match send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await {
                 Ok(_) => {}
                 Err(e) => {
                     println!("finish_subscribe_topic: send request NodeInfo {e}");

@@ -14,27 +14,28 @@ mod vk;
 
 mod dbg {
     #![allow(unused)]
+    use core::panic;
     use std::str::FromStr;
 
+    use crate::action::*;
+    use crate::utils::*;
     use bitcoin::{Address, Amount, Network, Witness};
     use bitvm2_lib::actors::Actor;
     use bitvm2_lib::committee::*;
+    use bitvm2_lib::keys::*;
     use bitvm2_lib::operator::*;
     use bitvm2_lib::types::*;
-    use bitvm2_lib::keys::*;
     use goat::connectors::connector_e::ConnectorE;
     use goat::connectors::kickoff_connectors::*;
     use goat::contexts::base::generate_n_of_n_public_key;
+    use goat::disprove_scripts::hash160;
     use goat::scripts::p2a_script;
     use goat::transactions::base::Input;
     use goat::transactions::prekickoff::PrekickoffTransaction;
-    use goat::disprove_scripts::hash160;
+    use secp256k1::{Keypair, Secp256k1, SecretKey, rand};
     use serde::Deserialize;
     use serde::Serialize;
     use uuid::Uuid;
-    use crate::utils::*;
-    use crate::action::*;
-    use secp256k1::{rand, Secp256k1, SecretKey, Keypair};
     use zkm_sdk::ZKM_CIRCUIT_VERSION;
 
     fn dbg_network() -> Network {
@@ -47,7 +48,10 @@ mod dbg {
     fn dbg_input() -> Input {
         Input {
             outpoint: bitcoin::OutPoint {
-                txid: bitcoin::Txid::from_str("b2b18acfdd358369d9a1e8370cfd9eb4ee123507a0321ad608de500cc54740d8").unwrap(),
+                txid: bitcoin::Txid::from_str(
+                    "b2b18acfdd358369d9a1e8370cfd9eb4ee123507a0321ad608de500cc54740d8",
+                )
+                .unwrap(),
                 vout: 0,
             },
             amount: Amount::from_sat(500000000),
@@ -65,10 +69,8 @@ mod dbg {
             user_change_address: dbg_address(),
             user_refund_address: dbg_address(),
         };
-        let committee_pubkeys = vec![
-            dbg_keypair().public_key().into(),
-            dbg_keypair().public_key().into(),
-        ];
+        let committee_pubkeys =
+            vec![dbg_keypair().public_key().into(), dbg_keypair().public_key().into()];
         let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
         Bitvm2InstanceParameters {
             network: dbg_network(),
@@ -165,5 +167,47 @@ mod dbg {
         let msg = GOATMessage::new(Actor::All, message_content);
         let msg_se = msg.serialize_message().unwrap();
         let _msg_de = GOATMessage::deserialize_message(&msg_se).unwrap();
+    }
+
+    #[tokio::test]
+    async fn dbg_serde_from_db() {
+        let dbg_path = "/home/ubuntu/bitvm2-noded-test/operator_0/bitvm2-node.db";
+        let instance_id = uuid::Uuid::parse_str("A4DB2DD03EEA43FB9601D60236EBAD90").unwrap();
+        let graph_id = uuid::Uuid::parse_str("044285C328EE4D2EAE06718659EFDC34").unwrap();
+        let local_db = store::create_local_db(dbg_path).await;
+        let graph = get_graph(&local_db, instance_id, graph_id).await.unwrap().unwrap();
+        let message_content = GOATMessageContent::CreateGraph(CreateGraph {
+            instance_id: graph.parameters.instance_parameters.instance_id,
+            graph_id: graph.parameters.graph_id,
+            graph_nonce: graph.parameters.graph_nonce,
+            graph,
+        });
+        let msg = GOATMessage::new(Actor::All, message_content);
+        let msg_se = msg.serialize_message().unwrap();
+        let msg_de = GOATMessage::deserialize_message(&msg_se).unwrap();
+        // check graph id
+        assert_eq!(
+            graph_id,
+            match msg_de.content {
+                GOATMessageContent::CreateGraph(ref cg) => cg.graph_id,
+                _ => Uuid::nil(),
+            }
+        );
+    }
+
+    #[test]
+    fn dbg_serde_from_local_file() {
+        // /tmp/confirm_instance_a4db2dd0-3eea-43fb-9601-d60236ebad90_044285c3-28ee-4d2e-ae06-718659efdc34.msg
+        let dbg_path = "/tmp/confirm_instance_a4db2dd0-3eea-43fb-9601-d60236ebad90_044285c3-28ee-4d2e-ae06-718659efdc34.msg";
+        let msg_se = std::fs::read(dbg_path).unwrap();
+        let msg_de = GOATMessage::deserialize_message(&msg_se).unwrap();
+        let graph_id = uuid::Uuid::parse_str("044285C328EE4D2EAE06718659EFDC34").unwrap();
+        assert_eq!(
+            graph_id,
+            match msg_de.content {
+                GOATMessageContent::CreateGraph(ref cg) => cg.graph_id,
+                _ => Uuid::nil(),
+            }
+        );
     }
 }
