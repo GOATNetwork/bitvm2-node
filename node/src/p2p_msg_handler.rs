@@ -92,7 +92,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
     ) -> anyhow::Result<()> {
         if topic == Actor::All.to_string() {
             let message_content = GOATMessageContent::RequestNodeInfo(get_local_node_info());
-            match send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?) {
+            match send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)) {
                 Ok(_) => {}
                 Err(e) => {
                     println!("finish_subscribe_topic: send request NodeInfo {e}");
@@ -192,7 +192,7 @@ mod tests {
         // send to actor
         let actors = get_rpc_support_actors();
         for actor in actors {
-            match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())?) {
+            match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())) {
                 Ok(_) => {}
                 Err(err) => warn!("{err}"),
             }
