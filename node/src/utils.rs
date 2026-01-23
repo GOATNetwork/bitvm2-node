@@ -1181,18 +1181,18 @@ pub(crate) async fn compensate_graph_events(
                 GraphCompensateEventKind::PreKickoffSent => {
                     let prekickoff_sent =
                         PreKickoffSent(crate::action::PreKickoffSent { instance_id, graph_id });
-                    let message = GOATMessage::from_typed(Actor::All, &prekickoff_sent)?;
+                    let message = GOATMessage::new(Actor::All, prekickoff_sent)?;
                     push_local_unhandled_messages(local_db, graph_id, &message, 0).await?;
                 }
                 GraphCompensateEventKind::KickoffSent => {
                     let kickoff_sent =
                         KickoffSent(crate::action::KickoffSent { instance_id, graph_id });
-                    let message = GOATMessage::from_typed(Actor::All, &kickoff_sent)?;
+                    let message = GOATMessage::new(Actor::All, kickoff_sent)?;
                     push_local_unhandled_messages(local_db, graph_id, &message, 0).await?;
                 }
                 GraphCompensateEventKind::Take1Sent => {
                     let take1_sent = Take1Sent(crate::action::Take1Sent { instance_id, graph_id });
-                    let message = GOATMessage::from_typed(Actor::All, &take1_sent)?;
+                    let message = GOATMessage::new(Actor::All, take1_sent)?;
                     push_local_unhandled_messages(local_db, graph_id, &message, 0).await?;
                 }
                 GraphCompensateEventKind::ChallengeSent => {
@@ -1218,7 +1218,7 @@ pub(crate) async fn compensate_graph_events(
                             graph_id,
                             challenge_txid,
                         });
-                        let message = GOATMessage::from_typed(Actor::All, &challenge_sent)?;
+                        let message = GOATMessage::new(Actor::All, challenge_sent)?;
                         push_local_unhandled_messages(local_db, graph_id, &message, 0).await?;
                     }
                 }
@@ -1343,12 +1343,12 @@ pub(crate) async fn compensate_graph_events(
                         challenge_start_txid,
                         challenge_finish_txid,
                     });
-                    let message = GOATMessage::from_typed(Actor::All, &disprove_sent)?;
+                    let message = GOATMessage::new(Actor::All, disprove_sent)?;
                     push_local_unhandled_messages(local_db, graph_id, &message, 0).await?;
                 }
                 GraphCompensateEventKind::Take2Sent => {
                     let take2_sent = Take2Sent(crate::action::Take2Sent { instance_id, graph_id });
-                    let message = GOATMessage::from_typed(Actor::All, &take2_sent)?;
+                    let message = GOATMessage::new(Actor::All, take2_sent)?;
                     push_local_unhandled_messages(local_db, graph_id, &message, 0).await?;
                 }
             }
@@ -3143,7 +3143,7 @@ pub async fn upsert_message(
     weight: i64,
     lock_time: i64,
 ) -> Result<()> {
-    let message = GOATMessage::from_typed(actor.clone(), &message_content)?;
+    let message = GOATMessage::new(actor.clone(), message_content.clone())?;
     let msg_type = get_goat_message_content_type(&message_content);
     let message_id = generate_message_id(business_id, msg_type.to_string().clone(), sub_type);
     if is_update || storage_processor.find_messages_by_id(&message_id).await?.is_none() {
@@ -3164,7 +3164,7 @@ pub async fn upsert_message(
                 actor: actor.to_string(),
                 from_peer,
                 msg_type: msg_type.to_string(),
-                content: serde_json::to_vec(&message)?,
+                content: serde_cbor::to_vec(&message)?,
                 weight,
                 lock_time_until: current_time_secs() + lock_time,
                 state: MessageState::Pending.to_string(),
@@ -3450,7 +3450,7 @@ pub async fn detect_heart_beat(swarm: &mut Swarm<AllBehaviours>) -> Result<()> {
     // send to actor
     let actors = get_rpc_support_actors();
     for actor in actors {
-        match send_to_peer(swarm, GOATMessage::from_typed(actor, &message_content)?) {
+        match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())?) {
             Ok(_) => {}
             Err(err) => warn!("{err}"),
         }

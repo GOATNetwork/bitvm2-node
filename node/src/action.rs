@@ -289,13 +289,12 @@ pub struct InstanceDiscarded {
 }
 
 impl GOATMessage {
-    pub fn from_typed(actor: Actor, value: &GOATMessageContent) -> Result<Self> {
-        Ok(Self { actor, content: value.clone() })
+    pub fn new(actor: Actor, content: GOATMessageContent) -> Result<Self> {
+        Ok(Self { actor, content })
     }
 
-    pub fn to_typed(&self) -> Result<GOATMessageContent> {
-        Ok(self.content
-            .clone())
+    pub fn content(&self) -> &GOATMessageContent {
+        &self.content
     }
 
     pub fn default_message_id() -> MessageId {
@@ -399,7 +398,8 @@ pub async fn recv_and_dispatch(
     let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
 
     let message: GOATMessage = serde_cbor::from_slice(message)?;
-    let content: GOATMessageContent = message.to_typed()?;
+    // FIXME: don't clone
+    let content: GOATMessageContent = message.content().clone();
     match (content, actor) {
         (
             GOATMessageContent::PeginRequest(PeginRequest {
@@ -518,7 +518,7 @@ pub async fn recv_and_dispatch(
                     graph_nonce: graph.parameters.graph_nonce,
                     graph,
                 });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
                 return Ok(());
             }
             // 1. read & check parameters
@@ -585,7 +585,7 @@ pub async fn recv_and_dispatch(
                 graph_nonce,
                 graph: graph.to_simplified()?,
             });
-            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
         }
         (GOATMessageContent::ConfirmInstance(ConfirmInstance { instance_id }), _) => {
             // triggered by PeginDeposit tx
@@ -663,7 +663,7 @@ pub async fn recv_and_dispatch(
                 pub_nonces: pub_nonces.clone(),
                 nonce_sigs,
             });
-            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
             store_committee_pub_nonces_for_graph(
                 local_db,
                 instance_id,
@@ -709,7 +709,7 @@ pub async fn recv_and_dispatch(
                     committee_partial_sigs,
                     agg_nonces,
                 });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
             }
         }
         (
@@ -838,7 +838,7 @@ pub async fn recv_and_dispatch(
                     committee_partial_sigs: committee_partial_sigs.clone(),
                     agg_nonces,
                 });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
                 store_committee_partial_sigs_for_graph(
                     local_db,
                     instance_id,
@@ -866,7 +866,7 @@ pub async fn recv_and_dispatch(
                         committee_sig_for_graph: committee_sig_for_graph.as_bytes().to_vec(),
                         committee_evm_address,
                     });
-                    send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                    send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
                 }
             }
         }
@@ -1068,7 +1068,7 @@ pub async fn recv_and_dispatch(
                     committee_sig_for_graph: committee_sig_for_graph.as_bytes().to_vec(),
                     committee_evm_address,
                 });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
             }
         }
         (
@@ -1298,7 +1298,7 @@ pub async fn recv_and_dispatch(
                         });
                     send_to_peer(
                         swarm,
-                        GOATMessage::from_typed(Actor::Committee, &message_content)?,
+                        GOATMessage::new(Actor::Committee, message_content)?,
                     )?;
                     store_committee_pub_nonce_for_instance(
                         local_db,
@@ -1461,7 +1461,7 @@ pub async fn recv_and_dispatch(
                         partial_sig,
                         endorse_sig: endorse_sig.as_bytes().to_vec(),
                     });
-                send_to_peer(swarm, GOATMessage::from_typed(Actor::Committee, &message_content)?)?;
+                send_to_peer(swarm, GOATMessage::new(Actor::Committee, message_content)?)?;
                 store_committee_partial_sig_for_instance(
                     local_db,
                     instance_id,
@@ -3950,7 +3950,7 @@ pub async fn recv_and_dispatch(
             if let Some(graph) = get_graph(local_db, instance_id, graph_id).await? {
                 let message_content =
                     GOATMessageContent::SyncGraph(SyncGraph { instance_id, graph_id, graph });
-                let message = GOATMessage::from_typed(Actor::All, &message_content)?;
+                let message = GOATMessage::new(Actor::All, message_content)?;
                 send_to_peer(swarm, message)?;
             } else {
                 // TODO: if no relayer has the graph, how to recover?
@@ -3998,7 +3998,7 @@ pub async fn recv_and_dispatch(
         (GOATMessageContent::RequestNodeInfo(node_info), _) => {
             save_node_info(local_db, &node_info).await?;
             let message_content = GOATMessageContent::ResponseNodeInfo(get_local_node_info());
-            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
         }
 
         (GOATMessageContent::ResponseNodeInfo(node_info), _) => {
@@ -4052,7 +4052,7 @@ pub async fn try_finalize_graph(
                 endorse_sigs: endorsements,
                 graph: simplified_graph,
             });
-            send_to_peer(swarm, GOATMessage::from_typed(Actor::All, &message_content)?)?;
+            send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)?)?;
         }
     }
     Ok(())
@@ -4073,7 +4073,7 @@ pub async fn push_local_unhandled_messages(
 ) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
     let actor = message.actor.clone();
-    let content: GOATMessageContent = message.to_typed()?;
+    let content: GOATMessageContent = message.content().clone();
     upsert_message(
         &mut storage_processor,
         true,
@@ -4131,7 +4131,7 @@ pub async fn try_send_sync_graph_request(
     validate_graph_id_on_goat(goat_client, instance_id, graph_id).await?;
     let message_content =
         GOATMessageContent::SyncGraphRequest(SyncGraphRequest { instance_id, graph_id });
-    let message = GOATMessage::from_typed(Actor::All, &message_content)?;
+    let message = GOATMessage::new(Actor::All, message_content)?;
     send_to_peer(swarm, message)?;
     Ok(())
 }
