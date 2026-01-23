@@ -217,7 +217,7 @@ mod tests {
             let message = GOATMessage::deserialize_message(message).await?;
             let content: &GOATMessageContent = message.content();
             if let (GOATMessageContent::RequestNodeInfo(node_info), _) = (content, actor) {
-                save_node_info(&self.local_db, &node_info).await.expect("save_node_info");
+                save_node_info(&self.local_db, node_info).await.expect("save_node_info");
             }
             Ok(())
         }
