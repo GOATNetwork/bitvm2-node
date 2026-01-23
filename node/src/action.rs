@@ -289,13 +289,11 @@ pub struct InstanceDiscarded {
 }
 
 impl GOATMessage {
-    pub fn from_typed(actor: Actor, value: &GOATMessageContent) -> Result<Self, serde_json::Error> {
-        //let content = bincode::serialize(value).unwrap();
+    pub fn from_typed(actor: Actor, value: &GOATMessageContent) -> Result<Self> {
         Ok(Self { actor, content: value.clone() })
     }
 
-    pub fn to_typed(&self) -> Result<GOATMessageContent, serde_json::Error> {
-        //Ok(bincode::deserialize(&self.content).unwrap())
+    pub fn to_typed(&self) -> Result<GOATMessageContent> {
         Ok(self.content
             .clone())
     }
@@ -400,7 +398,7 @@ pub async fn recv_and_dispatch(
     // Determine whether the message comes from this node itself to optionally skip validations
     let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
 
-    let message: GOATMessage = serde_json::from_slice(message)?;
+    let message: GOATMessage = serde_cbor::from_slice(message)?;
     let content: GOATMessageContent = message.to_typed()?;
     match (content, actor) {
         (

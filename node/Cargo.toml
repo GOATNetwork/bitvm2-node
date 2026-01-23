@@ -62,6 +62,7 @@ tendermint = { workspace = true }
 bincode = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_cbor = "0.10"
 uuid = { workspace = true }
 hex = { workspace = true }
 anyhow = { workspace = true }
