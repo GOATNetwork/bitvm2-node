@@ -95,6 +95,7 @@ fn infer_business_id(content: &GOATMessageContent) -> Option<Uuid> {
             v.graph_infos.first().map(|(graph_id, _, _)| *graph_id)
         }
         GOATMessageContent::RequestNodeInfo(_) | GOATMessageContent::ResponseNodeInfo(_) => None,
+        GOATMessageContent::Tick => None,
     }
 }
 

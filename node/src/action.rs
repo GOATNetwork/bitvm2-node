@@ -38,13 +38,13 @@ use store::{GraphStatus, MessageState};
 use tracing::warn;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GOATMessage {
     pub actor: Actor,
-    pub content: Vec<u8>,
+    pub content: GOATMessageContent,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum GOATMessageContent {
     PeginRequest(PeginRequest),
     CreateGraph(CreateGraph),
@@ -79,6 +79,7 @@ pub enum GOATMessageContent {
     SyncGraphRequest(SyncGraphRequest),
     SyncGraph(SyncGraph),
     InstanceDiscarded(InstanceDiscarded),
+    Tick,
 }
 
 /// Pegin
@@ -288,13 +289,15 @@ pub struct InstanceDiscarded {
 }
 
 impl GOATMessage {
-    pub fn from_typed<T: Serialize>(actor: Actor, value: &T) -> Result<Self, serde_json::Error> {
-        let content = serde_json::to_vec(value)?;
-        Ok(Self { actor, content })
+    pub fn from_typed(actor: Actor, value: &GOATMessageContent) -> Result<Self, serde_json::Error> {
+        //let content = bincode::serialize(value).unwrap();
+        Ok(Self { actor, content: value.clone() })
     }
 
-    pub fn to_typed<T: for<'de> Deserialize<'de>>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_slice(&self.content)
+    pub fn to_typed(&self) -> Result<GOATMessageContent, serde_json::Error> {
+        //Ok(bincode::deserialize(&self.content).unwrap())
+        Ok(self.content
+            .clone())
     }
 
     pub fn default_message_id() -> MessageId {
@@ -320,9 +323,8 @@ pub async fn handle_self_p2p_msg(
     }
     let message: GOATMessage = serde_json::from_slice(message)?;
     tracing::info!(
-        "Got self p2p message: {}:{} with id: {} from peer: {:?}",
+        "Got self p2p message: {} with id: {} from peer: {:?}",
         &message.actor.to_string(),
-        String::from_utf8_lossy(&message.content),
         id,
         from_peer_id
     );

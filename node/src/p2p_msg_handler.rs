@@ -65,7 +65,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                 tracing::debug!("Handling regular action tick message");
                 let tick_data = serde_json::to_vec(&GOATMessage {
                     actor: actor.clone(),
-                    content: "tick".as_bytes().to_vec(),
+                    content: GOATMessageContent::Tick, 
                 })?;
 
                 handle_self_p2p_msg(

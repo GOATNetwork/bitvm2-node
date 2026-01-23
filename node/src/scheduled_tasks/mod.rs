@@ -179,6 +179,7 @@ pub fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageTyp
         GOATMessageContent::SyncGraphRequest(_) => MessageType::SyncGraphRequest,
         GOATMessageContent::SyncGraph(_) => MessageType::SyncGraph,
         GOATMessageContent::InstanceDiscarded(_) => MessageType::InstanceDiscarded,
+        GOATMessageContent::Tick => MessageType::Tick,
     }
 }
 

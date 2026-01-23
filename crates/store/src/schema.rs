@@ -519,6 +519,7 @@ pub enum MessageType {
     SyncGraphRequest,
     SyncGraph,
     InstanceDiscarded,
+    Tick,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, Display, EnumString)]
