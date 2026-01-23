@@ -169,6 +169,7 @@ mod dbg {
     }
 
     #[tokio::test]
+    #[ignore = "requires local db"]
     async fn dbg_serde_from_db() {
         let dbg_path = "/home/ubuntu/bitvm2-noded-test/operator_0/bitvm2-node.db";
         let instance_id = uuid::Uuid::parse_str("A4DB2DD03EEA43FB9601D60236EBAD90").unwrap();

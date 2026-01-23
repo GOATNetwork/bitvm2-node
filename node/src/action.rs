@@ -303,18 +303,12 @@ impl GOATMessage {
 
     pub async fn serialize_message(&self) -> Result<Vec<u8>> {
         let cloned = self.clone();
-        match tokio::task::spawn_blocking(move || serde_json::to_vec(&cloned)).await.unwrap() {
-            Ok(v) => Ok(v),
-            Err(e) => Err(anyhow!("serialize_message error: {}", e)),
-        }
+        Ok(tokio::task::spawn_blocking(move || serde_json::to_vec(&cloned)).await??)
     }
 
     pub async fn deserialize_message(message: &[u8]) -> Result<GOATMessage> {
         let cloned = message.to_vec();
-        match tokio::task::spawn_blocking(move || serde_json::from_slice(&cloned)).await.unwrap() {
-            Ok(v) => Ok(v),
-            Err(e) => Err(anyhow!("deserialize_message error: {}", e)),
-        }
+        Ok(tokio::task::spawn_blocking(move || serde_json::from_slice(&cloned)).await??)
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -535,19 +529,6 @@ pub async fn recv_and_dispatch(
                     graph,
                 });
                 let msg = GOATMessage::new(Actor::All, message_content);
-                let data = msg.serialize_message().await.unwrap();
-                std::fs::write(
-                    format!("/tmp/confirm_instance_{}_{}.msg", instance_id, graph_id),
-                    &data,
-                )
-                .unwrap();
-                let msg_expeceted = GOATMessage::deserialize_message(&data).await.unwrap();
-                std::fs::write(
-                    format!("/tmp/confirm_instance_expected_{}_{}.msg", instance_id, graph_id),
-                    &serde_cbor::to_vec(&msg_expeceted).unwrap(),
-                )
-                .unwrap();
-
                 send_to_peer(swarm, msg).await?;
                 return Ok(());
             }
