@@ -319,7 +319,7 @@ pub async fn handle_self_p2p_msg(
         tracing::warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
         return Ok(());
     }
-    let message: GOATMessage = serde_json::from_slice(message)?;
+    let message: GOATMessage = serde_cbor::from_slice(message)?;
     tracing::info!(
         "Got self p2p message: {} with id: {} from peer: {:?}",
         &message.actor.to_string(),
@@ -4062,7 +4062,7 @@ pub fn send_to_peer(swarm: &mut Swarm<AllBehaviours>, message: GOATMessage) -> R
     let actor = message.actor.to_string();
     let topic = crate::middleware::get_topic_name(&actor);
     let gossipsub_topic = gossipsub::IdentTopic::new(topic);
-    Ok(swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, serde_json::to_vec(&message)?)?)
+    Ok(swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, serde_cbor::to_vec(&message)?)?)
 }
 
 pub async fn push_local_unhandled_messages(
