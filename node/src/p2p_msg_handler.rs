@@ -193,7 +193,7 @@ mod tests {
         // send to actor
         let actors = get_rpc_support_actors();
         for actor in actors {
-            match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())) {
+            match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())).await {
                 Ok(_) => {}
                 Err(err) => warn!("{err}"),
             }
@@ -214,7 +214,7 @@ mod tests {
                 tracing::info!("recv_and_dispatch receive local message");
                 return Ok(());
             }
-            let message = GOATMessage::deserialize_message(message)?;
+            let message = GOATMessage::deserialize_message(message).await?;
             let content: &GOATMessageContent = message.content();
             if let (GOATMessageContent::RequestNodeInfo(node_info), _) = (content, actor) {
                 save_node_info(&self.local_db, &node_info).await.expect("save_node_info");

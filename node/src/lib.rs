@@ -146,27 +146,26 @@ mod dbg {
         graph.to_simplified().unwrap()
     }
 
-    #[test]
-    fn dbg_serde() {
+    #[tokio::test]
+    async fn dbg_serde() {
         let graph: SimplifiedBitvm2Graph = build_dbg_simplified_graph();
-        // let graph_ser = serde_json::to_vec(&graph).unwrap();
-        // let _graph_de: SimplifiedBitvm2Graph = serde_json::from_slice(&graph_ser).unwrap();
-        // let graph_ser = serde_cbor::to_vec(&graph).unwrap();
-        // let _graph_de: SimplifiedBitvm2Graph = serde_cbor::from_slice(&graph_ser).unwrap();
-        // let dbg_path = "/home/ubuntu/bitvm2-noded-test/operator_0/bitvm2-node.db";
-        // let instance_id = uuid::Uuid::parse_str("c41d4b7c967f4e4d975853723571bd7f").unwrap();
-        // let graph_id = uuid::Uuid::parse_str("c35914b88d7f4670a75aa7d91b855439").unwrap();
-        // let local_db = store::create_local_db(dbg_path).await;
-        // let graph = get_graph(&local_db, instance_id, graph_id).await.unwrap().unwrap();
         let message_content = GOATMessageContent::CreateGraph(CreateGraph {
             instance_id: graph.parameters.instance_parameters.instance_id,
             graph_id: graph.parameters.graph_id,
             graph_nonce: graph.parameters.graph_nonce,
-            graph,
+            graph: graph.clone(),
         });
         let msg = GOATMessage::new(Actor::All, message_content);
-        let msg_se = msg.serialize_message().unwrap();
-        let _msg_de = GOATMessage::deserialize_message(&msg_se).unwrap();
+        let msg_se = msg.serialize_message().await.unwrap();
+        let msg_de = GOATMessage::deserialize_message(&msg_se).await.unwrap();
+        // check graph id
+        assert_eq!(
+            graph.parameters.graph_id,
+            match msg_de.content {
+                GOATMessageContent::CreateGraph(ref cg) => cg.graph_id,
+                _ => Uuid::nil(),
+            }
+        );
     }
 
     #[tokio::test]
@@ -183,25 +182,9 @@ mod dbg {
             graph,
         });
         let msg = GOATMessage::new(Actor::All, message_content);
-        let msg_se = msg.serialize_message().unwrap();
-        let msg_de = GOATMessage::deserialize_message(&msg_se).unwrap();
+        let msg_se = msg.serialize_message().await.unwrap();
+        let msg_de = GOATMessage::deserialize_message(&msg_se).await.unwrap();
         // check graph id
-        assert_eq!(
-            graph_id,
-            match msg_de.content {
-                GOATMessageContent::CreateGraph(ref cg) => cg.graph_id,
-                _ => Uuid::nil(),
-            }
-        );
-    }
-
-    #[test]
-    fn dbg_serde_from_local_file() {
-        // /tmp/confirm_instance_a4db2dd0-3eea-43fb-9601-d60236ebad90_044285c3-28ee-4d2e-ae06-718659efdc34.msg
-        let dbg_path = "/tmp/confirm_instance_a4db2dd0-3eea-43fb-9601-d60236ebad90_044285c3-28ee-4d2e-ae06-718659efdc34.msg";
-        let msg_se = std::fs::read(dbg_path).unwrap();
-        let msg_de = GOATMessage::deserialize_message(&msg_se).unwrap();
-        let graph_id = uuid::Uuid::parse_str("044285C328EE4D2EAE06718659EFDC34").unwrap();
         assert_eq!(
             graph_id,
             match msg_de.content {
