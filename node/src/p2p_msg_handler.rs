@@ -192,7 +192,7 @@ mod tests {
         // send to actor
         let actors = get_rpc_support_actors();
         for actor in actors {
-            match send_to_peer(swarm, GOATMessage::new(actor, &message_content)?) {
+            match send_to_peer(swarm, GOATMessage::new(actor, message_content.clone())?) {
                 Ok(_) => {}
                 Err(err) => warn!("{err}"),
             }
@@ -214,7 +214,7 @@ mod tests {
                 return Ok(());
             }
             let message = GOATMessage::deserialize_message(message)?;
-            let content: &GOATMessageContent = message.content()?;
+            let content: &GOATMessageContent = message.content();
             if let (GOATMessageContent::RequestNodeInfo(node_info), _) = (content, actor) {
                 save_node_info(&self.local_db, &node_info).await.expect("save_node_info");
             }
