@@ -462,7 +462,7 @@ pub fn get_magic_bytes(net: &Network) -> Vec<u8> {
 }
 
 pub mod node_serializer {
-    use serde::{self, Deserialize, Deserializer, Serializer, ser::Error};
+    use serde::{self, Deserialize, Deserializer, Serializer};
     use std::str::FromStr;
 
     pub mod address {
@@ -494,7 +494,8 @@ pub mod node_serializer {
         use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bitvm::signatures::{Wots, Wots16, Wots32};
         use goat::disprove_scripts::{NUM_GUEST_PUBS_ASSERT, NUM_GUEST_PUBS_EXTRA};
-        use std::collections::HashMap;
+        use serde::de::Error as DeError;
+        use serde::ser::SerializeSeq;
 
         pub fn serialize<S>(
             pubkeys: &OperatorWotsPublicKeys,
@@ -503,121 +504,131 @@ pub mod node_serializer {
         where
             S: Serializer,
         {
-            let mut pubkeys_map: HashMap<u32, Vec<Vec<u8>>> = HashMap::new();
-            let mut index = 0;
+            let total_len = pubkeys.0.len()
+                + pubkeys.1.len()
+                + pubkeys.2.0.len()
+                + pubkeys.2.1.len()
+                + pubkeys.2.2.len();
 
-            // wots pk for guest pubin
-            for pk in pubkeys.0 {
-                let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
-                pubkeys_map.insert(index, v);
-                index += 1;
+            let mut seq = serializer.serialize_seq(Some(total_len))?;
+
+            fn push_pk<S, W>(seq: &mut S, pk: &<W as Wots>::PublicKey) -> Result<(), S::Error>
+            where
+                S: SerializeSeq,
+                W: Wots,
+            {
+                // pk: AsRef<[[u8; 20]]>
+                let digits = pk.as_ref();
+
+                debug_assert_eq!(digits.len(), W::TOTAL_DIGIT_LEN as usize);
+
+                let out: Vec<Vec<u8>> = digits.iter().map(|d| d.to_vec()).collect();
+                seq.serialize_element(&out)
             }
-            for pk in pubkeys.1 {
-                let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
-                pubkeys_map.insert(index, v);
-                index += 1;
+
+            for pk in pubkeys.0.iter() {
+                push_pk::<_, Wots32>(&mut seq, pk)?;
             }
-            // wots pk for groth16 proof
-            for pk in pubkeys.2.0 {
-                let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
-                pubkeys_map.insert(index, v);
-                index += 1;
+            for pk in pubkeys.1.iter() {
+                push_pk::<_, Wots32>(&mut seq, pk)?;
             }
-            for pk in pubkeys.2.1 {
-                let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
-                pubkeys_map.insert(index, v);
-                index += 1;
+            for pk in pubkeys.2.0.iter() {
+                push_pk::<_, Wots32>(&mut seq, pk)?;
             }
-            for pk in pubkeys.2.2 {
-                let v: Vec<Vec<u8>> = pk.iter().map(|x| x.to_vec()).collect();
-                pubkeys_map.insert(index, v);
-                index += 1;
+            for pk in pubkeys.2.1.iter() {
+                push_pk::<_, Wots32>(&mut seq, pk)?;
             }
-            let map_vec = bincode::serialize(&pubkeys_map).map_err(S::Error::custom)?;
-            serializer.serialize_bytes(&map_vec)
+            for pk in pubkeys.2.2.iter() {
+                push_pk::<_, Wots16>(&mut seq, pk)?;
+            }
+
+            seq.end()
         }
 
         pub fn deserialize<'de, D>(deserializer: D) -> Result<OperatorWotsPublicKeys, D::Error>
         where
             D: Deserializer<'de>,
         {
-            let map_vec = Vec::<u8>::deserialize(deserializer)?;
-            let pubkeys_map: HashMap<u32, Vec<Vec<u8>>> =
-                bincode::deserialize(&map_vec).map_err(serde::de::Error::custom)?;
+            let all: Vec<Vec<Vec<u8>>> = Vec::deserialize(deserializer)?;
+            let expected =
+                NUM_GUEST_PUBS_EXTRA + NUM_GUEST_PUBS_ASSERT + NUM_PUBS + NUM_U256 + NUM_HASH;
 
+            if all.len() != expected {
+                return Err(D::Error::custom(format!(
+                    "Invalid WOTS pubkey count: expected {expected}, got {}",
+                    all.len()
+                )));
+            }
+
+            let mut cursor = 0;
             fn extract_wots_pubkeys<W, const N: usize, E>(
-                pubkeys_map: &HashMap<u32, Vec<Vec<u8>>>,
-                range: std::ops::Range<u32>,
+                src: &[Vec<Vec<u8>>],
+                cursor: &mut usize,
                 label: &str,
             ) -> Result<[<W as Wots>::PublicKey; N], E>
             where
                 W: Wots,
-                E: serde::de::Error,
+                E: DeError,
             {
                 let digit_len = W::TOTAL_DIGIT_LEN as usize;
-                let mut out = Vec::with_capacity(N);
+                let slice = &src[*cursor..*cursor + N];
 
-                for i in range {
-                    let v = pubkeys_map
-                        .get(&i)
-                        .ok_or_else(|| E::custom(format!("Missing {label}[{i}]")))?;
-
-                    if v.len() != digit_len {
+                let mut out: Vec<<W as Wots>::PublicKey> = Vec::with_capacity(N);
+                for (i, pk) in slice.iter().enumerate() {
+                    if pk.len() != digit_len {
                         return Err(E::custom(format!(
-                            "Invalid {label}[{i}] length (expected {digit_len})"
+                            "{label}[{i}] invalid digit len: expected {digit_len}, got {}",
+                            pk.len()
                         )));
                     }
 
-                    let mut res: Vec<[u8; 20]> = Vec::with_capacity(digit_len);
-                    for (j, bytes) in v.iter().enumerate() {
-                        res.push(bytes.as_slice().try_into().map_err(|_| {
-                            E::custom(format!("Invalid 20-byte chunk in {label}[{i}][{j}]"))
-                        })?);
+                    let mut digits: Vec<[u8; 20]> = Vec::with_capacity(digit_len);
+                    for (j, d) in pk.iter().enumerate() {
+                        let arr: [u8; 20] = d.as_slice().try_into().map_err(|_| {
+                            E::custom(format!("{label}[{i}][{j}] invalid hash len (expected 20)"))
+                        })?;
+                        digits.push(arr);
                     }
 
-                    let res: <W as Wots>::PublicKey = res.try_into().map_err(|_| {
-                        E::custom(format!("{label}[{i}] size mismatch (expected {digit_len})"))
-                    })?;
-                    out.push(res);
+                    let pk: <W as Wots>::PublicKey = digits
+                        .try_into()
+                        .map_err(|_| E::custom(format!("{label}[{i}] size mismatch")))?;
+
+                    out.push(pk);
                 }
 
-                out.try_into()
-                    .map_err(|_| E::custom(format!("{label} size mismatch (expected {N})")))
+                *cursor += N;
+
+                out.try_into().map_err(|_| E::custom(format!("{label} array size mismatch")))
             }
 
-            let mut idx = 0u32;
-
             let pk0 = extract_wots_pubkeys::<Wots32, NUM_GUEST_PUBS_EXTRA, D::Error>(
-                &pubkeys_map,
-                idx..idx + NUM_GUEST_PUBS_EXTRA as u32,
+                &all,
+                &mut cursor,
                 "guestpk.extra",
             )?;
-            idx += NUM_GUEST_PUBS_EXTRA as u32;
 
             let pk1 = extract_wots_pubkeys::<Wots32, NUM_GUEST_PUBS_ASSERT, D::Error>(
-                &pubkeys_map,
-                idx..idx + NUM_GUEST_PUBS_ASSERT as u32,
+                &all,
+                &mut cursor,
                 "guestpk.assert",
             )?;
-            idx += NUM_GUEST_PUBS_ASSERT as u32;
 
             let pk20 = extract_wots_pubkeys::<Wots32, NUM_PUBS, D::Error>(
-                &pubkeys_map,
-                idx..idx + NUM_PUBS as u32,
+                &all,
+                &mut cursor,
                 "groth16pk.pub",
             )?;
-            idx += NUM_PUBS as u32;
 
             let pk21 = extract_wots_pubkeys::<Wots32, NUM_U256, D::Error>(
-                &pubkeys_map,
-                idx..idx + NUM_U256 as u32,
+                &all,
+                &mut cursor,
                 "groth16pk.wots256",
             )?;
-            idx += NUM_U256 as u32;
 
             let pk22 = extract_wots_pubkeys::<Wots16, NUM_HASH, D::Error>(
-                &pubkeys_map,
-                idx..idx + NUM_HASH as u32,
+                &all,
+                &mut cursor,
                 "groth16pk.wots_hash",
             )?;
 
@@ -630,16 +641,48 @@ pub mod node_serializer {
 mod tests {
     use crate::operator::generate_wots_keys;
     use crate::types::{OperatorWotsPublicKeys, node_serializer};
-    use bitcoin::Address;
+    use bitcoin::{Address, Network, key::PublicKey};
+    use rand::rngs::OsRng;
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
     use serde::{Deserialize, Serialize};
     use std::fmt::Debug;
-    use std::str::FromStr;
 
-    fn mock_wots_secret_keys() -> WotsKeys {
-        let (_, pubs) = generate_wots_keys("seed");
-        let address =
-            Address::from_str("1CAGNhS5KPpeoZyL6DDNiKp85hCjZkvyYg").unwrap().assume_checked();
-        WotsKeys { pubs, address }
+    #[derive(Clone, Copy)]
+    pub enum AddrKind {
+        P2pkh,
+        P2wpkh,
+        P2shWpkh,
+        P2tr,
+    }
+
+    fn random_address(network: Network, kind: AddrKind) -> Address {
+        let secp = Secp256k1::new();
+
+        match kind {
+            AddrKind::P2tr => {
+                let kp = Keypair::new(&secp, &mut OsRng);
+                let (xonly, _) = kp.x_only_public_key();
+                Address::p2tr(&secp, xonly, None, network)
+            }
+            _ => {
+                let sk = SecretKey::new(&mut OsRng);
+                let pk = PublicKey::new(secp256k1::PublicKey::from_secret_key(&secp, &sk));
+
+                let privkey = bitcoin::key::PrivateKey {
+                    compressed: true,
+                    network: network.into(),
+                    inner: sk,
+                };
+                let cpk = bitcoin::CompressedPublicKey::from_private_key(&secp, &privkey).unwrap();
+
+                match kind {
+                    AddrKind::P2pkh => Address::p2pkh(&pk, network),
+                    AddrKind::P2wpkh => Address::p2wpkh(&cpk, network),
+                    AddrKind::P2shWpkh => Address::p2shwpkh(&cpk, network),
+                    AddrKind::P2tr => unreachable!(),
+                }
+            }
+        }
     }
 
     #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -658,15 +701,42 @@ mod tests {
     }
 
     #[test]
-    fn test_node_serializer() {
-        let original = mock_wots_secret_keys();
+    fn test_wots_keys_serializer() {
+        for &network in &[Network::Bitcoin, Network::Testnet, Network::Signet, Network::Regtest] {
+            for kind in &[AddrKind::P2pkh, AddrKind::P2wpkh, AddrKind::P2shWpkh, AddrKind::P2tr] {
+                let (_, pubs) = generate_wots_keys("seed");
+                let address = random_address(network, *kind);
+                let original = WotsKeys { pubs, address };
 
-        let json = serde_json::to_vec(&original).unwrap();
-        let parsed: WotsKeys = serde_json::from_slice(&json).unwrap();
-        assert_eq!(original, parsed);
+                let json = serde_json::to_vec(&original).unwrap();
+                let parsed: WotsKeys = serde_json::from_slice(&json).unwrap();
+                assert_eq!(original, parsed);
 
-        let encoded = bincode::serialize(&original).unwrap();
-        let decoded: WotsKeys = bincode::deserialize(&encoded).unwrap();
-        assert_eq!(original, decoded);
+                let encoded = bincode::serialize(&original).unwrap();
+                let decoded: WotsKeys = bincode::deserialize(&encoded).unwrap();
+                assert_eq!(original, decoded);
+            }
+        }
     }
+
+    #[test]
+    fn test_address_serializer() {
+        #[derive(Serialize, Deserialize)]
+        struct AddressTest {
+            #[serde(with = "node_serializer::address")]
+            address: Address,
+        }
+        for &network in &[Network::Bitcoin, Network::Testnet, Network::Signet, Network::Regtest] {
+            for kind in &[AddrKind::P2pkh, AddrKind::P2wpkh, AddrKind::P2shWpkh, AddrKind::P2tr] {
+                let address = random_address(network, *kind);
+                let test_instance = AddressTest { address: address.clone() };
+                let json = serde_json::to_string(&test_instance).unwrap();
+                let parsed: AddressTest = serde_json::from_str(&json).unwrap();
+                assert_eq!(address, parsed.address);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_simplified_graph() {}
 }

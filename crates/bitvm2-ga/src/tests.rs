@@ -7,7 +7,6 @@ mod tests {
         Address, Amount, EcdsaSighashType, Network, OutPoint, PublicKey, ScriptBuf, TapSighashType,
         Transaction, TxIn, TxOut, Txid, XOnlyPublicKey, hashes::Hash, key::Keypair,
     };
-    use bitcoin_light_client_circuit::{PROOF_SIZE, PUBLIC_INPUTS_SIZE};
     use bitcoincore_rpc::{Auth, Client as BtcdClient, RpcApi};
     use bitvm::{
         chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256},
@@ -64,7 +63,6 @@ mod tests {
             Network::Testnet4 => "testnet4",
             Network::Signet => "signet",
             Network::Bitcoin => "bitcoin",
-            _ => "regtest",
         };
         unsafe {
             std::env::set_var(ENV_KEY, v);
