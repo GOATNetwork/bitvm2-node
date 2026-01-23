@@ -528,7 +528,13 @@ pub async fn recv_and_dispatch(
                     graph_nonce: graph.parameters.graph_nonce,
                     graph,
                 });
-                send_to_peer(swarm, GOATMessage::new(Actor::All, message_content))?;
+                let msg = GOATMessage::new(Actor::All, message_content);
+                let data = msg.serialize_message().unwrap();
+                std::fs::write(format!("/tmp/confirm_instance_{}_{}.msg", instance_id, graph_id), &data).unwrap();
+                let msg_expeceted = GOATMessage::deserialize_message(&data).unwrap();
+                std::fs::write(format!("/tmp/confirm_instance_expected_{}_{}.msg", instance_id, graph_id), &serde_cbor::to_vec(&msg_expeceted).unwrap()).unwrap();
+
+                send_to_peer(swarm, msg)?;
                 return Ok(());
             }
             // 1. read & check parameters
