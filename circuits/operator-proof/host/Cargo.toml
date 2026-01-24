@@ -33,7 +33,6 @@ primitives.workspace = true
 provider.workspace = true
 bitcoin-script.workspace = true
 alloy-provider = { workspace = true, default-features = false }
-#serde_cbor.workspace = true
 
 util.workspace = true
 

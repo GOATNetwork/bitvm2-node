@@ -632,6 +632,7 @@ pub mod node_serializer {
             cursor += NUM_U256;
 
             // FIXME: this is a tricky way to handle Wots16: if we use ? modifier, this will raise SEGV.
+            #[allow(clippy::question_mark)]
             let pk22 = match extract_wots_pubkeys::<Wots16, NUM_HASH, D::Error>(
                 &all,
                 cursor,

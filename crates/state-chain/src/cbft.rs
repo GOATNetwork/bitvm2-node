@@ -109,13 +109,6 @@ pub fn verify_sequencer_set(light_block_1: LightBlock, light_block_2: LightBlock
         &opt,
         verify_time.unwrap(),
     );
-    println!("cycle-tracker-end: verify");
-
-    // println!("cycle-tracker-start: public inputs verdict");
-    // let verdict_encoded = serde_cbor::to_vec(&verdict).unwrap();
-    // zkm_zkvm::io::commit_slice(verdict_encoded.as_slice());
-    // println!("cycle-tracker-end: public inputs verdict");
-
     match verdict {
         Verdict::Success => {
             println!("success");
