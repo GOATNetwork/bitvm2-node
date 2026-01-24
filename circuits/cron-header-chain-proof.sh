@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 source .env
-BITCOIN_NETWORK=$BITCOIN_NETWORK CMD="cargo run -r --bin header-chain-proof --package header-chain-proof --"
-#CMD="../target/release/header-chain-proof"
+BITCOIN_NETWORK=$BITCOIN_NETWORK cargo build -r --bin header-chain-proof --package header-chain-proof
+CMD="../target/release/header-chain-proof"
 DATA="data/header-chain"
 
 _start=0
