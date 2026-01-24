@@ -563,7 +563,7 @@ pub mod node_serializer {
             let mut cursor = 0;
             fn extract_wots_pubkeys<W, const N: usize, E>(
                 src: &[Vec<Vec<u8>>],
-                cursor: &mut usize,
+                cursor: usize,
                 label: &str,
             ) -> Result<[<W as Wots>::PublicKey; N], E>
             where
@@ -571,13 +571,13 @@ pub mod node_serializer {
                 E: DeError,
             {
                 let digit_len = W::TOTAL_DIGIT_LEN as usize;
-                if src.len().checked_sub(*cursor).is_none_or(|r| r < N) {
+                if src.len().checked_sub(cursor).is_none_or(|r| r < N) {
                     return Err(E::custom(format!(
                         "{label}: not enough elements: need {N}, have {}",
-                        src.len() - *cursor
+                        src.len() - cursor
                     )));
                 }
-                let slice = &src[*cursor..*cursor + N];
+                let slice = &src[cursor..cursor + N];
 
                 let mut out: Vec<<W as Wots>::PublicKey> = Vec::with_capacity(N);
                 for (i, pk) in slice.iter().enumerate() {
@@ -603,44 +603,40 @@ pub mod node_serializer {
                     out.push(pk);
                 }
 
-                *cursor += N;
-
                 out.try_into().map_err(|_| E::custom(format!("{label}: final size mismatch")))
             }
 
             let pk0 = extract_wots_pubkeys::<Wots32, NUM_GUEST_PUBS_EXTRA, D::Error>(
                 &all,
-                &mut cursor,
+                cursor,
                 "guestpk.extra",
             )?;
+            cursor += NUM_GUEST_PUBS_EXTRA;
 
             let pk1 = extract_wots_pubkeys::<Wots32, NUM_GUEST_PUBS_ASSERT, D::Error>(
                 &all,
-                &mut cursor,
+                cursor,
                 "guestpk.assert",
             )?;
+            cursor += NUM_GUEST_PUBS_ASSERT;
 
-            let pk20 = extract_wots_pubkeys::<Wots32, NUM_PUBS, D::Error>(
-                &all,
-                &mut cursor,
-                "groth16pk.pub",
-            )?;
+            let pk20 =
+                extract_wots_pubkeys::<Wots32, NUM_PUBS, D::Error>(&all, cursor, "groth16pk.pub")?;
+            cursor += NUM_PUBS;
 
             let pk21 = extract_wots_pubkeys::<Wots32, NUM_U256, D::Error>(
                 &all,
-                &mut cursor,
+                cursor,
                 "groth16pk.wots256",
             )?;
+            cursor += NUM_U256;
 
             // FIXME: this is a tricky way to handle Wots16: if we use ? modifier, this will raise SEGV.
-            let pk22 = match extract_wots_pubkeys::<Wots16, NUM_HASH, D::Error>(
+            let pk22 = extract_wots_pubkeys::<Wots16, NUM_HASH, D::Error>(
                 &all,
-                &mut cursor,
+                cursor,
                 "groth16pk.wots_hash",
-            ) {
-                Ok(pks) => pks,
-                Err(e) => return Err(D::Error::custom(format!("groth16pk.wots_hash: {e}"))),
-            };
+            )?;
             Ok((pk0, pk1, Box::new((pk20, pk21, pk22))))
         }
     }
