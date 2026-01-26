@@ -2473,6 +2473,7 @@ pub async fn recv_and_dispatch(
             {
                 let watchtower_proof = match get_watchtower_commitment(
                     local_db,
+                    btc_client,
                     http_client,
                     instance_id,
                     graph_id,

@@ -1712,6 +1712,7 @@ fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Ve
 /// - `Ok(None, wait_secs)` if watchtower proof is not yet available, with suggested wait time
 pub async fn get_watchtower_commitment(
     local_db: &LocalDB,
+    btc_client: &BTCClient,
     http_client: &HttpAsyncClient,
     instance_id: Uuid,
     graph_id: Uuid,
@@ -1721,10 +1722,14 @@ pub async fn get_watchtower_commitment(
         && let (Some(challenge_txid), Some(challenge_init_txid)) =
             (graph.challenge_txid, graph.watchtower_challenge_init_txid)
     {
-        if graph.proceed_withdraw_height <= 0 {
-            warn!("graph {graph_id} proceed_withdraw_height <= 0, waiting to been updated");
+        // check if challenge_txid is confirmed
+        let txid = Txid::from(challenge_txid.0);
+        let tx_status = btc_client.get_tx_status(&txid).await?;
+        if !tx_status.confirmed {
+            warn!("graph {graph_id} challenge tx is not confirmed");
             return Ok((None, get_watchtower_proof_wait_secs()));
         }
+
         let url = format!(
             "http://{}{}",
             get_proof_build_rpc_host()
@@ -1740,7 +1745,7 @@ pub async fn get_watchtower_commitment(
                     public_key: env::get_node_pubkey()?.to_string(),
                     challenge_txid: challenge_txid.0.to_string(),
                     challenge_init_txid: challenge_init_txid.0.to_string(),
-                    execution_layer_block_number: graph.proceed_withdraw_height,
+                    execution_layer_block_number: graph.proceed_withdraw_height, // NOTE: this number may be zero
                 },
             )
             .await?;

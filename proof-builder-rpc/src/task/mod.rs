@@ -422,13 +422,25 @@ pub(crate) async fn fetch_on_demand_task(
     let header_chain_input_proof = header_chain_input_proof.path_to_proof.unwrap();
 
     // state chain: find the proof that includes the execution_layer_block_number
-    let state_chain_input_proof = match storage_processor
-        .find_long_running_task_proof_including_block_number(
-            execution_layer_block_number,
-            StateChainProofBuilder::name(),
-        )
-        .await?
-    {
+    // * Watchtower can use the latest statechain
+    // * Operator must use the height at which it's proceedWithdraw is confirmed.
+    let state_chain_input_proof_result = if execution_layer_block_number > 0 {
+        storage_processor
+            .find_long_running_task_proof_including_block_number(
+                execution_layer_block_number,
+                StateChainProofBuilder::name(),
+            )
+            .await?
+    } else {
+        storage_processor
+            .find_latest_long_running_task_proof_by_name_and_state(
+                StateChainProofBuilder::name(),
+                ProofState::Proven.to_i64(),
+            )
+            .await?
+    };
+
+    let state_chain_input_proof = match state_chain_input_proof_result {
         Some(d) => {
             if d.proof_state != ProofState::Proven.to_i64() {
                 tracing::info!(
