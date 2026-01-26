@@ -1109,7 +1109,8 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                 if let Some(disprove_type) = challenge_status.disprove_type {
                     match disprove_type {
                         DisproveTxType::OperatorCommitTimeout => {
-                            fail_reason = Some("The operator commits blockhash timeout".to_string());
+                            fail_reason =
+                                Some("The operator commits blockhash timeout".to_string());
                         }
                         DisproveTxType::OperatorNack => {
                             let (challenge_timeout_num, nack_num) = (
@@ -1121,9 +1122,9 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                                 (true, true) => Some(format!(
                                     "The operator has {challenge_timeout_num} unsent Challenge-Timeout transactions, and {nack_num} unsent Ack transactions"
                                 )),
-                                (false, true) => {
-                                    Some(format!("The operator has {nack_num} unsent Ack transactions"))
-                                }
+                                (false, true) => Some(format!(
+                                    "The operator has {nack_num} unsent Ack transactions"
+                                )),
                                 (true, false) => Some(format!(
                                     "The operator has {challenge_timeout_num} unsent Challenge-Timeout transactions"
                                 )),
@@ -1163,7 +1164,8 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                 });
 
                 if let Some(DisproveTxType::AssertTimeout) = challenge_status.disprove_type {
-                    fail_reason = Some(format!("The operator has {} unsent assertions", total - current));
+                    fail_reason =
+                        Some(format!("The operator has {} unsent assertions", total - current));
                 }
             } else {
                 progress_datas.push(ProgressData {
