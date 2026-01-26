@@ -1109,7 +1109,7 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                 if let Some(disprove_type) = challenge_status.disprove_type {
                     match disprove_type {
                         DisproveTxType::OperatorCommitTimeout => {
-                            fail_reason = Some("Operator commit block hash timeout".to_string());
+                            fail_reason = Some("The operator commits blockhash timeout".to_string());
                         }
                         DisproveTxType::OperatorNack => {
                             let (challenge_timeout_num, nack_num) = (
@@ -1119,13 +1119,13 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
 
                             fail_reason = match (challenge_timeout_num > 0, nack_num > 0) {
                                 (true, true) => Some(format!(
-                                    "Operator has {challenge_timeout_num} challenge timeout txn no sent, {nack_num} ack txn no sent"
+                                    "The operator has {challenge_timeout_num} unsent Challenge-Timeout transactions, and {nack_num} unsent Ack transactions"
                                 )),
                                 (false, true) => {
-                                    Some(format!("Operator has {nack_num} ack txn no sent"))
+                                    Some(format!("The operator has {nack_num} unsent Ack transactions"))
                                 }
                                 (true, false) => Some(format!(
-                                    "Operator has {challenge_timeout_num} challenge timeout txn no sent"
+                                    "The operator has {challenge_timeout_num} unsent Challenge-Timeout transactions"
                                 )),
                                 (false, false) => None,
                             };
@@ -1163,7 +1163,7 @@ pub(crate) async fn get_graph_btc_tx_process_data<'a>(
                 });
 
                 if let Some(DisproveTxType::AssertTimeout) = challenge_status.disprove_type {
-                    fail_reason = Some(format!("Operator has {} assert no sent", total - current));
+                    fail_reason = Some(format!("The operator has {} unsent assertions", total - current));
                 }
             } else {
                 progress_datas.push(ProgressData {
