@@ -1499,7 +1499,7 @@ pub async fn recv_and_dispatch(
                             .aggregate_input_0_musig2_signatures(&context, partial_sigs, &agg_nonce)
                             .map_err(|e| {
                                 anyhow!(
-                                    "Failed to aggregate pegin confirm sigs for {instance_id}: {e}"
+                                    "Failed to aggregate Pegin-Confirm's signatures for {instance_id}: {e}"
                                 )
                             })?;
                         let connector_z = ConnectorZ::new(
@@ -1599,7 +1599,7 @@ pub async fn recv_and_dispatch(
                     let full_sig = pegin_confirm
                         .aggregate_input_0_musig2_signatures(&context, partial_sigs, &agg_nonce)
                         .map_err(|e| {
-                            anyhow!("Failed to aggregate pegin confirm sigs for {instance_id}: {e}")
+                            anyhow!("Failed to aggregate Pegin-Confirm's signatures for {instance_id}: {e}")
                         })?;
                     let connector_z = ConnectorZ::new(
                         context.network,
@@ -1633,7 +1633,7 @@ pub async fn recv_and_dispatch(
                     Some(tx) => tx,
                     None => {
                         tracing::warn!(
-                            "Ignore PostReady for {instance_id}: pegin confirm tx not found on Bitcoin chain: {pegin_txid}"
+                            "Ignore PostReady for {instance_id}: Pegin-Confirm transaction not found on Bitcoin: {pegin_txid}"
                         );
                         return Ok(());
                     }
@@ -1939,7 +1939,7 @@ pub async fn recv_and_dispatch(
                     )
                     .await?;
                     tracing::info!(
-                        "Retry proceedWithdraw later for {instance_id}:{graph_id}: kickoff tx not confirmed on btc yet"
+                        "Retry proceedWithdraw later for {instance_id}:{graph_id}: Kickoff not confirmed on Bitcoin yet"
                     );
                     return Ok(());
                 }
@@ -1951,7 +1951,7 @@ pub async fn recv_and_dispatch(
                 push_local_unhandled_messages(local_db, graph_id, &message, delay_secs as usize)
                     .await?;
                 tracing::info!(
-                    "Retry proceedWithdraw later for {instance_id}:{graph_id}: kickoff tx block not posted to goat spv contract yet"
+                    "Retry proceedWithdraw later for {instance_id}:{graph_id}: The block including Kickoff transaction not posted to GOAT SPV contract yet"
                 );
                 return Ok(());
             }
