@@ -24,7 +24,7 @@ fn is_loop_detected(env_url: &Url, request_host: Option<&str>) -> bool {
     let (req_hostname, req_port_opt) = parse_simple_host_port(req_host_str);
 
     // Compare Hostnames (case-insensitive)
-    if env_hostname.to_ascii_lowercase() != req_hostname.to_ascii_lowercase() {
+    if !env_hostname.eq_ignore_ascii_case(&req_hostname) {
         return false;
     }
 
@@ -45,11 +45,12 @@ fn is_loop_detected(env_url: &Url, request_host: Option<&str>) -> bool {
 /// Parses a simple "host" or "host:port" string.
 fn parse_simple_host_port(input: &str) -> (String, Option<u16>) {
     let input = input.trim();
-    if let Some((host, port_str)) = input.split_once(':') {
-        if let Ok(port) = port_str.parse::<u16>() {
-            return (host.to_string(), Some(port));
-        }
+    if let Some((host, port_str)) = input.split_once(':')
+        && let Ok(port) = port_str.parse::<u16>()
+    {
+        return (host.to_string(), Some(port));
     }
+
     (input.to_string(), None)
 }
 
