@@ -644,7 +644,6 @@ pub(crate) async fn add_watchtower_task(
     instance_id: Uuid,
     graph_id: Uuid,
     public_key: String,
-    challenge_txid: String,
     challenge_init_txid: String,
     execution_layer_block_number: i64,
 ) -> anyhow::Result<u64> {
@@ -655,7 +654,6 @@ pub(crate) async fn add_watchtower_task(
             instance_id,
             graph_id,
             public_key,
-            challenge_txid: Txid::from_str(&challenge_txid)?.into(),
             challenge_init_txid: Txid::from_str(&challenge_init_txid)?.into(),
             proof_state: ProofState::New.to_i64(),
             created_at: current_time_secs(),

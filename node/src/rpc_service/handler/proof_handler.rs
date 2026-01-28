@@ -1,12 +1,10 @@
 use crate::env::get_proof_build_rpc_host;
 use crate::rpc_service::AppState;
-use crate::rpc_service::proof::{
-    ChainProofDescRequest, OperatorProofDescRequest, ProofDescResponse,
-};
 use crate::rpc_service::response::{ApiResult, ok_response, to_api_error};
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, Request, Uri};
+use proof_builder::{ChainProofDescRequest, OperatorProofDescRequest, ProofDescResponse};
 use reqwest::Url;
 use std::sync::Arc;
 

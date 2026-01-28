@@ -22,10 +22,10 @@ bitcoin-light-client-circuit = { workspace = true }
 tracing = { workspace = true }
 
 serde_json = { workspace = true }
-bincode = "1.3.3"
+bincode.workspace = true
 uuid = { workspace = true }
-clap = { version = "4.5.37", features = ["derive"] }
-strum = { version = "0.26", features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
+strum = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 client = { workspace = true }

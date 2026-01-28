@@ -1,10 +1,4 @@
 use crate::api::ApiState;
-use crate::api::proofs::{
-    ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
-    OperatorProofTimeoutUpdateRequest, OperatorProofTimeoutUpdateResponse, ProofData, ProofDesc,
-    ProofDescResponse, ProofType, WatchtowerProofRequest, WatchtowerProofResponse,
-    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
-};
 use crate::api::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::api::validation::InputValidator;
 use crate::task::{
@@ -13,6 +7,12 @@ use crate::task::{
 };
 use axum::Json;
 use axum::extract::{Query, State};
+use proof_builder::{
+    ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
+    OperatorProofTimeoutUpdateRequest, OperatorProofTimeoutUpdateResponse, ProofData, ProofDesc,
+    ProofDescResponse, ProofType, WatchtowerProofRequest, WatchtowerProofResponse,
+    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
+};
 use std::sync::Arc;
 use store::ProofState;
 use tracing::info;
@@ -223,8 +223,6 @@ pub(super) async fn post_watchtower_proof_task(
 ) -> ApiResult<WatchtowerProofResponse> {
     let instance_id = InputValidator::validate_uuid(&payload.instance_id, "instance_id")?;
     let graph_id = InputValidator::validate_uuid(&payload.graph_id, "graph_id")?;
-    let challenge_txid =
-        InputValidator::validate_btc_txid(&payload.challenge_txid, "challenge_txid")?.to_string();
     let challenge_init_txid =
         InputValidator::validate_btc_txid(&payload.challenge_init_txid, "challenge_init_txid")?
             .to_string();
@@ -261,7 +259,6 @@ pub(super) async fn post_watchtower_proof_task(
                 instance_id,
                 graph_id,
                 payload.public_key,
-                challenge_txid,
                 challenge_init_txid,
                 payload.execution_layer_block_number,
             )

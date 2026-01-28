@@ -1,6 +1,5 @@
 mod metrics_service;
 mod proof_handler;
-mod proofs;
 mod response;
 pub(crate) mod routes;
 mod validation;

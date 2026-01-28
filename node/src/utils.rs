@@ -73,11 +73,6 @@ use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
 use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
 
 use crate::env;
-use crate::rpc_service::proof::{
-    OperatorProofRequest, OperatorProofResponse, OperatorProofTimeoutUpdateRequest,
-    OperatorProofTimeoutUpdateResponse, ProofData, WatchtowerProofRequest, WatchtowerProofResponse,
-    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
-};
 use crate::rpc_service::routes::v1::{
     NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE, PROOFS_OPERATOR_PROOF_TIMEOUT,
     PROOFS_WATCHTOWER_PROOF_TIMEOUT,
@@ -90,6 +85,11 @@ use bitcoin_light_client_circuit::hash_operator_constant;
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
 use client::http_client::async_client::HttpAsyncClient;
+use proof_builder::{
+    OperatorProofRequest, OperatorProofResponse, OperatorProofTimeoutUpdateRequest,
+    OperatorProofTimeoutUpdateResponse, ProofData, WatchtowerProofRequest, WatchtowerProofResponse,
+    WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
+};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 pub(crate) const BRIDGE_OUT_GLOBAL_STATS_ID: i64 = 1;
@@ -1720,8 +1720,7 @@ pub async fn get_watchtower_commitment(
 ) -> Result<(Option<Vec<u8>>, usize)> {
     let mut storage_processor = local_db.acquire().await?;
     if let Some(graph) = storage_processor.find_graph(&graph_id).await?
-        && let (Some(challenge_txid), Some(challenge_init_txid)) =
-            (graph.challenge_txid, graph.watchtower_challenge_init_txid)
+        && let Some(challenge_init_txid) = graph.watchtower_challenge_init_txid
     {
         // check if challenge_txid is confirmed
         let tx_status = btc_client.get_tx_status(&challenge_init_txid.0).await?;
@@ -1743,7 +1742,6 @@ pub async fn get_watchtower_commitment(
                     instance_id: instance_id.to_string(),
                     graph_id: graph_id.to_string(),
                     public_key: env::get_node_pubkey()?.to_string(),
-                    challenge_txid: challenge_txid.0.to_string(),
                     challenge_init_txid: challenge_init_txid.0.to_string(),
                     execution_layer_block_number: graph.proceed_withdraw_height, // NOTE: this number may be zero
                 },

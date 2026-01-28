@@ -13,6 +13,7 @@ serde.workspace = true
 zkm-sdk.workspace = true
 zkm-prover.workspace = true
 zkm-verifier.workspace = true
+strum = { workspace = true, features = ["derive"] }
 
 #
 header-chain.workspace = true
