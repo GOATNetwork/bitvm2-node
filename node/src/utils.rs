@@ -50,6 +50,7 @@ use indexmap::IndexMap;
 use libp2p::{PeerId, Swarm};
 use musig2::{PartialSignature, PubNonce};
 use rand::Rng;
+use reqwest::Url;
 use secp256k1::Secp256k1;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -1729,15 +1730,15 @@ pub async fn get_watchtower_commitment(
             return Ok((None, get_watchtower_proof_wait_secs()));
         }
 
-        let url = format!(
-            "http://{}{}",
-            get_proof_build_rpc_host()
+        let base_url = Url::parse(
+            &get_proof_build_rpc_host()
                 .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
-            NODES_WATCHTOWER_BASE
-        );
+        )?;
+        let url = base_url.join(NODES_WATCHTOWER_BASE)?;
+
         let response = http_client
             .post_response_json::<WatchtowerProofResponse, WatchtowerProofRequest>(
-                &url,
+                url.as_str(),
                 &WatchtowerProofRequest {
                     instance_id: instance_id.to_string(),
                     graph_id: graph_id.to_string(),
@@ -1844,15 +1845,15 @@ pub async fn get_operator_proof(
                     return Ok((None, get_operator_proof_wait_secs()));
                 }
             };
-        let url = format!(
-            "http://{}{}",
-            get_proof_build_rpc_host()
+        let base_url = Url::parse(
+            &get_proof_build_rpc_host()
                 .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
-            NODES_OPERATOR_BASE
-        );
+        )?;
+        let url = base_url.join(NODES_OPERATOR_BASE)?;
+
         let response = http_client
             .post_response_json::<OperatorProofResponse, OperatorProofRequest>(
-                &url,
+                url.as_str(),
                 &OperatorProofRequest {
                     instance_id: instance_id.to_string(),
                     graph_id: graph_id.to_string(),
@@ -3194,7 +3195,7 @@ pub async fn notify_to_cancel_proof_task(
     }
 
     let host = match get_proof_build_rpc_host() {
-        Some(host) => host,
+        Some(host) => Url::parse(&host)?,
         None => {
             warn!("notify_to_cancel_proof_task:failed to get proof_build_rpc_host");
             return Ok(());
@@ -3217,10 +3218,10 @@ pub async fn notify_to_cancel_proof_task(
         let http_client = HttpAsyncClient::new(None);
         let notify_result = match msg_type {
             MessageType::WatchtowerChallengeInitSent => {
-                let url = format!("http://{host}{PROOFS_WATCHTOWER_PROOF_TIMEOUT}");
+                let url = host.join(PROOFS_WATCHTOWER_PROOF_TIMEOUT)?;
                 let response  = http_client
                     .post_response_json::<WatchtowerProofTimeoutUpdateResponse, WatchtowerProofTimeoutUpdateRequest>(
-                        &url,
+                        url.as_str(),
                         &WatchtowerProofTimeoutUpdateRequest {
                             instance_id: graph.instance_id.to_string(),
                             graph_id: graph.graph_id.to_string(),
@@ -3233,10 +3234,10 @@ pub async fn notify_to_cancel_proof_task(
                 response.data.is_some()
             }
             MessageType::AssertInitReady => {
-                let url = format!("http://{host}{PROOFS_OPERATOR_PROOF_TIMEOUT}");
+                let url = host.join(PROOFS_OPERATOR_PROOF_TIMEOUT)?;
                 let response  = http_client
                     .post_response_json::<OperatorProofTimeoutUpdateResponse, OperatorProofTimeoutUpdateRequest>(
-                        &url,
+                        url.as_str(),
                         &OperatorProofTimeoutUpdateRequest {
                             instance_id: graph.instance_id.to_string(),
                             graph_id: graph.graph_id.to_string(),
@@ -4643,5 +4644,25 @@ mod tests {
         let result =
             get_watchtower_challenge_info(&btc_client, &init_txid, number_challenge).await.unwrap();
         println!("result: {result:#?}");
+    }
+
+    #[test]
+    fn test_operator_proof_request_url() {
+        unsafe {
+            std::env::set_var(ENV_PROOF_BUILD_URL, "http://127.0.0.1:8900");
+        }
+
+        let base_url = Url::parse(
+            &get_proof_build_rpc_host()
+                .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))
+                .unwrap(),
+        )
+        .unwrap();
+        unsafe {
+            std::env::remove_var(ENV_PROOF_BUILD_URL);
+        }
+        let url = base_url.join(NODES_OPERATOR_BASE).unwrap();
+
+        assert_eq!(url.as_str(), "http://127.0.0.1:8900/v1/proofs/operator_proofs");
     }
 }

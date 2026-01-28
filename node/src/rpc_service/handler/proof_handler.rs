@@ -7,19 +7,53 @@ use crate::rpc_service::response::{ApiResult, ok_response, to_api_error};
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, Request, Uri};
+use reqwest::Url;
 use std::sync::Arc;
 
 /// Checks if the request host matches the configured proof builder host to prevent forwarding loops.
-fn is_loop_detected(host: &str, request_host: Option<&str>) -> bool {
-    if let Some(request_host) = request_host {
-        host == request_host
-            || host.starts_with(&format!("{}:", request_host.split(':').next().unwrap_or("")))
-    } else {
-        false
+fn is_loop_detected(env_url: &Url, request_host: Option<&str>) -> bool {
+    let Some(req_host_str) = request_host else {
+        return false;
+    };
+
+    let Some(env_hostname) = env_url.host_str() else {
+        return false;
+    };
+
+    // Parse Request Host (String split)
+    let (req_hostname, req_port_opt) = parse_simple_host_port(req_host_str);
+
+    // Compare Hostnames (case-insensitive)
+    if !env_hostname.eq_ignore_ascii_case(&req_hostname) {
+        return false;
+    }
+
+    let env_port = env_url.port_or_known_default().unwrap_or(0);
+    // Compare Ports
+    match req_port_opt {
+        Some(req_port) => env_port == req_port,
+        None => {
+            // Request has no explicit port.
+            // If Env is using standard ports (80/443), we assume collision is possible/likely.
+            // If Env is using a non-standard port (e.g. 8080), and request has NO port (implying 80/443),
+            // then they are different.
+            env_port == 80 || env_port == 443
+        }
     }
 }
 
-/// Handles forwarding to proof builder service or returning mock data.
+/// Parses a simple "host" or "host:port" string.
+fn parse_simple_host_port(input: &str) -> (String, Option<u16>) {
+    let input = input.trim();
+    if let Some((host, port_str)) = input.split_once(':')
+        && let Ok(port) = port_str.parse::<u16>()
+    {
+        return (host.to_string(), Some(port));
+    }
+
+    (input.to_string(), None)
+}
+
 async fn handle_proof_desc_forwarding(
     uri: &Uri,
     headers: &HeaderMap,
@@ -28,17 +62,33 @@ async fn handle_proof_desc_forwarding(
 ) -> ApiResult<ProofDescResponse> {
     match get_proof_build_rpc_host() {
         Some(host) => {
+            // Strict check: parse as URL and validate scheme
+            let Some(env_url) =
+                Url::parse(&host).ok().filter(|u| u.scheme() == "http" || u.scheme() == "https")
+            else {
+                tracing::warn!(
+                    "GOAT_PROOF_BUILD_URL is invalid (must be valid http/https URL): {host}"
+                );
+                return ok_response(ProofDescResponse {
+                    proof_desc: None,
+                    error: Some(format!("Invalid GOAT_PROOF_BUILD_URL configuration: {host}")),
+                });
+            };
+
             let request_host = headers.get("host").and_then(|h| h.to_str().ok());
-            if is_loop_detected(&host, request_host) {
+            if is_loop_detected(&env_url, request_host) {
                 tracing::warn!(
                     "GOAT_PROOF_BUILD_URL points to self ({host}), returning mock data to avoid loop"
                 );
                 return ok_response(ProofDescResponse {
                     proof_desc: None,
-                    error: Some("request host is eq self host".to_string()),
+                    error: Some("Request host matches self, loop detected".to_string()),
                 });
             }
-            let url = format!("http://{host}{uri}");
+
+            let base_url = env_url.as_str().trim_end_matches('/');
+            let url = format!("{base_url}{uri}");
+
             let resp =
                 app_state.http_client.get_response_json::<ProofDescResponse>(&url).await.map_err(
                     |e| {
@@ -52,7 +102,7 @@ async fn handle_proof_desc_forwarding(
         }
         None => ok_response(ProofDescResponse {
             proof_desc: None,
-            error: Some("env GOAT_PROOF_BUILD_URL need to been set".to_string()),
+            error: Some("env GOAT_PROOF_BUILD_URL needs to be set".to_string()),
         }),
     }
 }
@@ -217,4 +267,73 @@ pub async fn get_operator_proof_desc(
         "GET_OPERATOR_PROOF_ERROR",
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_simple_host_port() {
+        assert_eq!(parse_simple_host_port("example.com"), ("example.com".to_string(), None));
+        assert_eq!(
+            parse_simple_host_port("example.com:8080"),
+            ("example.com".to_string(), Some(8080))
+        );
+        assert_eq!(
+            parse_simple_host_port("192.168.1.1:3000"),
+            ("192.168.1.1".to_string(), Some(3000))
+        );
+    }
+
+    #[test]
+    fn test_is_loop_detected_standard_ports() {
+        // Same host, standard ports
+        let u1 = Url::parse("http://example.com").unwrap();
+        assert!(is_loop_detected(&u1, Some("example.com")));
+
+        let u2 = Url::parse("https://example.com").unwrap();
+        assert!(is_loop_detected(&u2, Some("example.com")));
+
+        // Explicit ports matching defaults
+        let u3 = Url::parse("http://example.com:80").unwrap();
+        assert!(is_loop_detected(&u3, Some("example.com:80")));
+
+        let u4 = Url::parse("https://example.com:443").unwrap();
+        assert!(is_loop_detected(&u4, Some("example.com:443")));
+
+        // Mixing implicit and explicit standard ports
+        assert!(is_loop_detected(&u1, Some("example.com:80")));
+        assert!(is_loop_detected(&u3, Some("example.com")));
+    }
+
+    #[test]
+    fn test_is_loop_detected_non_standard_ports() {
+        let u = Url::parse("http://example.com:8080").unwrap();
+
+        // Same host, same non-standard port -> Loop
+        assert!(is_loop_detected(&u, Some("example.com:8080")));
+
+        // Same host, different ports -> No Loop
+        assert!(!is_loop_detected(&u, Some("example.com:9090")));
+
+        // Env uses non-standard, Req uses implicit (std) -> No Loop
+        assert!(!is_loop_detected(&u, Some("example.com")));
+    }
+
+    #[test]
+    fn test_is_loop_detected_mismatch_host() {
+        let u = Url::parse("http://example.com").unwrap();
+        assert!(!is_loop_detected(&u, Some("other.com")));
+        assert!(!is_loop_detected(&u, Some("sub.example.com")));
+    }
+
+    #[test]
+    fn test_is_loop_detected_case_insensitive() {
+        let u1 = Url::parse("HTTP://EXAMPLE.COM").unwrap();
+        assert!(is_loop_detected(&u1, Some("example.com")));
+
+        let u2 = Url::parse("http://example.com").unwrap();
+        assert!(is_loop_detected(&u2, Some("EXAMPLE.COM")));
+    }
 }
