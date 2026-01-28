@@ -70,32 +70,13 @@ pub fn verify_sequencer_commit(light_block: &LightBlock) {
 
 /// Verify
 pub fn verify_sequencer_set(light_block_1: LightBlock, light_block_2: LightBlock) {
-    // Normally we could just do this to read in the LightBlocks, but bincode doesn't work with
-    // LightBlock. This is likely a bug in tendermint-rs.
-    // let light_block_1 = zkm_zkvm::io::read::<LightBlock>();
-    // let light_block_2 = zkm_zkvm::io::read::<LightBlock>();
-
     println!("LightBlock1 number of validators: {}", light_block_1.validators.validators().len());
     println!("LightBlock2 number of validators: {}", light_block_2.validators.validators().len());
 
-    // println!("cycle-tracker-start: header hash");
-    // let header_hash_1 = light_block_1.signed_header.header.hash();
-    // let header_hash_2 = light_block_2.signed_header.header.hash();
-    // println!("cycle-tracker-end: header hash");
-
-    // println!("cycle-tracker-start: public input headers");
-    // zkm_zkvm::io::commit_slice(header_hash_1.as_bytes());
-    // zkm_zkvm::io::commit_slice(header_hash_2.as_bytes());
-    // println!("cycle-tracker-end: public input headers");
-
-    println!("cycle-tracker-start: hash committee");
     assert_eq!(
         light_block_1.next_validators.hash(),
         light_block_1.as_trusted_state().next_validators_hash
     );
-    println!("cycle-tracker-end: hash committee");
-
-    println!("cycle-tracker-start: verify");
     let vp = ProdVerifier::default();
     let opt = Options {
         trust_threshold: Default::default(),

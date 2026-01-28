@@ -131,8 +131,5 @@ pub fn execute_el_block_and_check_withdraw_tx(
     });
 
     let (header, _) = executor.execute(input, storage_info).expect("failed to execute client");
-    //let block_hash = header.hash_slow();
-    //println!("block_hash: {block_hash:?}");
     header
-    // assert_eq!(block_hash, next_block_hash);
 }

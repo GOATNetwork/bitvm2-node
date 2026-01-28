@@ -516,7 +516,7 @@ pub fn verify_proof(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitcoin::{Amount, Transaction};
+    use bitcoin::Transaction;
     const PROOF: &[u8] = include_bytes!("../../../circuits/data/watchtower/output3.bin.proof.bin");
     const PUBLIC_INPUTS: &[u8] =
         include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
@@ -562,22 +562,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_op_return() {
-        // Example: construct a fake tx with OP_RETURN
-        let expected_op_data = [12, 3, 4, 45];
-        let script = ScriptBuf::new_op_return(&expected_op_data);
-        let tx = Transaction {
-            version: bitcoin::transaction::Version::TWO,
-            lock_time: bitcoin::absolute::LockTime::ZERO,
-            input: vec![],
-            output: vec![bitcoin::TxOut { value: Amount::ZERO, script_pubkey: script }],
-        };
-
-        let op_return_data = commit_chain::extract_op_return_data(&tx.output);
-        assert_eq!(expected_op_data.to_vec(), op_return_data);
-    }
-
-    #[test]
     fn test_u256_to_le_bits() {
         use std::str::FromStr;
         // generate random u256
@@ -594,5 +578,26 @@ mod tests {
         assert_eq!(u, reconstructed2);
         let reconstructed_str = reconstructed2.to_string();
         assert_eq!(u_str, reconstructed_str);
+    }
+
+    #[test]
+    fn test_extract_data_from_commitment_outputs() {
+        use bitcoin::consensus::encode::deserialize;
+        // Testnet4 tx: 14b586e2e64e7b4b12aca96832d0703b9d218fa81e0ea84c1155a5749b28924b
+        let bytes = hex::decode(
+            "02000000000102c1eeed57e622af0fbb57e863a3b6284dc5ce6249804d0b6ce923bf81004188b00000000000fffffffff0679cdb8b16eebfbcd7fb4d582a20247857db4927f0f79388ba6735bdcd98f60b00000000ffffffff0c4a010000000000002200209bf28a9ccba44a0cbdd17ce6bb8262a136a08ac0088b0ec3f5ae484951f590dd4a01000000000000220020f65f87063cd8c00f539cb877d19a672b241066780a185357072e7da517286a1d4a0100000000000022002056dde473377f215234cf46258af2e2a5007a8e34206ecb438cef18906035c7384a01000000000000220020e77df8511565180c187f61ecdaf15fdc0bcd6076084a3a6823eb1e7fbb4e5af74a01000000000000220020ee98e7229e9a7ac2269cf2c493ff09f1c8b64f5116f5c3662be80640f8a11e144a01000000000000220020a2703885ba63f87d5bde5c3f085a7343e09eaef408074390d2081ff325cc6e894a0100000000000022002038e7a277db470a65c1075e58053075fe83944c621e43601f2b77e18e597c1cbe4a01000000000000220020ad89f2340414b9209003047abdf53716103ff6e71bd1f04c17055c33859124e84a010000000000002200207024bc980d3fa0d5715d859f2e036164414bbdcf0000000000000000000000004a01000000000000220020000000000000000000000938e7e6f31c23766897f6d40100307830306562643200000000000000003c6a3a353862363863396134373432343339653636393834306432306265626665346562643236393366636138323463386430623065346531366233368726980000000000220020082778653debae3a77067cc2c165ae2294c4c6984515aabe977dde1d8e39365103412853f869fd7d8a3e97fd095e6dce63be7e13b172f70e6c92b4ad968af671b3b1f72113b8d2a2a3749c02fc1241110081d8b8ba3686fc6e9b157530ba2fc41bef81222076c09522e2614dadf1471e456abf567b1756465a4133cedc7a0780b277f7e954ac41c076c09522e2614dadf1471e456abf567b1756465a4133cedc7a0780b277f7e954d391bf91c2d0eb83acda477b90f5efbfa4e4d1388e31690a6de57ff01c93f2e202473044022006feb2824f0d733e11c98ea52b0c2aaa1e6bc4c4223287959addbe2e33ebb71202203a1d4613db8eadf3e8d65e46b94e4027d3e6435a2abffd8aeefbc8bd4858f7a50123210376c09522e2614dadf1471e456abf567b1756465a4133cedc7a0780b277f7e954ac00000000"
+        ).unwrap();
+        let tx: Transaction = deserialize(&bytes).unwrap();
+
+        let commitment = extract_data_from_commitment_outputs(&tx.output);
+        let (
+            parsed_graph_id,
+            _proof,
+            _public_values,
+            _vk,
+            _watchtower_total_work,
+            _watchtower_consensus_block_height,
+        ) = parse_watchtower_commitment(&commitment).unwrap();
+        assert_eq!(hex::encode(parsed_graph_id), "9bf28a9ccba44a0cbdd17ce6bb8262a1");
     }
 }

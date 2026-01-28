@@ -134,7 +134,6 @@ impl CommitChainState {
         let mut commit_block_height: u32 = self.block_height;
         for commit in &commits {
             let latest_commit_txn_with_wtns = &commit.commit_txn;
-            println!("commit tx: {:?}", latest_commit_txn_with_wtns.compute_txid());
             let latest_sequencers = &commit.sequencers;
             let publisher_public_keys = &commit.publisher_public_keys;
             let threshold = commit.threshold;
@@ -142,14 +141,10 @@ impl CommitChainState {
             assert_eq!(commit.genesis_txid, self.genesis_txid);
 
             let prev_commit_txid = prev_commit_txn.compute_txid();
-            println!("prev commit txid: {prev_commit_txid}, {prev_commit_txn:?}");
             // calculate the commitment of prev sequencer set and check the equivalent
             if !prev_sequencers.is_empty() {
                 let expected_prev_commit = extract_op_return_data(&prev_commit_txn.output);
                 if let Hash::Sha256(prev_sequencer_set_hash) = sequencer_hash(prev_sequencers) {
-                    println!(
-                        "expected prev commit: {expected_prev_commit:?}, {prev_sequencer_set_hash:?}"
-                    );
                     assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit[0..32]);
                 } else {
                     panic!("Invalid prev sequencer set hash");
@@ -243,4 +238,25 @@ pub fn extract_op_return_data(tx_output: &[TxOut]) -> Vec<u8> {
         results = [0u8; 32].to_vec();
     }
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::{Amount, ScriptBuf};
+    #[test]
+    fn test_extract_op_return() {
+        // Example: construct a fake tx with OP_RETURN
+        let expected_op_data = [12, 3, 4, 45];
+        let script = ScriptBuf::new_op_return(&expected_op_data);
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![bitcoin::TxOut { value: Amount::ZERO, script_pubkey: script }],
+        };
+
+        let op_return_data = extract_op_return_data(&tx.output);
+        assert_eq!(expected_op_data.to_vec(), op_return_data);
+    }
 }

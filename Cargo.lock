@@ -3177,7 +3177,6 @@ dependencies = [
  "blake3",
  "borsh",
  "guest-executor",
- "header-chain",
  "hex",
  "prost-build 0.13.5",
  "rand 0.8.5",
@@ -5761,22 +5760,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyper-tls"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper 1.8.1",
- "hyper-util",
- "native-tls",
- "tokio",
- "tokio-native-tls",
- "tower-service",
-]
-
-[[package]]
 name = "hyper-util"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5795,11 +5778,9 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "socket2 0.6.2",
- "system-configuration 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
- "windows-registry",
 ]
 
 [[package]]
@@ -9447,7 +9428,7 @@ dependencies = [
  "http-body 0.4.6",
  "hyper 0.14.32",
  "hyper-rustls 0.24.2",
- "hyper-tls 0.5.0",
+ "hyper-tls",
  "ipnet",
  "js-sys",
  "log",
@@ -9487,22 +9468,17 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-core",
  "futures-util",
- "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
  "hyper 1.8.1",
  "hyper-rustls 0.27.7",
- "hyper-tls 0.6.0",
  "hyper-util",
  "js-sys",
  "log",
- "mime",
  "mime_guess",
- "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -9513,7 +9489,6 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper 1.0.2",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.26.4",
  "tokio-util",
  "tower 0.5.3",
@@ -13284,17 +13259,6 @@ name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
-
-[[package]]
-name = "windows-registry"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02752bf7fbdcce7f2a27a742f798510f3e5ad88dbe84871e5168e2120c3d5720"
-dependencies = [
- "windows-link",
- "windows-result 0.4.1",
- "windows-strings",
-]
 
 [[package]]
 name = "windows-result"

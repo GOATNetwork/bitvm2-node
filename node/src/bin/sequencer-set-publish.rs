@@ -24,6 +24,7 @@ use client::goat_chain::GOATClient;
 use client::goat_chain::GoatInitConfig;
 use client::goat_chain::SequencerSetUpdateWitness;
 use dotenv::dotenv;
+use hex::FromHex;
 use tracing_subscriber::EnvFilter;
 
 use cbft_rpc::{fetch_cbft_validator_info, fetch_validators};
@@ -33,7 +34,7 @@ use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin_light_client_circuit::{
     /*create_dummy_publisher_keys,*/ create_fee_tx, create_sequencer_update_partial_tx,
-    decode_eth_address, estimate_tx_vbytes,
+    estimate_tx_vbytes,
 };
 use commit_chain::{CommitInfo, create_sequencer_update_script, finalize, sign_raw};
 use tendermint::validator::Info;
@@ -48,6 +49,17 @@ const FEE_RATE_FACTOR: f64 = 5.0;
 pub fn decode_btc_public_keys(pubkey: &str) -> Result<secp256k1::PublicKey, String> {
     secp256k1::PublicKey::from_str(pubkey.trim())
         .map_err(|e| format!("Invalid bitcoin public key: {pubkey}, err: {e:?}"))
+}
+
+pub fn decode_eth_address(addr: &str) -> Result<[u8; 20], hex::FromHexError> {
+    // Strip 0x if it exists
+    let addr = addr.strip_prefix("0x").unwrap_or(addr);
+    // Decode into Vec<u8>
+    let bytes = Vec::from_hex(addr)?;
+
+    // Ensure it's 20 bytes
+    let arr: [u8; 20] = bytes.try_into().expect("Ethereum address must be 20 bytes");
+    Ok(arr)
 }
 
 #[derive(Parser, Debug)]

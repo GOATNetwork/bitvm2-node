@@ -16,10 +16,10 @@ tracing = { workspace = true }
 futures = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
-reqwest = { version = "0.12.15", features = ["multipart", "json", "stream"]}
+reqwest = { workspace = true, features = ["multipart", "json", "stream"]}
 serde_json = { workspace = true }
 walkdir = "2"
-tokio-util = "0.7.14"
+tokio-util.workspace = true
 
 [dev-dependencies]
 tempfile = "3.19.1"
