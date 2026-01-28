@@ -424,6 +424,7 @@ pub(crate) async fn fetch_on_demand_task(
     // state chain: find the proof that includes the execution_layer_block_number
     // * Watchtower can use the latest statechain
     // * Operator must use the height at which it's proceedWithdraw is confirmed.
+    tracing::info!("execution_layer_block_number: {execution_layer_block_number}");
     let state_chain_input_proof_result = if execution_layer_block_number > 0 {
         storage_processor
             .find_long_running_task_proof_including_block_number(

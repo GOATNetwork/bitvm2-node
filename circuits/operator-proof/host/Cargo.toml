@@ -12,10 +12,8 @@ bincode.workspace = true
 chrono.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["full"] }
-tracing-appender.workspace = true
 tracing = { workspace = true, features = ["max_level_trace"] }
 tracing-subscriber.workspace = true
-logroller.workspace = true
 hex.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 dotenv.workspace = true

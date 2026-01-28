@@ -42,7 +42,7 @@ tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tender
   "rust-crypto",
 ] }
 
-pbjson = "0.8"
+#pbjson = "0.8"
 
 [dev-dependencies]
 rand = "0.8.5"
@@ -53,5 +53,5 @@ blake3 = "1.6.1"
 
 [build-dependencies]
 prost-build = "0.13"
-pbjson-build = "0.8"
-pbjson-types = "0.8"
+#pbjson-build = "0.8"
+#pbjson-types = "0.8"

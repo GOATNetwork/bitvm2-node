@@ -12,7 +12,7 @@ use crate::proto::ExecutionPayload;
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.rs"));
-    include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.serde.rs"));
+    //include!(concat!(env!("OUT_DIR"), "/goat.goat.v1.serde.rs"));
 }
 
 fn merkle_leaf_hash(leaf: &[u8]) -> [u8; 32] {

@@ -1723,7 +1723,7 @@ pub async fn get_watchtower_commitment(
             (graph.challenge_txid, graph.watchtower_challenge_init_txid)
     {
         // check if challenge_txid is confirmed
-        let tx_status = btc_client.get_tx_status(&challenge_txid.0).await?;
+        let tx_status = btc_client.get_tx_status(&challenge_init_txid.0).await?;
         if !tx_status.confirmed {
             warn!("graph {graph_id} challenge tx is not confirmed");
             return Ok((None, get_watchtower_proof_wait_secs()));

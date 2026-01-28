@@ -3218,7 +3218,6 @@ dependencies = [
  "futures-util",
  "hex",
  "lazy_static",
- "logroller",
  "proof-builder",
  "serde",
  "serde_json",
@@ -3227,7 +3226,6 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "zkm-build",
  "zkm-prover",
@@ -5356,14 +5354,12 @@ dependencies = [
  "header-chain",
  "hex",
  "lazy_static",
- "logroller",
  "proof-builder",
  "rand 0.8.5",
  "serde",
  "sha2 0.10.9",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "util",
  "zkm-build",
@@ -6961,19 +6957,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "logroller"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83db12bbf439ebe64c0b0e4402f435b6f866db498fc1ae17e1b5d1a01625e2be"
-dependencies = [
- "chrono",
- "flate2",
- "regex",
- "thiserror 1.0.69",
- "tracing-subscriber 0.3.22",
-]
-
-[[package]]
 name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7882,7 +7865,6 @@ dependencies = [
  "hex",
  "host-executor",
  "lazy_static",
- "logroller",
  "primitives",
  "proof-builder",
  "provider",
@@ -7893,7 +7875,6 @@ dependencies = [
  "state-chain",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "url",
  "util",
@@ -8365,43 +8346,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e91099d4268b0e11973f036e885d652fb0b21fedcf69738c627f94db6a44f42"
 
 [[package]]
-name = "pbjson"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "898bac3fa00d0ba57a4e8289837e965baa2dee8c3749f3b11d45a64b4223d9c3"
-dependencies = [
- "base64 0.22.1",
- "serde",
-]
-
-[[package]]
-name = "pbjson-build"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af22d08a625a2213a78dbb0ffa253318c5c79ce3133d32d296655a7bdfb02095"
-dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
- "prost 0.14.3",
- "prost-types 0.14.3",
-]
-
-[[package]]
-name = "pbjson-types"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e748e28374f10a330ee3bb9f29b828c0ac79831a32bab65015ad9b661ead526"
-dependencies = [
- "bytes",
- "chrono",
- "pbjson",
- "pbjson-build",
- "prost 0.14.3",
- "prost-build 0.14.3",
- "serde",
-]
-
-[[package]]
 name = "pbkdf2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8511,17 +8455,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
 dependencies = [
  "fixedbitset 0.5.7",
- "indexmap 2.13.0",
-]
-
-[[package]]
-name = "petgraph"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
-dependencies = [
- "fixedbitset 0.5.7",
- "hashbrown 0.15.5",
  "indexmap 2.13.0",
 ]
 
@@ -9097,16 +9030,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prost"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
-dependencies = [
- "bytes",
- "prost-derive 0.14.3",
-]
-
-[[package]]
 name = "prost-build"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9149,25 +9072,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prost-build"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
-dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
- "log",
- "multimap 0.10.1",
- "petgraph 0.8.3",
- "prettyplease 0.2.37",
- "prost 0.14.3",
- "prost-types 0.14.3",
- "regex",
- "syn 2.0.114",
- "tempfile",
-]
-
-[[package]]
 name = "prost-derive"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9194,19 +9098,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prost-derive"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
-dependencies = [
- "anyhow",
- "itertools 0.14.0",
- "proc-macro2",
- "quote",
- "syn 2.0.114",
-]
-
-[[package]]
 name = "prost-types"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9222,15 +9113,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
 dependencies = [
  "prost 0.13.5",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
-dependencies = [
- "prost 0.14.3",
 ]
 
 [[package]]
@@ -11625,9 +11507,6 @@ dependencies = [
  "guest-executor",
  "header-chain",
  "hex",
- "pbjson",
- "pbjson-build",
- "pbjson-types",
  "prost 0.13.5",
  "prost-build 0.13.5",
  "prost-derive 0.13.5",
@@ -11665,7 +11544,6 @@ dependencies = [
  "hex",
  "host-executor",
  "lazy_static",
- "logroller",
  "primitives",
  "proof-builder",
  "reth-chainspec",
@@ -11675,7 +11553,6 @@ dependencies = [
  "state-chain",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "url",
  "util",
@@ -12640,18 +12517,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-appender"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
-dependencies = [
- "crossbeam-channel",
- "thiserror 2.0.18",
- "time",
- "tracing-subscriber 0.3.22",
-]
-
-[[package]]
 name = "tracing-attributes"
 version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13233,7 +13098,6 @@ dependencies = [
  "header-chain",
  "hex",
  "lazy_static",
- "logroller",
  "proof-builder",
  "serde",
  "serde_json",
@@ -13241,7 +13105,6 @@ dependencies = [
  "state-chain",
  "tokio",
  "tracing",
- "tracing-appender",
  "tracing-subscriber 0.3.22",
  "zkm-build",
  "zkm-prover",

@@ -21,9 +21,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Generate prost structs
         .compile_protos(&proto_files, &[root])?;
 
-    let descriptor_set = std::fs::read(descriptor_path)?;
-    pbjson_build::Builder::new()
-        .register_descriptors(&descriptor_set)?
-        .build(&[".goat.goat.v1"])?;
+    //let descriptor_set = std::fs::read(descriptor_path)?;
+    //pbjson_build::Builder::new()
+    //    .register_descriptors(&descriptor_set)?
+    //    .build(&[".goat.goat.v1"])?;
     Ok(())
 }
