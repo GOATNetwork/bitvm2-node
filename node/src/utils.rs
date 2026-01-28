@@ -1730,7 +1730,7 @@ pub async fn get_watchtower_commitment(
         }
 
         let url = format!(
-            "http://{}{}",
+            "{}{}",
             get_proof_build_rpc_host()
                 .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
             NODES_WATCHTOWER_BASE
@@ -1845,7 +1845,7 @@ pub async fn get_operator_proof(
                 }
             };
         let url = format!(
-            "http://{}{}",
+            "{}{}",
             get_proof_build_rpc_host()
                 .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
             NODES_OPERATOR_BASE
@@ -3217,7 +3217,7 @@ pub async fn notify_to_cancel_proof_task(
         let http_client = HttpAsyncClient::new(None);
         let notify_result = match msg_type {
             MessageType::WatchtowerChallengeInitSent => {
-                let url = format!("http://{host}{PROOFS_WATCHTOWER_PROOF_TIMEOUT}");
+                let url = format!("{host}{PROOFS_WATCHTOWER_PROOF_TIMEOUT}");
                 let response  = http_client
                     .post_response_json::<WatchtowerProofTimeoutUpdateResponse, WatchtowerProofTimeoutUpdateRequest>(
                         &url,
@@ -3233,7 +3233,7 @@ pub async fn notify_to_cancel_proof_task(
                 response.data.is_some()
             }
             MessageType::AssertInitReady => {
-                let url = format!("http://{host}{PROOFS_OPERATOR_PROOF_TIMEOUT}");
+                let url = format!("{host}{PROOFS_OPERATOR_PROOF_TIMEOUT}");
                 let response  = http_client
                     .post_response_json::<OperatorProofTimeoutUpdateResponse, OperatorProofTimeoutUpdateRequest>(
                         &url,
