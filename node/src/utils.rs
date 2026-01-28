@@ -4658,6 +4658,9 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
+        unsafe {
+            std::env::remove_var(ENV_PROOF_BUILD_URL);
+        }
         let url = base_url.join(NODES_OPERATOR_BASE).unwrap();
 
         assert_eq!(url.as_str(), "http://127.0.0.1:8900/v1/proofs/operator_proofs");
