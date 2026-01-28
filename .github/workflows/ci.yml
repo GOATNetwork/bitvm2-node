@@ -65,4 +65,4 @@ jobs:
       - name: Launch the Regtest
         run: cd scripts && docker compose up -d
       - name: Run all unit tests
-        run: cargo test -r --features tests
+        run: cargo test -r --features tests --all-targets

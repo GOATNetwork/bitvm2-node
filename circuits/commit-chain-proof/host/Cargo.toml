@@ -26,7 +26,6 @@ borsh = { workspace = true }
 commit-chain = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
-cbft-rpc.workspace = true
 tendermint = { workspace = true, default-features = false, features = ["secp256k1"] }
 tendermint-light-client-verifier = { workspace = true, default-features = false, features = [
   "rust-crypto",

@@ -1875,6 +1875,13 @@ pub async fn get_operator_proof(
                 info!("get_operator_proof get proof successfully");
                 let proof: ZKMProofWithPublicValues =
                     bincode::deserialize(proof_data.proof.as_slice()).unwrap();
+                if proof.zkm_version != bitvm_graph.parameters.zkm_version {
+                    bail!(
+                        "zkm_version mismatch, expected {}, got {}",
+                        bitvm_graph.parameters.zkm_version,
+                        proof.zkm_version
+                    );
+                }
                 let (_best_btc_block_hash, constant, included_watchtower): (
                     [u8; 32],
                     [u8; 32],

@@ -37,7 +37,7 @@ base64 = "0.21"
 
 serde = { workspace = true, features = ["derive"] }
 
-cosmos-sdk-proto = { version = "0.27", default-features = false, features = ["serde"] }
+#cosmos-sdk-proto = { version = "0.27", default-features = false, features = ["serde"] }
 tendermint = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = ["secp256k1"] }
 tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tendermint-rs", branch = "patch-0.40.3", default-features = false, features = [
   "rust-crypto",

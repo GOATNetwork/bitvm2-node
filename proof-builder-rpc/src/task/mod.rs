@@ -876,10 +876,8 @@ pub(crate) fn current_time_secs() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::str::FromStr;
-
-    use super::add_operator_task;
-    use super::add_watchtower_task;
     use store::create_local_db;
     use uuid::Uuid;
 
@@ -892,8 +890,6 @@ mod tests {
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let public_key =
             "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651".to_string();
-        let challenge_txid =
-            "3b155884a7f6dd65836045779c6cb5e0ebe11d4630f825fb45682b8cef1c79f0".to_string();
         let challenge_init_txid =
             "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
         let number = 9511055;
@@ -902,7 +898,6 @@ mod tests {
             instance_id,
             graph_id,
             public_key,
-            challenge_txid,
             challenge_init_txid,
             number,
         )
@@ -928,6 +923,10 @@ mod tests {
 
         let watchtower_challenge_init_txid =
             "7f7b4344adb1b8937ddb7124e4f8bba80ee9adf5e8119de76ca8736816bda246".to_string();
+        let watchtower_challenge_pubkeys = vec![
+            "0272efe7ccae21d2541ad85d4f2961f2e5593c29dc8bc37bf87035fc2d5527a651".to_string(),
+            "03a34f3558f2b2f2e6c3d3f4e5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f".to_string(),
+        ];
 
         let included_watchtowers = vec![true, false];
         add_operator_task(
@@ -939,7 +938,7 @@ mod tests {
             watchtower_challenge_txids,
             included_watchtowers,
             watchtower_challenge_init_txid,
-            vec![],
+            watchtower_challenge_pubkeys,
         )
         .await
         .unwrap();
