@@ -9,7 +9,7 @@ ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
 anyhow.workspace = true
 bincode.workspace = true
-chrono.workspace = true
+#chrono.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -19,7 +19,7 @@ clap = { workspace = true, features = ["derive", "env"] }
 dotenv = { workspace = true } 
 futures-util = {  workspace = true }
 sha2 = { workspace = true }
-lazy_static = { workspace = true } 
+#lazy_static = { workspace = true } 
 rand = { workspace = true }
 borsh = { workspace = true }
 

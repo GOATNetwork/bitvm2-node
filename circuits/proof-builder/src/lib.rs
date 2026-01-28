@@ -216,7 +216,7 @@ impl ProofData {
             | ProofType::StateChain
             | ProofType::Watchtower
             | ProofType::Operator => {
-                proof_data.proof = fs::read(format!("{path}")).unwrap_or_default();
+                proof_data.proof = fs::read(path).unwrap_or_default();
                 proof_data.public_inputs =
                     fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
                 proof_data.vk =

@@ -28,8 +28,8 @@ revm-database-interface = { workspace = true, features = ["serde"]}
 sha2 = "0.10.9"
 hex = "0.4.3"
 
-prost = { version = "0.13", features = ["prost-derive"], default-features = false }
-prost-derive = { version = "0.13", default-features = true }
+#prost = { version = "0.13", features = ["prost-derive"], default-features = false }
+#prost-derive = { version = "0.13", default-features = true }
 base64 = "0.21"
 
 serde = { workspace = true, features = ["derive"] }
