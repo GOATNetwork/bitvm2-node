@@ -47,6 +47,8 @@ jobs:
           profile: minimal
           toolchain: nightly-2025-12-11
           override: true
+      - name: Install Ziren toolchain
+        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
       - name: Install Dependencies
         run: sudo apt update && sudo apt install protobuf-compiler
       - run: rustup component add clippy
@@ -65,4 +67,7 @@ jobs:
       - name: Launch the Regtest
         run: cd scripts && docker compose up -d
       - name: Run all unit tests
-        run: BITCOIN_NETWORK=regtest cargo test -r --features tests --all --all-targets
+        run:  |
+          set -e
+          source ~/.zkm-toolchain/env 
+          BITCOIN_NETWORK=regtest cargo test -r --all --all-targets
