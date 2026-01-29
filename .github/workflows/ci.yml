@@ -47,8 +47,6 @@ jobs:
           profile: minimal
           toolchain: nightly-2025-12-11
           override: true
-      - name: Install Ziren toolchain
-        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
       - name: Install Dependencies
         run: sudo apt update && sudo apt install protobuf-compiler
       - run: rustup component add clippy
@@ -62,6 +60,8 @@ jobs:
           - nightly-2025-12-11
     steps:
       - uses: actions/checkout@v5
+      - name: Install Ziren toolchain
+        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
       - name: Install Dependencies
         run: sudo apt update && sudo apt install protobuf-compiler
       - name: Launch the Regtest
