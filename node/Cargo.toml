@@ -111,6 +111,3 @@ client = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 commit-chain = { workspace = true }
 cbft-rpc = { workspace = true }
-[features]
-default = []
-tests = []
