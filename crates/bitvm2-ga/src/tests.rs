@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 #[cfg(test)]
+#[cfg(feature = "ci-tests")]
 mod tests {
     use crate::{challenger::*, committee::*, keys::*, operator::*, types::*, watchtower::*};
     use bitcoin::{
@@ -746,8 +747,9 @@ mod tests {
 
     async fn merge_bank_utxo(esplora: &EsploraClient) {
         // get_address_utxo may fail if there are too many UTXOs (e.g. 500), so we merge them before its too late
-        println!("merging bank UTXOs");
+        println!("merging bank UTXOs, network: {}", network());
         let bank_address = node_p2wsh_address(network(), &bank_keypair().public_key().into());
+        println!("bank_address: {bank_address}");
         let utxos = esplora.get_address_utxo(bank_address.clone()).await.unwrap();
         if utxos.len() < 300 {
             println!("bank UTXOs are not too many {}, no need to merge", utxos.len());

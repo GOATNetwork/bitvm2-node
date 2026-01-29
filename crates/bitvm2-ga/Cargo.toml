@@ -33,3 +33,7 @@ esplora-client = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 bitcoincore-rpc = "0.19"
 bitcoin-old = { version = "0.31.2", package = "bitcoin" }
+
+[features]
+default = []
+ci-tests = []
