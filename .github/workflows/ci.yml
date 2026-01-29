@@ -70,4 +70,4 @@ jobs:
         run:  |
           set -e
           source ~/.zkm-toolchain/env 
-          BITCOIN_NETWORK=regtest cargo test -r --all --all-targets
+          cargo test -r --all --all-targets
