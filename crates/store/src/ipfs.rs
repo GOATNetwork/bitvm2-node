@@ -127,6 +127,7 @@ pub mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "IPFS deprecated"]
     async fn test_ipfs_add_and_get() {
         println!("connecting to localhost:5001...");
         let client = IPFS::new("http://44.229.236.82:5001");
