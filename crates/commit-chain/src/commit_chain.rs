@@ -111,7 +111,12 @@ impl CommitChainState {
     pub fn new(genesis_txid: [u8; 32]) -> Self {
         CommitChainState {
             block_height: u32::MAX,
-            commit_txn: Transaction { version: Version::TWO, lock_time: LockTime::ZERO, input: vec![], output: vec![] },
+            commit_txn: Transaction {
+                version: Version::TWO,
+                lock_time: LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            },
             genesis_txid,
             sequencers: Vec::new(),
             publisher_public_keys: vec![],
@@ -244,24 +249,27 @@ mod tests {
 
     #[test]
     fn test_apply_commit() {
-        let commit_info: Vec<CircuitCommit> = serde_json::from_slice(
-            include_bytes!("../../../circuits/data/commit-chain/0-1.bin.commits")
-        ).unwrap(); 
+        let commit_info: Vec<CircuitCommit> = serde_json::from_slice(include_bytes!(
+            "../../../circuits/data/commit-chain/0-1.bin.commits"
+        ))
+        .unwrap();
 
-        let mut chain_state = CommitChainState::new(
-            commit_info[0].genesis_txid
-        );
-        chain_state.apply_commit(commit_info.clone()); 
+        let mut chain_state = CommitChainState::new(commit_info[0].genesis_txid);
+        chain_state.apply_commit(commit_info.clone());
         assert_eq!(commit_info[0].genesis_txid, chain_state.genesis_txid);
         assert_eq!(commit_info[0].sequencers.clone(), chain_state.sequencers.clone());
         assert_eq!(commit_info[0].commit_txn.compute_txid(), chain_state.commit_txn.compute_txid());
 
-        let commit_info2: Vec<CircuitCommit> = serde_json::from_slice(
-            include_bytes!("../../../circuits/data/commit-chain/1-1.bin.commits")
-        ).unwrap();
+        let commit_info2: Vec<CircuitCommit> = serde_json::from_slice(include_bytes!(
+            "../../../circuits/data/commit-chain/1-1.bin.commits"
+        ))
+        .unwrap();
         chain_state.apply_commit(commit_info2.clone());
         assert_eq!(commit_info[0].genesis_txid, chain_state.genesis_txid);
         assert_eq!(commit_info2[0].sequencers.clone(), chain_state.sequencers.clone());
-        assert_eq!(commit_info2[0].commit_txn.compute_txid(), chain_state.commit_txn.compute_txid());
+        assert_eq!(
+            commit_info2[0].commit_txn.compute_txid(),
+            chain_state.commit_txn.compute_txid()
+        );
     }
 }
