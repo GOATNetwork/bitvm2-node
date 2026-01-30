@@ -145,9 +145,9 @@ Generate the proof:
 RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --init-input --output-proof "data/commit-chain/0-1.bin" --commit-info ./data/commit-chain/commit_info.json.0 --commits data/commit-chain/0-1.bin.commits
 
 # Regular proof
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/0-1.bin" --output-proof "data/commit-chain/1-1.bin" --commit-info ./data/commit-chain/commit_info.json.1 --commits data/commit-chain/commits.bin.1
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/0-1.bin" --output-proof "data/commit-chain/1-1.bin" --commit-info ./data/commit-chain/commit_info.json.1 --commits data/commit-chain/1-1.bin.commits
 
-RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/1-1.bin" --output-proof "data/commit-chain/2-1.bin" --commit-info ./data/commit-chain/commit_info.json.2 --commits data/commit-chain/commits.bin.2
+RUST_LOG=info cargo run --package commit-chain-proof --bin commit-chain-proof -r -- --input-proof "data/commit-chain/1-1.bin" --output-proof "data/commit-chain/2-1.bin" --commit-info ./data/commit-chain/commit_info.json.2 --commits data/commit-chain/2-1.bin.commits
 ```
 
 ## State Chain

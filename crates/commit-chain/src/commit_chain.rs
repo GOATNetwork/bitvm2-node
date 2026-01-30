@@ -1,3 +1,5 @@
+use bitcoin::absolute::LockTime;
+use bitcoin::transaction::Version;
 use serde::{Deserialize, Serialize};
 use tendermint::validator::{Info, ProposerPriority};
 use tendermint::{PublicKey as TPublicKey, account};
@@ -16,15 +18,6 @@ pub struct CommitInfo {
     pub txid: String,
     pub genesis_txid: String,
     pub sequencers: Vec<SequencerInfo>,
-}
-
-pub(crate) fn build_dummy_tx() -> Transaction {
-    Transaction {
-        version: bitcoin::transaction::Version::TWO,
-        lock_time: bitcoin::absolute::LockTime::ZERO,
-        input: vec![],
-        output: vec![],
-    }
 }
 
 /// The input proof of the commit chain circuit.
@@ -115,10 +108,10 @@ pub fn sequencer_hash(sequencers: &[SequencerInfo]) -> Hash {
 }
 
 impl CommitChainState {
-    pub fn new(genesis_txid: [u8; 32], commit_txn: Transaction) -> Self {
+    pub fn new(genesis_txid: [u8; 32]) -> Self {
         CommitChainState {
             block_height: u32::MAX,
-            commit_txn,
+            commit_txn: Transaction { version: Version::TWO, lock_time: LockTime::ZERO, input: vec![], output: vec![] },
             genesis_txid,
             sequencers: Vec::new(),
             publisher_public_keys: vec![],
@@ -127,29 +120,13 @@ impl CommitChainState {
     }
 
     pub fn apply_commit(&mut self, commits: Vec<CircuitCommit>) {
-        let mut prev_sequencers = &self.sequencers;
-        let mut prev_commit_txn = self.commit_txn.clone();
-        let mut prev_publisher_public_keys: Vec<PublicKey> = vec![];
-        let mut prev_threshold: u16 = u16::MAX;
-        let mut commit_block_height: u32 = self.block_height;
         for commit in &commits {
-            let latest_commit_txn_with_wtns = &commit.commit_txn;
+            let mut latest_commit_txn_with_wtns = commit.commit_txn.clone();
             let latest_sequencers = &commit.sequencers;
             let publisher_public_keys = &commit.publisher_public_keys;
             let threshold = commit.threshold;
 
             assert_eq!(commit.genesis_txid, self.genesis_txid);
-
-            let prev_commit_txid = prev_commit_txn.compute_txid();
-            // calculate the commitment of prev sequencer set and check the equivalent
-            if !prev_sequencers.is_empty() {
-                let expected_prev_commit = extract_op_return_data(&prev_commit_txn.output);
-                if let Hash::Sha256(prev_sequencer_set_hash) = sequencer_hash(prev_sequencers) {
-                    assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit[0..32]);
-                } else {
-                    panic!("Invalid prev sequencer set hash");
-                }
-            }
 
             // calculate the commitment of latest sequencer set and check the equivalent
             let expected_latest_commit =
@@ -161,18 +138,28 @@ impl CommitChainState {
             }
 
             // check the latest txn's prev out is equals to the output of prev_txn
-            let update_connector = &latest_commit_txn_with_wtns.input[0];
-            if !prev_sequencers.is_empty() {
+            let prev_commit_txn_value = &self.commit_txn;
+            if !self.sequencers.is_empty() {
+                // calculate the commitment of prev sequencer set and check the equivalent
+                let expected_prev_commit = extract_op_return_data(&prev_commit_txn_value.output);
+                if let Hash::Sha256(prev_sequencer_set_hash) = sequencer_hash(&self.sequencers) {
+                    assert_eq!(prev_sequencer_set_hash[..], expected_prev_commit[0..32]);
+                } else {
+                    panic!("Invalid prev sequencer set hash");
+                }
+
+                let update_connector = &latest_commit_txn_with_wtns.input[0];
+                let prev_commit_txid = prev_commit_txn_value.compute_txid();
                 assert_eq!(update_connector.previous_output.txid, prev_commit_txid);
                 assert_eq!(update_connector.previous_output.vout, 0);
                 // check the latest publishing txn's signature is signed by prev publishers
-                let prevout = &prev_commit_txn.output[0];
+                let prevout = &prev_commit_txn_value.output[0];
                 let redeem_script = crate::create_sequencer_update_script(
                     &publisher_public_keys[..],
                     threshold as usize,
                 );
                 crate::publisher::verify_p2wsh_multisig_witness(
-                    latest_commit_txn_with_wtns,
+                    &latest_commit_txn_with_wtns,
                     0,
                     prevout,
                     &redeem_script,
@@ -181,23 +168,18 @@ impl CommitChainState {
                 )
                 .unwrap();
             }
-            prev_sequencers = latest_sequencers;
 
             // remove witness
-            prev_commit_txn = latest_commit_txn_with_wtns.clone();
-            prev_commit_txn.input.iter_mut().for_each(|input| {
+            latest_commit_txn_with_wtns.input.iter_mut().for_each(|input| {
                 input.witness = Witness::new();
             });
 
-            prev_publisher_public_keys = publisher_public_keys.clone();
-            prev_threshold = threshold;
-            commit_block_height = commit.block_height;
+            self.sequencers = latest_sequencers.clone();
+            self.commit_txn = latest_commit_txn_with_wtns.clone();
+            self.publisher_public_keys = publisher_public_keys.clone();
+            self.threshold = threshold;
+            self.block_height = commit.block_height;
         }
-        self.sequencers = prev_sequencers.clone();
-        self.commit_txn = prev_commit_txn;
-        self.publisher_public_keys = prev_publisher_public_keys;
-        self.threshold = prev_threshold;
-        self.block_height = commit_block_height;
     }
 }
 
@@ -258,5 +240,28 @@ mod tests {
 
         let op_return_data = extract_op_return_data(&tx.output);
         assert_eq!(expected_op_data.to_vec(), op_return_data);
+    }
+
+    #[test]
+    fn test_apply_commit() {
+        let commit_info: Vec<CircuitCommit> = serde_json::from_slice(
+            include_bytes!("../../../circuits/data/commit-chain/0-1.bin.commits")
+        ).unwrap(); 
+
+        let mut chain_state = CommitChainState::new(
+            commit_info[0].genesis_txid
+        );
+        chain_state.apply_commit(commit_info.clone()); 
+        assert_eq!(commit_info[0].genesis_txid, chain_state.genesis_txid);
+        assert_eq!(commit_info[0].sequencers.clone(), chain_state.sequencers.clone());
+        assert_eq!(commit_info[0].commit_txn.compute_txid(), chain_state.commit_txn.compute_txid());
+
+        let commit_info2: Vec<CircuitCommit> = serde_json::from_slice(
+            include_bytes!("../../../circuits/data/commit-chain/1-1.bin.commits")
+        ).unwrap();
+        chain_state.apply_commit(commit_info2.clone());
+        assert_eq!(commit_info[0].genesis_txid, chain_state.genesis_txid);
+        assert_eq!(commit_info2[0].sequencers.clone(), chain_state.sequencers.clone());
+        assert_eq!(commit_info2[0].commit_txn.compute_txid(), chain_state.commit_txn.compute_txid());
     }
 }

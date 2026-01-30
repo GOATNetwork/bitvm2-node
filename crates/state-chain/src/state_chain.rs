@@ -68,13 +68,12 @@ impl StateChainState {
         }
     }
 
-    pub fn apply_block(&mut self, blocks: Vec<CircuitStateBlock>) {
+    pub fn apply_blocks(&mut self, blocks: Vec<CircuitStateBlock>) {
         for block in blocks {
             // check evm state transition
             let evm_header =
                 execute_el_block_and_check_withdraw_tx(&block.withdrawals, block.evm_block.clone());
             assert_eq!(evm_header.number, block.evm_block.current_block.number);
-            println!("[apply_block] block_height: {}", self.evm_block_height);
             assert_eq!(evm_header.number, self.evm_block_height);
             let current_block_hash: [u8; 32] = evm_header.hash_slow().into();
             // check the evm block is committed in the consensus txns

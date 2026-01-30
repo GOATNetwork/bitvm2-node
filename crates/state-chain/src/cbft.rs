@@ -53,7 +53,6 @@ fn compute_merkle_root(items: &[[u8; 32]]) -> [u8; 32] {
 
 fn merkle_root_from_base64_txns(txns_b64: &[Vec<u8>]) -> [u8; 32] {
     let tx_hashes: Vec<[u8; 32]> = txns_b64.iter().map(|s| Sha256::digest(s).into()).collect();
-
     compute_merkle_root(&tx_hashes)
 }
 
