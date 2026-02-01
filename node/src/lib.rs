@@ -1,5 +1,6 @@
 pub mod action;
 pub mod env;
+pub mod handle;
 pub mod metrics_service;
 pub mod middleware;
 pub mod p2p_msg_handler;
