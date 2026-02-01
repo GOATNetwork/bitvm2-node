@@ -674,6 +674,7 @@ async fn refresh_graph_status(
     Ok(Some(graph))
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_pegin_request_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -682,7 +683,6 @@ async fn handle_pegin_request_committee(
     pegin_timestamp: i64,
 ) -> Result<()> {
     // triggered by BridgeInRequest event
-    tracing::info!("Handle PeginRequest for {instance_id}");
     // 1. read & check the pegin request data
     let (user_info, pegin_amount) =
         match read_pegin_request(ctx.btc_client, ctx.goat_client, instance_id).await {
@@ -718,6 +718,7 @@ async fn handle_pegin_request_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_pegin_request_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -726,7 +727,6 @@ async fn handle_pegin_request_default(
     pegin_timestamp: i64,
 ) -> Result<()> {
     // triggered by BridgeInRequest event
-    tracing::info!("Handle PeginRequest for {instance_id}");
     // 1. read & check the pegin request data
     let (user_info, pegin_amount) =
         match read_pegin_request(ctx.btc_client, ctx.goat_client, instance_id).await {
@@ -755,12 +755,12 @@ async fn handle_pegin_request_default(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_confirm_instance_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
 ) -> Result<()> {
     // triggered by PeginDeposit tx
-    tracing::info!("Handle ConfirmInstance for {instance_id}");
     // 0. check if graph already created
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
@@ -839,12 +839,12 @@ async fn handle_confirm_instance_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_confirm_instance_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
 ) -> Result<()> {
     // triggered by PeginDeposit tx
-    tracing::info!("Handle ConfirmInstance for {instance_id}");
     // 1. read & check parameters
     let instance_params = match read_instance_info_from_goat(ctx.goat_client, instance_id).await {
         Ok(v) => v,
@@ -867,6 +867,7 @@ async fn handle_confirm_instance_default(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_create_graph_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -874,7 +875,6 @@ async fn handle_create_graph_committee(
     graph: &SimplifiedBitvm2Graph,
 ) -> Result<()> {
     // received from Operator
-    tracing::info!("Handle CreateGraph for {instance_id}:{graph_id}");
     // 1. check graph data & operator stake
     if let Err(e) =
         todo_funcs::validate_init_graph(ctx.local_db, ctx.btc_client, ctx.goat_client, graph).await
@@ -957,6 +957,7 @@ async fn handle_create_graph_committee(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_nonce_generation_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -969,10 +970,6 @@ async fn handle_nonce_generation_committee(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // received from Committee members
-    tracing::info!(
-        "Handle NonceGeneration for {instance_id}:{graph_id} from {}",
-        received_committee_pubkey.to_string()
-    );
     if !ensure_self_or_valid_committee(
         ctx,
         instance_id,
@@ -1098,6 +1095,7 @@ async fn handle_nonce_generation_committee(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_nonce_generation_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1109,10 +1107,6 @@ async fn handle_nonce_generation_operator(
     nonce_sigs: &CommitteeNonceSignatures,
 ) -> Result<()> {
     // received from Committee members
-    tracing::info!(
-        "Handle NonceGeneration for {instance_id}:{graph_id} from {}",
-        received_committee_pubkey.to_string()
-    );
     if !ensure_self_or_valid_committee(
         ctx,
         instance_id,
@@ -1184,6 +1178,7 @@ async fn handle_nonce_generation_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_committee_presign_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1194,10 +1189,6 @@ async fn handle_committee_presign_committee(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // received from Committee members
-    tracing::info!(
-        "Handle CommitteePresign for {instance_id}:{graph_id} from {}",
-        received_committee_pubkey.to_string()
-    );
     if !ensure_self_or_valid_committee(
         ctx,
         instance_id,
@@ -1262,6 +1253,7 @@ async fn handle_committee_presign_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_committee_presign_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1271,10 +1263,6 @@ async fn handle_committee_presign_operator(
     _agg_nonces: &CommitteeAggNonces,
 ) -> Result<()> {
     // received from Committee members
-    tracing::info!(
-        "Handle CommitteePresign for {instance_id}:{graph_id} from {}",
-        received_committee_pubkey.to_string()
-    );
     if !ensure_self_or_valid_committee(
         ctx,
         instance_id,
@@ -1304,6 +1292,7 @@ async fn handle_committee_presign_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_endorse_graph_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1313,10 +1302,6 @@ async fn handle_endorse_graph_operator(
     committee_evm_address: &alloy::primitives::Address,
 ) -> Result<()> {
     // received from Committee members
-    tracing::info!(
-        "Handle EndorseGraph for {instance_id}:{graph_id} from {}",
-        received_committee_pubkey.to_string()
-    );
     if !ensure_self_or_valid_committee_with_evm(
         ctx,
         instance_id,
@@ -1381,6 +1366,7 @@ async fn handle_endorse_graph_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_graph_finalize_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1389,10 +1375,6 @@ async fn handle_graph_finalize_committee(
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
     // received from Operator
-    tracing::info!(
-        "Handle GraphFinalize for {instance_id}:{graph_id} from {}",
-        ctx.from_peer_id.to_string()
-    );
     // 1. check graph data & ipfs cid
     if let Err(e) = todo_funcs::validate_finalized_graph(ctx.goat_client, graph, endorse_sigs).await
     {
@@ -1472,6 +1454,7 @@ async fn handle_graph_finalize_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_graph_finalize_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1480,10 +1463,6 @@ async fn handle_graph_finalize_default(
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
     // received from Operator
-    tracing::info!(
-        "Handle GraphFinalize for {instance_id}:{graph_id} from {}",
-        ctx.from_peer_id.to_string()
-    );
     // 1. check graph data & ipfs cid
     if let Err(e) = todo_funcs::validate_finalized_graph(ctx.goat_client, graph, endorse_sigs).await
     {
@@ -1503,6 +1482,7 @@ async fn handle_graph_finalize_default(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_pegin_confirm_nonce_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1511,10 +1491,6 @@ async fn handle_pegin_confirm_nonce_committee(
     nonce_sig: &secp256k1::schnorr::Signature,
 ) -> Result<()> {
     // received from Committee members
-    tracing::info!(
-        "Handle PeginConfirmNonce for {instance_id} from {}",
-        received_committee_pubkey.to_string()
-    );
     if !ensure_self_or_valid_committee(
         ctx,
         instance_id,
@@ -1614,6 +1590,7 @@ async fn handle_pegin_confirm_nonce_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_pegin_confirm_partial_sig_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1622,10 +1599,6 @@ async fn handle_pegin_confirm_partial_sig_committee(
     endorse_sig: &[u8],
 ) -> Result<()> {
     // received from Committee members
-    tracing::info!(
-        "Handle PeginConfirmPartialSig for {instance_id} from {}",
-        received_committee_pubkey.to_string()
-    );
     if !ensure_self_or_valid_committee(
         ctx,
         instance_id,
@@ -1689,12 +1662,12 @@ async fn handle_pegin_confirm_partial_sig_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> Result<()> {
     // triggered by PeginConfirm tx
     if !is_relayer() {
         return Ok(());
     }
-    tracing::info!("Handle PostReady for {instance_id}");
     // 1. (Relayer)call Gateway.postPeginData on GoatChain
     let committee_pubkeys = ctx.goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
     let pegin_data = ctx.goat_client.gateway_get_pegin_data(&instance_id).await?;
@@ -1803,6 +1776,7 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_kickoff_ready_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1810,7 +1784,6 @@ async fn handle_kickoff_ready_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by InitWithdraw event from GoatChain
-    tracing::info!("Handle KickoffReady for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -1935,6 +1908,7 @@ async fn handle_kickoff_ready_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_kickoff_sent_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -1943,7 +1917,6 @@ async fn handle_kickoff_sent_committee(
 ) -> Result<()> {
     // triggered by Kickoff tx
     // 1. update status
-    tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
     let graph =
         match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::OperatorKickOff)
             .await?
@@ -2001,6 +1974,7 @@ async fn handle_kickoff_sent_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_kickoff_sent_challenger(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2008,7 +1982,6 @@ async fn handle_kickoff_sent_challenger(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by Kickoff tx
-    tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match refresh_graph_status(
         ctx,
@@ -2079,6 +2052,7 @@ async fn handle_kickoff_sent_challenger(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_kickoff_sent_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2086,7 +2060,6 @@ async fn handle_kickoff_sent_default(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by Kickoff tx
-    tracing::info!("Handle KickoffSent for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let _graph = refresh_graph_status(
         ctx,
@@ -2099,6 +2072,7 @@ async fn handle_kickoff_sent_default(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_prekickoff_sent_challenger(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2106,7 +2080,6 @@ async fn handle_prekickoff_sent_challenger(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by PreKickoff tx
-    tracing::info!("Handle PreKickoffSent for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match refresh_graph_status(
         ctx,
@@ -2176,18 +2149,19 @@ async fn handle_prekickoff_sent_challenger(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_prekickoff_sent_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     // triggered by PreKickoff tx
-    tracing::info!("Handle PreKickoffSent for {instance_id}:{graph_id}");
     let _graph =
         refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::PreKickoff).await?;
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_challenge_sent_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2196,7 +2170,6 @@ async fn handle_challenge_sent_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by Challenge tx
-    tracing::info!("Handle ChallengeSent for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let mut graph = match refresh_graph_status(
         ctx,
@@ -2256,18 +2229,19 @@ async fn handle_challenge_sent_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_challenge_sent_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     // triggered by Challenge tx
-    tracing::info!("Handle ChallengeSent for {instance_id}:{graph_id}");
     let _graph =
         refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::Challenge).await?;
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_watchtower_challenge_init_sent_watchtower(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2275,7 +2249,6 @@ async fn handle_watchtower_challenge_init_sent_watchtower(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by WatchtowerChallengeInit tx
-    tracing::info!("Handle WatchtowerChallengeInitSent for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -2372,6 +2345,7 @@ async fn handle_watchtower_challenge_init_sent_watchtower(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_watchtower_challenge_sent_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2380,10 +2354,6 @@ async fn handle_watchtower_challenge_sent_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by WatchtowerChallenge tx
-    tracing::info!(
-        "Handle WatchtowerChallengeSent for {instance_id}:{graph_id}, included watchtower indexes: {:?}",
-        watchtower_challenge_txids.iter().map(|(index, _)| index).collect::<Vec<_>>()
-    );
     let message = make_message(ctx, content);
     // 1. check the watchtower-challenge tx status on Bitcoin chain, if watchtower challenge tx is confirmed, sign & broadcast operator-ack txn
     let graph = match get_graph_or_defer(
@@ -2443,6 +2413,7 @@ async fn handle_watchtower_challenge_sent_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_watchtower_challenge_timeout_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2451,10 +2422,6 @@ async fn handle_watchtower_challenge_timeout_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!(
-        "Handle WatchtowerChallengeTimeout for {instance_id}:{graph_id}, watchtower indexes: {:?}",
-        watchtower_indexes
-    );
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -2547,6 +2514,7 @@ async fn handle_watchtower_challenge_timeout_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_operator_ack_timeout_challenger(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2554,7 +2522,6 @@ async fn handle_operator_ack_timeout_challenger(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!("Handle OperatorAckTimeout for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -2640,6 +2607,7 @@ async fn handle_operator_ack_timeout_challenger(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_operator_commit_blockhash_ready_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2647,7 +2615,6 @@ async fn handle_operator_commit_blockhash_ready_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!("Handle OperatorCommitBlockHashReady for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -2706,6 +2673,7 @@ async fn handle_operator_commit_blockhash_ready_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_operator_commit_blockhash_timeout_challenger(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2713,7 +2681,6 @@ async fn handle_operator_commit_blockhash_timeout_challenger(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!("Handle OperatorCommitBlockHashTimeout for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -2794,6 +2761,7 @@ async fn handle_operator_commit_blockhash_timeout_challenger(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_assert_init_ready_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2801,7 +2769,6 @@ async fn handle_assert_init_ready_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!("Handle AssertInitReady for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -2921,6 +2888,7 @@ async fn handle_assert_init_ready_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_assert_commit_timeout_challenger(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -2928,7 +2896,6 @@ async fn handle_assert_commit_timeout_challenger(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!("Handle AssertCommitTimeout for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -3020,6 +2987,7 @@ async fn handle_assert_commit_timeout_challenger(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_disprove_ready_challenger(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -3027,7 +2995,6 @@ async fn handle_disprove_ready_challenger(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by AssertCommit tx or OperatorCommitBlockHash tx
-    tracing::info!("Handle DisproveReady for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -3155,6 +3122,7 @@ async fn handle_disprove_ready_challenger(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_disprove_sent_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -3165,7 +3133,6 @@ async fn handle_disprove_sent_committee(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by Disprove tx
-    tracing::info!("Handle DisproveSent for {instance_id}:{graph_id}");
     // 1. update graph status
     let message = make_message(ctx, content);
     let graph = match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::Disprove)
@@ -3324,18 +3291,19 @@ async fn handle_disprove_sent_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_disprove_sent_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     // triggered by Disprove tx
-    tracing::info!("Handle DisproveSent for {instance_id}:{graph_id}");
     let _graph =
         refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::Disprove).await?;
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_take1_ready_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -3343,7 +3311,6 @@ async fn handle_take1_ready_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!("Handle Take1Ready for {instance_id}:{graph_id}");
     let message = make_message(ctx, content);
     let graph = match get_graph_or_defer(
         ctx.swarm,
@@ -3401,6 +3368,7 @@ async fn handle_take1_ready_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_take1_sent_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -3408,7 +3376,6 @@ async fn handle_take1_sent_committee(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by Take1 tx
-    tracing::info!("Handle Take1Sent for {instance_id}:{graph_id}");
     // 1. update graph status
     let message = make_message(ctx, content);
     let graph =
@@ -3478,26 +3445,26 @@ async fn handle_take1_sent_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_take1_sent_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     // triggered by Take1 tx
-    tracing::info!("Handle Take1Sent for {instance_id}:{graph_id}");
     // 1. update graph status
     let _graph =
         refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::OperatorTake1).await?;
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_take2_ready_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     // triggered by timeout task
-    tracing::info!("Handle Take2Ready for {instance_id}:{graph_id}");
     let graph = get_graph(ctx.local_db, instance_id, graph_id)
         .await?
         .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
@@ -3579,6 +3546,7 @@ async fn handle_take2_ready_operator(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_take2_sent_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -3586,7 +3554,6 @@ async fn handle_take2_sent_committee(
     content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by Take2 tx
-    tracing::info!("Handle Take2Sent for {instance_id}:{graph_id}");
     // 1. update graph status
     let message = make_message(ctx, content);
     let graph =
@@ -3656,19 +3623,20 @@ async fn handle_take2_sent_committee(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_take2_sent_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     // triggered by Take2 tx
-    tracing::info!("Handle Take2Sent for {instance_id}:{graph_id}");
     // 1. update graph status
     let _graph =
         refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::OperatorTake2).await?;
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_sync_graph_request(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -3680,7 +3648,6 @@ async fn handle_sync_graph_request(
         tracing::warn!("Ignore SyncGraphRequest for {instance_id}:{graph_id}: not a relayer node");
         return Ok(());
     }
-    tracing::info!("Handle SyncGraphRequest for {instance_id}:{graph_id}");
     if let Some(graph) = get_graph(ctx.local_db, instance_id, graph_id).await? {
         let message_content =
             GOATMessageContent::SyncGraph(SyncGraph { instance_id, graph_id, graph });
@@ -3693,6 +3660,7 @@ async fn handle_sync_graph_request(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_sync_graph(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
@@ -3711,7 +3679,6 @@ async fn handle_sync_graph(
             "Failed to validate graph_id on GoatChain for SyncGraph {instance_id}:{graph_id}: {e}"
         )
     })?;
-    tracing::info!("Handle SyncGraph for {instance_id}:{graph_id}");
     store_graph(ctx.local_db, graph).await?;
     let graph = Bitvm2Graph::from_simplified(graph)?;
     refresh_and_compensate(
