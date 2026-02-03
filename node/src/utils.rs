@@ -59,7 +59,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::ipfs::IPFS;
 use store::localdb::{
     GraphQuery, GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor,
 };
@@ -127,9 +126,6 @@ pub mod todo_funcs {
     pub fn min_required_watchtower() -> usize {
         // todo!("get min required watchtower number")
         1
-    }
-    pub async fn publish_graph_to_ipfs(ipfs: &IPFS, graph: &Bitvm2Graph) -> Result<String> {
-        todo!("publish graph to ipfs")
     }
     pub async fn validate_init_graph(
         local_db: &LocalDB,
@@ -3281,14 +3277,6 @@ pub async fn get_bitvm2_graph_from_db(
     Err(anyhow!("graph:{graph_id} not found"))
 }
 
-pub async fn publish_graph_to_ipfs(
-    _ipfs: &IPFS,
-    _graph_id: Uuid,
-    _graph: &Bitvm2Graph,
-) -> Result<String> {
-    todo!("publish_graph_to_ipfs")
-}
-
 pub async fn get_graph_status(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -3770,7 +3758,6 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvm2Grap
         kickoff_index: graph_nonce as i64,
         from_addr: "".to_string(),
         to_addr: "".to_string(),
-        graph_ipfs_base_url: "".to_string(),
         amount: bitvm2_graph.parameters.instance_parameters.pegin_amount.to_sat() as i64,
         challenge_amount: bitvm2_graph.parameters.challenge_amount.to_sat() as i64,
         status,

@@ -22,7 +22,6 @@ use musig2::{PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
 use store::MessageState;
-use store::ipfs::IPFS;
 use store::localdb::LocalDB;
 use tracing::warn;
 use uuid::Uuid;
@@ -307,7 +306,6 @@ pub async fn handle_self_p2p_msg(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     http_client: &HttpAsyncClient,
-    ipfs: &IPFS,
     actor: Actor,
     from_peer_id: PeerId,
     id: MessageId,
@@ -334,7 +332,6 @@ pub async fn handle_self_p2p_msg(
             btc_client,
             goat_client,
             http_client,
-            ipfs,
             actor.clone(),
             from_peer_id,
             id.clone(),
@@ -383,7 +380,6 @@ pub async fn recv_and_dispatch(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     http_client: &HttpAsyncClient,
-    ipfs: &IPFS,
     actor: Actor,
     from_peer_id: PeerId,
     id: MessageId,
@@ -401,7 +397,6 @@ pub async fn recv_and_dispatch(
         btc_client,
         goat_client,
         http_client,
-        ipfs,
         actor,
         from_peer_id,
         id,

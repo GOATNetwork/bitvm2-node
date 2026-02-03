@@ -595,9 +595,6 @@ impl GraphUpdate {
         if let Some(ref sub_status) = self.sub_status {
             query_builder.set_field("sub_status", QueryParam::Text(sub_status.clone()));
         }
-        if let Some(ref ipfs_base_url) = self.ipfs_base_url {
-            query_builder.set_field("graph_ipfs_base_url", QueryParam::Text(ipfs_base_url.clone()));
-        }
         if let Some(ref challenge_txid) = self.challenge_txid {
             query_builder.set_field("challenge_txid", QueryParam::BTCTxid(challenge_txid.clone()));
         }
@@ -1113,19 +1110,18 @@ impl<'a> StorageProcessor<'a> {
             serde_json::to_string(&graph.assert_commit_timeout_txids)?;
         let res = sqlx::query!(
             "INSERT OR
-             REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, graph_ipfs_base_url, amount, challenge_amount,
+             REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, amount, challenge_amount,
                     status, sub_status, operator_pubkey, cur_prekickoff_txid, next_prekickoff, force_skip_kickoff_txid,
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, disprove_txid,  watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
                     bridge_out_start_at, zkm_version, status_updated_at, proceed_withdraw_height,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
             graph.from_addr,
             graph.to_addr,
-            graph.graph_ipfs_base_url,
             graph.amount,
             graph.challenge_amount,
             graph.status,
@@ -1210,7 +1206,6 @@ impl<'a> StorageProcessor<'a> {
                     kickoff_index,
                     from_addr,
                     to_addr,
-                    graph_ipfs_base_url,
                     amount,
                     challenge_amount,
                     status,
@@ -2070,53 +2065,6 @@ impl<'a> StorageProcessor<'a> {
             .await?;
 
         Ok(result.rows_affected())
-    }
-
-    pub async fn get_message_broadcast_times(
-        &mut self,
-        graph_id: &Uuid,
-        graph_status: &str,
-        msg_type: &str,
-    ) -> anyhow::Result<(i64, i64)> {
-        let res = sqlx::query!(
-            "SELECT msg_times, updated_at
-             FROM message_broadcast
-             WHERE graph_id = ?
-               AND graph_status = ?
-               AND msg_type = ?",
-            graph_status,
-            graph_id,
-            msg_type
-        )
-        .fetch_optional(self.conn())
-        .await?;
-        match res {
-            Some(row) => Ok((row.msg_times, row.updated_at)),
-            None => Ok((0, 0)),
-        }
-    }
-
-    pub async fn add_message_broadcast_times(
-        &mut self,
-        graph_id: &Uuid,
-        graph_status: &str,
-        msg_type: &str,
-        add_times: i64,
-    ) -> anyhow::Result<()> {
-        let current_time = get_current_timestamp_secs();
-        sqlx::query!(
-            "INSERT INTO message_broadcast (graph_id, graph_status, msg_type, msg_times, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(graph_id, graph_status, msg_type) DO UPDATE SET updated_at = excluded.updated_at,
-                                                           msg_times  = message_broadcast.msg_times + excluded.msg_times",
-            graph_id,
-            graph_status,
-            msg_type,
-            add_times,
-            current_time,
-            current_time,
-        ).execute(self.conn()).await?;
-        Ok(())
     }
 
     pub async fn find_watch_contract(

@@ -192,11 +192,6 @@ pub fn get_peer_id() -> String {
     key_pair.public().to_peer_id().to_string()
 }
 
-pub fn get_ipfs_url() -> String {
-    let default_url: &str = "http://44.229.236.82:5001";
-    std::env::var(ENV_IPFS_ENDPOINT).unwrap_or(default_url.to_string())
-}
-
 pub fn is_relayer() -> bool {
     let enable_relayer = match std::env::var(ENV_ENABLE_RELAYER) {
         Ok(value) => value.to_lowercase() == "true",

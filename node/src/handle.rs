@@ -23,7 +23,6 @@ use goat::transactions::pre_signed_musig2::verify_public_nonce;
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm};
 use store::GraphStatus;
-use store::ipfs::IPFS;
 use store::localdb::LocalDB;
 use uuid::Uuid;
 
@@ -33,7 +32,6 @@ pub struct HandlerContext<'a> {
     pub btc_client: &'a BTCClient,
     pub goat_client: &'a GOATClient,
     pub http_client: &'a HttpAsyncClient,
-    pub ipfs: &'a IPFS,
     pub actor: Actor,
     pub from_peer_id: PeerId,
     pub id: MessageId,
@@ -1162,7 +1160,7 @@ async fn handle_nonce_generation_operator(
         pub_nonces.clone(),
     )
     .await?;
-    // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to IPFS, broadcast GraphFinalize
+    // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local db, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
     try_finalize_graph(
@@ -1284,7 +1282,7 @@ async fn handle_committee_presign_operator(
         committee_partial_sigs.clone(),
     )
     .await?;
-    // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to IPFS, broadcast GraphFinalize
+    // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local database, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
     try_finalize_graph(ctx.swarm, ctx.local_db, ctx.goat_client, instance_id, graph_id, None, true)
@@ -1350,7 +1348,7 @@ async fn handle_endorse_graph_operator(
         committee_sig_for_graph.to_owned(),
     )
     .await?;
-    // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to IPFS, broadcast GraphFinalize
+    // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local database, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
     try_finalize_graph(
@@ -1375,7 +1373,7 @@ async fn handle_graph_finalize_committee(
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
     // received from Operator
-    // 1. check graph data & ipfs cid
+    // 1. check graph data
     if let Err(e) = todo_funcs::validate_finalized_graph(ctx.goat_client, graph, endorse_sigs).await
     {
         if should_ignore_invalid_graph(
@@ -1463,7 +1461,7 @@ async fn handle_graph_finalize_default(
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
     // received from Operator
-    // 1. check graph data & ipfs cid
+    // 1. check graph data
     if let Err(e) = todo_funcs::validate_finalized_graph(ctx.goat_client, graph, endorse_sigs).await
     {
         if should_ignore_invalid_graph(

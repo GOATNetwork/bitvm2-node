@@ -9,7 +9,6 @@ use client::http_client::async_client::HttpAsyncClient;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use libp2p::PeerId;
 use libp2p::gossipsub::MessageId;
-use store::ipfs::IPFS;
 use store::localdb::LocalDB;
 
 pub struct BitvmNodeProcessor {
@@ -17,7 +16,6 @@ pub struct BitvmNodeProcessor {
     pub btc_client: BTCClient,
     pub goat_client: GOATClient,
     pub http_client: HttpAsyncClient,
-    pub ipfs: IPFS,
 }
 impl P2pMessageHandler for BitvmNodeProcessor {
     async fn recv_and_dispatch(
@@ -34,7 +32,6 @@ impl P2pMessageHandler for BitvmNodeProcessor {
             &self.btc_client,
             &self.goat_client,
             &self.http_client,
-            &self.ipfs,
             actor,
             from_peer_id,
             id,
@@ -74,7 +71,6 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                     &self.btc_client,
                     &self.goat_client,
                     &self.http_client,
-                    &self.ipfs,
                     actor,
                     peer_id,
                     GOATMessage::default_message_id(),

@@ -394,7 +394,6 @@ pub struct Graph {
     pub kickoff_index: i64,
     pub from_addr: String,
     pub to_addr: String, //operator_receive_address
-    pub graph_ipfs_base_url: String,
     pub amount: i64,
     pub challenge_amount: i64,
     pub status: String,     // GraphStatus
