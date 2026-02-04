@@ -38,6 +38,9 @@ pub trait ChainAdaptor: Send + Sync {
     async fn gateway_get_withdraw_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<WithdrawData>;
     async fn gateway_get_graph_data(&self, graph_id: &[u8; 16]) -> anyhow::Result<GraphData>;
     async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64>;
+    async fn peg_btc_allowance(&self, owner: &[u8; 20], spender: &[u8; 20])
+    -> anyhow::Result<U256>;
+    async fn peg_btc_approve(&self, spender: &[u8; 20], amount: U256) -> anyhow::Result<String>;
 
     #[allow(clippy::too_many_arguments)]
     async fn gateway_post_pegin_request(

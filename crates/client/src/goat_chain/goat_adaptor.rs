@@ -182,7 +182,9 @@ sol!(
     #[allow(missing_docs)]
     #[sol(rpc)]
     interface IPegBtc{
-       function balanceOf(address account) external view returns (uint256);
+         function balanceOf(address account) external view returns (uint256);
+         function allowance(address owner, address spender) external view returns (uint256);
+         function approve(address spender, uint256 amount) external returns (bool);
     }
 );
 
@@ -1317,6 +1319,29 @@ impl ChainAdaptor for GoatAdaptor {
     async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
         let peg_btc = self.get_peg_btc()?;
         Ok(peg_btc.balanceOf(Address::from_slice(address)).call().await?)
+    }
+
+    async fn peg_btc_allowance(
+        &self,
+        owner: &[u8; 20],
+        spender: &[u8; 20],
+    ) -> anyhow::Result<U256> {
+        let peg_btc = self.get_peg_btc()?;
+        Ok(peg_btc
+            .allowance(Address::from_slice(owner), Address::from_slice(spender))
+            .call()
+            .await?)
+    }
+
+    async fn peg_btc_approve(&self, spender: &[u8; 20], amount: U256) -> anyhow::Result<String> {
+        let peg_btc = self.get_peg_btc()?;
+        let tx_request = peg_btc
+            .approve(Address::from_slice(spender), amount)
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .into_transaction_request();
+        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        Ok(tx_hash.to_string())
     }
 
     async fn ss_update_sequencer_set(

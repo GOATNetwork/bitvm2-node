@@ -415,6 +415,22 @@ impl EvmChain {
         self.adaptor.peg_btc_balance(address).await
     }
 
+    pub async fn peg_btc_allowance(
+        &self,
+        owner: &[u8; 20],
+        spender: &[u8; 20],
+    ) -> anyhow::Result<U256> {
+        self.adaptor.peg_btc_allowance(owner, spender).await
+    }
+
+    pub async fn peg_btc_approve(
+        &self,
+        spender: &[u8; 20],
+        amount: U256,
+    ) -> anyhow::Result<String> {
+        self.adaptor.peg_btc_approve(spender, amount).await
+    }
+
     pub async fn ss_update_sequencer_set(
         &self,
         goat_height: U256,

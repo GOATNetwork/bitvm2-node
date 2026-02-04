@@ -24,6 +24,10 @@ name = "send-rbf"
 path = "src/bin/send_rbf.rs"
 
 [[bin]]
+name = "pegout"
+path = "src/bin/send_pegout.rs"
+
+[[bin]]
 name = "update-db"
 path = "src/bin/db_inject.rs"
 

@@ -458,6 +458,18 @@ impl ChainAdaptor for MockAdaptor {
     async fn peg_btc_balance(&self, _address: &[u8; 20]) -> anyhow::Result<U256> {
         Ok(U256::default())
     }
+
+    async fn peg_btc_allowance(
+        &self,
+        _owner: &[u8; 20],
+        _spender: &[u8; 20],
+    ) -> anyhow::Result<U256> {
+        Ok(U256::from(u128::MAX))
+    }
+
+    async fn peg_btc_approve(&self, _spender: &[u8; 20], _amount: U256) -> anyhow::Result<String> {
+        Ok("0xmock_approve_tx".to_string())
+    }
 }
 
 impl Default for MockAdaptor {
