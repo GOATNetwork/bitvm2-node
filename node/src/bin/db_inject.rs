@@ -1,3 +1,20 @@
+//! update-db: inject a GOAT message into the local DB.
+//!
+//! Purpose:
+//! - Insert a GOATMessageContent payload into the local SQLite DB so the node
+//!   can process it as if it were received from the network.
+//!
+//! Key args:
+//! - --db-path: local SQLite path (e.g., sqlite:/tmp/bitvm2-node.db)
+//! - --actor: Committee | Operator | Challenger | Watchtower | All
+//! - --message-json or --message-file (one required)
+//! - --business-id (optional; inferred from content when possible)
+//!
+//! Example:
+//! - cargo run -p bitvm2-noded --bin update-db -- \
+//!     --db-path sqlite:/tmp/bitvm2-node.db \
+//!     --actor Operator \
+//!     --message-file ./message.json
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;

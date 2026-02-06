@@ -1,10 +1,23 @@
-//! Pegin helper CLI
+//! pegin-request: pegin helper (request + prepare + cancel).
 //!
-//! Subcommands:
+//! Purpose:
 //! - request: compose and post a pegin request to GoatChain
-//! - prepare: build, sign and broadcast the pegin deposit transaction on Bitcoin
-//! - cancel: build, sign and broadcast the pegin refund transaction on Bitcoin
+//! - prepare: build, sign, and broadcast the pegin deposit tx on Bitcoin
+//! - request-prepare: request then wait ~12 minutes before prepare
+//! - cancel: build, sign, and broadcast the pegin refund tx on Bitcoin
 //!
+//! Env:
+//! - BITVM_SECRET: node BTC private key (hex or seed:...)
+//! - GOAT_PRIVATE_KEY: node GoatNetwork private key
+//! - BITCOIN_NETWORK: bitcoin | testnet | testnet4 | signet | regtest
+//! - GOAT_CHAIN_URL: GoatNetwork RPC URL
+//! - GOAT_GATEWAY_CONTRACT_ADDRESS: Gateway contract address
+//!
+//! Args:
+//! - Most args are optional; use --help for the full list.
+//!
+//! Example:
+//! - cargo run -p bitvm2-noded --bin pegin-request -- request-prepare
 
 use alloy::primitives::Address as EvmAddress;
 use alloy::providers::{Provider, ProviderBuilder};

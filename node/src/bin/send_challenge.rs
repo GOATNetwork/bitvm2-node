@@ -1,21 +1,26 @@
-//! Manually send a Challenge transaction for a given graph.
+//! challenge: broadcast a Challenge transaction for a graph.
 //!
-//! This CLI reads a finalized graph from the local DB, rebuilds the full
-//! BitVM2 graph, and broadcasts the Challenge transaction on Bitcoin.
+//! Purpose:
+//! - Read a finalized graph from the local DB, rebuild the full BitVM2 graph,
+//!   and broadcast the Challenge transaction on Bitcoin.
 //!
-//! Required environment variables:
-//! - BITVM_SECRET: Hex private key or seed:... used to derive the node keypair (for signing and fee inputs)
-//! - GOAT_PRIVATE_KEY or GOAT_ADDRESS: EVM address used in OP_RETURN (challenge sender identity)
-//! - BITCOIN_NETWORK: bitcoin | testnet | signet | regtest (defaults to testnet if unset)
+//! Env:
+//! - BITVM_SECRET: node BTC key (hex or seed:...) for signing and fee inputs
+//! - GOAT_PRIVATE_KEY or GOAT_ADDRESS: EVM identity for OP_RETURN
+//! - BITCOIN_NETWORK: bitcoin | testnet | testnet4 | signet | regtest
+//! - GOAT_CHAIN_URL: GoatNetwork RPC URL (if required by client helpers)
+//! - GOAT_GATEWAY_CONTRACT_ADDRESS: Gateway contract address (if required by helpers)
 //!
-//! Optional:
-//! - ESPLORA URL may be overridden via --esplora-url, otherwise defaults to mempool.space endpoints.
+//! Args:
+//! - --db-path: local SQLite path (e.g., sqlite:/tmp/bitvm2-node.db)
+//! - --instance-id / --graph-id: target graph
+//! - --esplora-url: optional Esplora override
 //!
 //! Example:
-//!   send-challenge \
-//!     --db-path /tmp/bitvm2-node.db \
-//!     --instance-id 225cbacd-b983-4cd6-97a7-522f57b83e6d \
-//!     --graph-id     225cbacd-b983-4cd6-97a7-522f57b83e6d
+//! - cargo run -p bitvm2-noded --bin challenge -- \
+//!     --db-path sqlite:/tmp/bitvm2-node.db \
+//!     --instance-id <uuid> \
+//!     --graph-id <uuid>
 
 use anyhow::{Context, Result};
 use bitvm2_lib::types::Bitvm2Graph;

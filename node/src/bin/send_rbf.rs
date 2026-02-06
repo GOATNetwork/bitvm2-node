@@ -1,22 +1,20 @@
-//! Replace-By-Fee helper CLI
+//! send-rbf: Replace-By-Fee helper (rebuild and rebroadcast).
 //!
-//! This binary lets an operator rebuild and rebroadcast a stuck transaction
-//! by reusing the same inputs (passed via `--vin txid:vout`) and bumping the
-//! absolute fee. All selected inputs must belong to the node's default P2WSH
-//! address derived from `BITVM_SECRET`. The new transaction consolidates the
-//! inputs into a single output (by default the node address) and applies the
-//! requested fee rate.
+//! Purpose:
+//! - Rebuild a stuck transaction using the same inputs (`--vin txid:vout`) and
+//!   bump the absolute fee. Inputs must belong to the node's P2WSH address
+//!   derived from `BITVM_SECRET`. Outputs are consolidated to a single address.
+//!
+//! Env:
+//! - BITVM_SECRET: node BTC private key
+//! - BITCOIN_NETWORK: bitcoin | testnet | testnet4 | signet | regtest (optional)
 //!
 //! Example:
-//! ```ignore
-//! send-rbf \
-//!   --vin 5e4...:0 \
-//!   --vin 8da...:1 \
-//!   --fee-amount 10000 \
-//!   --to-address tb1q...
-//! ```
-//!
-//! Required env: `BITVM_SECRET` (Bitcoin key) and optionally `BITCOIN_NETWORK`.
+//! - cargo run -p bitvm2-noded --bin send-rbf -- \
+//!     --vin <txid>:0 \
+//!     --vin <txid>:1 \
+//!     --fee-amount 10000 \
+//!     --to-address <addr>
 
 use std::fmt;
 use std::str::FromStr;

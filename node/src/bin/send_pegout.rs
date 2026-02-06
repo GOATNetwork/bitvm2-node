@@ -1,13 +1,25 @@
-//! Pegout helper CLI
+//! pegout: operator pegout helper (Gateway.initWithdraw).
 //!
-//! Operator pegout flow:
+//! Flow:
 //! 1) Read local DB and select the minimal kickoff-index graph with status OperatorDataPushed
 //! 2) Check L2 status: pegin is Withdrawable and withdraw status is None
 //! 3) Call Gateway.initWithdraw (ensure pegBTC allowance in advance)
 //!
-//! Features:
-//! - Single pegout (one graph)
-//! - Batch pegout (repeat until balance insufficient or total amount reaches target)
+//! Modes:
+//! - once: single pegout for one graph
+//! - batch: repeat until balance insufficient or target reached
+//!
+//! Env:
+//! - BITVM_SECRET: node BTC private key (used to derive operator pubkey)
+//! - GOAT_PRIVATE_KEY: node GoatNetwork private key
+//! - BITCOIN_NETWORK: bitcoin | testnet | testnet4 | signet | regtest
+//! - GOAT_CHAIN_URL: GoatNetwork RPC URL
+//! - GOAT_GATEWAY_CONTRACT_ADDRESS: Gateway contract address
+//!
+//! Example:
+//! - cargo run -p bitvm2-noded --bin pegout -- once \
+//!     --db-path sqlite:/tmp/bitvm2-node.db \
+//!     --operator-pubkey <pubkey>
 
 use std::str::FromStr;
 
