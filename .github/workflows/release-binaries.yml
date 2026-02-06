@@ -11,8 +11,12 @@ env:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
     permissions:
       contents: write
       packages: read
@@ -21,14 +25,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
+      - name: Install Ziren toolchain
+        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt install protobuf-compiler -y
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
 
       - name: Extract version from tag
         id: version
@@ -38,7 +44,7 @@ jobs:
           echo "Version: $VERSION"
 
       - name: Build all binaries in release mode
-        run: cargo build -r --workspace
+        run: source ~/.zkm-toolchain/env && cargo build -r --workspace
 
       - name: Create release artifacts directory
         run: mkdir -p release-artifacts
@@ -55,13 +61,21 @@ jobs:
             "target/release/db-inject"
           )
           
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            PLATFORM="x86_64-linux"
+            CHECKSUM_CMD="sha256sum"
+          else
+            PLATFORM="x86_64-macos"
+            CHECKSUM_CMD="shasum -a 256"
+          fi
+          
           for bin in "${BINS[@]}"; do
             if [ -f "$bin" ]; then
               BASENAME=$(basename "$bin")
-              ARCHIVE="release-artifacts/${BASENAME}-${{ env.VERSION }}-x86_64-linux"
+              ARCHIVE="release-artifacts/${BASENAME}-${{ env.VERSION }}-${PLATFORM}"
               cp "$bin" "$ARCHIVE"
               chmod +x "$ARCHIVE"
-              sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+              $CHECKSUM_CMD "$ARCHIVE" > "${ARCHIVE}.sha256"
               echo "✓ $BASENAME"
             fi
           done
@@ -81,7 +95,7 @@ jobs:
 
       - name: Upload to Releases summary
         run: |
-          echo "## 📦 Released Binaries" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Released Binaries (${{ runner.os }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Version: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
