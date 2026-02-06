@@ -20,12 +20,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        timeout-minutes: 30
-        with:
-          toolchain: nightly
-          override: true
+      - name: Install Ziren toolchain
+        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
 
       - name: Extract version from Cargo.toml
         id: version
@@ -38,7 +34,7 @@ jobs:
         run: sudo apt-get update && sudo apt install protobuf-compiler -y
 
       - name: Build all binaries
-        run: cargo build -r --workspace
+        run: source ~/.zkm-toolchain/env && cargo build -r --workspace
 
       - name: Collect and stage binaries
         run: |
