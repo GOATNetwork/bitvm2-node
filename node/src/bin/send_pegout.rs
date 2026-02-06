@@ -18,8 +18,8 @@
 //!
 //! Example:
 //! - cargo run -p bitvm2-noded --bin pegout -- once \
-//!     --db-path sqlite:/tmp/bitvm2-node.db \
-//!     --operator-pubkey <pubkey>
+//!   -db-path sqlite:/tmp/bitvm2-node.db \
+//!   -operator-pubkey <pubkey>
 
 use std::str::FromStr;
 
@@ -334,6 +334,7 @@ async fn ensure_peg_btc_allowance(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_batch(
     local_db: &LocalDB,
     goat_client: &GOATClient,
@@ -450,9 +451,9 @@ async fn find_in_progress_graph(
     let mut storage_processor = local_db.acquire().await?;
     let in_progress_condition = format!(
         "status IN ('{}','{}','{}') AND init_withdraw_tx_hash IS NOT NULL",
-        GraphStatus::OperatorDataPushed.to_string(),
-        GraphStatus::OperatorKickOff.to_string(),
-        GraphStatus::Challenge.to_string()
+        GraphStatus::OperatorDataPushed,
+        GraphStatus::OperatorKickOff,
+        GraphStatus::Challenge
     );
     let graphs = storage_processor
         .get_operator_graphs(

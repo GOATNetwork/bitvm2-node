@@ -37,17 +37,35 @@ jobs:
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt install protobuf-compiler -y
 
-      - name: Build noded 
-        run: cargo build -r
+      - name: Build all binaries
+        run: cargo build -r --workspace
 
-      - name: Build sequencer-set-publish 
-        run: cargo build -r --bin sequencer-set-publish
-      - name: Build challenge 
-        run: cargo build -r --bin challenge
-      - name: Build send-rbf 
-        run: cargo build -r --bin send-rbf 
-      - name: Build pengin-request 
-        run: cargo build -r --bin pegin-request 
+      - name: Collect and stage binaries
+        run: |
+          mkdir -p release-binaries
+          BINS=(
+            "target/release/noded"
+            "target/release/sequencer-set-publish"
+            "target/release/send-challenge"
+            "target/release/send-rbf"
+            "target/release/send-pegin-request"
+            "target/release/send-pegout"
+            "target/release/db-inject"
+          )
+          for bin in "${BINS[@]}"; do
+            if [ -f "$bin" ]; then
+              cp "$bin" release-binaries/
+              echo "✓ $(basename $bin)"
+            fi
+          done
+          ls -lh release-binaries/
+
+      - name: Upload binaries as release artifacts
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: release-binaries/*
+          token: ${{ secrets.GITHUB_TOKEN }} 
 
       - name: Set lowercase repo name
         id: lowercase

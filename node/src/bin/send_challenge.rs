@@ -18,9 +18,9 @@
 //!
 //! Example:
 //! - cargo run -p bitvm2-noded --bin challenge -- \
-//!     --db-path sqlite:/tmp/bitvm2-node.db \
-//!     --instance-id <uuid> \
-//!     --graph-id <uuid>
+//!   db-path sqlite:/tmp/bitvm2-node.db \
+//!   --instance-id <uuid> \
+//!   --graph-id <uuid>
 
 use anyhow::{Context, Result};
 use bitvm2_lib::types::Bitvm2Graph;

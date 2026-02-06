@@ -11,10 +11,10 @@
 //!
 //! Example:
 //! - cargo run -p bitvm2-noded --bin send-rbf -- \
-//!     --vin <txid>:0 \
-//!     --vin <txid>:1 \
-//!     --fee-amount 10000 \
-//!     --to-address <addr>
+//!   --vin <txid>:0 \
+//!   --vin <txid>:1 \
+//!   --fee-amount 10000 \
+//!   --to-address <addr>
 
 use std::fmt;
 use std::str::FromStr;

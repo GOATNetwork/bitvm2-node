@@ -1,0 +1,88 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt install protobuf-compiler -y
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Version: $VERSION"
+
+      - name: Build all binaries in release mode
+        run: cargo build -r --workspace
+
+      - name: Create release artifacts directory
+        run: mkdir -p release-artifacts
+
+      - name: Collect binaries
+        run: |
+          BINS=(
+            "target/release/noded"
+            "target/release/sequencer-set-publish"
+            "target/release/send-challenge"
+            "target/release/send-rbf"
+            "target/release/send-pegin-request"
+            "target/release/send-pegout"
+            "target/release/db-inject"
+          )
+          
+          for bin in "${BINS[@]}"; do
+            if [ -f "$bin" ]; then
+              BASENAME=$(basename "$bin")
+              ARCHIVE="release-artifacts/${BASENAME}-${{ env.VERSION }}-x86_64-linux"
+              cp "$bin" "$ARCHIVE"
+              chmod +x "$ARCHIVE"
+              sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+              echo "✓ $BASENAME"
+            fi
+          done
+          
+          echo "Artifacts created:"
+          ls -lh release-artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-artifacts/*
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Upload to Releases summary
+        run: |
+          echo "## 📦 Released Binaries" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Version: ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          ls -1 release-artifacts/ | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY

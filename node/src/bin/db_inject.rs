@@ -12,9 +12,9 @@
 //!
 //! Example:
 //! - cargo run -p bitvm2-noded --bin update-db -- \
-//!     --db-path sqlite:/tmp/bitvm2-node.db \
-//!     --actor Operator \
-//!     --message-file ./message.json
+//!   --db-path sqlite:/tmp/bitvm2-node.db \
+//!   --actor Operator \
+//!   --message-file ./message.json
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
