@@ -37,14 +37,7 @@ jobs:
             https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
 
       # Install Go for all platforms (required for zkm-recursion-gnark-ffi)
-      - name: Install Go (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
-      - name: Install Go (macOS)
-        if: matrix.os == 'macos-latest'
+      - name: Install Go (Ubuntu, macOS)
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
@@ -66,8 +59,7 @@ jobs:
 
       - name: Build all binaries in release mode
         run: |
-          source ~/.zkm-toolchain/env
-          cargo build -r --workspace
+          source ~/.zkm-toolchain/env && cd node && cargo build -r
 
       - name: Create release artifacts directory
         run: mkdir -p release-artifacts
@@ -75,18 +67,21 @@ jobs:
       - name: Collect binaries
         run: |
           BINS=(
-            "target/release/noded"
-            "target/release/sequencer-set-publish"
-            "target/release/send-challenge"
-            "target/release/send-rbf"
-            "target/release/send-pegin-request"
-            "target/release/send-pegout"
-            "target/release/db-inject"
+            "../target/release/noded"
+            "../target/release/sequencer-set-publish"
+            "../target/release/send-challenge"
+            "../target/release/send-rbf"
+            "../target/release/send-pegin-request"
+            "../target/release/send-pegout"
+            "../target/release/db-inject"
           )
 
           if [ "${{ runner.os }}" = "Linux" ]; then
             PLATFORM="x86_64-linux"
             CHECKSUM_CMD="sha256sum"
+          elif [ "${{ runner.arch }}" = "ARM64" ]; then
+            PLATFORM="aarch64-macos"
+            CHECKSUM_CMD="shasum -a 256"
           else
             PLATFORM="x86_64-macos"
             CHECKSUM_CMD="shasum -a 256"
