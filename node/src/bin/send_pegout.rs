@@ -177,16 +177,16 @@ async fn select_graph(
         let graph = storage_processor.find_graph(&graph_id).await?;
         if let Some(graph) = graph {
             if graph.operator_pubkey != operator_pubkey {
-                bail!("graph {} not owned by operator {}", graph_id, operator_pubkey);
+                bail!("graph {graph_id} not owned by operator {operator_pubkey}");
             }
             if graph.status != GraphStatus::OperatorDataPushed.to_string() {
                 bail!("graph {} status {} is not OperatorDataPushed", graph_id, graph.status);
             }
             if graph.init_withdraw_tx_hash.is_some() {
-                bail!("graph {} already initialized withdraw", graph_id);
+                bail!("graph {graph_id} already initialized withdraw");
             }
             if !is_graph_ready_by_previous(&mut storage_processor, &graph).await? {
-                bail!("graph {} not ready due to previous graph status", graph_id);
+                bail!("graph {graph_id} not ready due to previous graph status");
             }
             info!(
                 "select_graph picked explicit graph {} kickoff_index {} amount {}",
@@ -267,7 +267,7 @@ async fn init_withdraw_for_graph(
 
     let amount_u256 = U256::from(amount);
     if balance < amount_u256 {
-        bail!("insufficient pegBTC balance: need {}, available {}", amount, balance);
+        bail!("insufficient pegBTC balance: need {amount}, available {balance}");
     }
 
     let pegin_data = goat_client.gateway_get_pegin_data(&graph.instance_id).await?;
@@ -499,7 +499,7 @@ async fn wait_until_next_ready(
         }
 
         if waited >= max_wait_secs {
-            bail!("waited {}s but graph {} still not ready", max_wait_secs, graph_id);
+            bail!("waited {max_wait_secs}s but graph {graph_id} still not ready");
         }
         sleep(Duration::from_secs(poll_interval_secs)).await;
         waited = waited.saturating_add(poll_interval_secs);

@@ -2,6 +2,7 @@ use crate::action::*;
 use crate::env::{get_bitvm_key, get_network, get_node_goat_address, is_relayer};
 use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
+use crate::scheduled_tasks::graph_maintenance_tasks::ChallengeSubStatus;
 use crate::utils::*;
 use anyhow::{Result, anyhow, bail};
 use bitcoin::hashes::Hash;
@@ -413,7 +414,7 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
             handle_take1_sent_default(ctx, *instance_id, *graph_id).await
         }
         (GOATMessageContent::Take2Ready(Take2Ready { instance_id, graph_id }), Actor::Operator) => {
-            handle_take2_ready_operator(ctx, *instance_id, *graph_id).await
+            handle_take2_ready_operator(ctx, *instance_id, *graph_id, content).await
         }
         (GOATMessageContent::Take2Sent(Take2Sent { instance_id, graph_id }), Actor::Committee) => {
             handle_take2_sent_committee(ctx, *instance_id, *graph_id, content).await
@@ -575,7 +576,7 @@ async fn refresh_and_compensate(
     graph: Option<&Bitvm2Graph>,
     scan_from_status: Option<GraphStatus>,
     compensate_from_status: GraphStatus,
-) -> Result<GraphStatus> {
+) -> Result<(GraphStatus, Option<ChallengeSubStatus>)> {
     let (graph_status, sub_status) = refresh_graph(
         ctx.local_db,
         ctx.btc_client,
@@ -600,7 +601,7 @@ async fn refresh_and_compensate(
         sub_status,
     )
     .await?;
-    Ok(graph_status)
+    Ok((graph_status, sub_status))
 }
 
 async fn get_graph_and_status(
@@ -649,8 +650,8 @@ async fn refresh_graph_status(
     instance_id: Uuid,
     graph_id: Uuid,
     message: Option<&GOATMessage>,
-    status: GraphStatus,
-) -> Result<Option<Bitvm2Graph>> {
+    compensate_from_status: GraphStatus,
+) -> Result<Option<(Bitvm2Graph, GraphStatus, Option<ChallengeSubStatus>)>> {
     let (graph, graph_start_status) = match message {
         Some(message) => {
             match get_graph_and_status_or_defer(ctx, instance_id, graph_id, message).await? {
@@ -660,16 +661,16 @@ async fn refresh_graph_status(
         }
         None => get_graph_and_status(ctx, instance_id, graph_id).await?,
     };
-    refresh_and_compensate(
+    let (graph_status, sub_status) = refresh_and_compensate(
         ctx,
         instance_id,
         graph_id,
         Some(&graph),
         Some(graph_start_status),
-        status,
+        compensate_from_status,
     )
     .await?;
-    Ok(Some(graph))
+    Ok(Some((graph, graph_status, sub_status)))
 }
 
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
@@ -1915,11 +1916,11 @@ async fn handle_kickoff_sent_committee(
 ) -> Result<()> {
     // triggered by Kickoff tx
     // 1. update status
-    let graph =
+    let (graph, _graph_status, _graph_sub_status) =
         match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::OperatorKickOff)
             .await?
         {
-            Some(graph) => graph,
+            Some(v) => v,
             None => return Ok(()),
         };
     if !is_relayer() {
@@ -1981,7 +1982,7 @@ async fn handle_kickoff_sent_challenger(
 ) -> Result<()> {
     // triggered by Kickoff tx
     let message = make_message(ctx, content);
-    let graph = match refresh_graph_status(
+    let (graph, _graph_status, _graph_sub_status) = match refresh_graph_status(
         ctx,
         instance_id,
         graph_id,
@@ -1990,7 +1991,7 @@ async fn handle_kickoff_sent_challenger(
     )
     .await?
     {
-        Some(graph) => graph,
+        Some(v) => v,
         None => return Ok(()),
     };
     // 1. check kickoff tx status on Bitcoin chain
@@ -2079,7 +2080,7 @@ async fn handle_prekickoff_sent_challenger(
 ) -> Result<()> {
     // triggered by PreKickoff tx
     let message = make_message(ctx, content);
-    let graph = match refresh_graph_status(
+    let (graph, _graph_status, _graph_sub_status) = match refresh_graph_status(
         ctx,
         instance_id,
         graph_id,
@@ -2088,7 +2089,7 @@ async fn handle_prekickoff_sent_challenger(
     )
     .await?
     {
-        Some(graph) => graph,
+        Some(v) => v,
         None => return Ok(()),
     };
     // 1. check the previous graph status
@@ -2128,7 +2129,7 @@ async fn handle_prekickoff_sent_challenger(
     let prev_graph_start_status = get_graph_status(ctx.local_db, prev_instance_id, prev_graph_id)
         .await?
         .ok_or_else(|| anyhow!("Graph status not found for {prev_instance_id}:{prev_graph_id}"))?;
-    let prev_graph_status = refresh_and_compensate(
+    let (prev_graph_status, _prev_graph_sub_status) = refresh_and_compensate(
         ctx,
         prev_instance_id,
         prev_graph_id,
@@ -2169,7 +2170,7 @@ async fn handle_challenge_sent_operator(
 ) -> Result<()> {
     // triggered by Challenge tx
     let message = make_message(ctx, content);
-    let mut graph = match refresh_graph_status(
+    let (mut graph, _graph_status, _graph_sub_status) = match refresh_graph_status(
         ctx,
         instance_id,
         graph_id,
@@ -2178,7 +2179,7 @@ async fn handle_challenge_sent_operator(
     )
     .await?
     {
-        Some(graph) => graph,
+        Some(v) => v,
         None => return Ok(()),
     };
     // 1. check the challenge tx status on Bitcoin chain
@@ -2248,19 +2249,24 @@ async fn handle_watchtower_challenge_init_sent_watchtower(
 ) -> Result<()> {
     // triggered by WatchtowerChallengeInit tx
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore WatchtowerChallengeInitSent for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let watchtower_keypair = WatchtowerMasterKey::new(get_bitvm_key()?).master_keypair();
     let node_index = match graph
         .parameters
@@ -2276,7 +2282,6 @@ async fn handle_watchtower_challenge_init_sent_watchtower(
             return Ok(());
         }
     };
-    let graph = Bitvm2Graph::from_simplified(&graph)?;
     let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
     if !tx_on_chain(ctx.btc_client, &watchtower_challenge_init_txid).await? {
         tracing::warn!(
@@ -2354,20 +2359,24 @@ async fn handle_watchtower_challenge_sent_operator(
     // triggered by WatchtowerChallenge tx
     let message = make_message(ctx, content);
     // 1. check the watchtower-challenge tx status on Bitcoin chain, if watchtower challenge tx is confirmed, sign & broadcast operator-ack txn
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (mut graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore WatchtowerChallengeSent for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let operator_graph_keypair = operator_master_key.master_keypair();
@@ -2421,20 +2430,24 @@ async fn handle_watchtower_challenge_timeout_operator(
 ) -> Result<()> {
     // triggered by timeout task
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (mut graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore WatchtowerChallengeTimeout for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
     let watchtower_challenge_init_height = match ctx
         .btc_client
@@ -2521,20 +2534,24 @@ async fn handle_operator_ack_timeout_challenger(
 ) -> Result<()> {
     // triggered by timeout task
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore AckTimeout for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
     let connector_f_vout = 1 + 2 * graph.parameters.watchtower_pubkeys.len() as u64;
     if outpoint_spent_txid(ctx.btc_client, &watchtower_challenge_init_txid, connector_f_vout)
@@ -2614,20 +2631,24 @@ async fn handle_operator_commit_blockhash_ready_operator(
 ) -> Result<()> {
     // triggered by timeout task
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (mut graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore CommitBlockHashReady for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     // 1. check that all WatchtowerChallenge Connectors are spent
     let largest_watchtower_challenge_block_hash =
         match get_largest_watchtower_challenge_block(&graph, ctx.btc_client).await {
@@ -2680,20 +2701,24 @@ async fn handle_operator_commit_blockhash_timeout_challenger(
 ) -> Result<()> {
     // triggered by timeout task
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore CommitBlockHashTimeout for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
     let connector_f_vout = 1 + 2 * graph.parameters.watchtower_pubkeys.len() as u64;
     if outpoint_spent_txid(ctx.btc_client, &watchtower_challenge_init_txid, connector_f_vout)
@@ -2768,20 +2793,40 @@ async fn handle_assert_init_ready_operator(
 ) -> Result<()> {
     // triggered by timeout task
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (mut graph, graph_status, graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore AssertInitReady for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
+    match graph_sub_status {
+        Some(sub_status) => {
+            if !sub_status.is_watchtower_challenge_normal_finished() {
+                tracing::warn!(
+                    "Ignore AssertInitReady for {instance_id}:{graph_id}: watchtower challenge not finished yet, sub-status {sub_status:?}"
+                );
+                return Ok(());
+            }
+        }
+        None => {
+            tracing::warn!(
+                "Ignore AssertInitReady for {instance_id}:{graph_id}: graph sub-status is None"
+            );
+            return Ok(());
+        }
+    }
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let operator_graph_keypair = operator_master_key.master_keypair();
     let assert_init_txid = graph.assert_init.tx().compute_txid();
@@ -2797,31 +2842,6 @@ async fn handle_assert_init_ready_operator(
     // }
     // 1. sign & broadcast assert-init txn
     if !tx_on_chain(ctx.btc_client, &assert_init_txid).await? {
-        let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
-        let watchtower_challenge_init_height = match ctx
-            .btc_client
-            .get_tx_status(&watchtower_challenge_init_txid)
-            .await?
-            .block_height
-        {
-            Some(height) => height,
-            None => {
-                tracing::warn!(
-                    "Ignore AssertInitReady for {instance_id}:{graph_id}: watchtower challenge init tx not confirmed yet"
-                );
-                return Ok(());
-            }
-        };
-        let current_height = ctx.btc_client.get_height().await?;
-        if current_height
-            < watchtower_challenge_init_height
-                + watchtower_challenge_timeout_timelock(get_network())
-        {
-            tracing::warn!(
-                "Ignore AssertInitReady for {instance_id}:{graph_id}: watchtower challenge not finished yet"
-            );
-            return Ok(());
-        }
         let assert_init_tx = operator_sign_assert_init(operator_graph_keypair, &mut graph)?;
         let anchor_vout = assert_init_tx.output.len() as u64 - 1;
         let assert_init_tx_total_input_amount =
@@ -2895,20 +2915,24 @@ async fn handle_assert_commit_timeout_challenger(
 ) -> Result<()> {
     // triggered by timeout task
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore AssertCommitTimeout for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let assert_init_txid = graph.assert_init.tx().compute_txid();
     let connector_d_vout = graph.assert_commit_timeout_txns.len() as u64;
     if outpoint_spent_txid(ctx.btc_client, &assert_init_txid, connector_d_vout).await?.is_some() {
@@ -2994,20 +3018,24 @@ async fn handle_disprove_ready_challenger(
 ) -> Result<()> {
     // triggered by AssertCommit tx or OperatorCommitBlockHash tx
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore DisproveReady for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     // 1. get assertions committed by Operator from Bitcoin chain
     let operator_commit_blockhash_txin = {
         let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
@@ -3133,10 +3161,16 @@ async fn handle_disprove_sent_committee(
     // triggered by Disprove tx
     // 1. update graph status
     let message = make_message(ctx, content);
-    let graph = match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::Disprove)
-        .await?
+    let (graph, _graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
+        instance_id,
+        graph_id,
+        None,
+        GraphStatus::Disprove,
+    )
+    .await?
     {
-        Some(graph) => graph,
+        Some(v) => v,
         None => return Ok(()),
     };
     if !is_relayer() {
@@ -3310,20 +3344,24 @@ async fn handle_take1_ready_operator(
 ) -> Result<()> {
     // triggered by timeout task
     let message = make_message(ctx, content);
-    let graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
+    let (mut graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
         instance_id,
         graph_id,
-        &message,
+        Some(&message),
+        GraphStatus::Challenge,
     )
     .await?
     {
-        Some(g) => g,
+        Some(v) => v,
         None => return Ok(()),
     };
-    let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore Take1Ready for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let kickoff_txid = graph.kickoff.tx().compute_txid();
     let connector_a_vout = 0;
     let guardian_connector_vout = 4;
@@ -3376,11 +3414,11 @@ async fn handle_take1_sent_committee(
     // triggered by Take1 tx
     // 1. update graph status
     let message = make_message(ctx, content);
-    let graph =
+    let (graph, _graph_status, _graph_sub_status) =
         match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::OperatorTake1)
             .await?
         {
-            Some(graph) => graph,
+            Some(v) => v,
             None => return Ok(()),
         };
     if !is_relayer() {
@@ -3461,12 +3499,28 @@ async fn handle_take2_ready_operator(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
+    content: &GOATMessageContent,
 ) -> Result<()> {
     // triggered by timeout task
-    let graph = get_graph(ctx.local_db, instance_id, graph_id)
-        .await?
-        .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
-    let mut graph = Bitvm2Graph::from_simplified(&graph)?;
+    let message = make_message(ctx, content);
+    let (mut graph, graph_status, _graph_sub_status) = match refresh_graph_status(
+        ctx,
+        instance_id,
+        graph_id,
+        Some(&message),
+        GraphStatus::Challenge,
+    )
+    .await?
+    {
+        Some(v) => v,
+        None => return Ok(()),
+    };
+    if graph_status != GraphStatus::Challenge {
+        tracing::warn!(
+            "Ignore Take2Ready for {instance_id}:{graph_id}: graph status is {graph_status:?}"
+        );
+        return Ok(());
+    }
     let kickoff_txid = graph.kickoff.tx().compute_txid();
     let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
     let assert_init_txid = graph.assert_init.tx().compute_txid();
@@ -3554,11 +3608,11 @@ async fn handle_take2_sent_committee(
     // triggered by Take2 tx
     // 1. update graph status
     let message = make_message(ctx, content);
-    let graph =
+    let (graph, _graph_status, _graph_sub_status) =
         match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::OperatorTake2)
             .await?
         {
-            Some(graph) => graph,
+            Some(v) => v,
             None => return Ok(()),
         };
     if !is_relayer() {

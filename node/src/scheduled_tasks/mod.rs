@@ -8,7 +8,6 @@ use crate::action::GOATMessageContent;
 use crate::env::{is_enable_update_spv_contract, is_relayer};
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
-    scan_obsolete_sibling_graphs,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_bridge_out_monitor, instance_btc_tx_monitor,
@@ -35,6 +34,7 @@ async fn fetch_on_turn_graph_by_status<'a>(
         storage_processor.find_graphs_by_status_group_by_operator(graph_status).await?;
     let mut graphs: Vec<Graph> = vec![];
     let mut pre_operator_pubkey = "".to_string();
+    // Only process one graph for each operator each time
     for graph in graphs_ori {
         if graph.operator_pubkey != pre_operator_pubkey {
             pre_operator_pubkey = graph.operator_pubkey.clone();
@@ -86,10 +86,6 @@ async fn run(
 
     if let Err(err) = instance_bridge_out_monitor(local_db).await {
         warn!("instance_bridge_out_monitor, err {:?}", err)
-    }
-
-    if let Err(err) = scan_obsolete_sibling_graphs(local_db).await {
-        warn!("scan_obsolete_sibling_graphs, err {:?}", err)
     }
 
     if let Err(err) = detect_init_withdraw_call(local_db).await {

@@ -696,7 +696,6 @@ flowchart TB
         GM2["detect_kickoff"]
         GM3["detect_take1_or_challenge"]
         GM4["process_graph_challenge"]
-        GM5["scan_obsolete_sibling_graphs"]
 
         GM1 -->|"KickoffReady"| GM2
         GM2 -->|"Status update"| GM3
