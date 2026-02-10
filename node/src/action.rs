@@ -481,7 +481,7 @@ pub async fn push_local_unhandled_messages(
         true,
         business_id,
         None,
-        "Self".to_string(),
+        SELF_SENDER.to_string(),
         actor,
         content,
         0,

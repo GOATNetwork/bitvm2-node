@@ -2813,7 +2813,7 @@ async fn handle_assert_init_ready_operator(
     }
     match graph_sub_status {
         Some(sub_status) => {
-            if !sub_status.is_watchtower_challenge_normal_finished() {
+            if !sub_status.is_watchtower_challenge_success() {
                 tracing::warn!(
                     "Ignore AssertInitReady for {instance_id}:{graph_id}: watchtower challenge not finished yet, sub-status {sub_status:?}"
                 );

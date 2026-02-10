@@ -5,7 +5,8 @@ use crate::scheduled_tasks::event_watch_task::generate_instance_from_bridge_in_r
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
 use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
 use crate::utils::{
-    check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local, upsert_message,
+    SELF_SENDER, check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local,
+    upsert_message,
 };
 use alloy::sol_types::SolType;
 use bitvm2_lib::actors::Actor;
@@ -94,7 +95,7 @@ pub async fn instance_answers_monitor(
                     false,
                     tx_record.instance_id,
                     None,
-                    "self".to_string(),
+                    SELF_SENDER.to_string(),
                     Actor::All,
                     GOATMessageContent::PeginRequest(PeginRequest {
                         instance_id: tx_record.instance_id,
@@ -321,7 +322,7 @@ pub async fn instance_btc_tx_monitor(
                         false,
                         instance.instance_id,
                         None,
-                        "self".to_string(),
+                        SELF_SENDER.to_string(),
                         Actor::All,
                         GOATMessageContent::ConfirmInstance(ConfirmInstance {
                             instance_id: instance.instance_id,
@@ -337,7 +338,7 @@ pub async fn instance_btc_tx_monitor(
                         false,
                         instance.instance_id,
                         None,
-                        "self".to_string(),
+                        SELF_SENDER.to_string(),
                         Actor::All,
                         GOATMessageContent::PostReady(PostReady {
                             instance_id: instance.instance_id,

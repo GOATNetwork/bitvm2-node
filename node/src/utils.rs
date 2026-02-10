@@ -58,6 +58,8 @@ use std::io::{BufReader, BufWriter};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+pub const SELF_SENDER: &str = "self";
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{
     GraphQuery, GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor,

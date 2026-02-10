@@ -8,7 +8,7 @@ use crate::action::{
 use crate::env::get_network;
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
-use crate::utils::{outpoint_spent_txid, upsert_message};
+use crate::utils::{SELF_SENDER, outpoint_spent_txid, upsert_message};
 use bitcoin::Txid;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::challenger::{
@@ -111,7 +111,7 @@ pub enum WatchtowerChallengeStatus {
     WatchtowerChallenge, // Some Watchtower challenge, and timelock not expired
     WatchtowerChallengeTimeout, // Some Watchtower did not challenge, and timelock expired
     OperatorACKTimeout,  // Operator did not send ACK for some Watchtower, and timelock expired
-    WatchtowerChallengeNormalFinished, // Normal Finished
+    WatchtowerChallengeNormalFinished, // Normal Finished, TODO: rename it
     WatchtowerChallengeDisproveFinished, // Disproved Finished
 }
 
@@ -125,7 +125,7 @@ pub struct ChallengeSubStatus {
 }
 
 impl ChallengeSubStatus {
-    pub fn is_watchtower_challenge_normal_finished(&self) -> bool {
+    pub fn is_watchtower_challenge_success(&self) -> bool {
         self.watchtower_challenge_status
             == WatchtowerChallengeStatus::WatchtowerChallengeNormalFinished
             && self.commit_blockhash_status == CommitBlockHashStatus::OperatorCommit
@@ -135,11 +135,11 @@ impl ChallengeSubStatus {
         self.disprove_type.is_some()
     }
 
-    pub fn is_normal_finished(&self) -> bool {
-        self.is_watchtower_challenge_normal_finished() && self.is_assert_commit_normal_finished()
+    pub fn is_all_commit_success(&self) -> bool {
+        self.is_watchtower_challenge_success() && self.is_assert_commit_success()
     }
 
-    pub fn is_assert_commit_normal_finished(&self) -> bool {
+    pub fn is_assert_commit_success(&self) -> bool {
         self.assert_commit_status == AssertCommitStatus::OperatorCommit
     }
 }
@@ -161,6 +161,7 @@ pub struct WTInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, WatchtowerChallengeItemStatus>,
     pub require_disproved_indexes: Vec<usize>,
     pub commit_blockhash_status: CommitBlockHashStatus,
+    #[deprecated]
     pub is_challenge_timeout_sent: bool, // deprecated
 }
 
@@ -238,9 +239,11 @@ impl WTInitTxVoutMonitorData {
     fn update_disprove_indexes(&mut self) {
         self.require_disproved_indexes = vec![];
         for (index, status) in self.data_map.iter() {
-            if *status == WatchtowerChallengeItemStatus::OperatorInit
-                || *status == WatchtowerChallengeItemStatus::Challenge
-            {
+            if matches!(
+                *status,
+                WatchtowerChallengeItemStatus::OperatorInit
+                    | WatchtowerChallengeItemStatus::Challenge
+            ) {
                 self.require_disproved_indexes.push(*index as usize);
             }
         }
@@ -262,8 +265,11 @@ impl WTInitTxVoutMonitorData {
             self.data_map
                 .iter()
                 .filter(|(_, v)| {
-                    **v == WatchtowerChallengeItemStatus::Challenge
-                        || **v == WatchtowerChallengeItemStatus::OperatorACK
+                    matches!(
+                        **v,
+                        WatchtowerChallengeItemStatus::Challenge
+                            | WatchtowerChallengeItemStatus::OperatorACK
+                    )
                 })
                 .count(),
             self.data_map.len(),
@@ -303,15 +309,18 @@ impl WTInitTxVoutMonitorData {
             self.data_map
                 .iter()
                 .filter(|(_, v)| {
-                    **v == WatchtowerChallengeItemStatus::Challenge
-                        || **v == WatchtowerChallengeItemStatus::OperatorACK
-                        || **v == WatchtowerChallengeItemStatus::OperatorNACK
+                    matches!(
+                        **v,
+                        WatchtowerChallengeItemStatus::Challenge
+                            | WatchtowerChallengeItemStatus::OperatorACK
+                            | WatchtowerChallengeItemStatus::OperatorNACK
+                    )
                 })
                 .count(),
         )
     }
 
-    pub fn check_watchtower_challenge_normal_finished(&self) -> bool {
+    pub fn is_watchtower_challenge_success(&self) -> bool {
         self.data_map.values().all(|status| {
             matches!(
                 status,
@@ -391,7 +400,7 @@ impl AssertInitTxVoutMonitorData {
         Ok(vout_spent_detect)
     }
 
-    pub fn check_normal_finished(&self) -> bool {
+    pub fn is_assert_success(&self) -> bool {
         self.data_map.values().all(|status| *status == AssertCommitItemStatus::OperatorCommit)
     }
 
@@ -476,7 +485,7 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
                 false,
                 graph_id,
                 None,
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::Operator,
                 GOATMessageContent::KickoffReady(KickoffReady { instance_id, graph_id }),
                 0,
@@ -530,7 +539,7 @@ pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyho
                 false,
                 graph.graph_id,
                 None,
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::All,
                 GOATMessageContent::KickoffSent(KickoffSent {
                     instance_id: graph.instance_id,
@@ -588,7 +597,7 @@ pub async fn detect_take1_or_challenge(
                 false,
                 graph.graph_id,
                 None,
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 actor,
                 message_content,
                 0,
@@ -629,17 +638,15 @@ pub async fn process_graph_challenge(
                 ChallengeSubStatus::default()
             }
         };
-        let mut is_watchtower_challenge_normal_finished =
-            sub_status.is_watchtower_challenge_normal_finished();
-        let mut is_assert_commit_normal_finished = sub_status.is_assert_commit_normal_finished();
-        let mut is_all_commit_normal_finished =
-            is_watchtower_challenge_normal_finished && is_assert_commit_normal_finished;
-        if !sub_status.is_disproved() && !is_all_commit_normal_finished {
+        let mut is_watchtower_challenge_success = sub_status.is_watchtower_challenge_success();
+        let mut is_assert_commit_success = sub_status.is_assert_commit_success();
+        let mut is_all_commit_success = is_watchtower_challenge_success && is_assert_commit_success;
+        if !sub_status.is_disproved() && !is_all_commit_success {
             trace!("graph:{} is not disproved", graph.graph_id);
-            if !is_watchtower_challenge_normal_finished {
+            if !is_watchtower_challenge_success {
                 info!("graph:{} watchtower challenge is processing", graph.graph_id);
                 // process_watchtower_challenge_monitoring may trigger: WatchtowerChallengeSent, WatchtowerChallengeTimeout, OperatorAckTimeout, DisproveSent(OperatorCommitTimeout/OperatorNack), OperatorCommitBlockHashReady, OperatorCommitBlockHashTimeout
-                is_watchtower_challenge_normal_finished = process_watchtower_challenge_monitoring(
+                is_watchtower_challenge_success = process_watchtower_challenge_monitoring(
                     btc_client,
                     local_db,
                     &graph,
@@ -648,7 +655,7 @@ pub async fn process_graph_challenge(
                 )
                 .await?;
             }
-            if is_watchtower_challenge_normal_finished && !is_assert_commit_normal_finished {
+            if is_watchtower_challenge_success && !is_assert_commit_success {
                 info!("graph:{} assert commit is processing", graph.graph_id);
                 // upsert AssertInitReady message whenever watchtower challenge is finished normally, repeated inserts are idempotent
                 upsert_message(
@@ -656,7 +663,7 @@ pub async fn process_graph_challenge(
                     false,
                     graph.graph_id,
                     None,
-                    "self".to_string(),
+                    SELF_SENDER.to_string(),
                     Actor::Operator,
                     GOATMessageContent::AssertInitReady(AssertInitReady {
                         instance_id: graph.instance_id,
@@ -667,7 +674,7 @@ pub async fn process_graph_challenge(
                 )
                 .await?;
                 // process_assert_commit_monitoring may trigger: DisproveSent(AssertTimeout), AssertCommitTimeout
-                is_assert_commit_normal_finished = process_assert_commit_monitoring(
+                is_assert_commit_success = process_assert_commit_monitoring(
                     btc_client,
                     local_db,
                     &graph,
@@ -676,10 +683,9 @@ pub async fn process_graph_challenge(
                 )
                 .await?;
             }
-            is_all_commit_normal_finished =
-                is_watchtower_challenge_normal_finished && is_assert_commit_normal_finished;
+            is_all_commit_success = is_watchtower_challenge_success && is_assert_commit_success;
         }
-        if !sub_status.is_disproved() && is_all_commit_normal_finished {
+        if !sub_status.is_disproved() && is_all_commit_success {
             let mut storage_processor = local_db.acquire().await?;
             info!("graph:{} watchtower challenge and assert commit is finished", graph.graph_id);
             // upsert DisproveReady whenever both watchtower-challenge and assert is finished normally, repeated inserts are idempotent
@@ -688,7 +694,7 @@ pub async fn process_graph_challenge(
                 false,
                 graph.graph_id,
                 None,
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::Challenger,
                 GOATMessageContent::DisproveReady(DisproveReady {
                     instance_id: graph.instance_id,
@@ -708,7 +714,7 @@ pub async fn process_graph_challenge(
                     false,
                     graph.graph_id,
                     None,
-                    "self".to_string(),
+                    SELF_SENDER.to_string(),
                     actor,
                     message_content,
                     0,
@@ -879,7 +885,7 @@ async fn process_kickoff_graph(
 
 /// Process watchtower challenge monitoring
 /// may trigger: WatchtowerChallengeSent, WatchtowerChallengeTimeout, OperatorAckTimeout, DisproveSent(OperatorCommitTimeout/OperatorNack), OperatorCommitBlockHashReady, OperatorCommitBlockHashTimeout
-/// return Ok(true) if watchtower challenge is normal finished
+/// return Ok(true) if watchtower challenge is success
 #[tracing::instrument(level = "info", skip(btc_client, local_db))]
 async fn process_watchtower_challenge_monitoring(
     btc_client: &BTCClient,
@@ -915,8 +921,8 @@ async fn process_watchtower_challenge_monitoring(
         "is_ack_timeout_{is_ack_timeout}, is_challenge_timeout_{is_challenge_timeout}, \
         is_blockhash_commit_timeout_{is_blockhash_commit_timeout}, watchtower_challenge_init_height:{watchtower_challenge_init_height}, current_height:{current_height} ",
     );
-    if vout_monitor_data.check_watchtower_challenge_normal_finished() {
-        info!("graph_id {} watchtower challenge is normal finished", graph.graph_id);
+    if vout_monitor_data.is_watchtower_challenge_success() {
+        info!("graph_id {} watchtower challenge is success", graph.graph_id);
         return Ok(true);
     }
     if vout_monitor_data.is_disproved() {
@@ -954,7 +960,7 @@ async fn process_watchtower_challenge_monitoring(
             false,
             graph.graph_id,
             None,
-            "self".to_string(),
+            SELF_SENDER.to_string(),
             Actor::Operator,
             GOATMessageContent::DisproveSent(DisproveSent {
                 instance_id: graph.instance_id,
@@ -978,7 +984,7 @@ async fn process_watchtower_challenge_monitoring(
             false,
             graph.graph_id,
             None,
-            "self".to_string(),
+            SELF_SENDER.to_string(),
             Actor::Operator,
             GOATMessageContent::OperatorCommitBlockHashReady(OperatorCommitBlockHashReady {
                 instance_id: graph.instance_id,
@@ -995,7 +1001,7 @@ async fn process_watchtower_challenge_monitoring(
             false,
             graph.graph_id,
             None,
-            "self".to_string(),
+            SELF_SENDER.to_string(),
             Actor::Challenger,
             GOATMessageContent::OperatorCommitBlockHashTimeout(OperatorCommitBlockHashTimeout {
                 instance_id: graph.instance_id,
@@ -1023,7 +1029,7 @@ async fn process_watchtower_challenge_monitoring(
                 false,
                 graph.graph_id,
                 None,
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::Operator,
                 GOATMessageContent::WatchtowerChallengeSent(WatchtowerChallengeSent {
                     instance_id: graph.instance_id,
@@ -1045,7 +1051,7 @@ async fn process_watchtower_challenge_monitoring(
                 false,
                 graph.graph_id,
                 Some(vout_monitor_data.get_require_disproved_string()),
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::Challenger,
                 GOATMessageContent::OperatorAckTimeout(OperatorAckTimeout {
                     instance_id: graph.instance_id,
@@ -1077,7 +1083,7 @@ async fn process_watchtower_challenge_monitoring(
                 false,
                 graph.graph_id,
                 Some(sub_type),
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::Operator,
                 GOATMessageContent::WatchtowerChallengeTimeout(WatchtowerChallengeTimeout {
                     instance_id: graph.instance_id,
@@ -1095,7 +1101,7 @@ async fn process_watchtower_challenge_monitoring(
 
 /// Process assert commit monitoring
 /// may trigger: DisproveSent(AssertTimeout), AssertCommitTimeout
-/// return Ok(true) if assert commit is normal finished
+/// return Ok(true) if assert commit is success
 async fn process_assert_commit_monitoring(
     btc_client: &BTCClient,
     local_db: &LocalDB,
@@ -1123,8 +1129,8 @@ async fn process_assert_commit_monitoring(
         assert_init_height:{assert_init_height}, timelock_config.assert_commit_timelock:{}, current_height:{current_height}",
         graph.graph_id, timelock_config.assert_commit_timelock
     );
-    if vout_monitor_data.check_normal_finished() {
-        info!("graph_id {} assert commit is normal finished", graph.graph_id);
+    if vout_monitor_data.is_assert_success() {
+        info!("graph_id {} assert commit is success", graph.graph_id);
         return Ok(true);
     }
     if vout_monitor_data.is_disproved() {
@@ -1146,7 +1152,7 @@ async fn process_assert_commit_monitoring(
             false,
             graph.graph_id,
             None,
-            "self".to_string(),
+            SELF_SENDER.to_string(),
             Actor::Operator,
             GOATMessageContent::DisproveSent(DisproveSent {
                 instance_id: graph.instance_id,
@@ -1170,7 +1176,7 @@ async fn process_assert_commit_monitoring(
                 false,
                 graph.graph_id,
                 Some(vout_monitor_data.get_require_disproved_string()),
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::Challenger,
                 GOATMessageContent::AssertCommitTimeout(AssertCommitTimeout {
                     instance_id: graph.instance_id,
@@ -1257,7 +1263,7 @@ async fn detect_kickoff_ref_disprove_tx(
             false,
             graph.graph_id,
             None,
-            "self".to_string(),
+            SELF_SENDER.to_string(),
             Actor::Committee,
             GOATMessageContent::DisproveSent(DisproveSent {
                 instance_id: graph.instance_id,
@@ -1444,7 +1450,7 @@ async fn check_pre_kickoff_sent(
                 false,
                 graph_id,
                 None,
-                "self".to_string(),
+                SELF_SENDER.to_string(),
                 Actor::Challenger,
                 GOATMessageContent::PreKickoffSent(PreKickoffSent { instance_id, graph_id }),
                 0,
@@ -1609,7 +1615,7 @@ pub(crate) async fn refresh_watchtower_challenge_monitor_data(
         false,
         graph.graph_id,
         None,
-        "self".to_string(),
+        SELF_SENDER.to_string(),
         Actor::Watchtower,
         GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
             instance_id: graph.instance_id,
