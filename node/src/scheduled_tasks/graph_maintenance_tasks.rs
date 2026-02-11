@@ -161,8 +161,6 @@ pub struct WTInitTxVoutMonitorData {
     pub data_map: IndexMap<i32, WatchtowerChallengeItemStatus>,
     pub require_disproved_indexes: Vec<usize>,
     pub commit_blockhash_status: CommitBlockHashStatus,
-    #[deprecated]
-    pub is_challenge_timeout_sent: bool, // deprecated
 }
 
 impl WTInitTxVoutMonitorData {
@@ -175,7 +173,6 @@ impl WTInitTxVoutMonitorData {
             data_map,
             require_disproved_indexes: vec![],
             commit_blockhash_status: CommitBlockHashStatus::None,
-            is_challenge_timeout_sent: false,
         }
     }
     pub async fn monitor_vout(

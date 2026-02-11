@@ -374,19 +374,6 @@ impl GraphStatus {
 }
 
 /// graph detail
-/// Field `graph_ipfs_base_url` is the IFPS address, which serves as a directory address containing the following files within that directory.
-/// ├── assert-commit0.hex
-/// ├── assert-commit1.hex
-/// ├── assert-commit2.hex
-/// ├── assert-commit3.hex
-/// ├── assert-final.hex
-/// ├── assert-init.hex
-/// ├── challenge.hex
-/// ├── disprove.hex
-/// ├── kickoff.hex
-/// ├── pegin.hex
-/// ├── take1.hex
-/// └── take2.hex
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct Graph {
     pub graph_id: Uuid,
