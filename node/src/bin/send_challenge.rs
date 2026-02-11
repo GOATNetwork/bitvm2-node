@@ -1,84 +1,71 @@
-//! challenge: broadcast a Challenge transaction for a graph.
+//! challenge: broadcast a Challenge transaction for a graph via the node API.
 //!
 //! Purpose:
-//! - Read a finalized graph from the local DB, rebuild the full BitVM2 graph,
-//!   and broadcast the Challenge transaction on Bitcoin.
+//! - Call the node's send-challenge API endpoint to broadcast the Challenge
+//!   transaction on Bitcoin. No direct DB access is needed.
 //!
 //! Env:
-//! - BITVM_SECRET: node BTC key (hex or seed:...) for signing and fee inputs
-//! - GOAT_PRIVATE_KEY or GOAT_ADDRESS: EVM identity for OP_RETURN
-//! - BITCOIN_NETWORK: bitcoin | testnet | testnet4 | signet | regtest
-//! - GOAT_CHAIN_URL: GoatNetwork RPC URL (if required by client helpers)
-//! - GOAT_GATEWAY_CONTRACT_ADDRESS: Gateway contract address (if required by helpers)
+//! - (Environment variables like BITVM_SECRET, GOAT_PRIVATE_KEY, etc. are
+//!   required on the **node** side, not on this client.)
 //!
 //! Args:
-//! - --db-path: local SQLite path (e.g., sqlite:/tmp/bitvm2-node.db)
-//! - --instance-id / --graph-id: target graph
-//! - --esplora-url: optional Esplora override
+//! - --api-url: node API base URL (default: http://localhost:8080)
+//! - --graph-id: target graph UUID
 //!
 //! Example:
 //! - cargo run -p bitvm2-noded --bin challenge -- \
-//!   db-path sqlite:/tmp/bitvm2-node.db \
-//!   --instance-id <uuid> \
+//!   --api-url http://localhost:8080 \
 //!   --graph-id <uuid>
 
 use anyhow::{Context, Result};
-use bitvm2_lib::types::Bitvm2Graph;
-use bitvm2_noded::env::get_network;
 use clap::Parser;
-use client::btc_chain::BTCClient;
-use dotenv::dotenv;
-use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
-
-use bitvm2_noded::utils::get_graph;
-use bitvm2_noded::utils::send_challenge_tx;
-use store::create_local_db;
+use serde::Deserialize;
 
 #[derive(Debug, Parser)]
 #[command(
     name = "send-challenge",
     version,
-    about = "Broadcast a Challenge transaction for a graph (reads graph from local DB)",
-    long_about = "Broadcast a Challenge transaction for a graph (reads graph from local DB).\n\nENV required:\n  - BITVM_SECRET: node BTC key (hex) or seed:...\n  - GOAT_PRIVATE_KEY or GOAT_ADDRESS: challenger EVM identity for OP_RETURN\n  - BITCOIN_NETWORK: bitcoin | testnet | signet | regtest (default: testnet)"
+    about = "Broadcast a Challenge transaction for a graph (via node API)",
+    long_about = "Broadcast a Challenge transaction for a graph via the node's REST API.\n\nThe node must be running and reachable at the given --api-url."
 )]
 struct Args {
-    /// Instance UUID of the graph (for sanity; not used for lookup strictly)
-    #[arg(long)]
-    instance_id: Uuid,
-
     /// Graph UUID to challenge
     #[arg(long)]
-    graph_id: Uuid,
+    graph_id: uuid::Uuid,
 
-    /// Local Sqlite database file path
-    #[arg(long, default_value = "sqlite:/tmp/bitvm2-node.db")]
-    db_path: String,
+    /// Node API base URL
+    #[arg(long, default_value = "http://localhost:8080")]
+    api_url: String,
+}
 
-    /// Esplora base URL (optional override for Bitcoin RPC via Esplora)
-    #[arg(long, default_value = "https://mempool.space/testnet4/api")]
-    esplora_url: String,
+#[derive(Debug, Deserialize)]
+struct SendChallengeResponse {
+    challenge_txid: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv().ok();
-    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
-
     let args = Args::parse();
-    let network = get_network();
-    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
+    let url = format!(
+        "{}/v1/graphs/{}/send-challenge",
+        args.api_url.trim_end_matches('/'),
+        args.graph_id
+    );
 
-    // Open local DB and load graph
-    let local_db = create_local_db(&args.db_path).await;
-    let simple =
-        get_graph(&local_db, args.instance_id, args.graph_id).await?.with_context(|| {
-            format!("graph {} not found in local DB at {}", args.graph_id, args.db_path)
-        })?;
-    let graph = Bitvm2Graph::from_simplified(&simple)
-        .context("failed to rebuild full graph from simplified data in DB")?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .send()
+        .await
+        .with_context(|| format!("failed to reach node API at {url}"))?;
 
-    let txid = send_challenge_tx(&btc_client, &graph).await?;
-    println!("Challenge tx broadcasted: {txid}");
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("API returned {status}: {body}");
+    }
+
+    let body: SendChallengeResponse = resp.json().await.context("failed to parse API response")?;
+    println!("Challenge tx broadcasted: {}", body.challenge_txid);
     Ok(())
 }

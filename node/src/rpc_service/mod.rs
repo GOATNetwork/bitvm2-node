@@ -15,14 +15,17 @@ use crate::rpc_service::handler::{
     get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs, get_instance,
     get_instance_escrow_data, get_instances, get_instances_overview, get_node, get_nodes,
     get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph,
-    get_unsigned_pegin_txn, instance_settings,
+    get_unsigned_pegin_txn, instance_settings, pegout, send_challenge,
 };
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::put;
-use axum::{Router, middleware, routing::get};
+use axum::{
+    Router, middleware,
+    routing::{get, post},
+};
 use bitvm2_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
@@ -139,6 +142,8 @@ pub async fn serve(
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::GRAPHS_NEIGHBOR_IDS, get(get_graph_neighbor_ids))
+        .route(routes::v1::GRAPHS_SEND_CHALLENGE, post(send_challenge))
+        .route(routes::v1::PEGOUT, post(pegout))
         .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_desc))
         .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_desc))
         .route(routes::METRICS, get(metrics_handler))

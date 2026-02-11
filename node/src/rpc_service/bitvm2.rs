@@ -87,6 +87,28 @@ pub struct InstanceSettingResponse {
     pub bridge_in_amount: Vec<f32>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SendChallengeResponse {
+    pub challenge_txid: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PegoutRequest {
+    pub graph_id: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PegoutResponse {
+    pub graph_id: String,
+    pub instance_id: String,
+    pub kickoff_index: i64,
+    pub amount: i64,
+    pub tx_hash: Option<String>,
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GraphTxGetParams {
     pub tx_name: String,

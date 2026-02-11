@@ -1,6 +1,7 @@
 use crate::env::{
     ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_GOAT_SWAP_CONTRACT_ADDRESS, GraphBtcTxName,
-    get_goat_address_from_env, get_network,
+    get_goat_address_from_env, get_goat_gateway_contract_from_env, get_network,
+    get_node_goat_address, get_node_pubkey,
 };
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
@@ -14,14 +15,14 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use crate::utils::{
     find_instances_by_escrow_hash, gen_instance_parameters_local, get_bridge_out_global_stats,
-    parse_graph_raw_data,
+    parse_graph_raw_data, send_challenge_tx,
 };
 use alloy::primitives::{Address, U256};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
 use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
-use client::goat_chain::DisproveTxType;
+use client::goat_chain::{DisproveTxType, PeginStatus, WithdrawStatus};
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::StatusCode;
 use std::default::Default;
@@ -1691,6 +1692,272 @@ pub async fn get_unsigned_pegin_txn(
         );
     }
     ok_response(res)
+}
+
+/// Send challenge transaction for a graph
+///
+/// Loads the graph from DB, rebuilds the full BitVM2 graph, and broadcasts
+/// the Challenge transaction on Bitcoin.
+///
+/// # Path Parameters
+///
+/// - `graph_id`: UUID of the BitVM2 graph to challenge
+///
+/// # Returns
+///
+/// - `200 OK`: Challenge transaction broadcasted successfully, returns txid
+/// - `500 Internal Server Error`: Graph not found or broadcast failed
+#[axum::debug_handler]
+pub async fn send_challenge(
+    Path(graph_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<SendChallengeResponse> {
+    let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+
+    let mut storage_process =
+        app_state.local_db.acquire().await.api_error("SEND_CHALLENGE_ERROR")?;
+
+    let graph_raw_data = storage_process
+        .find_graph_raw_data(&graph_id_uuid)
+        .await
+        .api_error("SEND_CHALLENGE_ERROR")?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "SEND_CHALLENGE_ERROR".to_string(),
+                    message: format!("graph:{graph_id} raw data not found in db"),
+                }),
+            )
+        })?;
+
+    let simplified_bitvm2_graph: SimplifiedBitvm2Graph =
+        parse_graph_raw_data(graph_raw_data.raw_data, graph_id_uuid)
+            .await
+            .api_error("SEND_CHALLENGE_ERROR")?;
+
+    let bitvm2_graph: Bitvm2Graph =
+        Bitvm2Graph::from_simplified(&simplified_bitvm2_graph).api_error("SEND_CHALLENGE_ERROR")?;
+
+    let txid = send_challenge_tx(&app_state.btc_client, &bitvm2_graph)
+        .await
+        .api_error("SEND_CHALLENGE_ERROR")?;
+
+    ok_response(SendChallengeResponse { challenge_txid: txid.to_string() })
+}
+
+/// Initiate operator pegout (Gateway.initWithdraw)
+///
+/// Selects an eligible graph (or uses the provided graph_id), checks L2 pegin/withdraw
+/// status, ensures pegBTC allowance, and calls Gateway.initWithdraw.
+///
+/// # Request Body
+///
+/// - `graph_id`: Optional UUID of the graph to pegout (auto-selects if omitted)
+/// - `dry_run`: If true, validate but skip the actual initWithdraw call (default: false)
+///
+/// # Returns
+///
+/// - `200 OK`: Pegout initiated (or validated in dry-run mode)
+/// - `500 Internal Server Error`: No eligible graph, L2 status invalid, or initWithdraw failed
+#[axum::debug_handler]
+pub async fn pegout(
+    State(app_state): State<Arc<AppState>>,
+    Json(payload): Json<PegoutRequest>,
+) -> ApiResult<PegoutResponse> {
+    let operator_pubkey = get_node_pubkey().api_error("PEGOUT_ERROR")?.to_string();
+    let operator_goat_addr = get_node_goat_address()
+        .ok_or_else(|| {
+            anyhow::anyhow!("missing operator goat address; set GOAT_PRIVATE_KEY or GOAT_ADDRESS")
+        })
+        .api_error("PEGOUT_ERROR")?;
+    let gateway_addr = get_goat_gateway_contract_from_env();
+
+    let mut storage_process = app_state.local_db.acquire().await.api_error("PEGOUT_ERROR")?;
+
+    // Select graph
+    let graph = if let Some(ref graph_id_str) = payload.graph_id {
+        let graph_id_uuid = InputValidator::validate_uuid(graph_id_str, "graph_id")?;
+        let graph = storage_process
+            .find_graph(&graph_id_uuid)
+            .await
+            .api_error("PEGOUT_ERROR")?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "PEGOUT_ERROR".to_string(),
+                        message: format!("graph {graph_id_str} not found"),
+                    }),
+                )
+            })?;
+        if graph.operator_pubkey != operator_pubkey {
+            return error_response(
+                "PEGOUT_ERROR".to_string(),
+                format!("graph {} not owned by this operator", graph.graph_id),
+            );
+        }
+        if graph.status != GraphStatus::OperatorDataPushed.to_string() {
+            return error_response(
+                "PEGOUT_ERROR".to_string(),
+                format!(
+                    "graph {} status {} is not OperatorDataPushed",
+                    graph.graph_id, graph.status
+                ),
+            );
+        }
+        if graph.init_withdraw_tx_hash.is_some() {
+            return error_response(
+                "PEGOUT_ERROR".to_string(),
+                format!("graph {} already initialized withdraw", graph.graph_id),
+            );
+        }
+        graph
+    } else {
+        // Auto-select: minimal kickoff-index graph with OperatorDataPushed, no init_withdraw
+        let graphs = storage_process
+            .get_operator_graphs(
+                GraphQuery::default()
+                    .with_operator_pubkey(operator_pubkey.clone())
+                    .with_status(GraphStatus::OperatorDataPushed.to_string())
+                    .with_raw_condition("init_withdraw_tx_hash IS NULL".to_string())
+                    .with_order("kickoff_index ASC".to_string())
+                    .with_limit(1),
+            )
+            .await
+            .api_error("PEGOUT_ERROR")?;
+        graphs.into_iter().next().ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "PEGOUT_ERROR".to_string(),
+                    message: format!("no eligible graph found for operator {operator_pubkey}"),
+                }),
+            )
+        })?
+    };
+
+    // Check previous graph readiness
+    if graph.kickoff_index > 0 {
+        let pre_graphs = storage_process
+            .get_operator_graphs(
+                GraphQuery::default()
+                    .with_operator_pubkey(graph.operator_pubkey.clone())
+                    .with_kickoff_index(graph.kickoff_index - 1),
+            )
+            .await
+            .api_error("PEGOUT_ERROR")?;
+        if !pre_graphs.is_empty()
+            && [
+                GraphStatus::OperatorDataPushed.to_string(),
+                GraphStatus::OperatorKickOff.to_string(),
+                GraphStatus::Challenge.to_string(),
+            ]
+            .contains(&pre_graphs[0].status)
+        {
+            return error_response(
+                "PEGOUT_ERROR".to_string(),
+                format!(
+                    "graph {} not ready: previous graph {} still in status {}",
+                    graph.graph_id, pre_graphs[0].graph_id, pre_graphs[0].status
+                ),
+            );
+        }
+    }
+
+    let amount = graph.amount;
+    if amount <= 0 {
+        return error_response(
+            "PEGOUT_ERROR".to_string(),
+            format!("graph {} has invalid amount {}", graph.graph_id, amount),
+        );
+    }
+
+    // Check L2 pegin status
+    let pegin_data = app_state
+        .goat_client
+        .gateway_get_pegin_data(&graph.instance_id)
+        .await
+        .api_error("PEGOUT_ERROR")?;
+    if pegin_data.status != PeginStatus::Withdrawable {
+        return error_response(
+            "PEGOUT_ERROR".to_string(),
+            format!(
+                "graph {} instance {} pegin status is {:?}, not Withdrawable",
+                graph.graph_id, graph.instance_id, pegin_data.status
+            ),
+        );
+    }
+
+    // Check L2 withdraw status
+    let withdraw_data = app_state
+        .goat_client
+        .gateway_get_withdraw_data(&graph.graph_id)
+        .await
+        .api_error("PEGOUT_ERROR")?;
+    if withdraw_data.status != WithdrawStatus::None {
+        return error_response(
+            "PEGOUT_ERROR".to_string(),
+            format!(
+                "graph {} withdraw status is {:?}, not None",
+                graph.graph_id, withdraw_data.status
+            ),
+        );
+    }
+
+    if payload.dry_run {
+        return ok_response(PegoutResponse {
+            graph_id: graph.graph_id.to_string(),
+            instance_id: graph.instance_id.to_string(),
+            kickoff_index: graph.kickoff_index,
+            amount,
+            tx_hash: None,
+            dry_run: true,
+        });
+    }
+
+    // Ensure pegBTC allowance
+    let amount_u256 = U256::from(amount as u64);
+    let balance = app_state
+        .goat_client
+        .peg_btc_balance(&operator_goat_addr.0)
+        .await
+        .api_error("PEGOUT_ERROR")?;
+    if balance < amount_u256 {
+        return error_response(
+            "PEGOUT_ERROR".to_string(),
+            format!("insufficient pegBTC balance: need {amount}, available {balance}"),
+        );
+    }
+
+    let allowance = app_state
+        .goat_client
+        .peg_btc_allowance(&operator_goat_addr.0, &gateway_addr.0)
+        .await
+        .api_error("PEGOUT_ERROR")?;
+    if allowance < amount_u256 {
+        app_state
+            .goat_client
+            .peg_btc_approve(&gateway_addr.0, amount_u256)
+            .await
+            .api_error("PEGOUT_ERROR")?;
+    }
+
+    // Call Gateway.initWithdraw
+    let tx_hash = app_state
+        .goat_client
+        .gateway_init_withdraw(&graph.instance_id, &graph.graph_id)
+        .await
+        .api_error("PEGOUT_ERROR")?;
+
+    ok_response(PegoutResponse {
+        graph_id: graph.graph_id.to_string(),
+        instance_id: graph.instance_id.to_string(),
+        kickoff_index: graph.kickoff_index,
+        amount,
+        tx_hash: Some(tx_hash),
+        dry_run: false,
+    })
 }
 
 // fn is_segwit_address(address: &str, network: &str) -> anyhow::Result<bool> {
