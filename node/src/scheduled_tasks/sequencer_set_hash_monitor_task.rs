@@ -96,46 +96,75 @@ pub(crate) async fn sync_sequencer_set_hash_changes(
         return Ok(());
     }
 
-    const SCAN_STATE_FLUSH_INTERVAL: i64 = 100;
+    let finish_info = format!(
+        "finish monitor seq_set_hash from: {}, to: {})",
+        state.next_cosmos_block_height, latest_cosmos_block
+    );
+
+    const SCAN_STATE_FLUSH_INTERVAL: i64 = 10;
     let mut blocks_since_last_flush: i64 = 0;
 
     while state.next_cosmos_block_height <= latest_cosmos_block {
-        let cosmos_block_height = u64::try_from(state.next_cosmos_block_height)
-            .context("cosmos block height is negative")?;
-        let (validators_hash, goat_block_height) =
-            rpc.get_validators_hash_and_goat_block(cosmos_block_height).await?;
+        info!(
+            "Syncing sequencer_set_hash changes at cosmos block {}",
+            state.next_cosmos_block_height
+        );
 
-        // Skip cosmos blocks without CBFT tx data (empty blocks or unparsable payload).
-        let goat_block_height = match goat_block_height {
-            Some(h) => h,
-            None => {
-                state.next_cosmos_block_height = state.next_cosmos_block_height.saturating_add(1);
-                blocks_since_last_flush += 1;
-                continue;
+        // Define a closure or block to handle the per-block logic so we can catch errors
+        let result: anyhow::Result<()> = async {
+            let cosmos_block_height = u64::try_from(state.next_cosmos_block_height)
+                .context("cosmos block height is negative")?;
+            let (validators_hash, goat_block_height) =
+                rpc.get_validators_hash_and_goat_block(cosmos_block_height).await?;
+
+            // Skip cosmos blocks without CBFT tx data (empty blocks or unparsable payload).
+            let goat_block_height = match goat_block_height {
+                Some(h) => h,
+                None => {
+                    return Ok(());
+                }
+            };
+
+            let validators_hash_hex = hex::encode(validators_hash);
+            let goat_block_height =
+                i64::try_from(goat_block_height).context("goat block height exceeds i64")?;
+
+            if state.latest_validators_hash != validators_hash_hex {
+                let mut storage = local_db.acquire().await?;
+                storage
+                    .upsert_sequencer_set_hash_change(
+                        state.next_cosmos_block_height,
+                        goat_block_height,
+                        &validators_hash_hex,
+                    )
+                    .await?;
+                info!(
+                    "Detected validators_hash change at cosmos block {} (goat block {}): {}",
+                    state.next_cosmos_block_height, goat_block_height, validators_hash_hex
+                );
+                state.latest_validators_hash = validators_hash_hex;
             }
-        };
 
-        let validators_hash_hex = hex::encode(validators_hash);
-        let goat_block_height =
-            i64::try_from(goat_block_height).context("goat block height exceeds i64")?;
+            state.latest_goat_block_height = goat_block_height;
 
-        if state.latest_validators_hash != validators_hash_hex {
+            Ok(())
+        }
+        .await;
+
+        if let Err(e) = result {
+            // Attempt to save state before returning the error
             let mut storage = local_db.acquire().await?;
             storage
-                .upsert_sequencer_set_hash_change(
+                .upsert_sequencer_set_scan_state(
                     state.next_cosmos_block_height,
-                    goat_block_height,
-                    &validators_hash_hex,
+                    state.latest_goat_block_height,
+                    &state.latest_validators_hash,
                 )
                 .await?;
-            info!(
-                "Detected validators_hash change at cosmos block {} (goat block {}): {}",
-                state.next_cosmos_block_height, goat_block_height, validators_hash_hex
-            );
-            state.latest_validators_hash = validators_hash_hex;
+            return Err(e);
         }
 
-        state.latest_goat_block_height = goat_block_height;
+        // Advance state on success (or empty block)
         state.next_cosmos_block_height = state.next_cosmos_block_height.saturating_add(1);
         blocks_since_last_flush += 1;
 
@@ -158,6 +187,7 @@ pub(crate) async fn sync_sequencer_set_hash_changes(
             );
         }
     }
+    info!(finish_info);
 
     Ok(())
 }
