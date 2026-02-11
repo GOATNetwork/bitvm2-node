@@ -2,8 +2,8 @@
 use base64::Engine;
 use bitvm2_lib::actors::Actor;
 use bitvm2_noded::env::{
-    self, ENV_PEER_KEY, check_node_info, get_btc_url_from_env, get_goat_network, get_network,
-    get_node_pubkey, goat_config_from_env,
+    self, ENV_PEER_KEY, SEQUENCER_SET_MONITOR_INTERVAL_SECS, check_node_info, get_btc_url_from_env,
+    get_goat_network, get_network, get_node_pubkey, goat_config_from_env,
 };
 use clap::{Parser, Subcommand};
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
@@ -43,26 +43,6 @@ struct Opts {
     /// Local Sqlite database file path
     #[arg(long, default_value = "sqlite:/tmp/bitvm2-node.db")]
     pub db_path: String,
-
-    /// Enable sequencer_set_hash monitor task
-    #[arg(long, env = "ENABLE_SEQUENCER_SET_HASH_MONITOR", default_value_t = false)]
-    pub enable_sequencer_set_hash_monitor: bool,
-
-    /// Start cosmos block for sequencer_set_hash monitor
-    #[arg(long, env = "SEQUENCER_SET_MONITOR_START_COSMOS_BLOCK")]
-    pub sequencer_set_monitor_start_cosmos_block: Option<u64>,
-
-    /// Monitor polling interval seconds
-    #[arg(long, env = "SEQUENCER_SET_MONITOR_INTERVAL_SECS", default_value_t = 5)]
-    pub sequencer_set_monitor_interval_secs: u64,
-
-    /// Cosmos RPC URL used by sequencer_set_hash monitor
-    #[arg(
-        long,
-        env = "COSMOS_RPC_URL",
-        default_value = "https://rpc.testnet3.goat.network/goat-rpc"
-    )]
-    pub cosmos_rpc_url: String,
 
     /// Peer nodes as the bootnodes
     #[arg(long)]
@@ -142,9 +122,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
 
     let is_committee = actor == Actor::Committee || actor == Actor::All;
+    let enable_sequencer_set_hash_monitor = env::get_enable_sequencer_set_hash_monitor_from_env();
+    let sequencer_set_monitor_start_cosmos_block =
+        env::get_sequencer_set_monitor_start_cosmos_block_from_env();
     if is_committee
-        && opt.enable_sequencer_set_hash_monitor
-        && opt.sequencer_set_monitor_start_cosmos_block.is_none()
+        && enable_sequencer_set_hash_monitor
+        && sequencer_set_monitor_start_cosmos_block.is_none()
     {
         return Err(anyhow::anyhow!(
             "sequencer_set_monitor_start_cosmos_block is required when sequencer set monitor is enabled"
@@ -246,10 +229,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }));
 
-    if opt.enable_sequencer_set_hash_monitor && is_committee {
-        let start_cosmos_block = opt.sequencer_set_monitor_start_cosmos_block.unwrap();
-        let monitor_interval = opt.sequencer_set_monitor_interval_secs;
-        let cosmos_rpc_url = opt.cosmos_rpc_url.clone();
+    if enable_sequencer_set_hash_monitor && is_committee {
+        let start_cosmos_block = sequencer_set_monitor_start_cosmos_block.unwrap();
+        let cosmos_rpc_url = env::get_cosmos_rpc_url_from_env();
         let cancel_token_clone = cancellation_token.clone();
         task_handles.push(tokio::spawn(async move {
             let goat_client =
@@ -259,7 +241,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 goat_client,
                 cosmos_rpc_url,
                 start_cosmos_block,
-                monitor_interval,
+                SEQUENCER_SET_MONITOR_INTERVAL_SECS,
                 cancel_token_clone,
             )
             .await

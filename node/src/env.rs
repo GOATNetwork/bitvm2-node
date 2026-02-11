@@ -77,6 +77,11 @@ pub const DEFAULT_OPERATOR_PROOF_WAIT_SECS: usize = 60;
 
 pub const ENV_ALWAYS_CHALLENGE: &str = "ALWAYS_CHALLENGE";
 pub const ENV_GENESIS_SEQUENCER_COMMIT_TXID: &str = "GENESIS_SEQUENCER_COMMIT_TXID";
+pub const ENV_ENABLE_SEQUENCER_SET_HASH_MONITOR: &str = "ENABLE_SEQUENCER_SET_HASH_MONITOR";
+pub const ENV_SEQUENCER_SET_MONITOR_START_COSMOS_BLOCK: &str =
+    "SEQUENCER_SET_MONITOR_START_COSMOS_BLOCK";
+pub const ENV_COSMOS_RPC_URL: &str = "COSMOS_RPC_URL";
+pub const DEFAULT_COSMOS_RPC_URL: &str = "https://rpc.testnet3.goat.network/goat-rpc";
 
 // fee estimate
 // TODO: more precise fee estimation
@@ -122,6 +127,7 @@ pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 
 pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
 pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
+pub const SEQUENCER_SET_MONITOR_INTERVAL_SECS: u64 = 5;
 
 pub fn get_network() -> Network {
     let network = std::env::var(ENV_BITCOIN_NETWORK).unwrap_or("testnet4".to_string());
@@ -338,6 +344,23 @@ pub enum GraphBtcTxName {
 }
 pub fn get_btc_url_from_env() -> Option<String> {
     std::env::var(ENV_BTC_CHAIN_URL).ok()
+}
+
+pub fn get_enable_sequencer_set_hash_monitor_from_env() -> bool {
+    match std::env::var(ENV_ENABLE_SEQUENCER_SET_HASH_MONITOR) {
+        Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+
+pub fn get_sequencer_set_monitor_start_cosmos_block_from_env() -> Option<u64> {
+    std::env::var(ENV_SEQUENCER_SET_MONITOR_START_COSMOS_BLOCK)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+}
+
+pub fn get_cosmos_rpc_url_from_env() -> String {
+    std::env::var(ENV_COSMOS_RPC_URL).unwrap_or(DEFAULT_COSMOS_RPC_URL.to_string())
 }
 
 pub fn get_goat_url_from_env() -> Url {
