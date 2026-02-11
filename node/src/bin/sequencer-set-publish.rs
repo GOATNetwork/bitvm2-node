@@ -27,7 +27,7 @@ use dotenv::dotenv;
 use hex::FromHex;
 use tracing_subscriber::EnvFilter;
 
-use cbft_rpc::{fetch_cbft_validator_info, fetch_validators};
+use cbft_rpc::fetch_validators;
 const RELAYER_FEE: u64 = 500; // satoshis, just to make sure the tx gets mined in time. This is not the actual fee amount.
 
 use bitcoin::secp256k1::{Message, Secp256k1};
@@ -83,6 +83,9 @@ struct Args {
 
     #[arg(long, env = "OUTPUT_FILE", default_value = "output.data")]
     output_file: String,
+
+    #[arg(long, env = "DB_PATH", default_value = "sqlite:/tmp/bitvm2-node.db")]
+    db_path: String,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -158,6 +161,33 @@ fn save_output(input: OutputData, output_file: &str) {
     std::fs::write(output_file, serde_json::to_string_pretty(&output).unwrap()).unwrap();
 }
 
+/// Query sequencer set hash from local DB.
+/// If `goat_block_number` is provided, find the first record at or after that goat block.
+/// If not provided, return the latest record.
+async fn get_sequencer_set_hash_from_db(
+    db_path: &str,
+    goat_block_number: Option<u64>,
+) -> Result<([u8; 32], u64, u64), Box<dyn std::error::Error>> {
+    let local_db = store::create_local_db(db_path).await;
+    let mut storage = local_db.acquire().await?;
+    let record = if let Some(goat_block_number) = goat_block_number {
+        storage
+            .find_first_sequencer_set_hash_change_by_goat_block_at_or_after(i64::try_from(
+                goat_block_number,
+            )?)
+            .await?
+    } else {
+        storage.find_latest_sequencer_set_hash_change().await?
+    };
+    let record =
+        record.ok_or("No validators_hash record found in db. Start the monitor task first")?;
+
+    let sequencer_set_hash = <[u8; 32]>::from_hex(record.validators_hash.trim_start_matches("0x"))?;
+    let goat_block_number = u64::try_from(record.goat_block_height)?;
+    let cosmos_block_number = u64::try_from(record.cosmos_block_height)?;
+    Ok((sequencer_set_hash, goat_block_number, cosmos_block_number))
+}
+
 #[derive(Subcommand, Debug)]
 enum Commands {
     Pubkey {
@@ -174,7 +204,7 @@ enum Commands {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
         owner_btc_key_wif: Option<String>,
         #[arg(long)]
-        goat_block_number: u64,
+        goat_block_number: Option<u64>,
         #[arg(long, env = "PUBLISHER_BTC_PUBKEYS", value_delimiter = ',', value_parser = decode_btc_public_keys)]
         publisher_btc_pubkeys: Vec<secp256k1::PublicKey>,
         #[arg(long, env = "NEXT_PUBLISHER_BTC_PUBKEYS", value_delimiter = ',', value_parser = decode_btc_public_keys)]
@@ -186,7 +216,7 @@ enum Commands {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
         owner_btc_key_wif: Option<String>,
         #[arg(long)]
-        goat_block_number: u64,
+        goat_block_number: Option<u64>,
         #[arg(long, env = "PUBLISHER_BTC_PUBKEYS", value_delimiter = ',', value_parser = decode_btc_public_keys)]
         publisher_btc_pubkeys: Vec<secp256k1::PublicKey>,
         #[arg(long, env = "NEXT_PUBLISHER_BTC_PUBKEYS", value_delimiter = ',', value_parser = decode_btc_public_keys)]
@@ -286,10 +316,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             next_publisher_btc_pubkeys,
             goat_genesis_block_hash,
         } => {
-            let (sequencer_set_hash, cl_block_number) =
-                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None, 1000)
-                    .await?;
-            println!("cl block number: {cl_block_number}, el block number: {goat_block_number}");
+            let (sequencer_set_hash, goat_block_number, cosmos_block_number) =
+                get_sequencer_set_hash_from_db(&args.db_path, goat_block_number).await?;
+            println!(
+                "resolved cl block number: {cosmos_block_number}, resolved el block number: {goat_block_number}"
+            );
 
             let fee_tx = cached_output.fee_tx.unwrap();
             let update_connector = cached_output.update_connector;
@@ -318,9 +349,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commit_info,
         } => {
             println!("goat genesis block hash: {:#?}", hex::encode(goat_genesis_block_hash));
-            let (sequencer_set_hash, cosmos_block_number) =
-                fetch_cbft_validator_info(&args.cosmos_rpc_url, goat_block_number, None, 1000)
-                    .await?;
+            let (sequencer_set_hash, goat_block_number, cosmos_block_number) =
+                get_sequencer_set_hash_from_db(&args.db_path, goat_block_number).await?;
 
             let sequencers = fetch_validators(&args.cosmos_rpc_url, cosmos_block_number).await?;
             let fee_tx = cached_output.fee_tx;

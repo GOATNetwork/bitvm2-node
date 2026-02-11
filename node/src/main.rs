@@ -16,7 +16,9 @@ use tracing_subscriber::EnvFilter;
 use bitvm2_noded::utils::{
     self, generate_local_key, save_local_info, set_node_external_socket_addr_env,
 };
-use bitvm2_noded::{rpc_service, run_maintenance_tasks, run_watch_event_task};
+use bitvm2_noded::{
+    rpc_service, run_maintenance_tasks, run_sequencer_set_hash_monitor_task, run_watch_event_task,
+};
 
 use anyhow::Result;
 use bitvm2_noded::middleware::swarm::{Bitvm2SwarmConfig, BitvmNetworkManager};
@@ -41,6 +43,26 @@ struct Opts {
     /// Local Sqlite database file path
     #[arg(long, default_value = "sqlite:/tmp/bitvm2-node.db")]
     pub db_path: String,
+
+    /// Enable sequencer_set_hash monitor task
+    #[arg(long, env = "ENABLE_SEQUENCER_SET_HASH_MONITOR", default_value_t = false)]
+    pub enable_sequencer_set_hash_monitor: bool,
+
+    /// Start cosmos block for sequencer_set_hash monitor
+    #[arg(long, env = "SEQUENCER_SET_MONITOR_START_COSMOS_BLOCK")]
+    pub sequencer_set_monitor_start_cosmos_block: Option<u64>,
+
+    /// Monitor polling interval seconds
+    #[arg(long, env = "SEQUENCER_SET_MONITOR_INTERVAL_SECS", default_value_t = 5)]
+    pub sequencer_set_monitor_interval_secs: u64,
+
+    /// Cosmos RPC URL used by sequencer_set_hash monitor
+    #[arg(
+        long,
+        env = "COSMOS_RPC_URL",
+        default_value = "https://rpc.testnet3.goat.network/goat-rpc"
+    )]
+    pub cosmos_rpc_url: String,
 
     /// Peer nodes as the bootnodes
     #[arg(long)]
@@ -118,6 +140,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+
+    let is_committee = actor == Actor::Committee || actor == Actor::All;
+    if is_committee
+        && opt.enable_sequencer_set_hash_monitor
+        && opt.sequencer_set_monitor_start_cosmos_block.is_none()
+    {
+        return Err(anyhow::anyhow!(
+            "sequencer_set_monitor_start_cosmos_block is required when sequencer set monitor is enabled"
+        )
+        .into());
+    }
     let mut metric_registry = Registry::default();
 
     // Create cancellation token for graceful shutdown
@@ -156,6 +189,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_db_clone1 = local_db.clone();
     let local_db_clone2 = local_db.clone();
     let local_db_clone3 = local_db.clone();
+    let local_db_clone4 = local_db.clone();
     let opt_rpc_addr = opt.rpc_addr.clone();
     let peer_id_string_clone = peer_id_string.clone();
     let metric_registry_clone = Arc::new(Mutex::new(metric_registry));
@@ -211,6 +245,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }));
+
+    if opt.enable_sequencer_set_hash_monitor && is_committee {
+        let start_cosmos_block = opt.sequencer_set_monitor_start_cosmos_block.unwrap();
+        let monitor_interval = opt.sequencer_set_monitor_interval_secs;
+        let cosmos_rpc_url = opt.cosmos_rpc_url.clone();
+        let cancel_token_clone = cancellation_token.clone();
+        task_handles.push(tokio::spawn(async move {
+            let goat_client =
+                Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
+            match run_sequencer_set_hash_monitor_task(
+                local_db_clone4,
+                goat_client,
+                cosmos_rpc_url,
+                start_cosmos_block,
+                monitor_interval,
+                cancel_token_clone,
+            )
+            .await
+            {
+                Ok(tag) => Ok(tag),
+                Err(e) => {
+                    tracing::error!("Sequencer set monitor task error: {}", e);
+                    Err("sequencer_set_monitor_error".to_string())
+                }
+            }
+        }));
+    }
     // }
 
     let cancel_token_clone = cancellation_token.clone();

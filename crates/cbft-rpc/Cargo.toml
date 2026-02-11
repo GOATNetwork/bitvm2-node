@@ -19,6 +19,7 @@ tendermint-light-client-verifier = { workspace = true, default-features = false,
 ] }
 tendermint-rpc = { workspace = true, features = ["http-client"] }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 tracing.workspace = true
 
 [dev-dependencies]

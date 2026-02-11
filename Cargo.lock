@@ -2930,6 +2930,7 @@ name = "cbft-rpc"
 version = "0.3.3"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.21.7",
  "bitcoin-light-client-circuit",
  "commit-chain",

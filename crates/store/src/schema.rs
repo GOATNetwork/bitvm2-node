@@ -729,6 +729,26 @@ pub struct LongRunningTaskProof {
     pub updated_at: i64,
 }
 
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct SequencerSetHashChange {
+    pub id: i64,
+    pub cosmos_block_height: i64,
+    pub goat_block_height: i64,
+    pub validators_hash: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct SequencerSetScanState {
+    pub id: i64,
+    pub next_cosmos_block_height: i64,
+    pub latest_goat_block_height: i64,
+    pub latest_validators_hash: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

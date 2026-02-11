@@ -2,7 +2,8 @@ use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     BridgeOutGlobalStats, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance,
     LongRunningTaskProof, Message, Node, NodesOverview, OperatorProof, PeginGraphProcessData,
-    PeginInstanceProcessData, SerializableTxid, WatchContract, WatchtowerProof,
+    PeginInstanceProcessData, SequencerSetHashChange, SequencerSetScanState, SerializableTxid,
+    WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -2908,6 +2909,105 @@ impl<'a> StorageProcessor<'a> {
         .await?;
         Ok(res)
     }
+
+    pub async fn upsert_sequencer_set_hash_change(
+        &mut self,
+        cosmos_block_height: i64,
+        goat_block_height: i64,
+        validators_hash: &str,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query(
+            r#"INSERT INTO sequencer_set_hash_changes (cosmos_block_height, goat_block_height, validators_hash, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (cosmos_block_height) DO UPDATE
+               SET goat_block_height = excluded.goat_block_height,
+                   validators_hash = excluded.validators_hash,
+                   updated_at = excluded.updated_at"#,
+        )
+        .bind(cosmos_block_height)
+        .bind(goat_block_height)
+        .bind(validators_hash)
+        .bind(current_time)
+        .bind(current_time)
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn find_latest_sequencer_set_hash_change(
+        &mut self,
+    ) -> anyhow::Result<Option<SequencerSetHashChange>> {
+        let res = sqlx::query_as::<_, SequencerSetHashChange>(
+            "SELECT * FROM sequencer_set_hash_changes ORDER BY cosmos_block_height DESC LIMIT 1",
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn find_first_sequencer_set_hash_change_by_goat_block_at_or_after(
+        &mut self,
+        goat_block_height: i64,
+    ) -> anyhow::Result<Option<SequencerSetHashChange>> {
+        let res = sqlx::query_as::<_, SequencerSetHashChange>(
+            "SELECT * FROM sequencer_set_hash_changes WHERE goat_block_height >= ? ORDER BY goat_block_height ASC LIMIT 1",
+        )
+        .bind(goat_block_height)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn find_first_sequencer_set_hash_change_by_cosmos_block_at_or_after(
+        &mut self,
+        cosmos_block_height: i64,
+    ) -> anyhow::Result<Option<SequencerSetHashChange>> {
+        let res = sqlx::query_as::<_, SequencerSetHashChange>(
+            "SELECT * FROM sequencer_set_hash_changes WHERE cosmos_block_height >= ? ORDER BY cosmos_block_height ASC LIMIT 1",
+        )
+        .bind(cosmos_block_height)
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn get_sequencer_set_scan_state(
+        &mut self,
+    ) -> anyhow::Result<Option<SequencerSetScanState>> {
+        let res = sqlx::query_as::<_, SequencerSetScanState>(
+            "SELECT * FROM sequencer_set_scan_state WHERE id = 1 LIMIT 1",
+        )
+        .fetch_optional(self.conn())
+        .await?;
+        Ok(res)
+    }
+
+    pub async fn upsert_sequencer_set_scan_state(
+        &mut self,
+        next_cosmos_block_height: i64,
+        latest_goat_block_height: i64,
+        latest_validators_hash: &str,
+    ) -> anyhow::Result<u64> {
+        let current_time = get_current_timestamp_secs();
+        let res = sqlx::query(
+            r#"INSERT INTO sequencer_set_scan_state (id, next_cosmos_block_height, latest_goat_block_height, latest_validators_hash, created_at, updated_at)
+               VALUES (1, ?, ?, ?, ?, ?)
+               ON CONFLICT (id) DO UPDATE
+               SET next_cosmos_block_height = excluded.next_cosmos_block_height,
+                   latest_goat_block_height = excluded.latest_goat_block_height,
+                   latest_validators_hash = excluded.latest_validators_hash,
+                   updated_at = excluded.updated_at"#,
+        )
+        .bind(next_cosmos_block_height)
+        .bind(latest_goat_block_height)
+        .bind(latest_validators_hash)
+        .bind(current_time)
+        .bind(current_time)
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
 }
 
 // fn truncate_string(s: &str, max_len: usize) -> &str {
@@ -2918,4 +3018,135 @@ pub async fn create_local_db(db_path: &str) -> LocalDB {
     let local_db = LocalDB::new(db_path, true).await;
     local_db.migrate().await;
     local_db
+}
+
+#[cfg(test)]
+mod sequencer_set_tests {
+    use super::*;
+
+    async fn setup_db() -> LocalDB {
+        create_local_db("sqlite::memory:").await
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_find_latest_hash_change() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        s.upsert_sequencer_set_hash_change(100, 1000, "aabbcc").await.unwrap();
+        s.upsert_sequencer_set_hash_change(200, 2000, "ddeeff").await.unwrap();
+        s.upsert_sequencer_set_hash_change(150, 1500, "112233").await.unwrap();
+
+        let latest = s.find_latest_sequencer_set_hash_change().await.unwrap().unwrap();
+        assert_eq!(latest.cosmos_block_height, 200);
+        assert_eq!(latest.goat_block_height, 2000);
+        assert_eq!(latest.validators_hash, "ddeeff");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_hash_change_conflict() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        s.upsert_sequencer_set_hash_change(100, 1000, "aabbcc").await.unwrap();
+        // Same cosmos_block_height, different data — should overwrite
+        s.upsert_sequencer_set_hash_change(100, 1001, "ddeeff").await.unwrap();
+
+        let latest = s.find_latest_sequencer_set_hash_change().await.unwrap().unwrap();
+        assert_eq!(latest.cosmos_block_height, 100);
+        assert_eq!(latest.goat_block_height, 1001);
+        assert_eq!(latest.validators_hash, "ddeeff");
+    }
+
+    #[tokio::test]
+    async fn test_find_by_goat_block_at_or_after() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        s.upsert_sequencer_set_hash_change(100, 1000, "aa").await.unwrap();
+        s.upsert_sequencer_set_hash_change(200, 2000, "bb").await.unwrap();
+        s.upsert_sequencer_set_hash_change(300, 3000, "cc").await.unwrap();
+
+        // Exact match
+        let r = s
+            .find_first_sequencer_set_hash_change_by_goat_block_at_or_after(2000)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.goat_block_height, 2000);
+
+        // Between records — should return next one
+        let r = s
+            .find_first_sequencer_set_hash_change_by_goat_block_at_or_after(1500)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.goat_block_height, 2000);
+
+        // Beyond all records — should return None
+        let r =
+            s.find_first_sequencer_set_hash_change_by_goat_block_at_or_after(4000).await.unwrap();
+        assert!(r.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_find_by_cosmos_block_at_or_after() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        s.upsert_sequencer_set_hash_change(100, 1000, "aa").await.unwrap();
+        s.upsert_sequencer_set_hash_change(200, 2000, "bb").await.unwrap();
+
+        let r = s
+            .find_first_sequencer_set_hash_change_by_cosmos_block_at_or_after(150)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.cosmos_block_height, 200);
+
+        let r =
+            s.find_first_sequencer_set_hash_change_by_cosmos_block_at_or_after(300).await.unwrap();
+        assert!(r.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_upsert_and_get() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        assert!(s.get_sequencer_set_scan_state().await.unwrap().is_none());
+
+        s.upsert_sequencer_set_scan_state(100, 1000, "aabbcc").await.unwrap();
+        let state = s.get_sequencer_set_scan_state().await.unwrap().unwrap();
+        assert_eq!(state.next_cosmos_block_height, 100);
+        assert_eq!(state.latest_goat_block_height, 1000);
+        assert_eq!(state.latest_validators_hash, "aabbcc");
+
+        // Update
+        s.upsert_sequencer_set_scan_state(200, 2000, "ddeeff").await.unwrap();
+        let state = s.get_sequencer_set_scan_state().await.unwrap().unwrap();
+        assert_eq!(state.next_cosmos_block_height, 200);
+        assert_eq!(state.latest_validators_hash, "ddeeff");
+    }
+
+    #[tokio::test]
+    async fn test_find_returns_none_when_empty() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        assert!(s.find_latest_sequencer_set_hash_change().await.unwrap().is_none());
+        assert!(
+            s.find_first_sequencer_set_hash_change_by_goat_block_at_or_after(0)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            s.find_first_sequencer_set_hash_change_by_cosmos_block_at_or_after(0)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(s.get_sequencer_set_scan_state().await.unwrap().is_none());
+    }
 }

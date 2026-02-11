@@ -5,6 +5,42 @@ use tendermint::validator::Info;
 use tendermint_light_client_verifier::types::{LightBlock, PeerId, ValidatorSet};
 use tendermint_rpc::{Client, HttpClient};
 
+/// Abstraction over Cosmos RPC calls used by the sequencer set hash monitor.
+/// Enables mock-based testing of sync logic without real RPC.
+#[async_trait::async_trait]
+pub trait CosmosRpcProvider: Send + Sync {
+    /// Fetch the latest block height from the Cosmos chain.
+    async fn get_latest_block_height(&self) -> Result<u64>;
+
+    /// Fetch validators_hash and goat block number for a given cosmos block.
+    /// Returns `None` for goat_block_number when the block has no CBFT tx data.
+    async fn get_validators_hash_and_goat_block(
+        &self,
+        cosmos_block_height: u64,
+    ) -> Result<([u8; 32], Option<u64>)>;
+}
+
+/// Default implementation that delegates to real Cosmos RPC endpoints.
+#[derive(Debug)]
+pub struct DefaultCosmosRpcProvider {
+    pub cosmos_rpc_url: String,
+}
+
+#[async_trait::async_trait]
+impl CosmosRpcProvider for DefaultCosmosRpcProvider {
+    async fn get_latest_block_height(&self) -> Result<u64> {
+        fetch_latest_cosmos_block_height(&self.cosmos_rpc_url).await
+    }
+
+    async fn get_validators_hash_and_goat_block(
+        &self,
+        cosmos_block_height: u64,
+    ) -> Result<([u8; 32], Option<u64>)> {
+        fetch_cbft_block_validators_hash_and_goat_block(&self.cosmos_rpc_url, cosmos_block_height)
+            .await
+    }
+}
+
 #[tracing::instrument(level = "info")]
 pub async fn fetch_validators(cosmos_rpc_url: &str, block_height: u64) -> Result<Vec<Info>> {
     let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
@@ -13,6 +49,44 @@ pub async fn fetch_validators(cosmos_rpc_url: &str, block_height: u64) -> Result
         .await
         .map_err(|e| anyhow!("Error fetching validators for block height {block_height}: {e:?}"))?;
     Ok(validators_response.validators)
+}
+
+#[tracing::instrument(level = "info")]
+pub async fn fetch_latest_cosmos_block_height(cosmos_rpc_url: &str) -> Result<u64> {
+    let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
+    let status = rpc.status().await.map_err(|e| anyhow!("Error fetching status: {e:?}"))?;
+    Ok(status.sync_info.latest_block_height.into())
+}
+
+/// Fetch the validators_hash and goat block number for a given cosmos block.
+/// Returns `None` for goat_block_number when the block has no CBFT tx data
+/// or the payload cannot be parsed (e.g. empty blocks).
+#[tracing::instrument(level = "info")]
+pub async fn fetch_cbft_block_validators_hash_and_goat_block(
+    cosmos_rpc_url: &str,
+    cosmos_block_height: u64,
+) -> Result<([u8; 32], Option<u64>)> {
+    let rpc = HttpClient::new(cosmos_rpc_url).unwrap();
+    let block_data =
+        rpc.block(Height::try_from(cosmos_block_height).unwrap()).await.map_err(|e| {
+            anyhow!("Error fetching block data for height {cosmos_block_height}: {e:?}")
+        })?;
+
+    let validators_hash: [u8; 32] = block_data
+        .block
+        .header
+        .validators_hash
+        .as_bytes()
+        .try_into()
+        .map_err(|_| anyhow!("Invalid validators_hash length"))?;
+
+    if block_data.block.data.is_empty() {
+        return Ok((validators_hash, None));
+    }
+
+    let goat_block_number =
+        parse_cbft_tx_payload(&block_data.block.data[0]).map(|payload| payload.block_number);
+    Ok((validators_hash, goat_block_number))
 }
 
 // get cosmos block height from block hash: curl https://rpc.testnet3.goat.network/goat-rpc/block_by_hash?hash=0xd2e236b8f89278a527a042727cd4eebb59a566006a844f294da54ed727b95470
