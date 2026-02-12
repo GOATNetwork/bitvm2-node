@@ -121,11 +121,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
 
-    let is_committee = actor == Actor::Committee || actor == Actor::All;
+    let is_publisher = actor == Actor::Publisher || actor == Actor::All;
     let enable_sequencer_set_hash_monitor = env::get_enable_sequencer_set_hash_monitor_from_env();
     let sequencer_set_monitor_start_cosmos_block =
         env::get_sequencer_set_monitor_start_cosmos_block_from_env();
-    if is_committee
+    if is_publisher
         && enable_sequencer_set_hash_monitor
         && sequencer_set_monitor_start_cosmos_block.is_none()
     {
@@ -229,7 +229,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }));
 
-    if enable_sequencer_set_hash_monitor && is_committee {
+    if enable_sequencer_set_hash_monitor && is_publisher {
         let start_cosmos_block = sequencer_set_monitor_start_cosmos_block.unwrap();
         let cosmos_rpc_url = env::get_cosmos_rpc_url_from_env();
         let cancel_token_clone = cancellation_token.clone();

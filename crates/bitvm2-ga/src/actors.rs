@@ -7,5 +7,6 @@ pub enum Actor {
     Operator,
     Challenger,
     Watchtower,
+    Publisher,
     All,
 }
