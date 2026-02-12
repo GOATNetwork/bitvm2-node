@@ -8,12 +8,12 @@
 //! - BITVM_SECRET: the node's secret key, used to sign the auth headers
 //!
 //! Args:
-//! - --api-url: node API base URL (default: http://localhost:8080)
+//! - --rpc-url: node API base URL (default: http://localhost:8080)
 //! - --graph-id: target graph UUID
 //!
 //! Example:
 //! - cargo run -p bitvm2-noded --bin challenge -- \
-//!   --api-url http://localhost:8080 \
+//!   --rpc-url http://localhost:8080 \
 //!   --graph-id <uuid>
 
 use anyhow::{Context, Result};

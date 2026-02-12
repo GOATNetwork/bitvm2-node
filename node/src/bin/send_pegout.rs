@@ -4,15 +4,15 @@
 //! - once: single pegout for one graph
 //! - batch: repeat until target amount reached or no eligible graphs
 //!
-//! The operator node must be running and reachable at the given --api-url.
+//! The operator node must be running and reachable at the given --rpc-url.
 //! BITVM_SECRET must be set on this client to sign the auth headers.
 //!
 //! Args:
-//! - --api-url: node API base URL (default: http://localhost:8080)
+//! - --rpc-url: node API base URL (default: http://localhost:8080)
 //!
 //! Example:
 //! - cargo run -p bitvm2-noded --bin pegout -- \
-//!   --api-url http://localhost:8080 once --graph-id <uuid>
+//!   --rpc-url http://localhost:8080 once --graph-id <uuid>
 
 use anyhow::{Context, Result, bail};
 use bitvm2_noded::env::get_bitvm_key;

@@ -47,24 +47,24 @@ Use the `/run-operator-node` skill to start one, or see `deployment/README.md` (
 5. Run the command using the pre-built binary:
 
 ```bash
-./bin/pegout [--api-url <URL>] <subcommand> [options]
+./bin/pegout [--rpc-url <URL>] <subcommand> [options]
 ```
 
 ### Example commands
 
 Single pegout (auto-select graph):
 ```bash
-./bin/pegout --api-url http://127.0.0.1:8902 once
+./bin/pegout --rpc-url http://127.0.0.1:8902 once
 ```
 
 Single pegout (specific graph, dry run):
 ```bash
-./bin/pegout --api-url http://127.0.0.1:8902 once --graph-id <UUID> --dry-run
+./bin/pegout --rpc-url http://127.0.0.1:8902 once --graph-id <UUID> --dry-run
 ```
 
 Batch pegout:
 ```bash
-./bin/pegout --api-url http://127.0.0.1:8902 batch --max-total-amount-sats 10000000 --max-count 5
+./bin/pegout --rpc-url http://127.0.0.1:8902 batch --max-total-amount-sats 10000000 --max-count 5
 ```
 
 > The binary calls `POST /v1/graphs/pegout` on the node API.

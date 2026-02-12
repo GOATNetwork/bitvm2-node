@@ -37,7 +37,7 @@ Use the `/run-challenger-node` skill to start one, or see `deployment/README.md`
 6. Run the command using the pre-built binary:
 
 ```bash
-./bin/challenge --graph-id <UUID> [--api-url <URL>]
+./bin/challenge --graph-id <UUID> [--rpc-url <URL>]
 ```
 
 ### Example commands
@@ -47,5 +47,5 @@ Use the `/run-challenger-node` skill to start one, or see `deployment/README.md`
 ./bin/challenge --graph-id 6ba7b810-9dad-11d1-80b4-00c04fd430c8
 
 # Custom API URL (e.g. challenger node on port 8906)
-./bin/challenge --graph-id 6ba7b810-9dad-11d1-80b4-00c04fd430c8 --api-url http://127.0.0.1:8906
+./bin/challenge --graph-id 6ba7b810-9dad-11d1-80b4-00c04fd430c8 --rpc-url http://127.0.0.1:8906
 ```
