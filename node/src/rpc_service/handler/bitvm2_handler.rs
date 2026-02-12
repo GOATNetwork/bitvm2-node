@@ -3,6 +3,7 @@ use crate::env::{
     get_goat_address_from_env, get_goat_gateway_contract_from_env, get_network,
     get_node_goat_address, get_node_pubkey,
 };
+use crate::rpc_service::auth::verify_request_auth;
 use crate::rpc_service::bitvm2::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::response::{
@@ -24,7 +25,7 @@ use bitcoin::consensus::encode::serialize_hex;
 use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
 use client::goat_chain::{DisproveTxType, PeginStatus, WithdrawStatus};
 use goat::transactions::pre_signed::PreSignedTransaction;
-use http::StatusCode;
+use http::{HeaderMap, StatusCode};
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -1709,9 +1710,11 @@ pub async fn get_unsigned_pegin_txn(
 /// - `500 Internal Server Error`: Graph not found or broadcast failed
 #[axum::debug_handler]
 pub async fn send_challenge(
+    headers: HeaderMap,
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<SendChallengeResponse> {
+    verify_request_auth(&headers)?;
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
     let mut storage_process =
@@ -1762,9 +1765,11 @@ pub async fn send_challenge(
 /// - `500 Internal Server Error`: No eligible graph, L2 status invalid, or initWithdraw failed
 #[axum::debug_handler]
 pub async fn pegout(
+    headers: HeaderMap,
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<PegoutRequest>,
 ) -> ApiResult<PegoutResponse> {
+    verify_request_auth(&headers)?;
     let operator_pubkey = get_node_pubkey().api_error("PEGOUT_ERROR")?.to_string();
     let operator_goat_addr = get_node_goat_address()
         .ok_or_else(|| {

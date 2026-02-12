@@ -1,3 +1,4 @@
+pub mod auth;
 mod bitvm2;
 mod cors_config;
 pub mod handler;

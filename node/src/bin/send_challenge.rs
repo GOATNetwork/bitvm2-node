@@ -5,8 +5,7 @@
 //!   transaction on Bitcoin. No direct DB access is needed.
 //!
 //! Env:
-//! - (Environment variables like BITVM_SECRET, GOAT_PRIVATE_KEY, etc. are
-//!   required on the **node** side, not on this client.)
+//! - BITVM_SECRET: the node's secret key, used to sign the auth headers
 //!
 //! Args:
 //! - --api-url: node API base URL (default: http://localhost:8080)
@@ -18,6 +17,10 @@
 //!   --graph-id <uuid>
 
 use anyhow::{Context, Result};
+use bitvm2_noded::env::get_bitvm_key;
+use bitvm2_noded::rpc_service::auth::{
+    AUTH_SIGNATURE_HEADER, AUTH_TIMESTAMP_HEADER, sign_request_auth,
+};
 use clap::Parser;
 use serde::Deserialize;
 
@@ -52,9 +55,14 @@ async fn main() -> Result<()> {
         args.graph_id
     );
 
+    let keypair = get_bitvm_key().context("failed to load BITVM_SECRET")?;
+    let (timestamp, signature) = sign_request_auth(&keypair);
+
     let client = reqwest::Client::new();
     let resp = client
         .post(&url)
+        .header(AUTH_TIMESTAMP_HEADER, &timestamp)
+        .header(AUTH_SIGNATURE_HEADER, &signature)
         .send()
         .await
         .with_context(|| format!("failed to reach node API at {url}"))?;

@@ -5,8 +5,7 @@
 //! - batch: repeat until target amount reached or no eligible graphs
 //!
 //! The operator node must be running and reachable at the given --api-url.
-//! All env-based secrets (BITVM_SECRET, GOAT_PRIVATE_KEY, etc.) are required
-//! on the **node** side, not on this client.
+//! BITVM_SECRET must be set on this client to sign the auth headers.
 //!
 //! Args:
 //! - --api-url: node API base URL (default: http://localhost:8080)
@@ -16,6 +15,10 @@
 //!   --api-url http://localhost:8080 once --graph-id <uuid>
 
 use anyhow::{Context, Result, bail};
+use bitvm2_noded::env::get_bitvm_key;
+use bitvm2_noded::rpc_service::auth::{
+    AUTH_SIGNATURE_HEADER, AUTH_TIMESTAMP_HEADER, sign_request_auth,
+};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use tokio::time::{Duration, sleep};
@@ -115,8 +118,13 @@ async fn call_pegout(
     let url = format!("{}/v1/pegout", base_url.trim_end_matches('/'));
     let body = PegoutApiRequest { graph_id: graph_id.map(|id| id.to_string()), dry_run };
 
+    let keypair = get_bitvm_key().context("failed to load BITVM_SECRET")?;
+    let (timestamp, signature) = sign_request_auth(&keypair);
+
     let resp = client
         .post(&url)
+        .header(AUTH_TIMESTAMP_HEADER, &timestamp)
+        .header(AUTH_SIGNATURE_HEADER, &signature)
         .json(&body)
         .send()
         .await
