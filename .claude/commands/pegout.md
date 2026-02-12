@@ -66,3 +66,5 @@ Batch pegout:
 ```bash
 ./bin/pegout --api-url http://127.0.0.1:8902 batch --max-total-amount-sats 10000000 --max-count 5
 ```
+
+> The binary calls `POST /v1/graphs/pegout` on the node API.

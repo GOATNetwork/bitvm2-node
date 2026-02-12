@@ -115,7 +115,7 @@ async fn call_pegout(
     graph_id: Option<Uuid>,
     dry_run: bool,
 ) -> Result<PegoutApiResponse> {
-    let url = format!("{}/v1/pegout", base_url.trim_end_matches('/'));
+    let url = format!("{}/v1/graphs/pegout", base_url.trim_end_matches('/'));
     let body = PegoutApiRequest { graph_id: graph_id.map(|id| id.to_string()), dry_run };
 
     let keypair = get_bitvm_key().context("failed to load BITVM_SECRET")?;
