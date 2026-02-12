@@ -14,7 +14,7 @@ Use the `/run-operator-node` skill to start one, or see `deployment/README.md` (
    - **subcommand**: Which mode to use?
      - `once` - Single pegout for one graph
      - `batch` - Repeat until balance insufficient or target reached
-   - **api_url**: Node API base URL. Default: `http://localhost:8080`
+   - **rpc_url**: Node API base URL. Default: `http://localhost:8080`
    - For `once`:
      - **graph_id**: Optional UUID of the graph to pegout (auto-selects if omitted)
      - **dry_run**: Whether to skip the actual Gateway.initWithdraw call. Default: false
@@ -31,11 +31,11 @@ Use the `/run-operator-node` skill to start one, or see `deployment/README.md` (
    ```
    If it is not set, ask the user to export it before continuing.
 
-3. Confirm that the Operator node is running and reachable at the given `api_url`. If the user hasn't started a node yet, walk them through the `/run-operator-node` skill.
+3. Confirm that the Operator node is running and reachable at the given `rpc_url`. If the user hasn't started a node yet, walk them through the `/run-operator-node` skill.
 
 3. **Verify the node has synced eligible graphs.** The operator node syncs graph data via P2P. Check by calling:
    ```bash
-   curl -s <api_url>/v1/graphs/ready-to-kickoff?btc_pub_key=<OPERATOR_BTC_PUBKEY> | jq .
+   curl -s <rpc_url>/v1/graphs/ready-to-kickoff?btc_pub_key=<OPERATOR_BTC_PUBKEY> | jq .
    ```
    If `"graph"` is null, the node may not have synced yet or there are no eligible graphs.
 

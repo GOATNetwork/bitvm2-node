@@ -29,12 +29,12 @@ use uuid::Uuid;
     name = "send-pegout",
     version,
     about = "Operator pegout helper (via node API)",
-    long_about = "Initiate pegout by calling the node's REST API.\n\nThe operator node must be running and reachable at the given --api-url."
+    long_about = "Initiate pegout by calling the node's REST API.\n\nThe operator node must be running and reachable at the given --rpc-url."
 )]
 struct Args {
     /// Node API base URL
     #[arg(long, default_value = "http://localhost:8080")]
-    api_url: String,
+    rpc_url: String,
 
     #[command(subcommand)]
     command: Commands,
@@ -204,7 +204,7 @@ async fn wait_for_graph_ready(
 async fn main() -> Result<()> {
     let args = Args::parse();
     let client = reqwest::Client::new();
-    let base_url = &args.api_url;
+    let base_url = &args.rpc_url;
 
     match args.command {
         Commands::Once { graph_id, dry_run } => {

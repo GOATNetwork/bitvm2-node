@@ -12,7 +12,7 @@ Use the `/run-challenger-node` skill to start one, or see `deployment/README.md`
 
 1. Ask the user for the following parameters (skip any already provided as arguments: $ARGUMENTS):
    - **graph_id**: Required. Graph UUID to challenge
-   - **api_url**: Node API base URL. Default: `http://localhost:8080`
+   - **rpc_url**: Node API base URL. Default: `http://localhost:8080`
 
 2. **Check that `BITVM_SECRET` is set** in the current shell environment. The binary uses this key to sign the request — it must match the secret configured on the target node.
    ```bash
@@ -20,11 +20,11 @@ Use the `/run-challenger-node` skill to start one, or see `deployment/README.md`
    ```
    If it is not set, ask the user to export it before continuing.
 
-3. Confirm that the Challenger node is running and reachable at the given `api_url`. If the user hasn't started a node yet, walk them through the `/run-challenger-node` skill.
+3. Confirm that the Challenger node is running and reachable at the given `rpc_url`. If the user hasn't started a node yet, walk them through the `/run-challenger-node` skill.
 
 4. **Verify the graph is synced** on the local challenger node. The challenger syncs graph data via P2P from other nodes, so the target graph must exist locally before a challenge can be sent. Check by calling:
    ```bash
-   curl -s <api_url>/v1/graphs/<graph_id> | jq .
+   curl -s <rpc_url>/v1/graphs/<graph_id> | jq .
    ```
    - If the response contains a non-null `"graph"` field, the graph is synced and ready.
    - If `"graph"` is null or the request fails, the node has not yet synced this graph. Ask the user to wait for P2P sync to complete and retry. The node must be connected to the network (correct `BOOTNODES`, `PROTO_NAME`) and the graph must exist on peer nodes.

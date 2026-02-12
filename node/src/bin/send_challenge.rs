@@ -29,7 +29,7 @@ use serde::Deserialize;
     name = "send-challenge",
     version,
     about = "Broadcast a Challenge transaction for a graph (via node API)",
-    long_about = "Broadcast a Challenge transaction for a graph via the node's REST API.\n\nThe node must be running and reachable at the given --api-url."
+    long_about = "Broadcast a Challenge transaction for a graph via the node's REST API.\n\nThe node must be running and reachable at the given --rpc-url."
 )]
 struct Args {
     /// Graph UUID to challenge
@@ -38,7 +38,7 @@ struct Args {
 
     /// Node API base URL
     #[arg(long, default_value = "http://localhost:8080")]
-    api_url: String,
+    rpc_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let url = format!(
         "{}/v1/graphs/{}/send-challenge",
-        args.api_url.trim_end_matches('/'),
+        args.rpc_url.trim_end_matches('/'),
         args.graph_id
     );
 

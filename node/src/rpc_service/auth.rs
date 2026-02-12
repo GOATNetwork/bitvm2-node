@@ -18,9 +18,7 @@ const AUTH_DOMAIN: &[u8] = b"bitvm2-auth";
 ///   - `X-Auth-Timestamp`: current unix epoch seconds (string)
 ///   - `X-Auth-Signature`: hex-encoded 64-byte Schnorr signature of
 ///     `SHA256(b"bitvm2-auth" || timestamp_str)`
-pub fn verify_request_auth(
-    headers: &HeaderMap,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+pub fn verify_request_auth(headers: &HeaderMap) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     let timestamp_str = headers
         .get(AUTH_TIMESTAMP_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -33,10 +31,8 @@ pub fn verify_request_auth(
 
     // Check timestamp freshness
     let timestamp: i64 = timestamp_str.parse().map_err(|_| auth_error("invalid timestamp"))?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+        as i64;
     if (now - timestamp).abs() > AUTH_WINDOW_SECS {
         return Err(auth_error("timestamp expired"));
     }
@@ -116,7 +112,9 @@ mod tests {
     #[test]
     fn sign_then_verify_ok() {
         let keypair = test_keypair();
-        unsafe { std::env::set_var("BITVM_SECRET", hex::encode(keypair.secret_key().secret_bytes())) };
+        unsafe {
+            std::env::set_var("BITVM_SECRET", hex::encode(keypair.secret_key().secret_bytes()))
+        };
 
         let (ts, sig) = sign_request_auth(&keypair);
         let headers = make_headers(&ts, &sig);
@@ -142,15 +140,15 @@ mod tests {
     #[test]
     fn verify_expired_timestamp_fails() {
         let keypair = test_keypair();
-        unsafe { std::env::set_var("BITVM_SECRET", hex::encode(keypair.secret_key().secret_bytes())) };
+        unsafe {
+            std::env::set_var("BITVM_SECRET", hex::encode(keypair.secret_key().secret_bytes()))
+        };
 
         // Timestamp 10 minutes in the past
-        let old_ts = (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            - 600)
-            .to_string();
+        let old_ts =
+            (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+                - 600)
+                .to_string();
 
         let mut hasher = Sha256::new();
         hasher.update(AUTH_DOMAIN);
@@ -167,7 +165,9 @@ mod tests {
     #[test]
     fn verify_wrong_signature_fails() {
         let keypair = test_keypair();
-        unsafe { std::env::set_var("BITVM_SECRET", hex::encode(keypair.secret_key().secret_bytes())) };
+        unsafe {
+            std::env::set_var("BITVM_SECRET", hex::encode(keypair.secret_key().secret_bytes()))
+        };
 
         let (ts, _) = sign_request_auth(&keypair);
         // Corrupt the signature
