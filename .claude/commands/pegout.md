@@ -25,7 +25,13 @@ Use the `/run-operator-node` skill to start one, or see `deployment/README.md` (
      - **poll_interval_secs**: Poll interval between pegouts. Default: 300
      - **max_wait_secs**: Max wait for a graph to be ready. Default: 36000
 
-2. Confirm that the Operator node is running and reachable at the given `api_url`. If the user hasn't started a node yet, walk them through the `/run-operator-node` skill.
+2. **Check that `BITVM_SECRET` is set** in the current shell environment. The binary uses this key to sign the request — it must match the secret configured on the target node.
+   ```bash
+   echo "BITVM_SECRET is ${BITVM_SECRET:+set}"
+   ```
+   If it is not set, ask the user to export it before continuing.
+
+3. Confirm that the Operator node is running and reachable at the given `api_url`. If the user hasn't started a node yet, walk them through the `/run-operator-node` skill.
 
 3. **Verify the node has synced eligible graphs.** The operator node syncs graph data via P2P. Check by calling:
    ```bash
