@@ -127,6 +127,8 @@ pub const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
 pub const HEARTBEAT_INTERVAL_SECOND: u64 = 60 * 5;
 pub const REGULAR_TASK_INTERVAL_SECOND: u64 = 20;
 pub const SEQUENCER_SET_MONITOR_INTERVAL_SECS: u64 = 5;
+pub const ENV_INSTANCE_MAINTENANCE_BATCH_SIZE: &str = "INSTANCE_MAINTENANCE_BATCH_SIZE";
+pub const DEFAULT_INSTANCE_MAINTENANCE_BATCH_SIZE: u32 = 50;
 
 pub fn get_network() -> Network {
     let network = std::env::var(ENV_BITCOIN_NETWORK).unwrap_or("testnet4".to_string());
@@ -529,6 +531,14 @@ pub fn get_operator_proof_wait_secs() -> usize {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(DEFAULT_OPERATOR_PROOF_WAIT_SECS)
+}
+
+pub fn get_instance_maintenance_batch_size() -> u32 {
+    std::env::var(ENV_INSTANCE_MAINTENANCE_BATCH_SIZE)
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .map(|size| size.clamp(1, 5000))
+        .unwrap_or(DEFAULT_INSTANCE_MAINTENANCE_BATCH_SIZE)
 }
 
 pub fn should_always_challenge() -> bool {

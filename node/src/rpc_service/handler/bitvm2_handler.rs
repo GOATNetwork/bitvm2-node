@@ -26,15 +26,40 @@ use bitvm2_lib::types::{Bitvm2Graph, SimplifiedBitvm2Graph};
 use client::goat_chain::{DisproveTxType, PeginStatus, WithdrawStatus};
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::{HeaderMap, StatusCode};
+use sha2::{Digest, Sha256};
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
 use store::{
     GoatTxType, Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
 };
+use tokio::time::{Duration, sleep};
 use tracing::warn;
 use uuid::Uuid;
+
+const BRIDGE_OUT_INSTANCE_ID_PREFIX: [u8; 4] = *b"BOID";
+
+fn bridge_out_instance_id_from_escrow_hash(escrow_hash: &str) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(b"bridge-out:");
+    hasher.update(escrow_hash.as_bytes());
+    let digest = hasher.finalize();
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[..4].copy_from_slice(&BRIDGE_OUT_INSTANCE_ID_PREFIX);
+    Uuid::from_bytes(bytes)
+}
+
+fn bridge_out_retry_jitter_ms(attempt: u32) -> u64 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.subsec_millis() as u64)
+        .unwrap_or(0);
+    let base = 5u64.saturating_mul(1u64 << attempt.min(4));
+    base + (now % 25)
+}
 
 /// Get instance settings
 ///
@@ -148,21 +173,42 @@ pub async fn bridge_in_request_tag(
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
     let current_time = current_time_secs();
+    if let Some(instance) = storage_process
+        .find_instance(&instance_id)
+        .await
+        .api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?
+    {
+        let network = get_network().to_string();
+        let has_conflict = !instance.is_bridge_in
+            || (!instance.network.is_empty() && instance.network != network)
+            || (!instance.from_addr.is_empty() && instance.from_addr != payload.from_addr)
+            || (!instance.to_addr.is_empty() && instance.to_addr != to_addr);
+        if has_conflict {
+            return error_response(
+                "BRIDGE_IN_INSTANCE_ID_CONFLICT".to_string(),
+                format!("instance_id {instance_id} already exists with different request data"),
+            );
+        }
+        return ok_response(BridgeInPrepareResponse {});
+    }
+
+    let instance = Instance {
+        instance_id,
+        is_bridge_in: true,
+        network: get_network().to_string(),
+        from_addr: payload.from_addr,
+        to_addr,
+        input_utxos: "[]".to_string(),
+        status: InstanceBridgeInStatus::UserIniting.to_string(),
+        bridge_out_amount: "0".to_string(),
+        status_updated_at: current_time,
+        created_at: current_time,
+        updated_at: current_time,
+        ..Default::default()
+    };
+
     storage_process
-        .upsert_instance(&Instance {
-            instance_id,
-            is_bridge_in: true,
-            network: get_network().to_string(),
-            from_addr: payload.from_addr,
-            to_addr,
-            input_utxos: "[]".to_string(),
-            status: InstanceBridgeInStatus::UserIniting.to_string(),
-            bridge_out_amount: "0".to_string(),
-            status_updated_at: current_time,
-            created_at: current_time,
-            updated_at: current_time,
-            ..Default::default()
-        })
+        .upsert_instance(&instance)
         .await
         .api_error("PUT_BRIDGE_IN_REQUEST_TAG_ERROR")?;
     ok_response(BridgeInPrepareResponse {})
@@ -228,7 +274,8 @@ pub async fn bridge_out_init_tag(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeOutInitTagRequest>,
 ) -> ApiResult<BridgeOutInitTagResponse> {
-    let instance_id = Uuid::new_v4();
+    const MAX_BRIDGE_OUT_INIT_RETRIES: u32 = 3;
+
     let from_addr = InputValidator::validate_goat_address(&payload.from_addr, "from_addr")?;
     InputValidator::validate_btc_address(&payload.to_addr, None, "network and to_addr")?;
     let contract_address =
@@ -246,34 +293,87 @@ pub async fn bridge_out_init_tag(
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
     let current_time = current_time_secs();
-    let mut instance = match find_instances_by_escrow_hash(&mut storage_process, &escrow_hash)
-        .await
-        .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?
-    {
-        Some(instance) => instance,
-        None => Instance {
-            instance_id,
-            from_addr,
+
+    for attempt in 0..=MAX_BRIDGE_OUT_INIT_RETRIES {
+        if let Some(mut instance) =
+            find_instances_by_escrow_hash(&mut storage_process, &escrow_hash)
+                .await
+                .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?
+        {
+            if instance.status == InstanceBridgeOutStatus::Initialize.to_string() {
+                instance.to_addr = payload.to_addr.clone();
+                instance.network = get_network().to_string();
+                storage_process
+                    .upsert_instance(&instance)
+                    .await
+                    .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
+            }
+            return ok_response(BridgeOutInitTagResponse {});
+        }
+
+        let candidate_instance_id = if attempt == 0 {
+            bridge_out_instance_id_from_escrow_hash(&escrow_hash)
+        } else {
+            Uuid::new_v4()
+        };
+
+        if let Some(existing) = storage_process
+            .find_instance(&candidate_instance_id)
+            .await
+            .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?
+        {
+            let escrow_hash_matches = existing
+                .escrow_hash
+                .as_ref()
+                .map(|hash| hash.eq_ignore_ascii_case(&escrow_hash))
+                .unwrap_or(false);
+            if !existing.is_bridge_in && escrow_hash_matches {
+                continue;
+            }
+            if attempt < MAX_BRIDGE_OUT_INIT_RETRIES {
+                sleep(Duration::from_millis(bridge_out_retry_jitter_ms(attempt))).await;
+                continue;
+            }
+            return error_response(
+                "BRIDGE_OUT_INSTANCE_ID_CONFLICT".to_string(),
+                "failed to allocate bridge-out instance_id for escrow_hash".to_string(),
+            );
+        }
+
+        let mut instance = Instance {
+            instance_id: candidate_instance_id,
+            from_addr: from_addr.clone(),
             network: get_network().to_string(),
             input_utxos: "[]".to_string(),
-            escrow_hash: Some(escrow_hash),
+            escrow_hash: Some(escrow_hash.clone()),
             status: InstanceBridgeOutStatus::Initialize.to_string(),
             bridge_out_amount: "0".to_string(),
             status_updated_at: current_time,
             created_at: current_time,
             ..Default::default()
-        },
-    };
-    if instance.status == InstanceBridgeOutStatus::Initialize.to_string() {
-        instance.to_addr = payload.to_addr;
-        instance.network = get_network().to_string();
-        storage_process
-            .upsert_instance(&instance)
-            .await
-            .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
+        };
+        instance.to_addr = payload.to_addr.clone();
+
+        match storage_process.upsert_instance(&instance).await {
+            Ok(_) => return ok_response(BridgeOutInitTagResponse {}),
+            Err(err) => {
+                if attempt < MAX_BRIDGE_OUT_INIT_RETRIES {
+                    warn!(
+                        "bridge_out_init_tag upsert failed at attempt {}, retrying: {}",
+                        attempt, err
+                    );
+                    sleep(Duration::from_millis(bridge_out_retry_jitter_ms(attempt))).await;
+                    continue;
+                }
+                return Err(err).api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR");
+            }
+        }
     }
 
-    ok_response(BridgeOutInitTagResponse {})
+    error_response(
+        "BRIDGE_OUT_INSTANCE_ID_CONFLICT".to_string(),
+        "failed to initialize bridge-out instance after retries".to_string(),
+    )
 }
 
 /// Get instance escrow data

@@ -1,5 +1,5 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
-use crate::env::INSTANCE_PRESIGNED_TIME_EXPIRED;
+use crate::env::{INSTANCE_PRESIGNED_TIME_EXPIRED, get_instance_maintenance_batch_size};
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::event_watch_task::generate_instance_from_bridge_in_request_event;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
@@ -16,7 +16,9 @@ use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::graph_query::BridgeInRequestEvent;
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{LazyLock, Mutex};
 use std::vec;
 use store::localdb::{InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor};
 use store::{
@@ -25,7 +27,79 @@ use store::{
 use tracing::{info, warn};
 use uuid::Uuid;
 
-const MAX_INSTANCE: u32 = 50;
+const TASK_KEY_INSTANCE_WINDOW_EXPIRATION: &str = "instance_window_expiration_monitor";
+const TASK_KEY_INSTANCE_EXPIRATION: &str = "instance_expiration_monitor";
+const TASK_KEY_INSTANCE_BTC_TX: &str = "instance_btc_tx_monitor";
+const TASK_KEY_INSTANCE_BRIDGE_OUT: &str = "instance_bridge_out_monitor";
+
+#[derive(Clone, Debug)]
+struct InstancePageState {
+    watermark: i64,
+    cursor: Option<(i64, Uuid)>,
+}
+
+static INSTANCE_PAGE_STATES: LazyLock<Mutex<HashMap<&'static str, InstancePageState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn get_or_init_instance_page_state(task_key: &'static str) -> InstancePageState {
+    let mut state = INSTANCE_PAGE_STATES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    state
+        .entry(task_key)
+        .or_insert_with(|| InstancePageState { watermark: current_time_secs(), cursor: None })
+        .clone()
+}
+
+fn reset_instance_page_state(task_key: &'static str) {
+    let mut state = INSTANCE_PAGE_STATES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    state.insert(task_key, InstancePageState { watermark: current_time_secs(), cursor: None });
+}
+
+fn advance_instance_page_state(task_key: &'static str, watermark: i64, last: (i64, Uuid)) {
+    let mut state = INSTANCE_PAGE_STATES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    state.insert(task_key, InstancePageState { watermark, cursor: Some(last) });
+}
+
+async fn find_one_instance_page(
+    local_db: &LocalDB,
+    task_key: &'static str,
+    mut query: InstanceQuery,
+    batch_size: u32,
+) -> anyhow::Result<Vec<Instance>> {
+    let page_state = get_or_init_instance_page_state(task_key);
+    query = query
+        .with_order("created_at ASC, instance_id ASC".to_string())
+        .with_limit(batch_size)
+        .with_raw_condition(format!("created_at <= {}", page_state.watermark));
+
+    if let Some((created_at, instance_id)) = page_state.cursor {
+        query = query.with_raw_condition(format!(
+            "(created_at > {created_at} OR (created_at = {created_at} AND instance_id > '{instance_id}'))"
+        ));
+    }
+
+    let instances = {
+        let mut storage_processor = local_db.acquire().await?;
+        let (instances, _) = storage_processor.find_instances(query).await?;
+        instances
+    };
+
+    if instances.is_empty() {
+        reset_instance_page_state(task_key);
+        return Ok(instances);
+    }
+
+    if instances.len() < batch_size as usize {
+        reset_instance_page_state(task_key);
+    } else if let Some(last) = instances.last() {
+        advance_instance_page_state(
+            task_key,
+            page_state.watermark,
+            (last.created_at, last.instance_id),
+        );
+    }
+
+    Ok(instances)
+}
 
 async fn update_instance<'a>(
     storage_processor: &mut StorageProcessor<'a>,
@@ -44,6 +118,7 @@ async fn update_instance<'a>(
 }
 
 /// for committee
+/// handle bridge-in request events on GOAT
 pub async fn instance_answers_monitor(
     local_db: &LocalDB,
     btc_client: &BTCClient,
@@ -125,26 +200,24 @@ pub async fn instance_answers_monitor(
     Ok(())
 }
 
+/// check committee answers for bridge-in request after response window expired
 pub async fn instance_window_expiration_monitor(
     local_db: &LocalDB,
     goat_client: &GOATClient,
 ) -> anyhow::Result<()> {
+    let batch_size = get_instance_maintenance_batch_size();
     let window_blocks = goat_client.gateway_get_response_window_blocks().await? as i64;
     let current_height = goat_client.get_latest_block_number().await?;
-    let (instances, _) = {
-        let mut storage_processor = local_db.acquire().await?;
-        storage_processor
-            .find_instances(
-                InstanceQuery::default()
-                    .with_is_bridge_in(true)
-                    .with_status(InstanceBridgeInStatus::UserInited.to_string())
-                    .with_pegin_request_height_threshold(current_height - window_blocks)
-                    .with_order("created_at ASC".to_string())
-                    .with_offset(0)
-                    .with_limit(MAX_INSTANCE),
-            )
-            .await?
-    };
+    let instances = find_one_instance_page(
+        local_db,
+        TASK_KEY_INSTANCE_WINDOW_EXPIRATION,
+        InstanceQuery::default()
+            .with_is_bridge_in(true)
+            .with_status(InstanceBridgeInStatus::UserInited.to_string())
+            .with_pegin_request_height_threshold(current_height - window_blocks),
+        batch_size,
+    )
+    .await?;
 
     let committee_quorum_size = goat_client.committee_mana_quorum_size().await?;
     for mut instance in instances {
@@ -153,13 +226,7 @@ pub async fn instance_window_expiration_monitor(
                 for (committee_addr, pubkey) in
                     pegin_data.committee_addresses.iter().zip(pegin_data.committee_pubkeys)
                 {
-                    instance
-                        .committees_answers
-                        .entry(committee_addr.to_string())
-                        .and_modify(|existing| {
-                            *existing = pubkey.clone();
-                        })
-                        .or_insert_with(|| pubkey);
+                    instance.committees_answers.insert(committee_addr.to_string(), pubkey);
                 }
 
                 if committee_quorum_size <= instance.committees_answers.len() as u64 {
@@ -205,13 +272,15 @@ fn update_pegin_txids(instance: &mut Instance) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// check pegin-cancel timelock
 pub async fn instance_expiration_monitor(
     local_db: &LocalDB,
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
+    let batch_size = get_instance_maintenance_batch_size();
     let current_time = current_time_secs();
     let current_height = btc_client.get_height().await? as i64;
-    let (instances, _) = {
+    let instances = {
         let mut storage_processor = local_db.acquire().await?;
         let expired_num = storage_processor
             .update_expired_instance(
@@ -221,19 +290,17 @@ pub async fn instance_expiration_monitor(
             )
             .await?;
         info!("Presigned expired instances is {expired_num}");
-        storage_processor
-            .find_instances(
-                InstanceQuery::default()
-                    .with_is_bridge_in(true)
-                    .with_statuses(vec![
-                        InstanceBridgeInStatus::Presigned.to_string(),
-                        InstanceBridgeInStatus::PresignedFailed.to_string(),
-                    ])
-                    .with_order("created_at ASC".to_string())
-                    .with_offset(0)
-                    .with_limit(MAX_INSTANCE),
-            )
-            .await?
+        let _ = storage_processor;
+        find_one_instance_page(
+            local_db,
+            TASK_KEY_INSTANCE_EXPIRATION,
+            InstanceQuery::default().with_is_bridge_in(true).with_statuses(vec![
+                InstanceBridgeInStatus::Presigned.to_string(),
+                InstanceBridgeInStatus::PresignedFailed.to_string(),
+            ]),
+            batch_size,
+        )
+        .await?
     };
 
     let lock_height = CONNECTOR_Z_TIMELOCK as i64;
@@ -253,31 +320,26 @@ pub async fn instance_expiration_monitor(
     Ok(())
 }
 
-/// prepare cancel confirmed
+/// check if pegin-deposit/cancel/confirm tx confirmed on chain, and update instance status accordingly
 pub async fn instance_btc_tx_monitor(
     local_db: &LocalDB,
     btc_client: &BTCClient,
 ) -> anyhow::Result<()> {
     info!("check user broadcast Pegin-Prepare");
+    let batch_size = get_instance_maintenance_batch_size();
 
-    let (instances, _) = {
-        let mut storage_processor = local_db.acquire().await?;
-        storage_processor
-            .find_instances(
-                InstanceQuery::default()
-                    .with_is_bridge_in(true)
-                    .with_statuses(vec![
-                        InstanceBridgeInStatus::UserInited.to_string(),
-                        InstanceBridgeInStatus::CommitteesAnswered.to_string(),
-                        InstanceBridgeInStatus::Presigned.to_string(),
-                        InstanceBridgeInStatus::Timeout.to_string(),
-                    ])
-                    .with_offset(0)
-                    .with_order("created_at ASC".to_string())
-                    .with_limit(MAX_INSTANCE),
-            )
-            .await?
-    };
+    let instances = find_one_instance_page(
+        local_db,
+        TASK_KEY_INSTANCE_BTC_TX,
+        InstanceQuery::default().with_is_bridge_in(true).with_statuses(vec![
+            InstanceBridgeInStatus::UserInited.to_string(),
+            InstanceBridgeInStatus::CommitteesAnswered.to_string(),
+            InstanceBridgeInStatus::Presigned.to_string(),
+            InstanceBridgeInStatus::Timeout.to_string(),
+        ]),
+        batch_size,
+    )
+    .await?;
     for instance in instances {
         let (txid_op, next_status) = match InstanceBridgeInStatus::from_str(&instance.status) {
             Ok(status) => match status {
@@ -358,7 +420,7 @@ pub async fn instance_btc_tx_monitor(
                 instance.instance_id, instance.status, txid_op
             );
             if [
-                InstanceBridgeInStatus::UserInited,
+                InstanceBridgeInStatus::CommitteesAnswered,
                 InstanceBridgeInStatus::UserBroadcastPeginPrepare,
             ]
             .contains(&next_status)
@@ -411,34 +473,21 @@ pub async fn get_bridge_out_deadline<'a>(
 }
 
 pub async fn instance_bridge_out_monitor(local_db: &LocalDB) -> anyhow::Result<()> {
+    let batch_size = get_instance_maintenance_batch_size();
     let current_time = current_time_secs();
-    let (instances, _) = {
-        let mut storage_processor = local_db.acquire().await?;
-        storage_processor
-            .find_instances(
-                InstanceQuery::default()
-                    .with_is_bridge_in(false)
-                    .with_status(InstanceBridgeOutStatus::Initialize.to_string())
-                    .with_raw_condition("escrow_hash IS NOT NULL".to_string())
-                    .with_order("escrow_hash, created_at ASC".to_string()),
-            )
-            .await?
-    };
+    let instances = find_one_instance_page(
+        local_db,
+        TASK_KEY_INSTANCE_BRIDGE_OUT,
+        InstanceQuery::default()
+            .with_is_bridge_in(false)
+            .with_status(InstanceBridgeOutStatus::Initialize.to_string())
+            .with_raw_condition("escrow_hash IS NOT NULL".to_string()),
+        batch_size,
+    )
+    .await?;
     let mut storage_processor = local_db.acquire().await?;
-    let mut pre_id = Uuid::nil();
     for instance in instances {
-        if instance.instance_id == pre_id {
-            let from_addr = format!("{}_excessive", instance.from_addr);
-            storage_processor
-                .update_instance(
-                    &InstanceUpdate::new_with_instance_id(instance.instance_id)
-                        .with_from_addr(from_addr),
-                )
-                .await?;
-            continue;
-        }
         let mut instance_update = InstanceUpdate::new_with_instance_id(instance.instance_id);
-        pre_id = instance.instance_id;
         let lock_time = if instance.bridge_out_lock_time == 0 {
             let lock_time =
                 get_bridge_out_deadline(&mut storage_processor, &instance.instance_id).await?;
