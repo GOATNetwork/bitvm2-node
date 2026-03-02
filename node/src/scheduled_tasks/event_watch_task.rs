@@ -8,13 +8,14 @@ use crate::env::{
 };
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
+use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
 use crate::utils::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::utils::{
     GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance,
     get_bridge_out_global_stats, outpoint_available, reflect_goat_address, strip_hex_prefix_owned,
 };
 use alloy::primitives::{Address as EvmAddress, U256};
-use alloy::sol_types::SolValue;
+use alloy::sol_types::{SolType, SolValue};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address, Amount, OutPoint, Txid};
@@ -220,6 +221,7 @@ pub async fn fetch_and_handle_bridge_out_events<'a>(
     from_height: i64,
     to_height: i64,
 ) -> anyhow::Result<()> {
+    let gateway_peg_btc_address = get_gateway_peg_btc_address().await?;
     let query_res = client
         .execute_query(
             graph_url,
@@ -238,6 +240,7 @@ pub async fn fetch_and_handle_bridge_out_events<'a>(
                         storage_processor,
                         goat_client.clone(),
                         contract_addr,
+                        &gateway_peg_btc_address,
                         serde_json::from_value::<Vec<SwapInitializeEvent>>(
                             serde_json::Value::Array(value_vec.clone()),
                         )?,
@@ -249,6 +252,7 @@ pub async fn fetch_and_handle_bridge_out_events<'a>(
                         storage_processor,
                         goat_client.clone(),
                         contract_addr,
+                        &gateway_peg_btc_address,
                         serde_json::from_value::<Vec<SwapClaimEvent>>(serde_json::Value::Array(
                             value_vec.clone(),
                         ))?,
@@ -258,6 +262,7 @@ pub async fn fetch_and_handle_bridge_out_events<'a>(
                 SwapEventEntity::Refunds => {
                     handle_swap_refund_events(
                         storage_processor,
+                        &gateway_peg_btc_address,
                         serde_json::from_value::<Vec<SwapRefundEvent>>(serde_json::Value::Array(
                             value_vec.clone(),
                         ))?,
@@ -610,6 +615,7 @@ async fn handle_swap_init_events<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     goat_client: Arc<GOATClient>,
     swap_contract_address: &EvmAddress,
+    gateway_peg_btc_address: &EvmAddress,
     init_events: Vec<SwapInitializeEvent>,
 ) -> anyhow::Result<()> {
     for event in init_events {
@@ -660,14 +666,33 @@ async fn handle_swap_init_events<'a>(
                     get_timestamp_from_contract_data(&escrow_data.refundData.0);
                 instance.status_updated_at = create_time;
                 storage_processor.upsert_instance(&instance).await?;
-                let mut bridge_out_global_stats =
-                    get_bridge_out_global_stats(storage_processor).await?;
-                let mut initial_amount =
-                    U256::from_str(&bridge_out_global_stats.initial_amount).unwrap_or_default();
-                initial_amount.add_assign(&escrow_data.amount);
-                bridge_out_global_stats.initial_amount = initial_amount.to_string();
-                bridge_out_global_stats.initial_txn += 1;
-                storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
+                if escrow_data.token == *gateway_peg_btc_address {
+                    let mut bridge_out_global_stats =
+                        get_bridge_out_global_stats(storage_processor).await?;
+                    let mut initial_amount =
+                        U256::from_str(&bridge_out_global_stats.initial_amount).unwrap_or_default();
+                    initial_amount.add_assign(&escrow_data.amount);
+                    bridge_out_global_stats.initial_amount = initial_amount.to_string();
+                    bridge_out_global_stats.initial_txn += 1;
+                    storage_processor
+                        .upsert_bridge_out_global_stats(&bridge_out_global_stats)
+                        .await?;
+                    info!(
+                        "swap initialize stats included: tx_hash={}, escrow_hash={}, token={}, amount={}",
+                        event.transaction_hash,
+                        event.escrow_hash,
+                        escrow_data.token,
+                        escrow_data.amount,
+                    );
+                } else {
+                    info!(
+                        "swap initialize stats skipped(non-pegBTC): tx_hash={}, escrow_hash={}, token={}, expect_token={}",
+                        event.transaction_hash,
+                        event.escrow_hash,
+                        escrow_data.token,
+                        gateway_peg_btc_address,
+                    );
+                }
             }
             storage_processor
                 .upsert_goat_tx_record(&GoatTxRecord {
@@ -693,6 +718,7 @@ async fn handle_swap_claim_events<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     goat_client: Arc<GOATClient>,
     swap_contract_address: &EvmAddress,
+    gateway_peg_btc_address: &EvmAddress,
     claim_events: Vec<SwapClaimEvent>,
 ) -> anyhow::Result<()> {
     for event in claim_events {
@@ -735,15 +761,35 @@ async fn handle_swap_claim_events<'a>(
                 )
                 .await?;
 
-            let mut bridge_out_global_stats =
-                get_bridge_out_global_stats(storage_processor).await?;
-            let mut claim_amount =
-                U256::from_str(&bridge_out_global_stats.claim_amount).unwrap_or_default();
-            claim_amount
-                .add_assign(&U256::from_str(&instance.bridge_out_amount).unwrap_or_default());
-            bridge_out_global_stats.claim_amount = claim_amount.to_string();
-            bridge_out_global_stats.claim_txn += 1;
-            storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
+            let is_peg_btc_swap = is_gateway_peg_btc_swap_instance(
+                storage_processor,
+                &instance_id,
+                gateway_peg_btc_address,
+            )
+            .await?;
+            if is_peg_btc_swap {
+                let mut bridge_out_global_stats =
+                    get_bridge_out_global_stats(storage_processor).await?;
+                let mut claim_amount =
+                    U256::from_str(&bridge_out_global_stats.claim_amount).unwrap_or_default();
+                claim_amount
+                    .add_assign(&U256::from_str(&instance.bridge_out_amount).unwrap_or_default());
+                bridge_out_global_stats.claim_amount = claim_amount.to_string();
+                bridge_out_global_stats.claim_txn += 1;
+                storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
+                info!(
+                    "swap claim stats included: tx_hash={}, escrow_hash={}, instance_id={}, amount={}",
+                    event.transaction_hash,
+                    event.escrow_hash,
+                    instance_id,
+                    instance.bridge_out_amount,
+                );
+            } else {
+                info!(
+                    "swap claim stats skipped(non-pegBTC): tx_hash={}, escrow_hash={}, instance_id={}",
+                    event.transaction_hash, event.escrow_hash, instance_id,
+                );
+            }
         } else {
             warn!("failed to parse claim_data for event:{event:?}");
         }
@@ -753,6 +799,7 @@ async fn handle_swap_claim_events<'a>(
 
 async fn handle_swap_refund_events<'a>(
     storage_processor: &mut StorageProcessor<'a>,
+    gateway_peg_btc_address: &EvmAddress,
     refund_events: Vec<SwapRefundEvent>,
 ) -> anyhow::Result<()> {
     for event in refund_events {
@@ -765,18 +812,67 @@ async fn handle_swap_refund_events<'a>(
                         .with_status(InstanceBridgeOutStatus::Refund.to_string()),
                 )
                 .await?;
-            let mut bridge_out_global_stats =
-                get_bridge_out_global_stats(storage_processor).await?;
-            let mut refund_amount =
-                U256::from_str(&bridge_out_global_stats.refund_amount).unwrap_or_default();
-            refund_amount
-                .add_assign(&U256::from_str(&instance.bridge_out_amount).unwrap_or_default());
-            bridge_out_global_stats.refund_amount = refund_amount.to_string();
-            bridge_out_global_stats.refund_txn += 1;
-            storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
+            let is_peg_btc_swap = is_gateway_peg_btc_swap_instance(
+                storage_processor,
+                &instance.instance_id,
+                gateway_peg_btc_address,
+            )
+            .await?;
+            if is_peg_btc_swap {
+                let mut bridge_out_global_stats =
+                    get_bridge_out_global_stats(storage_processor).await?;
+                let mut refund_amount =
+                    U256::from_str(&bridge_out_global_stats.refund_amount).unwrap_or_default();
+                refund_amount
+                    .add_assign(&U256::from_str(&instance.bridge_out_amount).unwrap_or_default());
+                bridge_out_global_stats.refund_amount = refund_amount.to_string();
+                bridge_out_global_stats.refund_txn += 1;
+                storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
+                info!(
+                    "swap refund stats included: tx_hash={}, escrow_hash={}, instance_id={}, amount={}",
+                    event.transaction_hash,
+                    event.escrow_hash,
+                    instance.instance_id,
+                    instance.bridge_out_amount,
+                );
+            } else {
+                info!(
+                    "swap refund stats skipped(non-pegBTC): tx_hash={}, escrow_hash={}, instance_id={}",
+                    event.transaction_hash, event.escrow_hash, instance.instance_id,
+                );
+            }
         }
     }
     Ok(())
+}
+
+async fn get_gateway_peg_btc_address() -> anyhow::Result<EvmAddress> {
+    env::goat_config_from_env()
+        .await
+        .peg_btc_address
+        .ok_or(anyhow::anyhow!("failed to get gateway pegBTC contract address"))
+}
+
+async fn is_gateway_peg_btc_swap_instance(
+    storage_processor: &mut StorageProcessor<'_>,
+    instance_id: &Uuid,
+    gateway_peg_btc_address: &EvmAddress,
+) -> anyhow::Result<bool> {
+    if let Some(tx_record) = storage_processor
+        .find_graph_goat_tx_record(
+            instance_id,
+            &Uuid::nil(),
+            &GoatTxType::SwapInitialize.to_string(),
+        )
+        .await?
+        && let Some(encode_escrow_data) = tx_record.extra
+        && let Ok(escrow_data_bytes) = hex::decode(&encode_escrow_data)
+        && let Ok(escrow_data) = <EscrowData as SolType>::abi_decode(&escrow_data_bytes)
+    {
+        return Ok(escrow_data.token == *gateway_peg_btc_address);
+    }
+
+    Ok(false)
 }
 
 pub(super) async fn generate_instance_from_bridge_in_request_event(
