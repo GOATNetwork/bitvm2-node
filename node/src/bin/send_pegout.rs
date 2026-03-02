@@ -184,12 +184,12 @@ async fn wait_for_graph_ready(
     loop {
         if let Some(status) = get_graph_status(client, base_url, graph_id).await? {
             if !IN_PROGRESS_STATUSES.contains(&status.as_str()) {
-                eprintln!("graph {} ready, status: {}", graph_id, status);
+                eprintln!("graph {graph_id} ready, status: {status}");
                 return Ok(());
             }
-            eprintln!("waiting for graph {} (status: {})", graph_id, status);
+            eprintln!("waiting for graph {graph_id} (status: {status})");
         } else {
-            eprintln!("graph {} not found, proceeding", graph_id);
+            eprintln!("graph {graph_id} not found, proceeding");
             return Ok(());
         }
         if waited >= max_wait_secs {
@@ -231,7 +231,7 @@ async fn main() -> Result<()> {
                     break;
                 }
                 if total_sent >= max_total_amount_sats {
-                    eprintln!("batch stop: reached target total {} sats", max_total_amount_sats);
+                    eprintln!("batch stop: reached target total {max_total_amount_sats} sats");
                     break;
                 }
 
@@ -240,8 +240,7 @@ async fn main() -> Result<()> {
                         let amount = resp.amount as u64;
                         if total_sent + amount > max_total_amount_sats {
                             eprintln!(
-                                "batch stop: next amount {} would exceed target {}",
-                                amount, max_total_amount_sats
+                                "batch stop: next amount {amount} would exceed target {max_total_amount_sats}",
                             );
                             break;
                         }
@@ -249,7 +248,7 @@ async fn main() -> Result<()> {
                         print_pegout_result(&resp);
                         total_sent = total_sent.saturating_add(amount);
                         count = count.saturating_add(1);
-                        eprintln!("batch progress: count {}, total {} sats", count, total_sent);
+                        eprintln!("batch progress: count {count}, total {total_sent} sats");
 
                         if !dry_run {
                             wait_for_graph_ready(
@@ -269,7 +268,7 @@ async fn main() -> Result<()> {
                 }
             }
 
-            eprintln!("batch complete: {} pegouts, {} total sats", count, total_sent);
+            eprintln!("batch complete: {count} pegouts, {total_sent} total sats");
         }
     }
 

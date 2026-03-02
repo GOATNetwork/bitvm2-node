@@ -41,8 +41,7 @@ pub(crate) async fn load_or_init_scan_state(
         rpc.get_validators_hash_and_goat_block(start_cosmos_block).await?;
     let goat_block_height = goat_block_height.ok_or_else(|| {
         anyhow::anyhow!(
-            "Cosmos block {} has no CBFT tx data, cannot initialize scan state from this block",
-            start_cosmos_block
+            "Cosmos block {start_cosmos_block} has no CBFT tx data, cannot initialize scan state from this block"
         )
     })?;
     let validators_hash_hex = hex::encode(validators_hash);
@@ -248,7 +247,7 @@ mod tests {
             self.blocks
                 .get(&cosmos_block_height)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("block {} not found in mock", cosmos_block_height))
+                .ok_or_else(|| anyhow::anyhow!("block {cosmos_block_height} not found in mock"))
         }
     }
 
