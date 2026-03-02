@@ -1,7 +1,12 @@
 use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
+use crate::timeout_config::get_btc_request_timeout_secs;
+use anyhow::anyhow;
 use bitcoin::block::Header;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Tx, Utxo};
+use std::future::Future;
+use std::time::Duration;
+use tracing::warn;
 
 const TEST_URL: &str = "https://mempool.space/testnet/api";
 const MAIN_URL: &str = "https://mempool.space/api";
@@ -16,15 +21,39 @@ pub fn get_esplora_url(network: Network) -> &'static str {
 pub struct EsploraBitcoinAdaptor {
     esplora: AsyncClient,
     network: Network,
+    request_timeout: Duration,
 }
 
 impl EsploraBitcoinAdaptor {
     pub fn new(network: Network, esplora_url: Option<&str>) -> Self {
+        let timeout_secs = get_btc_request_timeout_secs();
         EsploraBitcoinAdaptor {
             esplora: Builder::new(esplora_url.unwrap_or(get_esplora_url(network)))
                 .build_async()
                 .expect("Could not build esplora client"),
             network,
+            request_timeout: Duration::from_secs(timeout_secs),
+        }
+    }
+
+    async fn with_timeout<T, F>(&self, request_name: &'static str, future: F) -> anyhow::Result<T>
+    where
+        F: Future<Output = Result<T, esplora_client::Error>>,
+    {
+        match tokio::time::timeout(self.request_timeout, future).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(err)) => Err(err.into()),
+            Err(_) => {
+                warn!(
+                    request_name,
+                    timeout_secs = self.request_timeout.as_secs(),
+                    "esplora request timeout"
+                );
+                Err(anyhow!(
+                    "esplora request timeout: {request_name}, timeout_secs={} ",
+                    self.request_timeout.as_secs()
+                ))
+            }
         }
     }
 }
@@ -36,35 +65,35 @@ impl BitcoinAdaptor for EsploraBitcoinAdaptor {
     }
 
     async fn get_tx_status(&self, txid: &Txid) -> anyhow::Result<esplora_client::TxStatus> {
-        Ok(self.esplora.get_tx_status(txid).await?)
+        self.with_timeout("get_tx_status", self.esplora.get_tx_status(txid)).await
     }
 
     async fn get_tx(&self, txid: &Txid) -> anyhow::Result<Option<Transaction>> {
-        Ok(self.esplora.get_tx(txid).await?)
+        self.with_timeout("get_tx", self.esplora.get_tx(txid)).await
     }
 
     async fn get_tx_info(&self, txid: &Txid) -> anyhow::Result<Option<Tx>> {
-        Ok(self.esplora.get_tx_info(txid).await?)
+        self.with_timeout("get_tx_info", self.esplora.get_tx_info(txid)).await
     }
 
     async fn get_address_utxo(&self, address: BtcAddress) -> anyhow::Result<Vec<Utxo>> {
-        Ok(self.esplora.get_address_utxo(address).await?)
+        self.with_timeout("get_address_utxo", self.esplora.get_address_utxo(address)).await
     }
 
     async fn get_height(&self) -> anyhow::Result<u32> {
-        Ok(self.esplora.get_height().await?)
+        self.with_timeout("get_height", self.esplora.get_height()).await
     }
 
     async fn get_fee_estimates(&self) -> anyhow::Result<std::collections::HashMap<u16, f64>> {
-        Ok(self.esplora.get_fee_estimates().await?)
+        self.with_timeout("get_fee_estimates", self.esplora.get_fee_estimates()).await
     }
 
     async fn broadcast(&self, tx: &Transaction) -> anyhow::Result<()> {
-        Ok(self.esplora.broadcast(tx).await?)
+        self.with_timeout("broadcast", self.esplora.broadcast(tx)).await
     }
 
     async fn broadcast_package(&self, txns: &[Transaction]) -> anyhow::Result<()> {
-        Ok(self.esplora.broadcast_package(txns).await?)
+        self.with_timeout("broadcast_package", self.esplora.broadcast_package(txns)).await
     }
 
     async fn get_output_status(
@@ -72,25 +101,25 @@ impl BitcoinAdaptor for EsploraBitcoinAdaptor {
         txid: &Txid,
         vout: u64,
     ) -> anyhow::Result<Option<esplora_client::OutputStatus>> {
-        Ok(self.esplora.get_output_status(txid, vout).await?)
+        self.with_timeout("get_output_status", self.esplora.get_output_status(txid, vout)).await
     }
 
     async fn get_block_hash(&self, block_height: u32) -> anyhow::Result<bitcoin::BlockHash> {
-        Ok(self.esplora.get_block_hash(block_height).await?)
+        self.with_timeout("get_block_hash", self.esplora.get_block_hash(block_height)).await
     }
 
     async fn get_block_by_hash(
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> anyhow::Result<Option<Block>> {
-        Ok(self.esplora.get_block_by_hash(block_hash).await?)
+        self.with_timeout("get_block_by_hash", self.esplora.get_block_by_hash(block_hash)).await
     }
 
     async fn get_merkle_proof(&self, tx_id: &Txid) -> anyhow::Result<Option<MerkleProof>> {
-        Ok(self.esplora.get_merkle_proof(tx_id).await?)
+        self.with_timeout("get_merkle_proof", self.esplora.get_merkle_proof(tx_id)).await
     }
 
     async fn get_header_by_hash(&self, block_hash: &bitcoin::BlockHash) -> anyhow::Result<Header> {
-        Ok(self.esplora.get_header_by_hash(block_hash).await?)
+        self.with_timeout("get_header_by_hash", self.esplora.get_header_by_hash(block_hash)).await
     }
 }

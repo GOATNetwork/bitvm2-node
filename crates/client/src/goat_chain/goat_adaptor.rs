@@ -8,6 +8,7 @@ use crate::goat_chain::goat_adaptor::IGateway::IGatewayInstance;
 use crate::goat_chain::goat_adaptor::IPegBtc::IPegBtcInstance;
 use crate::goat_chain::goat_adaptor::ISequencerSetPublisher::ISequencerSetPublisherInstance;
 use crate::goat_chain::goat_adaptor::IStakeManagement::IStakeManagementInstance;
+use crate::timeout_config::get_goat_rpc_timeout_secs;
 use alloy::eips::BlockNumberOrTag;
 use alloy::providers::Identity;
 use alloy::providers::ext::DebugApi;
@@ -29,6 +30,20 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time;
 use uuid::Uuid;
+
+fn build_goat_rpc_client() -> reqwest::Client {
+    let timeout = Duration::from_secs(get_goat_rpc_timeout_secs());
+    match reqwest::Client::builder().timeout(timeout).build() {
+        Ok(client) => client,
+        Err(err) => {
+            tracing::warn!(
+                timeout_secs = timeout.as_secs(),
+                "failed to build GOAT RPC reqwest client with timeout: {err}, fallback to default client"
+            );
+            reqwest::Client::new()
+        }
+    }
+}
 
 sol!(
     #[derive(Debug)]
@@ -261,10 +276,11 @@ pub struct GoatInitConfig {
 
 impl GoatInitConfig {
     pub async fn new(rpc_url: Url) -> anyhow::Result<GoatInitConfig> {
+        let provider =
+            ProviderBuilder::new().connect_reqwest(build_goat_rpc_client(), rpc_url.clone());
         Ok(GoatInitConfig {
             private_key: None,
-            chain_id: ProviderBuilder::new().connect_http(rpc_url.clone()).get_chain_id().await?
-                as u32,
+            chain_id: provider.get_chain_id().await? as u32,
             rpc_url,
             gateway_address: None,
             sequencer_set_publisher_address: None,
@@ -1384,7 +1400,8 @@ impl GoatAdaptor {
         } else {
             PrivateKeySigner::random()
         };
-        let provider = ProviderBuilder::new().connect_http(config.rpc_url);
+        let provider =
+            ProviderBuilder::new().connect_reqwest(build_goat_rpc_client(), config.rpc_url);
         Self {
             chain_id,
             signer: EthereumWallet::new(signer),
