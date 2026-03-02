@@ -50,75 +50,61 @@ async fn run(
     local_db: &LocalDB,
     btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
-    stage: Arc<tokio::sync::Mutex<&'static str>>,
 ) -> anyhow::Result<()> {
     let btc_client = btc_client.as_ref();
     let goat_client = goat_client.as_ref();
 
-    *stage.lock().await = "node_available_pbtc_update_monitor";
     if (actor == Actor::Operator || is_relayer())
         && let Err(err) = node_available_pbtc_update_monitor(local_db, goat_client).await
     {
         warn!("node_available_pbtc_update_monitor, err {:?}", err)
     }
 
-    *stage.lock().await = "spv_header_hash_update";
     if is_enable_update_spv_contract()
         && let Err(err) = spv_header_hash_update(btc_client, goat_client).await
     {
         warn!("spv_header_hash_update, err {:?}", err)
     }
 
-    *stage.lock().await = "is_processing_gateway_history_events";
     if is_processing_gateway_history_events(local_db, goat_client).await? {
         warn!("Still in history events processing");
         return Ok(());
     }
 
-    *stage.lock().await = "instance_answers_monitor";
     if let Err(err) = instance_answers_monitor(local_db, btc_client, goat_client).await {
         warn!("instance_answers_monitor, err {:?}", err)
     }
-    *stage.lock().await = "instance_window_expiration_monitor";
     if let Err(err) = instance_window_expiration_monitor(local_db, goat_client).await {
         warn!("instance_window_expiration_monitor, err {:?}", err)
     }
 
-    *stage.lock().await = "instance_expiration_monitor";
     if let Err(err) = instance_expiration_monitor(local_db, btc_client).await {
         warn!("instance_expiration_monitor, err {:?}", err)
     }
 
-    *stage.lock().await = "instance_btc_tx_monitor";
     if let Err(err) = instance_btc_tx_monitor(local_db, btc_client).await {
         warn!("instance_btc_tx_monitor, err {:?}", err)
     }
 
-    *stage.lock().await = "instance_bridge_out_monitor";
     if let Err(err) = instance_bridge_out_monitor(local_db).await {
         warn!("instance_bridge_out_monitor, err {:?}", err)
     }
 
-    *stage.lock().await = "detect_init_withdraw_call";
     if let Err(err) = detect_init_withdraw_call(local_db).await {
         warn!("detect_init_withdraw_call, err {:?}", err)
     }
 
-    *stage.lock().await = "detect_kickoff";
     if let Err(err) = detect_kickoff(local_db, btc_client).await {
         warn!("detect_kickoff, err {:?}", err)
     }
 
-    *stage.lock().await = "detect_take1_or_challenge";
     if let Err(err) = detect_take1_or_challenge(local_db, btc_client).await {
         warn!("detect_take1_or_challenge, err {:?}", err)
     }
 
-    *stage.lock().await = "process_graph_challenge";
     if let Err(err) = process_graph_challenge(local_db, btc_client).await {
         warn!("process_grpah_challenge, err {:?}", err)
     }
-    *stage.lock().await = "completed";
     Ok(())
 }
 
@@ -138,20 +124,17 @@ pub async fn run_maintenance_tasks(
                 tick += 1;
                 let tick_start = Instant::now();
                 info!(tick, interval_secs = interval, "maintenance task tick start");
-                let stage = Arc::new(tokio::sync::Mutex::new("starting"));
                 // Execute the normal monitoring logic
                 match tokio::time::timeout(
                     maintenance_run_timeout,
-                    run(actor.clone(),&local_db,btc_client.clone(),goat_client.clone(), stage.clone()),
+                    run(actor.clone(),&local_db,btc_client.clone(),goat_client.clone()),
                 ).await {
                     Ok(Ok(_)) => {}
                     Ok(Err(err)) => {error!("run_scheduled_tasks, err {:?}", err)}
                     Err(_) => {
-                        let timeout_stage = *stage.lock().await;
                         error!(
                             tick,
                             timeout_secs = maintenance_run_timeout.as_secs(),
-                            stage = timeout_stage,
                             "maintenance run timeout"
                         )
                     }
