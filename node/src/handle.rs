@@ -3349,14 +3349,14 @@ async fn handle_take1_ready_operator(
         instance_id,
         graph_id,
         Some(&message),
-        GraphStatus::Challenge,
+        GraphStatus::OperatorKickOff,
     )
     .await?
     {
         Some(v) => v,
         None => return Ok(()),
     };
-    if graph_status != GraphStatus::Challenge {
+    if graph_status != GraphStatus::OperatorKickOff {
         tracing::warn!(
             "Ignore Take1Ready for {instance_id}:{graph_id}: graph status is {graph_status:?}"
         );
