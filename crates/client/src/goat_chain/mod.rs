@@ -83,6 +83,7 @@ impl GOATClient {
         self.chain_service.debug_trace_tx(tx_hash, trace_options).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn swap_initialize(
         &self,
         contract_address: Address,

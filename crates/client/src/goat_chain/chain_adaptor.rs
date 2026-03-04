@@ -22,6 +22,7 @@ pub trait ChainAdaptor: Send + Sync {
         tx_hash: &str,
         trace_options: Option<GethDebugTracingOptions>,
     ) -> anyhow::Result<GethTrace>;
+    #[allow(clippy::too_many_arguments)]
     async fn swap_initialize(
         &self,
         contract_address: Address,

@@ -616,7 +616,7 @@ impl GoatAdaptor {
                 }
             };
         }
-        bail!("tx_hash:{} receipt not found within {} seconds", tx_hash.to_string(), max_wait_secs)
+        bail!("tx_hash:{tx_hash} receipt not found within {max_wait_secs} seconds")
     }
 
     async fn handle_transaction_request_with_wait_eip1559(
@@ -683,7 +683,7 @@ impl GoatAdaptor {
                 }
             };
         }
-        bail!("tx_hash:{} receipt not found within {} seconds", tx_hash.to_string(), max_wait_secs)
+        bail!("tx_hash:{tx_hash} receipt not found within {max_wait_secs} seconds")
     }
 }
 
@@ -932,9 +932,7 @@ impl ChainAdaptor for GoatAdaptor {
         let escrow_hash = extract_initialize_escrow_hash_from_receipt(&receipt, &contract_address)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Initialize event with escrowHash not found in tx {} logs for contract {}",
-                    tx_hash,
-                    contract_address
+                    "Initialize event with escrowHash not found in tx {tx_hash} logs for contract {contract_address}"
                 )
             })?;
         Ok(SwapInitializeResult { tx_hash: tx_hash.to_string(), escrow_hash })
@@ -950,7 +948,7 @@ impl ChainAdaptor for GoatAdaptor {
             return Ok(None);
         };
         if !receipt.status() {
-            bail!("tx {} failed on-chain (status = 0)", tx_hash);
+            bail!("tx {tx_hash} failed on-chain (status = 0)");
         }
         Ok(extract_initialize_escrow_hash_from_receipt(&receipt, &contract_address))
     }

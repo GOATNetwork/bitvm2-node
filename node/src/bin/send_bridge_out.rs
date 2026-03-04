@@ -234,8 +234,7 @@ fn resolve_contract_address(contract_address: Option<String>) -> Result<String> 
 
     std::env::var(ENV_GOAT_SWAP_CONTRACT_ADDRESS).map_err(|_| {
         anyhow!(
-            "missing --contract-address and env {}, one of them is required",
-            ENV_GOAT_SWAP_CONTRACT_ADDRESS
+            "missing --contract-address and env {ENV_GOAT_SWAP_CONTRACT_ADDRESS}, one of them is required"
         )
     })
 }
@@ -318,7 +317,7 @@ fn convert_pegbtc_amount_to_base_units(amount: &str) -> Result<String> {
         bail!("amount fractional part must contain digits only");
     }
     if frac_part.len() > PEG_BTC_DECIMALS {
-        bail!("amount has too many decimal places, max {}", PEG_BTC_DECIMALS);
+        bail!("amount has too many decimal places, max {PEG_BTC_DECIMALS}");
     }
 
     let mut base_units = String::with_capacity(int_part.len() + PEG_BTC_DECIMALS);
@@ -462,7 +461,7 @@ async fn ensure_token_approval(
         .peg_btc_approve(&spender, escrow.amount)
         .await
         .context("failed to send token approve tx before swap initialize")?;
-    eprintln!("token approve submitted: {}", approve_tx_hash);
+    eprintln!("token approve submitted: {approve_tx_hash}");
 
     let latest_allowance = goat_client
         .peg_btc_allowance(&owner, &spender)
@@ -510,9 +509,7 @@ async fn derive_escrow_hash_from_swap_init_tx(
         .with_context(|| format!("failed to parse initialize log from tx {swap_init_tx_hash}"))?;
     escrow_hash.ok_or_else(|| {
         anyhow!(
-            "Initialize event with escrowHash not found in tx {} logs for contract {}",
-            swap_init_tx_hash,
-            contract_address
+            "Initialize event with escrowHash not found in tx {swap_init_tx_hash} logs for contract {contract_address}"
         )
     })
 }
@@ -580,9 +577,9 @@ async fn call_pay_invoice(
 
     let (nonce, fee_rate) = generate_default_nonce_and_fee_rate().await?;
     let amount_base_units = convert_pegbtc_amount_to_base_units(amount)?;
-    eprintln!("auto-generated nonce: {}", nonce);
-    eprintln!("auto-generated feeRate: {}", fee_rate);
-    eprintln!("converted amount (pegBTC -> base units): {}", amount_base_units);
+    eprintln!("auto-generated nonce: {nonce}");
+    eprintln!("auto-generated feeRate: {fee_rate}");
+    eprintln!("converted amount (pegBTC -> base units): {amount_base_units}");
 
     let mut body = serde_json::Map::new();
     if let Some(params_json) = additional_params_json {
@@ -768,7 +765,7 @@ async fn main() -> Result<()> {
                         let derived =
                             derive_escrow_hash_from_swap_init_tx(&tx_hash, &contract_address)
                                 .await?;
-                        eprintln!("derived escrow hash from swap init tx {}: {}", tx_hash, derived);
+                        eprintln!("derived escrow hash from swap init tx {tx_hash}: {derived}");
                         derived
                     }
                 };
@@ -792,8 +789,8 @@ async fn main() -> Result<()> {
         Commands::SwapInitialize { .. } => {
             let (tx_hash, escrow_hash) =
                 run_swap_initialize_from_pay_invoice(&client, &args.command).await?;
-            println!("swap initialize submitted: {}", tx_hash);
-            println!("escrow_hash (from Initialize log): {}", escrow_hash);
+            println!("swap initialize submitted: {tx_hash}");
+            println!("escrow_hash (from Initialize log): {escrow_hash}");
         }
     }
 
