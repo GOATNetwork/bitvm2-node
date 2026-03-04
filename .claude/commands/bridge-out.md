@@ -1,4 +1,4 @@
-Initiate Bridge Out via the `bridge-out` script (payInvoice quote -> swap initialize -> init-tag).
+Initiate Bridge Out via the `bridge-out` binary (payInvoice quote -> swap initialize -> init-tag).
 
 ## Instructions
 
@@ -7,14 +7,12 @@ Initiate Bridge Out via the `bridge-out` script (payInvoice quote -> swap initia
    - **from_addr**: Source GOAT address (used by `init-tag`)
    - **to_addr**: Destination BTC address (used by `init-tag`)
    - **pay_invoice_url**: Quote endpoint. Default: `https://152-32-185-32.nodes.atomiq.exchange:8443/tobtc/payInvoice?chain=GOAT`
-   - **amount**: Amount for payInvoice body (`amount`)
+   - **amount**: Amount in pegBTC (human-readable). Example: `0.0015`
    - **exact_in**: Whether quote is exact-in (`true`/`false`). Default: `true`
    - **confirmation_target**: Bitcoin confirmation target. Default: `3`
    - **confirmations**: Required confirmations. Default: `2`
-   - **nonce**: Swap nonce (decimal string)
    - **token**: Token address
    - **offerer**: Offerer GOAT address
-   - **fee_rate**: Fee rate payload (string/number/JSON object)
    - **additional_params_json**: Optional JSON object merged into payInvoice body
    - **contract_address**: Optional (fallback to `GOAT_SWAP_CONTRACT_ADDRESS`)
    - **max_wait_secs**: Max wait for tx receipt. Default: `60`
@@ -23,30 +21,30 @@ Initiate Bridge Out via the `bridge-out` script (payInvoice quote -> swap initia
    - `GOAT_PRIVATE_KEY` must be set (unless user passes `--goat-private-key`)
    - `GOAT_CHAIN_URL` and chain config must be valid for on-chain calls
    - `GOAT_SWAP_CONTRACT_ADDRESS` should be set if `--contract-address` is omitted
+   - Optional but recommended: use `node/.env` to manage the above variables consistently
 
-3. Ensure the script is available:
-   - Preferred: build from source
+3. Check if the `bridge-out` binary exists at `./bin/bridge-out`. If not, run the install script to download it:
    ```bash
-   cargo build -p bitvm2-noded --bin bridge-out
+   .claude/commands/install-bitvm2.sh install
    ```
-   - Then use:
+   To upgrade to the latest version:
    ```bash
-   ./target/debug/bridge-out --help
+   .claude/commands/install-bitvm2.sh upgrade
    ```
+   The script auto-detects the platform (x86_64-linux / aarch64-macos), downloads from GitHub Releases,
+   verifies the sha256 checksum, and installs all binaries to `./bin/`.
 
-4. Run swap initialize (this step calls payInvoice first, then sends swap `initialize` tx):
+4. Run swap initialize (this step calls payInvoice first, then sends token approve if needed, then swap `initialize` tx):
    ```bash
-   ./target/debug/bridge-out swap-initialize \
+   ./bin/bridge-out --rpc-url <rpc_url> swap-initialize \
      --pay-invoice-url <pay_invoice_url> \
      --btc-address <to_addr> \
      --amount <amount> \
      --exact-in <exact_in> \
      --confirmation-target <confirmation_target> \
      --confirmations <confirmations> \
-     --nonce <nonce> \
      --token <token> \
      --offerer <offerer> \
-     --fee-rate '<fee_rate>' \
      --max-wait-secs <max_wait_secs>
    ```
    - If needed, append:
@@ -63,7 +61,7 @@ Initiate Bridge Out via the `bridge-out` script (payInvoice quote -> swap initia
 
 6. Submit bridge-out init-tag to node API:
    ```bash
-   ./target/debug/bridge-out --rpc-url <rpc_url> init-tag \
+   ./bin/bridge-out --rpc-url <rpc_url> init-tag \
      --from-addr <from_addr> \
      --to-addr <to_addr> \
      --escrow-hash <escrow_hash> \
@@ -71,7 +69,7 @@ Initiate Bridge Out via the `bridge-out` script (payInvoice quote -> swap initia
    ```
    - Alternative: derive escrow hash from tx logs directly:
    ```bash
-   ./target/debug/bridge-out --rpc-url <rpc_url> init-tag \
+   ./bin/bridge-out --rpc-url <rpc_url> init-tag \
      --from-addr <from_addr> \
      --to-addr <to_addr> \
      --swap-init-tx-hash <tx_hash> \
@@ -80,10 +78,5 @@ Initiate Bridge Out via the `bridge-out` script (payInvoice quote -> swap initia
 
 7. Optional verification (if instance id is known):
    ```bash
-   ./target/debug/bridge-out --rpc-url <rpc_url> escrow-data --instance-id <instance_id>
+   ./bin/bridge-out --rpc-url <rpc_url> escrow-data --instance-id <instance_id>
    ```
-
-## Notes
-
-- `swap-initialize` is the recommended mode for Bridge Out. It fetches escrow params from payInvoice and extracts `escrowHash` from `Initialize` logs.
-- For troubleshooting or low-level debugging, `swap-initialize-manual` is also available to pass full escrow fields explicitly.
