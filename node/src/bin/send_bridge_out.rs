@@ -26,8 +26,8 @@ const PAY_IN_FLAG: u64 = 0x02;
 const ZERO_B256_HEX: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
 const DEFAULT_NONCE_TIME_OFFSET_SECS: u64 = 700_000_000;
 const DEFAULT_NONCE_RANDOM_BITS: u32 = 24;
-const DEFAULT_PRIORITY_FEE_WEI: u64 = 1_000_000_000;
-const DEFAULT_MAX_BASE_FEE_WEI: u64 = 500_000_000_000;
+const DEFAULT_PRIORITY_FEE_WEI: u64 = 5_000_000;
+const DEFAULT_MAX_BASE_FEE_WEI: u64 = 2_000_000_000;
 const DEFAULT_BASE_FEE_MULTIPLIER_NUM: u64 = 125;
 const DEFAULT_BASE_FEE_MULTIPLIER_DEN: u64 = 100;
 const PEG_BTC_DECIMALS: usize = 18;
@@ -952,13 +952,13 @@ mod tests {
     #[test]
     fn test_generate_default_fee_rate() {
         let fee_rate = generate_default_fee_rate(U256::from(100u64));
-        assert_eq!(fee_rate, "125,1000000000");
+        assert_eq!(fee_rate, "125,5000000");
     }
 
     #[test]
     fn test_generate_default_fee_rate_with_cap() {
         let fee_rate = generate_default_fee_rate(U256::from(1_000_000_000_000u64));
-        assert_eq!(fee_rate, "500000000000,1000000000");
+        assert_eq!(fee_rate, "2000000000,5000000");
     }
 
     #[test]

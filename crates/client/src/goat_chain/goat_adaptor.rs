@@ -32,6 +32,11 @@ use std::time::Duration;
 use tokio::time;
 use uuid::Uuid;
 
+const EIP1559_PRIORITY_FEE_WEI: u128 = 5_000_000;
+const EIP1559_MAX_BASE_FEE_WEI: u128 = 2_000_000_000;
+const EIP1559_BASE_FEE_MULTIPLIER_NUM: u128 = 125;
+const EIP1559_BASE_FEE_MULTIPLIER_DEN: u128 = 100;
+
 fn build_goat_rpc_client() -> reqwest::Client {
     let timeout = Duration::from_secs(get_goat_rpc_timeout_secs());
     match reqwest::Client::builder().timeout(timeout).build() {
@@ -518,6 +523,38 @@ impl GoatAdaptor {
         Ok(tx_hash)
     }
 
+    async fn handle_transaction_request_eip1559(
+        &self,
+        tx_request: TransactionRequest,
+    ) -> anyhow::Result<TxHash> {
+        let (tx_hash, _) =
+            self.handle_transaction_request_with_wait_eip1559(tx_request, 10).await?;
+        Ok(tx_hash)
+    }
+
+    async fn get_eip1559_fee_params(&self) -> anyhow::Result<(u128, u128)> {
+        let block = self
+            .provider
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| format_err!("latest block not found"))?;
+        let base_fee = u128::from(
+            block
+                .header
+                .base_fee_per_gas
+                .ok_or_else(|| format_err!("latest block missing base_fee_per_gas"))?,
+        );
+        let mut adjusted_base_fee = base_fee.saturating_mul(EIP1559_BASE_FEE_MULTIPLIER_NUM)
+            / EIP1559_BASE_FEE_MULTIPLIER_DEN;
+        if adjusted_base_fee > EIP1559_MAX_BASE_FEE_WEI {
+            adjusted_base_fee = EIP1559_MAX_BASE_FEE_WEI;
+        }
+        let max_fee = adjusted_base_fee
+            .checked_add(EIP1559_PRIORITY_FEE_WEI)
+            .ok_or_else(|| format_err!("max_fee_per_gas overflow"))?;
+        Ok((max_fee, EIP1559_PRIORITY_FEE_WEI))
+    }
+
     async fn handle_transaction_request_with_wait(
         &self,
         mut tx_request: TransactionRequest,
@@ -566,6 +603,73 @@ impl GoatAdaptor {
                     if receipt.is_none() {
                         tracing::info!(
                             "Get transaction:{} receipt is none at {} times, will try later",
+                            tx_hash.to_string(),
+                            i
+                        );
+                        continue;
+                    }
+                    let receipt = receipt.expect("checked is_some");
+                    if !receipt.status() {
+                        bail!("tx_hash:{tx_hash} execute failed on chain");
+                    }
+                    return Ok((*tx_hash, receipt));
+                }
+            };
+        }
+        bail!("tx_hash:{} receipt not found within {} seconds", tx_hash.to_string(), max_wait_secs)
+    }
+
+    async fn handle_transaction_request_with_wait_eip1559(
+        &self,
+        mut tx_request: TransactionRequest,
+        max_wait_secs: u64,
+    ) -> anyhow::Result<(TxHash, TransactionReceipt)> {
+        let (max_fee_per_gas, max_priority_fee_per_gas) = self.get_eip1559_fee_params().await?;
+        tx_request.gas_price = None;
+        tx_request.max_fee_per_gas = Some(max_fee_per_gas);
+        tx_request.max_priority_fee_per_gas = Some(max_priority_fee_per_gas);
+        tracing::info!(
+            "eip1559 fee max_fee_per_gas: {}, max_priority_fee_per_gas: {}",
+            max_fee_per_gas,
+            max_priority_fee_per_gas
+        );
+        tx_request.nonce =
+            Some(self.provider.clone().get_transaction_count(tx_request.from.unwrap()).await?);
+        tracing::info!("tx(type2): {:?}", tx_request);
+        tx_request.gas = Some(self.provider.clone().estimate_gas(tx_request.clone()).await?);
+        tracing::info!("estimated gas(type2): {:?}", tx_request.gas);
+
+        let unsigned_tx =
+            tx_request.build_typed_tx().map_err(|v| format_err!("{v:?} fail to build typed tx"))?;
+        let signed_tx = <EthereumWallet as NetworkWallet<Ethereum>>::sign_transaction(
+            &self.signer,
+            unsigned_tx,
+        )
+        .await?;
+        let pending_tx =
+            self.provider.send_raw_transaction(signed_tx.encoded_2718().as_slice()).await?;
+        let tx_hash = pending_tx.tx_hash();
+        tracing::info!("finish send tx_hash(type2): {}", tx_hash.to_string());
+
+        let poll_interval_secs = 2_u64;
+        let max_attempts = (max_wait_secs / poll_interval_secs).max(1);
+        for i in 0..max_attempts {
+            if i > 0 {
+                time::sleep(Duration::from_secs(poll_interval_secs)).await;
+            }
+            match self.provider.get_transaction_receipt(*tx_hash).await {
+                Err(_) => {
+                    tracing::info!(
+                        "Get transaction(type2):{} receipt failed at {} times, will try later",
+                        tx_hash.to_string(),
+                        i
+                    );
+                    continue;
+                }
+                Ok(receipt) => {
+                    if receipt.is_none() {
+                        tracing::info!(
+                            "Get transaction(type2):{} receipt is none at {} times, will try later",
                             tx_hash.to_string(),
                             i
                         );
@@ -824,7 +928,7 @@ impl ChainAdaptor for GoatAdaptor {
             .value(value_wei)
             .into_transaction_request();
         let (tx_hash, receipt) =
-            self.handle_transaction_request_with_wait(tx_request, max_wait_secs).await?;
+            self.handle_transaction_request_with_wait_eip1559(tx_request, max_wait_secs).await?;
         let escrow_hash = extract_initialize_escrow_hash_from_receipt(&receipt, &contract_address)
             .ok_or_else(|| {
                 anyhow::anyhow!(
@@ -1486,7 +1590,7 @@ impl ChainAdaptor for GoatAdaptor {
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
-        let tx_hash = self.handle_transaction_request(tx_request).await?;
+        let tx_hash = self.handle_transaction_request_eip1559(tx_request).await?;
         Ok(tx_hash.to_string())
     }
 
