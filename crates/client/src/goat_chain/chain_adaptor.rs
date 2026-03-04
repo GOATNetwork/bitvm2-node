@@ -1,7 +1,7 @@
 use crate::btc_chain::MerkleProofExtend;
 use crate::goat_chain::goat_adaptor::{GoatAdaptor, GoatInitConfig};
 use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Bytes, U256};
 use alloy::rpc::types::{
     TransactionReceipt,
     trace::geth::{GethDebugTracingOptions, GethTrace},
@@ -22,6 +22,21 @@ pub trait ChainAdaptor: Send + Sync {
         tx_hash: &str,
         trace_options: Option<GethDebugTracingOptions>,
     ) -> anyhow::Result<GethTrace>;
+    async fn swap_initialize(
+        &self,
+        contract_address: Address,
+        escrow: SwapEscrowData,
+        signature: Bytes,
+        timeout: U256,
+        extra_data: Bytes,
+        value_wei: U256,
+        max_wait_secs: u64,
+    ) -> anyhow::Result<SwapInitializeResult>;
+    async fn extract_initialize_escrow_hash_from_tx(
+        &self,
+        tx_hash: &str,
+        contract_address: Address,
+    ) -> anyhow::Result<Option<String>>;
 
     async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64>;
     async fn gateway_get_min_pegin_fee_sats(&self) -> anyhow::Result<u64>;
@@ -217,6 +232,29 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<String>;
 
     async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256>;
+}
+
+#[derive(Clone, Debug)]
+pub struct SwapEscrowData {
+    pub offerer: Address,
+    pub claimer: Address,
+    pub amount: U256,
+    pub token: Address,
+    pub flags: U256,
+    pub claim_handler: Address,
+    pub claim_data: [u8; 32],
+    pub refund_handler: Address,
+    pub refund_data: [u8; 32],
+    pub security_deposit: U256,
+    pub claimer_bounty: U256,
+    pub deposit_token: Address,
+    pub success_action_commitment: [u8; 32],
+}
+
+#[derive(Clone, Debug)]
+pub struct SwapInitializeResult {
+    pub tx_hash: String,
+    pub escrow_hash: String,
 }
 #[derive(Eq, PartialEq, Clone, Copy)]
 pub enum GoatNetwork {

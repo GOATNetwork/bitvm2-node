@@ -1,6 +1,6 @@
 // Gateway rate multiplier constant
 const GATEWAY_RATE_MULTIPLIER: u64 = 10000;
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Bytes, U256};
 use alloy::rpc::types::{
     TransactionReceipt,
     trace::geth::{GethDebugTracingOptions, GethTrace},
@@ -14,7 +14,8 @@ pub mod utils;
 use crate::btc_chain::{BTCClient, MerkleProofExtend};
 pub use chain_adaptor::{
     BitcoinTx, BitcoinTxProof, GoatNetwork, GraphData, PeginData, PeginStatus,
-    SequencerSetUpdateWitness, WithdrawData, WithdrawStatus, get_chain_adaptor,
+    SequencerSetUpdateWitness, SwapEscrowData, SwapInitializeResult, WithdrawData, WithdrawStatus,
+    get_chain_adaptor,
 };
 pub use goat_adaptor::GoatInitConfig;
 mod chain_adaptor;
@@ -80,6 +81,37 @@ impl GOATClient {
         trace_options: Option<GethDebugTracingOptions>,
     ) -> anyhow::Result<GethTrace> {
         self.chain_service.debug_trace_tx(tx_hash, trace_options).await
+    }
+
+    pub async fn swap_initialize(
+        &self,
+        contract_address: Address,
+        escrow: SwapEscrowData,
+        signature: Bytes,
+        timeout: U256,
+        extra_data: Bytes,
+        value_wei: U256,
+        max_wait_secs: u64,
+    ) -> anyhow::Result<SwapInitializeResult> {
+        self.chain_service
+            .swap_initialize(
+                contract_address,
+                escrow,
+                signature,
+                timeout,
+                extra_data,
+                value_wei,
+                max_wait_secs,
+            )
+            .await
+    }
+
+    pub async fn extract_initialize_escrow_hash_from_tx(
+        &self,
+        tx_hash: &str,
+        contract_address: Address,
+    ) -> anyhow::Result<Option<String>> {
+        self.chain_service.extract_initialize_escrow_hash_from_tx(tx_hash, contract_address).await
     }
 
     pub async fn is_committee_member(&self) -> anyhow::Result<bool> {

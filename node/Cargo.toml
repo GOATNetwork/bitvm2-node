@@ -28,6 +28,10 @@ name = "pegout"
 path = "src/bin/send_pegout.rs"
 
 [[bin]]
+name = "bridge-out"
+path = "src/bin/send_bridge_out.rs"
+
+[[bin]]
 name = "update-db"
 path = "src/bin/db_inject.rs"
 

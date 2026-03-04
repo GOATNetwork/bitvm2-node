@@ -2,10 +2,10 @@ use crate::Utxo;
 use crate::goat_chain::DisproveTxType;
 use crate::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, GraphData, PeginData, SequencerSetUpdateWitness,
-    WithdrawData,
+    SwapEscrowData, SwapInitializeResult, WithdrawData,
 };
 use crate::goat_chain::mock_goat_adaptor::MockAdaptor;
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, Bytes, U256};
 use alloy::rpc::types::{
     TransactionReceipt,
     trace::geth::{GethDebugTracingOptions, GethTrace},
@@ -260,6 +260,37 @@ impl EvmChain {
         trace_options: Option<GethDebugTracingOptions>,
     ) -> anyhow::Result<GethTrace> {
         self.adaptor.debug_trace_tx(tx_hash, trace_options).await
+    }
+
+    pub async fn swap_initialize(
+        &self,
+        contract_address: Address,
+        escrow: SwapEscrowData,
+        signature: Bytes,
+        timeout: U256,
+        extra_data: Bytes,
+        value_wei: U256,
+        max_wait_secs: u64,
+    ) -> anyhow::Result<SwapInitializeResult> {
+        self.adaptor
+            .swap_initialize(
+                contract_address,
+                escrow,
+                signature,
+                timeout,
+                extra_data,
+                value_wei,
+                max_wait_secs,
+            )
+            .await
+    }
+
+    pub async fn extract_initialize_escrow_hash_from_tx(
+        &self,
+        tx_hash: &str,
+        contract_address: Address,
+    ) -> anyhow::Result<Option<String>> {
+        self.adaptor.extract_initialize_escrow_hash_from_tx(tx_hash, contract_address).await
     }
 
     pub async fn gateway_get_committee_pubkeys(

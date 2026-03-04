@@ -1,6 +1,7 @@
 use crate::goat_chain::chain_adaptor::{
     BitcoinTx, BitcoinTxProof, ChainAdaptor, DisproveTxType, GraphData, PeginData, PeginStatus,
-    SequencerSetUpdateWitness, Utxo, WithdrawData, WithdrawStatus,
+    SequencerSetUpdateWitness, SwapEscrowData, SwapInitializeResult, Utxo, WithdrawData,
+    WithdrawStatus,
 };
 use crate::goat_chain::goat_adaptor::IBitcoinSPV::IBitcoinSPVInstance;
 use crate::goat_chain::goat_adaptor::ICommitteeManagement::ICommitteeManagementInstance;
@@ -17,7 +18,7 @@ use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{CallConfig, GethDebugTracingOptions, GethTrace};
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
-    primitives::{Address, Bytes, ChainId, FixedBytes, TxHash, U256},
+    primitives::{Address, B256, Bytes, ChainId, FixedBytes, TxHash, U256, keccak256},
     providers::{Provider, ProviderBuilder, RootProvider},
     rpc::types::TransactionRequest,
     signers::{Signer, local::PrivateKeySigner},
@@ -179,6 +180,62 @@ sol!(
         function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
     }
 );
+
+sol!(
+    #[derive(Debug)]
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    interface ISwapEscrowManager {
+        event Initialize(address indexed offerer, address indexed claimer, bytes32 indexed escrowHash, address claimHandler, address refundHandler);
+
+        struct EscrowData {
+            address offerer;
+            address claimer;
+            uint256 amount;
+            address token;
+            uint256 flags;
+            address claimHandler;
+            bytes32 claimData;
+            address refundHandler;
+            bytes32 refundData;
+            uint256 securityDeposit;
+            uint256 claimerBounty;
+            address depositToken;
+            bytes32 successActionCommitment;
+        }
+
+        function initialize(EscrowData calldata escrow, bytes calldata signature, uint256 timeout, bytes memory _extraData) external payable;
+    }
+);
+
+const INITIALIZE_EVENT_SIGNATURE: &str = "Initialize(address,address,bytes32,address,address)";
+
+fn initialize_event_topic0() -> B256 {
+    keccak256(INITIALIZE_EVENT_SIGNATURE.as_bytes())
+}
+
+fn extract_escrow_hash_from_initialize_topics(topics: &[B256]) -> Option<String> {
+    if topics.len() < 4 {
+        return None;
+    }
+    Some(format!("0x{}", hex::encode(topics[3].0)))
+}
+
+fn extract_initialize_escrow_hash_from_receipt(
+    receipt: &TransactionReceipt,
+    swap_contract_address: &Address,
+) -> Option<String> {
+    let topic0 = initialize_event_topic0();
+    receipt.logs().iter().find_map(|log| {
+        if log.address() != *swap_contract_address {
+            return None;
+        }
+        if log.topic0() != Some(&topic0) {
+            return None;
+        }
+        extract_escrow_hash_from_initialize_topics(log.topics())
+    })
+}
 
 sol!(
     #[derive(Debug)]
@@ -435,10 +492,37 @@ impl GoatAdaptor {
             .ok_or_else(|| anyhow::anyhow!("StakeManagement not initialized"))
     }
 
+    fn convert_swap_escrow_data(escrow: SwapEscrowData) -> ISwapEscrowManager::EscrowData {
+        ISwapEscrowManager::EscrowData {
+            offerer: escrow.offerer,
+            claimer: escrow.claimer,
+            amount: escrow.amount,
+            token: escrow.token,
+            flags: escrow.flags,
+            claimHandler: escrow.claim_handler,
+            claimData: FixedBytes::<32>::from(escrow.claim_data),
+            refundHandler: escrow.refund_handler,
+            refundData: FixedBytes::<32>::from(escrow.refund_data),
+            securityDeposit: escrow.security_deposit,
+            claimerBounty: escrow.claimer_bounty,
+            depositToken: escrow.deposit_token,
+            successActionCommitment: FixedBytes::<32>::from(escrow.success_action_commitment),
+        }
+    }
+
     async fn handle_transaction_request(
         &self,
-        mut tx_request: TransactionRequest,
+        tx_request: TransactionRequest,
     ) -> anyhow::Result<TxHash> {
+        let (tx_hash, _) = self.handle_transaction_request_with_wait(tx_request, 10).await?;
+        Ok(tx_hash)
+    }
+
+    async fn handle_transaction_request_with_wait(
+        &self,
+        mut tx_request: TransactionRequest,
+        max_wait_secs: u64,
+    ) -> anyhow::Result<(TxHash, TransactionReceipt)> {
         // update  gas price nonce gas_limit
         tx_request.gas_price = Some(self.provider.clone().get_gas_price().await?);
         tracing::info!("gas price: {}", tx_request.gas_price.unwrap());
@@ -463,10 +547,12 @@ impl GoatAdaptor {
         let tx_hash = pending_tx.tx_hash();
         tracing::info!("finish send tx_hash: {}", tx_hash.to_string());
 
-        // TODO update latter
-        let mut is_success = false;
-        for i in 0..5 {
-            time::sleep(Duration::from_millis(2000)).await;
+        let poll_interval_secs = 2_u64;
+        let max_attempts = (max_wait_secs / poll_interval_secs).max(1);
+        for i in 0..max_attempts {
+            if i > 0 {
+                time::sleep(Duration::from_secs(poll_interval_secs)).await;
+            }
             match self.provider.get_transaction_receipt(*tx_hash).await {
                 Err(_) => {
                     tracing::info!(
@@ -485,17 +571,15 @@ impl GoatAdaptor {
                         );
                         continue;
                     }
-                    if receipt.unwrap().status() {
-                        is_success = true;
-                        break;
+                    let receipt = receipt.expect("checked is_some");
+                    if !receipt.status() {
+                        bail!("tx_hash:{tx_hash} execute failed on chain");
                     }
+                    return Ok((*tx_hash, receipt));
                 }
             };
         }
-        if !is_success {
-            bail!("tx_hash:{tx_hash} execute failed on chain");
-        }
-        Ok(*tx_hash)
+        bail!("tx_hash:{} receipt not found within {} seconds", tx_hash.to_string(), max_wait_secs)
     }
 }
 
@@ -719,6 +803,52 @@ impl ChainAdaptor for GoatAdaptor {
         let opts = trace_options
             .unwrap_or_else(|| GethDebugTracingOptions::call_tracer(CallConfig::default()));
         Ok(self.provider.debug_trace_transaction(TxHash::from_str(tx_hash)?, opts).await?)
+    }
+
+    async fn swap_initialize(
+        &self,
+        contract_address: Address,
+        escrow: SwapEscrowData,
+        signature: Bytes,
+        timeout: U256,
+        extra_data: Bytes,
+        value_wei: U256,
+        max_wait_secs: u64,
+    ) -> anyhow::Result<SwapInitializeResult> {
+        let contract = ISwapEscrowManager::new(contract_address, self.provider.clone());
+        let escrow = GoatAdaptor::convert_swap_escrow_data(escrow);
+        let tx_request: TransactionRequest = contract
+            .initialize(escrow, signature, timeout, extra_data)
+            .from(self.get_default_signer_address())
+            .chain_id(self.chain_id)
+            .value(value_wei)
+            .into_transaction_request();
+        let (tx_hash, receipt) =
+            self.handle_transaction_request_with_wait(tx_request, max_wait_secs).await?;
+        let escrow_hash = extract_initialize_escrow_hash_from_receipt(&receipt, &contract_address)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Initialize event with escrowHash not found in tx {} logs for contract {}",
+                    tx_hash,
+                    contract_address
+                )
+            })?;
+        Ok(SwapInitializeResult { tx_hash: tx_hash.to_string(), escrow_hash })
+    }
+
+    async fn extract_initialize_escrow_hash_from_tx(
+        &self,
+        tx_hash: &str,
+        contract_address: Address,
+    ) -> anyhow::Result<Option<String>> {
+        let receipt = self.provider.get_transaction_receipt(TxHash::from_str(tx_hash)?).await?;
+        let Some(receipt) = receipt else {
+            return Ok(None);
+        };
+        if !receipt.status() {
+            bail!("tx {} failed on-chain (status = 0)", tx_hash);
+        }
+        Ok(extract_initialize_escrow_hash_from_receipt(&receipt, &contract_address))
     }
 
     async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {

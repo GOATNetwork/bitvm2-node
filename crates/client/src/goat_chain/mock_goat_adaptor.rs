@@ -1,6 +1,6 @@
 use crate::goat_chain::chain_adaptor::*;
 use crate::utils::generate_random_bytes;
-use alloy::primitives::{Address, TxHash, U256};
+use alloy::primitives::{Address, Bytes, TxHash, U256};
 use alloy::rpc::types::{
     TransactionReceipt,
     trace::geth::{GethDebugTracingOptions, GethTrace, NoopFrame},
@@ -94,6 +94,30 @@ impl ChainAdaptor for MockAdaptor {
     ) -> anyhow::Result<GethTrace> {
         // Mock adaptor returns empty trace structure.
         Ok(GethTrace::NoopTracer(NoopFrame::default()))
+    }
+
+    async fn swap_initialize(
+        &self,
+        _contract_address: Address,
+        _escrow: SwapEscrowData,
+        _signature: Bytes,
+        _timeout: U256,
+        _extra_data: Bytes,
+        _value_wei: U256,
+        _max_wait_secs: u64,
+    ) -> anyhow::Result<SwapInitializeResult> {
+        Ok(SwapInitializeResult {
+            tx_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
+            escrow_hash: format!("0x{}", hex::encode(generate_random_bytes(32))),
+        })
+    }
+
+    async fn extract_initialize_escrow_hash_from_tx(
+        &self,
+        _tx_hash: &str,
+        _contract_address: Address,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(Some(format!("0x{}", "11".repeat(32))))
     }
 
     async fn gateway_get_min_challenge_amount_sats(&self) -> anyhow::Result<u64> {
