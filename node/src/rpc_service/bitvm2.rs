@@ -250,6 +250,7 @@ impl InstanceExtended {
             instance.status.clone(),
             instance.btc_txid.clone().map(|v| v.0.to_string()),
             &utxos,
+            instance.pegin_cancel_txid.clone().map(|v| v.0),
         )
         .await?;
         let (current_status_waiting_time_in_secs, waiting_time_in_secs) =
@@ -282,6 +283,7 @@ async fn get_instance_status_extra(
     status: String,
     target_txid: Option<String>,
     utxos: &[Utxo],
+    pegin_cancel_txid: Option<Txid>,
 ) -> anyhow::Result<StatusExtra> {
     let mut status_extra = StatusExtra::default();
     if is_bridge_in && let Ok(bridge_in_status) = InstanceBridgeInStatus::from_str(&status) {
@@ -332,6 +334,19 @@ async fn get_instance_status_extra(
                 status_extra.is_failed = true;
                 status_extra.error = Some(BRIDGE_IN_FAIL_AS_TIMEOUT.to_string());
                 status_extra.user_action = StatusUserAction::BroadcastCancelPegin;
+                if let Some(ref txid) = pegin_cancel_txid {
+                    match btc_client.get_tx(txid).await {
+                        Ok(Some(_)) => {
+                            status_extra.user_action = StatusUserAction::None;
+                        }
+                        Err(err) => {
+                            warn!(
+                                "instance:{instance_id} failed to query pegin_cancel_txid {txid}: {err}"
+                            );
+                        }
+                        _ => {} // tx not found on chain, keep BroadcastCancelPegin
+                    }
+                }
             }
             _ => {}
         }
@@ -816,5 +831,89 @@ impl DisplayStatusConvert for Instance {
             Ok(v) => vec![v.to_string()],
             Err(_) => vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use esplora_client::{Tx, TxStatus};
+
+    fn build_mock_tx(txid: Txid, confirmed: bool) -> Tx {
+        Tx {
+            txid,
+            version: 2,
+            locktime: 0,
+            vin: vec![],
+            vout: vec![],
+            size: 10,
+            weight: 40,
+            status: TxStatus {
+                confirmed,
+                block_height: if confirmed { Some(1) } else { None },
+                block_hash: None,
+                block_time: if confirmed { Some(1) } else { None },
+            },
+            fee: 0,
+        }
+    }
+
+    async fn timeout_status_extra(
+        btc_client: &BTCClient,
+        cancel_txid: Option<Txid>,
+    ) -> StatusExtra {
+        get_instance_status_extra(
+            btc_client,
+            Uuid::new_v4(),
+            true,
+            InstanceBridgeInStatus::Timeout.to_string(),
+            None,
+            &[],
+            cancel_txid,
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn timeout_without_cancel_txid_should_broadcast_cancel_pegin() {
+        let (btc_client, _) = BTCClient::new_mock_client();
+        let extra = timeout_status_extra(&btc_client, None).await;
+        assert_eq!(extra.user_action, StatusUserAction::BroadcastCancelPegin);
+    }
+
+    #[tokio::test]
+    async fn timeout_with_cancel_txid_in_mempool_should_have_no_action() {
+        let (btc_client, mock_adaptor) = BTCClient::new_mock_client();
+        let txid =
+            Txid::from_str("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                .unwrap();
+        mock_adaptor.set_tx(txid, build_mock_tx(txid, false));
+
+        let extra = timeout_status_extra(&btc_client, Some(txid)).await;
+        assert_eq!(extra.user_action, StatusUserAction::None);
+    }
+
+    #[tokio::test]
+    async fn timeout_with_confirmed_cancel_txid_should_have_no_action() {
+        let (btc_client, mock_adaptor) = BTCClient::new_mock_client();
+        let txid =
+            Txid::from_str("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                .unwrap();
+        mock_adaptor.set_tx(txid, build_mock_tx(txid, true));
+
+        let extra = timeout_status_extra(&btc_client, Some(txid)).await;
+        assert_eq!(extra.user_action, StatusUserAction::None);
+    }
+
+    #[tokio::test]
+    async fn timeout_with_non_existing_cancel_txid_should_broadcast_cancel_pegin() {
+        let (btc_client, _) = BTCClient::new_mock_client();
+        let txid =
+            Txid::from_str("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+                .unwrap();
+
+        let extra = timeout_status_extra(&btc_client, Some(txid)).await;
+        assert_eq!(extra.user_action, StatusUserAction::BroadcastCancelPegin);
     }
 }
