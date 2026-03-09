@@ -1882,24 +1882,70 @@ async fn handle_kickoff_ready_operator(
             continue;
         } else if current_graph_status.is_pegout_started() {
             tracing::warn!(
-                "Ignore KickoffReady for {instance_id}:{graph_id}: previous graph {current_graph_id} already started"
+                "Ignore KickoffReady for {instance_id}:{graph_id}: previous graph {current_graph_id} already started pegout"
             );
+            let nonce_interval =
+                graph.parameters.graph_nonce - current_graph.parameters.graph_nonce;
+            let min_pegout_time_secs = take1_timelock(ctx.btc_client.network()) as u64
+                * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+            let delay_secs = min_pegout_time_secs * nonce_interval;
+            push_local_unhandled_messages(
+                ctx.local_db,
+                current_graph_id,
+                &message,
+                delay_secs as usize,
+            )
+            .await?;
             return Ok(());
         } else if current_graph_status.is_obsoleted() {
-            let need_operator_skip =
-                current_graph.parameters.graph_nonce + 1 < graph.parameters.graph_nonce;
-            if !need_operator_skip {
+            operator_skip_graph(ctx.btc_client, &mut current_graph).await?;
+            tracing::info!(
+                "Operator {operator_pubkey} skipped obsoleted graph {current_instance_id}:{current_graph_id}"
+            );
+            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
+            push_local_unhandled_messages(
+                ctx.local_db,
+                current_graph_id,
+                &message,
+                delay_secs as usize,
+            )
+            .await?;
+            return Ok(());
+        } else {
+            let graph_data_on_goat =
+                ctx.goat_client.gateway_get_graph_data(&current_graph_id).await?;
+            if graph_data_on_goat.operator_pubkey != [0u8; 32] {
                 tracing::warn!(
-                    "Ignore KickoffReady for {instance_id}:{graph_id}: previous graph {current_graph_id} obsoleted"
+                    "Ignore KickoffReady for {instance_id}:{graph_id}: previous available graph exists for Operator {operator_pubkey}: {current_instance_id}:{current_graph_id}, please withdraw it first"
                 );
+                let nonce_interval =
+                    graph.parameters.graph_nonce - current_graph.parameters.graph_nonce;
+                let min_pegout_time_secs = take1_timelock(ctx.btc_client.network()) as u64
+                    * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                let delay_secs = min_pegout_time_secs * nonce_interval;
+                push_local_unhandled_messages(
+                    ctx.local_db,
+                    current_graph_id,
+                    &message,
+                    delay_secs as usize,
+                )
+                .await?;
+                return Ok(());
+            } else {
+                operator_skip_graph(ctx.btc_client, &mut current_graph).await?;
+                tracing::info!(
+                    "Operator {operator_pubkey} skipped non-posted graph {current_instance_id}:{current_graph_id}"
+                );
+                let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
+                push_local_unhandled_messages(
+                    ctx.local_db,
+                    current_graph_id,
+                    &message,
+                    delay_secs as usize,
+                )
+                .await?;
                 return Ok(());
             }
-            operator_skip_graph(ctx.btc_client, &mut current_graph).await?;
-        } else if matches!(current_graph_status, GraphStatus::OperatorPresigned) {
-            tracing::warn!(
-                "Ignore KickoffReady for {instance_id}:{graph_id}: previous graph {current_graph_id} not started yet"
-            );
-            return Ok(());
         }
     }
     // 3. sign & broadcast prekickoff & kickoff txns
@@ -2650,24 +2696,28 @@ async fn handle_operator_commit_blockhash_ready_operator(
         return Ok(());
     }
     // 1. check that all WatchtowerChallenge Connectors are spent
-    let largest_watchtower_challenge_block_hash =
-        match get_largest_watchtower_challenge_block(&graph, ctx.btc_client).await {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::warn!(
-                "Ignore OperatorCommitBlockHashReady for {instance_id}:{graph_id}: failed to get
+    let largest_watchtower_challenge_block_hash = match get_largest_watchtower_challenge_block(
+        &graph,
+        ctx.btc_client,
+    )
+    .await
+    {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(
+                "Retry OperatorCommitBlockHashReady later for {instance_id}:{graph_id}: failed to get
                             largest watchtower challenge block, error: {e:?}"
             );
-                push_local_unhandled_messages(
-                    ctx.local_db,
-                    graph_id,
-                    &message,
-                    todo_funcs::avg_block_time_secs(ctx.btc_client.network()) as usize,
-                )
-                .await?;
-                return Ok(());
-            }
-        };
+            push_local_unhandled_messages(
+                ctx.local_db,
+                graph_id,
+                &message,
+                todo_funcs::avg_block_time_secs(ctx.btc_client.network()) as usize,
+            )
+            .await?;
+            return Ok(());
+        }
+    };
     // 2. sign & broadcast commit-blockhash txn
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let operator_graph_keypair = operator_master_key.master_keypair();

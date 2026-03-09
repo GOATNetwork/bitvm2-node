@@ -313,15 +313,15 @@ impl GraphStatus {
         GraphStatus::OperatorDataPushed
     }
 
-    pub fn get_pegout_started_status() -> GraphStatus {
-        GraphStatus::OperatorKickOff
+    pub fn get_pegout_started_status() -> Vec<GraphStatus> {
+        vec![GraphStatus::OperatorKickOff, GraphStatus::Challenge]
     }
 
     pub fn is_pegin_finalized(&self) -> bool {
         GraphStatus::get_pegin_finalized_status().eq(self)
     }
     pub fn is_pegout_started(&self) -> bool {
-        GraphStatus::get_pegout_started_status().eq(self)
+        GraphStatus::get_pegout_started_status().contains(self)
     }
     pub fn is_closed(&self) -> bool {
         GraphStatus::get_closed_status().contains(self)
