@@ -847,6 +847,7 @@ bitvm2-noded \
 | `GOAT_ADDRESS` | Conditional | GOAT address (required for Operator/Challenger) | - |
 | `ENABLE_RELAYER` | No | Enable relayer mode for Committee nodes | `false` |
 | `BTC_CHAIN_URL` | No | Bitcoin Esplora API endpoint | Public Esplora |
+| `MARA_SLIPSTREAM_API_URL` | No | MARA slipstream API base URL (used for non-standard tx broadcast) | mainnet: `https://slipstream.mara.com/api`; testnet4: `https://teststream.mara.com/api` |
 | `GOAT_PROOF_BUILD_URL` | No | Proof Builder RPC endpoint | - |
 | `NODE_NAME` | No | Node display name | `ZKM` |
 | `OPERATOR_NODE_SERVICE_FEE` | No | Operator service fee rate | `0.001` |

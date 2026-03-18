@@ -966,7 +966,7 @@ pub fn take2_timelocks(network: Network) -> (u32, u32) {
             + if network == Network::Regtest { 6 } else { 0 }, // Regtest extra delay
         num_blocks_per_network(network, CONNECTOR_D_TIMELOCK)
             + if network == Network::Testnet { 6 } else { 0 } // Testnet extra delay
-            + if network == Network::Testnet4 { 60 } else { 0 } // Testnet4 extra delay
+            + if network == Network::Testnet4 { 100 } else { 0 } // Testnet4 extra delay
             + if network == Network::Regtest { 6 } else { 0 }, // Regtest extra delay
     )
 }

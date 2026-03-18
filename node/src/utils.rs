@@ -355,15 +355,6 @@ pub mod todo_funcs {
         let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
         Ok(operator_master_key.preimage_for_graph(graph_id, index))
     }
-    pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
-        match broadcast_tx(btc_client, tx).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                tracing::warn!("broadcast_nonstandard_tx not implemented yet: {} , Skipped", e);
-                Ok(())
-            }
-        }
-    }
 }
 
 pub mod evm_swap_utils {
@@ -1667,6 +1658,58 @@ pub async fn get_fee_rate(client: &BTCClient) -> Result<f64> {
     }
 }
 
+pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
+    match broadcast_tx(btc_client, tx).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let network = btc_client.network();
+            let base_url = get_mara_slipstream_api_base_url(network);
+            let submit_url = format!("{}/transactions", base_url.trim_end_matches('/'));
+            let tx_hex = hex::encode(serialize(tx));
+
+            warn!(
+                "normal broadcast failed, fallback to MARA slipstream api. network: {network:?}, url: {submit_url}, err: {e}"
+            );
+
+            let response = reqwest::Client::new()
+                .post(&submit_url)
+                .json(&serde_json::json!({ "tx_hex": tx_hex }))
+                .send()
+                .await
+                .map_err(|fallback_err| {
+                    anyhow!(
+                        "fallback broadcast request failed. normal error: {e}; fallback error: {fallback_err}"
+                    )
+                })?;
+
+            let status = response.status();
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "<failed to read response body>".to_string());
+
+            if !status.is_success() {
+                bail!(
+                    "fallback broadcast failed. normal error: {e}; fallback status: {status}; fallback body: {body}"
+                );
+            }
+
+            let status_field = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(str::to_string));
+            if let Some(status_field) = status_field
+                && !status_field.eq_ignore_ascii_case("success")
+            {
+                bail!(
+                    "fallback broadcast returned non-success status. normal error: {e}; fallback body: {body}"
+                );
+            }
+
+            Ok(())
+        }
+    }
+}
+
 /// Broadcasts a raw transaction to the Bitcoin network using the mempool API.
 ///
 /// Requirements:
@@ -2218,7 +2261,7 @@ pub async fn build_sign_and_broadcast_non_standard_tx(
                     &node_keypair,
                 )?;
             }
-            todo_funcs::broadcast_nonstandard_tx(client, &tx).await?;
+            broadcast_nonstandard_tx(client, &tx).await?;
             Ok(tx.compute_txid())
         }
         None => {
@@ -4637,6 +4680,116 @@ pub async fn get_largest_watchtower_challenge_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    async fn build_large_nonstandard_tx_for_debug(
+        btc_client: &BTCClient,
+        node_keypair: &Keypair,
+        payload_size: usize,
+    ) -> Result<Transaction> {
+        let mut msg = "large_opreturn_msg".to_string().as_bytes().to_vec();
+        msg.extend(vec![0u8; payload_size - msg.len()]);
+        let scr = script! {
+            OP_RETURN
+            {msg}
+        }
+        .compile();
+        let mut tx = Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![TxOut { value: Amount::ZERO, script_pubkey: scr }],
+        };
+
+        let node_pubkey: PublicKey = node_keypair.public_key().into();
+        let node_address = node_p2wsh_address(get_network(), &node_pubkey);
+
+        let (inputs, _, change_amount) = get_proper_utxo_set(
+            btc_client,
+            tx.weight().to_vbytes_ceil(),
+            node_address.clone(),
+            Amount::ZERO,
+            1.0,
+        )
+        .await?
+        .ok_or_else(|| {
+            anyhow!("insufficient UTXOs on {} for debug nonstandard tx test", node_address)
+        })?;
+
+        for input in &inputs {
+            tx.input.push(TxIn {
+                previous_output: input.outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            });
+        }
+
+        if change_amount > Amount::from_sat(DUST_AMOUNT) {
+            tx.output
+                .push(TxOut { script_pubkey: node_address.script_pubkey(), value: change_amount });
+        }
+
+        for (i, input) in inputs.iter().enumerate() {
+            node_sign(&mut tx, i, input.amount, EcdsaSighashType::All, node_keypair)?;
+        }
+
+        Ok(tx)
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn debug_test_broadcast_nonstandard_tx_and_check_mempool_visibility() -> Result<()> {
+        if std::env::var(ENV_BITVM_SECRET).is_err() {
+            bail!("BITVM_SECRET is required and should correspond to a funded testnet key");
+        }
+
+        let network = get_network();
+        if network != Network::Testnet4 {
+            bail!("refuse to run this debug test on non-testnet4 network: {network}");
+        }
+
+        let btc_url =
+            get_btc_url_from_env().unwrap_or_else(|| "https://mempool.space/testnet4".to_string());
+        let btc_client = BTCClient::new(network, Some(&btc_url));
+        let node_keypair = get_bitvm_key()?;
+
+        // Use an oversized OP_RETURN payload to make tx non-standard for regular mempool relay.
+        let tx = build_large_nonstandard_tx_for_debug(&btc_client, &node_keypair, 200_000).await?;
+        let txid = tx.compute_txid();
+        println!(
+            "debug nonstandard tx built: txid={}, vbytes={}",
+            txid,
+            tx.weight().to_vbytes_ceil()
+        );
+
+        let normal_err = broadcast_tx(&btc_client, &tx).await.err().ok_or_else(|| {
+            anyhow!("expected normal mempool broadcast to fail for non-standard tx")
+        })?;
+        println!("normal broadcast failed as expected: {normal_err:#}");
+
+        broadcast_nonstandard_tx(&btc_client, &tx).await?;
+        println!("broadcast_nonstandard_tx succeeded for non-standard tx");
+
+        let mut found_in_mempool = false;
+        for _ in 0..10 {
+            if btc_client.get_tx(&txid).await?.is_some() {
+                found_in_mempool = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        if found_in_mempool {
+            println!(
+                "successfully found non-standard tx in mempool after broadcast_nonstandard_tx"
+            );
+        } else {
+            println!("failed to find non-standard tx in mempool after broadcast_nonstandard_tx");
+        }
+
+        Ok(())
+    }
 
     #[tokio::test]
     #[ignore = "test on regtest"]
