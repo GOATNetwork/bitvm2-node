@@ -86,6 +86,7 @@ pub struct CommitChainState {
 pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 36;
 pub const VK_HASH_SIZE: usize = 66;
+pub const ZKM_VERSION_SIZE: usize = 8;
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CommitChainCircuitOutput {
@@ -98,6 +99,7 @@ pub struct CommitChainCircuitInput {
     pub zkm_proof: Vec<u8>,
     pub zkm_public_values: Vec<u8>,
     pub zkm_vk_hash: Vec<u8>,
+    pub zkm_version: [u8; ZKM_VERSION_SIZE],
     pub commits: Vec<CircuitCommit>,
 }
 

@@ -91,6 +91,8 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
     }
 };
 
+pub const ZKM_VERSION_SIZE: usize = 8;
+
 /// An epoch should be two weeks (represented as number of seconds)
 /// seconds/minute * minutes/hour * hours/day * 14 days
 const EXPECTED_EPOCH_TIMESPAN: u32 = 60 * 60 * 24 * 14;
@@ -379,6 +381,7 @@ pub struct HeaderChainCircuitInput {
     pub zkm_proof: Vec<u8>,
     pub zkm_public_values: Vec<u8>,
     pub zkm_vk_hash: Vec<u8>,
+    pub zkm_version: [u8; ZKM_VERSION_SIZE],
     pub prev_proof: HeaderChainPrevProofType,
     pub block_headers: Vec<CircuitBlockHeader>,
 }

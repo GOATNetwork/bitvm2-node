@@ -19,7 +19,7 @@ use header_chain::{
 };
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use zkm_primitives::io::ZKMPublicValues;
-use zkm_verifier::Groth16Verifier;
+use zkm_verifier::{Groth16Verifier, get_snark_vk_meta};
 
 use bitcoin::{ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
 pub use guest_executor::io::EthClientExecutorInput;
@@ -28,10 +28,41 @@ pub const GRAPH_ID_SIZE: usize = 16;
 pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 36;
 pub const VK_HASH_SIZE: usize = 66;
-pub const COMMITMENT_SIZE: usize = GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE;
+pub const ZKM_VERSION_SIZE: usize = 8;
+pub const COMMITMENT_SIZE: usize =
+    GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + ZKM_VERSION_SIZE;
 
 pub const TOTAL_WORK_SIZE: usize = 32;
 pub const CONSENSUS_BLOCK_HEIGHT_SIZE: usize = 4;
+
+fn encode_zkm_version_fixed(zkm_version: &str) -> Result<[u8; ZKM_VERSION_SIZE], String> {
+    let raw = zkm_version.as_bytes();
+    if raw.is_empty() {
+        return Err("zkm_version is empty".to_string());
+    }
+    if raw.len() > ZKM_VERSION_SIZE {
+        return Err(format!(
+            "zkm_version '{}' too long: {} > {}",
+            zkm_version,
+            raw.len(),
+            ZKM_VERSION_SIZE
+        ));
+    }
+    let mut encoded = [0u8; ZKM_VERSION_SIZE];
+    encoded[..raw.len()].copy_from_slice(raw);
+    Ok(encoded)
+}
+
+fn decode_zkm_version_fixed(zkm_version: &[u8; ZKM_VERSION_SIZE]) -> Result<String, String> {
+    let end = zkm_version
+        .iter()
+        .position(|b| *b == 0)
+        .unwrap_or(zkm_version.len());
+    if end == 0 {
+        return Err("zkm_version is empty".to_string());
+    }
+    String::from_utf8(zkm_version[..end].to_vec()).map_err(|e| format!("invalid zkm_version: {e}"))
+}
 
 pub fn watch_longest_chain(
     genesis_sequencer_commit_txid: [u8; 32],
@@ -50,6 +81,7 @@ pub fn watch_longest_chain(
         &commit_chain.zkm_proof,
         &commit_chain.zkm_public_values,
         &commit_chain.zkm_vk_hash,
+        &commit_chain.zkm_version,
     )
     .expect("Failed to verify commit chain proof");
 
@@ -71,6 +103,7 @@ pub fn watch_longest_chain(
         &header_chain.zkm_proof,
         &header_chain.zkm_public_values,
         &header_chain.zkm_vk_hash,
+        &header_chain.zkm_version,
     )
     .expect("Failed to verify header chain proof");
 
@@ -83,8 +116,13 @@ pub fn watch_longest_chain(
     println!("SPV");
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
 
-    verify_proof(&state_chain.zkm_proof, &state_chain.zkm_public_values, &state_chain.zkm_vk_hash)
-        .expect("Failed to verify state chain proof");
+    verify_proof(
+        &state_chain.zkm_proof,
+        &state_chain.zkm_public_values,
+        &state_chain.zkm_vk_hash,
+        &state_chain.zkm_version,
+    )
+    .expect("Failed to verify state chain proof");
     let prev_output = ZKMPublicValues::from(&state_chain.zkm_public_values).read();
     let prev_proof = StateChainPrevProofType::PrevProof(prev_output);
     let StateChainPrevProofType::PrevProof(state_chain_output) = &prev_proof else {
@@ -158,6 +196,7 @@ pub fn propose_longest_chain(
         &commit_chain.zkm_proof,
         &commit_chain.zkm_public_values,
         &commit_chain.zkm_vk_hash,
+        &commit_chain.zkm_version,
     )
     .expect("Failed to verify commit chain proof");
     let prev_output = ZKMPublicValues::from(&commit_chain.zkm_public_values).read();
@@ -180,6 +219,7 @@ pub fn propose_longest_chain(
         &operator_header_chain.zkm_proof,
         &operator_header_chain.zkm_public_values,
         &operator_header_chain.zkm_vk_hash,
+        &operator_header_chain.zkm_version,
     )
     .expect("Failed to verify header chain proof");
     let prev_output = ZKMPublicValues::from(&operator_header_chain.zkm_public_values).read();
@@ -235,6 +275,7 @@ pub fn propose_longest_chain(
                 proof,
                 public_values,
                 vk,
+                watchtower_zkm_version,
                 watchtower_total_work,
                 watchtower_consensus_block_height,
             ) = match parse_watchtower_commitment(commitment) {
@@ -245,7 +286,7 @@ pub fn propose_longest_chain(
                 }
             };
 
-            match verify_proof(&proof, &public_values, &vk) {
+            match verify_proof(&proof, &public_values, &vk, &watchtower_zkm_version) {
                 Ok(_) => {}
                 Err(err) => {
                     println!("Watchtower[{i}] invalid proof: {err}");
@@ -288,8 +329,13 @@ pub fn propose_longest_chain(
 
     println!("verify el block");
 
-    verify_proof(&state_chain.zkm_proof, &state_chain.zkm_public_values, &state_chain.zkm_vk_hash)
-        .expect("Failed to verify state chain proof");
+    verify_proof(
+        &state_chain.zkm_proof,
+        &state_chain.zkm_public_values,
+        &state_chain.zkm_vk_hash,
+        &state_chain.zkm_version,
+    )
+    .expect("Failed to verify state chain proof");
 
     let prev_output = ZKMPublicValues::from(&state_chain.zkm_public_values).read();
     let prev_proof = StateChainPrevProofType::PrevProof(prev_output);
@@ -430,13 +476,22 @@ pub fn build_watchtower_commitment(
     proof: &[u8; PROOF_SIZE],
     public_inputs: &[u8; PUBLIC_INPUTS_SIZE],
     vk_hash: &str,
-) -> Vec<u8> {
+    zkm_version: &str,
+) -> Result<Vec<u8>, String> {
     let mut comm = graph_id.to_vec();
     comm.extend_from_slice(proof);
     comm.extend_from_slice(public_inputs);
-    assert_eq!(vk_hash.len(), VK_HASH_SIZE);
+    if vk_hash.len() != VK_HASH_SIZE {
+        return Err(format!(
+            "invalid vk_hash length: {}, expected {}",
+            vk_hash.len(),
+            VK_HASH_SIZE
+        ));
+    }
     comm.extend_from_slice(vk_hash.as_bytes());
-    comm
+    let zkm_version = encode_zkm_version_fixed(zkm_version)?;
+    comm.extend_from_slice(&zkm_version);
+    Ok(comm)
 }
 
 pub type WatchtowerCommitmentResult = (
@@ -444,6 +499,7 @@ pub type WatchtowerCommitmentResult = (
     [u8; PROOF_SIZE],
     [u8; PUBLIC_INPUTS_SIZE],
     [u8; VK_HASH_SIZE],
+    [u8; ZKM_VERSION_SIZE],
     [u8; TOTAL_WORK_SIZE],
     [u8; CONSENSUS_BLOCK_HEIGHT_SIZE],
 );
@@ -472,6 +528,10 @@ pub fn parse_watchtower_commitment(
 
     let mut zkm_vk_hash_bytes = [0u8; VK_HASH_SIZE];
     zkm_vk_hash_bytes.copy_from_slice(&commitment[end..end + VK_HASH_SIZE]);
+    end += VK_HASH_SIZE;
+
+    let mut zkm_version = [0u8; ZKM_VERSION_SIZE];
+    zkm_version.copy_from_slice(&commitment[end..end + ZKM_VERSION_SIZE]);
 
     // extract ChainState
     let mut watchtower_total_work = [0u8; TOTAL_WORK_SIZE];
@@ -494,6 +554,7 @@ pub fn parse_watchtower_commitment(
         proof,
         zkm_public_values,
         zkm_vk_hash_bytes,
+        zkm_version,
         watchtower_total_work,
         watchtower_consensus_block_height,
     ))
@@ -504,10 +565,13 @@ pub fn verify_proof(
     proof: &[u8],
     zkm_public_values: &[u8],
     zkm_vk_hash: &[u8],
+    zkm_version: &[u8; ZKM_VERSION_SIZE],
 ) -> Result<(), String> {
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
     let zkm_vk_hash = String::from_utf8(zkm_vk_hash.to_vec()).map_err(|e| e.to_string())?;
-    match Groth16Verifier::verify(proof, zkm_public_values, &zkm_vk_hash, groth16_vk) {
+    let zkm_version = decode_zkm_version_fixed(zkm_version)?;
+    let snark_vk_meta = get_snark_vk_meta(&zkm_version).map_err(|e| e.to_string())?;
+    match Groth16Verifier::verify(proof, zkm_public_values, &zkm_vk_hash, &snark_vk_meta, groth16_vk) {
         Ok(_) => Ok(()),
         Err(err) => Err(format!("Verify Groth16 proof, err: {err:?}")),
     }
@@ -521,6 +585,7 @@ mod tests {
     const PUBLIC_INPUTS: &[u8] =
         include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
     const VK_HASH: &str = include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
+    const ZKM_VERSION: &str = "v1.2.4";
 
     #[test]
     fn test_build_watchtower_commitment() {
@@ -535,7 +600,9 @@ mod tests {
             &PROOF.try_into().unwrap(),
             &PUBLIC_INPUTS.try_into().unwrap(),
             VK_HASH,
-        );
+            ZKM_VERSION,
+        )
+        .unwrap();
 
         println!("comm: {:?}", comm.len());
         println!("comm hex: {:?}", hex::encode(&comm));
@@ -546,8 +613,9 @@ mod tests {
         assert_eq!(expected.1, PROOF);
         assert_eq!(expected.2, PUBLIC_INPUTS);
         assert_eq!(expected.3, VK_HASH.as_bytes());
-        assert_eq!(expected.4, U256::from(total_work).to_be_bytes());
-        assert_eq!(expected.5, U32::from(block_height).to_le_bytes());
+        assert_eq!(expected.4, encode_zkm_version_fixed(ZKM_VERSION).unwrap());
+        assert_eq!(expected.5, U256::from(total_work).to_be_bytes());
+        assert_eq!(expected.6, U32::from(block_height).to_le_bytes());
     }
 
     #[test]
@@ -590,14 +658,23 @@ mod tests {
         let tx: Transaction = deserialize(&bytes).unwrap();
 
         let commitment = extract_data_from_commitment_outputs(&tx.output);
-        let (
-            parsed_graph_id,
-            _proof,
-            _public_values,
-            _vk,
-            _watchtower_total_work,
-            _watchtower_consensus_block_height,
-        ) = parse_watchtower_commitment(&commitment).unwrap();
-        assert_eq!(hex::encode(parsed_graph_id), "9bf28a9ccba44a0cbdd17ce6bb8262a1");
+        let parse_result = parse_watchtower_commitment(&commitment);
+        assert!(parse_result.is_err(), "legacy commitment without version should fail");
+    }
+
+    #[test]
+    fn test_build_watchtower_commitment_rejects_long_version() {
+        let graph_id = hex::decode("00112233445566778899aabbccddeeff")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let result = build_watchtower_commitment(
+            &graph_id,
+            &PROOF.try_into().unwrap(),
+            &PUBLIC_INPUTS.try_into().unwrap(),
+            VK_HASH,
+            "v123456789",
+        );
+        assert!(result.is_err());
     }
 }

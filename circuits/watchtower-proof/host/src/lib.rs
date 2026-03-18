@@ -21,6 +21,35 @@ use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 
 use clap::Parser;
 use std::fs;
+const ZKM_VERSION_BYTES_LEN: usize = 8;
+
+fn encode_zkm_version_fixed(version: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
+    let raw = version.as_bytes();
+    if raw.is_empty() {
+        anyhow::bail!("zkm_version is empty");
+    }
+    if raw.len() > ZKM_VERSION_BYTES_LEN {
+        anyhow::bail!(
+            "zkm_version '{}' too long: {} > {}",
+            version,
+            raw.len(),
+            ZKM_VERSION_BYTES_LEN
+        );
+    }
+    let mut encoded = [0u8; ZKM_VERSION_BYTES_LEN];
+    encoded[..raw.len()].copy_from_slice(raw);
+    Ok(encoded)
+}
+
+fn read_zkm_version_from_file(input_proof: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
+    let zkm_version = String::from_utf8(
+        fs::read(format!("{input_proof}.zkm_version.bin"))
+            .context("Failed to read input zkm version file")?,
+    )
+    .context("Invalid UTF-8 in input zkm version file")?;
+    encode_zkm_version_fixed(zkm_version.trim())
+}
+
 // The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
@@ -140,12 +169,15 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 .unwrap();
             let zkm_vk_hash =
                 fs::read(&format!("{}.vk_hash.bin", header_chain_input_proof)).unwrap();
+            let zkm_version = read_zkm_version_from_file(header_chain_input_proof)
+                .context("Failed to parse header-chain zkm version")?;
 
             HeaderChainCircuitInput {
                 prev_proof: HeaderChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
+                zkm_version,
                 block_headers: vec![],
             }
         };
@@ -159,11 +191,14 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 .unwrap();
             let zkm_vk_hash =
                 fs::read(&format!("{}.vk_hash.bin", commit_chain_input_proof)).unwrap();
+            let zkm_version = read_zkm_version_from_file(commit_chain_input_proof)
+                .context("Failed to parse commit-chain zkm version")?;
             CommitChainCircuitInput {
                 prev_proof: CommitChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
+                zkm_version,
                 commits: vec![],
             }
         };
@@ -177,11 +212,14 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 fs::read(&format!("{}.public_inputs.bin", state_chain_input_proof)).unwrap();
             let zkm_vk_hash =
                 fs::read(&format!("{}.vk_hash.bin", state_chain_input_proof)).unwrap();
+            let zkm_version = read_zkm_version_from_file(state_chain_input_proof)
+                .context("Failed to parse state-chain zkm version")?;
             StateChainCircuitInput {
                 prev_proof: StateChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
+                zkm_version,
                 blocks: vec![],
             }
         };
@@ -263,8 +301,11 @@ impl ProofBuilder for WatchtowerProofBuilder {
         std::fs::write(&format!("{}", output), proof.bytes())?;
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
+        let zkm_version = proof.zkm_version.clone();
+        encode_zkm_version_fixed(&zkm_version).context("Invalid zkm version for output proof")?;
         std::fs::write(&format!("{}.public_inputs.bin", output), proof.public_values.to_vec())?;
         std::fs::write(&format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
+        std::fs::write(&format!("{}.zkm_version.bin", output), zkm_version)?;
         Ok((public_value_hex, proof_size))
     }
 }

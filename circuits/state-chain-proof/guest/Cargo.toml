@@ -35,3 +35,7 @@ alloy-primitives-v1-1-2 = { git = "https://github.com/ziren-patches/core.git", p
 alloy-primitives-v1-4-1 = { git = "https://github.com/ziren-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.4.1" }
 secp256k1-v0-29-1 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.29.1" }
 #secp256k1-v0-30-0 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.30.0" }
+
+[patch."https://github.com/ProjectZKM/Ziren"]
+zkm-zkvm = { path = "../../../../zkm2/crates/zkvm/entrypoint" }
+zkm-verifier = { path = "../../../../zkm2/crates/verifier" }

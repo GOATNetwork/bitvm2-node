@@ -175,3 +175,10 @@ rust.unreachable_pub = "warn"
 rust.unused_must_use = "deny"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rustdoc.all = "warn"
+
+[patch."https://github.com/ProjectZKM/Ziren"]
+zkm-build = { path = "../zkm2/crates/build" }
+zkm-core-executor = { path = "../zkm2/crates/core/executor" }
+zkm-prover = { path = "../zkm2/crates/prover" }
+zkm-sdk = { path = "../zkm2/crates/sdk" }
+zkm-verifier = { path = "../zkm2/crates/verifier" }

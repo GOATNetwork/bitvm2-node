@@ -71,7 +71,7 @@ use store::{
 };
 use stun_client::{Attribute, Class, Client};
 use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
-use zkm_verifier::{GROTH16_VK_BYTES, convert_ark};
+use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, get_snark_vk_meta};
 
 use crate::env;
 use crate::rpc_service::routes::v1::{
@@ -1761,7 +1761,14 @@ fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Ve
     if proof_data.vk.len() != VK_HASH_SIZE {
         bail!("invalid vk_hash length");
     }
-    Ok(build_watchtower_commitment(graph_id, proof, public_inputs, &proof_data.vk))
+    Ok(build_watchtower_commitment(
+        graph_id,
+        proof,
+        public_inputs,
+        &proof_data.vk,
+        &proof_data.zkm_version,
+    )
+    .map_err(|e| anyhow!("failed to build watchtower commitment: {e}"))?)
 }
 
 // proof network
@@ -1948,7 +1955,16 @@ pub async fn get_operator_proof(
                 //proof.public_values.head();
                 info!("get_operator_proof parse proof successfully");
                 let groth16_vk = &GROTH16_VK_BYTES;
-                let ark_proof = convert_ark(&proof, &proof_data.vk, groth16_vk).unwrap();
+                let snark_vk_meta = get_snark_vk_meta(&proof.zkm_version).map_err(|e| {
+                    anyhow!(
+                        "failed to load snark vk meta for zkm_version '{}': {e}",
+                        proof.zkm_version
+                    )
+                })?;
+                let ark_proof =
+                    convert_ark(&proof, &proof_data.vk, &snark_vk_meta, groth16_vk).map_err(
+                        |e| anyhow!("failed to convert operator proof to ark format: {e}"),
+                    )?;
                 info!("get_operator_proof parse proof successfully");
 
                 Ok((

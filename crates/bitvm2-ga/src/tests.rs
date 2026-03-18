@@ -1008,9 +1008,11 @@ mod tests {
             &PROOF.try_into().unwrap(),
             &PUBLIC_INPUTS.try_into().unwrap(),
             VK_HASH,
+            "v1.2.4",
             //total_work,
             //consensus_commit_block_height,
-        );
+        )
+        .unwrap();
 
         let mut watchtower_0_challenge = build_watchtower_challenge_tx(
             &graph,

@@ -205,6 +205,7 @@ pub struct ProofData {
     pub proof: Vec<u8>,
     pub vk: String,
     pub public_inputs: Vec<u8>,
+    pub zkm_version: String,
 }
 
 impl ProofData {
@@ -222,6 +223,10 @@ impl ProofData {
                 proof_data.vk =
                     String::from_utf8(fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default())
                         .unwrap_or_default();
+                proof_data.zkm_version = String::from_utf8(
+                    fs::read(format!("{path}.zkm_version.bin")).unwrap_or_default(),
+                )
+                .unwrap_or_default();
             }
         }
         proof_data
