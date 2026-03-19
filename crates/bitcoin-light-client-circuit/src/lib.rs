@@ -260,7 +260,7 @@ pub fn propose_longest_chain(
                 }
             };
 
-            match verify_proof(&proof, &public_values, &vk, &watchtower_zkm_version) {
+            match verify_proof_fixed_version(&proof, &public_values, &vk, &watchtower_zkm_version) {
                 Ok(_) => {}
                 Err(err) => {
                     println!("Watchtower[{i}] invalid proof: {err}");
@@ -539,12 +539,11 @@ pub fn verify_proof(
     proof: &[u8],
     zkm_public_values: &[u8],
     zkm_vk_hash: &[u8],
-    zkm_version: &ZkmVersionBytes,
+    zkm_version: &str,
 ) -> Result<(), String> {
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
     let zkm_vk_hash = String::from_utf8(zkm_vk_hash.to_vec()).map_err(|e| e.to_string())?;
-    let zkm_version = decode_zkm_version_fixed(zkm_version)?;
-    let snark_vk_meta = get_snark_vk_meta(&zkm_version).map_err(|e| e.to_string())?;
+    let snark_vk_meta = get_snark_vk_meta(zkm_version).map_err(|e| e.to_string())?;
     match Groth16Verifier::verify(
         proof,
         zkm_public_values,
@@ -555,6 +554,16 @@ pub fn verify_proof(
         Ok(_) => Ok(()),
         Err(err) => Err(format!("Verify Groth16 proof, err: {err:?}")),
     }
+}
+
+pub fn verify_proof_fixed_version(
+    proof: &[u8],
+    zkm_public_values: &[u8],
+    zkm_vk_hash: &[u8],
+    zkm_version: &ZkmVersionBytes,
+) -> Result<(), String> {
+    let decoded_zkm_version = decode_zkm_version_fixed(zkm_version)?;
+    verify_proof(proof, zkm_public_values, zkm_vk_hash, &decoded_zkm_version)
 }
 
 #[cfg(test)]
@@ -671,5 +680,13 @@ mod tests {
         .unwrap();
         let parsed = parse_watchtower_commitment(&commitment).unwrap();
         assert_eq!(decode_zkm_version_fixed(&parsed.4).unwrap(), rc_version);
+    }
+
+    #[test]
+    fn test_verify_proof_accepts_non_fixed_length_version() {
+        let long_version = "v1.12.15-rc1+build.20260319";
+        let result = verify_proof(&[], &[], &[], long_version);
+        assert!(result.is_err());
+        assert!(!result.unwrap_err().contains("too long"));
     }
 }

@@ -99,7 +99,7 @@ pub struct CommitChainCircuitInput {
     pub zkm_proof: Vec<u8>,
     pub zkm_public_values: Vec<u8>,
     pub zkm_vk_hash: Vec<u8>,
-    pub zkm_version: [u8; ZKM_VERSION_SIZE],
+    pub zkm_version: String,
     pub commits: Vec<CircuitCommit>,
 }
 

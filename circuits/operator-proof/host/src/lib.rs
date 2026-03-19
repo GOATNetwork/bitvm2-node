@@ -20,7 +20,7 @@ use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
 };
-use zkm_version::{encode_zkm_version_fixed, read_zkm_version_from_file};
+use zkm_version::read_zkm_version_from_file;
 
 use clap::Parser;
 /// The arguments for the cli.
@@ -437,7 +437,6 @@ impl ProofBuilder for OperatorProofBuilder {
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
-        encode_zkm_version_fixed(&zkm_version).context("Invalid zkm version for output proof")?;
         std::fs::write(&format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
         std::fs::write(&format!("{}.zkm_version.bin", output), zkm_version)?;
         let proof = bincode::serialize(&proof).unwrap();

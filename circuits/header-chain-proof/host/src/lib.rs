@@ -11,7 +11,7 @@ use std::{
 use util::get_btc_block_confirms;
 use zkm_sdk::ZKMProofKind;
 use zkm_sdk::{HashableKey, Prover, ProverClient, ZKMProofWithPublicValues, ZKMStdin, include_elf};
-use zkm_version::{ZKM_VERSION_BYTES_LEN, encode_zkm_version_fixed, read_zkm_version_from_file};
+use zkm_version::read_zkm_version_from_file;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 use anyhow::Context;
 use clap::Parser;
@@ -210,8 +210,8 @@ impl ProofBuilder for HeaderChainProofBuilder {
                     let proof_bytes =
                         fs::read(input_proof).context("Failed to read input proof file").unwrap();
                     let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof)).unwrap();
-                let zkm_version = read_zkm_version_from_file(input_proof)
-                    .context("Failed to parse input zkm version")?;
+                    let zkm_version = read_zkm_version_from_file(input_proof)
+                        .context("Failed to parse input zkm version")?;
                     let prev_output = zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                     (
                         HeaderChainPrevProofType::PrevProof(prev_output),
@@ -226,7 +226,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    [0u8; ZKM_VERSION_BYTES_LEN],
+                    String::new(),
                 ),
             };
 
@@ -303,7 +303,6 @@ impl ProofBuilder for HeaderChainProofBuilder {
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
-        encode_zkm_version_fixed(&zkm_version).context("Invalid zkm version for output proof")?;
         std::fs::write(
             &format!("{}.public_inputs.bin", output_proof),
             proof.public_values.to_vec(),

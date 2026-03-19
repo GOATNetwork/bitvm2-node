@@ -13,7 +13,6 @@ pub use transaction::*;
 pub mod spv;
 pub use spv::SPV;
 use zkm_verifier::{Groth16Verifier, get_snark_vk_meta};
-use zkm_version::decode_zkm_version_fixed;
 
 /// The main entry point of the header chain circuit.
 pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircuitOutput {
@@ -25,8 +24,7 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
             println!("verify header chain of prev proof");
             let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
             let zkm_vk_hash = String::from_utf8(input.zkm_vk_hash.to_vec()).unwrap();
-            let zkm_version = decode_zkm_version_fixed(&input.zkm_version).unwrap();
-            let snark_vk_meta = get_snark_vk_meta(&zkm_version).unwrap();
+            let snark_vk_meta = get_snark_vk_meta(&input.zkm_version).unwrap();
             Groth16Verifier::verify(
                 &input.zkm_proof,
                 &input.zkm_public_values,

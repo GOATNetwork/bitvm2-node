@@ -21,7 +21,7 @@ use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 
 use clap::Parser;
 use std::fs;
-use zkm_version::{encode_zkm_version_fixed, read_zkm_version_from_file};
+use zkm_version::read_zkm_version_from_file;
 
 // The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
@@ -275,7 +275,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
-        encode_zkm_version_fixed(&zkm_version).context("Invalid zkm version for output proof")?;
         std::fs::write(&format!("{}.public_inputs.bin", output), proof.public_values.to_vec())?;
         std::fs::write(&format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
         std::fs::write(&format!("{}.zkm_version.bin", output), zkm_version)?;

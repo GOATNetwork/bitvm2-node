@@ -7,7 +7,7 @@ use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
 };
-use zkm_version::{ZKM_VERSION_BYTES_LEN, encode_zkm_version_fixed, read_zkm_version_from_file};
+use zkm_version::read_zkm_version_from_file;
 
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
@@ -190,8 +190,8 @@ impl ProofBuilder for CommitChainProofBuilder {
                         fs::read(input_proof).context("Failed to read input proof file")?;
                     let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof))
                         .context("Read vk hash")?;
-                let zkm_version = read_zkm_version_from_file(input_proof)
-                    .context("Failed to parse input zkm version")?;
+                    let zkm_version = read_zkm_version_from_file(input_proof)
+                        .context("Failed to parse input zkm version")?;
                     let prev_output: CommitChainCircuitOutput =
                         zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                     (
@@ -207,7 +207,7 @@ impl ProofBuilder for CommitChainProofBuilder {
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    [0u8; ZKM_VERSION_BYTES_LEN],
+                    String::new(),
                 ),
             };
 
@@ -281,7 +281,6 @@ impl ProofBuilder for CommitChainProofBuilder {
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
-        encode_zkm_version_fixed(&zkm_version).context("Invalid zkm version for output proof")?;
         std::fs::write(
             &format!("{}.public_inputs.bin", output_proof),
             proof.public_values.to_vec(),
