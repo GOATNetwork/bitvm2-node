@@ -21,34 +21,7 @@ use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 
 use clap::Parser;
 use std::fs;
-const ZKM_VERSION_BYTES_LEN: usize = 8;
-
-fn encode_zkm_version_fixed(version: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
-    let raw = version.as_bytes();
-    if raw.is_empty() {
-        anyhow::bail!("zkm_version is empty");
-    }
-    if raw.len() > ZKM_VERSION_BYTES_LEN {
-        anyhow::bail!(
-            "zkm_version '{}' too long: {} > {}",
-            version,
-            raw.len(),
-            ZKM_VERSION_BYTES_LEN
-        );
-    }
-    let mut encoded = [0u8; ZKM_VERSION_BYTES_LEN];
-    encoded[..raw.len()].copy_from_slice(raw);
-    Ok(encoded)
-}
-
-fn read_zkm_version_from_file(input_proof: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
-    let zkm_version = String::from_utf8(
-        fs::read(format!("{input_proof}.zkm_version.bin"))
-            .context("Failed to read input zkm version file")?,
-    )
-    .context("Invalid UTF-8 in input zkm version file")?;
-    encode_zkm_version_fixed(zkm_version.trim())
-}
+use zkm_version::{encode_zkm_version_fixed, read_zkm_version_from_file};
 
 // The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]

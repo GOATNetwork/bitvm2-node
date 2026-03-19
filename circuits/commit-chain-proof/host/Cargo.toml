@@ -25,6 +25,7 @@ tendermint-light-client-verifier = { workspace = true, default-features = false,
 ] }
 
 proof-builder.workspace = true
+zkm-version.workspace = true
 
 # Ziren
 zkm-sdk.workspace = true

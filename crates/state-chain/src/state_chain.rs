@@ -10,7 +10,7 @@ use tendermint_light_client_verifier::types::LightBlock;
 
 // Contract address, base slot and key, the expected value of the slot is hardcoded to 1.
 type WithdrawalSlot = (Address, [u8; 32], Vec<[u8; 16]>);
-pub const ZKM_VERSION_SIZE: usize = 8;
+pub const ZKM_VERSION_SIZE: usize = zkm_version::ZKM_VERSION_BYTES_LEN;
 
 /// The input proof of the commit chain circuit.
 /// The proof can be either None (implying the beginning) or a Succinct proof.

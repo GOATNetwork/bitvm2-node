@@ -2416,6 +2416,7 @@ dependencies = [
  "tracing",
  "zkm-primitives 1.2.4 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-verifier",
+ "zkm-version",
  "zkm-zkvm 1.2.4 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
@@ -3191,6 +3192,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "zkm-verifier",
+ "zkm-version",
  "zkm-zkvm 1.2.4 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
@@ -3218,6 +3220,7 @@ dependencies = [
  "zkm-build",
  "zkm-prover",
  "zkm-sdk",
+ "zkm-version",
 ]
 
 [[package]]
@@ -5319,6 +5322,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "zkm-verifier",
+ "zkm-version",
  "zkm-zkvm 1.2.4 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
@@ -5351,6 +5355,7 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
+ "zkm-version",
 ]
 
 [[package]]
@@ -7849,6 +7854,7 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
+ "zkm-version",
 ]
 
 [[package]]
@@ -11481,6 +11487,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "zkm-verifier",
+ "zkm-version",
  "zkm-zkvm 1.2.4 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
@@ -11522,6 +11529,7 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
+ "zkm-version",
 ]
 
 [[package]]
@@ -13060,6 +13068,7 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
+ "zkm-version",
 ]
 
 [[package]]
@@ -14308,6 +14317,10 @@ dependencies = [
  "zkm-sdk",
  "zkm-stark",
 ]
+
+[[package]]
+name = "zkm-version"
+version = "0.3.3"
 
 [[package]]
 name = "zkm-zkvm"

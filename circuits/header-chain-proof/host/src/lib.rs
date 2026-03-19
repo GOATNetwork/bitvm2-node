@@ -11,39 +11,11 @@ use std::{
 use util::get_btc_block_confirms;
 use zkm_sdk::ZKMProofKind;
 use zkm_sdk::{HashableKey, Prover, ProverClient, ZKMProofWithPublicValues, ZKMStdin, include_elf};
+use zkm_version::{ZKM_VERSION_BYTES_LEN, encode_zkm_version_fixed, read_zkm_version_from_file};
 static ELF_ID: OnceLock<String> = OnceLock::new();
 use anyhow::Context;
 use clap::Parser;
 use std::sync::OnceLock;
-
-const ZKM_VERSION_BYTES_LEN: usize = 8;
-
-fn encode_zkm_version_fixed(version: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
-    let raw = version.as_bytes();
-    if raw.is_empty() {
-        anyhow::bail!("zkm_version is empty");
-    }
-    if raw.len() > ZKM_VERSION_BYTES_LEN {
-        anyhow::bail!(
-            "zkm_version '{}' too long: {} > {}",
-            version,
-            raw.len(),
-            ZKM_VERSION_BYTES_LEN
-        );
-    }
-    let mut encoded = [0u8; ZKM_VERSION_BYTES_LEN];
-    encoded[..raw.len()].copy_from_slice(raw);
-    Ok(encoded)
-}
-
-fn read_zkm_version_from_file(input_proof: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
-    let zkm_version = String::from_utf8(
-        fs::read(format!("{input_proof}.zkm_version.bin"))
-            .context("Failed to read input zkm version file")?,
-    )
-    .context("Invalid UTF-8 in input zkm version file")?;
-    encode_zkm_version_fixed(zkm_version.trim())
-}
 
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
@@ -234,29 +206,29 @@ impl ProofBuilder for HeaderChainProofBuilder {
 
         let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash, zkm_version) =
             match prev_receipt.clone() {
-            Some(public_inputs) => {
-                let proof_bytes =
-                    fs::read(input_proof).context("Failed to read input proof file").unwrap();
-                let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof)).unwrap();
+                Some(public_inputs) => {
+                    let proof_bytes =
+                        fs::read(input_proof).context("Failed to read input proof file").unwrap();
+                    let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof)).unwrap();
                 let zkm_version = read_zkm_version_from_file(input_proof)
                     .context("Failed to parse input zkm version")?;
-                let prev_output = zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
-                (
-                    HeaderChainPrevProofType::PrevProof(prev_output),
-                    proof_bytes,
-                    public_inputs,
-                    zkm_vk_hash.to_vec(),
-                    zkm_version,
-                )
-            }
-            None => (
-                HeaderChainPrevProofType::GenesisBlock,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                [0u8; ZKM_VERSION_BYTES_LEN],
-            ),
-        };
+                    let prev_output = zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
+                    (
+                        HeaderChainPrevProofType::PrevProof(prev_output),
+                        proof_bytes,
+                        public_inputs,
+                        zkm_vk_hash.to_vec(),
+                        zkm_version,
+                    )
+                }
+                None => (
+                    HeaderChainPrevProofType::GenesisBlock,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    [0u8; ZKM_VERSION_BYTES_LEN],
+                ),
+            };
 
         tracing::info!(
             "header-chain length: {}, start: {}, batch_size: {}",

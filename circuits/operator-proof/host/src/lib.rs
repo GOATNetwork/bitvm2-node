@@ -20,6 +20,7 @@ use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
 };
+use zkm_version::{encode_zkm_version_fixed, read_zkm_version_from_file};
 
 use clap::Parser;
 /// The arguments for the cli.
@@ -88,34 +89,6 @@ use std::fs;
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
-const ZKM_VERSION_BYTES_LEN: usize = 8;
-
-fn encode_zkm_version_fixed(version: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
-    let raw = version.as_bytes();
-    if raw.is_empty() {
-        anyhow::bail!("zkm_version is empty");
-    }
-    if raw.len() > ZKM_VERSION_BYTES_LEN {
-        anyhow::bail!(
-            "zkm_version '{}' too long: {} > {}",
-            version,
-            raw.len(),
-            ZKM_VERSION_BYTES_LEN
-        );
-    }
-    let mut encoded = [0u8; ZKM_VERSION_BYTES_LEN];
-    encoded[..raw.len()].copy_from_slice(raw);
-    Ok(encoded)
-}
-
-fn read_zkm_version_from_file(input_proof: &str) -> anyhow::Result<[u8; ZKM_VERSION_BYTES_LEN]> {
-    let zkm_version = String::from_utf8(
-        fs::read(format!("{input_proof}.zkm_version.bin"))
-            .context("Failed to read input zkm version file")?,
-    )
-    .context("Invalid UTF-8 in input zkm version file")?;
-    encode_zkm_version_fixed(zkm_version.trim())
-}
 
 pub async fn fetch_target_block_and_watchtower_tx(
     esplora_url: &str,

@@ -20,6 +20,9 @@ use header_chain::{
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
 use zkm_primitives::io::ZKMPublicValues;
 use zkm_verifier::{Groth16Verifier, get_snark_vk_meta};
+use zkm_version::{
+    ZKM_VERSION_BYTES_LEN, ZkmVersionBytes, decode_zkm_version_fixed, encode_zkm_version_fixed,
+};
 
 use bitcoin::{ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
 pub use guest_executor::io::EthClientExecutorInput;
@@ -28,41 +31,12 @@ pub const GRAPH_ID_SIZE: usize = 16;
 pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 36;
 pub const VK_HASH_SIZE: usize = 66;
-pub const ZKM_VERSION_SIZE: usize = 8;
+pub const ZKM_VERSION_SIZE: usize = ZKM_VERSION_BYTES_LEN;
 pub const COMMITMENT_SIZE: usize =
     GRAPH_ID_SIZE + PROOF_SIZE + PUBLIC_INPUTS_SIZE + VK_HASH_SIZE + ZKM_VERSION_SIZE;
 
 pub const TOTAL_WORK_SIZE: usize = 32;
 pub const CONSENSUS_BLOCK_HEIGHT_SIZE: usize = 4;
-
-fn encode_zkm_version_fixed(zkm_version: &str) -> Result<[u8; ZKM_VERSION_SIZE], String> {
-    let raw = zkm_version.as_bytes();
-    if raw.is_empty() {
-        return Err("zkm_version is empty".to_string());
-    }
-    if raw.len() > ZKM_VERSION_SIZE {
-        return Err(format!(
-            "zkm_version '{}' too long: {} > {}",
-            zkm_version,
-            raw.len(),
-            ZKM_VERSION_SIZE
-        ));
-    }
-    let mut encoded = [0u8; ZKM_VERSION_SIZE];
-    encoded[..raw.len()].copy_from_slice(raw);
-    Ok(encoded)
-}
-
-fn decode_zkm_version_fixed(zkm_version: &[u8; ZKM_VERSION_SIZE]) -> Result<String, String> {
-    let end = zkm_version
-        .iter()
-        .position(|b| *b == 0)
-        .unwrap_or(zkm_version.len());
-    if end == 0 {
-        return Err("zkm_version is empty".to_string());
-    }
-    String::from_utf8(zkm_version[..end].to_vec()).map_err(|e| format!("invalid zkm_version: {e}"))
-}
 
 pub fn watch_longest_chain(
     genesis_sequencer_commit_txid: [u8; 32],
@@ -499,7 +473,7 @@ pub type WatchtowerCommitmentResult = (
     [u8; PROOF_SIZE],
     [u8; PUBLIC_INPUTS_SIZE],
     [u8; VK_HASH_SIZE],
-    [u8; ZKM_VERSION_SIZE],
+    ZkmVersionBytes,
     [u8; TOTAL_WORK_SIZE],
     [u8; CONSENSUS_BLOCK_HEIGHT_SIZE],
 );
@@ -565,13 +539,19 @@ pub fn verify_proof(
     proof: &[u8],
     zkm_public_values: &[u8],
     zkm_vk_hash: &[u8],
-    zkm_version: &[u8; ZKM_VERSION_SIZE],
+    zkm_version: &ZkmVersionBytes,
 ) -> Result<(), String> {
     let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
     let zkm_vk_hash = String::from_utf8(zkm_vk_hash.to_vec()).map_err(|e| e.to_string())?;
     let zkm_version = decode_zkm_version_fixed(zkm_version)?;
     let snark_vk_meta = get_snark_vk_meta(&zkm_version).map_err(|e| e.to_string())?;
-    match Groth16Verifier::verify(proof, zkm_public_values, &zkm_vk_hash, &snark_vk_meta, groth16_vk) {
+    match Groth16Verifier::verify(
+        proof,
+        zkm_public_values,
+        &zkm_vk_hash,
+        &snark_vk_meta,
+        groth16_vk,
+    ) {
         Ok(_) => Ok(()),
         Err(err) => Err(format!("Verify Groth16 proof, err: {err:?}")),
     }
@@ -664,17 +644,32 @@ mod tests {
 
     #[test]
     fn test_build_watchtower_commitment_rejects_long_version() {
-        let graph_id = hex::decode("00112233445566778899aabbccddeeff")
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap();
+        let too_long_version = "v1234567890123456";
+        assert_eq!(too_long_version.len(), ZKM_VERSION_SIZE + 1);
         let result = build_watchtower_commitment(
             &graph_id,
             &PROOF.try_into().unwrap(),
             &PUBLIC_INPUTS.try_into().unwrap(),
             VK_HASH,
-            "v123456789",
+            too_long_version,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_watchtower_commitment_accepts_rc_version() {
+        let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap();
+        let rc_version = "v1.12.15-rc1";
+        let commitment = build_watchtower_commitment(
+            &graph_id,
+            &PROOF.try_into().unwrap(),
+            &PUBLIC_INPUTS.try_into().unwrap(),
+            VK_HASH,
+            rc_version,
+        )
+        .unwrap();
+        let parsed = parse_watchtower_commitment(&commitment).unwrap();
+        assert_eq!(decode_zkm_version_fixed(&parsed.4).unwrap(), rc_version);
     }
 }

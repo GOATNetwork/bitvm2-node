@@ -15,6 +15,7 @@ guest-executor = { workspace = true }
 # Ziren
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
 zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
+zkm-version = { workspace = true }
 #zkm-verifier = { path = "../../../Ziren/crates/verifier" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 

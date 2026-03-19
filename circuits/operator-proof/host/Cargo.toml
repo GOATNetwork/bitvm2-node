@@ -43,6 +43,7 @@ cbft-rpc = { workspace = true }
 bitcoin = { workspace = true }
 client = { workspace = true }
 proof-builder.workspace = true
+zkm-version.workspace = true
 
 # Ziren
 zkm-sdk.workspace = true

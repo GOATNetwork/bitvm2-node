@@ -7,6 +7,7 @@ resolver = "3"
 members = [
     "node",
     "proof-builder-rpc",
+    "crates/zkm-version",
     "crates/cbft-rpc",
     "crates/bitvm2-ga",
     "crates/store",
@@ -97,6 +98,7 @@ zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"]
 bitvm2-lib = { path = "crates/bitvm2-ga" }
 store = { path = "crates/store" }
 util = { path = "crates/util" }
+zkm-version = { path = "crates/zkm-version" }
 client = { path = "crates/client" }
 bitcoin-light-client-circuit = { path = "crates/bitcoin-light-client-circuit" }
 header-chain = { path = "crates/header-chain" }
