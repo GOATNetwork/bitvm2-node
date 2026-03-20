@@ -18,8 +18,9 @@ use header_chain::{
     HeaderChainPrevProofType, MMRHost, SPV, verify_merkle_proof,
 };
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use zkm_primitives::io::ZKMPublicValues;
-use zkm_verifier::{Groth16Verifier, get_snark_vk_meta};
+use zkm_verifier::{Groth16Verifier, IMM_GROTH16_VK_BYTES};
 use zkm_version::{
     ZKM_VERSION_BYTES_LEN, ZkmVersionBytes, decode_zkm_version_fixed, encode_zkm_version_fixed,
 };
@@ -535,21 +536,28 @@ pub fn parse_watchtower_commitment(
 }
 
 // Check the public values are consistent with the total work and block hash
+fn groth16_verifier_keys(zkm_version: &str) -> Result<(&'static [u8], &'static [u8]), String> {
+    let imm_groth16_vk = *IMM_GROTH16_VK_BYTES;
+    let part_stark_vk =
+        catch_unwind(AssertUnwindSafe(|| Groth16Verifier::get_part_stark_vk(zkm_version)))
+        .map_err(|_| format!("failed to load part_stark_vk for zkm_version '{zkm_version}'"))?;
+    Ok((imm_groth16_vk, part_stark_vk))
+}
+
 pub fn verify_proof(
     proof: &[u8],
     zkm_public_values: &[u8],
     zkm_vk_hash: &[u8],
     zkm_version: &str,
 ) -> Result<(), String> {
-    let groth16_vk = *zkm_verifier::GROTH16_VK_BYTES;
+    let (groth16_vk, part_stark_vk) = groth16_verifier_keys(zkm_version)?;
     let zkm_vk_hash = String::from_utf8(zkm_vk_hash.to_vec()).map_err(|e| e.to_string())?;
-    let snark_vk_meta = get_snark_vk_meta(zkm_version).map_err(|e| e.to_string())?;
-    match Groth16Verifier::verify(
+    match Groth16Verifier::verify_by_imm_groth16_vk(
         proof,
         zkm_public_values,
         &zkm_vk_hash,
-        &snark_vk_meta,
         groth16_vk,
+        part_stark_vk,
     ) {
         Ok(_) => Ok(()),
         Err(err) => Err(format!("Verify Groth16 proof, err: {err:?}")),
@@ -575,6 +583,21 @@ mod tests {
         include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
     const VK_HASH: &str = include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
     const ZKM_VERSION: &str = "v1.2.4";
+
+    #[test]
+    fn test_groth16_verifier_keys_keep_common_vk_available() {
+        assert!(!IMM_GROTH16_VK_BYTES.is_empty());
+
+        match groth16_verifier_keys(ZKM_VERSION) {
+            Ok((imm_groth16_vk, part_stark_vk)) => {
+                assert_eq!(imm_groth16_vk, *IMM_GROTH16_VK_BYTES);
+                assert!(!part_stark_vk.is_empty());
+            }
+            Err(err) => {
+                assert!(err.contains("failed to load part_stark_vk"));
+            }
+        }
+    }
 
     #[test]
     fn test_build_watchtower_commitment() {
@@ -688,5 +711,11 @@ mod tests {
         let result = verify_proof(&[], &[], &[], long_version);
         assert!(result.is_err());
         assert!(!result.unwrap_err().contains("too long"));
+    }
+
+    #[test]
+    fn test_groth16_verifier_keys_reject_unknown_version_without_panic() {
+        let result = groth16_verifier_keys("v0.0.0-test");
+        assert!(result.is_err());
     }
 }

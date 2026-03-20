@@ -71,7 +71,7 @@ use store::{
 };
 use stun_client::{Attribute, Class, Client};
 use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
-use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, get_snark_vk_meta};
+use zkm_verifier::{Groth16Verifier, IMM_GROTH16_VK_BYTES, convert_ark_imm_wrap_vk};
 
 use crate::env;
 use crate::rpc_service::routes::v1::{
@@ -1954,17 +1954,15 @@ pub async fn get_operator_proof(
                 // TODO: additionally check constant and included_watchtower with included_watchtowers.
                 //proof.public_values.head();
                 info!("get_operator_proof parse proof successfully");
-                let groth16_vk = &GROTH16_VK_BYTES;
-                let snark_vk_meta = get_snark_vk_meta(&proof.zkm_version).map_err(|e| {
-                    anyhow!(
-                        "failed to load snark vk meta for zkm_version '{}': {e}",
-                        proof.zkm_version
-                    )
-                })?;
-                let ark_proof =
-                    convert_ark(&proof, &proof_data.vk, &snark_vk_meta, groth16_vk).map_err(
-                        |e| anyhow!("failed to convert operator proof to ark format: {e}"),
-                    )?;
+                let groth16_vk = &IMM_GROTH16_VK_BYTES;
+                let part_stark_vk = Groth16Verifier::get_part_stark_vk(&proof.zkm_version);
+                let ark_proof = convert_ark_imm_wrap_vk(
+                    &proof,
+                    &proof_data.vk,
+                    groth16_vk,
+                    part_stark_vk,
+                )
+                    .map_err(|e| anyhow!("failed to convert operator proof to ark format: {e}"))?;
                 info!("get_operator_proof parse proof successfully");
 
                 Ok((

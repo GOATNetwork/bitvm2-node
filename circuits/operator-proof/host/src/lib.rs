@@ -451,7 +451,7 @@ mod tests {
     use ark_bn254::Bn254;
 
     use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
-    use zkm_verifier::{GROTH16_VK_BYTES, convert_ark, get_snark_vk_meta};
+    use zkm_verifier::{Groth16Verifier, IMM_GROTH16_VK_BYTES, convert_ark_imm_wrap_vk};
 
     #[tokio::test]
     #[ignore = "local test"]
@@ -470,10 +470,11 @@ mod tests {
             U256::from_le_bytes(a.2.clone())
         );
 
-        let groth16_vk = &GROTH16_VK_BYTES;
+        let groth16_vk = &IMM_GROTH16_VK_BYTES;
+        let part_stark_vk = Groth16Verifier::get_part_stark_vk(&proof.zkm_version);
         let vk_hash = String::from_utf8(vk_bytes).unwrap();
-        let snark_vk_meta = get_snark_vk_meta(&proof.zkm_version).unwrap();
-        let ark_proof = convert_ark(&proof, &vk_hash, &snark_vk_meta, groth16_vk).unwrap();
+        let ark_proof =
+            convert_ark_imm_wrap_vk(&proof, &vk_hash, groth16_vk, part_stark_vk).unwrap();
 
         // Verify the arkworks proof.
         let ok = Groth16::<Bn254, LibsnarkReduction>::verify_proof(

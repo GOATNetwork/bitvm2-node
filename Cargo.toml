@@ -88,6 +88,8 @@ zkm-core-executor = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-prover = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-sdk = { git = "https://github.com/ProjectZKM/Ziren" }
 zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", features = ["ark"] }
+zkm-primitives = { git = "https://github.com/ProjectZKM/Ziren" }
+zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", features = ["verify"] }
 
 #zkm-build = { path = "../Ziren/crates/build" }
 #zkm-core-executor = { path = "../Ziren/crates/core/executor" }
@@ -179,8 +181,10 @@ rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rustdoc.all = "warn"
 
 [patch."https://github.com/ProjectZKM/Ziren"]
-zkm-build = { path = "../zkm2/crates/build" }
-zkm-core-executor = { path = "../zkm2/crates/core/executor" }
-zkm-prover = { path = "../zkm2/crates/prover" }
-zkm-sdk = { path = "../zkm2/crates/sdk" }
-zkm-verifier = { path = "../zkm2/crates/verifier" }
+zkm-build = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
+zkm-core-executor = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
+zkm-prover = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
+zkm-sdk = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
+zkm-verifier = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
+zkm-primitives = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
+zkm-zkvm = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
