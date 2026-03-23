@@ -4,6 +4,7 @@ pub mod instance_maintenance_tasks;
 mod node_maintenance_tasks;
 mod sequencer_set_hash_monitor_task;
 mod spv_maintenance_tasks;
+pub mod watchdog;
 
 use crate::action::GOATMessageContent;
 use crate::env::{get_maintenance_run_timeout_secs, is_enable_update_spv_contract, is_relayer};
@@ -21,6 +22,7 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 pub use event_watch_task::{is_processing_gateway_history_events, run_watch_event_task};
 pub use sequencer_set_hash_monitor_task::run_sequencer_set_hash_monitor_task;
+pub use watchdog::run_watchdog_task;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::localdb::{LocalDB, StorageProcessor};

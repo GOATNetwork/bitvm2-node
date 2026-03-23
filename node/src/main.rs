@@ -18,6 +18,7 @@ use bitvm2_noded::utils::{
 };
 use bitvm2_noded::{
     rpc_service, run_maintenance_tasks, run_sequencer_set_hash_monitor_task, run_watch_event_task,
+    run_watchdog_task,
 };
 
 use anyhow::Result;
@@ -169,6 +170,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_db_clone2 = local_db.clone();
     let local_db_clone3 = local_db.clone();
     let local_db_clone4 = local_db.clone();
+    let local_db_clone5 = local_db.clone();
     let opt_rpc_addr = opt.rpc_addr.clone();
     let peer_id_string_clone = peer_id_string.clone();
     let metric_registry_clone = Arc::new(Mutex::new(metric_registry));
@@ -274,6 +276,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }));
+
+    if actor == Actor::Challenger || actor == Actor::Watchtower {
+        let cancel_token_clone = cancellation_token.clone();
+        task_handles.push(tokio::spawn(async move {
+            let btc_client =
+                Arc::new(BTCClient::new(get_network(), get_btc_url_from_env().as_deref()));
+            match run_watchdog_task(local_db_clone5, btc_client, 60, cancel_token_clone).await {
+                Ok(tag) => Ok(tag),
+                Err(e) => {
+                    tracing::error!("Watchdog task error: {}", e);
+                    Err("watchdog_error".to_string())
+                }
+            }
+        }));
+    }
 
     let swarm_actor = actor.clone();
     let cancel_token_clone = cancellation_token.clone();
