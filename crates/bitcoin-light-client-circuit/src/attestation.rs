@@ -1,0 +1,696 @@
+use bitcoin::hashes::{Hash, sha256};
+use bitcoin::secp256k1::{Message, PublicKey, Secp256k1, SecretKey, ecdsa::Signature};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+pub const PART_STARK_VK_TREE_HEIGHT: usize = 6;
+pub const PART_STARK_VK_TREE_LEAFS: usize = 1 << PART_STARK_VK_TREE_HEIGHT;
+pub const PART_STARK_VK_ROOT_SIGNATURE_DOMAIN: &[u8] = b"bitvm2:part_stark_vk_root:v1";
+pub const PART_STARK_VK_ATTESTATION_DIR_ENV: &str = "PART_STARK_VK_ATTESTATION_DIR";
+pub const DEFAULT_PART_STARK_VK_ATTESTATION_DIR: &str = "./part-stark-vk-attestations";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartStarkVkRootSignature {
+    pub signer_pubkey_index: usize,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartStarkVkAttestationBundle {
+    pub part_stark_vk: Vec<u8>,
+    pub leaf_index: usize,
+    pub merkle_path: Vec<[u8; 32]>,
+    pub root: [u8; 32],
+    pub signatures: Vec<PartStarkVkRootSignature>,
+}
+
+pub type UniquePartStarkVkWitness = PartStarkVkAttestationBundle;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProofPartStarkVkRef {
+    pub proof_index: usize,
+    pub witness_index: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WatchtowerAttestationInputs {
+    pub unique_witnesses: Vec<UniquePartStarkVkWitness>,
+    pub header_ref: usize,
+    pub commit_ref: usize,
+    pub state_ref: usize,
+    pub current_ref: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperatorAttestationInputs {
+    pub unique_witnesses: Vec<UniquePartStarkVkWitness>,
+    pub header_ref: usize,
+    pub commit_ref: usize,
+    pub state_ref: usize,
+    pub watchtower_refs: Vec<usize>,
+    pub current_ref: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartStarkVkTreeState {
+    pub tree_height: usize,
+    pub leaves: Vec<Vec<u8>>,
+}
+
+pub fn required_part_stark_vk_root_signers(total_publishers: usize) -> usize {
+    (total_publishers * 2).div_ceil(3)
+}
+
+pub fn part_stark_vk_attestation_dir() -> PathBuf {
+    std::env::var(PART_STARK_VK_ATTESTATION_DIR_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_PART_STARK_VK_ATTESTATION_DIR))
+}
+
+pub fn part_stark_vk_leaf_hash(part_stark_vk: &[u8]) -> [u8; 32] {
+    let mut bytes = Vec::with_capacity(1 + 4 + part_stark_vk.len());
+    bytes.push(0x00);
+    bytes.extend_from_slice(&(part_stark_vk.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(part_stark_vk);
+    sha256::Hash::hash(&bytes).to_byte_array()
+}
+
+pub fn part_stark_vk_internal_hash(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
+    let mut bytes = Vec::with_capacity(1 + 32 + 32);
+    bytes.push(0x01);
+    bytes.extend_from_slice(&left);
+    bytes.extend_from_slice(&right);
+    sha256::Hash::hash(&bytes).to_byte_array()
+}
+
+pub fn empty_part_stark_vk_leaf_hash() -> [u8; 32] {
+    part_stark_vk_leaf_hash(&[])
+}
+
+pub fn part_stark_vk_bundle_id(part_stark_vk: &[u8]) -> String {
+    hex::encode(part_stark_vk_leaf_hash(part_stark_vk))
+}
+
+pub fn part_stark_vk_tree_state_path(dir: &Path) -> PathBuf {
+    dir.join("tree_state.json")
+}
+
+pub fn part_stark_vk_bundle_path(dir: &Path, part_stark_vk: &[u8]) -> PathBuf {
+    dir.join("bundles").join(format!("{}.json", part_stark_vk_bundle_id(part_stark_vk)))
+}
+
+fn build_part_stark_vk_leaf_layer(
+    part_stark_vks: &[Vec<u8>],
+    tree_height: usize,
+) -> Result<Vec<[u8; 32]>, String> {
+    let total_leafs = 1usize << tree_height;
+    if part_stark_vks.len() > total_leafs {
+        return Err(format!(
+            "too many part_stark_vk leafs: {}, max {}",
+            part_stark_vks.len(),
+            total_leafs
+        ));
+    }
+
+    let mut nodes = vec![empty_part_stark_vk_leaf_hash(); total_leafs];
+    for (index, part_stark_vk) in part_stark_vks.iter().enumerate() {
+        nodes[index] = part_stark_vk_leaf_hash(part_stark_vk);
+    }
+    Ok(nodes)
+}
+
+pub fn build_part_stark_vk_merkle_root(
+    part_stark_vks: &[Vec<u8>],
+    tree_height: usize,
+) -> Result<[u8; 32], String> {
+    let mut level = build_part_stark_vk_leaf_layer(part_stark_vks, tree_height)?;
+    while level.len() > 1 {
+        level = level
+            .chunks_exact(2)
+            .map(|pair| part_stark_vk_internal_hash(pair[0], pair[1]))
+            .collect();
+    }
+    Ok(level[0])
+}
+
+pub fn build_part_stark_vk_merkle_path(
+    part_stark_vks: &[Vec<u8>],
+    tree_height: usize,
+    leaf_index: usize,
+) -> Result<Vec<[u8; 32]>, String> {
+    let total_leafs = 1usize << tree_height;
+    if leaf_index >= total_leafs {
+        return Err(format!("leaf index {} out of range {}", leaf_index, total_leafs));
+    }
+
+    let mut level = build_part_stark_vk_leaf_layer(part_stark_vks, tree_height)?;
+    let mut index = leaf_index;
+    let mut path = Vec::with_capacity(tree_height);
+    while level.len() > 1 {
+        path.push(level[index ^ 1]);
+        level = level
+            .chunks_exact(2)
+            .map(|pair| part_stark_vk_internal_hash(pair[0], pair[1]))
+            .collect();
+        index /= 2;
+    }
+    Ok(path)
+}
+
+pub fn verify_part_stark_vk_merkle_path(
+    part_stark_vk: &[u8],
+    leaf_index: usize,
+    merkle_path: &[[u8; 32]],
+    expected_root: [u8; 32],
+    tree_height: usize,
+) -> Result<(), String> {
+    if merkle_path.len() != tree_height {
+        return Err(format!(
+            "invalid merkle path length: {}, expected {}",
+            merkle_path.len(),
+            tree_height
+        ));
+    }
+
+    let total_leafs = 1usize << tree_height;
+    if leaf_index >= total_leafs {
+        return Err(format!("leaf index {} out of range {}", leaf_index, total_leafs));
+    }
+
+    let mut node = part_stark_vk_leaf_hash(part_stark_vk);
+    let mut index = leaf_index;
+    for sibling in merkle_path {
+        node = if index % 2 == 0 {
+            part_stark_vk_internal_hash(node, *sibling)
+        } else {
+            part_stark_vk_internal_hash(*sibling, node)
+        };
+        index /= 2;
+    }
+
+    if node != expected_root {
+        return Err("part_stark_vk merkle root mismatch".to_string());
+    }
+    Ok(())
+}
+
+pub fn build_attestation_message_digest(tree_height: usize, root: [u8; 32]) -> [u8; 32] {
+    let mut bytes = Vec::with_capacity(PART_STARK_VK_ROOT_SIGNATURE_DOMAIN.len() + 1 + 1 + 1 + 32);
+    bytes.extend_from_slice(PART_STARK_VK_ROOT_SIGNATURE_DOMAIN);
+    bytes.push(0x00);
+    bytes.push(tree_height as u8);
+    bytes.push(0x00);
+    bytes.extend_from_slice(&root);
+    sha256::Hash::hash(&bytes).to_byte_array()
+}
+
+fn verify_part_stark_vk_root_signatures(
+    signatures: &[PartStarkVkRootSignature],
+    publisher_public_keys: &[PublicKey],
+    tree_height: usize,
+    root: [u8; 32],
+) -> Result<(), String> {
+    if publisher_public_keys.is_empty() {
+        return Err("publisher_public_keys is empty".to_string());
+    }
+
+    let required = required_part_stark_vk_root_signers(publisher_public_keys.len());
+    let message = Message::from_digest(build_attestation_message_digest(tree_height, root));
+    let secp = Secp256k1::verification_only();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut valid = 0usize;
+
+    for root_signature in signatures {
+        if root_signature.signer_pubkey_index >= publisher_public_keys.len() {
+            return Err(format!(
+                "signer_pubkey_index {} out of range {}",
+                root_signature.signer_pubkey_index,
+                publisher_public_keys.len()
+            ));
+        }
+        if !seen.insert(root_signature.signer_pubkey_index) {
+            continue;
+        }
+
+        let signature = Signature::from_compact(&root_signature.signature)
+            .map_err(|err| format!("invalid signature encoding: {err}"))?;
+        let mut normalized = signature;
+        normalized.normalize_s();
+        if normalized != signature {
+            return Err("signature is not low-s normalized".to_string());
+        }
+
+        secp.verify_ecdsa(
+            &message,
+            &signature,
+            &publisher_public_keys[root_signature.signer_pubkey_index],
+        )
+        .map_err(|err| format!("invalid publisher root signature: {err}"))?;
+        valid += 1;
+    }
+
+    if valid < required {
+        return Err(format!(
+            "not enough valid publisher signatures: got {}, required {}",
+            valid, required
+        ));
+    }
+    Ok(())
+}
+
+/// Verify that a `part_stark_vk` belongs to the fixed-height history tree and that the root is
+/// approved by the current commit-chain publisher set.
+pub fn verify_part_stark_vk_attestation(
+    bundle: &PartStarkVkAttestationBundle,
+    publisher_public_keys: &[PublicKey],
+    tree_height: usize,
+) -> Result<(), String> {
+    verify_part_stark_vk_merkle_path(
+        &bundle.part_stark_vk,
+        bundle.leaf_index,
+        &bundle.merkle_path,
+        bundle.root,
+        tree_height,
+    )?;
+    verify_part_stark_vk_root_signatures(
+        &bundle.signatures,
+        publisher_public_keys,
+        tree_height,
+        bundle.root,
+    )?;
+    Ok(())
+}
+
+pub fn verify_part_stark_vk_witness_ref(
+    unique_witnesses: &[UniquePartStarkVkWitness],
+    witness_index: usize,
+    expected_part_stark_vk: &[u8],
+    publisher_public_keys: &[PublicKey],
+    tree_height: usize,
+) -> Result<(), String> {
+    let witness = unique_witnesses.get(witness_index).ok_or_else(|| {
+        format!("witness index {} out of range {}", witness_index, unique_witnesses.len())
+    })?;
+    if witness.part_stark_vk != expected_part_stark_vk {
+        return Err("part_stark_vk witness payload mismatch".to_string());
+    }
+    verify_part_stark_vk_attestation(witness, publisher_public_keys, tree_height)
+}
+
+pub fn verify_current_part_stark_vk_witness(
+    unique_witnesses: &[UniquePartStarkVkWitness],
+    witness_index: usize,
+    publisher_public_keys: &[PublicKey],
+    tree_height: usize,
+) -> Result<Vec<u8>, String> {
+    let witness = unique_witnesses.get(witness_index).ok_or_else(|| {
+        format!("witness index {} out of range {}", witness_index, unique_witnesses.len())
+    })?;
+    verify_part_stark_vk_attestation(witness, publisher_public_keys, tree_height)?;
+    Ok(witness.part_stark_vk.clone())
+}
+
+pub fn load_part_stark_vk_tree_state(dir: &Path) -> Result<PartStarkVkTreeState, String> {
+    let path = part_stark_vk_tree_state_path(dir);
+    let bytes = std::fs::read(&path)
+        .map_err(|err| format!("failed to read tree state '{}': {err}", path.display()))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|err| format!("failed to decode tree state '{}': {err}", path.display()))
+}
+
+pub fn save_part_stark_vk_tree_state(
+    dir: &Path,
+    state: &PartStarkVkTreeState,
+) -> Result<(), String> {
+    std::fs::create_dir_all(dir)
+        .map_err(|err| format!("failed to create attestation dir '{}': {err}", dir.display()))?;
+    let path = part_stark_vk_tree_state_path(dir);
+    let bytes = serde_json::to_vec_pretty(state)
+        .map_err(|err| format!("failed to encode tree state '{}': {err}", path.display()))?;
+    std::fs::write(&path, bytes)
+        .map_err(|err| format!("failed to write tree state '{}': {err}", path.display()))
+}
+
+pub fn load_part_stark_vk_attestation_bundle(
+    dir: &Path,
+    part_stark_vk: &[u8],
+) -> Result<PartStarkVkAttestationBundle, String> {
+    let path = part_stark_vk_bundle_path(dir, part_stark_vk);
+    let bytes = std::fs::read(&path)
+        .map_err(|err| format!("failed to read attestation bundle '{}': {err}", path.display()))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|err| format!("failed to decode attestation bundle '{}': {err}", path.display()))
+}
+
+pub fn save_part_stark_vk_attestation_bundle(
+    dir: &Path,
+    bundle: &PartStarkVkAttestationBundle,
+) -> Result<(), String> {
+    let bundle_dir = dir.join("bundles");
+    std::fs::create_dir_all(&bundle_dir).map_err(|err| {
+        format!("failed to create attestation bundle dir '{}': {err}", bundle_dir.display())
+    })?;
+    let path = part_stark_vk_bundle_path(dir, &bundle.part_stark_vk);
+    let bytes = serde_json::to_vec_pretty(bundle).map_err(|err| {
+        format!("failed to encode attestation bundle '{}': {err}", path.display())
+    })?;
+    std::fs::write(&path, bytes)
+        .map_err(|err| format!("failed to write attestation bundle '{}': {err}", path.display()))
+}
+
+pub fn sign_part_stark_vk_root(
+    secret_key: &SecretKey,
+    tree_height: usize,
+    root: [u8; 32],
+) -> Vec<u8> {
+    let secp = Secp256k1::new();
+    let message = Message::from_digest(build_attestation_message_digest(tree_height, root));
+    let signature = secp.sign_ecdsa(&message, secret_key);
+    signature.serialize_compact().to_vec()
+}
+
+pub fn build_part_stark_vk_root_signatures(
+    signer_secret_keys: &[(usize, &SecretKey)],
+    tree_height: usize,
+    root: [u8; 32],
+) -> Result<Vec<PartStarkVkRootSignature>, String> {
+    if signer_secret_keys.is_empty() {
+        return Err("publisher_secret_keys is empty".to_string());
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut signatures = Vec::with_capacity(signer_secret_keys.len());
+    for (signer_pubkey_index, secret_key) in signer_secret_keys {
+        if !seen.insert(*signer_pubkey_index) {
+            return Err(format!(
+                "duplicate signer_pubkey_index {} in publisher_secret_keys",
+                signer_pubkey_index
+            ));
+        }
+        signatures.push(PartStarkVkRootSignature {
+            signer_pubkey_index: *signer_pubkey_index,
+            signature: sign_part_stark_vk_root(secret_key, tree_height, root),
+        });
+    }
+
+    Ok(signatures)
+}
+
+pub fn build_part_stark_vk_attestation_bundle(
+    leaves: &[Vec<u8>],
+    tree_height: usize,
+    leaf_index: usize,
+    signatures: Vec<PartStarkVkRootSignature>,
+) -> Result<PartStarkVkAttestationBundle, String> {
+    let part_stark_vk = leaves
+        .get(leaf_index)
+        .ok_or_else(|| format!("leaf index {} out of range {}", leaf_index, leaves.len()))?
+        .clone();
+    Ok(PartStarkVkAttestationBundle {
+        part_stark_vk,
+        leaf_index,
+        merkle_path: build_part_stark_vk_merkle_path(leaves, tree_height, leaf_index)?,
+        root: build_part_stark_vk_merkle_root(leaves, tree_height)?,
+        signatures,
+    })
+}
+
+pub fn append_part_stark_vk_and_sign(
+    dir: &Path,
+    part_stark_vk: Vec<u8>,
+    publisher_secret_keys: &[SecretKey],
+) -> Result<PartStarkVkAttestationBundle, String> {
+    let indexed_secret_keys =
+        publisher_secret_keys.iter().enumerate().collect::<Vec<(usize, &SecretKey)>>();
+    append_part_stark_vk_and_sign_with_signers(dir, part_stark_vk, &indexed_secret_keys)
+}
+
+pub fn append_part_stark_vk_and_sign_with_signers(
+    dir: &Path,
+    part_stark_vk: Vec<u8>,
+    publisher_secret_keys: &[(usize, &SecretKey)],
+) -> Result<PartStarkVkAttestationBundle, String> {
+    let mut state = if part_stark_vk_tree_state_path(dir).exists() {
+        load_part_stark_vk_tree_state(dir)?
+    } else {
+        PartStarkVkTreeState { tree_height: PART_STARK_VK_TREE_HEIGHT, leaves: vec![] }
+    };
+    if state.tree_height != PART_STARK_VK_TREE_HEIGHT {
+        return Err(format!(
+            "unsupported tree height {}, expected {}",
+            state.tree_height, PART_STARK_VK_TREE_HEIGHT
+        ));
+    }
+    if state.leaves.len() >= (1usize << state.tree_height) {
+        return Err("part_stark_vk history tree is full".to_string());
+    }
+    if state.leaves.iter().any(|leaf| leaf == &part_stark_vk) {
+        return Err("part_stark_vk already exists in tree".to_string());
+    }
+    state.leaves.push(part_stark_vk.clone());
+    let bundle =
+        resign_part_stark_vk_tree(dir, &state, publisher_secret_keys, state.leaves.len() - 1)?;
+    save_part_stark_vk_tree_state(dir, &state)?;
+    Ok(bundle)
+}
+
+pub fn resign_current_part_stark_vk_root(
+    dir: &Path,
+    publisher_secret_keys: &[SecretKey],
+) -> Result<(), String> {
+    let indexed_secret_keys =
+        publisher_secret_keys.iter().enumerate().collect::<Vec<(usize, &SecretKey)>>();
+    resign_current_part_stark_vk_root_with_signers(dir, &indexed_secret_keys)
+}
+
+pub fn resign_current_part_stark_vk_root_with_signers(
+    dir: &Path,
+    publisher_secret_keys: &[(usize, &SecretKey)],
+) -> Result<(), String> {
+    let state = load_part_stark_vk_tree_state(dir)?;
+    if state.leaves.is_empty() {
+        return Err("part_stark_vk tree is empty".to_string());
+    }
+    for leaf_index in 0..state.leaves.len() {
+        let _ = resign_part_stark_vk_tree(dir, &state, publisher_secret_keys, leaf_index)?;
+    }
+    Ok(())
+}
+
+fn resign_part_stark_vk_tree(
+    dir: &Path,
+    state: &PartStarkVkTreeState,
+    publisher_secret_keys: &[(usize, &SecretKey)],
+    leaf_index: usize,
+) -> Result<PartStarkVkAttestationBundle, String> {
+    let root = build_part_stark_vk_merkle_root(&state.leaves, state.tree_height)?;
+    let signatures =
+        build_part_stark_vk_root_signatures(publisher_secret_keys, state.tree_height, root)?;
+    let bundle = build_part_stark_vk_attestation_bundle(
+        &state.leaves,
+        state.tree_height,
+        leaf_index,
+        signatures,
+    )?;
+    save_part_stark_vk_attestation_bundle(dir, &bundle)?;
+    Ok(bundle)
+}
+
+pub fn load_unique_part_stark_vk_witnesses(
+    dir: &Path,
+    part_stark_vks: &[Vec<u8>],
+) -> Result<(Vec<UniquePartStarkVkWitness>, Vec<usize>), String> {
+    let mut unique_witnesses = Vec::new();
+    let mut witness_indexes = Vec::with_capacity(part_stark_vks.len());
+    let mut seen = BTreeMap::<Vec<u8>, usize>::new();
+
+    for part_stark_vk in part_stark_vks {
+        if let Some(index) = seen.get(part_stark_vk) {
+            witness_indexes.push(*index);
+            continue;
+        }
+        let bundle = load_part_stark_vk_attestation_bundle(dir, part_stark_vk)?;
+        let index = unique_witnesses.len();
+        unique_witnesses.push(bundle);
+        seen.insert(part_stark_vk.clone(), index);
+        witness_indexes.push(index);
+    }
+
+    Ok((unique_witnesses, witness_indexes))
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, ecdsa::Signature};
+
+    use super::{
+        PartStarkVkAttestationBundle, PartStarkVkRootSignature, build_attestation_message_digest,
+        build_part_stark_vk_merkle_path, build_part_stark_vk_merkle_root,
+        build_part_stark_vk_root_signatures, part_stark_vk_leaf_hash,
+        verify_part_stark_vk_attestation,
+    };
+
+    fn sample_part_stark_vk() -> Vec<u8> {
+        hex::decode("2000000000000000d157a916a6350249c6e4efd850dcdac3abf5489d36de2d1aa233c9253522871000000000")
+            .unwrap()
+    }
+
+    #[test]
+    fn test_part_stark_vk_leaf_hash_matches_spec() {
+        assert_eq!(
+            hex::encode(part_stark_vk_leaf_hash(&[])),
+            "8855508aade16ec573d21e6a485dfd0a7624085c1a14b5ecdd6485de0c6839a4"
+        );
+    }
+
+    #[test]
+    fn test_build_part_stark_vk_merkle_root_matches_spec() {
+        let leaves = vec![sample_part_stark_vk(), b"hello".to_vec()];
+
+        assert_eq!(
+            hex::encode(build_part_stark_vk_merkle_root(&leaves, 6).unwrap()),
+            "8a091f11cab951f0c1228a891c902475b84709e568885a45658840e1b88599d4"
+        );
+    }
+
+    #[test]
+    fn test_build_attestation_message_digest_matches_spec() {
+        let root = hex::decode("8a091f11cab951f0c1228a891c902475b84709e568885a45658840e1b88599d4")
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(
+            hex::encode(build_attestation_message_digest(6, root)),
+            "ab04ddc2489b88a48bd0a764fdcabedf2a7aa85a9efdfda5073ebf80b9fabd6a"
+        );
+    }
+
+    #[test]
+    fn test_verify_part_stark_vk_attestation_accepts_quorum_and_ignores_duplicate_signers() {
+        let secp = Secp256k1::new();
+        let secret_keys = [
+            SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            SecretKey::from_slice(&[3u8; 32]).unwrap(),
+            SecretKey::from_slice(&[4u8; 32]).unwrap(),
+        ];
+        let publisher_public_keys = secret_keys
+            .iter()
+            .map(|sk| bitcoin::secp256k1::PublicKey::from_secret_key(&secp, sk))
+            .collect::<Vec<_>>();
+
+        let part_stark_vk = sample_part_stark_vk();
+        let leaves = vec![part_stark_vk.clone()];
+        let root = build_part_stark_vk_merkle_root(&leaves, 6).unwrap();
+        let digest = build_attestation_message_digest(6, root);
+        let message = Message::from_digest(digest);
+
+        let sig0 = secp.sign_ecdsa(&message, &secret_keys[0]);
+        let sig1 = secp.sign_ecdsa(&message, &secret_keys[1]);
+        let sig2 = secp.sign_ecdsa(&message, &secret_keys[2]);
+
+        let bundle = PartStarkVkAttestationBundle {
+            part_stark_vk,
+            leaf_index: 0,
+            merkle_path: build_part_stark_vk_merkle_path(&leaves, 6, 0).unwrap(),
+            root,
+            signatures: vec![
+                PartStarkVkRootSignature {
+                    signer_pubkey_index: 0,
+                    signature: sig0.serialize_compact().to_vec(),
+                },
+                PartStarkVkRootSignature {
+                    signer_pubkey_index: 1,
+                    signature: sig1.serialize_compact().to_vec(),
+                },
+                PartStarkVkRootSignature {
+                    signer_pubkey_index: 1,
+                    signature: sig1.serialize_compact().to_vec(),
+                },
+                PartStarkVkRootSignature {
+                    signer_pubkey_index: 2,
+                    signature: sig2.serialize_compact().to_vec(),
+                },
+            ],
+        };
+
+        assert!(verify_part_stark_vk_attestation(&bundle, &publisher_public_keys, 6).is_ok());
+    }
+
+    #[test]
+    fn test_verify_part_stark_vk_attestation_rejects_non_member_signer() {
+        let secp = Secp256k1::new();
+        let secret_keys = [
+            SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            SecretKey::from_slice(&[3u8; 32]).unwrap(),
+        ];
+        let publisher_public_keys = secret_keys
+            .iter()
+            .map(|sk| bitcoin::secp256k1::PublicKey::from_secret_key(&secp, sk))
+            .collect::<Vec<_>>();
+
+        let outsider = SecretKey::from_slice(&[9u8; 32]).unwrap();
+        let part_stark_vk = sample_part_stark_vk();
+        let leaves = vec![part_stark_vk.clone()];
+        let root = build_part_stark_vk_merkle_root(&leaves, 6).unwrap();
+        let digest = build_attestation_message_digest(6, root);
+        let message = Message::from_digest(digest);
+        let outsider_sig: Signature = secp.sign_ecdsa(&message, &outsider);
+
+        let bundle = PartStarkVkAttestationBundle {
+            part_stark_vk,
+            leaf_index: 0,
+            merkle_path: build_part_stark_vk_merkle_path(&leaves, 6, 0).unwrap(),
+            root,
+            signatures: vec![PartStarkVkRootSignature {
+                signer_pubkey_index: 0,
+                signature: outsider_sig.serialize_compact().to_vec(),
+            }],
+        };
+
+        assert!(verify_part_stark_vk_attestation(&bundle, &publisher_public_keys, 6).is_err());
+    }
+
+    #[test]
+    fn test_build_part_stark_vk_root_signatures_supports_sparse_signer_indexes() {
+        let secp = Secp256k1::new();
+        let secret_keys = [
+            SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            SecretKey::from_slice(&[3u8; 32]).unwrap(),
+            SecretKey::from_slice(&[4u8; 32]).unwrap(),
+            SecretKey::from_slice(&[5u8; 32]).unwrap(),
+        ];
+        let publisher_public_keys = secret_keys
+            .iter()
+            .map(|sk| bitcoin::secp256k1::PublicKey::from_secret_key(&secp, sk))
+            .collect::<Vec<_>>();
+
+        let leaves = vec![sample_part_stark_vk()];
+        let root = build_part_stark_vk_merkle_root(&leaves, 6).unwrap();
+        let signatures = build_part_stark_vk_root_signatures(
+            &[
+                (0, &secret_keys[0]),
+                (2, &secret_keys[2]),
+                (3, &secret_keys[3]),
+                (4, &secret_keys[4]),
+            ],
+            6,
+            root,
+        )
+        .unwrap();
+
+        let bundle = PartStarkVkAttestationBundle {
+            part_stark_vk: leaves[0].clone(),
+            leaf_index: 0,
+            merkle_path: build_part_stark_vk_merkle_path(&leaves, 6, 0).unwrap(),
+            root,
+            signatures,
+        };
+
+        assert!(verify_part_stark_vk_attestation(&bundle, &publisher_public_keys, 6).is_ok());
+    }
+}

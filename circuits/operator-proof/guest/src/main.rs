@@ -5,7 +5,7 @@ use header_chain::{
     HeaderChainCircuitInput, SPV, 
 };
 use alloy_primitives::{U256, Address};
-use bitcoin_light_client_circuit::EthClientExecutorInput;
+use bitcoin_light_client_circuit::{EthClientExecutorInput, OperatorAttestationInputs};
 use commit_chain::CommitChainCircuitInput;
 use state_chain::StateChainCircuitInput;
 use bitcoin::{ScriptBuf, TxOut, Transaction};
@@ -27,10 +27,11 @@ pub fn main() {
     let operator_header_chain: HeaderChainCircuitInput = zkm_zkvm::io::read();
     let operator_commit_chain: CommitChainCircuitInput = zkm_zkvm::io::read();
     let operator_state_chain: StateChainCircuitInput = zkm_zkvm::io::read();
+    let attestation: OperatorAttestationInputs = zkm_zkvm::io::read();
     let spv_ss_commit: SPV = zkm_zkvm::io::read();
     let operator_committed_blockhash: [u8; 32] = zkm_zkvm::io::read();
 
-    let (btc_best_block_hash, constant, included_watchtowers) = bitcoin_light_client_circuit::propose_longest_chain(
+    let output = bitcoin_light_client_circuit::propose_longest_chain(
         included_watchertowers,
         graph_id,
         operator_genesis_sequencer_commit_txid,
@@ -41,12 +42,10 @@ pub fn main() {
         operator_header_chain,
         operator_commit_chain,
         operator_state_chain,
+        attestation,
         spv_ss_commit,
         operator_committed_blockhash,
     );
 
-    zkm_zkvm::io::commit(&btc_best_block_hash);
-    zkm_zkvm::io::commit(&constant);
-    zkm_zkvm::io::commit(&included_watchtowers);
+    zkm_zkvm::io::commit(&output);
 }
-

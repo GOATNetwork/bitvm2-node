@@ -2272,7 +2272,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease 0.2.37",
  "proc-macro2",
@@ -2414,10 +2414,10 @@ dependencies = [
  "tendermint",
  "tendermint-light-client-verifier",
  "tracing",
- "zkm-primitives 1.2.4",
+ "zkm-primitives",
  "zkm-verifier",
  "zkm-version",
- "zkm-zkvm 1.2.4",
+ "zkm-zkvm",
 ]
 
 [[package]]
@@ -3193,7 +3193,7 @@ dependencies = [
  "tracing",
  "zkm-verifier",
  "zkm-version",
- "zkm-zkvm 1.2.4",
+ "zkm-zkvm",
 ]
 
 [[package]]
@@ -5346,7 +5346,7 @@ dependencies = [
  "sha2 0.10.9",
  "zkm-verifier",
  "zkm-version",
- "zkm-zkvm 1.2.4",
+ "zkm-zkvm",
 ]
 
 [[package]]
@@ -11544,7 +11544,7 @@ dependencies = [
  "tracing",
  "zkm-verifier",
  "zkm-version",
- "zkm-zkvm 1.2.4",
+ "zkm-zkvm",
 ]
 
 [[package]]
@@ -13939,7 +13939,7 @@ dependencies = [
  "typenum",
  "vec_map",
  "zkm-curves",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -13992,7 +13992,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-curves",
  "zkm-derive",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -14034,7 +14034,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "typenum",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -14058,7 +14058,7 @@ dependencies = [
  "elliptic-curve",
  "serde",
  "sha2 0.10.9",
- "zkm-primitives 1.2.4",
+ "zkm-primitives",
 ]
 
 [[package]]
@@ -14071,25 +14071,7 @@ dependencies = [
  "elliptic-curve",
  "serde",
  "sha2 0.10.9",
- "zkm-primitives 1.2.5",
-]
-
-[[package]]
-name = "zkm-primitives"
-version = "1.2.4"
-source = "git+https://github.com/ProjectZKM/Ziren#d5b7577c683dfceeecb90325d3277d34dc52bf17"
-dependencies = [
- "bincode",
- "hex",
- "lazy_static",
- "num-bigint 0.4.6",
- "p3-field",
- "p3-koala-bear",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "serde",
- "sha2 0.10.9",
+ "zkm-primitives",
 ]
 
 [[package]]
@@ -14140,7 +14122,7 @@ dependencies = [
  "tracing-subscriber 0.3.22",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-recursion-circuit",
  "zkm-recursion-compiler",
  "zkm-recursion-core",
@@ -14174,7 +14156,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-recursion-compiler",
  "zkm-recursion-core",
  "zkm-recursion-gnark-ffi",
@@ -14196,7 +14178,7 @@ dependencies = [
  "tracing",
  "vec_map",
  "zkm-core-machine",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-recursion-core",
  "zkm-recursion-derive",
  "zkm-stark",
@@ -14235,7 +14217,7 @@ dependencies = [
  "zkhash",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -14314,7 +14296,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-core-machine",
  "zkm-cuda",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-prover",
  "zkm-stark",
 ]
@@ -14357,8 +14339,8 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber 0.3.22",
  "zkm-derive",
- "zkm-primitives 1.2.5",
- "zkm-zkvm 1.2.5",
+ "zkm-primitives",
+ "zkm-zkvm",
 ]
 
 [[package]]
@@ -14391,7 +14373,7 @@ dependencies = [
  "thiserror 2.0.18",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
  "zkm-recursion-core",
  "zkm-sdk",
  "zkm-stark",
@@ -14400,24 +14382,8 @@ dependencies = [
 [[package]]
 name = "zkm-version"
 version = "0.3.3"
-
-[[package]]
-name = "zkm-zkvm"
-version = "1.2.4"
-source = "git+https://github.com/ProjectZKM/Ziren#d5b7577c683dfceeecb90325d3277d34dc52bf17"
 dependencies = [
- "bincode",
- "cfg-if",
- "getrandom 0.2.17",
- "lazy_static",
- "libm",
- "p3-field",
- "p3-koala-bear",
- "rand 0.8.5",
- "serde",
- "sha2 0.10.9",
- "zkm-lib 1.2.4",
- "zkm-primitives 1.2.4",
+ "anyhow",
 ]
 
 [[package]]
@@ -14429,11 +14395,14 @@ dependencies = [
  "cfg-if",
  "getrandom 0.2.17",
  "lazy_static",
+ "libm",
+ "p3-field",
+ "p3-koala-bear",
  "rand 0.8.5",
  "serde",
  "sha2 0.10.9",
  "zkm-lib 1.2.5",
- "zkm-primitives 1.2.5",
+ "zkm-primitives",
 ]
 
 [[package]]

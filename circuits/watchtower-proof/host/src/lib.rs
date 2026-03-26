@@ -1,26 +1,35 @@
 #![feature(trim_prefix_suffix)]
 //! Generate watchtower proof
+use anyhow::Context;
+use bincode::deserialize;
 use borsh::BorshDeserialize;
-use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
+use commit_chain::{CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType};
+use header_chain::{
+    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
+};
 use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
 };
 
 use bitcoin::{Block, Network, Transaction, Txid, hashes::Hash};
-use bitcoin_light_client_circuit::build_spv;
-use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
+use bitcoin_light_client_circuit::{
+    WatchtowerAttestationInputs, build_spv, load_unique_part_stark_vk_witnesses,
+    part_stark_vk_attestation_dir,
+};
 use sha2::{Digest, Sha256};
-use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
+use state_chain::{StateChainCircuitInput, StateChainCircuitOutput, StateChainPrevProofType};
 use std::str::FromStr;
 use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 
-use anyhow::Context;
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 
 use clap::Parser;
+use serde::de::DeserializeOwned;
 use std::fs;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use zkm_verifier::Groth16Verifier;
 use zkm_version::read_zkm_version_from_file;
 
 // The arguments for the cli.
@@ -94,6 +103,17 @@ impl WatchtowerProofBuilder {
         let (proving_key, verifying_key) = client.setup(WATCHTOWER);
         Self { client, proving_key, verifying_key }
     }
+}
+
+fn load_proof_public_output<T: DeserializeOwned>(proof_path: &str) -> anyhow::Result<T> {
+    let public_inputs = fs::read(format!("{proof_path}.public_inputs.bin"))
+        .context("Failed to read public inputs")?;
+    deserialize(&public_inputs).context("Failed to decode proof public outputs")
+}
+
+fn load_current_part_stark_vk(zkm_version: &str) -> anyhow::Result<Vec<u8>> {
+    catch_unwind(AssertUnwindSafe(|| Groth16Verifier::get_part_stark_vk(zkm_version).to_vec()))
+        .map_err(|_| anyhow::anyhow!("Failed to load part_stark_vk for zkm_version {zkm_version}"))
 }
 
 impl ProofBuilder for WatchtowerProofBuilder {
@@ -196,6 +216,30 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 blocks: vec![],
             }
         };
+        let header_chain_output: BlockHeaderCircuitOutput =
+            load_proof_public_output(header_chain_input_proof)?;
+        let commit_chain_output: CommitChainCircuitOutput =
+            load_proof_public_output(commit_chain_input_proof)?;
+        let state_chain_output: StateChainCircuitOutput =
+            load_proof_public_output(state_chain_input_proof)?;
+        let current_part_stark_vk = load_current_part_stark_vk(&self.client.version())?;
+        let attestation_dir = part_stark_vk_attestation_dir();
+        let requested_part_stark_vks = vec![
+            header_chain_output.part_stark_vk,
+            commit_chain_output.part_stark_vk,
+            state_chain_output.part_stark_vk,
+            current_part_stark_vk,
+        ];
+        let (unique_witnesses, witness_refs) =
+            load_unique_part_stark_vk_witnesses(&attestation_dir, &requested_part_stark_vks)
+                .map_err(anyhow::Error::msg)?;
+        let attestation_inputs = WatchtowerAttestationInputs {
+            unique_witnesses,
+            header_ref: witness_refs[0],
+            commit_ref: witness_refs[1],
+            state_ref: witness_refs[2],
+            current_ref: witness_refs[3],
+        };
 
         // --- spv --- //
         let genesis_sequencer_commit_txid = Txid::from_str(&genesis_sequencer_commit_txid)?;
@@ -235,6 +279,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 stdin.write(&header_chain_input);
                 stdin.write(&commit_chain_input);
                 stdin.write(&state_chain_input);
+                stdin.write(&attestation_inputs);
                 stdin.write(&spv);
                 let elf_id = if ELF_ID.get().is_none() {
                     ELF_ID

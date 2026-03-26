@@ -91,6 +91,7 @@ pub const ZKM_VERSION_SIZE: usize = zkm_version::ZKM_VERSION_BYTES_LEN;
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CommitChainCircuitOutput {
     pub chain_state: CommitChainState,
+    pub part_stark_vk: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]

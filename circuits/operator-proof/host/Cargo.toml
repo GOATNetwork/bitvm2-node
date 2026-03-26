@@ -48,7 +48,7 @@ zkm-version.workspace = true
 # Ziren
 zkm-sdk.workspace = true
 zkm-prover.workspace = true
-zkm-verifier.workspace = true
+zkm-verifier = { workspace = true, features = ["ark"] }
 
 [dev-dependencies]
 bitvm2-lib.workspace = true

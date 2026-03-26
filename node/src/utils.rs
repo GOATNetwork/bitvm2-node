@@ -71,7 +71,7 @@ use store::{
 };
 use stun_client::{Attribute, Class, Client};
 use zkm_sdk::{ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
-use zkm_verifier::{Groth16Verifier, IMM_GROTH16_VK_BYTES, convert_ark_imm_wrap_vk};
+use zkm_verifier::{IMM_GROTH16_VK_BYTES, convert_ark_imm_wrap_vk};
 
 use crate::env;
 use crate::rpc_service::routes::v1::{
@@ -1753,18 +1753,13 @@ fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Ve
     let graph_id = graph_id.as_bytes();
     let proof =
         proof_data.proof.as_slice().try_into().map_err(|_| anyhow!("invalid proof length"))?;
-    let public_inputs = proof_data
-        .public_inputs
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("invalid public inputs length"))?;
     if proof_data.vk.len() != VK_HASH_SIZE {
         bail!("invalid vk_hash length");
     }
     Ok(build_watchtower_commitment(
         graph_id,
         proof,
-        public_inputs,
+        &proof_data.public_inputs,
         &proof_data.vk,
         &proof_data.zkm_version,
     )
@@ -1946,28 +1941,23 @@ pub async fn get_operator_proof(
                         proof.zkm_version
                     );
                 }
-                let (_best_btc_block_hash, constant, included_watchtower): (
-                    [u8; 32],
-                    [u8; 32],
-                    [u8; 32],
-                ) = proof.public_values.clone().read();
+                let output: bitcoin_light_client_circuit::OperatorPublicOutputs =
+                    proof.public_values.clone().read();
                 // TODO: additionally check constant and included_watchtower with included_watchtowers.
                 //proof.public_values.head();
                 info!("get_operator_proof parse proof successfully");
-                let groth16_vk = &IMM_GROTH16_VK_BYTES;
-                let part_stark_vk = Groth16Verifier::get_part_stark_vk(&proof.zkm_version);
                 let ark_proof = convert_ark_imm_wrap_vk(
                     &proof,
                     &proof_data.vk,
-                    groth16_vk,
-                    part_stark_vk,
+                    &IMM_GROTH16_VK_BYTES,
+                    &output.part_stark_vk,
                 )
-                    .map_err(|e| anyhow!("failed to convert operator proof to ark format: {e}"))?;
+                .map_err(|e| anyhow!("failed to convert operator proof to ark format: {e}"))?;
                 info!("get_operator_proof parse proof successfully");
 
                 Ok((
                     Some((
-                        [constant, included_watchtower],
+                        [output.constant, output.included_watchtowers],
                         ark_proof.proof.clone(),
                         ark_proof.public_inputs.into(),
                         ark_proof.groth16_vk.into(),

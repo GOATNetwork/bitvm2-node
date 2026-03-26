@@ -1002,15 +1002,10 @@ mod tests {
         //let consensus_commit_block_height = 503043;
         let comm = bitcoin_light_client_circuit::build_watchtower_commitment(
             &graph_id,
-            //&[0u8; PROOF_SIZE],
-            //&[0u8; PUBLIC_INPUTS_SIZE],
-            //"",
-            &PROOF.try_into().unwrap(),
-            &PUBLIC_INPUTS.try_into().unwrap(),
+            PROOF,
+            PUBLIC_INPUTS,
             VK_HASH,
             "v1.2.4",
-            //total_work,
-            //consensus_commit_block_height,
         )
         .unwrap();
 

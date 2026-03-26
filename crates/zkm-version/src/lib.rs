@@ -1,3 +1,5 @@
+use anyhow::{Context, Result};
+
 pub const ZKM_VERSION_BYTES_LEN: usize = 16;
 pub type ZkmVersionBytes = [u8; ZKM_VERSION_BYTES_LEN];
 
@@ -36,18 +38,18 @@ pub fn parse_zkm_version(version: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-pub fn read_zkm_version_from_file(input_proof: &str) -> Result<String, String> {
+pub fn read_zkm_version_from_file(input_proof: &str) -> Result<String> {
     let version_path = format!("{input_proof}.zkm_version.bin");
     let raw = std::fs::read(&version_path)
-        .map_err(|e| format!("failed to read zkm_version file '{}': {e}", version_path))?;
+        .with_context(|| format!("failed to read zkm_version file '{version_path}'"))?;
     let version = String::from_utf8(raw)
-        .map_err(|e| format!("invalid UTF-8 in zkm_version file '{}': {e}", version_path))?;
-    parse_zkm_version(&version)
+        .with_context(|| format!("invalid UTF-8 in zkm_version file '{version_path}'"))?;
+    parse_zkm_version(&version).map_err(anyhow::Error::msg)
 }
 
-pub fn read_zkm_version_fixed_from_file(input_proof: &str) -> Result<ZkmVersionBytes, String> {
+pub fn read_zkm_version_fixed_from_file(input_proof: &str) -> Result<ZkmVersionBytes> {
     let version = read_zkm_version_from_file(input_proof)?;
-    encode_zkm_version_fixed(&version)
+    encode_zkm_version_fixed(&version).map_err(anyhow::Error::msg)
 }
 
 #[cfg(test)]
