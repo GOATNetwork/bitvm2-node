@@ -3235,14 +3235,58 @@ async fn handle_disprove_ready_challenger(
             Some(*disprover_evm_address.as_ref()),
         )?;
         let challenger_master_key = ChallengerMasterKey::new(get_bitvm_key()?);
-        let challenger_master_keypair = challenger_master_key.master_keypair();
-        build_sign_and_broadcast_non_standard_tx(
+        let challenger_disprove_keypair = challenger_master_key.keypair_for_nst_disprove();
+        if let Err(e) = build_sign_and_broadcast_non_standard_tx(
             ctx.btc_client,
-            challenger_master_keypair,
-            disprove_tx,
+            challenger_disprove_keypair,
+            disprove_tx.clone(),
             connector_e_input.amount,
         )
-        .await?;
+        .await
+        {
+            if e.downcast_ref::<SpecialError>()
+                .is_some_and(|se| matches!(se, SpecialError::InsufficientBalance(_)))
+            {
+                let disprove_address = node_p2wsh_address(
+                    get_network(),
+                    &challenger_disprove_keypair.public_key().into(),
+                );
+                let disprove_balance = ctx
+                    .btc_client
+                    .get_address_utxo(disprove_address.clone())
+                    .await?
+                    .iter()
+                    .map(|u| u.value)
+                    .sum::<bitcoin::Amount>();
+                let fee_rate = get_fee_rate(ctx.btc_client).await?;
+                let est_fee_sat =
+                    ((disprove_tx.weight().to_vbytes_ceil() + 200) as f64 * fee_rate).ceil() as u64;
+                let target_balance_sat = est_fee_sat + 20_000;
+                let shortfall_sat = target_balance_sat.saturating_sub(disprove_balance.to_sat());
+                if shortfall_sat > 0 {
+                    tracing::info!(
+                        "Top up nst-disprove p2wsh address for {instance_id}:{graph_id}: shortfall={} sats",
+                        shortfall_sat
+                    );
+                    fund_address(
+                        ctx.btc_client,
+                        challenger_master_key.master_keypair(),
+                        disprove_address,
+                        bitcoin::Amount::from_sat(shortfall_sat),
+                    )
+                    .await?;
+                }
+                build_sign_and_broadcast_non_standard_tx(
+                    ctx.btc_client,
+                    challenger_disprove_keypair,
+                    disprove_tx,
+                    connector_e_input.amount,
+                )
+                .await?;
+            } else {
+                return Err(e);
+            }
+        }
     } else {
         tracing::info!("All assertions valid for {instance_id}:{graph_id}, no need to disprove");
         return Ok(());
