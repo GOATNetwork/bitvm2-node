@@ -16,6 +16,7 @@ use alloy::providers::ext::DebugApi;
 use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{CallConfig, GethDebugTracingOptions, GethTrace};
+use alloy::transports::http::reqwest::Client as AlloyReqwestClient;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
     primitives::{Address, B256, Bytes, ChainId, FixedBytes, TxHash, U256, keccak256},
@@ -37,16 +38,16 @@ const EIP1559_MAX_BASE_FEE_WEI: u128 = 2_000_000_000;
 const EIP1559_BASE_FEE_MULTIPLIER_NUM: u128 = 125;
 const EIP1559_BASE_FEE_MULTIPLIER_DEN: u128 = 100;
 
-fn build_goat_rpc_client() -> reqwest::Client {
+fn build_goat_rpc_client() -> AlloyReqwestClient {
     let timeout = Duration::from_secs(get_goat_rpc_timeout_secs());
-    match reqwest::Client::builder().timeout(timeout).build() {
+    match AlloyReqwestClient::builder().timeout(timeout).build() {
         Ok(client) => client,
         Err(err) => {
             tracing::warn!(
                 timeout_secs = timeout.as_secs(),
                 "failed to build GOAT RPC reqwest client with timeout: {err}, fallback to default client"
             );
-            reqwest::Client::new()
+            AlloyReqwestClient::new()
         }
     }
 }
