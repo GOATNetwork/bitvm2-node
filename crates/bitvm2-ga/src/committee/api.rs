@@ -1,3 +1,4 @@
+use crate::keys::hkdf_derive_bytes;
 use crate::types::Bitvm2Graph;
 use anyhow::{Result, bail};
 use bitcoin::{PublicKey, Transaction, XOnlyPublicKey};
@@ -15,12 +16,11 @@ use goat::connectors::watchtower_connectors::{
 use goat::contexts::base::generate_n_of_n_public_key;
 use goat::transactions::pre_signed_musig2::{get_nonce_message, verify_public_nonce};
 use goat::transactions::{base::BaseTransaction, signing_musig2::generate_aggregated_nonce};
-use hex::FromHex;
-use hex::ToHex;
 use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+
+const COMMITTEE_NONCE_HKDF_SALT: &[u8] = b"bitvm2/committee-nonce/v1";
 
 pub fn key_aggregation(pubkeys: &[PublicKey]) -> PublicKey {
     generate_n_of_n_public_key(pubkeys).0
@@ -535,11 +535,6 @@ pub fn push_committee_pre_signatures(
     Ok(())
 }
 
-pub fn generate_keypair_from_seed(seed: String) -> Keypair {
-    let keypair_secret = sha256(&format!("{seed}/master"));
-    Keypair::from_seckey_str_global(&keypair_secret).unwrap()
-}
-
 pub fn generate_nonce_from_seed(
     seed: String,
     graph_index: usize,
@@ -547,7 +542,12 @@ pub fn generate_nonce_from_seed(
     watchtower_num: usize,
     assert_commit_num: usize,
 ) -> (CommitteePubNonces, CommitteeSecNonces, CommitteeNonceSignatures) {
-    let graph_seed = sha256_with_id(&seed, graph_index);
+    let graph_seed = hkdf_derive_bytes(
+        seed.as_bytes(),
+        COMMITTEE_NONCE_HKDF_SALT,
+        format!("graph/{graph_index}").as_bytes(),
+        32,
+    );
     let mut pub_nonces = CommitteePubNonces::new_empty();
     let mut sec_nonces = CommitteeSecNonces::new_empty();
     let mut nonce_sigs = CommitteeNonceSignatures::new_empty();
@@ -668,24 +668,15 @@ pub fn verify_nonce_signatures(
 
 pub(crate) fn generate_nonce(
     signer_keypair: Keypair,
-    seed: &str,
+    seed: &[u8],
     index: usize,
 ) -> (SecNonce, PubNonce, SchnorrSignature) {
-    let nonce_seed = sha256_with_id(seed, index);
-    let nonce_seed = <[u8; 32]>::from_hex(&nonce_seed).unwrap();
+    let nonce_seed =
+        hkdf_derive_bytes(seed, COMMITTEE_NONCE_HKDF_SALT, format!("nonce/{index}").as_bytes(), 32);
+    let nonce_seed: [u8; 32] =
+        nonce_seed.try_into().expect("hkdf output length is fixed to 32 bytes");
     let sec_nonce = SecNonce::build(nonce_seed).build();
     let pub_nonce = sec_nonce.public_nonce();
     let nonce_signature = signer_keypair.sign_schnorr(get_nonce_message(&pub_nonce));
     (sec_nonce, pub_nonce, nonce_signature)
-}
-fn sha256(input: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    // use encode_hex to get lowercase hex
-    hasher.finalize().encode_hex()
-}
-fn sha256_with_id(input: &str, idx: usize) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    sha256(&format!("{}{:04x}", hasher.finalize().encode_hex::<String>(), idx))
 }

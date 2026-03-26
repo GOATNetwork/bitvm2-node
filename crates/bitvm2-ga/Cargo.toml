@@ -11,6 +11,8 @@ ark-groth16 = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
 sha2 = { workspace = true }
+hkdf = { workspace = true }
+chacha20poly1305 = { workspace = true }
 rand = { workspace = true }
 bitcoin = { workspace = true, features = ["serde"] }
 musig2 = { workspace = true }

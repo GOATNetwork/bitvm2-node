@@ -4,23 +4,154 @@ use crate::committee::{
 };
 
 use super::{
-    committee::generate_keypair_from_seed,
     operator::generate_wots_keys,
     types::{OperatorWotsPublicKeys, OperatorWotsSecretKeys},
 };
-use bitcoin::key::Keypair;
+use anyhow::{Context, bail};
+use bitcoin::{
+    Network, PublicKey,
+    bip32::{ChildNumber, DerivationPath, Xpriv},
+    key::Keypair,
+    secp256k1::{SECP256K1, SecretKey},
+};
+use chacha20poly1305::{
+    ChaCha20Poly1305, KeyInit, Nonce,
+    aead::{Aead, Payload},
+};
+use hex::{decode as hex_decode, encode as hex_encode};
+use hkdf::Hkdf;
 use musig2::{PubNonce, SecNonce};
+use rand::{RngCore, rngs::OsRng};
 use secp256k1::schnorr::Signature as SchnorrSignature;
-use sha2::{Digest, Sha256};
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+use std::os::unix::fs::PermissionsExt;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fs, io::Write, path::Path};
 use uuid::Uuid;
 
-// TODO: use safer key derivation function
-fn derive_secret(master_key: &Keypair, domain: &Vec<u8>) -> String {
+const HKDF_SALT: &[u8] = b"bitvm2/keys/v1";
+const BITVM_BIP32_ROOT_DOMAIN: &[u8] = b"bitvm_bip32_root";
+const PURPOSE_BITVM2_DERIVATION: u32 = 2345;
+
+const ROLE_COMMITTEE: u32 = 0;
+const ROLE_OPERATOR: u32 = 1;
+const ROLE_CHALLENGER: u32 = 2;
+
+const KEY_KIND_COMMITTEE_ENVELOPE: u32 = 0;
+const KEY_KIND_OPERATOR_NONCE: u32 = 1;
+const KEY_KIND_CHALLENGER_DISPROVE: u32 = 2;
+
+const COMMITTEE_ENVELOPE_VERSION: u8 = 1;
+
+pub fn hkdf_derive_bytes(
+    seed_material: &[u8],
+    salt: &[u8],
+    info: &[u8],
+    out_len: usize,
+) -> Vec<u8> {
+    let hkdf = Hkdf::<Sha256>::new(Some(salt), seed_material);
+    let mut out = vec![0u8; out_len];
+    hkdf.expand(info, &mut out).expect("hkdf expand with valid output length should not fail");
+    out
+}
+
+fn hkdf_expand(master_key: &Keypair, salt: &[u8], domain: &[u8], out_len: usize) -> Vec<u8> {
     let secret_key = master_key.secret_key();
-    let mut hasher = Sha256::new();
-    hasher.update(secret_key.secret_bytes());
-    hasher.update(domain);
-    format!("{:x}", hasher.finalize())
+    hkdf_derive_bytes(&secret_key.secret_bytes(), salt, domain, out_len)
+}
+
+fn derive_secret(master_key: &Keypair, domain: &[u8]) -> String {
+    hex_encode(hkdf_expand(master_key, HKDF_SALT, domain, 32))
+}
+
+fn derive_bip32_root(master_key: &Keypair) -> Xpriv {
+    let seed = hkdf_expand(master_key, HKDF_SALT, BITVM_BIP32_ROOT_DOMAIN, 64);
+    Xpriv::new_master(Network::Bitcoin, &seed)
+        .expect("32-byte secp256k1 key with valid seed should derive xpriv")
+}
+
+// Path layout: m / purpose' / role' / key_kind' / nonce_hi16' / ... / nonce_lo16'
+fn operator_nonce_derivation_path(nonce: u64) -> DerivationPath {
+    // Split u64 nonce into four 16-bit segments
+    let segments = [
+        ((nonce >> 48) & 0xffff) as u32,
+        ((nonce >> 32) & 0xffff) as u32,
+        ((nonce >> 16) & 0xffff) as u32,
+        (nonce & 0xffff) as u32,
+    ];
+
+    let mut path = vec![
+        ChildNumber::from_hardened_idx(PURPOSE_BITVM2_DERIVATION).expect("constant index is valid"),
+        ChildNumber::from_hardened_idx(ROLE_OPERATOR).expect("constant index is valid"),
+        ChildNumber::from_hardened_idx(KEY_KIND_OPERATOR_NONCE).expect("constant index is valid"),
+    ];
+    path.extend(
+        segments
+            .into_iter()
+            .map(|seg| ChildNumber::from_hardened_idx(seg).expect("16-bit index is always valid")),
+    );
+    DerivationPath::from(path)
+}
+
+// Path layout: m / purpose' / role' / key_kind'
+fn challenger_disprove_derivation_path() -> DerivationPath {
+    DerivationPath::from(vec![
+        ChildNumber::from_hardened_idx(PURPOSE_BITVM2_DERIVATION).expect("constant index is valid"),
+        ChildNumber::from_hardened_idx(ROLE_CHALLENGER).expect("constant index is valid"),
+        ChildNumber::from_hardened_idx(KEY_KIND_CHALLENGER_DISPROVE)
+            .expect("constant index is valid"),
+    ])
+}
+
+// Path layout: m / purpose' / role_committee' / key_kind' / iid_0' / ... / iid_7'
+fn committee_kek_derivation_path(instance_id: Uuid) -> DerivationPath {
+    let instance = instance_id.as_u128();
+    let segments = [
+        ((instance >> 112) & 0xffff) as u32,
+        ((instance >> 96) & 0xffff) as u32,
+        ((instance >> 80) & 0xffff) as u32,
+        ((instance >> 64) & 0xffff) as u32,
+        ((instance >> 48) & 0xffff) as u32,
+        ((instance >> 32) & 0xffff) as u32,
+        ((instance >> 16) & 0xffff) as u32,
+        (instance & 0xffff) as u32,
+    ];
+
+    let mut path = vec![
+        ChildNumber::from_hardened_idx(PURPOSE_BITVM2_DERIVATION).expect("constant index is valid"),
+        ChildNumber::from_hardened_idx(ROLE_COMMITTEE).expect("constant index is valid"),
+        ChildNumber::from_hardened_idx(KEY_KIND_COMMITTEE_ENVELOPE)
+            .expect("constant index is valid"),
+    ];
+    path.extend(
+        segments
+            .into_iter()
+            .map(|seg| ChildNumber::from_hardened_idx(seg).expect("16-bit index is always valid")),
+    );
+    DerivationPath::from(path)
+}
+
+fn derive_committee_instance_kek(master_key: &Keypair, instance_id: Uuid) -> ([u8; 32], String) {
+    let root = derive_bip32_root(master_key);
+    let path = committee_kek_derivation_path(instance_id);
+    let child =
+        root.derive_priv(SECP256K1, &path).expect("valid derivation path should derive child key");
+    (child.private_key.secret_bytes(), path.to_string())
+}
+
+fn current_unix_time_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_secs() as i64
+}
+
+fn envelope_aad(instance_id: Uuid, committee_pubkey: &PublicKey) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(16 + 33);
+    aad.extend_from_slice(instance_id.as_bytes());
+    aad.extend_from_slice(&committee_pubkey.to_bytes());
+    aad
 }
 
 pub struct NodeMasterKey(Keypair);
@@ -33,7 +164,17 @@ impl NodeMasterKey {
     }
 }
 
-// TODO: use safer key derivation function
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommitteeInstanceKeyEnvelope {
+    pub version: u8,
+    pub instance_id: Uuid,
+    pub committee_pubkey_hex: String,
+    pub kek_path: String,
+    pub aead_nonce_hex: String,
+    pub ciphertext_hex: String,
+    pub created_at: i64,
+}
+
 pub struct CommitteeMasterKey(Keypair);
 impl CommitteeMasterKey {
     pub fn new(inner: Keypair) -> Self {
@@ -42,17 +183,156 @@ impl CommitteeMasterKey {
     pub fn master_keypair(&self) -> Keypair {
         NodeMasterKey(self.0).master_keypair()
     }
-    pub fn keypair_for_instance(&self, instance_id: Uuid) -> Keypair {
-        let domain = [b"committee_bitvm_key".to_vec(), instance_id.as_bytes().to_vec()].concat();
-        let instance_seed = derive_secret(&self.0, &domain);
-        generate_keypair_from_seed(instance_seed)
+
+    pub fn create_instance_keypair_envelope(
+        &self,
+        instance_id: Uuid,
+        envelope_path: &Path,
+    ) -> anyhow::Result<bitcoin::PublicKey> {
+        let secret_key = SecretKey::new(&mut OsRng);
+        let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
+        let committee_pubkey: PublicKey = keypair.public_key().into();
+
+        let (kek, kek_path) = derive_committee_instance_kek(&self.0, instance_id);
+        let cipher = ChaCha20Poly1305::new_from_slice(&kek)
+            .expect("32-byte kek should always create chacha20poly1305 key");
+        let mut nonce = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce);
+        let aad = envelope_aad(instance_id, &committee_pubkey);
+        let ciphertext = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload { msg: &secret_key.secret_bytes(), aad: &aad },
+            )
+            .map_err(|e| anyhow::anyhow!("encrypt committee instance key failed: {e}"))?;
+
+        let envelope = CommitteeInstanceKeyEnvelope {
+            version: COMMITTEE_ENVELOPE_VERSION,
+            instance_id,
+            committee_pubkey_hex: committee_pubkey.to_string(),
+            kek_path,
+            aead_nonce_hex: hex_encode(nonce),
+            ciphertext_hex: hex_encode(ciphertext),
+            created_at: current_unix_time_secs(),
+        };
+
+        let serialized = serde_json::to_vec_pretty(&envelope)
+            .context("serialize committee instance key envelope")?;
+        if let Some(parent) = envelope_path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("create envelope directory failed: {}", parent.display())
+            })?;
+        }
+        let mut file = fs::File::create(envelope_path)
+            .with_context(|| format!("create envelope file failed: {}", envelope_path.display()))?;
+        file.write_all(&serialized)
+            .with_context(|| format!("write envelope failed: {}", envelope_path.display()))?;
+        fs::set_permissions(envelope_path, fs::Permissions::from_mode(0o600)).with_context(
+            || format!("set envelope permissions failed: {}", envelope_path.display()),
+        )?;
+        Ok(committee_pubkey)
     }
-    pub fn nonces_for_graph(
+
+    pub fn load_instance_keypair(
+        &self,
+        instance_id: Uuid,
+        envelope_path: &Path,
+    ) -> anyhow::Result<Keypair> {
+        let serialized = fs::read(envelope_path)
+            .with_context(|| format!("read envelope failed: {}", envelope_path.display()))?;
+        let envelope: CommitteeInstanceKeyEnvelope =
+            serde_json::from_slice(&serialized).context("parse envelope json failed")?;
+        if envelope.version != COMMITTEE_ENVELOPE_VERSION {
+            bail!(
+                "unsupported envelope version: {}, expected {}",
+                envelope.version,
+                COMMITTEE_ENVELOPE_VERSION
+            );
+        }
+        if envelope.instance_id != instance_id {
+            bail!(
+                "envelope instance_id mismatch: expected {}, got {}",
+                instance_id,
+                envelope.instance_id
+            );
+        }
+
+        let committee_pubkey = envelope
+            .committee_pubkey_hex
+            .parse::<PublicKey>()
+            .context("invalid envelope committee_pubkey_hex")?;
+        let nonce_bytes =
+            hex_decode(&envelope.aead_nonce_hex).context("invalid envelope nonce hex")?;
+        if nonce_bytes.len() != 12 {
+            bail!("invalid envelope nonce length: {}", nonce_bytes.len());
+        }
+        let ciphertext =
+            hex_decode(&envelope.ciphertext_hex).context("invalid envelope ciphertext hex")?;
+
+        let (kek, expected_kek_path) = derive_committee_instance_kek(&self.0, instance_id);
+        if envelope.kek_path != expected_kek_path {
+            bail!(
+                "envelope kek_path mismatch: expected {}, got {}",
+                expected_kek_path,
+                envelope.kek_path
+            );
+        }
+        let cipher = ChaCha20Poly1305::new_from_slice(&kek)
+            .expect("32-byte kek should always create chacha20poly1305 key");
+        let aad = envelope_aad(instance_id, &committee_pubkey);
+        let plaintext = cipher
+            .decrypt(Nonce::from_slice(&nonce_bytes), Payload { msg: &ciphertext, aad: &aad })
+            .map_err(|e| anyhow::anyhow!("decrypt committee instance key failed: {e}"))?;
+
+        if plaintext.len() != 32 {
+            bail!("invalid plaintext secret key length: {}", plaintext.len());
+        }
+        let secret_key =
+            SecretKey::from_slice(&plaintext).context("invalid decrypted committee secret key")?;
+        let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
+        let loaded_pubkey: PublicKey = keypair.public_key().into();
+        if loaded_pubkey != committee_pubkey {
+            bail!(
+                "envelope committee pubkey mismatch: expected {committee_pubkey}, got {loaded_pubkey}"
+            );
+        }
+        Ok(keypair)
+    }
+
+    pub fn delete_instance_keypair_envelope(
+        &self,
+        instance_id: Uuid,
+        envelope_path: &Path,
+    ) -> anyhow::Result<()> {
+        if !envelope_path.exists() {
+            return Ok(());
+        }
+
+        // Refuse deletion if caller instance id does not match envelope content.
+        let serialized = fs::read(envelope_path)
+            .with_context(|| format!("read envelope failed: {}", envelope_path.display()))?;
+        let envelope: CommitteeInstanceKeyEnvelope =
+            serde_json::from_slice(&serialized).context("parse envelope json failed")?;
+        if envelope.instance_id != instance_id {
+            bail!(
+                "envelope instance_id mismatch: expected {}, got {}",
+                instance_id,
+                envelope.instance_id
+            );
+        }
+
+        fs::remove_file(envelope_path)
+            .with_context(|| format!("remove envelope failed: {}", envelope_path.display()))?;
+        Ok(())
+    }
+
+    pub fn nonces_for_graph_with_keypair(
         &self,
         instance_id: Uuid,
         graph_id: Uuid,
         watchtower_num: usize,
         assert_commit_num: usize,
+        signer_keypair: Keypair,
     ) -> (CommitteePubNonces, CommitteeSecNonces, CommitteeNonceSignatures) {
         let domain = [
             b"committee_bitvm_graph_nonces".to_vec(),
@@ -60,8 +340,7 @@ impl CommitteeMasterKey {
             graph_id.as_bytes().to_vec(),
         ]
         .concat();
-        let nonce_seed = derive_secret(&self.0, &domain);
-        let signer_keypair = self.keypair_for_instance(instance_id);
+        let nonce_seed = derive_secret(&signer_keypair, &domain);
         generate_nonce_from_seed(
             nonce_seed,
             graph_id.as_u128() as usize,
@@ -70,16 +349,19 @@ impl CommitteeMasterKey {
             assert_commit_num,
         )
     }
-    pub fn nonce_for_instance(&self, instance_id: Uuid) -> (SecNonce, PubNonce, SchnorrSignature) {
+
+    pub fn nonce_for_instance_with_keypair(
+        &self,
+        instance_id: Uuid,
+        signer_keypair: Keypair,
+    ) -> (SecNonce, PubNonce, SchnorrSignature) {
         let domain =
             [b"committee_bitvm_instance_nonce".to_vec(), instance_id.as_bytes().to_vec()].concat();
-        let nonce_seed = derive_secret(&self.0, &domain);
-        let signer_keypair = self.keypair_for_instance(instance_id);
-        generate_nonce(signer_keypair, &nonce_seed, 0)
+        let nonce_seed = derive_secret(&signer_keypair, &domain);
+        generate_nonce(signer_keypair, nonce_seed.as_bytes(), 0)
     }
 }
 
-// TODO: use safer key derivation function
 pub struct OperatorMasterKey(Keypair);
 impl OperatorMasterKey {
     pub fn new(inner: Keypair) -> Self {
@@ -89,9 +371,12 @@ impl OperatorMasterKey {
         NodeMasterKey(self.0).master_keypair()
     }
     pub fn keypair_for_nonce(&self, nonce: u64) -> Keypair {
-        let domain = [b"operator_bitvm_key".to_vec(), nonce.to_be_bytes().to_vec()].concat();
-        let nonce_seed = derive_secret(&self.0, &domain);
-        generate_keypair_from_seed(nonce_seed)
+        let root = derive_bip32_root(&self.0);
+        let path = operator_nonce_derivation_path(nonce);
+        let child = root
+            .derive_priv(SECP256K1, &path)
+            .expect("valid derivation path should derive child key");
+        Keypair::from_secret_key(SECP256K1, &child.private_key)
     }
     pub fn wots_keypair_for_graph(
         &self,
@@ -102,11 +387,13 @@ impl OperatorMasterKey {
         generate_wots_keys(&wot_seed)
     }
     pub fn preimage_for_graph(&self, graph_id: Uuid, index: usize) -> Vec<u8> {
-        let domain = [b"operator_bitvm_preimage".to_vec(), graph_id.as_bytes().to_vec()].concat();
-        let preimage_seed = derive_secret(&self.0, &domain);
-        let mut hasher = Sha256::new();
-        hasher.update(format!("{preimage_seed}/{index:04x}").as_bytes());
-        hasher.finalize().to_vec()
+        let domain = [
+            b"operator_bitvm_preimage".to_vec(),
+            graph_id.as_bytes().to_vec(),
+            index.to_be_bytes().to_vec(),
+        ]
+        .concat();
+        hkdf_expand(&self.0, HKDF_SALT, &domain, 32)
     }
 }
 
@@ -118,6 +405,14 @@ impl ChallengerMasterKey {
     pub fn master_keypair(&self) -> Keypair {
         NodeMasterKey(self.0).master_keypair()
     }
+    pub fn keypair_for_nst_disprove(&self) -> Keypair {
+        let root = derive_bip32_root(&self.0);
+        let path = challenger_disprove_derivation_path();
+        let child = root
+            .derive_priv(SECP256K1, &path)
+            .expect("valid derivation path should derive child key");
+        Keypair::from_secret_key(SECP256K1, &child.private_key)
+    }
 }
 
 pub struct WatchtowerMasterKey(Keypair);
@@ -127,5 +422,104 @@ impl WatchtowerMasterKey {
     }
     pub fn master_keypair(&self) -> Keypair {
         NodeMasterKey(self.0).master_keypair()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::Digest;
+    use std::path::PathBuf;
+
+    fn test_master_keypair(seed: &str) -> Keypair {
+        let hashed = Sha256::digest(seed.as_bytes());
+        let sk = SecretKey::from_slice(&hashed).expect("seeded hash should build secret key");
+        Keypair::from_secret_key(SECP256K1, &sk)
+    }
+
+    fn test_envelope_path(instance_id: Uuid) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("bitvm2-committee-key-{instance_id}.json"));
+        path
+    }
+
+    #[test]
+    fn committee_instance_key_envelope_create_load_delete() {
+        let instance_id = Uuid::new_v4();
+        let master = CommitteeMasterKey::new(test_master_keypair("seed:test-committee-master"));
+        let envelope_path = test_envelope_path(instance_id);
+
+        if envelope_path.exists() {
+            fs::remove_file(&envelope_path).expect("cleanup stale envelope");
+        }
+
+        let created_pubkey = master
+            .create_instance_keypair_envelope(instance_id, &envelope_path)
+            .expect("create envelope should succeed");
+        assert!(envelope_path.exists(), "envelope file should exist after create");
+
+        let loaded = master
+            .load_instance_keypair(instance_id, &envelope_path)
+            .expect("load envelope should succeed");
+        let loaded_pubkey: PublicKey = loaded.public_key().into();
+        assert_eq!(created_pubkey, loaded_pubkey, "loaded keypair must match created pubkey");
+
+        master
+            .delete_instance_keypair_envelope(instance_id, &envelope_path)
+            .expect("delete envelope should succeed");
+        assert!(!envelope_path.exists(), "envelope file should be removed");
+    }
+
+    #[test]
+    fn committee_instance_key_envelope_load_mismatch_instance_id_should_fail() {
+        let instance_id = Uuid::new_v4();
+        let wrong_instance_id = Uuid::new_v4();
+        let master = CommitteeMasterKey::new(test_master_keypair("seed:test-committee-master"));
+        let envelope_path = test_envelope_path(instance_id);
+
+        if envelope_path.exists() {
+            fs::remove_file(&envelope_path).expect("cleanup stale envelope");
+        }
+
+        master
+            .create_instance_keypair_envelope(instance_id, &envelope_path)
+            .expect("create envelope should succeed");
+
+        let err = master
+            .load_instance_keypair(wrong_instance_id, &envelope_path)
+            .expect_err("load with mismatched instance_id should fail");
+        assert!(
+            err.to_string().contains("instance_id mismatch"),
+            "error should include mismatch hint"
+        );
+
+        fs::remove_file(&envelope_path).expect("cleanup envelope after test");
+    }
+
+    #[test]
+    fn committee_instance_key_envelope_delete_mismatch_instance_id_should_fail() {
+        let instance_id = Uuid::new_v4();
+        let wrong_instance_id = Uuid::new_v4();
+        let master = CommitteeMasterKey::new(test_master_keypair("seed:test-committee-master"));
+        let envelope_path = test_envelope_path(instance_id);
+
+        if envelope_path.exists() {
+            fs::remove_file(&envelope_path).expect("cleanup stale envelope");
+        }
+
+        master
+            .create_instance_keypair_envelope(instance_id, &envelope_path)
+            .expect("create envelope should succeed");
+
+        let err = master
+            .delete_instance_keypair_envelope(wrong_instance_id, &envelope_path)
+            .expect_err("delete with mismatched instance_id should fail");
+        assert!(
+            err.to_string().contains("instance_id mismatch"),
+            "error should include mismatch hint"
+        );
+        assert!(envelope_path.exists(), "envelope file must remain when delete is rejected");
+
+        fs::remove_file(&envelope_path).expect("cleanup envelope after test");
     }
 }
