@@ -42,6 +42,7 @@ pub enum ProofRequest {
         header_chain_input_proof: String,
         commit_chain_input_proof: String,
         state_chain_input_proof: String,
+        attested_zkm_version: String,
         output: String,
         target_block: Block,
         block_pos: u32,
@@ -112,6 +113,7 @@ pub struct OnDemandTask {
     pub header_chain_input_proof: String,
     pub commit_chain_input_proof: String,
     pub state_chain_input_proof: String,
+    pub attested_zkm_version: String,
 
     pub watchtower_challenge_init_txid: Option<String>,
     pub watchtower_challenge_txids: Vec<String>,
@@ -206,6 +208,7 @@ pub struct ProofData {
     pub vk: String,
     pub public_inputs: Vec<u8>,
     pub zkm_version: String,
+    pub proof_part_stark_vk: Vec<u8>,
 }
 
 impl ProofData {
@@ -227,6 +230,8 @@ impl ProofData {
                     fs::read(format!("{path}.zkm_version.bin")).unwrap_or_default(),
                 )
                 .unwrap_or_default();
+                proof_data.proof_part_stark_vk =
+                    fs::read(format!("{path}.proof_part_stark_vk.bin")).unwrap_or_default();
             }
         }
         proof_data
@@ -246,6 +251,7 @@ pub struct WatchtowerProofRequest {
     pub public_key: String,
     pub challenge_init_txid: String,
     pub execution_layer_block_number: i64,
+    pub attested_zkm_version: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -281,4 +287,41 @@ pub struct WatchtowerProofTimeoutUpdateResponse {
     pub public_key: String,
     pub data: Option<String>,
     pub error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_proof_base() -> PathBuf {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("proof-data-test-{nanos}"))
+    }
+
+    #[test]
+    fn load_proof_data_reads_proof_part_stark_vk_sidecar() {
+        let base = temp_proof_base();
+        let base_str = base.to_string_lossy().to_string();
+        fs::write(&base, [1u8, 2, 3]).unwrap();
+        fs::write(format!("{base_str}.public_inputs.bin"), [4u8, 5, 6]).unwrap();
+        fs::write(format!("{base_str}.vk_hash.bin"), b"vk-hash").unwrap();
+        fs::write(format!("{base_str}.zkm_version.bin"), b"v1.2.5").unwrap();
+        fs::write(format!("{base_str}.proof_part_stark_vk.bin"), [9u8, 8, 7]).unwrap();
+
+        let proof_data = ProofData::load_proof_data(&base_str, ProofType::Watchtower);
+
+        assert_eq!(proof_data.proof, vec![1u8, 2, 3]);
+        assert_eq!(proof_data.public_inputs, vec![4u8, 5, 6]);
+        assert_eq!(proof_data.vk, "vk-hash");
+        assert_eq!(proof_data.zkm_version, "v1.2.5");
+        assert_eq!(proof_data.proof_part_stark_vk, vec![9u8, 8, 7]);
+
+        let _ = fs::remove_file(&base);
+        let _ = fs::remove_file(format!("{base_str}.public_inputs.bin"));
+        let _ = fs::remove_file(format!("{base_str}.vk_hash.bin"));
+        let _ = fs::remove_file(format!("{base_str}.zkm_version.bin"));
+        let _ = fs::remove_file(format!("{base_str}.proof_part_stark_vk.bin"));
+    }
 }

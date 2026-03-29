@@ -1756,12 +1756,15 @@ fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Ve
     if proof_data.vk.len() != VK_HASH_SIZE {
         bail!("invalid vk_hash length");
     }
+    if proof_data.proof_part_stark_vk.is_empty() {
+        bail!("missing proof_part_stark_vk");
+    }
     Ok(build_watchtower_commitment(
         graph_id,
         proof,
         &proof_data.public_inputs,
         &proof_data.vk,
-        &proof_data.zkm_version,
+        &proof_data.proof_part_stark_vk,
     )
     .map_err(|e| anyhow!("failed to build watchtower commitment: {e}"))?)
 }
@@ -1803,6 +1806,7 @@ pub async fn get_watchtower_commitment(
                     public_key: env::get_node_pubkey()?.to_string(),
                     challenge_init_txid: challenge_init_txid.0.to_string(),
                     execution_layer_block_number: graph.proceed_withdraw_height, // NOTE: this number may be zero
+                    attested_zkm_version: graph.zkm_version.clone(),
                 },
             )
             .await?;

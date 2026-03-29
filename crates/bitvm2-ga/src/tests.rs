@@ -996,6 +996,10 @@ mod tests {
             include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
         const VK_HASH: &str =
             include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
+        let proof_part_stark_vk =
+            bitcoin_light_client_circuit::parse_watchtower_public_outputs(PUBLIC_INPUTS)
+                .unwrap()
+                .attested_part_stark_vk;
 
         let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap(); //graph.parameters.graph_id.to_bytes_le();
         //let total_work = 1006120;
@@ -1005,7 +1009,7 @@ mod tests {
             PROOF,
             PUBLIC_INPUTS,
             VK_HASH,
-            "v1.2.4",
+            &proof_part_stark_vk,
         )
         .unwrap();
 

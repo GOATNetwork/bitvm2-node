@@ -226,6 +226,23 @@ pub(super) async fn post_watchtower_proof_task(
     let challenge_init_txid =
         InputValidator::validate_btc_txid(&payload.challenge_init_txid, "challenge_init_txid")?
             .to_string();
+    let mut storage_process =
+        api_state.local_db.acquire().await.api_error("POST_WATCHTOWER_PROOF_TASK_ERROR")?;
+    let graph = storage_process
+        .find_graph(&graph_id)
+        .await
+        .api_error("POST_WATCHTOWER_PROOF_TASK_ERROR")?
+        .ok_or_else(|| anyhow::anyhow!("graph {graph_id} not found"))
+        .api_error("POST_WATCHTOWER_PROOF_TASK_ERROR")?;
+    if payload.attested_zkm_version != graph.zkm_version {
+        return ok_response(WatchtowerProofResponse {
+            proof_data: None,
+            error: Some(format!(
+                "attested_zkm_version mismatch, expected {}, got {}",
+                graph.zkm_version, payload.attested_zkm_version
+            )),
+        });
+    }
 
     let watchtower_proof =
         find_watchtower_task(&api_state.local_db, instance_id, graph_id, &payload.public_key)
@@ -261,6 +278,7 @@ pub(super) async fn post_watchtower_proof_task(
                 payload.public_key,
                 challenge_init_txid,
                 payload.execution_layer_block_number,
+                payload.attested_zkm_version,
             )
             .await
             .api_error("POST_WATCHTOWER_PROOF_TASK_ERROR")?;

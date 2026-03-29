@@ -59,6 +59,10 @@ pub struct Args {
     #[clap(long, env, short)]
     pub state_chain_input_proof: String,
 
+    #[clap(long, env, default_value = "")]
+    #[serde(default)]
+    pub attested_zkm_version: String,
+
     #[clap(long, env)]
     pub output: String,
 }
@@ -111,7 +115,7 @@ fn load_proof_public_output<T: DeserializeOwned>(proof_path: &str) -> anyhow::Re
     deserialize(&public_inputs).context("Failed to decode proof public outputs")
 }
 
-fn load_current_part_stark_vk(zkm_version: &str) -> anyhow::Result<Vec<u8>> {
+fn load_part_stark_vk(zkm_version: &str) -> anyhow::Result<Vec<u8>> {
     catch_unwind(AssertUnwindSafe(|| Groth16Verifier::get_part_stark_vk(zkm_version).to_vec()))
         .map_err(|_| anyhow::anyhow!("Failed to load part_stark_vk for zkm_version {zkm_version}"))
 }
@@ -142,6 +146,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
             header_chain_input_proof,
             commit_chain_input_proof,
             state_chain_input_proof,
+            attested_zkm_version,
             latest_sequencer_commit_txid,
             genesis_sequencer_commit_txid,
             target_block,
@@ -222,13 +227,16 @@ impl ProofBuilder for WatchtowerProofBuilder {
             load_proof_public_output(commit_chain_input_proof)?;
         let state_chain_output: StateChainCircuitOutput =
             load_proof_public_output(state_chain_input_proof)?;
-        let current_part_stark_vk = load_current_part_stark_vk(&self.client.version())?;
+        if attested_zkm_version.is_empty() {
+            anyhow::bail!("attested_zkm_version is required for watchtower proof generation");
+        }
+        let attested_part_stark_vk = load_part_stark_vk(attested_zkm_version)?;
         let attestation_dir = part_stark_vk_attestation_dir();
         let requested_part_stark_vks = vec![
             header_chain_output.part_stark_vk,
             commit_chain_output.part_stark_vk,
             state_chain_output.part_stark_vk,
-            current_part_stark_vk,
+            attested_part_stark_vk,
         ];
         let (unique_witnesses, witness_refs) =
             load_unique_part_stark_vk_witnesses(&attestation_dir, &requested_part_stark_vks)
@@ -320,9 +328,11 @@ impl ProofBuilder for WatchtowerProofBuilder {
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
+        let proof_part_stark_vk = load_part_stark_vk(&zkm_version)?;
         std::fs::write(&format!("{}.public_inputs.bin", output), proof.public_values.to_vec())?;
         std::fs::write(&format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
         std::fs::write(&format!("{}.zkm_version.bin", output), zkm_version)?;
+        std::fs::write(&format!("{}.proof_part_stark_vk.bin", output), proof_part_stark_vk)?;
         Ok((public_value_hex, proof_size))
     }
 }

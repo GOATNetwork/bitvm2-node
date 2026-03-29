@@ -258,7 +258,7 @@ fn extract_watchtower_part_stark_vk(tx: &Transaction) -> Option<Vec<u8>> {
         catch_unwind(AssertUnwindSafe(|| extract_data_from_commitment_outputs(&tx.output))).ok()?;
     let (_, _, public_values, _, _) = parse_watchtower_commitment(&commitment).ok()?;
     let outputs = parse_watchtower_public_outputs(&public_values).ok()?;
-    Some(outputs.part_stark_vk)
+    Some(outputs.attested_part_stark_vk)
 }
 
 impl ProofBuilder for OperatorProofBuilder {
