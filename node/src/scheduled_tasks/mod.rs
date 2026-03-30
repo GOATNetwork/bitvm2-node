@@ -12,7 +12,8 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
     instance_answers_monitor, instance_bridge_out_monitor, instance_btc_tx_monitor,
-    instance_expiration_monitor, instance_window_expiration_monitor,
+    instance_committee_key_cleanup_monitor, instance_expiration_monitor,
+    instance_window_expiration_monitor,
 };
 use crate::scheduled_tasks::node_maintenance_tasks::node_available_pbtc_update_monitor;
 use crate::scheduled_tasks::spv_maintenance_tasks::spv_header_hash_update;
@@ -84,6 +85,10 @@ async fn run(
 
     if let Err(err) = instance_btc_tx_monitor(local_db, btc_client).await {
         warn!("instance_btc_tx_monitor, err {:?}", err)
+    }
+
+    if let Err(err) = instance_committee_key_cleanup_monitor(local_db, btc_client).await {
+        warn!("instance_committee_key_cleanup_monitor, err {:?}", err)
     }
 
     if let Err(err) = instance_bridge_out_monitor(local_db).await {

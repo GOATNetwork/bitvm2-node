@@ -1,5 +1,9 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
-use crate::env::{INSTANCE_PRESIGNED_TIME_EXPIRED, get_instance_maintenance_batch_size};
+use crate::env::{
+    COMMITTEE_INSTANCE_KEYS_DIR, INSTANCE_PRESIGNED_TIME_EXPIRED, get_bitvm_key,
+    get_committee_instance_key_delete_timelock_blocks, get_instance_maintenance_batch_size,
+    is_enable_committee_instance_key_delete,
+};
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::event_watch_task::generate_instance_from_bridge_in_request_event;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
@@ -11,12 +15,15 @@ use crate::utils::{
 use alloy::sol_types::SolType;
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
+use bitvm2_lib::keys::CommitteeMasterKey;
 use bitvm2_lib::transactions::base::BaseTransaction;
 use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::graphs::graph_query::BridgeInRequestEvent;
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{LazyLock, Mutex};
 use std::vec;
@@ -503,6 +510,110 @@ pub async fn instance_bridge_out_monitor(local_db: &LocalDB) -> anyhow::Result<(
 
         if instance_update.has_updates() {
             storage_processor.update_instance(&instance_update).await?;
+        }
+    }
+
+    Ok(())
+}
+
+fn list_committee_instance_key_envelopes() -> anyhow::Result<Vec<(Uuid, PathBuf)>> {
+    let dir = PathBuf::from(COMMITTEE_INSTANCE_KEYS_DIR);
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut envelopes = Vec::new();
+    for entry in fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            warn!("invalid committee key envelope filename: {}", path.display());
+            continue;
+        };
+        match Uuid::parse_str(stem) {
+            Ok(instance_id) => envelopes.push((instance_id, path)),
+            Err(err) => {
+                warn!("skip non-instance envelope file {}: {}", path.display(), err);
+            }
+        }
+    }
+    Ok(envelopes)
+}
+
+pub async fn instance_committee_key_cleanup_monitor(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+) -> anyhow::Result<()> {
+    if !is_enable_committee_instance_key_delete() {
+        return Ok(());
+    }
+
+    let envelopes = list_committee_instance_key_envelopes()?;
+    if envelopes.is_empty() {
+        return Ok(());
+    }
+
+    let current_height = btc_client.get_height().await? as i64;
+    let delete_timelock_blocks = get_committee_instance_key_delete_timelock_blocks();
+    let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
+    let mut storage_processor = local_db.acquire().await?;
+
+    for (instance_id, envelope_path) in envelopes {
+        let Some(instance) = storage_processor.find_instance(&instance_id).await? else {
+            warn!(
+                "committee key envelope exists but instance missing: {} ({})",
+                instance_id,
+                envelope_path.display()
+            );
+            continue;
+        };
+
+        let Some(pegin_confirm_txid) = instance.pegin_confirm_txid else {
+            continue;
+        };
+
+        let tx_status = match btc_client.get_tx_status(&pegin_confirm_txid.0).await {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(
+                    "failed to query pegin-confirm tx status for instance {}: {}",
+                    instance_id, err
+                );
+                continue;
+            }
+        };
+        if !tx_status.confirmed {
+            continue;
+        }
+        let Some(confirmed_height) = tx_status.block_height else {
+            continue;
+        };
+        if (confirmed_height as i64 + delete_timelock_blocks) > current_height {
+            continue;
+        }
+
+        match committee_master_key.delete_instance_keypair_envelope(instance_id, &envelope_path) {
+            Ok(()) => {
+                info!(
+                    "deleted committee instance key envelope for {} at {}",
+                    instance_id,
+                    envelope_path.display()
+                );
+            }
+            Err(err) => {
+                warn!(
+                    "failed to delete committee instance key envelope for {} at {}: {}",
+                    instance_id,
+                    envelope_path.display(),
+                    err
+                );
+            }
         }
     }
 

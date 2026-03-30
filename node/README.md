@@ -710,6 +710,7 @@ flowchart TB
         IM2["instance_window_expiration_monitor"]
         IM3["instance_btc_tx_monitor"]
         IM4["instance_bridge_out_monitor"]
+        IM5["instance_committee_key_cleanup_monitor"]
     end
 
     subgraph Other["Other Tasks"]
@@ -734,6 +735,9 @@ flowchart TB
 | `process_graph_challenge` | 20s | Process Challenge sub-phases |
 | `instance_answers_monitor` | 20s | Track committee responses |
 | `instance_window_expiration_monitor` | 20s | Handle response window timeouts |
+| `instance_btc_tx_monitor` | 20s | Track pegin/confirm/cancel BTC transaction confirmations |
+| `instance_bridge_out_monitor` | 20s | Track bridge-out deadlines and timeout transitions |
+| `instance_committee_key_cleanup_monitor` | 20s | Scan `cache/committee-instance-keys/` and delete expired key envelopes after configurable pegin-confirm timelock |
 | `spv_header_hash_update` | Periodic | Update SPV header hashes |
 
 ---
@@ -851,6 +855,8 @@ bitvm2-noded \
 | `GOAT_PROOF_BUILD_URL` | No | Proof Builder RPC endpoint | - |
 | `NODE_NAME` | No | Node display name | `ZKM` |
 | `OPERATOR_NODE_SERVICE_FEE` | No | Operator service fee rate | `0.001` |
+| `ENABLE_COMMITTEE_INSTANCE_KEY_DELETE` | No | Enable scheduled deletion of committee instance key envelopes | `true` |
+| `COMMITTEE_INSTANCE_KEY_DELETE_TIMELOCK_BLOCKS` | No | Number of BTC blocks to wait after pegin-confirm confirmation before deleting key envelope | `32` |
 
 ### Relayer Configuration
 
