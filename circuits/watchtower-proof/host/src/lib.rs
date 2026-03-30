@@ -241,13 +241,8 @@ impl ProofBuilder for WatchtowerProofBuilder {
         let (unique_witnesses, witness_refs) =
             load_unique_part_stark_vk_witnesses(&attestation_dir, &requested_part_stark_vks)
                 .map_err(anyhow::Error::msg)?;
-        let attestation_inputs = WatchtowerAttestationInputs {
-            unique_witnesses,
-            header_ref: witness_refs[0],
-            commit_ref: witness_refs[1],
-            state_ref: witness_refs[2],
-            current_ref: witness_refs[3],
-        };
+        let attestation_inputs =
+            WatchtowerAttestationInputs { unique_witnesses, current_index: witness_refs[3] };
 
         // --- spv --- //
         let genesis_sequencer_commit_txid = Txid::from_str(&genesis_sequencer_commit_txid)?;

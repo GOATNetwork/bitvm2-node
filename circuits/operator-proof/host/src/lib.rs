@@ -383,11 +383,8 @@ impl ProofBuilder for OperatorProofBuilder {
             state_chain_output.part_stark_vk,
             current_part_stark_vk,
         ];
-        let mut watchtower_source_indexes =
-            vec![current_source_index; watchtower_challenge_txns.len()];
-        for (index, tx) in watchtower_challenge_txns.iter().enumerate() {
+        for tx in watchtower_challenge_txns {
             if let Some(part_stark_vk) = extract_watchtower_part_stark_vk(tx) {
-                watchtower_source_indexes[index] = requested_part_stark_vks.len();
                 requested_part_stark_vks.push(part_stark_vk);
             }
         }
@@ -397,14 +394,7 @@ impl ProofBuilder for OperatorProofBuilder {
                 .map_err(anyhow::Error::msg)?;
         let attestation_inputs = OperatorAttestationInputs {
             unique_witnesses,
-            header_ref: witness_refs[0],
-            commit_ref: witness_refs[1],
-            state_ref: witness_refs[2],
-            watchtower_refs: watchtower_source_indexes
-                .into_iter()
-                .map(|source_index| witness_refs[source_index])
-                .collect(),
-            current_ref: witness_refs[current_source_index],
+            current_index: witness_refs[current_source_index],
         };
 
         // --- spv --- //

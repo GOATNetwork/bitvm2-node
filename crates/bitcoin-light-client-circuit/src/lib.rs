@@ -8,24 +8,24 @@ use state_chain::verify_sequencer_commit;
 pub use utils::*;
 
 use alloy_primitives::U256;
+use bitcoin::hashes::{sha256, Hash, HashEngine};
 use bitcoin::Block;
 use bitcoin::Transaction;
-use bitcoin::hashes::{Hash, HashEngine, sha256};
 use commit_chain::sequencer_hash;
 use commit_chain::{
-    CommitChainCircuitInput, CommitChainPrevProofType, extract_data_from_commitment_outputs,
+    extract_data_from_commitment_outputs, CommitChainCircuitInput, CommitChainPrevProofType,
 };
 use header_chain::{
-    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput,
-    HeaderChainPrevProofType, MMRHost, SPV, verify_merkle_proof,
+    verify_merkle_proof, BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction,
+    HeaderChainCircuitInput, HeaderChainPrevProofType, MMRHost, SPV,
 };
 use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use zkm_primitives::io::ZKMPublicValues;
 use zkm_verifier::{Groth16Verifier, IMM_GROTH16_VK_BYTES};
-use zkm_version::{ZKM_VERSION_BYTES_LEN, ZkmVersionBytes, decode_zkm_version_fixed};
+use zkm_version::{decode_zkm_version_fixed, ZkmVersionBytes, ZKM_VERSION_BYTES_LEN};
 
-use bitcoin::{ScriptBuf, TxOut, Txid, secp256k1::PublicKey};
+use bitcoin::{secp256k1::PublicKey, ScriptBuf, TxOut, Txid};
 pub use guest_executor::io::EthClientExecutorInput;
 use serde::{Deserialize, Serialize};
 
@@ -120,41 +120,35 @@ pub fn watch_longest_chain(
     let StateChainPrevProofType::PrevProof(state_chain_output) = &prev_proof else {
         panic!("Only PrevProof is supported in watch_longest_chain");
     };
-    verify_part_stark_vk_witness_ref(
+
+    verify_unique_part_stark_vk_witnesses(
         &attestation.unique_witnesses,
-        attestation.header_ref,
+        &commit_chain_output.chain_state.publisher_public_keys,
+        commit_chain_output.chain_state.threshold,
+        PART_STARK_VK_TREE_HEIGHT,
+    )
+        .expect("Failed to verify unique part_stark_vk attestations");
+
+    assert_part_stark_vk_in_verified_witnesses(
+        &attestation.unique_witnesses,
         &btc_header_chain_output.part_stark_vk,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
     )
-    .expect("Failed to verify header-chain part_stark_vk attestation");
-    verify_part_stark_vk_witness_ref(
+        .expect("Failed to match header-chain part_stark_vk in verified witnesses");
+    assert_part_stark_vk_in_verified_witnesses(
         &attestation.unique_witnesses,
-        attestation.commit_ref,
         &commit_chain_output.part_stark_vk,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
     )
-    .expect("Failed to verify commit-chain part_stark_vk attestation");
-    verify_part_stark_vk_witness_ref(
+        .expect("Failed to match commit-chain part_stark_vk in verified witnesses");
+    assert_part_stark_vk_in_verified_witnesses(
         &attestation.unique_witnesses,
-        attestation.state_ref,
         &state_chain_output.part_stark_vk,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
     )
-    .expect("Failed to verify state-chain part_stark_vk attestation");
-    let attested_part_stark_vk = verify_current_part_stark_vk_witness(
-        &attestation.unique_witnesses,
-        attestation.current_ref,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
-    )
-    .expect("Failed to verify watchtower part_stark_vk attestation");
+        .expect("Failed to match state-chain part_stark_vk in verified witnesses");
+
+    let attested_part_stark_vk =
+        get_current_part_stark_vk(&attestation.unique_witnesses, attestation.current_index)
+            .expect("Failed to read watchtower current part_stark_vk");
+
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =
@@ -259,24 +253,24 @@ pub fn propose_longest_chain(
     let HeaderChainPrevProofType::PrevProof(btc_header_chain_output) = &prev_proof else {
         panic!("Only PrevProof is supported in propose_longest_chain");
     };
-    verify_part_stark_vk_witness_ref(
+
+    verify_unique_part_stark_vk_witnesses(
         &attestation.unique_witnesses,
-        attestation.header_ref,
+        &commit_chain_output.chain_state.publisher_public_keys,
+        commit_chain_output.chain_state.threshold,
+        PART_STARK_VK_TREE_HEIGHT,
+    )
+        .expect("Failed to verify unique part_stark_vk attestations");
+    assert_part_stark_vk_in_verified_witnesses(
+        &attestation.unique_witnesses,
         &btc_header_chain_output.part_stark_vk,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
     )
-    .expect("Failed to verify header-chain part_stark_vk attestation");
-    verify_part_stark_vk_witness_ref(
+        .expect("Failed to match header-chain part_stark_vk in verified witnesses");
+    assert_part_stark_vk_in_verified_witnesses(
         &attestation.unique_witnesses,
-        attestation.commit_ref,
         &commit_chain_output.part_stark_vk,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
     )
-    .expect("Failed to verify commit-chain part_stark_vk attestation");
+        .expect("Failed to match commit-chain part_stark_vk in verified witnesses");
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
     let operator_consensus_block_height = U32::from(commit_chain_output.chain_state.block_height);
     // commit header chain best block hash as pis
@@ -345,18 +339,11 @@ pub fn propose_longest_chain(
                     continue;
                 }
             };
-            if let Err(err) = verify_part_stark_vk_witness_ref(
+            if let Err(err) = assert_part_stark_vk_in_verified_witnesses(
                 &attestation.unique_witnesses,
-                *attestation
-                    .watchtower_refs
-                    .get(i)
-                    .expect("watchtower attestation refs length mismatch"),
                 &watchtower_outputs.attested_part_stark_vk,
-                &commit_chain_output.chain_state.publisher_public_keys,
-                commit_chain_output.chain_state.threshold,
-                PART_STARK_VK_TREE_HEIGHT,
             ) {
-                println!("Watchtower[{i}] invalid part_stark_vk attestation: {err}");
+                println!("Watchtower[{i}] missing verified part_stark_vk: {err}");
                 continue;
             }
             match verify_proof_with_part_stark_vk(&proof, &public_values, &vk, &proof_part_stark_vk)
@@ -409,23 +396,17 @@ pub fn propose_longest_chain(
     let StateChainPrevProofType::PrevProof(state_chain_output) = &prev_proof else {
         panic!("Only PrevProof is supported in propose_longest_chain");
     };
-    verify_part_stark_vk_witness_ref(
+
+    assert_part_stark_vk_in_verified_witnesses(
         &attestation.unique_witnesses,
-        attestation.state_ref,
         &state_chain_output.part_stark_vk,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
     )
-    .expect("Failed to verify state-chain part_stark_vk attestation");
-    let current_part_stark_vk = verify_current_part_stark_vk_witness(
-        &attestation.unique_witnesses,
-        attestation.current_ref,
-        &commit_chain_output.chain_state.publisher_public_keys,
-        commit_chain_output.chain_state.threshold,
-        PART_STARK_VK_TREE_HEIGHT,
-    )
-    .expect("Failed to verify operator part_stark_vk attestation");
+        .expect("Failed to match state-chain part_stark_vk in verified witnesses");
+
+    let current_part_stark_vk =
+        get_current_part_stark_vk(&attestation.unique_witnesses, attestation.current_index)
+            .expect("Failed to read operator current part_stark_vk");
+
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =

@@ -1,5 +1,5 @@
-use bitcoin::hashes::{sha256, Hash};
-use bitcoin::secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1, SecretKey};
+use bitcoin::hashes::{Hash, sha256};
+use bitcoin::secp256k1::{Message, PublicKey, Secp256k1, SecretKey, ecdsa::Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -31,28 +31,15 @@ pub struct PartStarkVkAttestationBundle {
 pub type UniquePartStarkVkWitness = PartStarkVkAttestationBundle;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProofPartStarkVkRef {
-    pub proof_index: usize,
-    pub witness_index: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchtowerAttestationInputs {
     pub unique_witnesses: Vec<UniquePartStarkVkWitness>,
-    pub header_ref: usize,
-    pub commit_ref: usize,
-    pub state_ref: usize,
-    pub current_ref: usize,
+    pub current_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperatorAttestationInputs {
     pub unique_witnesses: Vec<UniquePartStarkVkWitness>,
-    pub header_ref: usize,
-    pub commit_ref: usize,
-    pub state_ref: usize,
-    pub watchtower_refs: Vec<usize>,
-    pub current_ref: usize,
+    pub current_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -335,34 +322,38 @@ pub fn verify_part_stark_vk_attestation(
     Ok(())
 }
 
-pub fn verify_part_stark_vk_witness_ref(
+/// Verify each unique witness once so later lookups can reuse the verified payload.
+pub fn verify_unique_part_stark_vk_witnesses(
     unique_witnesses: &[UniquePartStarkVkWitness],
-    witness_index: usize,
-    expected_part_stark_vk: &[u8],
     publisher_public_keys: &[PublicKey],
     threshold: u16,
     tree_height: usize,
 ) -> Result<(), String> {
-    let witness = unique_witnesses.get(witness_index).ok_or_else(|| {
-        format!("witness index {} out of range {}", witness_index, unique_witnesses.len())
-    })?;
-    if witness.part_stark_vk != expected_part_stark_vk {
-        return Err("part_stark_vk witness payload mismatch".to_string());
+    for witness in unique_witnesses {
+        verify_part_stark_vk_attestation(witness, publisher_public_keys, threshold, tree_height)?;
     }
-    verify_part_stark_vk_attestation(witness, publisher_public_keys, threshold, tree_height)
+    Ok(())
 }
 
-pub fn verify_current_part_stark_vk_witness(
+/// Check whether a target `part_stark_vk` is present in the verified witness set.
+pub fn assert_part_stark_vk_in_verified_witnesses(
     unique_witnesses: &[UniquePartStarkVkWitness],
-    witness_index: usize,
-    publisher_public_keys: &[PublicKey],
-    threshold: u16,
-    tree_height: usize,
+    expected_part_stark_vk: &[u8],
+) -> Result<(), String> {
+    if unique_witnesses.iter().any(|witness| witness.part_stark_vk == expected_part_stark_vk) {
+        return Ok(());
+    }
+    Err("part_stark_vk not found in verified witnesses".to_string())
+}
+
+/// Return the current `part_stark_vk` selected by the verified witness index.
+pub fn get_current_part_stark_vk(
+    unique_witnesses: &[UniquePartStarkVkWitness],
+    current_index: usize,
 ) -> Result<Vec<u8>, String> {
-    let witness = unique_witnesses.get(witness_index).ok_or_else(|| {
-        format!("witness index {} out of range {}", witness_index, unique_witnesses.len())
+    let witness = unique_witnesses.get(current_index).ok_or_else(|| {
+        format!("current index {} out of range {}", current_index, unique_witnesses.len())
     })?;
-    verify_part_stark_vk_attestation(witness, publisher_public_keys, threshold, tree_height)?;
     Ok(witness.part_stark_vk.clone())
 }
 
@@ -638,18 +629,78 @@ pub fn load_unique_part_stark_vk_witnesses(
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::secp256k1::{ecdsa::Signature, Message, Secp256k1, SecretKey};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, ecdsa::Signature};
 
     use super::{
-        build_attestation_message_digest, build_part_stark_vk_merkle_path, build_part_stark_vk_merkle_root,
-        build_part_stark_vk_root_signatures, compute_publisher_set_id,
-        part_stark_vk_leaf_hash, verify_part_stark_vk_attestation, PartStarkVkAttestationBundle,
-        PartStarkVkRootSignature,
+        PartStarkVkAttestationBundle, PartStarkVkRootSignature,
+        assert_part_stark_vk_in_verified_witnesses, build_attestation_message_digest,
+        build_part_stark_vk_merkle_path, build_part_stark_vk_merkle_root,
+        build_part_stark_vk_root_signatures, compute_publisher_set_id, get_current_part_stark_vk,
+        load_unique_part_stark_vk_witnesses, part_stark_vk_leaf_hash,
+        save_part_stark_vk_attestation_bundle, verify_part_stark_vk_attestation,
+        verify_unique_part_stark_vk_witnesses,
     };
 
     fn sample_part_stark_vk() -> Vec<u8> {
         hex::decode("2000000000000000d157a916a6350249c6e4efd850dcdac3abf5489d36de2d1aa233c9253522871000000000")
             .unwrap()
+    }
+
+    fn sample_part_stark_vk_alt() -> Vec<u8> {
+        b"alternate-part-stark-vk".to_vec()
+    }
+
+    fn sample_publishers() -> (Vec<SecretKey>, Vec<bitcoin::secp256k1::PublicKey>) {
+        let secp = Secp256k1::new();
+        let secret_keys = vec![
+            SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            SecretKey::from_slice(&[3u8; 32]).unwrap(),
+            SecretKey::from_slice(&[4u8; 32]).unwrap(),
+        ];
+        let publisher_public_keys = secret_keys
+            .iter()
+            .map(|sk| bitcoin::secp256k1::PublicKey::from_secret_key(&secp, sk))
+            .collect::<Vec<_>>();
+        (secret_keys, publisher_public_keys)
+    }
+
+    fn sample_attestation_bundle(
+        leaves: &[Vec<u8>],
+        leaf_index: usize,
+        threshold: u16,
+        publisher_public_keys: &[bitcoin::secp256k1::PublicKey],
+        signer_secret_keys: &[SecretKey],
+    ) -> PartStarkVkAttestationBundle {
+        let root = build_part_stark_vk_merkle_root(leaves, 6).unwrap();
+        let publisher_set_id = compute_publisher_set_id(publisher_public_keys, threshold);
+        let indexed_secret_keys =
+            signer_secret_keys.iter().enumerate().collect::<Vec<(usize, &SecretKey)>>();
+        let signatures = build_part_stark_vk_root_signatures(
+            &indexed_secret_keys[..usize::from(threshold)],
+            6,
+            root,
+            threshold,
+            publisher_set_id,
+        )
+        .unwrap();
+
+        PartStarkVkAttestationBundle {
+            part_stark_vk: leaves[leaf_index].clone(),
+            leaf_index,
+            merkle_path: build_part_stark_vk_merkle_path(leaves, 6, leaf_index).unwrap(),
+            root,
+            threshold,
+            publisher_set_id,
+            signatures,
+        }
+    }
+
+    fn unique_test_dir(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("bitvm2-{prefix}-{nanos}"))
     }
 
     #[test]
@@ -830,7 +881,7 @@ mod tests {
             threshold,
             publisher_set_id,
         )
-            .unwrap();
+        .unwrap();
 
         let bundle = PartStarkVkAttestationBundle {
             part_stark_vk: leaves[0].clone(),
@@ -890,7 +941,86 @@ mod tests {
                 signed_threshold - 1,
                 6
             )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_verify_unique_part_stark_vk_witnesses_accepts_multiple_bundles() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let unique_witnesses = vec![
+            sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys),
+            sample_attestation_bundle(&leaves, 1, 3, &publisher_public_keys, &secret_keys),
+        ];
+
+        assert!(
+            verify_unique_part_stark_vk_witnesses(&unique_witnesses, &publisher_public_keys, 3, 6)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_assert_part_stark_vk_in_verified_witnesses_checks_membership() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let unique_witnesses = vec![
+            sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys),
+            sample_attestation_bundle(&leaves, 1, 3, &publisher_public_keys, &secret_keys),
+        ];
+
+        verify_unique_part_stark_vk_witnesses(&unique_witnesses, &publisher_public_keys, 3, 6)
+            .unwrap();
+        assert!(assert_part_stark_vk_in_verified_witnesses(&unique_witnesses, &leaves[1]).is_ok());
+        assert!(
+            assert_part_stark_vk_in_verified_witnesses(&unique_witnesses, b"missing-part-stark-vk")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_get_current_part_stark_vk_returns_selected_payload() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let unique_witnesses = vec![
+            sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys),
+            sample_attestation_bundle(&leaves, 1, 3, &publisher_public_keys, &secret_keys),
+        ];
+
+        assert_eq!(get_current_part_stark_vk(&unique_witnesses, 1).unwrap(), leaves[1]);
+    }
+
+    #[test]
+    fn test_get_current_part_stark_vk_rejects_out_of_range_index() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk()];
+        let unique_witnesses =
+            vec![sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys)];
+
+        assert!(get_current_part_stark_vk(&unique_witnesses, 1).is_err());
+    }
+
+    #[test]
+    fn test_load_unique_part_stark_vk_witnesses_reuses_duplicate_indexes() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let dir = unique_test_dir("attestation-duplicate-indexes");
+        std::fs::create_dir_all(dir.join("bundles")).unwrap();
+
+        let first_bundle =
+            sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys);
+        let second_bundle =
+            sample_attestation_bundle(&leaves, 1, 3, &publisher_public_keys, &secret_keys);
+        save_part_stark_vk_attestation_bundle(&dir, &first_bundle).unwrap();
+        save_part_stark_vk_attestation_bundle(&dir, &second_bundle).unwrap();
+
+        let requested = vec![leaves[0].clone(), leaves[1].clone(), leaves[0].clone()];
+        let (unique_witnesses, witness_indexes) =
+            load_unique_part_stark_vk_witnesses(&dir, &requested).unwrap();
+
+        assert_eq!(unique_witnesses.len(), 2);
+        assert_eq!(witness_indexes, vec![0, 1, 0]);
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
