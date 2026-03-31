@@ -169,20 +169,21 @@ pub fn corrupt_proof(
     let mut scramble2: [u8; HASH_LEN] = [1u8; HASH_LEN];
     scramble2[HASH_LEN / 2] = 37;
     println!("corrupted assertion at index {index}");
+    let sec_index = index + NUM_GUEST;
     if index < NUM_PUBS {
         let i = index;
         let assn = scramble;
-        let sig = Wots32::sign(&wots_sec[index], &assn);
+        let sig = Wots32::sign(&wots_sec[sec_index], &assn);
         sigs.1.0[i] = sig;
     } else if index < NUM_PUBS + NUM_U256 {
         let i = index - NUM_PUBS;
         let assn = scramble;
-        let sig = Wots32::sign(&wots_sec[index], &assn);
+        let sig = Wots32::sign(&wots_sec[sec_index], &assn);
         sigs.1.1[i] = sig;
     } else if index < NUM_PUBS + NUM_U256 + NUM_HASH {
         let i = index - NUM_PUBS - NUM_U256;
         let assn = scramble2;
-        let sig = Wots16::sign(&wots_sec[index], &assn);
+        let sig = Wots16::sign(&wots_sec[sec_index], &assn);
         sigs.1.2[i] = sig;
     }
 }
