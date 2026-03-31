@@ -855,7 +855,7 @@ bitvm2-noded \
 | `GOAT_PROOF_BUILD_URL` | No | Proof Builder RPC endpoint | - |
 | `NODE_NAME` | No | Node display name | `ZKM` |
 | `OPERATOR_NODE_SERVICE_FEE` | No | Operator service fee rate | `0.001` |
-| `ENABLE_COMMITTEE_INSTANCE_KEY_DELETE` | No | Enable scheduled deletion of committee instance key envelopes | `true` |
+| `ENABLE_COMMITTEE_INSTANCE_KEY_DELETE` | No | Enable scheduled deletion of committee instance key envelopes | `false` |
 | `COMMITTEE_INSTANCE_KEY_DELETE_TIMELOCK_BLOCKS` | No | Number of BTC blocks to wait after pegin-confirm confirmation before deleting key envelope | `32` |
 
 ### Relayer Configuration

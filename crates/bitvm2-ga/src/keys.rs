@@ -522,4 +522,94 @@ mod tests {
 
         fs::remove_file(&envelope_path).expect("cleanup envelope after test");
     }
+
+    #[test]
+    fn committee_instance_key_envelope_delete_nonexistent_is_ok() {
+        let instance_id = Uuid::new_v4();
+        let master = CommitteeMasterKey::new(test_master_keypair("seed:test-committee-master"));
+        let envelope_path = test_envelope_path(instance_id);
+
+        if envelope_path.exists() {
+            fs::remove_file(&envelope_path).expect("cleanup stale envelope");
+        }
+
+        master
+            .delete_instance_keypair_envelope(instance_id, &envelope_path)
+            .expect("delete should be idempotent when file does not exist");
+    }
+
+    #[test]
+    fn hkdf_derive_bytes_is_deterministic_and_respects_output_length() {
+        let seed = b"seed-material";
+        let salt = b"salt-material";
+        let info = b"derive/test";
+
+        let out1 = hkdf_derive_bytes(seed, salt, info, 32);
+        let out2 = hkdf_derive_bytes(seed, salt, info, 32);
+        let out3 = hkdf_derive_bytes(seed, salt, b"derive/other", 32);
+
+        assert_eq!(out1.len(), 32);
+        assert_eq!(out1, out2, "same inputs must derive identical output");
+        assert_ne!(out1, out3, "different info should derive different output");
+    }
+
+    #[test]
+    fn operator_keypair_for_nonce_is_deterministic_and_nonce_scoped() {
+        let master = OperatorMasterKey::new(test_master_keypair("seed:test-operator-master"));
+
+        let keypair_a1 = master.keypair_for_nonce(42);
+        let keypair_a2 = master.keypair_for_nonce(42);
+        let keypair_b = master.keypair_for_nonce(43);
+
+        let pub_a1: PublicKey = keypair_a1.public_key().into();
+        let pub_a2: PublicKey = keypair_a2.public_key().into();
+        let pub_b: PublicKey = keypair_b.public_key().into();
+
+        assert_eq!(pub_a1, pub_a2, "same nonce should derive same keypair");
+        assert_ne!(pub_a1, pub_b, "different nonce should derive different keypairs");
+    }
+
+    #[test]
+    fn operator_nonce_derivation_path_has_expected_bip32_layout() {
+        let nonce: u64 = 0x1122_3344_5566_7788;
+        let path = operator_nonce_derivation_path(nonce);
+        let children: Vec<ChildNumber> = path.into_iter().cloned().collect();
+
+        assert_eq!(children.len(), 7, "path should be purpose/role/key_kind + 4 segments");
+        assert_eq!(children[0], ChildNumber::from_hardened_idx(PURPOSE_BITVM2_DERIVATION).unwrap());
+        assert_eq!(children[1], ChildNumber::from_hardened_idx(ROLE_OPERATOR).unwrap());
+        assert_eq!(children[2], ChildNumber::from_hardened_idx(KEY_KIND_OPERATOR_NONCE).unwrap());
+        assert_eq!(children[3], ChildNumber::from_hardened_idx(0x1122).unwrap());
+        assert_eq!(children[4], ChildNumber::from_hardened_idx(0x3344).unwrap());
+        assert_eq!(children[5], ChildNumber::from_hardened_idx(0x5566).unwrap());
+        assert_eq!(children[6], ChildNumber::from_hardened_idx(0x7788).unwrap());
+    }
+
+    #[test]
+    fn committee_kek_derivation_is_deterministic_and_instance_scoped() {
+        let master = test_master_keypair("seed:test-committee-master");
+        let instance_a = Uuid::new_v4();
+        let instance_b = Uuid::new_v4();
+
+        let (kek_a1, path_a1) = derive_committee_instance_kek(&master, instance_a);
+        let (kek_a2, path_a2) = derive_committee_instance_kek(&master, instance_a);
+        let (kek_b, path_b) = derive_committee_instance_kek(&master, instance_b);
+
+        assert_eq!(kek_a1, kek_a2, "same instance should derive same kek bytes");
+        assert_eq!(path_a1, path_a2, "same instance should derive same path");
+        assert_ne!(kek_a1, kek_b, "different instances should derive different kek");
+        assert_ne!(path_a1, path_b, "different instances should derive different path");
+    }
+
+    #[test]
+    fn challenger_nst_disprove_keypair_is_deterministic() {
+        let master = ChallengerMasterKey::new(test_master_keypair("seed:test-challenger-master"));
+
+        let keypair_1 = master.keypair_for_nst_disprove();
+        let keypair_2 = master.keypair_for_nst_disprove();
+
+        let pub_1: PublicKey = keypair_1.public_key().into();
+        let pub_2: PublicKey = keypair_2.public_key().into();
+        assert_eq!(pub_1, pub_2, "challenger disprove keypair should be stable");
+    }
 }

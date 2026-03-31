@@ -136,7 +136,7 @@ pub const DEFAULT_INSTANCE_MAINTENANCE_BATCH_SIZE: u32 = 50;
 pub const ENV_MAINTENANCE_RUN_TIMEOUT_SECS: &str = "MAINTENANCE_RUN_TIMEOUT_SECS";
 pub const DEFAULT_MAINTENANCE_RUN_TIMEOUT_SECS: u64 = 60;
 pub const ENV_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE: &str = "ENABLE_COMMITTEE_INSTANCE_KEY_DELETE";
-pub const DEFAULT_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE: bool = true;
+pub const DEFAULT_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE: bool = false;
 pub const ENV_COMMITTEE_INSTANCE_KEY_DELETE_TIMELOCK_BLOCKS: &str =
     "COMMITTEE_INSTANCE_KEY_DELETE_TIMELOCK_BLOCKS";
 pub const DEFAULT_COMMITTEE_INSTANCE_KEY_DELETE_TIMELOCK_BLOCKS: i64 = 32;
@@ -574,10 +574,15 @@ pub fn get_maintenance_run_timeout_secs() -> u64 {
 }
 
 pub fn is_enable_committee_instance_key_delete() -> bool {
-    std::env::var(ENV_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE)
-        .ok()
-        .map(|value| value.eq_ignore_ascii_case("true"))
-        .unwrap_or(DEFAULT_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE)
+    // TODO: enable this feature when ready
+    tracing::warn!(
+        "Committee key delete not activated, ignore ENV_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE"
+    );
+    false
+    // std::env::var(ENV_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE)
+    //     .ok()
+    //     .map(|value| value.eq_ignore_ascii_case("true"))
+    //     .unwrap_or(DEFAULT_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE)
 }
 
 pub fn get_committee_instance_key_delete_timelock_blocks() -> i64 {
