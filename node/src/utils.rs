@@ -1658,6 +1658,10 @@ pub async fn get_fee_rate(client: &BTCClient) -> Result<f64> {
     }
 }
 
+pub async fn get_nst_fee_rate(client: &BTCClient) -> Result<f64> {
+    Ok(get_fee_rate(client).await? * 3.0)
+}
+
 pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
     match broadcast_tx(btc_client, tx).await {
         Ok(_) => Ok(()),
@@ -2224,7 +2228,7 @@ pub async fn build_sign_and_broadcast_non_standard_tx(
 ) -> Result<Txid> {
     let fixed_inputs_num = tx.input.len();
     let total_output_amount: Amount = tx.output.iter().map(|o| o.value).sum();
-    let fee_rate = get_fee_rate(client).await?;
+    let fee_rate = get_nst_fee_rate(client).await?;
     let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
     let shortfall =
         Amount::from_sat(total_output_amount.to_sat().saturating_sub(total_input_amount.to_sat()));
