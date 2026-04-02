@@ -47,6 +47,14 @@ fn committee_instance_keys_envelope_path(instance_id: Uuid) -> std::path::PathBu
     path
 }
 
+fn is_io_not_found_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
+    })
+}
+
 fn load_committee_instance_keypair(
     committee_master_key: &CommitteeMasterKey,
     instance_id: Uuid,
@@ -69,8 +77,17 @@ fn load_or_create_committee_instance_keypair(
     match committee_master_key.load_instance_keypair(instance_id, &envelope_path) {
         Ok(keypair) => Ok(keypair),
         Err(load_err) => {
+            if !is_io_not_found_error(&load_err) {
+                return Err(load_err).with_context(|| {
+                    format!(
+                        "load committee instance keypair failed for {} at {} (refuse auto-overwrite for non-missing envelope)",
+                        instance_id,
+                        envelope_path.display()
+                    )
+                });
+            }
             tracing::info!(
-                "committee instance key not found/invalid for {} at {}: {}, creating new envelope",
+                "committee instance key not found for {} at {}: {}, creating new envelope",
                 instance_id,
                 envelope_path.display(),
                 load_err
