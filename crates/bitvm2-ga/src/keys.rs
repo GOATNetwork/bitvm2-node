@@ -67,7 +67,20 @@ fn derive_secret(master_key: &Keypair, domain: &[u8]) -> String {
 
 fn derive_bip32_root(master_key: &Keypair) -> Xpriv {
     let seed = hkdf_expand(master_key, HKDF_SALT, BITVM_BIP32_ROOT_DOMAIN, 64);
-    Xpriv::new_master(Network::Bitcoin, &seed)
+    let network = std::env::var("BITCOIN_NETWORK").unwrap_or("testnet4".to_string());
+    let network = match network.as_str() {
+        "bitcoin" => Network::Bitcoin,
+        "testnet4" => Network::Testnet4,
+        "signet" => Network::Signet,
+        "regtest" => Network::Regtest,
+        _ => {
+            tracing::warn!(
+                "Unknown BTC network: {network}, expect bitcoin, testnet4, signet or regtest, return testnet by default"
+            );
+            Network::Testnet4
+        }
+    };
+    Xpriv::new_master(network, &seed)
         .expect("32-byte secp256k1 key with valid seed should derive xpriv")
 }
 
