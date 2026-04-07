@@ -1221,7 +1221,6 @@ impl<'a> StorageProcessor<'a> {
                     assert_commit_timeout_txids,
                     init_withdraw_tx_hash,
                     bridge_out_start_at,
-                    zkm_version,
                     status_updated_at,
                     proceed_withdraw_height,
                     CASE
