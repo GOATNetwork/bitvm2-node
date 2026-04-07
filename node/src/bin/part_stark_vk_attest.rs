@@ -83,28 +83,28 @@ fn load_publisher_set(commit_info_file: &PathBuf) -> Result<(Vec<PublicKey>, u16
     let commit_info: CommitInfo = serde_json::from_slice(&bytes).with_context(|| {
         format!("failed to decode commit_info file '{}'", commit_info_file.display())
     })?;
-    if commit_info.publisher_public_keys.is_empty() {
+    let (encoded_public_keys, threshold) = commit_info.active_publisher_set();
+    if encoded_public_keys.is_empty() {
         bail!("commit_info publisher_public_keys is empty");
     }
-    if commit_info.threshold == 0 {
+    if threshold == 0 {
         bail!("commit_info threshold must be greater than 0");
     }
-    let publisher_public_keys = commit_info
-        .publisher_public_keys
+    let publisher_public_keys = encoded_public_keys
         .iter()
         .map(|compressed_pk| {
             PublicKey::from_str(compressed_pk)
                 .with_context(|| format!("invalid publisher public key '{}'", compressed_pk))
         })
         .collect::<Result<Vec<_>>>()?;
-    if usize::from(commit_info.threshold) > publisher_public_keys.len() {
+    if usize::from(threshold) > publisher_public_keys.len() {
         bail!(
             "commit_info threshold {} exceeds publisher_public_keys length {}",
-            commit_info.threshold,
+            threshold,
             publisher_public_keys.len()
         );
     }
-    Ok((publisher_public_keys, commit_info.threshold))
+    Ok((publisher_public_keys, threshold))
 }
 
 fn load_part_stark_vk(

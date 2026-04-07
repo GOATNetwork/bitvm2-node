@@ -408,7 +408,6 @@ pub struct Graph {
     pub assert_commit_timeout_txids: Vec<SerializableTxid>,
     pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
-    pub zkm_version: String,
     pub status_updated_at: i64,
     pub proceed_withdraw_height: i64,
     pub created_at: i64,

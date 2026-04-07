@@ -2438,7 +2438,6 @@ dependencies = [
  "tracing",
  "zkm-primitives",
  "zkm-verifier",
- "zkm-version",
  "zkm-zkvm",
 ]
 
@@ -3251,7 +3250,6 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "zkm-verifier",
- "zkm-version",
  "zkm-zkvm",
 ]
 
@@ -3279,7 +3277,6 @@ dependencies = [
  "zkm-build",
  "zkm-prover",
  "zkm-sdk",
- "zkm-version",
 ]
 
 [[package]]
@@ -5476,7 +5473,6 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "zkm-verifier",
- "zkm-version",
  "zkm-zkvm",
 ]
 
@@ -5509,7 +5505,6 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
- "zkm-version",
 ]
 
 [[package]]
@@ -8080,7 +8075,6 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
- "zkm-version",
 ]
 
 [[package]]
@@ -11843,7 +11837,6 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "zkm-verifier",
- "zkm-version",
  "zkm-zkvm",
 ]
 
@@ -11885,7 +11878,6 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
- "zkm-version",
 ]
 
 [[package]]
@@ -13467,7 +13459,6 @@ dependencies = [
  "zkm-prover",
  "zkm-sdk",
  "zkm-verifier",
- "zkm-version",
 ]
 
 [[package]]
@@ -14919,13 +14910,6 @@ dependencies = [
  "zkm-recursion-core",
  "zkm-sdk",
  "zkm-stark",
-]
-
-[[package]]
-name = "zkm-version"
-version = "0.3.3"
-dependencies = [
- "anyhow",
 ]
 
 [[package]]

@@ -7,7 +7,6 @@ resolver = "3"
 members = [
     "node",
     "proof-builder-rpc",
-    "crates/zkm-version",
     "crates/cbft-rpc",
     "crates/bitvm2-ga",
     "crates/store",
@@ -100,7 +99,6 @@ zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", features = ["verify"] 
 bitvm2-lib = { path = "crates/bitvm2-ga" }
 store = { path = "crates/store" }
 util = { path = "crates/util" }
-zkm-version = { path = "crates/zkm-version" }
 client = { path = "crates/client" }
 bitcoin-light-client-circuit = { path = "crates/bitcoin-light-client-circuit" }
 header-chain = { path = "crates/header-chain" }
@@ -188,10 +186,3 @@ zkm-sdk = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-releas
 zkm-verifier = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
 zkm-primitives = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
 zkm-zkvm = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
-#zkm-build = { path = "../zkm2/crates/build" }
-#zkm-core-executor = { path = "../zkm2/crates/core/executor" }
-#zkm-prover = { path = "../zkm2/crates/prover" }
-#zkm-sdk = { path = "../zkm2/crates/sdk" }
-#zkm-verifier = { path = "../zkm2/crates/verifier" }
-#zkm-primitives = { path = "../zkm2/crates/primitives" }
-#zkm-zkvm = { path = "../zkm2/crates/zkvm/entrypoint" }

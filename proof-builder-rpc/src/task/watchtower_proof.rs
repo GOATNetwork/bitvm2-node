@@ -42,7 +42,6 @@ pub(crate) fn spawn_watchtower_proof_task(
                             args.header_chain_input_proof = next_task.header_chain_input_proof;
                             args.commit_chain_input_proof = next_task.commit_chain_input_proof;
                             args.state_chain_input_proof = next_task.state_chain_input_proof;
-                            args.attested_zkm_version = next_task.attested_zkm_version;
                             args.output = format!("{}/{}.bin",
                                 std::path::Path::new(&args.output).parent().unwrap().to_str().unwrap(),
                                 next_task.task_index,
@@ -77,7 +76,6 @@ pub(crate) fn spawn_watchtower_proof_task(
                             header_chain_input_proof: args.header_chain_input_proof.clone(),
                             commit_chain_input_proof: args.commit_chain_input_proof.clone(),
                             state_chain_input_proof: args.state_chain_input_proof.clone(),
-                            attested_zkm_version: args.attested_zkm_version.clone(),
                             output: args.output.clone(),
                             target_block,
                             block_pos,

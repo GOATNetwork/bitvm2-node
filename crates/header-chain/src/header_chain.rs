@@ -91,8 +91,6 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
     }
 };
 
-pub const ZKM_VERSION_SIZE: usize = zkm_version::ZKM_VERSION_BYTES_LEN;
-
 /// An epoch should be two weeks (represented as number of seconds)
 /// seconds/minute * minutes/hour * hours/day * 14 days
 const EXPECTED_EPOCH_TIMESPAN: u32 = 60 * 60 * 24 * 14;

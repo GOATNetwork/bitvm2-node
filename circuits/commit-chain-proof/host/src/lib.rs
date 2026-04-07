@@ -7,7 +7,6 @@ use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
 };
-use zkm_version::read_zkm_version_from_file;
 
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
@@ -116,12 +115,19 @@ pub async fn fetch_commit_chain(
         .iter()
         .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
         .collect();
+    let next_publisher_public_keys = ci.next_publisher_public_keys.as_ref().map(|keys| {
+        keys.iter()
+            .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
+            .collect::<Vec<_>>()
+    });
     tracing::info!("sequencer_hash: {:?}", sequencer_hash(&ci.sequencers));
     let commit = CircuitCommit {
         commit_txn,
         sequencers: ci.sequencers.clone(),
         publisher_public_keys,
         threshold: ci.threshold,
+        next_publisher_public_keys,
+        next_threshold: ci.next_threshold,
         genesis_txid: Txid::from_str(&ci.genesis_txid)?.as_raw_hash().to_byte_array(),
         block_height,
     };
@@ -190,8 +196,16 @@ impl ProofBuilder for CommitChainProofBuilder {
                         fs::read(input_proof).context("Failed to read input proof file")?;
                     let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof))
                         .context("Read vk hash")?;
-                    let zkm_version = read_zkm_version_from_file(input_proof)
-                        .context("Failed to parse input zkm version")?;
+                    let version_path = format!("{input_proof}.zkm_version.bin");
+                    let zkm_version = fs::read(&version_path)
+                        .with_context(|| {
+                            format!("failed to read zkm_version file '{version_path}'")
+                        })
+                        .and_then(|raw_zkm_version| {
+                            String::from_utf8(raw_zkm_version).with_context(|| {
+                                format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                            })
+                        })?;
                     let prev_output: CommitChainCircuitOutput =
                         zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                     (

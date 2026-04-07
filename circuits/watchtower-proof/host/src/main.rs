@@ -25,7 +25,6 @@ async fn main() {
         header_chain_input_proof: args.header_chain_input_proof.clone(),
         commit_chain_input_proof: args.commit_chain_input_proof.clone(),
         state_chain_input_proof: args.state_chain_input_proof.clone(),
-        attested_zkm_version: args.attested_zkm_version.clone(),
         output: args.output.clone(),
         target_block,
         block_pos,

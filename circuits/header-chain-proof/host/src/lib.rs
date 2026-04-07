@@ -11,7 +11,6 @@ use std::{
 use util::get_btc_block_confirms;
 use zkm_sdk::ZKMProofKind;
 use zkm_sdk::{HashableKey, Prover, ProverClient, ZKMProofWithPublicValues, ZKMStdin, include_elf};
-use zkm_version::read_zkm_version_from_file;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 use anyhow::Context;
 use clap::Parser;
@@ -210,8 +209,16 @@ impl ProofBuilder for HeaderChainProofBuilder {
                     let proof_bytes =
                         fs::read(input_proof).context("Failed to read input proof file").unwrap();
                     let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof)).unwrap();
-                    let zkm_version = read_zkm_version_from_file(input_proof)
-                        .context("Failed to parse input zkm version")?;
+                    let version_path = format!("{input_proof}.zkm_version.bin");
+                    let zkm_version = fs::read(&version_path)
+                        .with_context(|| {
+                            format!("failed to read zkm_version file '{version_path}'")
+                        })
+                        .and_then(|raw_zkm_version| {
+                            String::from_utf8(raw_zkm_version).with_context(|| {
+                                format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                            })
+                        })?;
                     let prev_output = zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                     (
                         HeaderChainPrevProofType::PrevProof(prev_output),

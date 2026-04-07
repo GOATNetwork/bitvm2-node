@@ -429,10 +429,6 @@ mod tests {
         (guest_pubs, proof, pis, vk)
     }
 
-    fn get_test_operator_proof() {
-        // data/operator-proof/output.bin.*
-    }
-
     async fn gen_test_graph(
         esplora: &EsploraClient,
         disprove_scripts: Vec<ScriptBuf>,
@@ -568,7 +564,6 @@ mod tests {
                 .collect(),
             hashlocks: hashlocks().1.to_vec(),
             guest_constant_value: [0u8; 32], // all zero for test
-            zkm_version: "v1.2.3".to_string(),
         };
 
         generate_bitvm_graph(graph_parameters, disprove_scripts).unwrap()
@@ -996,12 +991,11 @@ mod tests {
             include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
         const VK_HASH: &str =
             include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
-        let proof_part_stark_vk =
-            bitcoin_light_client_circuit::parse_watchtower_public_outputs(PUBLIC_INPUTS)
-                .unwrap()
-                .attested_part_stark_vk;
+        const PROOF_PART_STARK_VK: &[u8] =
+            include_bytes!("../../../circuits/data/watchtower/output3.bin.proof_part_stark_vk.bin");
+        let proof_part_stark_vk = PROOF_PART_STARK_VK.to_vec();
 
-        let graph_id = hex::decode("00112233445566778899aabbccddeeff").unwrap().try_into().unwrap(); //graph.parameters.graph_id.to_bytes_le();
+        let graph_id = *graph.parameters.graph_id.as_bytes();
         //let total_work = 1006120;
         //let consensus_commit_block_height = 503043;
         let comm = bitcoin_light_client_circuit::build_watchtower_commitment(

@@ -20,7 +20,6 @@ use zkm_sdk::{
     HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
     include_elf,
 };
-use zkm_version::read_zkm_version_from_file;
 
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
@@ -326,8 +325,16 @@ impl ProofBuilder for StateChainProofBuilder {
                         fs::read(input_proof).context("Failed to read input proof file")?;
                     let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof))
                         .context("Read vk_hash")?;
-                    let zkm_version = read_zkm_version_from_file(input_proof)
-                        .context("Failed to parse input zkm version")?;
+                    let version_path = format!("{input_proof}.zkm_version.bin");
+                    let zkm_version = fs::read(&version_path)
+                        .with_context(|| {
+                            format!("failed to read zkm_version file '{version_path}'")
+                        })
+                        .and_then(|raw_zkm_version| {
+                            String::from_utf8(raw_zkm_version).with_context(|| {
+                                format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                            })
+                        })?;
                     let prev_output: StateChainCircuitOutput =
                         zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                     (

@@ -838,7 +838,6 @@ pub async fn get_instances_overview(
 ///       "assert_commit_timeout_txids": [],
 ///       "init_withdraw_tx_hash": null,
 ///       "bridge_out_start_at": 1699123456,
-///       "zkm_version": "zkm1.0.0",
 ///       "status_updated_at": 1699123456,
 ///       "created_at": 1699123456,
 ///       "updated_at": 1699123456
@@ -931,7 +930,6 @@ pub async fn get_graph(
 ///         "assert_commit_timeout_txids": [],
 ///         "init_withdraw_tx_hash": null,
 ///         "bridge_out_start_at": 1699123456,
-///         "zkm_version": "zkm1.0.0",
 ///         "status_updated_at": 1699123456,
 ///         "created_at": 1699123456,
 ///         "updated_at": 1699123456
@@ -1034,7 +1032,6 @@ pub async fn get_graphs(
 ///     "assert_commit_timeout_txids": [],
 ///     "init_withdraw_tx_hash": null,
 ///     "bridge_out_start_at": 0,
-///     "zkm_version": "zkm1.0.0",
 ///     "status_updated_at": 1699123456,
 ///     "created_at": 1699123456,
 ///     "updated_at": 1699123456

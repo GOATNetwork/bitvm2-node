@@ -42,7 +42,6 @@ pub enum ProofRequest {
         header_chain_input_proof: String,
         commit_chain_input_proof: String,
         state_chain_input_proof: String,
-        attested_zkm_version: String,
         output: String,
         target_block: Block,
         block_pos: u32,
@@ -113,7 +112,6 @@ pub struct OnDemandTask {
     pub header_chain_input_proof: String,
     pub commit_chain_input_proof: String,
     pub state_chain_input_proof: String,
-    pub attested_zkm_version: String,
 
     pub watchtower_challenge_init_txid: Option<String>,
     pub watchtower_challenge_txids: Vec<String>,
@@ -251,7 +249,6 @@ pub struct WatchtowerProofRequest {
     pub public_key: String,
     pub challenge_init_txid: String,
     pub execution_layer_block_number: i64,
-    pub attested_zkm_version: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

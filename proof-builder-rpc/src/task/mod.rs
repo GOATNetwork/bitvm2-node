@@ -14,7 +14,6 @@ use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
 use bitcoin::{BlockHash, Network, Txid};
 use client::btc_chain::BTCClient;
-use commit_chain::CircuitCommit;
 use std::str::FromStr;
 use std::time::UNIX_EPOCH;
 use uuid::Uuid;
@@ -215,7 +214,6 @@ async fn read_watchtower_challenge_details<'a>(
     i64,
     i64,
     Option<String>,
-    Option<String>,
     Vec<String>,
     Vec<bool>,
     Vec<String>,
@@ -225,7 +223,6 @@ async fn read_watchtower_challenge_details<'a>(
     let (
         task_index,
         execution_layer_block_number,
-        attested_zkm_version,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         included_watchtowers,
@@ -243,7 +240,6 @@ async fn read_watchtower_challenge_details<'a>(
                 (
                     task.id,
                     task.execution_layer_block_number,
-                    task.extra.clone(),
                     None,
                     watchtower_challenge_txids,
                     vec![true],
@@ -279,7 +275,7 @@ async fn read_watchtower_challenge_details<'a>(
         if let Some(first) = challenge_init_txids.first() {
             if !challenge_init_txids.iter().all(|x| first == x) {
                 anyhow::bail!(
-                    "Inconsistant watchtower challenge info from instance {} and graph_id {}",
+                    "Inconsistent watchtower challenge info from instance {} and graph_id {}",
                     task.instance_id,
                     task.graph_id
                 );
@@ -294,7 +290,6 @@ async fn read_watchtower_challenge_details<'a>(
         (
             task.id,
             task.execution_layer_block_number,
-            None,
             challenge_init_txids.first().cloned(),
             challenge_txids,
             included_watchtowers,
@@ -310,7 +305,6 @@ async fn read_watchtower_challenge_details<'a>(
     Ok((
         task_index,
         execution_layer_block_number,
-        attested_zkm_version,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         included_watchtowers,
@@ -333,7 +327,6 @@ pub(crate) async fn fetch_on_demand_task(
     let (
         task_index,
         execution_layer_block_number,
-        _attested_zkm_version,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         included_watchtowers,
@@ -483,41 +476,28 @@ pub(crate) async fn fetch_on_demand_task(
     };
     tracing::info!("commit_chain_input_proof: {commit_chain_input_proof:?}");
     let commit_chain_input_proof = commit_chain_input_proof.path_to_proof.unwrap();
-    let file = format!("{commit_chain_input_proof}.commits");
-    let content = match std::fs::read_to_string(&file) {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::error!("read {file:?} error, {e}");
-            return Ok(None);
-        }
-    };
-    let commits: Vec<CircuitCommit> = serde_json::from_str(&content)?;
-    let latest_sequencer_commit_txid = commits[0].commit_txn.compute_txid().to_string();
-    let attested_zkm_version = match (_attested_zkm_version, graph_id.as_ref()) {
-        (Some(attested_zkm_version), _) => attested_zkm_version,
-        (None, Some(graph_id)) => {
-            let graph_id = Uuid::parse_str(graph_id)?;
-            match storage_processor.find_graph(&graph_id).await? {
-                Some(graph) => graph.zkm_version,
-                None => {
-                    tracing::warn!("Graph {graph_id} not found when building on-demand task");
-                    return Ok(None);
-                }
+    let commits_file = format!("{commit_chain_input_proof}.commits");
+    let commits: Vec<commit_chain::CircuitCommit> =
+        match serde_json::from_str(&std::fs::read_to_string(&commits_file)?) {
+            Ok(commits) => commits,
+            Err(err) => {
+                tracing::warn!("Failed to read commit-chain commits, error: {err}");
+                return Ok(None);
             }
-        }
-        (None, None) => {
-            tracing::warn!("graph_id missing when building on-demand task");
+        };
+    let latest_sequencer_commit_txid = match commits.first() {
+        Some(commit) => commit.commit_txn.compute_txid().to_string(),
+        None => {
+            tracing::warn!("Commit-chain proof does not contain any commits yet");
             return Ok(None);
         }
     };
-
     Ok(Some(OnDemandTask {
         task_index,
         latest_sequencer_commit_txid,
         header_chain_input_proof,
         commit_chain_input_proof,
         state_chain_input_proof,
-        attested_zkm_version,
         watchtower_challenge_init_txid,
         watchtower_challenge_txids,
         included_watchtowers,
@@ -670,7 +650,6 @@ pub(crate) async fn add_watchtower_task(
     public_key: String,
     challenge_init_txid: String,
     execution_layer_block_number: i64,
-    attested_zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
     Ok(storage_processor
@@ -685,7 +664,6 @@ pub(crate) async fn add_watchtower_task(
             updated_at: current_time_secs(),
             execution_layer_block_number,
             included: true,
-            extra: Some(attested_zkm_version),
             ..Default::default()
         })
         .await?)
@@ -926,7 +904,6 @@ mod tests {
             public_key,
             challenge_init_txid,
             number,
-            "v1.2.4".to_string(),
         )
         .await
         .unwrap();

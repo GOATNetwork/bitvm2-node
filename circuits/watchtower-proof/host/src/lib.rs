@@ -3,7 +3,7 @@
 use anyhow::Context;
 use bincode::deserialize;
 use borsh::BorshDeserialize;
-use commit_chain::{CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType};
+use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -30,7 +30,6 @@ use serde::de::DeserializeOwned;
 use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use zkm_verifier::Groth16Verifier;
-use zkm_version::read_zkm_version_from_file;
 
 // The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
@@ -58,10 +57,6 @@ pub struct Args {
 
     #[clap(long, env, short)]
     pub state_chain_input_proof: String,
-
-    #[clap(long, env, default_value = "")]
-    #[serde(default)]
-    pub attested_zkm_version: String,
 
     #[clap(long, env)]
     pub output: String,
@@ -120,6 +115,22 @@ fn load_part_stark_vk(zkm_version: &str) -> anyhow::Result<Vec<u8>> {
         .map_err(|_| anyhow::anyhow!("Failed to load part_stark_vk for zkm_version {zkm_version}"))
 }
 
+/// Collect both the version-derived verifier key and the recursive inner verifier key
+/// for header/state subproofs so witness loading survives Ziren upgrades.
+fn collect_requested_part_stark_vks(
+    header_chain_input: &HeaderChainCircuitInput,
+    header_chain_output: &BlockHeaderCircuitOutput,
+    state_chain_input: &StateChainCircuitInput,
+    state_chain_output: &StateChainCircuitOutput,
+) -> anyhow::Result<Vec<Vec<u8>>> {
+    Ok(vec![
+        load_part_stark_vk(&header_chain_input.zkm_version)?,
+        header_chain_output.part_stark_vk.clone(),
+        load_part_stark_vk(&state_chain_input.zkm_version)?,
+        state_chain_output.part_stark_vk.clone(),
+    ])
+}
+
 impl ProofBuilder for WatchtowerProofBuilder {
     fn client(&self) -> &zkm_sdk::ProverClient {
         &self.client
@@ -146,7 +157,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
             header_chain_input_proof,
             commit_chain_input_proof,
             state_chain_input_proof,
-            attested_zkm_version,
             latest_sequencer_commit_txid,
             genesis_sequencer_commit_txid,
             target_block,
@@ -167,8 +177,14 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 .unwrap();
             let zkm_vk_hash =
                 fs::read(&format!("{}.vk_hash.bin", header_chain_input_proof)).unwrap();
-            let zkm_version = read_zkm_version_from_file(header_chain_input_proof)
-                .context("Failed to parse header-chain zkm version")?;
+            let version_path = format!("{header_chain_input_proof}.zkm_version.bin");
+            let zkm_version = fs::read(&version_path)
+                .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
+                .and_then(|raw_zkm_version| {
+                    String::from_utf8(raw_zkm_version).with_context(|| {
+                        format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                    })
+                })?;
 
             HeaderChainCircuitInput {
                 prev_proof: HeaderChainPrevProofType::GenesisBlock, // unused
@@ -189,8 +205,14 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 .unwrap();
             let zkm_vk_hash =
                 fs::read(&format!("{}.vk_hash.bin", commit_chain_input_proof)).unwrap();
-            let zkm_version = read_zkm_version_from_file(commit_chain_input_proof)
-                .context("Failed to parse commit-chain zkm version")?;
+            let version_path = format!("{commit_chain_input_proof}.zkm_version.bin");
+            let zkm_version = fs::read(&version_path)
+                .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
+                .and_then(|raw_zkm_version| {
+                    String::from_utf8(raw_zkm_version).with_context(|| {
+                        format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                    })
+                })?;
             CommitChainCircuitInput {
                 prev_proof: CommitChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
@@ -210,8 +232,14 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 fs::read(&format!("{}.public_inputs.bin", state_chain_input_proof)).unwrap();
             let zkm_vk_hash =
                 fs::read(&format!("{}.vk_hash.bin", state_chain_input_proof)).unwrap();
-            let zkm_version = read_zkm_version_from_file(state_chain_input_proof)
-                .context("Failed to parse state-chain zkm version")?;
+            let version_path = format!("{state_chain_input_proof}.zkm_version.bin");
+            let zkm_version = fs::read(&version_path)
+                .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
+                .and_then(|raw_zkm_version| {
+                    String::from_utf8(raw_zkm_version).with_context(|| {
+                        format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                    })
+                })?;
             StateChainCircuitInput {
                 prev_proof: StateChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
@@ -223,26 +251,19 @@ impl ProofBuilder for WatchtowerProofBuilder {
         };
         let header_chain_output: BlockHeaderCircuitOutput =
             load_proof_public_output(header_chain_input_proof)?;
-        let commit_chain_output: CommitChainCircuitOutput =
-            load_proof_public_output(commit_chain_input_proof)?;
         let state_chain_output: StateChainCircuitOutput =
             load_proof_public_output(state_chain_input_proof)?;
-        if attested_zkm_version.is_empty() {
-            anyhow::bail!("attested_zkm_version is required for watchtower proof generation");
-        }
-        let attested_part_stark_vk = load_part_stark_vk(attested_zkm_version)?;
         let attestation_dir = part_stark_vk_attestation_dir();
-        let requested_part_stark_vks = vec![
-            header_chain_output.part_stark_vk,
-            commit_chain_output.part_stark_vk,
-            state_chain_output.part_stark_vk,
-            attested_part_stark_vk,
-        ];
-        let (unique_witnesses, witness_refs) =
+        let requested_part_stark_vks = collect_requested_part_stark_vks(
+            &header_chain_input,
+            &header_chain_output,
+            &state_chain_input,
+            &state_chain_output,
+        )?;
+        let (unique_witnesses, _) =
             load_unique_part_stark_vk_witnesses(&attestation_dir, &requested_part_stark_vks)
                 .map_err(anyhow::Error::msg)?;
-        let attestation_inputs =
-            WatchtowerAttestationInputs { unique_witnesses, current_index: witness_refs[3] };
+        let attestation_inputs = WatchtowerAttestationInputs { unique_witnesses };
 
         // --- spv --- //
         let genesis_sequencer_commit_txid = Txid::from_str(&genesis_sequencer_commit_txid)?;
@@ -329,5 +350,62 @@ impl ProofBuilder for WatchtowerProofBuilder {
         std::fs::write(&format!("{}.zkm_version.bin", output), zkm_version)?;
         std::fs::write(&format!("{}.proof_part_stark_vk.bin", output), proof_part_stark_vk)?;
         Ok((public_value_hex, proof_size))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_header_input(zkm_version: &str) -> HeaderChainCircuitInput {
+        HeaderChainCircuitInput {
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            zkm_proof: vec![],
+            zkm_public_values: vec![],
+            zkm_vk_hash: vec![],
+            zkm_version: zkm_version.to_string(),
+            block_headers: vec![],
+        }
+    }
+
+    fn sample_state_input(zkm_version: &str) -> StateChainCircuitInput {
+        StateChainCircuitInput {
+            prev_proof: StateChainPrevProofType::GenesisBlock,
+            zkm_proof: vec![],
+            zkm_public_values: vec![],
+            zkm_vk_hash: vec![],
+            zkm_version: zkm_version.to_string(),
+            blocks: vec![],
+        }
+    }
+
+    fn sample_header_output(part_stark_vk: Vec<u8>) -> BlockHeaderCircuitOutput {
+        BlockHeaderCircuitOutput {
+            chain_state: header_chain::ChainState::new(),
+            part_stark_vk,
+        }
+    }
+
+    fn sample_state_output(part_stark_vk: Vec<u8>) -> StateChainCircuitOutput {
+        StateChainCircuitOutput {
+            chain_state: state_chain::StateChainState::new(0, [0u8; 32], Vec::new()),
+            part_stark_vk,
+        }
+    }
+
+    #[test]
+    fn test_collect_requested_part_stark_vks_includes_outer_and_inner_versions() {
+        let old_vk = load_part_stark_vk("v1.2.4").unwrap();
+        let new_vk = load_part_stark_vk("v1.2.5").unwrap();
+
+        let requested = collect_requested_part_stark_vks(
+            &sample_header_input("v1.2.5"),
+            &sample_header_output(old_vk.clone()),
+            &sample_state_input("v1.2.5"),
+            &sample_state_output(old_vk.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(requested, vec![new_vk.clone(), old_vk.clone(), new_vk, old_vk]);
     }
 }

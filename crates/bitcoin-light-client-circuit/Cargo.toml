@@ -18,7 +18,6 @@ state-chain = { workspace = true }
 zkm-verifier = { workspace = true }
 zkm-zkvm = { workspace = true }
 zkm-primitives = { workspace = true }
-zkm-version = { workspace = true }
 #zkm-verifier = { path = "../../../Ziren/crates/verifier" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 

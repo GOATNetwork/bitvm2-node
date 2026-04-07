@@ -3226,7 +3226,7 @@ async fn handle_disprove_ready_challenger(
         txins
     };
     // 2. check assertions committed by Operator, if any assertion is invalid, sign & broadcast disprove txn
-    let vk = crate::vk::get_vk(&graph.parameters.zkm_version).await?;
+    let vk = crate::vk::get_vk().await?;
     let disprove_scripts = get_disprove_scripts(&graph.parameters).await?;
     let disprove_scripts =
         disprove_scripts.try_into().map_err(|_| anyhow!("Mismatch disprove scripts num"))?;

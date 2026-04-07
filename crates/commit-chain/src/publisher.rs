@@ -86,6 +86,11 @@ pub fn verify_p2wsh_multisig_witness(
     let secp = Secp256k1::verification_only();
     let txin = &tx.input[input_index];
     let witness: &Witness = &txin.witness;
+    let expected_script_pubkey = ScriptBuf::new_p2wsh(&redeem_script.wscript_hash());
+
+    if prevout.script_pubkey != expected_script_pubkey {
+        return Err("prevout script_pubkey does not match redeem_script".into());
+    }
 
     // Expect witness: [<empty>, sig1, sig2, ..., redeem_script_bytes]
     if witness.len() < 2 {
@@ -260,5 +265,58 @@ mod tests {
         .unwrap();
 
         assert!(ok, "2-of-3 multisig witness should verify");
+    }
+
+    #[test]
+    fn test_verify_p2wsh_multisig_witness_rejects_prevout_script_mismatch() {
+        let keys = create_dummy_publisher_keys(3, bitcoin::Network::Regtest);
+        let pubkeys: Vec<PublicKey> = keys.iter().map(|(_, pk)| *pk).collect();
+        let threshold = 2;
+        let redeem_script = create_sequencer_update_script(&pubkeys, threshold);
+        let prev_value = Amount::from_sat(100_000);
+        let prevout = TxOut {
+            value: prev_value,
+            script_pubkey: ScriptBuf::new_p2wsh(&ScriptBuf::new().wscript_hash()),
+        };
+        let prev_outpoint =
+            OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32].into()), vout: 0 };
+
+        let mut tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: prev_outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(99_000),
+                script_pubkey: {
+                    let btc_pk0 = bitcoin::PublicKey::from(pubkeys[0]);
+                    Address::p2pkh(&btc_pk0, Network::Testnet).script_pubkey()
+                },
+            }],
+        };
+
+        let (sig1, _) =
+            sign_partial(&mut tx, &keys[0].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
+        let (sig2, _) =
+            sign_partial(&mut tx, &keys[1].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
+        finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
+
+        assert!(
+            verify_p2wsh_multisig_witness(
+                &tx,
+                0,
+                &prevout,
+                &redeem_script,
+                &pubkeys,
+                threshold as usize,
+            )
+            .is_err()
+        );
     }
 }

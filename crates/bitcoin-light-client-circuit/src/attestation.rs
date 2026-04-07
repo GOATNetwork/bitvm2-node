@@ -33,13 +33,11 @@ pub type UniquePartStarkVkWitness = PartStarkVkAttestationBundle;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchtowerAttestationInputs {
     pub unique_witnesses: Vec<UniquePartStarkVkWitness>,
-    pub current_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperatorAttestationInputs {
     pub unique_witnesses: Vec<UniquePartStarkVkWitness>,
-    pub current_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -346,17 +344,6 @@ pub fn assert_part_stark_vk_in_verified_witnesses(
     Err("part_stark_vk not found in verified witnesses".to_string())
 }
 
-/// Return the current `part_stark_vk` selected by the verified witness index.
-pub fn get_current_part_stark_vk(
-    unique_witnesses: &[UniquePartStarkVkWitness],
-    current_index: usize,
-) -> Result<Vec<u8>, String> {
-    let witness = unique_witnesses.get(current_index).ok_or_else(|| {
-        format!("current index {} out of range {}", current_index, unique_witnesses.len())
-    })?;
-    Ok(witness.part_stark_vk.clone())
-}
-
 pub fn load_part_stark_vk_tree_state(dir: &Path) -> Result<PartStarkVkTreeState, String> {
     let path = part_stark_vk_tree_state_path(dir);
     let bytes = std::fs::read(&path)
@@ -637,7 +624,7 @@ mod tests {
         PartStarkVkAttestationBundle, PartStarkVkRootSignature,
         assert_part_stark_vk_in_verified_witnesses, build_attestation_message_digest,
         build_part_stark_vk_merkle_path, build_part_stark_vk_merkle_root,
-        build_part_stark_vk_root_signatures, compute_publisher_set_id, get_current_part_stark_vk,
+        build_part_stark_vk_root_signatures, compute_publisher_set_id,
         load_unique_part_stark_vk_witnesses, part_stark_vk_leaf_hash,
         save_part_stark_vk_attestation_bundle, verify_part_stark_vk_attestation,
         verify_unique_part_stark_vk_witnesses,
@@ -976,28 +963,6 @@ mod tests {
             assert_part_stark_vk_in_verified_witnesses(&unique_witnesses, b"missing-part-stark-vk")
                 .is_err()
         );
-    }
-
-    #[test]
-    fn test_get_current_part_stark_vk_returns_selected_payload() {
-        let (secret_keys, publisher_public_keys) = sample_publishers();
-        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
-        let unique_witnesses = vec![
-            sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys),
-            sample_attestation_bundle(&leaves, 1, 3, &publisher_public_keys, &secret_keys),
-        ];
-
-        assert_eq!(get_current_part_stark_vk(&unique_witnesses, 1).unwrap(), leaves[1]);
-    }
-
-    #[test]
-    fn test_get_current_part_stark_vk_rejects_out_of_range_index() {
-        let (secret_keys, publisher_public_keys) = sample_publishers();
-        let leaves = vec![sample_part_stark_vk()];
-        let unique_witnesses =
-            vec![sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys)];
-
-        assert!(get_current_part_stark_vk(&unique_witnesses, 1).is_err());
     }
 
     #[test]

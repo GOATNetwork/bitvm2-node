@@ -24,23 +24,23 @@ pub(crate) fn block_on<T>(fut: impl std::future::Future<Output = T>) -> T {
     }
 }
 
-pub async fn get_vk(zkm_version: &str) -> Result<VerifyingKey> {
-    let build_dir = try_install_circuit_artifacts(zkm_version);
+pub async fn get_vk() -> Result<VerifyingKey> {
+    let build_dir = try_install_circuit_artifacts();
     let vk_file = build_dir.join("groth16_vk.bin");
     let content = fs::read(&vk_file)?;
     Ok(load_ark_groth16_verifying_key_from_bytes(&content)?)
 }
 
 #[must_use]
-pub fn groth16_circuit_artifacts_dir(zkm_version: &str) -> PathBuf {
-    dirs::home_dir().unwrap().join(".zkm").join("circuits/groth16").join(zkm_version)
+pub fn groth16_circuit_artifacts_dir() -> PathBuf {
+    dirs::home_dir().unwrap().join(".zkm").join("circuits/groth16/imm-wrap-vk")
 }
 
 /// Tries to install the groth16 circuit artifacts if they are not already installed.
 #[must_use]
-pub fn try_install_circuit_artifacts(zkm_version: &str) -> PathBuf {
+pub fn try_install_circuit_artifacts() -> PathBuf {
     let artifacts_type = "groth16";
-    let build_dir = groth16_circuit_artifacts_dir(zkm_version);
+    let build_dir = groth16_circuit_artifacts_dir();
 
     if build_dir.exists() {
         println!(
@@ -49,19 +49,18 @@ pub fn try_install_circuit_artifacts(zkm_version: &str) -> PathBuf {
             build_dir.display()
         );
     } else {
-        install_circuit_artifacts(build_dir.clone(), artifacts_type, zkm_version);
+        install_circuit_artifacts(build_dir.clone(), artifacts_type);
     }
     build_dir
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub fn install_circuit_artifacts(build_dir: PathBuf, artifacts_type: &str, zkm_version: &str) {
+pub fn install_circuit_artifacts(build_dir: PathBuf, artifacts_type: &str) {
     // Create the build directory.
-    std::fs::create_dir_all(&build_dir).expect("failed to create build directory");
+    fs::create_dir_all(&build_dir).expect("failed to create build directory");
 
     // Download the artifacts.
-    let download_url =
-        format!("{CIRCUIT_ARTIFACTS_URL_BASE}/{zkm_version}-{artifacts_type}.tar.gz");
+    let download_url = format!("{CIRCUIT_ARTIFACTS_URL_BASE}/{artifacts_type}-imm-wrap-vk.tar.gz");
     let mut artifacts_tar_gz_file =
         tempfile::NamedTempFile::new().expect("failed to create tempfile");
     let client = reqwest::Client::builder().build().expect("failed to create reqwest client");
@@ -119,10 +118,10 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_get_vk() {
-        let latest = zkm_sdk::ZKM_CIRCUIT_VERSION;
-        get_vk(latest).await.unwrap();
+        let vk = get_vk().await.unwrap();
+        let imm_v =
+            load_ark_groth16_verifying_key_from_bytes(&zkm_verifier::IMM_GROTH16_VK_BYTES).unwrap();
 
-        let older = "v1.2.2";
-        get_vk(older).await.unwrap();
+        assert_eq!(vk, imm_v);
     }
 }

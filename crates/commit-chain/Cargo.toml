@@ -15,7 +15,6 @@ guest-executor = { workspace = true }
 # Ziren
 zkm-verifier = { workspace = true }
 zkm-zkvm = { workspace = true }
-zkm-version = { workspace = true }
 #zkm-verifier = { path = "../../../Ziren/crates/verifier" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 

@@ -111,6 +111,7 @@ impl OutputData {
 async fn save_commit_info(
     output_file: &str,
     btc_public_keys: &[secp256k1::PublicKey],
+    next_btc_public_keys: &[secp256k1::PublicKey],
     sequencers: Vec<Info>,
     init_genesis: bool,
     commit_info_file: &str,
@@ -129,6 +130,10 @@ async fn save_commit_info(
         txid: txid.clone(),
         threshold: (btc_public_keys.len() * 2).div_ceil(3) as u16,
         publisher_public_keys: btc_public_keys.iter().map(|pubkey| pubkey.to_string()).collect(),
+        next_threshold: Some((next_btc_public_keys.len() * 2).div_ceil(3) as u16),
+        next_publisher_public_keys: Some(
+            next_btc_public_keys.iter().map(|pubkey| pubkey.to_string()).collect(),
+        ),
         genesis_txid,
         sequencers: sequencers.iter().cloned().map(|v| v.into()).collect(),
     };
@@ -361,7 +366,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &goat_client,
                 owner_btc_key_wif,
                 publisher_btc_pubkeys.clone(),
-                next_publisher_btc_pubkeys,
+                next_publisher_btc_pubkeys.clone(),
                 fee_tx,
                 update_connector,
                 goat_block_number,
@@ -373,6 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match save_commit_info(
                 &args.output_file,
                 &publisher_btc_pubkeys,
+                &next_publisher_btc_pubkeys,
                 sequencers,
                 init_genesis,
                 &commit_info,

@@ -110,7 +110,6 @@ pub struct Bitvm2GraphParameters {
     pub watchtower_pubkeys: Vec<XOnlyPublicKey>,
     pub hashlocks: Vec<[u8; 20]>, // one for each watchtower
     pub guest_constant_value: [u8; 32],
-    pub zkm_version: String,
 }
 
 impl Bitvm2InstanceParameters {

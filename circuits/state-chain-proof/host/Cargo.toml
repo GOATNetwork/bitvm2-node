@@ -35,7 +35,6 @@ cbft-rpc.workspace = true
 proof-builder.workspace = true
 alloy-consensus.workspace = true
 util.workspace = true
-zkm-version.workspace = true
 
 # Ziren
 zkm-sdk.workspace = true

@@ -39,7 +39,6 @@ mod dbg {
     use serde::Deserialize;
     use serde::Serialize;
     use uuid::Uuid;
-    use zkm_sdk::ZKM_CIRCUIT_VERSION;
 
     fn dbg_network() -> Network {
         Network::Testnet4
@@ -140,7 +139,6 @@ mod dbg {
             watchtower_pubkeys,
             hashlocks,
             guest_constant_value: [3u8; 32],
-            zkm_version: ZKM_CIRCUIT_VERSION.to_string(),
         }
     }
     fn build_dbg_simplified_graph() -> SimplifiedBitvm2Graph {
@@ -169,6 +167,21 @@ mod dbg {
                 _ => Uuid::nil(),
             }
         );
+    }
+
+    #[test]
+    fn dbg_serde_ignores_legacy_graph_zkm_version() {
+        let graph = build_dbg_simplified_graph();
+        let mut value = serde_json::to_value(&graph).unwrap();
+        value
+            .get_mut("parameters")
+            .and_then(serde_json::Value::as_object_mut)
+            .unwrap()
+            .insert("zkm_version".to_string(), serde_json::Value::String("v1.2.4".to_string()));
+
+        let decoded: SimplifiedBitvm2Graph = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.parameters.graph_id, graph.parameters.graph_id);
+        assert_eq!(decoded.parameters.graph_nonce, graph.parameters.graph_nonce);
     }
 
     #[tokio::test]

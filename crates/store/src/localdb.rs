@@ -1107,8 +1107,8 @@ impl<'a> StorageProcessor<'a> {
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, disprove_txid,  watchtower_challenge_init_txid, watchtower_challenge_timeout_txids, nack_txids,
                     blockhash_commit_timeout_txid, assert_init_txid, assert_commit_timeout_txids, init_withdraw_tx_hash,
-                    bridge_out_start_at, zkm_version, status_updated_at, proceed_withdraw_height,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    bridge_out_start_at, status_updated_at, proceed_withdraw_height,  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             graph.graph_id,
             graph.instance_id,
             graph.kickoff_index,
@@ -1138,7 +1138,6 @@ impl<'a> StorageProcessor<'a> {
             assert_commit_timeout_txids_json,
             graph.init_withdraw_tx_hash,
             graph.bridge_out_start_at,
-            graph.zkm_version,
             graph.status_updated_at,
             graph.proceed_withdraw_height,
             graph.created_at,
