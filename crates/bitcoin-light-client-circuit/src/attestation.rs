@@ -1,6 +1,6 @@
-use bitcoin::hashes::{Hash, sha256};
 use bitcoin::secp256k1::{Message, PublicKey, Secp256k1, SecretKey, ecdsa::Signature};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ pub const PART_STARK_VK_TREE_LEAFS: usize = 1 << PART_STARK_VK_TREE_HEIGHT;
 pub const PART_STARK_VK_ROOT_SIGNATURE_DOMAIN: &[u8] = b"bitvm2:part_stark_vk_root:v2";
 pub const PART_STARK_VK_PUBLISHER_SET_DOMAIN: &[u8] = b"bitvm2:publisher_set:v1";
 pub const PART_STARK_VK_ATTESTATION_DIR_ENV: &str = "PART_STARK_VK_ATTESTATION_DIR";
-pub const DEFAULT_PART_STARK_VK_ATTESTATION_DIR: &str = "./part-stark-vk-attestations";
+pub const DEFAULT_PART_STARK_VK_ATTESTATION_DIR: &str = "data/psv-attestations";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PartStarkVkRootSignature {
@@ -46,6 +46,26 @@ pub struct PartStarkVkTreeState {
     pub leaves: Vec<Vec<u8>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LatestPartStarkVkAttestationManifest {
+    pub tree_height: usize,
+    pub ordered_versions: Vec<String>,
+    pub root: [u8; 32],
+    pub threshold: Option<u16>,
+    pub publisher_set_id: Option<[u8; 32]>,
+    pub publisher_public_keys: Option<Vec<String>>,
+    pub signatures: Vec<PartStarkVkRootSignature>,
+    pub part_stark_vk_leaf_hashes: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VersionedPartStarkVkMerkleProof {
+    pub version: String,
+    pub part_stark_vk: Vec<u8>,
+    pub leaf_index: usize,
+    pub merkle_path: Vec<[u8; 32]>,
+}
+
 pub fn part_stark_vk_attestation_dir() -> PathBuf {
     std::env::var(PART_STARK_VK_ATTESTATION_DIR_ENV)
         .map(PathBuf::from)
@@ -64,7 +84,8 @@ pub fn compute_publisher_set_id(publisher_public_keys: &[PublicKey], threshold: 
     for pubkey in publisher_public_keys {
         bytes.extend_from_slice(&pubkey.serialize());
     }
-    sha256::Hash::hash(&bytes).to_byte_array()
+
+    Sha256::digest(bytes).into()
 }
 
 pub fn part_stark_vk_leaf_hash(part_stark_vk: &[u8]) -> [u8; 32] {
@@ -72,7 +93,8 @@ pub fn part_stark_vk_leaf_hash(part_stark_vk: &[u8]) -> [u8; 32] {
     bytes.push(0x00);
     bytes.extend_from_slice(&(part_stark_vk.len() as u32).to_le_bytes());
     bytes.extend_from_slice(part_stark_vk);
-    sha256::Hash::hash(&bytes).to_byte_array()
+
+    Sha256::digest(bytes).into()
 }
 
 pub fn part_stark_vk_internal_hash(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
@@ -80,7 +102,8 @@ pub fn part_stark_vk_internal_hash(left: [u8; 32], right: [u8; 32]) -> [u8; 32] 
     bytes.push(0x01);
     bytes.extend_from_slice(&left);
     bytes.extend_from_slice(&right);
-    sha256::Hash::hash(&bytes).to_byte_array()
+
+    Sha256::digest(bytes).into()
 }
 
 pub fn empty_part_stark_vk_leaf_hash() -> [u8; 32] {
@@ -97,6 +120,18 @@ pub fn part_stark_vk_tree_state_path(dir: &Path) -> PathBuf {
 
 pub fn part_stark_vk_bundle_path(dir: &Path, part_stark_vk: &[u8]) -> PathBuf {
     dir.join("bundles").join(format!("{}.json", part_stark_vk_bundle_id(part_stark_vk)))
+}
+
+pub fn latest_part_stark_vk_attestation_manifest_path(dir: &Path) -> PathBuf {
+    dir.join("manifest.json")
+}
+
+pub fn latest_part_stark_vk_attestation_proofs_dir(dir: &Path) -> PathBuf {
+    dir.join("proofs")
+}
+
+pub fn latest_part_stark_vk_attestation_proof_path(dir: &Path, version: &str) -> PathBuf {
+    latest_part_stark_vk_attestation_proofs_dir(dir).join(format!("{version}.json"))
 }
 
 fn build_part_stark_vk_leaf_layer(
@@ -210,7 +245,8 @@ pub fn build_attestation_message_digest(
     bytes.extend_from_slice(&threshold.to_le_bytes());
     bytes.extend_from_slice(&publisher_set_id);
     bytes.extend_from_slice(&root);
-    sha256::Hash::hash(&bytes).to_byte_array()
+
+    Sha256::digest(bytes).into()
 }
 
 fn verify_part_stark_vk_root_signatures(
@@ -350,6 +386,254 @@ pub fn load_part_stark_vk_tree_state(dir: &Path) -> Result<PartStarkVkTreeState,
         .map_err(|err| format!("failed to read tree state '{}': {err}", path.display()))?;
     serde_json::from_slice(&bytes)
         .map_err(|err| format!("failed to decode tree state '{}': {err}", path.display()))
+}
+
+fn remove_path_if_exists(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)
+            .map_err(|err| format!("failed to remove dir '{}': {err}", path.display()))?;
+    } else {
+        std::fs::remove_file(path)
+            .map_err(|err| format!("failed to remove file '{}': {err}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Build the latest snapshot manifest and per-version merkle proofs from ordered versions.
+fn build_latest_part_stark_vk_attestation_snapshot(
+    ordered_versions: &[String],
+    part_stark_vks: &[Vec<u8>],
+    threshold: Option<u16>,
+    publisher_set_id: Option<[u8; 32]>,
+    publisher_public_keys: Option<Vec<String>>,
+    signatures: Vec<PartStarkVkRootSignature>,
+) -> Result<(LatestPartStarkVkAttestationManifest, Vec<VersionedPartStarkVkMerkleProof>), String> {
+    if ordered_versions.is_empty() {
+        return Err("ordered_versions is empty".to_string());
+    }
+    if ordered_versions.len() != part_stark_vks.len() {
+        return Err(format!(
+            "ordered_versions length {} does not match part_stark_vks length {}",
+            ordered_versions.len(),
+            part_stark_vks.len()
+        ));
+    }
+
+    let root = build_part_stark_vk_merkle_root(part_stark_vks, PART_STARK_VK_TREE_HEIGHT)?;
+    let mut part_stark_vk_leaf_hashes = BTreeMap::new();
+    let mut proofs = Vec::with_capacity(ordered_versions.len());
+    for (leaf_index, (version, part_stark_vk)) in
+        ordered_versions.iter().zip(part_stark_vks).enumerate()
+    {
+        let leaf_hash = part_stark_vk_bundle_id(part_stark_vk);
+        if part_stark_vk_leaf_hashes.insert(version.clone(), leaf_hash).is_some() {
+            return Err(format!("duplicate ordered version '{version}'"));
+        }
+        proofs.push(VersionedPartStarkVkMerkleProof {
+            version: version.clone(),
+            part_stark_vk: part_stark_vk.clone(),
+            leaf_index,
+            merkle_path: build_part_stark_vk_merkle_path(
+                part_stark_vks,
+                PART_STARK_VK_TREE_HEIGHT,
+                leaf_index,
+            )?,
+        });
+    }
+
+    Ok((
+        LatestPartStarkVkAttestationManifest {
+            tree_height: PART_STARK_VK_TREE_HEIGHT,
+            ordered_versions: ordered_versions.to_vec(),
+            root,
+            threshold,
+            publisher_set_id,
+            publisher_public_keys,
+            signatures,
+            part_stark_vk_leaf_hashes,
+        },
+        proofs,
+    ))
+}
+
+/// Rewrite the attestation directory so it only contains the current snapshot files.
+fn write_latest_part_stark_vk_attestation_snapshot(
+    dir: &Path,
+    manifest: &LatestPartStarkVkAttestationManifest,
+    proofs: &[VersionedPartStarkVkMerkleProof],
+) -> Result<(), String> {
+    std::fs::create_dir_all(dir)
+        .map_err(|err| format!("failed to create attestation dir '{}': {err}", dir.display()))?;
+    remove_path_if_exists(&latest_part_stark_vk_attestation_proofs_dir(dir))?;
+    remove_path_if_exists(&dir.join("bundles"))?;
+    remove_path_if_exists(&part_stark_vk_tree_state_path(dir))?;
+    remove_path_if_exists(&latest_part_stark_vk_attestation_manifest_path(dir))?;
+
+    let proofs_dir = latest_part_stark_vk_attestation_proofs_dir(dir);
+    std::fs::create_dir_all(&proofs_dir).map_err(|err| {
+        format!("failed to create attestation proofs dir '{}': {err}", proofs_dir.display())
+    })?;
+
+    for proof in proofs {
+        let path = latest_part_stark_vk_attestation_proof_path(dir, &proof.version);
+        let bytes = serde_json::to_vec_pretty(proof)
+            .map_err(|err| format!("failed to encode proof '{}': {err}", path.display()))?;
+        std::fs::write(&path, bytes)
+            .map_err(|err| format!("failed to write proof '{}': {err}", path.display()))?;
+    }
+
+    let manifest_path = latest_part_stark_vk_attestation_manifest_path(dir);
+    let manifest_bytes = serde_json::to_vec_pretty(manifest).map_err(|err| {
+        format!("failed to encode latest attestation manifest '{}': {err}", manifest_path.display())
+    })?;
+    std::fs::write(&manifest_path, manifest_bytes).map_err(|err| {
+        format!("failed to write latest attestation manifest '{}': {err}", manifest_path.display())
+    })?;
+    Ok(())
+}
+
+/// Persist a full latest snapshot, optionally including publisher metadata and signatures.
+pub fn save_latest_part_stark_vk_attestation_snapshot(
+    dir: &Path,
+    ordered_versions: &[String],
+    part_stark_vks: &[Vec<u8>],
+    threshold: Option<u16>,
+    publisher_set_id: Option<[u8; 32]>,
+    publisher_public_keys: Option<Vec<PublicKey>>,
+    signatures: Vec<PartStarkVkRootSignature>,
+) -> Result<(), String> {
+    let publisher_public_keys =
+        publisher_public_keys.map(|keys| keys.into_iter().map(|key| key.to_string()).collect());
+    let (manifest, proofs) = build_latest_part_stark_vk_attestation_snapshot(
+        ordered_versions,
+        part_stark_vks,
+        threshold,
+        publisher_set_id,
+        publisher_public_keys,
+        signatures,
+    )?;
+    write_latest_part_stark_vk_attestation_snapshot(dir, &manifest, &proofs)
+}
+
+/// Load the latest manifest that describes the current attestation snapshot.
+pub fn load_latest_part_stark_vk_attestation_manifest(
+    dir: &Path,
+) -> Result<LatestPartStarkVkAttestationManifest, String> {
+    let path = latest_part_stark_vk_attestation_manifest_path(dir);
+    let bytes = std::fs::read(&path).map_err(|err| {
+        format!("failed to read latest attestation manifest '{}': {err}", path.display())
+    })?;
+    serde_json::from_slice(&bytes).map_err(|err| {
+        format!("failed to decode latest attestation manifest '{}': {err}", path.display())
+    })
+}
+
+/// Load every version proof referenced by the latest manifest in manifest order.
+pub fn load_latest_part_stark_vk_attestation_proofs(
+    dir: &Path,
+    ordered_versions: &[String],
+) -> Result<Vec<VersionedPartStarkVkMerkleProof>, String> {
+    let mut proofs = Vec::with_capacity(ordered_versions.len());
+    for version in ordered_versions {
+        let path = latest_part_stark_vk_attestation_proof_path(dir, version);
+        let bytes = std::fs::read(&path).map_err(|err| {
+            format!("failed to read attestation proof '{}': {err}", path.display())
+        })?;
+        let proof: VersionedPartStarkVkMerkleProof =
+            serde_json::from_slice(&bytes).map_err(|err| {
+                format!("failed to decode attestation proof '{}': {err}", path.display())
+            })?;
+        proofs.push(proof);
+    }
+    Ok(proofs)
+}
+
+/// Merge one signer into the latest snapshot, resetting signatures when the signing context changes.
+pub fn sign_latest_part_stark_vk_snapshot(
+    dir: &Path,
+    ordered_versions: &[String],
+    part_stark_vks: &[Vec<u8>],
+    publisher_public_keys: &[PublicKey],
+    threshold: u16,
+    signer_pubkey_index: usize,
+    secret_key: &SecretKey,
+) -> Result<LatestPartStarkVkAttestationManifest, String> {
+    if publisher_public_keys.is_empty() {
+        return Err("publisher_public_keys is empty".to_string());
+    }
+    let required = usize::from(threshold);
+    if required == 0 {
+        return Err("threshold must be greater than 0".to_string());
+    }
+    if required > publisher_public_keys.len() {
+        return Err(format!(
+            "threshold {} exceeds publisher_public_keys length {}",
+            required,
+            publisher_public_keys.len()
+        ));
+    }
+    if signer_pubkey_index >= publisher_public_keys.len() {
+        return Err(format!(
+            "signer_pubkey_index {} out of range {}",
+            signer_pubkey_index,
+            publisher_public_keys.len()
+        ));
+    }
+
+    let signer_public_key = PublicKey::from_secret_key(&Secp256k1::new(), secret_key);
+    if publisher_public_keys[signer_pubkey_index] != signer_public_key {
+        return Err(format!(
+            "publisher_secret_key does not match publisher public key at index {}",
+            signer_pubkey_index
+        ));
+    }
+
+    let root = build_part_stark_vk_merkle_root(part_stark_vks, PART_STARK_VK_TREE_HEIGHT)?;
+    let publisher_set_id = compute_publisher_set_id(publisher_public_keys, threshold);
+    let mut signatures = match load_latest_part_stark_vk_attestation_manifest(dir) {
+        Ok(existing)
+            if existing.ordered_versions == ordered_versions
+                && existing.root == root
+                && existing.publisher_set_id == Some(publisher_set_id) =>
+        {
+            existing.signatures
+        }
+        _ => Vec::new(),
+    };
+
+    let signature = PartStarkVkRootSignature {
+        signer_pubkey_index,
+        signature: sign_part_stark_vk_root(
+            secret_key,
+            PART_STARK_VK_TREE_HEIGHT,
+            root,
+            threshold,
+            publisher_set_id,
+        ),
+    };
+
+    if let Some(existing_signature) =
+        signatures.iter_mut().find(|existing| existing.signer_pubkey_index == signer_pubkey_index)
+    {
+        *existing_signature = signature;
+    } else {
+        signatures.push(signature);
+    }
+    signatures.sort_by_key(|existing| existing.signer_pubkey_index);
+
+    save_latest_part_stark_vk_attestation_snapshot(
+        dir,
+        ordered_versions,
+        part_stark_vks,
+        Some(threshold),
+        Some(publisher_set_id),
+        Some(publisher_public_keys.to_vec()),
+        signatures,
+    )?;
+    load_latest_part_stark_vk_attestation_manifest(dir)
 }
 
 pub fn save_part_stark_vk_tree_state(
@@ -595,6 +879,63 @@ pub fn load_unique_part_stark_vk_witnesses(
     dir: &Path,
     part_stark_vks: &[Vec<u8>],
 ) -> Result<(Vec<UniquePartStarkVkWitness>, Vec<usize>), String> {
+    if !latest_part_stark_vk_attestation_manifest_path(dir).exists() {
+        return Err(format!(
+            "missing latest attestation manifest '{}'",
+            latest_part_stark_vk_attestation_manifest_path(dir).display()
+        ));
+    }
+
+    load_unique_part_stark_vk_witnesses_from_latest_snapshot(dir, part_stark_vks)
+}
+
+fn load_unique_part_stark_vk_witnesses_from_latest_snapshot(
+    dir: &Path,
+    part_stark_vks: &[Vec<u8>],
+) -> Result<(Vec<UniquePartStarkVkWitness>, Vec<usize>), String> {
+    let manifest = load_latest_part_stark_vk_attestation_manifest(dir)?;
+    let threshold = manifest
+        .threshold
+        .ok_or_else(|| "latest attestation manifest is missing threshold".to_string())?;
+    let publisher_set_id = manifest
+        .publisher_set_id
+        .ok_or_else(|| "latest attestation manifest is missing publisher_set_id".to_string())?;
+    let proofs = load_latest_part_stark_vk_attestation_proofs(dir, &manifest.ordered_versions)?;
+    let mut available_witnesses = BTreeMap::<Vec<u8>, UniquePartStarkVkWitness>::new();
+
+    for proof in proofs {
+        let expected_leaf_hash =
+            manifest.part_stark_vk_leaf_hashes.get(&proof.version).ok_or_else(|| {
+                format!("missing part_stark_vk leaf hash for version '{}'", proof.version)
+            })?;
+        let actual_leaf_hash = part_stark_vk_bundle_id(&proof.part_stark_vk);
+        if *expected_leaf_hash != actual_leaf_hash {
+            return Err(format!(
+                "part_stark_vk leaf hash mismatch for version '{}': expected {}, got {}",
+                proof.version, expected_leaf_hash, actual_leaf_hash
+            ));
+        }
+
+        verify_part_stark_vk_merkle_path(
+            &proof.part_stark_vk,
+            proof.leaf_index,
+            &proof.merkle_path,
+            manifest.root,
+            manifest.tree_height,
+        )?;
+        available_witnesses.entry(proof.part_stark_vk.clone()).or_insert_with(|| {
+            PartStarkVkAttestationBundle {
+                part_stark_vk: proof.part_stark_vk,
+                leaf_index: proof.leaf_index,
+                merkle_path: proof.merkle_path,
+                root: manifest.root,
+                threshold,
+                publisher_set_id,
+                signatures: manifest.signatures.clone(),
+            }
+        });
+    }
+
     let mut unique_witnesses = Vec::new();
     let mut witness_indexes = Vec::with_capacity(part_stark_vks.len());
     let mut seen = BTreeMap::<Vec<u8>, usize>::new();
@@ -604,7 +945,10 @@ pub fn load_unique_part_stark_vk_witnesses(
             witness_indexes.push(*index);
             continue;
         }
-        let bundle = load_part_stark_vk_attestation_bundle(dir, part_stark_vk)?;
+        let bundle = available_witnesses
+            .get(part_stark_vk)
+            .cloned()
+            .ok_or_else(|| "part_stark_vk not found in latest snapshot".to_string())?;
         let index = unique_witnesses.len();
         unique_witnesses.push(bundle);
         seen.insert(part_stark_vk.clone(), index);
@@ -616,18 +960,19 @@ pub fn load_unique_part_stark_vk_witnesses(
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, ecdsa::Signature};
+    use sha2::{Digest, Sha256};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, ecdsa::Signature};
-
     use super::{
-        PartStarkVkAttestationBundle, PartStarkVkRootSignature,
+        PART_STARK_VK_TREE_HEIGHT, PartStarkVkAttestationBundle, PartStarkVkRootSignature,
         assert_part_stark_vk_in_verified_witnesses, build_attestation_message_digest,
         build_part_stark_vk_merkle_path, build_part_stark_vk_merkle_root,
         build_part_stark_vk_root_signatures, compute_publisher_set_id,
-        load_unique_part_stark_vk_witnesses, part_stark_vk_leaf_hash,
-        save_part_stark_vk_attestation_bundle, verify_part_stark_vk_attestation,
-        verify_unique_part_stark_vk_witnesses,
+        load_latest_part_stark_vk_attestation_manifest, load_unique_part_stark_vk_witnesses,
+        part_stark_vk_leaf_hash, save_latest_part_stark_vk_attestation_snapshot,
+        save_part_stark_vk_attestation_bundle, sign_latest_part_stark_vk_snapshot,
+        verify_part_stark_vk_attestation, verify_unique_part_stark_vk_witnesses,
     };
 
     fn sample_part_stark_vk() -> Vec<u8> {
@@ -966,18 +1311,32 @@ mod tests {
     }
 
     #[test]
-    fn test_load_unique_part_stark_vk_witnesses_reuses_duplicate_indexes() {
+    fn test_load_unique_part_stark_vk_witnesses_reuses_duplicate_indexes_from_latest_snapshot() {
         let (secret_keys, publisher_public_keys) = sample_publishers();
         let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
         let dir = unique_test_dir("attestation-duplicate-indexes");
-        std::fs::create_dir_all(dir.join("bundles")).unwrap();
+        let ordered_versions = vec!["v1.2.4".to_string(), "v1.2.5".to_string()];
+        let threshold = 3;
+        let publisher_set_id = compute_publisher_set_id(&publisher_public_keys, threshold);
+        let signatures = build_part_stark_vk_root_signatures(
+            &[(0, &secret_keys[0]), (1, &secret_keys[1]), (2, &secret_keys[2])],
+            PART_STARK_VK_TREE_HEIGHT,
+            build_part_stark_vk_merkle_root(&leaves, PART_STARK_VK_TREE_HEIGHT).unwrap(),
+            threshold,
+            publisher_set_id,
+        )
+        .unwrap();
 
-        let first_bundle =
-            sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys);
-        let second_bundle =
-            sample_attestation_bundle(&leaves, 1, 3, &publisher_public_keys, &secret_keys);
-        save_part_stark_vk_attestation_bundle(&dir, &first_bundle).unwrap();
-        save_part_stark_vk_attestation_bundle(&dir, &second_bundle).unwrap();
+        save_latest_part_stark_vk_attestation_snapshot(
+            &dir,
+            &ordered_versions,
+            &leaves,
+            Some(threshold),
+            Some(publisher_set_id),
+            Some(publisher_public_keys.clone()),
+            signatures,
+        )
+        .unwrap();
 
         let requested = vec![leaves[0].clone(), leaves[1].clone(), leaves[0].clone()];
         let (unique_witnesses, witness_indexes) =
@@ -985,6 +1344,151 @@ mod tests {
 
         assert_eq!(unique_witnesses.len(), 2);
         assert_eq!(witness_indexes, vec![0, 1, 0]);
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_load_unique_part_stark_vk_witnesses_requires_latest_manifest() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let dir = unique_test_dir("attestation-requires-latest-manifest");
+        std::fs::create_dir_all(dir.join("bundles")).unwrap();
+
+        let first_bundle =
+            sample_attestation_bundle(&leaves, 0, 3, &publisher_public_keys, &secret_keys);
+        save_part_stark_vk_attestation_bundle(&dir, &first_bundle).unwrap();
+
+        let err = load_unique_part_stark_vk_witnesses(&dir, &[leaves[0].clone()]).unwrap_err();
+        assert!(err.contains("missing latest attestation manifest"));
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_save_and_load_latest_snapshot_reuses_duplicate_indexes() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let ordered_versions = vec!["v1.2.4".to_string(), "v1.2.5".to_string()];
+        let dir = unique_test_dir("latest-attestation-snapshot");
+        let threshold = 3;
+        let publisher_set_id = compute_publisher_set_id(&publisher_public_keys, threshold);
+        let signatures = build_part_stark_vk_root_signatures(
+            &[(0, &secret_keys[0]), (1, &secret_keys[1]), (2, &secret_keys[2])],
+            PART_STARK_VK_TREE_HEIGHT,
+            build_part_stark_vk_merkle_root(&leaves, PART_STARK_VK_TREE_HEIGHT).unwrap(),
+            threshold,
+            publisher_set_id,
+        )
+        .unwrap();
+
+        save_latest_part_stark_vk_attestation_snapshot(
+            &dir,
+            &ordered_versions,
+            &leaves,
+            Some(threshold),
+            Some(publisher_set_id),
+            Some(publisher_public_keys.clone()),
+            signatures,
+        )
+        .unwrap();
+
+        let requested = vec![leaves[0].clone(), leaves[1].clone(), leaves[0].clone()];
+        let (unique_witnesses, witness_indexes) =
+            load_unique_part_stark_vk_witnesses(&dir, &requested).unwrap();
+
+        assert_eq!(unique_witnesses.len(), 2);
+        assert_eq!(witness_indexes, vec![0, 1, 0]);
+        assert_eq!(unique_witnesses[0].part_stark_vk, leaves[0]);
+        assert_eq!(unique_witnesses[1].part_stark_vk, leaves[1]);
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_sign_latest_snapshot_preserves_existing_signatures_for_same_identity() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let ordered_versions = vec!["v1.2.4".to_string(), "v1.2.5".to_string()];
+        let dir = unique_test_dir("latest-attestation-signatures");
+
+        sign_latest_part_stark_vk_snapshot(
+            &dir,
+            &ordered_versions,
+            &leaves,
+            &publisher_public_keys,
+            3,
+            0,
+            &secret_keys[0],
+        )
+        .unwrap();
+        let first_manifest = load_latest_part_stark_vk_attestation_manifest(&dir).unwrap();
+        assert_eq!(first_manifest.signatures.len(), 1);
+
+        sign_latest_part_stark_vk_snapshot(
+            &dir,
+            &ordered_versions,
+            &leaves,
+            &publisher_public_keys,
+            3,
+            2,
+            &secret_keys[2],
+        )
+        .unwrap();
+        let second_manifest = load_latest_part_stark_vk_attestation_manifest(&dir).unwrap();
+        assert_eq!(second_manifest.signatures.len(), 2);
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_sign_latest_snapshot_clears_stale_signatures_when_publisher_set_changes() {
+        let (secret_keys, publisher_public_keys) = sample_publishers();
+        let leaves = vec![sample_part_stark_vk(), sample_part_stark_vk_alt()];
+        let ordered_versions = vec!["v1.2.4".to_string(), "v1.2.5".to_string()];
+        let dir = unique_test_dir("latest-attestation-publisher-reset");
+
+        sign_latest_part_stark_vk_snapshot(
+            &dir,
+            &ordered_versions,
+            &leaves,
+            &publisher_public_keys,
+            3,
+            0,
+            &secret_keys[0],
+        )
+        .unwrap();
+        sign_latest_part_stark_vk_snapshot(
+            &dir,
+            &ordered_versions,
+            &leaves,
+            &publisher_public_keys,
+            3,
+            1,
+            &secret_keys[1],
+        )
+        .unwrap();
+
+        let reordered_publisher_public_keys = vec![
+            publisher_public_keys[1],
+            publisher_public_keys[0],
+            publisher_public_keys[2],
+            publisher_public_keys[3],
+        ];
+        sign_latest_part_stark_vk_snapshot(
+            &dir,
+            &ordered_versions,
+            &leaves,
+            &reordered_publisher_public_keys,
+            3,
+            0,
+            &secret_keys[1],
+        )
+        .unwrap();
+
+        let manifest = load_latest_part_stark_vk_attestation_manifest(&dir).unwrap();
+        assert_eq!(manifest.signatures.len(), 1);
+        assert_eq!(manifest.signatures[0].signer_pubkey_index, 0);
 
         std::fs::remove_dir_all(dir).unwrap();
     }

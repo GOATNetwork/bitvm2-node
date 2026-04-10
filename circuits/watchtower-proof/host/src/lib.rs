@@ -380,10 +380,7 @@ mod tests {
     }
 
     fn sample_header_output(part_stark_vk: Vec<u8>) -> BlockHeaderCircuitOutput {
-        BlockHeaderCircuitOutput {
-            chain_state: header_chain::ChainState::new(),
-            part_stark_vk,
-        }
+        BlockHeaderCircuitOutput { chain_state: header_chain::ChainState::new(), part_stark_vk }
     }
 
     fn sample_state_output(part_stark_vk: Vec<u8>) -> StateChainCircuitOutput {

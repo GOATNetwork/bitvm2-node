@@ -4,7 +4,7 @@ mod commit_chain;
 pub use commit_chain::*;
 use zkm_verifier::{Groth16Verifier, IMM_GROTH16_VK_BYTES};
 
-pub const TRUSTED_COMMIT_CHAIN_ZKM_VERSION: &str = "v1.2.5";
+pub const TRUSTED_COMMIT_CHAIN_ZKM_VERSION: &str = "v1.2.4";
 
 /// Return the fixed `part_stark_vk` used by commit-chain's internal recursive verifier.
 pub fn trusted_commit_chain_part_stark_vk() -> Vec<u8> {

@@ -179,10 +179,10 @@ rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rustdoc.all = "warn"
 
 [patch."https://github.com/ProjectZKM/Ziren"]
-zkm-build = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
-zkm-core-executor = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
-zkm-prover = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
-zkm-sdk = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
-zkm-verifier = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
-zkm-primitives = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
-zkm-zkvm = { git = "https://github.com/blake-pro/Ziren.git", branch = "pre-release-v1.2.5" }
+zkm-build = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
+zkm-core-executor = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
+zkm-prover = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
+zkm-sdk = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
+zkm-verifier = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
+zkm-primitives = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
+zkm-zkvm = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }

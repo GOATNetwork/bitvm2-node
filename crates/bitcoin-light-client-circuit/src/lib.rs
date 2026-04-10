@@ -13,8 +13,7 @@ use bitcoin::Transaction;
 use bitcoin::hashes::{Hash, HashEngine, sha256};
 use commit_chain::sequencer_hash;
 use commit_chain::{
-    CommitChainCircuitInput, CommitChainCircuitOutput, CommitChainPrevProofType,
-    extract_data_from_commitment_outputs,
+    CommitChainCircuitInput, CommitChainCircuitOutput, extract_data_from_commitment_outputs,
 };
 use header_chain::{
     BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput,
@@ -662,17 +661,8 @@ fn verify_commit_chain_output(
         &commit_chain.zkm_vk_hash,
         &trusted_part_stark_vk,
     )?;
-
-    let output = match &commit_chain.prev_proof {
-        CommitChainPrevProofType::PrevProof(_) => {
-            ZKMPublicValues::from(&commit_chain.zkm_public_values).read()
-        }
-        CommitChainPrevProofType::GenesisBlock => {
-            return Err(
-                "Only PrevProof is supported when verifying commit-chain output".to_string()
-            );
-        }
-    };
+    let output: CommitChainCircuitOutput =
+        ZKMPublicValues::from(&commit_chain.zkm_public_values).read();
 
     Ok(output)
 }
