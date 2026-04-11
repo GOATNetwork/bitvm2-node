@@ -11,8 +11,8 @@ bincode = "1.3.3"
 state-chain = { path = "../../../crates/state-chain" }
 
 # Ziren
-zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
-zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
+zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", features = ["verify"] }
+zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren" }
 #zkm-verifier = { path = "../../../Ziren/crates/verifier" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 
@@ -35,7 +35,3 @@ alloy-primitives-v1-1-2 = { git = "https://github.com/ziren-patches/core.git", p
 alloy-primitives-v1-4-1 = { git = "https://github.com/ziren-patches/core.git", package = "alloy-primitives", branch = "patch-alloy-primitives-1.4.1" }
 secp256k1-v0-29-1 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.29.1" }
 #secp256k1-v0-30-0 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.30.0" }
-
-[patch."https://github.com/ProjectZKM/Ziren"]
-zkm-zkvm = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
-zkm-verifier = { git = "https://github.com/blake-pro/Ziren.git", branch = "v1.2.4-imm" }
