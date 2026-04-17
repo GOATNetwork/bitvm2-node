@@ -37,6 +37,7 @@ mod tests {
     use musig2::PubNonce;
     use secp256k1::SECP256K1;
     use sha2::{Digest, Sha256};
+    use std::path::PathBuf;
     use std::{time::Duration, vec};
     use tokio::time::sleep;
     use uuid::Uuid;
@@ -302,6 +303,63 @@ mod tests {
         ]
     }
 
+    fn committee_instance_keys_envelope_path(instance_id: Uuid, committee_index: usize) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push("bitvm2-ga-committee-instance-keys");
+        path.push(format!("{instance_id}-{committee_index}.json"));
+        path
+    }
+
+    fn is_io_not_found_error(err: &anyhow::Error) -> bool {
+        err.chain().any(|cause| {
+            cause
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
+        })
+    }
+
+    fn load_committee_instance_keypair(
+        committee_master_key: &CommitteeMasterKey,
+        instance_id: Uuid,
+        committee_index: usize,
+    ) -> Keypair {
+        let envelope_path = committee_instance_keys_envelope_path(instance_id, committee_index);
+        committee_master_key
+            .load_instance_keypair(instance_id, &envelope_path)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "load committee instance keypair failed for {instance_id} at {}: {err}",
+                    envelope_path.display()
+                )
+            })
+    }
+
+    fn create_committee_instance_keypair_envelopes(instance_id: Uuid) {
+        let committee_master_keys = committee_member_master_key();
+        for (index, committee_master_key) in committee_master_keys.iter().enumerate() {
+            let envelope_path = committee_instance_keys_envelope_path(instance_id, index);
+            match committee_master_key.load_instance_keypair(instance_id, &envelope_path) {
+                Ok(_) => {}
+                Err(load_err) => {
+                    if !is_io_not_found_error(&load_err) {
+                        panic!(
+                            "load committee instance keypair failed for {instance_id} at {}: {load_err}",
+                            envelope_path.display()
+                        );
+                    }
+                    committee_master_key
+                        .create_instance_keypair_envelope(instance_id, &envelope_path)
+                        .unwrap_or_else(|err| {
+                            panic!(
+                                "create committee instance key envelope failed for {instance_id} at {}: {err}",
+                                envelope_path.display()
+                            )
+                        });
+                }
+            }
+        }
+    }
+
     fn watchtower_master_key() -> [WatchtowerMasterKey; 3] {
         [
             WatchtowerMasterKey::new(gen_keypair("seed:watchtower-1")),
@@ -407,9 +465,17 @@ mod tests {
             user_refund_address: bank_address.clone(),
         };
 
+        // Initialize committee instance envelopes once at flow start.
+        create_committee_instance_keypair_envelopes(instance_id);
+
         let committee_pubkeys: Vec<PublicKey> = committee_member_master_key()
             .iter()
-            .map(|k| k.keypair_for_instance(instance_id).public_key().into())
+            .enumerate()
+            .map(|(index, k)| {
+                load_committee_instance_keypair(k, instance_id, index)
+                    .public_key()
+                    .into()
+            })
             .collect();
         let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
         let instance_params = Bitvm2InstanceParameters {
@@ -522,16 +588,36 @@ mod tests {
         let commitee_master_keys = committee_member_master_key();
         let commitee_pub_nonces: Vec<CommitteePubNonces> = commitee_master_keys
             .iter()
-            .map(|k| k.nonces_for_graph(instance_id, graph_id, watchtower_num, assert_commit_num).0)
+            .enumerate()
+            .map(|(index, k)| {
+                let committee_keypair = load_committee_instance_keypair(k, instance_id, index);
+                k.nonces_for_graph_with_keypair(
+                    instance_id,
+                    graph_id,
+                    watchtower_num,
+                    assert_commit_num,
+                    committee_keypair,
+                )
+                .0
+            })
             .collect();
         let agg_nonces = nonces_aggregation(&commitee_pub_nonces).unwrap();
         let committee_partial_sigs = commitee_master_keys
             .iter()
-            .map(|k| {
-                let s =
-                    k.nonces_for_graph(instance_id, graph_id, watchtower_num, assert_commit_num).1;
+            .enumerate()
+            .map(|(index, k)| {
+                let committee_keypair = load_committee_instance_keypair(k, instance_id, index);
+                let s = k
+                    .nonces_for_graph_with_keypair(
+                        instance_id,
+                        graph_id,
+                        watchtower_num,
+                        assert_commit_num,
+                        committee_keypair,
+                    )
+                    .1;
                 committee_pre_sign(
-                    k.keypair_for_instance(instance_id),
+                    committee_keypair,
                     s,
                     agg_nonces.clone(),
                     graph,
@@ -547,16 +633,26 @@ mod tests {
     async fn send_pegin_confirm(esplora: &EsploraClient, graph: &Bitvm2Graph) {
         let instance_id = graph.parameters.instance_parameters.instance_id;
         let commitee_master_keys = committee_member_master_key();
-        let commitee_pub_nonces: Vec<PubNonce> =
-            commitee_master_keys.iter().map(|k| k.nonce_for_instance(instance_id).1).collect();
+        let commitee_pub_nonces: Vec<PubNonce> = commitee_master_keys
+            .iter()
+            .enumerate()
+            .map(|(index, k)| {
+                let committee_keypair = load_committee_instance_keypair(k, instance_id, index);
+                k.nonce_for_instance_with_keypair(instance_id, committee_keypair)
+                    .1
+            })
+            .collect();
         let agg_nonce = nonce_aggregation(&commitee_pub_nonces);
         let committee_musig2_sigs = commitee_master_keys
             .iter()
-            .map(|k| {
-                let (s, _, _) = k.nonce_for_instance(instance_id);
+            .enumerate()
+            .map(|(index, k)| {
+                let committee_keypair = load_committee_instance_keypair(k, instance_id, index);
+                let (s, _, _) =
+                    k.nonce_for_instance_with_keypair(instance_id, committee_keypair);
                 sign_pegin_confirm(
                     &graph,
-                    k.keypair_for_instance(instance_id),
+                    committee_keypair,
                     s,
                     agg_nonce.clone(),
                 )
