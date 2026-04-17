@@ -607,6 +607,8 @@ pub(crate) async fn update_long_running_task(
     chain_name: String,
     proving_time: i64,
     zkm_version: String,
+    // Unix seconds of the latest EL block in the proved batch (chain time anchor for issue #366).
+    el_block_anchor_unix_secs: i64,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
     let task = storage_processor
@@ -617,7 +619,10 @@ pub(crate) async fn update_long_running_task(
             "Long running task not found for chain: {chain_name}, start_index: {start_index}"
         );
     }
-    let total_time_to_proof = (current_time_secs() - task.unwrap().created_at) * 1000;
+    let proving_at = current_time_secs();
+    let total_time_to_proof = proving_at
+        .saturating_sub(el_block_anchor_unix_secs)
+        .saturating_mul(1000);
     Ok(storage_processor
         .update_long_running_task_proof_success(
             start_index,
