@@ -324,14 +324,14 @@ mod tests {
         committee_index: usize,
     ) -> Keypair {
         let envelope_path = committee_instance_keys_envelope_path(instance_id, committee_index);
-        committee_master_key
-            .load_instance_keypair(instance_id, &envelope_path)
-            .unwrap_or_else(|err| {
+        committee_master_key.load_instance_keypair(instance_id, &envelope_path).unwrap_or_else(
+            |err| {
                 panic!(
                     "load committee instance keypair failed for {instance_id} at {}: {err}",
                     envelope_path.display()
                 )
-            })
+            },
+        )
     }
 
     fn create_committee_instance_keypair_envelopes(instance_id: Uuid) {
@@ -472,9 +472,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(index, k)| {
-                load_committee_instance_keypair(k, instance_id, index)
-                    .public_key()
-                    .into()
+                load_committee_instance_keypair(k, instance_id, index).public_key().into()
             })
             .collect();
         let committee_agg_pubkey = generate_n_of_n_public_key(&committee_pubkeys).0;
@@ -616,13 +614,7 @@ mod tests {
                         committee_keypair,
                     )
                     .1;
-                committee_pre_sign(
-                    committee_keypair,
-                    s,
-                    agg_nonces.clone(),
-                    graph,
-                )
-                .unwrap()
+                committee_pre_sign(committee_keypair, s, agg_nonces.clone(), graph).unwrap()
             })
             .collect::<Vec<_>>();
         let commitee_agg_sigs =
@@ -638,8 +630,7 @@ mod tests {
             .enumerate()
             .map(|(index, k)| {
                 let committee_keypair = load_committee_instance_keypair(k, instance_id, index);
-                k.nonce_for_instance_with_keypair(instance_id, committee_keypair)
-                    .1
+                k.nonce_for_instance_with_keypair(instance_id, committee_keypair).1
             })
             .collect();
         let agg_nonce = nonce_aggregation(&commitee_pub_nonces);
@@ -648,15 +639,8 @@ mod tests {
             .enumerate()
             .map(|(index, k)| {
                 let committee_keypair = load_committee_instance_keypair(k, instance_id, index);
-                let (s, _, _) =
-                    k.nonce_for_instance_with_keypair(instance_id, committee_keypair);
-                sign_pegin_confirm(
-                    &graph,
-                    committee_keypair,
-                    s,
-                    agg_nonce.clone(),
-                )
-                .unwrap()
+                let (s, _, _) = k.nonce_for_instance_with_keypair(instance_id, committee_keypair);
+                sign_pegin_confirm(&graph, committee_keypair, s, agg_nonce.clone()).unwrap()
             })
             .collect::<Vec<_>>();
         let tx = agg_and_push_pegin_confirm_sigs(graph, committee_musig2_sigs, &agg_nonce).unwrap();
