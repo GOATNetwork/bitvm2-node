@@ -591,6 +591,7 @@ fn attested_part_stark_vk_for_zkm_version(
 }
 
 /// Verify one included watchtower challenge end-to-end and return its parsed public outputs.
+#[allow(clippy::too_many_arguments)]
 fn verify_included_watchtower_challenge(
     index: usize,
     graph_id: &[u8; GRAPH_ID_SIZE],
@@ -612,7 +613,7 @@ fn verify_included_watchtower_challenge(
         .iter()
         .next()
         .ok_or_else(|| "watchtower tx witness must contain a taproot signature".to_string())?;
-    let sig = bitcoin::taproot::Signature::from_slice(witness.as_ref())
+    let sig = bitcoin::taproot::Signature::from_slice(witness)
         .map_err(|err| format!("invalid taproot signature: {err}"))?;
     let prev_index = input.previous_output.vout as usize;
     verify_taproot_leaf_schnorr_signature(script, tx, prev_index, prev_out, pubkey, &sig)

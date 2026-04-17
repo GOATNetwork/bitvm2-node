@@ -215,7 +215,7 @@ pub fn verify_part_stark_vk_merkle_path(
     let mut node = part_stark_vk_leaf_hash(part_stark_vk);
     let mut index = leaf_index;
     for sibling in merkle_path {
-        node = if index % 2 == 0 {
+        node = if index.is_multiple_of(2) {
             part_stark_vk_internal_hash(node, *sibling)
         } else {
             part_stark_vk_internal_hash(*sibling, node)
@@ -961,7 +961,6 @@ fn load_unique_part_stark_vk_witnesses_from_latest_snapshot(
 #[cfg(test)]
 mod tests {
     use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, ecdsa::Signature};
-    use sha2::{Digest, Sha256};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{

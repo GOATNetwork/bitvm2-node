@@ -1752,22 +1752,22 @@ pub async fn broadcast_package(
 
 fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Vec<u8>> {
     let graph_id = graph_id.as_bytes();
-    let proof =
-        proof_data.proof.as_slice().try_into().map_err(|_| anyhow!("invalid proof length"))?;
+    let proof = proof_data.proof.as_slice();
     if proof_data.vk.len() != VK_HASH_SIZE {
         bail!("invalid vk_hash length");
     }
     if proof_data.proof_part_stark_vk.is_empty() {
         bail!("missing proof_part_stark_vk");
     }
-    Ok(build_watchtower_commitment(
+
+    build_watchtower_commitment(
         graph_id,
         proof,
         &proof_data.public_inputs,
         &proof_data.vk,
         &proof_data.proof_part_stark_vk,
     )
-    .map_err(|e| anyhow!("failed to build watchtower commitment: {e}"))?)
+    .map_err(|e| anyhow!("failed to build watchtower commitment: {e}"))
 }
 
 fn load_part_stark_vk_for_zkm_version(zkm_version: &str) -> Result<Vec<u8>> {
