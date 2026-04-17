@@ -350,7 +350,7 @@ impl ProofBuilder for StateChainProofBuilder {
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    "v1.2.4".into(),
+                    "v1.2.5".into(),
                 ),
             };
 

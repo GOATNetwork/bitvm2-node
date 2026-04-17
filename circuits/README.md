@@ -56,7 +56,7 @@ For case 2,
 > * If there is no Ziren upgrade during this interval, and the inputs of the proof aggregation are compressed proofs, but with different `start_pc`, `pc`, etc.
 > * If there is some Ziren upgrades during this interval, once we support the multiple verification keys in Ziren, this problem can be reduced to the former one.
 
-With multiple proof recursions, we generate a Groth16 proof, and verify with `Groth16Verifier::verify(proof, zkm_public_values, zkm_vk_hash, snark_vk_meta, groth16_vk)`.
+With multiple proof recursions, we generate a Groth16 proof, and verify with `Groth16Verifier::verify_by_imm_groth16_vk(proof, zkm_public_values, zkm_vk_hash, groth16_vk, part_stark_vk)`.
 
 ## Preparation
 

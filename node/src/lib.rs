@@ -177,7 +177,7 @@ mod dbg {
             .get_mut("parameters")
             .and_then(serde_json::Value::as_object_mut)
             .unwrap()
-            .insert("zkm_version".to_string(), serde_json::Value::String("v1.2.4".to_string()));
+            .insert("zkm_version".to_string(), serde_json::Value::String("v1.2.5".to_string()));
 
         let decoded: SimplifiedBitvm2Graph = serde_json::from_value(value).unwrap();
         assert_eq!(decoded.parameters.graph_id, graph.parameters.graph_id);

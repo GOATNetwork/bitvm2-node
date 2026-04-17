@@ -192,6 +192,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitcoin::Network;
     use bitcoin::secp256k1::Secp256k1;
 
     #[test]
