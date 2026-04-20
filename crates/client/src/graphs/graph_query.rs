@@ -14,24 +14,31 @@ pub struct TheGraphConfig<T> {
     pub event_entities: Vec<T>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwapConfig {
+    #[serde(flatten)]
+    pub graph_config: TheGraphConfig<SwapEventEntity>,
+    pub peg_btc_address: Address,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Display)]
 pub enum WatchEventConfig {
     Gateway(TheGraphConfig<GatewayEventEntity>),
-    Swap(TheGraphConfig<SwapEventEntity>),
+    Swap(SwapConfig),
 }
 
 impl WatchEventConfig {
     pub fn get_watch_events_len(&self) -> usize {
         match self {
             WatchEventConfig::Gateway(config) => config.event_entities.len(),
-            WatchEventConfig::Swap(config) => config.event_entities.len(),
+            WatchEventConfig::Swap(config) => config.graph_config.event_entities.len(),
         }
     }
 
     pub fn get_watch_contract(&self) -> Address {
         match self {
             WatchEventConfig::Gateway(config) => config.address,
-            WatchEventConfig::Swap(config) => config.address,
+            WatchEventConfig::Swap(config) => config.graph_config.address,
         }
     }
     pub fn get_watch_contract_type(&self) -> WatchContractType {

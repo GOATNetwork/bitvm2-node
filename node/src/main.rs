@@ -204,8 +204,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // if actor == Actor::Committee || actor == Actor::Operator {
     let cancel_token_clone = cancellation_token.clone();
     task_handles.push(tokio::spawn(async move {
-        let goat_client =
-            Arc::new(GOATClient::new(goat_config_from_env().await, get_goat_network()));
+        let goat_init_config = goat_config_from_env().await;
+        let goat_client = Arc::new(GOATClient::new(goat_init_config.clone(), get_goat_network()));
         let btc_client = Arc::new(BTCClient::new(get_network(), get_btc_url_from_env().as_deref()));
         match run_watch_event_task(
             actor_clone2,
@@ -214,6 +214,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             goat_client,
             5,
             cancel_token_clone,
+            goat_init_config,
         )
         .await
         {

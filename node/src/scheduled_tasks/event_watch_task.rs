@@ -22,15 +22,15 @@ use bitcoin::{Address, Amount, OutPoint, Txid};
 use bitvm2_lib::actors::Actor;
 use bitvm2_lib::types::UserInfo;
 use client::btc_chain::BTCClient;
-use client::goat_chain::GOATClient;
+use client::goat_chain::{GOATClient, GoatInitConfig};
 use client::graphs::GraphQueryClient;
 use client::graphs::graph_query::{
     BlockRange, BridgeInEvent, BridgeInRequestEvent, CancelWithdrawEvent, CommitteeResponseEvent,
     GatewayEventEntity, InitWithdrawEvent, PostGraphDataEvent, ProceedWithdrawEvent,
-    SwapClaimEvent, SwapEventEntity, SwapInitializeEvent, SwapRefundEvent, TheGraphConfig,
-    UserGraphWithdrawEvent, WatchContractType, WatchEventConfig, WithdrawDisprovedEvent,
-    WithdrawHappyEvent, WithdrawPathsEvent, WithdrawUnhappyEvent, get_bridge_out_events_query,
-    get_gateway_events_query,
+    SwapClaimEvent, SwapConfig, SwapEventEntity, SwapInitializeEvent, SwapRefundEvent,
+    TheGraphConfig, UserGraphWithdrawEvent, WatchContractType, WatchEventConfig,
+    WithdrawDisprovedEvent, WithdrawHappyEvent, WithdrawPathsEvent, WithdrawUnhappyEvent,
+    get_bridge_out_events_query, get_gateway_events_query,
 };
 use goat::transactions::base::Input;
 use secp256k1::XOnlyPublicKey;
@@ -81,11 +81,12 @@ pub async fn fetch_and_handle_block_range_events<'a>(
                 goat_client.clone(),
                 client,
                 storage_processor,
-                &config.address,
-                &config.the_graph_url,
-                &config.event_entities,
+                &config.graph_config.address,
+                &config.graph_config.the_graph_url,
+                &config.graph_config.event_entities,
                 from_height,
                 to_height,
+                config.peg_btc_address,
             )
             .await?;
         }
@@ -220,8 +221,8 @@ pub async fn fetch_and_handle_bridge_out_events<'a>(
     event_entities: &[SwapEventEntity],
     from_height: i64,
     to_height: i64,
+    gateway_peg_btc_address: EvmAddress,
 ) -> anyhow::Result<()> {
-    let gateway_peg_btc_address = get_gateway_peg_btc_address().await?;
     let query_res = client
         .execute_query(
             graph_url,
@@ -846,13 +847,6 @@ async fn handle_swap_refund_events<'a>(
     Ok(())
 }
 
-async fn get_gateway_peg_btc_address() -> anyhow::Result<EvmAddress> {
-    env::goat_config_from_env()
-        .await
-        .peg_btc_address
-        .ok_or(anyhow::anyhow!("failed to get gateway pegBTC contract address"))
-}
-
 async fn is_gateway_peg_btc_swap_instance(
     storage_processor: &mut StorageProcessor<'_>,
     instance_id: &Uuid,
@@ -1176,6 +1170,7 @@ pub async fn run_watch_event_task(
     goat_client: Arc<GOATClient>,
     interval: u64,
     cancellation_token: CancellationToken,
+    goat_init_config: GoatInitConfig,
 ) -> anyhow::Result<String> {
     let gateway_contract: EvmAddress = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
         .ok_or(anyhow::anyhow!("need to set gateway contract address"))?;
@@ -1200,14 +1195,17 @@ pub async fn run_watch_event_task(
                         GatewayEventEntity::PostGraphDatas,
                     ],
                 }),
-                WatchEventConfig::Swap(TheGraphConfig {
-                    address: swap_contract,
-                    the_graph_url: get_goat_swap_the_graph_urls_from_env(),
-                    event_entities: vec![
-                        SwapEventEntity::Initializes,
-                        SwapEventEntity::Claims,
-                        SwapEventEntity::Refunds,
-                    ],
+                WatchEventConfig::Swap(SwapConfig {
+                    graph_config: TheGraphConfig {
+                        address: swap_contract,
+                        the_graph_url: get_goat_swap_the_graph_urls_from_env(),
+                        event_entities: vec![
+                            SwapEventEntity::Initializes,
+                            SwapEventEntity::Claims,
+                            SwapEventEntity::Refunds,
+                        ],
+                    },
+                    peg_btc_address: goat_init_config.peg_btc_address.unwrap(),
                 }),
             ],
         ),
