@@ -600,7 +600,9 @@ mod tests {
             input: vec![],
             output: vec![TxOut {
                 value: bitcoin::Amount::ZERO,
-                script_pubkey: bitcoin::ScriptBuf::new_op_return(watchtower_comm.as_ref()),
+                script_pubkey: bitcoin::ScriptBuf::new_op_return(
+                    bitcoin::script::PushBytesBuf::try_from(watchtower_comm).unwrap(),
+                ),
             }],
         };
 

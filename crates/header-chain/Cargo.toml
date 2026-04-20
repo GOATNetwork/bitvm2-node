@@ -5,9 +5,9 @@ edition.workspace = true
 #resolver.workspace = true
 
 [dependencies]
-borsh = {version = "1.5.3", features = ["derive"] }
-sha2 =  { version = "0.10.9", default-features = false }
-bitcoin = { version = "0.32.6", default-features = false, features = ["serde"] }
+borsh = { version = "1.5.3", features = ["derive"] }
+sha2 = { version = "0.10.9", default-features = false }
+bitcoin = { workspace = true, features = ["serde"] }
 serde = { workspace = true, default-features = false }
 crypto-bigint = { version = "0.5.5", default-features = false }
 zkm-zkvm = { workspace = true }
