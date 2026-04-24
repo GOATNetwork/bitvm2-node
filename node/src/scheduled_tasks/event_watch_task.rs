@@ -1205,7 +1205,9 @@ pub async fn run_watch_event_task(
                             SwapEventEntity::Refunds,
                         ],
                     },
-                    peg_btc_address: goat_init_config.peg_btc_address.unwrap(),
+                    peg_btc_address: goat_init_config.peg_btc_address.expect(
+                        "peg_btc_address must be set (requires GOAT_GATEWAY_CONTRACT_ADDRESS)",
+                    ),
                 }),
             ],
         ),
