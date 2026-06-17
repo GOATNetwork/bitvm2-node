@@ -1957,6 +1957,54 @@ pub async fn get_watchtower_challenge_info(
     }
     Ok((challenge_txids, included_watchtowers))
 }
+
+/// Returns `(btc_best_block_hash, included_watchtowers_bitmap)` from already-fetched
+/// `get_watchtower_challenge_info` output.
+pub async fn compute_operator_pubin_blockhash_and_bitmap(
+    btc_client: &BTCClient,
+    challenge_txids: &[Option<String>],
+    included_watchtowers_bits: &[bool],
+) -> Result<([u8; 32], [u8; 32])> {
+    let btc_best_block_hash = {
+        let mut largest: Option<(u32, BlockHash)> = None;
+        for txid in challenge_txids.iter().flatten() {
+            let status = btc_client.get_tx_status(&Txid::from_str(txid)?).await?;
+            let (height, hash) = match (status.block_height, status.block_hash) {
+                (Some(height), Some(hash)) => (height, hash),
+                _ => bail!("watchtower challenge tx {txid} is not confirmed yet"),
+            };
+            if largest.is_none_or(|(h, _)| height > h) {
+                largest = Some((height, hash));
+            }
+        }
+        largest
+            .map(|(_, hash)| hash.to_byte_array())
+            .ok_or_else(|| anyhow!("no confirmed watchtower challenge tx available"))?
+    };
+
+    let mut included_watchtowers = [0u8; 32];
+    for (i, &included) in included_watchtowers_bits.iter().enumerate() {
+        if included && i < 256 {
+            included_watchtowers[i / 8] |= 1 << (i % 8);
+        }
+    }
+
+    Ok((btc_best_block_hash, included_watchtowers))
+}
+
+/// Assembles the 96-byte guest pubin:
+pub fn build_operator_guest_pubin(
+    btc_best_block_hash: &[u8; 32],
+    pubin_disprove_constant: &[u8; 32],
+    included_watchtowers: &[u8; 32],
+) -> [u8; 96] {
+    let mut pubin = [0u8; 96];
+    pubin[0..32].copy_from_slice(btc_best_block_hash);
+    pubin[32..64].copy_from_slice(pubin_disprove_constant);
+    pubin[64..96].copy_from_slice(included_watchtowers);
+    pubin
+}
+
 fn load_part_stark_vk_for_zkm_version(zkm_version: &str) -> Result<Vec<u8>> {
     catch_unwind(AssertUnwindSafe(|| Groth16Verifier::get_part_stark_vk(zkm_version).to_vec()))
         .map_err(|_| anyhow!("failed to load part_stark_vk for zkm_version {zkm_version}"))
@@ -2043,22 +2091,13 @@ pub async fn get_operator_wrapper_proof(
             return Ok((None, get_operator_proof_wait_secs()));
         }
     };
-    let operator_committed_blockhash = {
-        let mut largest: Option<(u32, BlockHash)> = None;
-        for txid in watchtower_challenge_txids.iter().flatten() {
-            let status = btc_client.get_tx_status(&Txid::from_str(txid)?).await?;
-            let (height, hash) = match (status.block_height, status.block_hash) {
-                (Some(height), Some(hash)) => (height, hash),
-                _ => bail!("watchtower challenge tx {txid} is not confirmed yet"),
-            };
-            if largest.is_none_or(|(largest_height, _)| height > largest_height) {
-                largest = Some((height, hash));
-            }
-        }
-        largest
-            .map(|(_, hash)| hash.to_string())
-            .ok_or_else(|| anyhow!("no confirmed watchtower challenge tx is available"))?
-    };
+    let (btc_best_block_hash, _) = compute_operator_pubin_blockhash_and_bitmap(
+        btc_client,
+        &watchtower_challenge_txids,
+        &included_watchtowers,
+    )
+    .await?;
+    let operator_committed_blockhash = BlockHash::from_byte_array(btc_best_block_hash).to_string();
 
     let base_url = Url::parse(
         &get_proof_build_rpc_host()
@@ -4772,4 +4811,122 @@ pub struct OperatorBabeSetupState {
     pub candidates: Vec<OperatorVerifierCandidate>,
     #[serde(default)]
     pub asserted_wrapper_proof: Option<Vec<u8>>,
+}
+
+#[cfg(test)]
+mod commit_pubin_tests {
+    use super::*;
+    use bitcoin::BlockHash;
+    use client::btc_chain::BTCClient;
+    use esplora_client::{Tx, TxStatus, Vin};
+    use store::SerializableTxid;
+
+    fn make_txid(byte: u8) -> Txid {
+        Txid::from_slice(&[byte; 32]).unwrap()
+    }
+
+    fn make_block_hash(byte: u8) -> BlockHash {
+        BlockHash::from_slice(&[byte; 32]).unwrap()
+    }
+
+    fn create_confirmed_tx(
+        txid: Txid,
+        spends: &[(Txid, u32)],
+        height: u32,
+        block_hash: BlockHash,
+    ) -> Tx {
+        Tx {
+            txid,
+            version: 2,
+            locktime: 0,
+            vin: spends
+                .iter()
+                .map(|(prev_txid, vout)| Vin {
+                    txid: *prev_txid,
+                    vout: *vout,
+                    prevout: None,
+                    scriptsig: ScriptBuf::default(),
+                    witness: vec![],
+                    sequence: 1,
+                    is_coinbase: false,
+                })
+                .collect(),
+            vout: vec![],
+            size: 1,
+            weight: 1,
+            status: TxStatus {
+                confirmed: true,
+                block_height: Some(height),
+                block_hash: Some(block_hash),
+                block_time: Some(1_000_000),
+            },
+            fee: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_watchtower_challenge_info_partial_inclusion() {
+        let (btc_client, mock_adaptor) = BTCClient::new_mock_client();
+
+        let watchtower_init_txid = make_txid(0x00);
+        let challenge_txid_wt0 = make_txid(0x01);
+        let block_hash = make_block_hash(0xAA);
+
+        // watchtower 0 spent vout 0 of the init tx; watchtower 1 did not spend vout 1
+        mock_adaptor.set_tx(
+            challenge_txid_wt0,
+            create_confirmed_tx(challenge_txid_wt0, &[(watchtower_init_txid, 0)], 100, block_hash),
+        );
+
+        let (txids, bits) = get_watchtower_challenge_info(
+            &btc_client,
+            &SerializableTxid::from(watchtower_init_txid),
+            2, // 2 watchtowers
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(txids, vec![Some(challenge_txid_wt0.to_string()), None]);
+        assert_eq!(bits, vec![true, false]);
+    }
+
+    #[tokio::test]
+    async fn test_compute_operator_pubin_blockhash_and_bitmap() {
+        let (btc_client, mock_adaptor) = BTCClient::new_mock_client();
+
+        let init_txid = make_txid(0x00);
+        let challenge_txid_wt0 = make_txid(0x01);
+        let challenge_txid_wt2 = make_txid(0x02);
+        let block_hash_low = make_block_hash(0x10);
+        let block_hash_high = make_block_hash(0x20);
+
+        // wt0 confirmed at height 100, wt2 at height 200 (highest)
+        mock_adaptor.set_tx(
+            challenge_txid_wt0,
+            create_confirmed_tx(challenge_txid_wt0, &[(init_txid, 0)], 100, block_hash_low),
+        );
+        mock_adaptor.set_tx(
+            challenge_txid_wt2,
+            create_confirmed_tx(challenge_txid_wt2, &[(init_txid, 2)], 200, block_hash_high),
+        );
+
+        let challenge_txids = vec![
+            Some(challenge_txid_wt0.to_string()),
+            None,
+            Some(challenge_txid_wt2.to_string()),
+        ];
+        let bits = vec![true, false, true];
+
+        let (best_hash, bitmap) =
+            compute_operator_pubin_blockhash_and_bitmap(&btc_client, &challenge_txids, &bits)
+                .await
+                .unwrap();
+
+        // block at height 200 wins
+        assert_eq!(best_hash, block_hash_high.to_byte_array());
+
+        // bits 0 and 2 set → byte 0 = 0b0000_0101
+        assert_eq!(bitmap[0], 0b0000_0101u8);
+        assert_eq!(&bitmap[1..], &[0u8; 31]);
+    }
 }

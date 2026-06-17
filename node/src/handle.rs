@@ -13,6 +13,7 @@ use crate::utils::*;
 use anyhow::{Context, Result, anyhow, bail};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use bitcoin::{Amount, OutPoint, Txid};
+use bitcoin::hashes::{Hash, sha256};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::babe_adapter::{
@@ -37,7 +38,7 @@ use goat::transactions::pre_signed_musig2::verify_public_nonce;
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm};
 use std::sync::Arc;
-use store::GraphStatus;
+use store::{GraphStatus, SerializableTxid};
 use store::localdb::LocalDB;
 use uuid::Uuid;
 
@@ -3634,6 +3635,66 @@ async fn handle_operator_commit_pubin_timeout_verifier(
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
+async fn handle_commit_pubin_ready_operator(
+    ctx: &mut HandlerContext<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<()> {
+    let message = GOATMessage::new(
+        Actor::Operator,
+        GOATMessageContent::CommitPubinReady(CommitPubinReady { instance_id, graph_id }),
+    );
+
+    let (graph, _graph_status, _graph_sub_status) =
+        match refresh_graph_status(ctx, instance_id, graph_id, Some(&message), GraphStatus::Challenge).await?
+        {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+
+    // compute the 96-byte guest pubin
+    let watchtower_challenge_init_txid =
+        SerializableTxid::from(graph.watchtower_challenge_init.tx().compute_txid());
+    let num_watchtowers = graph.parameters.watchtower_pubkeys.len();
+    let (challenge_txids, included_watchtowers_bits) =
+        get_watchtower_challenge_info(ctx.btc_client, &watchtower_challenge_init_txid, num_watchtowers)
+            .await?;
+    let (btc_best_block_hash, included_watchtowers_bitmap) =
+        compute_operator_pubin_blockhash_and_bitmap(
+            ctx.btc_client,
+            &challenge_txids,
+            &included_watchtowers_bits,
+        )
+        .await?;
+    let guest_pubin = build_operator_guest_pubin(
+        &btc_best_block_hash,
+        &graph.parameters.pubin_disprove_constant,
+        &included_watchtowers_bitmap,
+    );
+
+    // sign and broadcast
+    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+    let commit_pubin_wots_sk = operator_master_key.commit_pubin_wots_keypair_for_graph(graph_id).0;
+    let signed_input = operator_sign_commit_pubin(&graph, &commit_pubin_wots_sk, &guest_pubin)?;
+    let connector_e_amount = graph
+        .watchtower_challenge_init
+        .connector_e_input()
+        .map_err(|e| anyhow!("failed to get connector-e input: {e}"))?
+        .amount;
+    let operator_keypair = operator_master_key.master_keypair();
+    build_sign_and_broadcast_tx(
+        ctx.btc_client,
+        operator_keypair,
+        vec![signed_input],
+        connector_e_amount,
+        vec![],
+    )
+    .await?;
+
+    Ok(())
+}
+
 // after the watchtower challenge flow is complete, build proof and broadcast Assert transaction.
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_assert_ready_operator(
@@ -3674,6 +3735,8 @@ async fn handle_assert_ready_operator(
     };
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let assert_secret_key = operator_master_key.assert_wots_keypair_for_graph(graph_id).0;
+    // TODO: replace with build_assert_witness_with_pubin_commitment passing the real
+    // x_d = sha256(guest_pubin) recomputed from on-chain watchtower challenge data.
     let assert_witness = build_assert_witness(&operator_wrapper_proof.proof, &assert_secret_key)?;
     let assert_message = assert_wots_message(&assert_witness)?;
     let mut asserted_wrapper_proof = Vec::new();
