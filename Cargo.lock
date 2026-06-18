@@ -5576,7 +5576,6 @@ dependencies = [
 [[package]]
 name = "garbled-snark-verifier"
 version = "0.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fbabe#834d4337341e14da569c8c98c9fff546c9aedab6"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -12225,8 +12224,7 @@ dependencies = [
 
 [[package]]
 name = "soldering-host"
-version = "1.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fbabe#834d4337341e14da569c8c98c9fff546c9aedab6"
+version = "0.0.1"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -12236,6 +12234,7 @@ dependencies = [
  "bitvm 0.1.0 (git+https://github.com/GOATNetwork/BitVM.git?branch=GA)",
  "garbled-snark-verifier",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "tracing",
  "verifiable-circuit-babe",
  "zkm-build",
@@ -13911,7 +13910,6 @@ dependencies = [
 [[package]]
 name = "verifiable-circuit-babe"
 version = "0.0.1"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fbabe#834d4337341e14da569c8c98c9fff546c9aedab6"
 dependencies = [
  "aes",
  "ark-bn254",
@@ -13930,9 +13928,11 @@ dependencies = [
  "p3-maybe-rayon",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
+ "rayon",
  "ripemd 0.2.0",
  "serde",
  "sha2 0.10.9",
+ "tracing",
  "zkm-sdk",
  "zkm-zkvm",
 ]

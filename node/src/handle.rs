@@ -16,13 +16,7 @@ use bitcoin::{Amount, OutPoint, Txid};
 use bitcoin::hashes::{Hash, sha256};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm_lib::actors::Actor;
-use bitvm_lib::babe_adapter::{
-    BABE_M_CC, BABE_N_CC, BabeAssertWitness, BabeBundleBuilder, BabeChallengeAssertWitness,
-    BabeProverState, CACSetupPackage, CompactSolderingProofPayload, assert_wots_message,
-    build_assert_witness, build_real_challenge_assert_witness, build_real_setup_package,
-    derive_finalized_indices, expand_compact_soldering_proof_payload, extract_gc_circuit_data,
-    open_real_setup_and_solder, recover_real_wrongly_challenged_witness, verify_real_setup,
-};
+use bitvm_lib::babe_adapter::{BABE_M_CC, BABE_N_CC, BabeBundleBuilder, BabeChallengeAssertWitness, BabeProverState, CompactSolderingProofPayload, assert_wots_message, build_assert_witness, build_real_challenge_assert_witness, build_real_setup_package, derive_finalized_indices, expand_compact_soldering_proof_payload, extract_gc_circuit_data, open_real_setup_and_solder, recover_real_wrongly_challenged_witness, verify_real_setup, CACSetupPackage};
 use bitvm_lib::committee::*;
 use bitvm_lib::keys::*;
 use bitvm_lib::operator::*;

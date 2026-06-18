@@ -107,9 +107,13 @@ p3-field = { git = "https://github.com/ProjectZKM/Plonky3" }
 #zkm-verifier = { path = "../Ziren/crates/verifier" }
 
 bitvm-lib = { package = "bitvm-gc", path = "crates/bitvm-gc" }
-verifiable-circuit-babe = { git = "https://github.com/GOATNetwork/bitvm2-gc", branch = "feat/babe" }
-garbled-snark-verifier = { git = "https://github.com/GOATNetwork/bitvm2-gc", branch = "feat/babe" }
-soldering-host = { git = "https://github.com/GOATNetwork/bitvm2-gc", branch = "feat/babe" }
+#verifiable-circuit-babe = { git = "https://github.com/GOATNetwork/bitvm2-gc", branch = "feat/goat-bitvm3" }
+#garbled-snark-verifier = { git = "https://github.com/GOATNetwork/bitvm2-gc", branch = "feat/goat-bitvm3" }
+#soldering-host = { git = "https://github.com/GOATNetwork/bitvm2-gc", branch = "feat/goat-bitvm3" }
+#
+verifiable-circuit-babe = { path = "../bitvm2-gc/verifiable-circuit-babe"}
+garbled-snark-verifier = { path = "../bitvm2-gc/garbled-snark-verifier"}
+soldering-host = { path = "../bitvm2-gc/babe-programs/soldering/host" }
 store = { path = "crates/store" }
 util = { path = "crates/util" }
 client = { path = "crates/client" }
