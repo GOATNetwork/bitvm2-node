@@ -79,12 +79,19 @@ pub const ENV_GOAT_NETWORK: &str = "GOAT_NETWORK";
 pub const ENV_WATCHTOWER_PROOF_WAIT_SECS: &str = "WATCHTOWER_PROOF_WAIT_SECS";
 pub const ENV_OPERATOR_PROOF_WAIT_SECS: &str = "OPERATOR_PROOF_WAIT_SECS";
 pub const ENV_OPERATOR_VK_HASH: &str = "OPERATOR_VK_HASH";
+pub const ENV_OPERATOR_ZKM_VERSION: &str = "OPERATOR_ZKM_VERSION";
 pub const ENV_OPERATOR_WRAPPER_VK_HASH: &str = "OPERATOR_WRAPPER_VK_HASH";
 pub const ENV_OPERATOR_WRAPPER_ZKM_VERSION: &str = "OPERATOR_WRAPPER_ZKM_VERSION";
 pub const DEFAULT_WATCHTOWER_PROOF_WAIT_SECS: usize = 60;
 pub const DEFAULT_OPERATOR_PROOF_WAIT_SECS: usize = 60;
-pub const ENV_GC_GATES_PATH: &str = "GC_GATES_PATH";
-pub const ENV_GC_INDICES_PATH: &str = "GC_INDICES_PATH";
+pub const ENV_FGC_GATES_PATH: &str = "FGC_GATES_PATH";
+pub const ENV_FGC_OUT_INDICES_PATH: &str = "FGC_OUT_INDICES_PATH";
+pub const ENV_SGC_GATES_PATH: &str = "SGC_GATES_PATH";
+pub const ENV_SGC_OUT_INDICES_PATH: &str = "SGC_OUT_INDICES_PATH";
+pub const ENV_FGC_COMPACT_GATES_PATH: &str = "FGC_COMPACT_GATES_PATH";
+pub const ENV_FGC_COMPACT_OUT_INDICES_PATH: &str = "FGC_COMPACT_OUT_INDICES_PATH";
+pub const ENV_SGC_COMPACT_GATES_PATH: &str = "SGC_COMPACT_GATES_PATH";
+pub const ENV_SGC_COMPACT_OUT_INDICES_PATH: &str = "SGC_COMPACT_OUT_INDICES_PATH";
 pub const ENV_BABE_SETUP_STATE_DIR: &str = "BABE_SETUP_STATE_DIR";
 pub const ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH: &str = "SOLDERING_PROOF_PAYLOAD_STORE_PATH";
 
@@ -601,6 +608,11 @@ pub fn get_operator_vk_hash() -> anyhow::Result<[u8; 32]> {
     hex_parse::<32>(&value).map_err(|err| anyhow::anyhow!("invalid {ENV_OPERATOR_VK_HASH}: {err}"))
 }
 
+pub fn get_operator_zkm_version() -> anyhow::Result<String> {
+    std::env::var(ENV_OPERATOR_ZKM_VERSION)
+        .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_ZKM_VERSION} needs to be set"))
+}
+
 pub fn get_operator_wrapper_vk_hash() -> anyhow::Result<String> {
     std::env::var(ENV_OPERATOR_WRAPPER_VK_HASH)
         .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_WRAPPER_VK_HASH} needs to be set"))
@@ -611,23 +623,37 @@ pub fn get_operator_wrapper_zkm_version() -> anyhow::Result<String> {
         .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_WRAPPER_ZKM_VERSION} needs to be set"))
 }
 
-/// Returns the configured GC asset paths after checking that they are readable files.
-/// TODO: maybe multi files
-pub fn get_babe_gc_asset_paths() -> anyhow::Result<(PathBuf, PathBuf)> {
-    let gates_path = PathBuf::from(
-        std::env::var(ENV_GC_GATES_PATH)
-            .map_err(|_| anyhow::anyhow!("{ENV_GC_GATES_PATH} is missing"))?,
-    );
-    let indices_path = PathBuf::from(
-        std::env::var(ENV_GC_INDICES_PATH)
-            .map_err(|_| anyhow::anyhow!("{ENV_GC_INDICES_PATH} is missing"))?,
-    );
-    for (name, path) in [(ENV_GC_GATES_PATH, &gates_path), (ENV_GC_INDICES_PATH, &indices_path)] {
+pub struct BabeGcAssetPaths {
+    pub fgc_gates: PathBuf,
+    pub fgc_out_indices: PathBuf,
+    pub sgc_gates: PathBuf,
+    pub sgc_out_indices: PathBuf,
+    pub fgc_compact_gates: PathBuf,
+    pub fgc_compact_out_indices: PathBuf,
+    pub sgc_compact_gates: PathBuf,
+    pub sgc_compact_out_indices: PathBuf,
+}
+
+pub fn get_babe_gc_asset_paths() -> anyhow::Result<BabeGcAssetPaths> {
+    fn read_path(name: &str) -> anyhow::Result<PathBuf> {
+        let path = PathBuf::from(
+            std::env::var(name).map_err(|_| anyhow::anyhow!("{name} is missing"))?,
+        );
         if !path.is_file() {
             anyhow::bail!("{name} does not point to a readable file: {}", path.display());
         }
+        Ok(path)
     }
-    Ok((gates_path, indices_path))
+    Ok(BabeGcAssetPaths {
+        fgc_gates: read_path(ENV_FGC_GATES_PATH)?,
+        fgc_out_indices: read_path(ENV_FGC_OUT_INDICES_PATH)?,
+        sgc_gates: read_path(ENV_SGC_GATES_PATH)?,
+        sgc_out_indices: read_path(ENV_SGC_OUT_INDICES_PATH)?,
+        fgc_compact_gates: read_path(ENV_FGC_COMPACT_GATES_PATH)?,
+        fgc_compact_out_indices: read_path(ENV_FGC_COMPACT_OUT_INDICES_PATH)?,
+        sgc_compact_gates: read_path(ENV_SGC_COMPACT_GATES_PATH)?,
+        sgc_compact_out_indices: read_path(ENV_SGC_COMPACT_OUT_INDICES_PATH)?,
+    })
 }
 
 pub fn get_instance_maintenance_batch_size() -> u32 {

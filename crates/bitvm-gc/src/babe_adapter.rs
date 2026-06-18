@@ -26,7 +26,8 @@ use verifiable_circuit_babe::instance::CACInstance;
 use verifiable_circuit_babe::instance::commit::{CACInstanceCommit as RealCACInstanceCommit, CACInstanceCommit};
 use verifiable_circuit_babe::prover::BABEProver;
 use verifiable_circuit_babe::soldering::{SolderedLabelsData, SolderingData as RealSolderingData, SolderingProof as RealSolderingProof};
-use verifiable_circuit_babe::transactions::{ChallengeAssertWitnessRaw, TxAssertWitness};
+pub use verifiable_circuit_babe::transactions::TxAssertWitness;
+use verifiable_circuit_babe::transactions::ChallengeAssertWitnessRaw;
 use verifiable_circuit_babe::utils::pi1_xd_to_wots96_msg;
 use verifiable_circuit_babe::verifier::{BABEVerifier, InstanceLightSecrets};
 use crate::types::BitvmGcCircuitData;
@@ -432,19 +433,10 @@ pub fn verify_setup(
 
 /// Extracts one graph slot owned by `verifier_pubkey` from finalized setup data.
 pub fn extract_gc_circuit_data(
-    finalized: &[FinalizedInstanceData],
-    soldering: &SolderingData,
     verifier_pubkey: bitcoin::PublicKey,
     epk: &[[[u8; 20]; 2]],
     h_msgs: &[[u8; 20]],
 ) -> Result<BitvmGcCircuitData> {
-    if finalized.len() != BABE_M_CC {
-        bail!("each verifier must contribute exactly {BABE_M_CC} finalized BABE instances");
-    }
-    if soldering.finalized_indices != finalized.iter().map(|data| data.index).collect::<Vec<_>>() {
-        bail!("soldering finalized indices mismatch");
-    }
-    let data = &finalized[0];
     let wire_hashes: [WireHash; INPUT_WIRE_NUM] = epk
         .iter()
         .map(|labels| WireHash {
