@@ -1,13 +1,12 @@
-use rayon::prelude::*;
 use std::collections::HashSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
-use ark_bn254::{Bn254, Fq, Fr};
+use ark_bn254::{Bn254, Fr};
 use ark_bn254::g1::G1Affine;
 use ark_groth16::VerifyingKey as Groth16VerifyingKey;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::CanonicalSerialize;
 use garbled_snark_verifier::bag::S;
 use goat::assert_scripts::{
     INPUT_WIRE_NUM, OperatorAssertPublicKey, OperatorAssertSecretKey, WireHash, label_hash,
@@ -17,19 +16,17 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use soldering_host::BabeBundle;
 pub use soldering_host::BabeBundleBuilder;
-use verifiable_circuit_babe::babe::{ProverSetupState, WeKnownPi1SetupCt, babe_verifier_presign, GC_INPUT_WIRES, interleave_dummy_positions, build_challenge_assert_witness_raw, deinterleave_dummy_positions};
+use verifiable_circuit_babe::babe::{WeKnownPi1SetupCt, GC_INPUT_WIRES, build_challenge_assert_witness_raw, deinterleave_dummy_positions, interleave_dummy_positions};
 pub use verifiable_circuit_babe::cac::{CACSetupPackage, FinalizedInstanceData};
 use verifiable_circuit_babe::cac::cac_finalize_indices;
-use verifiable_circuit_babe::dre::N;
 use verifiable_circuit_babe::gc::{SparseAdaptorTable, SGC_PART1_CONSTANT_SIZE};
-use verifiable_circuit_babe::instance::CACInstance;
-use verifiable_circuit_babe::instance::commit::{CACInstanceCommit as RealCACInstanceCommit, CACInstanceCommit};
+use verifiable_circuit_babe::instance::commit::CACInstanceCommit;
 use verifiable_circuit_babe::prover::BABEProver;
 use verifiable_circuit_babe::soldering::{SolderedLabelsData, SolderingData as RealSolderingData, SolderingProof as RealSolderingProof};
 pub use verifiable_circuit_babe::transactions::TxAssertWitness;
 use verifiable_circuit_babe::transactions::ChallengeAssertWitnessRaw;
 use verifiable_circuit_babe::utils::pi1_xd_to_wots96_msg;
-use verifiable_circuit_babe::verifier::{BABEVerifier, InstanceLightSecrets};
+use verifiable_circuit_babe::verifier::BABEVerifier;
 use crate::types::BitvmGcCircuitData;
 
 /// Number of Wots96 digit signatures expected by the GOAT GC-V2 connector.
@@ -41,52 +38,6 @@ pub const BABE_M_CC: usize = 7;
 pub type OpenedInstanceSeeds = Vec<(usize, u64)>;
 pub type FinalizedInstances = Vec<FinalizedInstanceData>;
 pub type SetupAndSolderingData = (OpenedInstanceSeeds, FinalizedInstances, SolderingData);
-
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct CACSetupPackage {
-//     pub commits: Vec<CACInstanceCommit>,
-// }
-//
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct CACInstanceCommit {
-//     pub epk: Vec<[[u8; 20]; 2]>,
-//     pub wots_padding_epk: [[[u8; 20]; 2]; 4],
-//     pub constant_commits: [[[u8; 32]; 2]; 2],
-//     pub h_msg: [u8; 20],
-//     pub h_ct_setup: [u8; 32],
-//     pub com_adaptor: [u8; 32],
-//     pub com_gc: [u8; 32],
-// }
-
-// #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct FinalizedInstanceData {
-//     pub index: usize,
-//     pub final_msg_hash: [u8; 20],
-//     // todo: we maybe dont need this, it's in the CACInstanceCommit::epk
-//     pub wire_hashes: Vec<WireHash>,
-//     // todo: we already has this in the package before.
-//     pub gc_commitment: [u8; 32],
-//     // todo: we already has this in the package before.
-//     pub adaptor_commitment: [u8; 32],
-//     // todo: we already has this in the package before.
-//     pub ct_setup_commitment: [u8; 32],
-//     pub real_data: Option<RealFinalizedPayload>,
-// }
-//
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct RealFinalizedPayload {
-//     pub gc_ciphertexts: Vec<Option<[u8; 16]>>,
-//     pub adaptor_table: SerializableSparseAdaptorTable,
-//     pub ct_setup: SerializableSetupCt,
-//     pub constant_labels: [[u8; 16]; 2],
-//     pub wots_padding_zero_labels: [[u8; 16]; 4],
-// }
-
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct CompactFinalizedInstanceData { // Replaced by FinalizedInstanceData
-//     pub index: usize,
-//     pub real_data: RealFinalizedPayload,
-// }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompactSolderingData {
@@ -101,29 +52,6 @@ pub struct CompactSolderingProofPayload {
     pub soldering: CompactSolderingData,
 }
 
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct SerializableSetupCt {  replaced by WeKnownPi1SetupCt
-//     pub ct2_r_delta_g2: Vec<u8>,
-//     pub ct3_masked_msg: Vec<u8>,
-// }
-
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct SerializableSparseAdaptorTable { replaced by SparseAdaptorTable
-//     pub entries: Vec<SerializableSparseAdaptorEntry>,
-// }
-//
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct SerializableSparseAdaptorEntry { replaced by SparseAdaptorEntry
-//     pub x: SerializableSparseAdaptorRow,
-//     pub y: SerializableSparseAdaptorRow,
-//     pub z: SerializableSparseAdaptorRow,
-// }
-//
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct SerializableSparseAdaptorRow { replaced by SparseAdaptorRow
-//     pub cts: Vec<[u8; 32]>,
-//     pub offset: Vec<u8>,
-// }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SolderingData {
@@ -132,12 +60,6 @@ pub struct SolderingData {
     pub proof: Vec<u8>,
 }
 
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-// pub struct SolderedLabelsData {
-//     pub base_commitment: Vec<([u8; 32], [u8; 32])>,
-//     pub deltas: Vec<Vec<([u8; 16], [u8; 16])>>,
-//     pub commitments: Vec<Vec<([u8; 32], [u8; 32])>>,
-// }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BabeVerifierPrivateState {
@@ -160,14 +82,6 @@ pub struct BabeProverState {
     pub h_msgs: Vec<[u8; 20]>,
 }
 
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct BabeAssertWitness { // replace by TxAssertWitness
-//     // pub pi1: Vec<u8>,
-//     // #[serde(default)]
-//     // pub pubin_commitment: [u8; 32],
-//     pub wots_sig: Vec<[u8; 21]>,
-// }
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BabeChallengeAssertWitness {
     pub verifier_index: usize,
@@ -185,7 +99,10 @@ pub struct BabeWronglyChallengedWitness {
 /// Builds deterministic placeholder setup commitments for tests and wiring.
 pub fn sample_cac_instance_commit(seed: u8) -> CACInstanceCommit {
     let epk = (0..GC_INPUT_WIRES)
-        .map(|wire| [hash20(&[seed, wire as u8, 0]), hash20(&[seed, wire as u8, 1])])
+        .map(|wire| {
+            let w = (wire as u16).to_le_bytes();
+            [hash20(&[seed, w[0], w[1], 0]), hash20(&[seed, w[0], w[1], 1])]
+        })
         .collect();
 
     let constant_commit_sgc: Vec<_> = (0..SGC_PART1_CONSTANT_SIZE)
@@ -213,7 +130,6 @@ pub fn sample_cac_instance_commit(seed: u8) -> CACInstanceCommit {
 }
 
 pub fn sample_finalized_instance_data(index: usize) -> FinalizedInstanceData {
-    let seed = index as u8;
     let adaptor_tables = [
         SparseAdaptorTable {
             entries: vec![]
@@ -238,15 +154,6 @@ pub fn sample_finalized_instance_data(index: usize) -> FinalizedInstanceData {
     }
 }
 
-
-// impl CompactFinalizedInstanceData {
-//     pub fn try_from_finalized(finalized: &FinalizedInstanceData) -> Result<Self> {
-//         let real_data = finalized.real_data.clone().ok_or_else(|| {
-//             anyhow::anyhow!("finalized index {} lacks real BABE payload", finalized.index)
-//         })?;
-//         Ok(Self { index: finalized.index, real_data })
-//     }
-// }
 
 impl SolderingData {
     /// Builds deterministic placeholder soldering data for the selected finalized indices.
@@ -344,9 +251,6 @@ pub fn compact_soldering_proof_payload(
     Ok(CompactSolderingProofPayload {
         opened: opened.to_vec(),
         finalized: finalized.to_vec(),
-            // .iter()
-            // .map(CompactFinalizedInstanceData::try_from_finalized)
-            // .collect::<Result<Vec<_>>>()?,
         soldering: CompactSolderingData {
             finalized_indices: soldering.finalized_indices.clone(),
             proof: soldering.proof.clone(),
@@ -356,7 +260,6 @@ pub fn compact_soldering_proof_payload(
 
 /// Reconstructs the full BABE setup data using the locally trusted setup package.
 pub fn expand_compact_soldering_proof_payload(
-    package: &CACSetupPackage,
     payload: CompactSolderingProofPayload,
 ) -> Result<SetupAndSolderingData> {
     let finalized = payload.finalized.clone();
@@ -424,33 +327,41 @@ pub fn verify_setup(
         if data.index >= n_cc {
             bail!("finalized index {} out of range", data.index);
         }
-        // if data.wire_hashes.len() != INPUT_WIRE_NUM {
-        //     bail!("finalized index {} has invalid wire hash count", data.index);
-        // }
+
     }
     Ok(())
 }
 
 /// Extracts one graph slot owned by `verifier_pubkey` from finalized setup data.
+///
+/// `epk` must have exactly `GC_INPUT_WIRES` (762) entries
 pub fn extract_gc_circuit_data(
     verifier_pubkey: bitcoin::PublicKey,
     epk: &[[[u8; 20]; 2]],
     h_msgs: &[[u8; 20]],
 ) -> Result<BitvmGcCircuitData> {
-    let wire_hashes: [WireHash; INPUT_WIRE_NUM] = epk
-        .iter()
-        .map(|labels| WireHash {
-            false_label_hash: labels[0],
-            true_label_hash: labels[1],
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|wire_hashes: Vec<WireHash>| {
-            anyhow::anyhow!(
-            "BABE input label count {} is incompatible with GOAT verifier connector wire count {INPUT_WIRE_NUM}",
-            wire_hashes.len()
-        )
-        })?;
+    if epk.len() != GC_INPUT_WIRES {
+        bail!("BABE epk has {} entries; expected {GC_INPUT_WIRES}", epk.len());
+    }
+    let n = GC_INPUT_WIRES / 3;
+    let to_wire_hash = |pair: &[[u8; 20]; 2]| WireHash {
+        false_label_hash: pair[0],
+        true_label_hash: pair[1],
+    };
+    let dummy_hash = label_hash(&vec![0u8; 16]);
+    let dummy = WireHash { false_label_hash: dummy_hash, true_label_hash: dummy_hash };
+
+    let pi1_x: Vec<WireHash> = epk[..n].iter().map(to_wire_hash).collect();
+    let pi1_y: Vec<WireHash> = epk[n..2 * n].iter().map(to_wire_hash).collect();
+    let x_d: Vec<WireHash> = epk[2 * n..].iter().map(to_wire_hash).collect();
+    let wire_hashes_vec = interleave_dummy_positions(&pi1_x, &pi1_y, &x_d, dummy);
+
+    let wire_hashes: [WireHash; INPUT_WIRE_NUM] = wire_hashes_vec.try_into().map_err(
+        |v: Vec<WireHash>| anyhow::anyhow!(
+            "wire hash count {} does not match expected {INPUT_WIRE_NUM}",
+            v.len()
+        ),
+    )?;
     Ok(BitvmGcCircuitData {
         verifier_pubkey,
         final_msg_hashlocks: h_msgs.to_vec(),
@@ -464,35 +375,15 @@ pub fn build_assert_witness(
     assert_secret_key: &OperatorAssertSecretKey,
     dynamic_input: ark_bn254::Fr,
 ) -> Result<TxAssertWitness> {
+    if assert_secret_key.is_empty() {
+        bail!("operator WOTS secret key must not be empty");
+    }
     let msg = pi1_xd_to_wots96_msg(&proof.a, dynamic_input);
     let wots_sig = Wots96::sign(assert_secret_key, &msg);
     Ok(TxAssertWitness { wots_sig: wots_sig.to_vec() })
 }
 
-// pub fn build_assert_witness_with_pubin_commitment(
-//     proof: &ark_groth16::Proof<Bn254>,
-//     pubin_commitment: &[u8; 32],
-//     assert_secret_key: &OperatorAssertSecretKey,
-// ) -> Result<BabeAssertWitness> {
-//     if assert_secret_key.is_empty() {
-//         bail!("operator WOTS secret key must not be empty");
-//     }
-//     let pi1 = proof.a;
-//     let mut pi1_bytes = Vec::new();
-//     pi1.serialize_compressed(&mut pi1_bytes).expect("serialize pi1");
-//     let msg = pi1_to_wots96_msg(&pi1, pubin_commitment);
-//     let wots_sig = Wots96::sign(assert_secret_key, &msg);
-//     Ok(BabeAssertWitness {
-//         pi1: pi1_bytes,
-//         pubin_commitment: *pubin_commitment,
-//         wots_sig: wots_sig.to_vec(),
-//     })
-// }
-
 pub fn assert_wots_message(assert_witness: &TxAssertWitness) -> Result<[u8; 96]> {
-    // let pi1 = ark_bn254::G1Affine::deserialize_compressed(assert_witness.pi1.as_slice())
-    //     .map_err(|error| anyhow::anyhow!("invalid BABE pi1 in assert witness: {error}"))?;
-    // Ok(pi1_to_wots96_msg(&pi1, &assert_witness.pubin_commitment))
     let recover = assert_witness.recover_pi1_xd_without_verify();
     if recover.is_none() {
         return Err(anyhow::anyhow!("Cannot recover pi1 and xd"))
@@ -596,19 +487,8 @@ pub fn recover_real_wrongly_challenged_witness(
     vk: Groth16VerifyingKey<Bn254>,
     dyn_pubin: ark_bn254::Fr,
 ) -> Result<BabeWronglyChallengedWitness> {
-    let real_state = ProverSetupState {
-        wots_sk_p: vec![],
-        finalized: prover_state
-            .finalized.clone(),
-            // .iter()
-            // .map(to_real_finalized)
-            // .collect::<Result<Vec<_>>>()?,
-        soldering: to_real_soldering(&prover_state.soldering)?,
-        h_msgs: prover_state.h_msgs.clone(),
-        presigs_v: babe_verifier_presign(),
-    };
     let mut prover = BABEProver::new(vk, proof.clone(), dyn_pubin);
-    recover_a_valid_finalized_messages(prover_state, challenge_witness, &mut prover, &real_state)
+    recover_a_valid_finalized_messages(prover_state, challenge_witness, &mut prover)
 }
 
 /// Builds a wrongly-challenged witness after validating all finalized preimages.
@@ -687,154 +567,6 @@ fn validate_finalized_indices(
     Ok(())
 }
 
-// fn from_real_package(package: &RealCACSetupPackage) -> CACSetupPackage {
-//     CACSetupPackage { commits: package.commits.iter().map(from_real_commit).collect() }
-// }
-//
-// fn from_real_commit(commit: &RealCACInstanceCommit) -> CACInstanceCommit {
-//     CACInstanceCommit {
-//         epk: commit.epk.clone(),
-//         wots_padding_epk: padding_wire_hashes(),
-//         constant_commits: commit.constant_commits,
-//         h_msg: commit.h_msg,
-//         h_ct_setup: commit.h_ct_setup,
-//         com_adaptor: commit.com_adaptor,
-//         com_gc: commit.com_gc,
-//     }
-// }
-
-// fn to_real_package(package: &CACSetupPackage) -> RealCACSetupPackage {
-//     RealCACSetupPackage {
-//         commits: package
-//             .commits
-//             .iter()
-//             .map(|commit| RealCACInstanceCommit {
-//                 epk: commit.epk.clone(),
-//                 constant_commits: commit.constant_commits,
-//                 h_msg: commit.h_msg,
-//                 h_ct_setup: commit.h_ct_setup,
-//                 com_adaptor: commit.com_adaptor,
-//                 com_gc: commit.com_gc,
-//             })
-//             .collect(),
-//     }
-// }
-
-// fn from_real_finalized(
-//     finalized: &RealFinalizedInstanceData,
-//     package: &CACSetupPackage,
-// ) -> Result<FinalizedInstanceData> {
-//     let real_data = RealFinalizedPayload {
-//         gc_ciphertexts: finalized
-//             .gc_ciphertexts
-//             .iter()
-//             .map(|ciphertext| ciphertext.map(|label| label.0))
-//             .collect(),
-//         adaptor_table: from_real_adaptor_table(&finalized.adaptor_table),
-//         ct_setup: SerializableSetupCt {
-//             ct2_r_delta_g2: finalized.ct_setup.ct2_r_delta_g2.clone(),
-//             ct3_masked_msg: finalized.ct_setup.ct3_masked_msg.clone(),
-//         },
-//         constant_labels: [finalized.constant_labels[0].0, finalized.constant_labels[1].0],
-//         wots_padding_zero_labels: [[0u8; 16]; 4],
-//     };
-//     expand_compact_finalized_instance(
-//         package,
-//         CompactFinalizedInstanceData { index: finalized.index, real_data },
-//     )
-// }
-
-// fn expand_compact_finalized_instance(
-//     package: &CACSetupPackage,
-//     finalized: FinalizedInstanceData,
-// ) -> Result<FinalizedInstanceData> {
-//     let commit = package
-//         .commits
-//         .get(finalized.index)
-//         .ok_or_else(|| anyhow::anyhow!("finalized index {} out of range", finalized.index))?;
-//     if commit.epk.len() != LAMPORT_N {
-//         bail!(
-//             "finalized index {} has {} BABE input commitments; expected {LAMPORT_N}",
-//             finalized.index,
-//             commit.epk.len()
-//         );
-//     }
-//     let mut wire_hashes = Vec::with_capacity(INPUT_WIRE_NUM);
-//     wire_hashes.extend(commit.epk[..254].iter().map(to_wire_hash));
-//     wire_hashes.extend(commit.wots_padding_epk[..2].iter().map(to_wire_hash));
-//     wire_hashes.extend(commit.epk[254..].iter().map(to_wire_hash));
-//     wire_hashes.extend(commit.wots_padding_epk[2..].iter().map(to_wire_hash));
-//     wire_hashes.extend(pubin_wire_hashes(commit));
-//     Ok(FinalizedInstanceData {
-//         index: finalized.index,
-//         final_msg_hash: commit.h_msg,
-//         wire_hashes,
-//         gc_commitment: commit.com_gc,
-//         adaptor_commitment: commit.com_adaptor,
-//         ct_setup_commitment: commit.h_ct_setup,
-//         real_data: Some(finalized.real_data),
-//     })
-// }
-
-// fn to_real_finalized(finalized: &FinalizedInstanceData) -> Result<RealFinalizedInstanceData> {
-//     let payload = finalized.real_data.as_ref().ok_or_else(|| {
-//         anyhow::anyhow!("finalized index {} lacks real BABE payload", finalized.index)
-//     })?;
-//     Ok(RealFinalizedInstanceData {
-//         index: finalized.index,
-//         gc_ciphertexts: payload.gc_ciphertexts.iter().map(|value| value.map(S)).collect(),
-//         adaptor_table: to_real_adaptor_table(&payload.adaptor_table)?,
-//         ct_setup: RealSetupCt {
-//             ct2_r_delta_g2: payload.ct_setup.ct2_r_delta_g2.clone(),
-//             ct3_masked_msg: payload.ct_setup.ct3_masked_msg.clone(),
-//         },
-//         constant_labels: [S(payload.constant_labels[0]), S(payload.constant_labels[1])],
-//     })
-// }
-
-// fn from_real_adaptor_table(table: &RealSparseAdaptorTable) -> SerializableSparseAdaptorTable {
-//     SerializableSparseAdaptorTable {
-//         entries: table
-//             .entries
-//             .iter()
-//             .map(|entry| SerializableSparseAdaptorEntry {
-//                 x: from_real_adaptor_row(&entry.x),
-//                 y: from_real_adaptor_row(&entry.y),
-//                 z: from_real_adaptor_row(&entry.z),
-//             })
-//             .collect(),
-//     }
-// }
-//
-// fn from_real_adaptor_row(row: &RealSparseAdaptorRow) -> SerializableSparseAdaptorRow {
-//     let mut offset = Vec::new();
-//     row.offset.serialize_compressed(&mut offset).expect("serialize adaptor offset");
-//     SerializableSparseAdaptorRow { cts: row.cts.clone(), offset }
-// }
-
-// fn to_real_adaptor_table(table: &SerializableSparseAdaptorTable) -> Result<RealSparseAdaptorTable> {
-//     Ok(RealSparseAdaptorTable {
-//         entries: table
-//             .entries
-//             .iter()
-//             .map(|entry| {
-//                 Ok(RealSparseAdaptorEntry {
-//                     x: to_real_adaptor_row(&entry.x)?,
-//                     y: to_real_adaptor_row(&entry.y)?,
-//                     z: to_real_adaptor_row(&entry.z)?,
-//                 })
-//             })
-//             .collect::<Result<Vec<_>>>()?,
-//     })
-// }
-
-// fn to_real_adaptor_row(row: &SerializableSparseAdaptorRow) -> Result<RealSparseAdaptorRow> {
-//     Ok(RealSparseAdaptorRow {
-//         cts: row.cts.clone(),
-//         offset: Fq::deserialize_compressed(row.offset.as_slice())?,
-//     })
-// }
-
 fn from_real_soldering(soldering: &RealSolderingData) -> Result<SolderingData> {
     let output = soldering.soldering_proof.output().map_err(anyhow::Error::msg)?;
     Ok(SolderingData {
@@ -879,12 +611,11 @@ fn recover_a_valid_finalized_messages(
     prover_state: &BabeProverState,
     challenge_witness: &BabeChallengeAssertWitness,
     prover: &mut BABEProver,
-    real_state: &ProverSetupState,
 ) -> Result<BabeWronglyChallengedWitness> {
-    if real_state.finalized.len() != prover_state.h_msgs.len() {
+    if prover_state.finalized.len() != prover_state.h_msgs.len() {
         bail!("BABE prover state finalized data and hash count differ");
     }
-    if real_state.finalized.is_empty() {
+    if prover_state.finalized.is_empty() {
         bail!("BABE prover state has no finalized instances");
     }
 
@@ -892,15 +623,13 @@ fn recover_a_valid_finalized_messages(
     // Strip the 6 dummy labels before passing to the GC (which has GC_INPUT_WIRES real wires).
     let (pi1_x_labels, pi1_y_labels, x_d_labels) = deinterleave_dummy_positions(&base_input_labels);
     let pi1_labels: Vec<S> = pi1_x_labels.into_iter().chain(pi1_y_labels).collect();
-    let soldered_output = &prover_state.soldering.soldered_output;
     let real_soldering = to_real_soldering(&prover_state.soldering)?;
 
     let soldered_output = &prover_state.soldering.soldered_output;
-    if soldered_output.base_commitment.len() != base_input_labels.len() {
+    if soldered_output.base_commitment.len() != GC_INPUT_WIRES {
         bail!(
-            "soldering base commitment count {} does not match BABE input label count {}",
-            soldered_output.base_commitment.len(),
-            base_input_labels.len()
+            "soldering base commitment count {} does not match expected GC input wire count {GC_INPUT_WIRES}",
+            soldered_output.base_commitment.len()
         );
     }
 
@@ -919,87 +648,9 @@ fn recover_a_valid_finalized_messages(
 
     Ok(BabeWronglyChallengedWitness {
         verifier_index: challenge_witness.verifier_index,
-        final_msg: prover.valid_msg.unwrap().to_vec(),
+        final_msg: prover.valid_msg.ok_or_else(|| anyhow::anyhow!("check_compute_msg returned true but valid_msg is not set"))?.to_vec(),
     })
 }
-
-// fn pi1_labels_from_challenge(input_labels: &[[u8; 16]]) -> Result<Vec<S>> {
-//     if input_labels.len() == LAMPORT_N {
-//         return Ok(input_labels.iter().copied().map(S).collect());
-//     }
-//     if input_labels.len() != INPUT_WIRE_NUM {
-//         bail!(
-//             "challenge witness has {} input labels; expected {LAMPORT_N} or {INPUT_WIRE_NUM}",
-//             input_labels.len()
-//         );
-//     }
-//     Ok(input_labels[..254].iter().chain(&input_labels[256..510]).copied().map(S).collect())
-// }
-
-// fn soldered_input_labels(
-//     base_input_labels: &[S],
-//     soldered_output: &SolderedLabelsData,
-//     finalized_position: usize,
-// ) -> Result<Vec<S>> {
-//     if finalized_position == 0 {
-//         return Ok(base_input_labels.to_vec());
-//     }
-//     let deltas = soldered_output.deltas.get(finalized_position - 1).ok_or_else(|| {
-//         anyhow::anyhow!("missing soldering deltas for finalized position {finalized_position}")
-//     })?;
-//     if deltas.len() != base_input_labels.len() {
-//         bail!(
-//             "soldering delta count {} does not match BABE input label count {}",
-//             deltas.len(),
-//             base_input_labels.len()
-//         );
-//     }
-//
-//     Ok(base_input_labels
-//         .iter()
-//         .enumerate()
-//         .map(|(wire, &base_label)| {
-//             let (delta_false, delta_true) = deltas[wire];
-//             if hash32(&base_label.0) == soldered_output.base_commitment[wire].0 {
-//                 base_label ^ S(delta_false)
-//             } else {
-//                 base_label ^ S(delta_true)
-//             }
-//         })
-//         .collect())
-// }
-
-// fn recover_finalized_message(
-//     prover: &BABEProver,
-//     proof: &ark_groth16::Proof<Bn254>,
-//     finalized: &RealFinalizedInstanceData,
-//     input_labels: &[S],
-//     expected_hash: [u8; 20],
-//     finalized_position: usize,
-// ) -> Result<Vec<u8>> {
-//     let mut full_labels = Vec::with_capacity(2 + input_labels.len());
-//     full_labels.push(finalized.constant_labels[0]);
-//     full_labels.push(finalized.constant_labels[1]);
-//     full_labels.extend_from_slice(input_labels);
-//
-//     let (mut circuit, gc_output_indices) = verifiable_circuit_babe::gc::read_fresh_circuit();
-//     let ct_prove = prover.compute_ct_prove(
-//         &mut circuit,
-//         &gc_output_indices,
-//         &full_labels,
-//         &finalized.gc_ciphertexts,
-//         &finalized.adaptor_table,
-//     );
-//     let msg = BABEProver::compute_msg(proof, &ct_prove, &finalized.ct_setup)
-//         .map_err(anyhow::Error::msg)?;
-//     let final_msg = msg.to_vec();
-//     if label_hash(&final_msg) != expected_hash {
-//         bail!(
-//             "recovered message at finalized position {finalized_position} does not match hashlock"
-//         );
-//     }
-//     Ok(final_msg)
-// }
 
 fn to_real_wots_sig(wots_sig: &[[u8; 21]]) -> Result<<Wots96 as Wots>::Signature> {
     wots_sig.try_into().map_err(|_| {
@@ -1010,64 +661,9 @@ fn to_real_wots_sig(wots_sig: &[[u8; 21]]) -> Result<<Wots96 as Wots>::Signature
     })
 }
 
-// fn padding_wire_hashes() -> [[[u8; 20]; 2]; 4] {
-//     let false_hash = label_hash(&vec![0u8; 16]);
-//     let true_hash = label_hash(&vec![1u8; 16]);
-//     [[false_hash, true_hash]; 4]
-// }
-
 fn deterministic_seed(index: usize) -> u64 {
     u64::from_le_bytes(hash32(&(index as u64).to_le_bytes())[0..8].try_into().expect("8 bytes"))
 }
-
-// fn to_wire_hash(pair: &[[u8; 20]; 2]) -> WireHash {
-//     WireHash { false_label_hash: pair[0], true_label_hash: pair[1] }
-// }
-
-// fn pi1_to_wots96_msg(pi1: &ark_bn254::G1Affine, pubin_commitment: &[u8; 32]) -> [u8; 96] {
-//     let mut msg = [0u8; 96];
-//     let mut tmp = Vec::new();
-//
-//     pi1.x.serialize_uncompressed(&mut tmp).expect("serialize pi1.x");
-//     msg[..32].copy_from_slice(&tmp);
-//
-//     tmp.clear();
-//     pi1.y.serialize_uncompressed(&mut tmp).expect("serialize pi1.y");
-//     msg[32..64].copy_from_slice(&tmp);
-//
-//     msg[64..96].copy_from_slice(pubin_commitment);
-//     msg
-// }
-
-// fn pubin_wire_hashes(commit: &CACInstanceCommit) -> Vec<WireHash> {
-//     (0..256)
-//         .map(|index| WireHash {
-//             false_label_hash: label_hash(&pubin_label(commit, index, false).to_vec()),
-//             true_label_hash: label_hash(&pubin_label(commit, index, true).to_vec()),
-//         })
-//         .collect()
-// }
-//
-// fn pubin_input_labels(commit: &CACInstanceCommit, pubin_commitment: &[u8; 32]) -> Vec<[u8; 16]> {
-//     (0..256)
-//         .map(|index| {
-//             let byte = pubin_commitment[index / 8];
-//             let bit = ((byte >> (index % 8)) & 1) == 1;
-//             pubin_label(commit, index, bit)
-//         })
-//         .collect()
-// }
-
-// fn pubin_label(commit: &CACInstanceCommit, index: usize, bit: bool) -> [u8; 16] {
-//     let mut bytes = Vec::with_capacity(32 * 4 + std::mem::size_of::<u64>() + 1);
-//     bytes.extend_from_slice(&commit.h_ct_setup);
-//     bytes.extend_from_slice(&commit.com_adaptor);
-//     bytes.extend_from_slice(&commit.com_gc);
-//     bytes.extend_from_slice(&commit.h_msg);
-//     bytes.extend_from_slice(&(index as u64).to_le_bytes());
-//     bytes.push(u8::from(bit));
-//     hash16(&bytes)
-// }
 
 fn hash20(data: &[u8]) -> [u8; 20] {
     let hash = hash32(data);

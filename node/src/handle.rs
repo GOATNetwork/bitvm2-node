@@ -13,7 +13,6 @@ use crate::utils::*;
 use anyhow::{Context, Result, anyhow, bail};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use bitcoin::{Amount, OutPoint, Txid};
-use bitcoin::hashes::{Hash, sha256};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::babe_adapter::{BABE_M_CC, BABE_N_CC, BabeBundleBuilder, BabeChallengeAssertWitness, BabeProverState, CompactSolderingProofPayload, TxAssertWitness, assert_wots_message, build_assert_witness, build_real_challenge_assert_witness, build_real_setup_package, derive_finalized_indices, expand_compact_soldering_proof_payload, extract_gc_circuit_data, open_real_setup_and_solder, recover_real_wrongly_challenged_witness, verify_real_setup, CACSetupPackage};
@@ -1654,7 +1653,7 @@ async fn handle_compact_soldering_proof_operator(
     }
     let setup_package = candidate.setup_package.clone();
     let (opened, finalized, soldering) =
-        expand_compact_soldering_proof_payload(&setup_package, payload)
+        expand_compact_soldering_proof_payload(payload)
             .context("expand compact soldering proof payload")?;
 
     let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE validation")?;
@@ -3560,17 +3559,52 @@ async fn handle_operator_commit_pubin_ready_operator(
     content: &GOATMessageContent,
 ) -> Result<()> {
     let message = make_message(ctx, content);
-    let Some((_graph, graph_status, _graph_sub_status)) =
+    let Some((graph, _graph_status, _graph_sub_status)) =
         refresh_graph_status(ctx, instance_id, graph_id, Some(&message), GraphStatus::Challenge)
             .await?
     else {
         return Ok(());
     };
-    // TODO(gc-v2): build operator-commit-pubin after pubin commitment data is wired.
-    // It is not pre-signed, so add a funding input for fees and broadcast it normally.
-    tracing::warn!(
-        "OperatorCommitPubinReady for {instance_id}:{graph_id} is not implemented yet; graph status is {graph_status:?}"
+
+    // compute the 96-byte guest pubin
+    let watchtower_challenge_init_txid =
+        SerializableTxid::from(graph.watchtower_challenge_init.tx().compute_txid());
+    let num_watchtowers = graph.parameters.watchtower_pubkeys.len();
+    let (challenge_txids, included_watchtowers_bits) =
+        get_watchtower_challenge_info(ctx.btc_client, &watchtower_challenge_init_txid, num_watchtowers)
+            .await?;
+    let (btc_best_block_hash, included_watchtowers_bitmap) =
+        compute_operator_pubin_blockhash_and_bitmap(
+            ctx.btc_client,
+            &challenge_txids,
+            &included_watchtowers_bits,
+        )
+            .await?;
+    let guest_pubin = build_operator_guest_pubin(
+        &btc_best_block_hash,
+        &graph.parameters.pubin_disprove_constant,
+        &included_watchtowers_bitmap,
     );
+
+    // sign and broadcast
+    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
+    let commit_pubin_wots_sk = operator_master_key.commit_pubin_wots_keypair_for_graph(graph_id).0;
+    let signed_input = operator_sign_commit_pubin(&graph, &commit_pubin_wots_sk, &guest_pubin)?;
+    let connector_e_amount = graph
+        .watchtower_challenge_init
+        .connector_e_input()
+        .map_err(|e| anyhow!("failed to get connector-e input: {e}"))?
+        .amount;
+    let operator_keypair = operator_master_key.master_keypair();
+    build_sign_and_broadcast_tx(
+        ctx.btc_client,
+        operator_keypair,
+        vec![signed_input],
+        connector_e_amount,
+        vec![],
+    )
+        .await?;
+
     Ok(())
 }
 
@@ -3634,65 +3668,6 @@ async fn handle_operator_commit_pubin_timeout_verifier(
     Ok(())
 }
 
-#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
-async fn handle_commit_pubin_ready_operator(
-    ctx: &mut HandlerContext<'_>,
-    instance_id: Uuid,
-    graph_id: Uuid,
-) -> Result<()> {
-    let message = GOATMessage::new(
-        Actor::Operator,
-        GOATMessageContent::CommitPubinReady(CommitPubinReady { instance_id, graph_id }),
-    );
-
-    let (graph, _graph_status, _graph_sub_status) =
-        match refresh_graph_status(ctx, instance_id, graph_id, Some(&message), GraphStatus::Challenge).await?
-        {
-            Some(v) => v,
-            None => return Ok(()),
-        };
-
-    // compute the 96-byte guest pubin
-    let watchtower_challenge_init_txid =
-        SerializableTxid::from(graph.watchtower_challenge_init.tx().compute_txid());
-    let num_watchtowers = graph.parameters.watchtower_pubkeys.len();
-    let (challenge_txids, included_watchtowers_bits) =
-        get_watchtower_challenge_info(ctx.btc_client, &watchtower_challenge_init_txid, num_watchtowers)
-            .await?;
-    let (btc_best_block_hash, included_watchtowers_bitmap) =
-        compute_operator_pubin_blockhash_and_bitmap(
-            ctx.btc_client,
-            &challenge_txids,
-            &included_watchtowers_bits,
-        )
-        .await?;
-    let guest_pubin = build_operator_guest_pubin(
-        &btc_best_block_hash,
-        &graph.parameters.pubin_disprove_constant,
-        &included_watchtowers_bitmap,
-    );
-
-    // sign and broadcast
-    let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
-    let commit_pubin_wots_sk = operator_master_key.commit_pubin_wots_keypair_for_graph(graph_id).0;
-    let signed_input = operator_sign_commit_pubin(&graph, &commit_pubin_wots_sk, &guest_pubin)?;
-    let connector_e_amount = graph
-        .watchtower_challenge_init
-        .connector_e_input()
-        .map_err(|e| anyhow!("failed to get connector-e input: {e}"))?
-        .amount;
-    let operator_keypair = operator_master_key.master_keypair();
-    build_sign_and_broadcast_tx(
-        ctx.btc_client,
-        operator_keypair,
-        vec![signed_input],
-        connector_e_amount,
-        vec![],
-    )
-    .await?;
-
-    Ok(())
-}
 
 // after the watchtower challenge flow is complete, build proof and broadcast Assert transaction.
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
@@ -3734,6 +3709,13 @@ async fn handle_assert_ready_operator(
     };
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let assert_secret_key = operator_master_key.assert_wots_keypair_for_graph(graph_id).0;
+
+    if operator_proof.public_inputs.len() != 2 {
+        bail!(
+            "operator proof has {} public inputs; expected 2",
+            operator_proof.public_inputs.len()
+        );
+    }
     let dynamic_input = operator_proof.public_inputs[1];
     let assert_witness = build_assert_witness(&operator_proof.proof, &assert_secret_key, dynamic_input)?;
     let assert_message = assert_wots_message(&assert_witness)?;
@@ -3979,15 +3961,6 @@ async fn handle_challenge_assert_sent_operator(
         &wrongly_challenged_witness.final_msg,
     )?;
 
-    //     let wrongly_challenged_witness =
-    //     recover_real_wrongly_challenged_witness(prover_state, challenge_witness, &proof)?;
-    // // TODO: The wrongly-challenged script accepts any one finalized-message preimage.
-    // let final_msg = wrongly_challenged_witness
-    //     .final_msgs
-    //     .first()
-    //     .ok_or_else(|| anyhow!("wrongly challenged witness has no final message preimage"))?;
-    // let (wrongly_challenged_input, _amount) =
-    //     operator_sign_wrongly_challenged(&graph, verifier_index, final_msg)?;
     let wrongly_challenged_tx = bitcoin::Transaction {
         version: bitcoin::transaction::Version(2),
         lock_time: bitcoin::absolute::LockTime::ZERO,
