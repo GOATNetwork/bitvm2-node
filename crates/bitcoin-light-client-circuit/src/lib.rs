@@ -499,20 +499,6 @@ pub fn hash_operator_constant(
     *hash.as_byte_array()
 }
 
-pub const WRAPPER_PUBLIC_VALUES_SIZE: usize = 32 + GRAPH_ID_SIZE + 32;
-
-pub fn wrapper_public_values(
-    operator_vk_hash: [u8; 32],
-    graph_id: [u8; GRAPH_ID_SIZE],
-    genesis_sequencer_commit_txid: [u8; 32],
-) -> [u8; WRAPPER_PUBLIC_VALUES_SIZE] {
-    let mut public_values = [0u8; WRAPPER_PUBLIC_VALUES_SIZE];
-    public_values[..32].copy_from_slice(&operator_vk_hash);
-    public_values[32..32 + GRAPH_ID_SIZE].copy_from_slice(&graph_id);
-    public_values[32 + GRAPH_ID_SIZE..].copy_from_slice(&genesis_sequencer_commit_txid);
-    public_values
-}
-
 // zkm_vk_hash: 66 bytes, prefix with '0x'
 pub fn zkm_vk_hash_to_raw(vk_hash: &[u8]) -> Result<[u8; 32], String> {
     let vk_hash =

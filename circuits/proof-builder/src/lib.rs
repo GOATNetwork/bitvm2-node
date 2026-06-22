@@ -68,13 +68,6 @@ pub enum ProofRequest {
         watchtower_challenge_txn_pubkeys: Vec<bitcoin::secp256k1::PublicKey>,
         watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
     },
-    WrapperProofRequest {
-        operator_proof_id: i64,
-        operator_input_proof: String,
-        graph_id: [u8; 16],
-        genesis_sequencer_commit_txid: String,
-        output: String,
-    },
 }
 
 #[derive(Error, Debug, Clone)]
@@ -140,7 +133,6 @@ pub enum ProofType {
     StateChain,
     Operator,
     Watchtower,
-    Wrapper,
 }
 
 const HEADER_CHAIN_NAME: &str = "header-chain";
@@ -148,7 +140,6 @@ const COMMIT_CHAIN_NAME: &str = "commit-chain";
 const STATE_CHAIN_NAME: &str = "state-chain";
 const OPERATOR_NAME: &str = "operator";
 const WATCHTOWER_NAME: &str = "watchtower";
-const WRAPPER_NAME: &str = "wrapper";
 impl ProofType {
     pub fn get_chain_name(&self) -> &'static str {
         match self {
@@ -157,7 +148,6 @@ impl ProofType {
             ProofType::StateChain => STATE_CHAIN_NAME,
             ProofType::Operator => OPERATOR_NAME,
             ProofType::Watchtower => WATCHTOWER_NAME,
-            ProofType::Wrapper => WRAPPER_NAME,
         }
     }
 }
@@ -190,14 +180,6 @@ pub struct ProofDesc {
 pub struct OperatorProofDescRequest {
     pub instance_id: String,
     pub graph_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct WrapperProofDescRequest {
-    pub operator_proof_id: Option<i64>,
-    pub instance_id: Option<String>,
-    pub graph_id: Option<String>,
-    pub genesis_sequencer_commit_txid: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -234,8 +216,7 @@ impl ProofData {
             | ProofType::CommitChain
             | ProofType::StateChain
             | ProofType::Watchtower
-            | ProofType::Operator
-            | ProofType::Wrapper => {
+            | ProofType::Operator => {
                 proof_data.proof = fs::read(path).unwrap_or_default();
                 proof_data.public_inputs =
                     fs::read(format!("{path}.public_inputs.bin")).unwrap_or_default();
@@ -255,35 +236,6 @@ impl ProofData {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OperatorProofResponse {
     pub proof_data: Option<ProofData>,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct WrapperProofMetadata {
-    pub id: i64,
-    pub operator_proof_id: i64,
-    pub instance_id: String,
-    pub graph_id: String,
-    pub operator_path_to_proof: String,
-    pub path_to_proof: Option<String>,
-    pub public_value_hex: Option<String>,
-    pub operator_vk_hash: String,
-    pub genesis_sequencer_commit_txid: String,
-    pub operator_public_value_hex: Option<String>,
-    pub proof_state: i64,
-    pub proof_size: i64,
-    pub cycles: i64,
-    pub total_time_to_proof: i64,
-    pub proving_time: i64,
-    pub zkm_version: String,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WrapperProofResponse {
-    pub proof_data: Option<ProofData>,
-    pub metadata: Option<WrapperProofMetadata>,
     pub error: Option<String>,
 }
 
@@ -329,39 +281,4 @@ pub struct WatchtowerProofTimeoutUpdateResponse {
     pub public_key: String,
     pub data: Option<String>,
     pub error: Option<String>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_proof_base() -> PathBuf {
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        std::env::temp_dir().join(format!("proof-data-test-{nanos}"))
-    }
-
-    #[test]
-    fn load_proof_data_omits_legacy_vk_sidecar() {
-        let base = temp_proof_base();
-        let base_str = base.to_string_lossy().to_string();
-        fs::write(&base, [1u8, 2, 3]).unwrap();
-        fs::write(format!("{base_str}.public_inputs.bin"), [4u8, 5, 6]).unwrap();
-        fs::write(format!("{base_str}.vk_hash.bin"), b"vk-hash").unwrap();
-        fs::write(format!("{base_str}.zkm_version.bin"), b"v1.2.5").unwrap();
-
-        let proof_data = ProofData::load_proof_data(&base_str, ProofType::Watchtower);
-        let ProofData { proof, vk, public_inputs, zkm_version } = proof_data;
-
-        assert_eq!(proof, vec![1u8, 2, 3]);
-        assert_eq!(public_inputs, vec![4u8, 5, 6]);
-        assert_eq!(vk, "vk-hash");
-        assert_eq!(zkm_version, "v1.2.5");
-
-        let _ = fs::remove_file(&base);
-        let _ = fs::remove_file(format!("{base_str}.public_inputs.bin"));
-        let _ = fs::remove_file(format!("{base_str}.vk_hash.bin"));
-        let _ = fs::remove_file(format!("{base_str}.zkm_version.bin"));
-    }
 }

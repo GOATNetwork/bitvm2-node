@@ -725,30 +725,6 @@ pub struct OperatorProof {
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
-pub struct WrapperProof {
-    pub id: i64,
-    pub operator_proof_id: i64,
-    pub instance_id: Uuid,
-    pub graph_id: Uuid,
-    pub execution_layer_block_number: i64,
-    pub operator_path_to_proof: String,
-    pub path_to_proof: Option<String>,
-    pub public_value_hex: Option<String>,
-    pub operator_vk_hash: String,
-    pub genesis_sequencer_commit_txid: String,
-    pub operator_public_value_hex: Option<String>,
-    pub proof_size: i64,
-    pub cycles: i64,
-    pub proof_state: i64,
-    pub total_time_to_proof: i64,
-    pub proving_time: i64,
-    pub zkm_version: String,
-    pub extra: Option<String>,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct LongRunningTaskProof {
     pub block_start: i64,
     pub block_end: i64,

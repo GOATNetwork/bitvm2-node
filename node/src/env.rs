@@ -80,8 +80,6 @@ pub const ENV_WATCHTOWER_PROOF_WAIT_SECS: &str = "WATCHTOWER_PROOF_WAIT_SECS";
 pub const ENV_OPERATOR_PROOF_WAIT_SECS: &str = "OPERATOR_PROOF_WAIT_SECS";
 pub const ENV_OPERATOR_VK_HASH: &str = "OPERATOR_VK_HASH";
 pub const ENV_OPERATOR_ZKM_VERSION: &str = "OPERATOR_ZKM_VERSION";
-pub const ENV_OPERATOR_WRAPPER_VK_HASH: &str = "OPERATOR_WRAPPER_VK_HASH";
-pub const ENV_OPERATOR_WRAPPER_ZKM_VERSION: &str = "OPERATOR_WRAPPER_ZKM_VERSION";
 pub const DEFAULT_WATCHTOWER_PROOF_WAIT_SECS: usize = 60;
 pub const DEFAULT_OPERATOR_PROOF_WAIT_SECS: usize = 60;
 pub const ENV_FGC_GATES_PATH: &str = "FGC_GATES_PATH";
@@ -611,16 +609,6 @@ pub fn get_operator_vk_hash() -> anyhow::Result<[u8; 32]> {
 pub fn get_operator_zkm_version() -> anyhow::Result<String> {
     std::env::var(ENV_OPERATOR_ZKM_VERSION)
         .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_ZKM_VERSION} needs to be set"))
-}
-
-pub fn get_operator_wrapper_vk_hash() -> anyhow::Result<String> {
-    std::env::var(ENV_OPERATOR_WRAPPER_VK_HASH)
-        .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_WRAPPER_VK_HASH} needs to be set"))
-}
-
-pub fn get_operator_wrapper_zkm_version() -> anyhow::Result<String> {
-    std::env::var(ENV_OPERATOR_WRAPPER_ZKM_VERSION)
-        .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_WRAPPER_ZKM_VERSION} needs to be set"))
 }
 
 pub struct BabeGcAssetPaths {

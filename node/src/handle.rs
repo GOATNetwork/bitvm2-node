@@ -1271,7 +1271,7 @@ async fn handle_gen_circuits_operator(
     let operator_state = state.operator.get_or_insert_with(|| OperatorBabeSetupState {
         frozen_verifier_pubkeys: None,
         candidates: vec![],
-        asserted_wrapper_proof: None,
+        asserted_operator_proof: None,
     });
 
     let was_frozen = operator_state.frozen_verifier_pubkeys.is_some();
@@ -3720,20 +3720,20 @@ async fn handle_assert_ready_operator(
     let dynamic_input = operator_proof.public_inputs[1];
     let assert_witness = build_assert_witness(&operator_proof.proof, &assert_secret_key, dynamic_input)?;
     let assert_message = assert_wots_message(&assert_witness)?;
-    let mut asserted_wrapper_proof = Vec::new();
-    operator_proof.proof.serialize_compressed(&mut asserted_wrapper_proof)?;
+    let mut asserted_operator_proof = Vec::new();
+    operator_proof.proof.serialize_compressed(&mut asserted_operator_proof)?;
     let mut setup_state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
         .ok_or_else(|| anyhow!("missing operator BABE setup state for graph {graph_id}"))?;
     let operator_state = setup_state
         .operator
         .as_mut()
         .ok_or_else(|| anyhow!("missing operator BABE setup state for graph {graph_id}"))?;
-    if let Some(existing) = &operator_state.asserted_wrapper_proof
-        && existing != &asserted_wrapper_proof
+    if let Some(existing) = &operator_state.asserted_operator_proof
+        && existing != &asserted_operator_proof
     {
-        bail!("operator assertion wrapper proof conflicts with persisted proof");
+        bail!("operator assertion proof conflicts with persisted proof");
     }
-    operator_state.asserted_wrapper_proof = Some(asserted_wrapper_proof);
+    operator_state.asserted_operator_proof = Some(asserted_operator_proof);
     save_babe_setup_state(ctx.local_db, instance_id, graph_id, &setup_state)?;
 
     let assert_tx = operator_sign_assert(&mut graph, &assert_secret_key, &assert_message)?;
@@ -4074,11 +4074,11 @@ async fn handle_challenge_assert_sent_operator(
         .as_ref()
         .ok_or_else(|| anyhow!("missing BABE prover state for verifier slot {verifier_index}"))?;
     let proof_bytes = operator_state
-        .asserted_wrapper_proof
+        .asserted_operator_proof
         .as_ref()
-        .ok_or_else(|| anyhow!("missing asserted wrapper proof for graph {graph_id}"))?;
+        .ok_or_else(|| anyhow!("missing asserted operator proof for graph {graph_id}"))?;
     let proof = Groth16Proof::deserialize_compressed(proof_bytes.as_slice())
-        .context("deserialize asserted wrapper proof")?;
+        .context("deserialize asserted operator proof")?;
     let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE wrongly challenged")?;
     let (_, dyn_pubin) = TxAssertWitness { wots_sig: challenge_witness.witness.wots_sig.clone() }
         .recover_pi1_xd_without_verify()
@@ -4763,7 +4763,7 @@ mod tests {
                 gc_data: None,
                 prover_state: None,
             }],
-            asserted_wrapper_proof: None,
+            asserted_operator_proof: None,
         }
     }
 
@@ -4780,7 +4780,7 @@ mod tests {
                 gc_data: None,
                 prover_state: None,
             }],
-            asserted_wrapper_proof: None,
+            asserted_operator_proof: None,
         };
 
         freeze_operator_candidates(&mut state).unwrap();

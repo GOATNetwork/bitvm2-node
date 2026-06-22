@@ -1,22 +1,20 @@
 use crate::api::ApiState;
-use crate::api::response::{ApiErrorExt, ApiResult, ErrorResponse, ok_response};
+use crate::api::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::api::validation::InputValidator;
 use crate::task::{
-    add_operator_task, add_watchtower_task, create_missing_wrapper_tasks, find_operator_task,
-    find_watchtower_task, update_operator_task_state, update_watchtower_task_state,
+    add_operator_task, add_watchtower_task, find_operator_task, find_watchtower_task,
+    update_operator_task_state, update_watchtower_task_state,
 };
 use axum::Json;
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
 use proof_builder::{
     ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
     OperatorProofTimeoutUpdateRequest, OperatorProofTimeoutUpdateResponse, ProofData, ProofDesc,
     ProofDescResponse, ProofType, WatchtowerProofRequest, WatchtowerProofResponse,
     WatchtowerProofTimeoutUpdateRequest, WatchtowerProofTimeoutUpdateResponse,
-    WrapperProofDescRequest, WrapperProofMetadata, WrapperProofResponse,
 };
 use std::sync::Arc;
-use store::{ProofState, WrapperProof};
+use store::ProofState;
 use tracing::info;
 
 #[axum::debug_handler]
@@ -189,62 +187,6 @@ pub(super) async fn post_operator_proof_task(
 }
 
 #[axum::debug_handler]
-pub(super) async fn get_wrapper_proof_task(
-    State(api_state): State<Arc<ApiState>>,
-    Query(payload): Query<WrapperProofDescRequest>,
-) -> ApiResult<WrapperProofResponse> {
-    let wrapper_proof = find_wrapper_proof_by_request(&api_state, &payload).await?;
-    match wrapper_proof {
-        Some(wrapper_proof)
-            if wrapper_proof.proof_state == ProofState::Proven.to_i64()
-                && wrapper_proof.path_to_proof.is_some() =>
-        {
-            ok_response(WrapperProofResponse {
-                proof_data: Some(ProofData::load_proof_data(
-                    wrapper_proof.path_to_proof.as_deref().unwrap(),
-                    ProofType::Wrapper,
-                )),
-                metadata: Some(wrapper_metadata(&wrapper_proof)),
-                error: None,
-            })
-        }
-        Some(wrapper_proof) => ok_response(WrapperProofResponse {
-            proof_data: None,
-            metadata: Some(wrapper_metadata(&wrapper_proof)),
-            error: Some(format!(
-                "The wrapper proof is not ready, state {}, path:{:?}",
-                wrapper_proof.proof_state, wrapper_proof.path_to_proof
-            )),
-        }),
-        None => ok_response(WrapperProofResponse {
-            proof_data: None,
-            metadata: None,
-            error: Some("No wrapper proof found".to_string()),
-        }),
-    }
-}
-
-#[axum::debug_handler]
-pub(super) async fn get_wrapper_proof_task_desc(
-    State(api_state): State<Arc<ApiState>>,
-    Query(payload): Query<WrapperProofDescRequest>,
-) -> ApiResult<WrapperProofResponse> {
-    let wrapper_proof = find_wrapper_proof_by_request(&api_state, &payload).await?;
-    match wrapper_proof {
-        Some(wrapper_proof) => ok_response(WrapperProofResponse {
-            proof_data: None,
-            metadata: Some(wrapper_metadata(&wrapper_proof)),
-            error: None,
-        }),
-        None => ok_response(WrapperProofResponse {
-            proof_data: None,
-            metadata: None,
-            error: Some("No wrapper proof found".to_string()),
-        }),
-    }
-}
-
-#[axum::debug_handler]
 pub(super) async fn update_operator_proof_task_timeout(
     State(api_state): State<Arc<ApiState>>,
     Json(payload): Json<OperatorProofTimeoutUpdateRequest>,
@@ -272,78 +214,6 @@ pub(super) async fn update_operator_proof_task_timeout(
             data: None,
             error: Some(format!("update error: {error}")),
         }),
-    }
-}
-
-async fn find_wrapper_proof_by_request(
-    api_state: &Arc<ApiState>,
-    payload: &WrapperProofDescRequest,
-) -> Result<Option<WrapperProof>, (StatusCode, Json<ErrorResponse>)> {
-    if let Some(operator_proof_id) = payload.operator_proof_id {
-        let mut storage_process =
-            api_state.local_db.acquire().await.api_error("GET_WRAPPER_PROOF_ERROR")?;
-        return storage_process
-            .find_wrapper_proof_by_operator_proof_id(operator_proof_id)
-            .await
-            .api_error("GET_WRAPPER_PROOF_ERROR");
-    }
-
-    let instance_id = InputValidator::validate_uuid(
-        payload.instance_id.as_deref().unwrap_or_default(),
-        "instance_id",
-    )?;
-    let graph_id =
-        InputValidator::validate_uuid(payload.graph_id.as_deref().unwrap_or_default(), "graph_id")?;
-
-    let wrapper_proof = {
-        let mut storage_process =
-            api_state.local_db.acquire().await.api_error("GET_WRAPPER_PROOF_ERROR")?;
-        storage_process
-            .find_wrapper_proof_by_instance_and_graph(&instance_id, &graph_id)
-            .await
-            .api_error("GET_WRAPPER_PROOF_ERROR")?
-    };
-
-    if wrapper_proof.is_some() {
-        return Ok(wrapper_proof);
-    }
-
-    if let Some(genesis_txid) = payload.genesis_sequencer_commit_txid.as_deref()
-        && !genesis_txid.is_empty()
-    {
-        create_missing_wrapper_tasks(&api_state.local_db, genesis_txid)
-            .await
-            .api_error("GET_WRAPPER_PROOF_ERROR")?;
-    }
-
-    let mut storage_process =
-        api_state.local_db.acquire().await.api_error("GET_WRAPPER_PROOF_ERROR")?;
-    storage_process
-        .find_wrapper_proof_by_instance_and_graph(&instance_id, &graph_id)
-        .await
-        .api_error("GET_WRAPPER_PROOF_ERROR")
-}
-
-fn wrapper_metadata(wrapper_proof: &WrapperProof) -> WrapperProofMetadata {
-    WrapperProofMetadata {
-        id: wrapper_proof.id,
-        operator_proof_id: wrapper_proof.operator_proof_id,
-        instance_id: wrapper_proof.instance_id.to_string(),
-        graph_id: wrapper_proof.graph_id.to_string(),
-        operator_path_to_proof: wrapper_proof.operator_path_to_proof.clone(),
-        path_to_proof: wrapper_proof.path_to_proof.clone(),
-        public_value_hex: wrapper_proof.public_value_hex.clone(),
-        operator_vk_hash: wrapper_proof.operator_vk_hash.clone(),
-        genesis_sequencer_commit_txid: wrapper_proof.genesis_sequencer_commit_txid.clone(),
-        operator_public_value_hex: wrapper_proof.operator_public_value_hex.clone(),
-        proof_state: wrapper_proof.proof_state,
-        proof_size: wrapper_proof.proof_size,
-        cycles: wrapper_proof.cycles,
-        total_time_to_proof: wrapper_proof.total_time_to_proof,
-        proving_time: wrapper_proof.proving_time,
-        zkm_version: wrapper_proof.zkm_version.clone(),
-        created_at: wrapper_proof.created_at,
-        updated_at: wrapper_proof.updated_at,
     }
 }
 

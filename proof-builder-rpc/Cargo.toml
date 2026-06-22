@@ -36,7 +36,6 @@ commit-chain = { workspace = true }
 state-chain-proof = { workspace = true }
 watchtower-proof = { workspace = true }
 operator-proof = { workspace = true }
-operator-wrapper-proof = { workspace = true }
 util = { workspace = true }
 client = { workspace = true }
 bitcoin-light-client-circuit.workspace = true

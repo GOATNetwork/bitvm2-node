@@ -73,9 +73,3 @@ graph_id="0x00112233445566778899aabbccddeeff"
 execution_layer_block_number = 9511055
 index = 1
 bitcoin_network = "regtest"
-
-[wrapper]
-enable = false
-output = "../circuits/data/wrapper/output.bin"
-genesis_sequencer_commit_txid = "5d5a29e1c426abc4b947f90b93c6b043683aafad79cb3b9a9829dfd5e51cad09"
-scan_interval = 30
