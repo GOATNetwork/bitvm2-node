@@ -28,6 +28,7 @@ use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::base::output_topology;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::pre_signed_musig2::verify_public_nonce;
+use goat::wots::{Wots, Wots96};
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm};
 use std::sync::Arc;
@@ -3749,6 +3750,27 @@ async fn handle_assert_ready_operator(
     Ok(())
 }
 
+/// Collects the on-chain ACK TxIns from all watchtowers that submitted a challenge_ack.
+/// Only connectors that are already spent are included; unspent ones are skipped.
+async fn collect_ack_txins(
+    btc_client: &BTCClient,
+    wci_txid: &Txid,
+    num_watchtowers: usize,
+) -> Result<Vec<bitcoin::TxIn>> {
+    let mut ack_txins = Vec::new();
+    for i in 0..num_watchtowers {
+        let ack_vout = output_topology::watchtower_challenge_init::ack_connector(i) as u64;
+        if let Some(ack_txid) = outpoint_spent_txid(btc_client, wci_txid, ack_vout).await? {
+            if let Some(ack_tx) = btc_client.get_tx(&ack_txid).await? {
+                if let Some(txin) = ack_tx.input.first().cloned() {
+                    ack_txins.push(txin);
+                }
+            }
+        }
+    }
+    Ok(ack_txins)
+}
+
 // verify Operator DynamicPublicInput and Proof; broadcast PubinDisprove or ChallengeAssert as needed.
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_assert_sent_verifier(
@@ -3758,7 +3780,6 @@ async fn handle_assert_sent_verifier(
     assert_txid: Txid,
     assert_witness: &Option<TxAssertWitness>,
 ) -> Result<()> {
-    // TODO: check pubin first, if invalid, directly send PubinDisprove without building ChallengeAssert transaction
     let (graph, _graph_status, _graph_sub_status) =
         match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::Challenge).await?
         {
@@ -3769,13 +3790,6 @@ async fn handle_assert_sent_verifier(
     let Some(assert_tx) = ctx.btc_client.get_tx(&assert_txid).await? else {
         tracing::warn!(
             "Ignore AssertSent for {instance_id}:{graph_id}: assert tx {assert_txid} not found on chain"
-        );
-        return Ok(());
-    };
-    let Some(assert_witness) = assert_witness else {
-        // TODO(gc-v2): recover BabeAssertWitness from the assert tx witness and graph.
-        tracing::warn!(
-            "Ignore AssertSent for {instance_id}:{graph_id}: assert witness is not available in message"
         );
         return Ok(());
     };
@@ -3791,6 +3805,86 @@ async fn handle_assert_sent_verifier(
         return Ok(());
     };
     validate_verifier_slot(&graph, verifier_index)?;
+
+    // check pubin first, if invalid, directly send PubinDisprove without building ChallengeAssert transaction
+    if let Ok(connector_e_input) = graph.watchtower_challenge_init.connector_e_input() {
+        let outpoint = connector_e_input.outpoint;
+        if let Some(commit_pubin_txid) =
+            outpoint_spent_txid(ctx.btc_client, &outpoint.txid, outpoint.vout as u64).await?
+        {
+            if let Some(commit_pubin_tx) = ctx.btc_client.get_tx(&commit_pubin_txid).await? {
+                if let Some(commit_pubin_txin) = commit_pubin_tx.input.first() {
+                    let assert_txin = assert_tx
+                        .input
+                        .first()
+                        .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
+                    let wci_txid = graph.watchtower_challenge_init.tx().compute_txid();
+                    let num_watchtowers = graph.parameters.watchtower_ack_hashlocks.len();
+                    let ack_txins = collect_ack_txins(ctx.btc_client, &wci_txid, num_watchtowers).await?;
+                    match validate_pubin_disprove(&graph, commit_pubin_txin, assert_txin, &ack_txins) {
+                        Ok(Some((witness_data, _))) => {
+                            // build pubin disprove Tx
+                            let pubin_disprove_txin =
+                                build_pubin_disprove_txin(&graph, witness_data)?;
+                            let pubin_disprove_tx = bitcoin::Transaction {
+                                version: bitcoin::transaction::Version(2),
+                                lock_time: bitcoin::absolute::LockTime::ZERO,
+                                input: vec![pubin_disprove_txin],
+                                output: vec![goat::scripts::p2a_output()],
+                            };
+                            broadcast_nonstandard_tx(ctx.btc_client, &pubin_disprove_tx).await?;
+                            let message_content =
+                                GOATMessageContent::DisproveSent(DisproveSent {
+                                    instance_id,
+                                    graph_id,
+                                    disprove_type: DisproveTxType::PubinDisprove,
+                                    index: verifier_index,
+                                    challenge_start_txid: None,
+                                    challenge_finish_txid: pubin_disprove_tx.compute_txid(),
+                                });
+                            send_to_peer(
+                                ctx.swarm,
+                                GOATMessage::new(Actor::Committee, message_content),
+                            )
+                                .await?;
+                            return Ok(());
+                        }
+                        Ok(None) => tracing::debug!(
+                            "PubinDisprove invalid for {instance_id}:{graph_id}: operator pubin consistent, proceeding to ChallengeAssert"
+                        ),
+                        Err(e) => tracing::warn!(
+                            "PubinDisprove check failed for {instance_id}:{graph_id}: {e}, proceeding to ChallengeAssert"
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    // recover TxAssertWitness from the assert tx witness and graph.
+    let assert_witness_recovered: TxAssertWitness;
+    let assert_witness: &TxAssertWitness = match assert_witness {
+        Some(w) => w,
+        None => {
+            let raw_witness = graph
+                .connector_c()
+                .extract_leaf_1_raw_witness(
+                    assert_tx
+                        .input
+                        .first()
+                        .ok_or_else(|| anyhow!("operator assert transaction has no input"))?,
+                )
+                .map_err(|e| anyhow!("failed to extract WOTS signature from assert tx: {e}"))?;
+            let mut bitcoin_witness = bitcoin::Witness::new();
+            for item in &raw_witness {
+                bitcoin_witness.push(item);
+            }
+            assert_witness_recovered = TxAssertWitness {
+                wots_sig: Wots96::raw_witness_to_signature(&bitcoin_witness).to_vec(),
+            };
+            &assert_witness_recovered
+        }
+    };
 
     let Some(saved_verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
         .and_then(|state| state.verifier)
@@ -4594,7 +4688,7 @@ async fn handle_response_node_info(
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-
+    use bitcoin::hashes::Hash;
     use bitvm_lib::babe_adapter::{
         BABE_M_CC, BabeProverState, build_setup_package, open_and_solder,
     };
@@ -4714,5 +4808,65 @@ mod tests {
         let restored: OperatorBabeSetupState = serde_json::from_value(value).unwrap();
 
         assert!(restored.candidates[0].prover_state.is_none());
+    }
+
+    // ── collect_ack_txins ─────────────────────────────────────────────────────
+
+    fn make_txid(byte: u8) -> Txid {
+        Txid::from_byte_array([byte; 32])
+    }
+
+    fn make_confirmed_ack_tx(ack_txid: Txid, wci_txid: Txid, ack_vout: u32) -> esplora_client::Tx {
+        use esplora_client::{TxStatus, Vin};
+        let preimage = b"test-ack-preimage".to_vec();
+        esplora_client::Tx {
+            txid: ack_txid,
+            version: 2,
+            locktime: 0,
+            vin: vec![Vin {
+                txid: wci_txid,
+                vout: ack_vout,
+                prevout: None,
+                scriptsig: bitcoin::ScriptBuf::default(),
+                witness: vec![preimage],
+                sequence: 1,
+                is_coinbase: false,
+            }],
+            vout: vec![],
+            size: 1,
+            weight: 1,
+            status: TxStatus {
+                confirmed: true,
+                block_height: Some(800_000),
+                block_hash: None,
+                block_time: Some(1_000_000),
+            },
+            fee: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn collect_ack_txins_returns_only_spent_connectors() {
+        let (btc_client, mock) = client::btc_chain::BTCClient::new_mock_client();
+        let wci_txid = make_txid(0x00);
+        let ack_txid_0 = make_txid(0x01);
+        let num_watchtowers = 3;
+
+        // Watchtower 0 ACKed
+        let vout_0 = output_topology::watchtower_challenge_init::ack_connector(0) as u32;
+        mock.set_tx(ack_txid_0, make_confirmed_ack_tx(ack_txid_0, wci_txid, vout_0));
+
+        // Watchtower 1 did NOT ACK (connector unspent — nothing registered)
+
+        // Watchtower 2 ACKed
+        let ack_txid_2 = make_txid(0x02);
+        let vout_2 = output_topology::watchtower_challenge_init::ack_connector(2) as u32;
+        mock.set_tx(ack_txid_2, make_confirmed_ack_tx(ack_txid_2, wci_txid, vout_2));
+
+        let txins = collect_ack_txins(&btc_client, &wci_txid, num_watchtowers).await.unwrap();
+
+        assert_eq!(txins.len(), 2);
+        assert_eq!(txins[0].previous_output.vout, vout_0);
+        assert_eq!(txins[1].previous_output.vout, vout_2);
     }
 }
