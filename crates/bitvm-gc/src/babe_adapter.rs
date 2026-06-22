@@ -20,11 +20,11 @@ use verifiable_circuit_babe::babe::{WeKnownPi1SetupCt, GC_INPUT_WIRES, build_cha
 pub use verifiable_circuit_babe::cac::{CACSetupPackage, FinalizedInstanceData};
 use verifiable_circuit_babe::cac::cac_finalize_indices;
 use verifiable_circuit_babe::gc::{SparseAdaptorTable, SGC_PART1_CONSTANT_SIZE};
-use verifiable_circuit_babe::instance::commit::CACInstanceCommit;
+pub use verifiable_circuit_babe::instance::commit::CACInstanceCommit;
 use verifiable_circuit_babe::prover::BABEProver;
 use verifiable_circuit_babe::soldering::{SolderedLabelsData, SolderingData as RealSolderingData, SolderingProof as RealSolderingProof};
 pub use verifiable_circuit_babe::transactions::TxAssertWitness;
-use verifiable_circuit_babe::transactions::ChallengeAssertWitnessRaw;
+pub use verifiable_circuit_babe::transactions::ChallengeAssertWitnessRaw;
 use verifiable_circuit_babe::utils::pi1_xd_to_wots96_msg;
 use verifiable_circuit_babe::verifier::BABEVerifier;
 use crate::types::BitvmGcCircuitData;
