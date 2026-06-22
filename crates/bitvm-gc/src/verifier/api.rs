@@ -9,8 +9,9 @@ use goat::{
     scripts::{generate_opreturn_script, p2a_output},
     transactions::{
         assert::{pubin_disprove, validate_pubin},
-        base::DUST_AMOUNT,
+        base::{DUST_AMOUNT, output_topology},
         pre_signed::PreSignedTransaction,
+        watchtower_challenge::extract_operator_preimage_from_ack_txin,
     },
     utils::num_blocks_per_network,
 };
@@ -179,8 +180,26 @@ pub fn validate_pubin_disprove(
     graph: &BitvmGcGraph,
     operator_commit_pubin_txin: &TxIn,
     operator_assert_txin: &TxIn,
-    ack_preimages: Vec<Vec<u8>>,
+    operator_ack_txins: &[TxIn],
 ) -> Result<Option<(RawWitness, ScriptBuf)>> {
+    let watchtower_num = graph.parameters.watchtower_pubkeys.len();
+    let mut ack_preimages = vec![vec![]; watchtower_num];
+    for txin in operator_ack_txins {
+        let vout = txin.previous_output.vout as usize;
+        if vout % 2 != 1 {
+            bail!("invalid ack txin in operator_ack_txins, unexpected vout: {vout}");
+        }
+        let watchtower_index = vout / 2;
+        if watchtower_index >= watchtower_num
+            || vout != output_topology::watchtower_challenge_init::ack_connector(watchtower_index)
+        {
+            bail!("invalid ack txin in operator_ack_txins, unexpected vout: {vout}");
+        }
+        let preimage = extract_operator_preimage_from_ack_txin(txin)
+            .map_err(|e| anyhow::anyhow!("failed to extract preimage from ack txin: {e}"))?;
+        ack_preimages[watchtower_index] = preimage;
+    }
+
     let connector_e = graph.connector_e();
     let connector_c = graph.connector_c();
     let operator_commit_pubin_witness = connector_e
