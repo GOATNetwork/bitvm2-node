@@ -15,7 +15,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use bitcoin::{Amount, OutPoint, Txid};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm_lib::actors::Actor;
-use bitvm_lib::babe_adapter::{BABE_M_CC, BABE_N_CC, BabeBundleBuilder, BabeChallengeAssertWitness, BabeProverState, CompactSolderingProofPayload, TxAssertWitness, assert_wots_message, build_assert_witness, build_real_challenge_assert_witness, build_real_setup_package, derive_finalized_indices, expand_compact_soldering_proof_payload, extract_gc_circuit_data, open_real_setup_and_solder, recover_real_wrongly_challenged_witness, verify_real_setup, CACSetupPackage};
+use bitvm_lib::babe_adapter::{BABE_M_CC, BABE_N_CC, BabeBundleBuilder, BabeChallengeAssertWitness, BabeProverState, ChallengeAssertWitnessRaw, CompactSolderingProofPayload, TxAssertWitness, assert_wots_message, build_assert_witness, build_real_challenge_assert_witness, build_real_setup_package, derive_finalized_indices, expand_compact_soldering_proof_payload, extract_gc_circuit_data, open_real_setup_and_solder, recover_real_wrongly_challenged_witness, verify_real_setup, CACSetupPackage, WOTS_SIG_COUNT};
 use bitvm_lib::committee::*;
 use bitvm_lib::keys::*;
 use bitvm_lib::operator::*;
@@ -3750,6 +3750,40 @@ async fn handle_assert_ready_operator(
     Ok(())
 }
 
+/// Recovers a `BabeChallengeAssertWitness` from the on-chain challenge assert tx.
+fn recover_challenge_assert_witness(
+    challenge_assert_tx: &bitcoin::Transaction,
+    verifier_index: usize,
+) -> Result<BabeChallengeAssertWitness> {
+    let txin = challenge_assert_tx
+        .input
+        .first()
+        .ok_or_else(|| anyhow!("challenge assert tx has no input"))?;
+    let items: Vec<Vec<u8>> = txin.witness.to_vec();
+    let expected_len = 2 * WOTS_SIG_COUNT + goat::assert_scripts::INPUT_WIRE_NUM + 2;
+    if items.len() != expected_len {
+        bail!(
+            "unexpected challenge assert witness length: {} (expected {expected_len})",
+            items.len()
+        );
+    }
+    let mut bitcoin_witness = bitcoin::Witness::new();
+    for item in &items[..2 * WOTS_SIG_COUNT] {
+        bitcoin_witness.push(item);
+    }
+    let wots_sig = Wots96::raw_witness_to_signature(&bitcoin_witness).to_vec();
+    let input_labels: Vec<[u8; 16]> = items
+        [2 * WOTS_SIG_COUNT..2 * WOTS_SIG_COUNT + goat::assert_scripts::INPUT_WIRE_NUM]
+        .iter()
+        .map(|item| item.as_slice().try_into())
+        .collect::<Result<_, _>>()
+        .map_err(|_| anyhow!("challenge assert label item is not 16 bytes"))?;
+    Ok(BabeChallengeAssertWitness {
+        verifier_index,
+        witness: ChallengeAssertWitnessRaw { input_labels, wots_sig },
+    })
+}
+
 /// Collects the on-chain ACK TxIns from all watchtowers that submitted a challenge_ack.
 /// Only connectors that are already spent are included; unspent ones are skipped.
 async fn collect_ack_txins(
@@ -3963,16 +3997,7 @@ async fn handle_challenge_assert_sent_operator(
             Some(v) => v,
             None => return Ok(()),
         };
-    let Some(challenge_witness) = challenge_witness else {
-        // TODO(gc-v2): recover BabeChallengeAssertWitness from the challenge tx witness and graph.
-        tracing::warn!(
-            "Ignore ChallengeAssertSent for {instance_id}:{graph_id}: challenge witness is not available in message"
-        );
-        return Ok(());
-    };
-
     validate_verifier_slot(&graph, verifier_index)?;
-    validate_challenge_witness_index(verifier_index, challenge_witness)?;
     validate_expected_challenge_assert_txid(&graph, verifier_index, challenge_assert_txid)?;
 
     let Some(challenge_assert_tx) = ctx.btc_client.get_tx(&challenge_assert_txid).await? else {
@@ -3985,6 +4010,17 @@ async fn handle_challenge_assert_sent_operator(
         );
         return Ok(());
     };
+
+    let challenge_witness_recovered: BabeChallengeAssertWitness;
+    let challenge_witness: &BabeChallengeAssertWitness = match challenge_witness {
+        Some(w) => w,
+        None => {
+            challenge_witness_recovered =
+                recover_challenge_assert_witness(&challenge_assert_tx, verifier_index)?;
+            &challenge_witness_recovered
+        }
+    };
+    validate_challenge_witness_index(verifier_index, challenge_witness)?;
 
     let labels: [Vec<u8>; goat::assert_scripts::INPUT_WIRE_NUM] = challenge_witness
         .witness
@@ -4868,5 +4904,85 @@ mod tests {
         assert_eq!(txins.len(), 2);
         assert_eq!(txins[0].previous_output.vout, vout_0);
         assert_eq!(txins[1].previous_output.vout, vout_2);
+    }
+
+    // ── recover_challenge_assert_witness ──────────────────────────────────────
+
+    fn build_challenge_assert_tx(
+        sig: &<Wots96 as Wots>::Signature,
+        labels: &[[u8; 16]],
+    ) -> bitcoin::Transaction {
+        let mut witness = bitcoin::Witness::new();
+        let raw_wots = Wots96::signature_to_raw_witness(sig);
+        for item in raw_wots.iter() {
+            witness.push(item);
+        }
+        for label in labels {
+            witness.push(label.as_slice());
+        }
+        witness.push(&[0xde, 0xad]); // placeholder script
+        witness.push(&[0xbe, 0xef]); // placeholder control block
+        bitcoin::Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![bitcoin::TxIn { witness, ..Default::default() }],
+            output: vec![],
+        }
+    }
+
+    #[test]
+    fn recover_challenge_assert_witness_extracts_wots_sig_and_labels() {
+        use bitvm_lib::operator::generate_assert_wots_key;
+
+        let (sk, _) = generate_assert_wots_key("test-challenge-witness");
+        let msg = [0x42u8; 96];
+        let sig = Wots96::sign(&sk, &msg);
+
+        let labels: Vec<[u8; 16]> = (0..goat::assert_scripts::INPUT_WIRE_NUM)
+            .map(|i| [(i % 256) as u8; 16])
+            .collect();
+
+        let tx = build_challenge_assert_tx(&sig, &labels);
+        let verifier_index = 3;
+        let recovered = recover_challenge_assert_witness(&tx, verifier_index).unwrap();
+
+        assert_eq!(recovered.verifier_index, verifier_index);
+        assert_eq!(recovered.witness.wots_sig.len(), WOTS_SIG_COUNT);
+        assert_eq!(recovered.witness.input_labels.len(), goat::assert_scripts::INPUT_WIRE_NUM);
+
+        let mut bw = bitcoin::Witness::new();
+        for item in Wots96::signature_to_raw_witness(&sig).iter() {
+            bw.push(item);
+        }
+        assert_eq!(recovered.witness.wots_sig, Wots96::raw_witness_to_signature(&bw).to_vec());
+
+        // labels are correctly extracted
+        for (i, label) in recovered.witness.input_labels.iter().enumerate() {
+            assert_eq!(label[0], (i % 256) as u8, "label {i} mismatch");
+        }
+    }
+
+    #[test]
+    fn recover_challenge_assert_witness_rejects_wrong_length() {
+        use bitvm_lib::operator::generate_assert_wots_key;
+
+        let (sk, _) = generate_assert_wots_key("test-wrong-len");
+        let sig = Wots96::sign(&sk, &[0u8; 96]);
+        let labels: Vec<[u8; 16]> = vec![[0u8; 16]; goat::assert_scripts::INPUT_WIRE_NUM];
+
+        // one label short
+        let mut short_labels = labels.clone();
+        short_labels.pop();
+        let bad_tx = build_challenge_assert_tx(&sig, &short_labels);
+        assert!(recover_challenge_assert_witness(&bad_tx, 0).is_err());
+
+        // no inputs at all
+        let empty_tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        assert!(recover_challenge_assert_witness(&empty_tx, 0).is_err());
     }
 }
