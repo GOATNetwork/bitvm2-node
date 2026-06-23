@@ -2012,6 +2012,29 @@ pub async fn compute_operator_pubin_blockhash_and_bitmap(
     Ok((btc_best_block_hash, included_watchtowers))
 }
 
+async fn get_operator_committed_blockhash(
+    btc_client: &BTCClient,
+    challenge_txids: &[Option<String>],
+    included_watchtowers_bits: &[bool],
+    graph_id: Uuid,
+) -> Result<Option<String>> {
+    match compute_operator_pubin_blockhash_and_bitmap(
+        btc_client,
+        challenge_txids,
+        included_watchtowers_bits,
+    )
+    .await
+    {
+        Ok((btc_best_block_hash, _)) => {
+            Ok(Some(BlockHash::from_byte_array(btc_best_block_hash).to_string()))
+        }
+        Err(e) => {
+            warn!("operator proof inputs are not ready for graph {graph_id}: {e}");
+            Ok(None)
+        }
+    }
+}
+
 /// Assembles the 96-byte guest pubin:
 pub fn build_operator_guest_pubin(
     btc_best_block_hash: &[u8; 32],
@@ -2145,13 +2168,16 @@ pub async fn get_operator_wrapper_proof(
             return Ok((None, get_operator_proof_wait_secs()));
         }
     };
-    let (btc_best_block_hash, _) = compute_operator_pubin_blockhash_and_bitmap(
+    let Some(operator_committed_blockhash) = get_operator_committed_blockhash(
         btc_client,
         &watchtower_challenge_txids,
         &included_watchtowers,
+        graph_id,
     )
-    .await?;
-    let operator_committed_blockhash = BlockHash::from_byte_array(btc_best_block_hash).to_string();
+    .await?
+    else {
+        return Ok((None, get_operator_proof_wait_secs()));
+    };
 
     let base_url = Url::parse(
         &get_proof_build_rpc_host()
@@ -2283,13 +2309,16 @@ pub async fn get_operator_proof(
             return Ok((None, get_operator_proof_wait_secs()));
         }
     };
-    let (btc_best_block_hash, _) = compute_operator_pubin_blockhash_and_bitmap(
+    let Some(operator_committed_blockhash) = get_operator_committed_blockhash(
         btc_client,
         &watchtower_challenge_txids,
         &included_watchtowers,
+        graph_id,
     )
-    .await?;
-    let operator_committed_blockhash = BlockHash::from_byte_array(btc_best_block_hash).to_string();
+    .await?
+    else {
+        return Ok((None, get_operator_proof_wait_secs()));
+    };
 
     let base_url = Url::parse(
         &get_proof_build_rpc_host()
@@ -2349,7 +2378,10 @@ pub async fn get_operator_proof(
     let ark_proof =
         convert_ark_imm_wrap_vk(&proof, &proof_data.vk, &IMM_GROTH16_VK_BYTES, &part_stark_vk)
             .map_err(|e| anyhow!("failed to convert operator proof to ark format: {e}"))?;
-    if ark_proof.public_inputs[0] != statement.static_input {
+    let Some(static_input) = ark_proof.public_inputs.first() else {
+        bail!("operator proof has no public inputs");
+    };
+    if *static_input != statement.static_input {
         bail!("operator proof static public input does not match graph setup statement");
     }
 
@@ -5205,10 +5237,18 @@ mod commit_pubin_tests {
         let challenge_txid_wt0 = make_txid(0x01);
         let block_hash = make_block_hash(0xAA);
 
-        // watchtower 0 spent vout 0 of the init tx; watchtower 1 did not spend vout 1
+        let challenge_vout_0 =
+            output_topology::watchtower_challenge_init::watchtower_connector(0) as u32;
+
+        // watchtower 0 spent its challenge connector; watchtower 1 left its connector unspent.
         mock_adaptor.set_tx(
             challenge_txid_wt0,
-            create_confirmed_tx(challenge_txid_wt0, &[(watchtower_init_txid, 0)], 100, block_hash),
+            create_confirmed_tx(
+                challenge_txid_wt0,
+                &[(watchtower_init_txid, challenge_vout_0)],
+                100,
+                block_hash,
+            ),
         );
 
         let (txids, bits) = get_watchtower_challenge_info(
@@ -5233,14 +5273,29 @@ mod commit_pubin_tests {
         let block_hash_low = make_block_hash(0x10);
         let block_hash_high = make_block_hash(0x20);
 
+        let challenge_vout_0 =
+            output_topology::watchtower_challenge_init::watchtower_connector(0) as u32;
+        let challenge_vout_2 =
+            output_topology::watchtower_challenge_init::watchtower_connector(2) as u32;
+
         // wt0 confirmed at height 100, wt2 at height 200 (highest)
         mock_adaptor.set_tx(
             challenge_txid_wt0,
-            create_confirmed_tx(challenge_txid_wt0, &[(init_txid, 0)], 100, block_hash_low),
+            create_confirmed_tx(
+                challenge_txid_wt0,
+                &[(init_txid, challenge_vout_0)],
+                100,
+                block_hash_low,
+            ),
         );
         mock_adaptor.set_tx(
             challenge_txid_wt2,
-            create_confirmed_tx(challenge_txid_wt2, &[(init_txid, 2)], 200, block_hash_high),
+            create_confirmed_tx(
+                challenge_txid_wt2,
+                &[(init_txid, challenge_vout_2)],
+                200,
+                block_hash_high,
+            ),
         );
 
         let challenge_txids =

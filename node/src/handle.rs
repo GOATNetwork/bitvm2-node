@@ -511,8 +511,15 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
             }),
             Actor::Verifier,
         ) => {
-            handle_assert_sent_verifier(ctx, *instance_id, *graph_id, *assert_txid, assert_witness)
-                .await
+            handle_assert_sent_verifier(
+                ctx,
+                *instance_id,
+                *graph_id,
+                *assert_txid,
+                assert_witness,
+                content,
+            )
+            .await
         }
         (
             GOATMessageContent::ChallengeAssertSent(ChallengeAssertSent {
@@ -3870,19 +3877,40 @@ async fn handle_operator_commit_pubin_ready_operator(
     let watchtower_challenge_init_txid =
         SerializableTxid::from(graph.watchtower_challenge_init.tx().compute_txid());
     let num_watchtowers = graph.parameters.watchtower_pubkeys.len();
-    let (challenge_txids, included_watchtowers_bits) = get_watchtower_challenge_info(
+    let wait_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) as usize;
+    let (challenge_txids, included_watchtowers_bits) = match get_watchtower_challenge_info(
         ctx.btc_client,
         &watchtower_challenge_init_txid,
         num_watchtowers,
     )
-    .await?;
+    .await
+    {
+        Ok(info) => info,
+        Err(e) => {
+            tracing::info!(
+                "Retry OperatorCommitPubinReady later for {instance_id}:{graph_id}: challenge info is not ready: {e}"
+            );
+            push_local_unhandled_messages(ctx.local_db, graph_id, &message, wait_secs).await?;
+            return Ok(());
+        }
+    };
     let (btc_best_block_hash, included_watchtowers_bitmap) =
-        compute_operator_pubin_blockhash_and_bitmap(
+        match compute_operator_pubin_blockhash_and_bitmap(
             ctx.btc_client,
             &challenge_txids,
             &included_watchtowers_bits,
         )
-        .await?;
+        .await
+        {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                tracing::info!(
+                    "Retry OperatorCommitPubinReady later for {instance_id}:{graph_id}: operator pubin inputs are not ready: {e}"
+                );
+                push_local_unhandled_messages(ctx.local_db, graph_id, &message, wait_secs).await?;
+                return Ok(());
+            }
+        };
     let guest_pubin = build_operator_guest_pubin(
         &btc_best_block_hash,
         &graph.parameters.pubin_disprove_constant,
@@ -4018,7 +4046,12 @@ async fn handle_assert_ready_operator(
             operator_proof.public_inputs.len()
         );
     }
-    let dynamic_input = operator_proof.public_inputs[1];
+    let dynamic_input = operator_proof.public_inputs.get(1).copied().ok_or_else(|| {
+        anyhow!(
+            "operator proof has {} public inputs; expected dynamic input at index 1",
+            operator_proof.public_inputs.len()
+        )
+    })?;
     let assert_witness =
         build_assert_witness(&operator_proof.proof, &assert_secret_key, dynamic_input)?;
     let assert_message = assert_wots_message(&assert_witness)?;
@@ -4087,22 +4120,28 @@ fn recover_challenge_assert_witness(
 }
 
 /// Collects the on-chain ACK TxIns from all watchtowers that submitted a challenge_ack.
-/// Only connectors that are already spent are included; unspent ones are skipped.
+/// Unspent ACK connectors are skipped; spent connectors must resolve to the spending input.
 async fn collect_ack_txins(
     btc_client: &BTCClient,
     wci_txid: &Txid,
-    num_watchtowers: usize,
+    watchtower_timeout_txids: &[Txid],
 ) -> Result<Vec<bitcoin::TxIn>> {
     let mut ack_txins = Vec::new();
-    for i in 0..num_watchtowers {
+    for (i, timeout_txid) in watchtower_timeout_txids.iter().enumerate() {
         let ack_vout = output_topology::watchtower_challenge_init::ack_connector(i) as u64;
-        if let Some(ack_txid) = outpoint_spent_txid(btc_client, wci_txid, ack_vout).await? {
-            if let Some(ack_tx) = btc_client.get_tx(&ack_txid).await? {
-                if let Some(txin) = ack_tx.input.first().cloned() {
-                    ack_txins.push(txin);
-                }
-            }
+        let Some(ack_spent_txid) = outpoint_spent_txid(btc_client, wci_txid, ack_vout).await?
+        else {
+            continue;
+        };
+        if &ack_spent_txid == timeout_txid {
+            continue;
         }
+        let Some((_spent_txid, _vin, txin)) =
+            outpoint_spent_txin(btc_client, wci_txid, ack_vout).await?
+        else {
+            bail!("ACK spending tx {ack_spent_txid} for watchtower {i} is unavailable");
+        };
+        ack_txins.push(txin);
     }
     Ok(ack_txins)
 }
@@ -4115,6 +4154,7 @@ async fn handle_assert_sent_verifier(
     graph_id: Uuid,
     assert_txid: Txid,
     assert_witness: &Option<TxAssertWitness>,
+    content: &GOATMessageContent,
 ) -> Result<()> {
     let (graph, _graph_status, _graph_sub_status) =
         match refresh_graph_status(ctx, instance_id, graph_id, None, GraphStatus::Challenge).await?
@@ -4155,9 +4195,36 @@ async fn handle_assert_sent_verifier(
                         .first()
                         .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
                     let wci_txid = graph.watchtower_challenge_init.tx().compute_txid();
-                    let num_watchtowers = graph.parameters.watchtower_ack_hashlocks.len();
-                    let ack_txins =
-                        collect_ack_txins(ctx.btc_client, &wci_txid, num_watchtowers).await?;
+                    let watchtower_timeout_txids = graph
+                        .watchtower_challenge_timeouts
+                        .iter()
+                        .map(|tx| tx.tx().compute_txid())
+                        .collect::<Vec<_>>();
+                    let ack_txins = match collect_ack_txins(
+                        ctx.btc_client,
+                        &wci_txid,
+                        &watchtower_timeout_txids,
+                    )
+                    .await
+                    {
+                        Ok(txins) => txins,
+                        Err(e) => {
+                            let delay_secs =
+                                todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                            let message = make_message(ctx, content);
+                            push_local_unhandled_messages(
+                                ctx.local_db,
+                                graph_id,
+                                &message,
+                                delay_secs as usize,
+                            )
+                            .await?;
+                            tracing::info!(
+                                "Retry AssertSent later for {instance_id}:{graph_id}: ACK inputs are not ready: {e}"
+                            );
+                            return Ok(());
+                        }
+                    };
                     match validate_pubin_disprove(
                         &graph,
                         commit_pubin_txin,
@@ -5203,20 +5270,23 @@ mod tests {
         let (btc_client, mock) = client::btc_chain::BTCClient::new_mock_client();
         let wci_txid = make_txid(0x00);
         let ack_txid_0 = make_txid(0x01);
-        let num_watchtowers = 3;
+        let timeout_txid_1 = make_txid(0x03);
+        let timeout_txids = vec![make_txid(0x10), timeout_txid_1, make_txid(0x12)];
 
         // Watchtower 0 ACKed
         let vout_0 = output_topology::watchtower_challenge_init::ack_connector(0) as u32;
         mock.set_tx(ack_txid_0, make_confirmed_ack_tx(ack_txid_0, wci_txid, vout_0));
 
-        // Watchtower 1 did NOT ACK (connector unspent — nothing registered)
+        // Watchtower 1 timed out; the timeout spend must not count as an ACK.
+        let vout_1 = output_topology::watchtower_challenge_init::ack_connector(1) as u32;
+        mock.set_tx(timeout_txid_1, make_confirmed_ack_tx(timeout_txid_1, wci_txid, vout_1));
 
         // Watchtower 2 ACKed
         let ack_txid_2 = make_txid(0x02);
         let vout_2 = output_topology::watchtower_challenge_init::ack_connector(2) as u32;
         mock.set_tx(ack_txid_2, make_confirmed_ack_tx(ack_txid_2, wci_txid, vout_2));
 
-        let txins = collect_ack_txins(&btc_client, &wci_txid, num_watchtowers).await.unwrap();
+        let txins = collect_ack_txins(&btc_client, &wci_txid, &timeout_txids).await.unwrap();
 
         assert_eq!(txins.len(), 2);
         assert_eq!(txins[0].previous_output.vout, vout_0);
