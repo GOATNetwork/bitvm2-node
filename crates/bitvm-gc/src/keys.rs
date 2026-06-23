@@ -338,18 +338,20 @@ impl CommitteeMasterKey {
         Ok(())
     }
 
-    pub fn nonces_for_graph_with_keypair(
+    pub fn nonces_for_graph_job_with_keypair(
         &self,
         instance_id: Uuid,
         graph_id: Uuid,
+        graph_parameters_hash: [u8; 32],
         watchtower_num: usize,
         verifier_num: usize,
         signer_keypair: Keypair,
     ) -> (CommitteePubNonces, CommitteeSecNonces, CommitteeNonceSignatures) {
         let domain = [
-            b"committee_bitvm_graph_nonces".to_vec(),
+            b"committee_bitvm_graph_nonces_v2".to_vec(),
             instance_id.as_bytes().to_vec(),
             graph_id.as_bytes().to_vec(),
+            graph_parameters_hash.to_vec(),
         ]
         .concat();
         let nonce_seed = derive_secret(&signer_keypair, &domain);
@@ -362,13 +364,18 @@ impl CommitteeMasterKey {
         )
     }
 
-    pub fn nonce_for_instance_with_keypair(
+    pub fn nonce_for_instance_job_with_keypair(
         &self,
         instance_id: Uuid,
+        instance_parameters_hash: [u8; 32],
         signer_keypair: Keypair,
     ) -> (SecNonce, PubNonce, SchnorrSignature) {
-        let domain =
-            [b"committee_bitvm_instance_nonce".to_vec(), instance_id.as_bytes().to_vec()].concat();
+        let domain = [
+            b"committee_bitvm_instance_nonce_v2".to_vec(),
+            instance_id.as_bytes().to_vec(),
+            instance_parameters_hash.to_vec(),
+        ]
+        .concat();
         let nonce_seed = derive_secret(&signer_keypair, &domain);
         generate_nonce(signer_keypair, nonce_seed.as_bytes(), 0)
     }

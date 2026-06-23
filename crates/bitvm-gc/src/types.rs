@@ -48,6 +48,7 @@ use goat::{
 use secp256k1::SECP256K1;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -665,6 +666,34 @@ impl BitvmGcGraph {
             graph.committee_pre_signed = true;
         }
         Ok(graph)
+    }
+}
+
+impl SimplifiedBitvmGcGraph {
+    pub fn operator_pre_signed(&self) -> bool {
+        self.operator_pre_signed
+    }
+
+    pub fn committee_pre_signed(&self) -> bool {
+        self.committee_pre_signed
+    }
+
+    pub fn parameters_hash(&self) -> Result<[u8; 32]> {
+        self.parameters.parameters_hash()
+    }
+}
+
+impl BitvmGcInstanceParameters {
+    pub fn parameters_hash(&self) -> Result<[u8; 32]> {
+        let encoded = serde_json::to_vec(self)?;
+        Ok(Sha256::digest(encoded).into())
+    }
+}
+
+impl BitvmGcGraphParameters {
+    pub fn parameters_hash(&self) -> Result<[u8; 32]> {
+        let encoded = serde_json::to_vec(self)?;
+        Ok(Sha256::digest(encoded).into())
     }
 }
 

@@ -1,16 +1,23 @@
 use anyhow::{Result, bail, ensure};
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{PublicKey, Transaction, key::Keypair, taproot::Signature as TaprootSignature};
+use bitcoin::{
+    PublicKey, Script, TapLeafHash, TapSighash, TapSighashType, Transaction, TxOut,
+    key::Keypair,
+    sighash::{Prevouts, SighashCache},
+    taproot::{LeafVersion, Signature as TaprootSignature},
+};
 use goat::contexts::base::generate_n_of_n_public_key;
 use goat::transactions::base::BaseTransaction;
+use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::pre_signed_musig2::{get_nonce_message, verify_public_nonce};
 use goat::transactions::signing_musig2::generate_aggregated_nonce;
-use musig2::{AggNonce, PartialSignature, PubNonce, SecNonce};
+use musig2::secp::Point;
+use musig2::{AggNonce, KeyAggContext, PartialSignature, PubNonce, SecNonce, verify_partial};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
 
 use crate::keys::hkdf_derive_bytes;
-use crate::types::BitvmGcGraph;
+use crate::types::{BitvmGcGraph, BitvmGcInstanceParameters};
 
 const COMMITTEE_NONCE_HKDF_SALT: &[u8] = b"bitvm-gc/committee-nonce/v1";
 
@@ -396,6 +403,256 @@ pub fn signature_aggregation(
     res.disprove = disprove_sigs;
 
     Ok(res)
+}
+
+fn taproot_script_spend_sighash(
+    tx: &Transaction,
+    input_index: usize,
+    prevouts: &[TxOut],
+    leaf_hash: TapLeafHash,
+    sighash_type: TapSighashType,
+) -> TapSighash {
+    if sighash_type == TapSighashType::AllPlusAnyoneCanPay
+        || sighash_type == TapSighashType::SinglePlusAnyoneCanPay
+        || sighash_type == TapSighashType::NonePlusAnyoneCanPay
+    {
+        SighashCache::new(tx)
+            .taproot_script_spend_signature_hash(
+                input_index,
+                &Prevouts::One(input_index, &prevouts[input_index]),
+                leaf_hash,
+                sighash_type,
+            )
+            .expect("Failed to construct sighash")
+    } else {
+        SighashCache::new(tx)
+            .taproot_script_spend_signature_hash(
+                input_index,
+                &Prevouts::All(prevouts),
+                leaf_hash,
+                sighash_type,
+            )
+            .expect("Failed to construct sighash")
+    }
+}
+
+fn key_agg_context(committee_pubkeys: &[PublicKey]) -> Result<KeyAggContext> {
+    let pubkeys: Vec<Point> =
+        committee_pubkeys.iter().map(|public_key| public_key.inner.into()).collect();
+    KeyAggContext::new(pubkeys).map_err(|e| anyhow::anyhow!("invalid committee key set: {e}"))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn verify_taproot_partial_signature(
+    committee_pubkeys: &[PublicKey],
+    committee_pubkey: &PublicKey,
+    pub_nonce: &PubNonce,
+    partial_sig: PartialSignature,
+    agg_nonce: &AggNonce,
+    tx: &Transaction,
+    input_index: usize,
+    prevouts: &[TxOut],
+    script: &Script,
+    sighash_type: TapSighashType,
+) -> Result<()> {
+    let key_agg_ctx = key_agg_context(committee_pubkeys)?;
+    let leaf_hash = TapLeafHash::from_script(script, LeafVersion::TapScript);
+    let sighash = taproot_script_spend_sighash(tx, input_index, prevouts, leaf_hash, sighash_type);
+    verify_partial(&key_agg_ctx, partial_sig, agg_nonce, committee_pubkey.inner, pub_nonce, sighash)
+        .map_err(|e| anyhow::anyhow!("invalid partial signature from {committee_pubkey}: {e}"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_pre_signed_input<T: PreSignedTransaction + BaseTransaction>(
+    tx: &T,
+    committee_pubkeys: &[PublicKey],
+    committee_pubkey: &PublicKey,
+    pub_nonce: &PubNonce,
+    partial_sig: PartialSignature,
+    agg_nonce: &AggNonce,
+    input_index: usize,
+    sighash_type: TapSighashType,
+) -> Result<()> {
+    verify_taproot_partial_signature(
+        committee_pubkeys,
+        committee_pubkey,
+        pub_nonce,
+        partial_sig,
+        agg_nonce,
+        tx.tx(),
+        input_index,
+        tx.prev_outs(),
+        &tx.prev_scripts()[input_index],
+        sighash_type,
+    )
+    .map_err(|e| anyhow::anyhow!("fail to verify pre-signature {}[{input_index}]: {e}", tx.name()))
+}
+
+pub fn verify_graph_committee_partial_sigs(
+    graph: &BitvmGcGraph,
+    committee_pubkeys: &[PublicKey],
+    committee_pubkey: &PublicKey,
+    pub_nonces: &CommitteePubNonces,
+    agg_nonces: &CommitteeAggNonces,
+    partial_sigs: &CommitteePartialSignatures,
+) -> Result<()> {
+    ensure!(
+        committee_pubkeys.contains(committee_pubkey),
+        "committee pubkey {committee_pubkey} is not in the committee set"
+    );
+    let verifier_num = graph.verifier_asserts.len();
+    let watchtower_num = graph.parameters.watchtower_pubkeys.len();
+    pub_nonces.validate_length(watchtower_num, verifier_num)?;
+    agg_nonces.validate_length(watchtower_num, verifier_num)?;
+    partial_sigs.validate_length(watchtower_num, verifier_num)?;
+
+    verify_pre_signed_input(
+        &graph.take1,
+        committee_pubkeys,
+        committee_pubkey,
+        &pub_nonces.take1[0],
+        partial_sigs.take1[0],
+        &agg_nonces.take1[0],
+        0,
+        TapSighashType::All,
+    )?;
+    verify_pre_signed_input(
+        &graph.take1,
+        committee_pubkeys,
+        committee_pubkey,
+        &pub_nonces.take1[1],
+        partial_sigs.take1[1],
+        &agg_nonces.take1[1],
+        3,
+        TapSighashType::All,
+    )?;
+    verify_pre_signed_input(
+        &graph.take2,
+        committee_pubkeys,
+        committee_pubkey,
+        &pub_nonces.take2[0],
+        partial_sigs.take2[0],
+        &agg_nonces.take2[0],
+        0,
+        TapSighashType::All,
+    )?;
+    verify_pre_signed_input(
+        &graph.challenge,
+        committee_pubkeys,
+        committee_pubkey,
+        &pub_nonces.challenge[0],
+        partial_sigs.challenge[0],
+        &agg_nonces.challenge[0],
+        0,
+        TapSighashType::SinglePlusAnyoneCanPay,
+    )?;
+
+    for (i, tx) in graph.watchtower_challenge_timeouts.iter().enumerate() {
+        verify_pre_signed_input(
+            tx,
+            committee_pubkeys,
+            committee_pubkey,
+            &pub_nonces.watchtower_challenge_timeout[i],
+            partial_sigs.watchtower_challenge_timeout[i],
+            &agg_nonces.watchtower_challenge_timeout[i],
+            1,
+            TapSighashType::None,
+        )?;
+    }
+
+    for (i, tx) in graph.operator_challenge_nacks.iter().enumerate() {
+        verify_pre_signed_input(
+            tx,
+            committee_pubkeys,
+            committee_pubkey,
+            &pub_nonces.operator_challenge_nack[i * 2],
+            partial_sigs.operator_challenge_nack[i * 2],
+            &agg_nonces.operator_challenge_nack[i * 2],
+            0,
+            TapSighashType::All,
+        )?;
+        verify_pre_signed_input(
+            tx,
+            committee_pubkeys,
+            committee_pubkey,
+            &pub_nonces.operator_challenge_nack[i * 2 + 1],
+            partial_sigs.operator_challenge_nack[i * 2 + 1],
+            &agg_nonces.operator_challenge_nack[i * 2 + 1],
+            1,
+            TapSighashType::All,
+        )?;
+    }
+
+    verify_pre_signed_input(
+        &graph.operator_commit_timeout,
+        committee_pubkeys,
+        committee_pubkey,
+        &pub_nonces.operator_commit_timeout[0],
+        partial_sigs.operator_commit_timeout[0],
+        &agg_nonces.operator_commit_timeout[0],
+        0,
+        TapSighashType::All,
+    )?;
+    verify_pre_signed_input(
+        &graph.operator_commit_timeout,
+        committee_pubkeys,
+        committee_pubkey,
+        &pub_nonces.operator_commit_timeout[1],
+        partial_sigs.operator_commit_timeout[1],
+        &agg_nonces.operator_commit_timeout[1],
+        1,
+        TapSighashType::All,
+    )?;
+
+    for (i, tx) in graph.disproves.iter().enumerate() {
+        verify_pre_signed_input(
+            tx,
+            committee_pubkeys,
+            committee_pubkey,
+            &pub_nonces.disprove[i * 2],
+            partial_sigs.disprove[i * 2],
+            &agg_nonces.disprove[i * 2],
+            0,
+            TapSighashType::None,
+        )?;
+        verify_pre_signed_input(
+            tx,
+            committee_pubkeys,
+            committee_pubkey,
+            &pub_nonces.disprove[i * 2 + 1],
+            partial_sigs.disprove[i * 2 + 1],
+            &agg_nonces.disprove[i * 2 + 1],
+            1,
+            TapSighashType::None,
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn verify_pegin_confirm_partial_sig(
+    instance_parameters: &BitvmGcInstanceParameters,
+    committee_pubkeys: &[PublicKey],
+    committee_pubkey: &PublicKey,
+    pub_nonce: &PubNonce,
+    agg_nonce: &AggNonce,
+    partial_sig: PartialSignature,
+) -> Result<()> {
+    ensure!(
+        committee_pubkeys.contains(committee_pubkey),
+        "committee pubkey {committee_pubkey} is not in the committee set"
+    );
+    let pegin_confirm = instance_parameters.build_pegin_tx()?.1;
+    verify_pre_signed_input(
+        &pegin_confirm,
+        committee_pubkeys,
+        committee_pubkey,
+        pub_nonce,
+        partial_sig,
+        agg_nonce,
+        0,
+        TapSighashType::All,
+    )
 }
 
 pub fn push_committee_pre_signatures(

@@ -12,8 +12,8 @@ use anyhow::{Context, Result, anyhow};
 use bitcoin::{PublicKey, Txid};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::babe_adapter::{
-    BabeBundleBuilder, BabeChallengeAssertWitness, BabeWronglyChallengedWitness, TxAssertWitness,
-    CACSetupPackage,
+    BabeBundleBuilder, BabeChallengeAssertWitness, BabeWronglyChallengedWitness, CACSetupPackage,
+    TxAssertWitness,
 };
 use bitvm_lib::committee::*;
 use bitvm_lib::types::{BitvmGcGraph, SimplifiedBitvmGcGraph};
@@ -507,9 +507,14 @@ pub async fn try_finalize_graph(
                 BitvmGcGraph::from_simplified(&g)?
             }
         };
-        let pub_nonces = pub_nonoces.into_iter().map(|(_, pn)| pn).collect::<Vec<_>>();
+        let pub_nonces =
+            order_committee_values(&committee_pubkeys, pub_nonoces, "graph committee pub nonces")?;
         let agg_nonces = nonces_aggregation(&pub_nonces)?;
-        let partial_sigs = partial_sigs.into_iter().map(|(_, ps)| ps).collect::<Vec<_>>();
+        let partial_sigs = order_committee_values(
+            &committee_pubkeys,
+            partial_sigs,
+            "graph committee partial sigs",
+        )?;
         let committee_sig_for_graph = signature_aggregation(&partial_sigs, &agg_nonces, &graph)?;
         push_committee_pre_signatures(&mut graph, &committee_sig_for_graph)?;
         let simplified_graph = graph.to_simplified()?;

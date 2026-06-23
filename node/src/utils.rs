@@ -78,6 +78,7 @@ use crate::rpc_service::routes::v1::{
     NODES_OPERATOR_BASE, NODES_WATCHTOWER_BASE, PROOFS_WATCHTOWER_PROOF_TIMEOUT,
     PROOFS_WRAPPER_PROOF,
 };
+
 use crate::scheduled_tasks::get_goat_message_content_type;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     ChallengeSubStatus, VerifierChallengeStatus,
@@ -2080,7 +2081,8 @@ fn combined_wrapper_vk_hash(wrapper_vk_hash: &str, zkm_version: &str) -> Result<
 pub fn derive_operator_statement(graph_id: Uuid) -> Result<OperatorStatement> {
     let vk_hash = get_operator_vk_hash()?;
     let zkm_version = get_operator_zkm_version()?;
-    let combined_hash = combined_operator_vk_hash(&format!("0x{}", hex::encode(vk_hash)), &zkm_version)?;
+    let combined_hash =
+        combined_operator_vk_hash(&format!("0x{}", hex::encode(vk_hash)), &zkm_version)?;
     let static_input = load_ark_public_inputs_from_bytes(&combined_hash, &[0u8; 32])[0];
     let constant = hash_operator_constant(*graph_id.as_bytes(), get_genesis_sequencer_commit_id());
     Ok(OperatorStatement { static_input, vk_hash, zkm_version, constant })
@@ -2332,7 +2334,8 @@ pub async fn get_operator_proof(
     if operator_vk_hash_raw != statement.vk_hash {
         bail!("operator proof vk hash does not match configured operator identity");
     }
-    if proof.zkm_version != statement.zkm_version || proof_data.zkm_version != statement.zkm_version {
+    if proof.zkm_version != statement.zkm_version || proof_data.zkm_version != statement.zkm_version
+    {
         bail!("operator proof Ziren version does not match configured operator identity");
     }
 
@@ -3260,6 +3263,32 @@ pub async fn endorse_pegin(
     Ok(sig)
 }
 
+pub async fn verify_pegin_endorsement(
+    goat_client: &GOATClient,
+    instance_id: Uuid,
+    committee_pubkey: &PublicKey,
+    pegin_txid: &Txid,
+    signature: &[u8],
+) -> Result<bool> {
+    let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
+    let expected_evm_address = pegin_data
+        .committee_pubkeys
+        .iter()
+        .zip(pegin_data.committee_addresses.iter())
+        .find_map(|(pubkey, evm_address)| {
+            PublicKey::from_slice(pubkey)
+                .ok()
+                .filter(|on_chain_pubkey| on_chain_pubkey == committee_pubkey)
+                .map(|_| *evm_address)
+        })
+        .ok_or_else(|| anyhow!("committee pubkey {committee_pubkey} not found on-chain"))?;
+    let pegin_digest = goat_client.gateway_get_post_pegin_digest(&instance_id, pegin_txid).await?;
+    let sig = EvmSignature::try_from(signature)?;
+    sig.recover_address_from_prehash(&pegin_digest.into())
+        .map(|addr| addr == expected_evm_address)
+        .map_err(|e| e.into())
+}
+
 pub async fn verify_graph_endorsement(
     goat_client: &GOATClient,
     evm_address: &EvmAddress,
@@ -3772,6 +3801,32 @@ pub struct GraphProcessDataItem {
 }
 pub type GraphProcessDataMap = IndexMap<PublicKey, GraphProcessDataItem>;
 
+pub fn order_committee_values<T: Clone>(
+    committee_pubkeys: &[PublicKey],
+    values: Vec<(PublicKey, T)>,
+    label: &str,
+) -> Result<Vec<T>> {
+    for (idx, (pubkey, _)) in values.iter().enumerate() {
+        if !committee_pubkeys.contains(pubkey) {
+            bail!("{label} contains non-committee pubkey {pubkey}");
+        }
+        if values.iter().skip(idx + 1).any(|(other, _)| other == pubkey) {
+            bail!("{label} contains duplicate pubkey {pubkey}");
+        }
+    }
+
+    committee_pubkeys
+        .iter()
+        .map(|committee_pubkey| {
+            values
+                .iter()
+                .find(|(pubkey, _)| pubkey == committee_pubkey)
+                .map(|(_, value)| value.clone())
+                .ok_or_else(|| anyhow!("{label} missing pubkey {committee_pubkey}"))
+        })
+        .collect()
+}
+
 // db operations
 pub async fn get_current_prekickoff_tx(
     local_db: &LocalDB,
@@ -3893,6 +3948,22 @@ pub async fn store_instance_parameters(
     instance_params: &BitvmGcInstanceParameters,
 ) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
+    let incoming_parameters_hash = instance_params.parameters_hash()?;
+    if let Some(existing_parameters) =
+        storage_processor.get_instance_parameters_by_id(&instance_params.instance_id).await?
+    {
+        let existing_instance_params: BitvmGcInstanceParameters =
+            serde_json::from_str(&existing_parameters)?;
+        let existing_parameters_hash = existing_instance_params.parameters_hash()?;
+        if existing_parameters_hash != incoming_parameters_hash {
+            bail!(SpecialError::InvalidPeginData(format!(
+                "instance parameters changed for instance_id {}: existing={}, incoming={}",
+                instance_params.instance_id,
+                hex::encode(existing_parameters_hash),
+                hex::encode(incoming_parameters_hash)
+            )));
+        }
+    }
     storage_processor
         .update_instance_parameters(
             &instance_params.instance_id,
@@ -3991,6 +4062,29 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvmGcGra
     let instance_id = simple_graph.parameters.instance_parameters.instance_id;
     let current_time = current_time_secs();
     let mut graph = convert_graph(&bitvm_graph, current_time);
+    let incoming_parameters_hash = simple_graph.parameters_hash()?;
+
+    if let Some(existing_raw_data) = tx.find_graph_raw_data(&graph_id).await? {
+        let existing_graph = parse_graph_raw_data(existing_raw_data.raw_data, graph_id).await?;
+        let existing_parameters_hash = existing_graph.parameters_hash()?;
+        if existing_parameters_hash != incoming_parameters_hash {
+            bail!(SpecialError::InvalidGraph(format!(
+                "graph parameters changed for graph_id {graph_id}: existing={}, incoming={}",
+                hex::encode(existing_parameters_hash),
+                hex::encode(incoming_parameters_hash)
+            )));
+        }
+        if existing_graph.operator_pre_signed() && !simple_graph.operator_pre_signed() {
+            bail!(SpecialError::InvalidGraph(format!(
+                "graph {graph_id} cannot be downgraded after operator pre-signatures are stored"
+            )));
+        }
+        if existing_graph.committee_pre_signed() && !simple_graph.committee_pre_signed() {
+            bail!(SpecialError::InvalidGraph(format!(
+                "graph {graph_id} cannot be downgraded after committee pre-signatures are stored"
+            )));
+        }
+    }
 
     if let Some(node_info) =
         tx.get_node_by_btc_pub_key(&bitvm_graph.parameters.operator_pubkey.to_string()).await?
@@ -4244,6 +4338,14 @@ pub async fn store_committee_pub_nonces_for_graph(
     let mut storage_processor = local_db.acquire().await?;
     let (is_endorsed, mut process_data) =
         find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    if let Some(existing_pub_nonces) =
+        process_data.get(&committee_pubkey).and_then(|v| v.committee_pub_nonce.as_ref())
+        && existing_pub_nonces != &pub_nonces
+    {
+        bail!(SpecialError::InvalidGraph(format!(
+            "committee pub nonces changed for graph {graph_id} and committee {committee_pubkey}"
+        )));
+    }
     process_data
         .entry(committee_pubkey)
         .and_modify(|v| v.committee_pub_nonce = Some(pub_nonces.clone()))
@@ -4286,6 +4388,14 @@ pub async fn store_committee_partial_sigs_for_graph(
     let mut storage_processor = local_db.acquire().await?;
     let (is_endorsed, mut process_data) =
         find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    if let Some(existing_partial_sigs) =
+        process_data.get(&committee_pubkey).and_then(|v| v.partial_sigs.as_ref())
+        && existing_partial_sigs != &partial_sigs
+    {
+        bail!(SpecialError::InvalidGraph(format!(
+            "committee partial signatures changed for graph {graph_id} and committee {committee_pubkey}"
+        )));
+    }
     process_data
         .entry(committee_pubkey)
         .and_modify(|v| v.partial_sigs = Some(partial_sigs.clone()))
@@ -4317,6 +4427,18 @@ pub async fn get_committee_partial_sigs_for_graph(
         .iter()
         .filter_map(|(k, v)| v.partial_sigs.as_ref().map(|nonce| (*k, nonce.clone())))
         .collect::<Vec<(PublicKey, CommitteePartialSignatures)>>())
+}
+
+pub async fn get_committee_partial_sigs_for_graph_member(
+    local_db: &LocalDB,
+    _instance_id: Uuid,
+    graph_id: Uuid,
+    committee_pubkey: &PublicKey,
+) -> Result<Option<CommitteePartialSignatures>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let (_is_endorsed, process_data) =
+        find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    Ok(process_data.get(committee_pubkey).and_then(|v| v.partial_sigs.clone()))
 }
 pub async fn store_committee_endorsement_for_graph(
     local_db: &LocalDB,
@@ -4429,6 +4551,14 @@ pub async fn store_committee_pub_nonce_for_instance(
     let mut storage_processor = local_db.acquire().await?;
     let mut process_data =
         find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    if let Some(existing_pub_nonce) =
+        process_data.get(&committee_pubkey).and_then(|v| v.pub_nonce.as_ref())
+        && existing_pub_nonce != &pub_nonce
+    {
+        bail!(SpecialError::InvalidPeginData(format!(
+            "committee pub nonce changed for instance {instance_id} and committee {committee_pubkey}"
+        )));
+    }
     process_data
         .entry(committee_pubkey)
         .and_modify(|v| v.pub_nonce = Some(pub_nonce.clone()))
@@ -4471,6 +4601,14 @@ pub async fn store_committee_partial_sig_for_instance(
     let mut storage_processor = local_db.acquire().await?;
     let mut process_data =
         find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    if let Some(existing_partial_sig) =
+        process_data.get(&committee_pubkey).and_then(|v| v.partial_sign.as_ref())
+        && existing_partial_sig != &partial_sigs
+    {
+        bail!(SpecialError::InvalidPeginData(format!(
+            "committee partial signature changed for instance {instance_id} and committee {committee_pubkey}"
+        )));
+    }
     process_data
         .entry(committee_pubkey)
         .and_modify(|v| v.partial_sign = Some(partial_sigs))
@@ -4496,6 +4634,17 @@ pub async fn get_committee_partial_sigs_for_instance(
         .collect())
 }
 
+pub async fn get_committee_partial_sig_for_instance(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    committee_pubkey: &PublicKey,
+) -> Result<Option<PartialSignature>> {
+    let mut storage_processor = local_db.acquire().await?;
+    let process_data =
+        find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    Ok(process_data.get(committee_pubkey).and_then(|v| v.partial_sign))
+}
+
 pub async fn store_committee_endorse_sig_for_pegin(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -4505,6 +4654,15 @@ pub async fn store_committee_endorse_sig_for_pegin(
     let mut storage_processor = local_db.acquire().await?;
     let mut process_data =
         find_pegin_instance_process_data(&mut storage_processor, instance_id).await?;
+    if let Some(existing_endorse_sig) =
+        process_data.get(&committee_pubkey).map(|v| v.endorse_signature.as_slice())
+        && !existing_endorse_sig.is_empty()
+        && existing_endorse_sig != endorse_sig.as_slice()
+    {
+        bail!(SpecialError::InvalidPeginData(format!(
+            "committee endorse signature changed for instance {instance_id} and committee {committee_pubkey}"
+        )));
+    }
     process_data
         .entry(committee_pubkey)
         .and_modify(|v| v.endorse_signature = endorse_sig.clone())
@@ -5085,11 +5243,8 @@ mod commit_pubin_tests {
             create_confirmed_tx(challenge_txid_wt2, &[(init_txid, 2)], 200, block_hash_high),
         );
 
-        let challenge_txids = vec![
-            Some(challenge_txid_wt0.to_string()),
-            None,
-            Some(challenge_txid_wt2.to_string()),
-        ];
+        let challenge_txids =
+            vec![Some(challenge_txid_wt0.to_string()), None, Some(challenge_txid_wt2.to_string())];
         let bits = vec![true, false, true];
 
         let (best_hash, bitmap) =
