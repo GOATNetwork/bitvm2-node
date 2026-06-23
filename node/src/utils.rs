@@ -2137,7 +2137,7 @@ pub async fn get_operator_proof(
         bail!("operator proof Ziren version does not match configured operator identity");
     }
 
-    let outputs = decode_operator_public_outputs(&proof.public_values.to_vec(), statement.vk_hash)
+    let outputs = decode_operator_public_outputs(&proof.public_values.to_vec())
         .map_err(|e| anyhow!("invalid operator public outputs: {e}"))?;
     if outputs.constant != statement.constant {
         bail!("operator proof constant does not match graph setup");

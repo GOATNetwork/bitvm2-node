@@ -18,6 +18,7 @@ pub fn main() {
     println!("read operator commit txn");
     let operator_latest_sequencer_commit_txn: Transaction = zkm_zkvm::io::read(); // private inputs
     let latest_sequencer_commit_txid = operator_latest_sequencer_commit_txn.compute_txid(); // public input
+
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     let watchtower_challenge_txns: Vec<Transaction> = zkm_zkvm::io::read();
     let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
@@ -29,9 +30,8 @@ pub fn main() {
     let operator_state_chain: StateChainCircuitInput = zkm_zkvm::io::read();
     let spv_ss_commit: SPV = zkm_zkvm::io::read();
     let operator_committed_blockhash: [u8; 32] = zkm_zkvm::io::read();
-    let actual_operator_vk_hash: [u8; 32] = zkm_zkvm::io::read();
 
-    let (btc_best_block_hash, constant, included_watchtowers, operator_vk_hash) =
+    let (btc_best_block_hash, constant, included_watchtowers) =
         bitcoin_light_client_circuit::propose_longest_chain(
             included_watchtowers,
             graph_id,
@@ -46,11 +46,9 @@ pub fn main() {
             operator_state_chain,
             spv_ss_commit,
             operator_committed_blockhash,
-            actual_operator_vk_hash,
         );
 
     zkm_zkvm::io::commit(&btc_best_block_hash);
     zkm_zkvm::io::commit(&constant);
     zkm_zkvm::io::commit(&included_watchtowers);
-    zkm_zkvm::io::commit(&operator_vk_hash);
 }
