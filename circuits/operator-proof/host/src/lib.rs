@@ -89,6 +89,34 @@ use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 
+/// Parses the full graph key list and keeps each included challenge's original graph index.
+fn parse_indexed_watchtower_inputs(
+    watchtower_challenge_txids: &str,
+    watchtower_public_keys: &str,
+) -> anyhow::Result<(Vec<(u16, Txid, PublicKey)>, Vec<[u8; 32]>)> {
+    let txids = watchtower_challenge_txids.split(',').collect::<Vec<_>>();
+    let public_keys = watchtower_public_keys
+        .split(',')
+        .map(PublicKey::from_str)
+        .collect::<Result<Vec<_>, _>>()?;
+    anyhow::ensure!(
+        txids.len() == public_keys.len(),
+        "watchtower challenge txids and public keys must have equal lengths"
+    );
+    anyhow::ensure!(!public_keys.is_empty(), "watchtower public key list must not be empty");
+    anyhow::ensure!(public_keys.len() <= 256, "watchtower public key list exceeds 256 entries");
+
+    let graph_keys = public_keys.iter().map(|key| key.x_only_public_key().0.serialize()).collect();
+    let included = txids
+        .iter()
+        .enumerate()
+        .filter(|(_, txid)| !txid.trim().is_empty())
+        .map(|(index, txid)| Ok((index as u16, Txid::from_str(txid)?, public_keys[index])))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok((included, graph_keys))
+}
+
 pub async fn fetch_target_block_and_watchtower_tx(
     esplora_url: &str,
     latest_sequencer_commit_txid: &str,
@@ -102,19 +130,15 @@ pub async fn fetch_target_block_and_watchtower_tx(
     bitcoin::Block,
     BlockHash,
     Transaction,
+    Vec<u16>,
+    Vec<[u8; 32]>,
     Vec<Transaction>,
     Vec<TxOut>,
     Vec<PublicKey>,
     Vec<ScriptBuf>,
 )> {
-    let watchtower_challenge_txids: Vec<&str> =
-        watchtower_challenge_txids.split(",").filter(|s| !s.is_empty()).collect();
-    let watchtower_public_keys: Vec<&str> =
-        watchtower_public_keys.split(",").filter(|s| !s.is_empty()).collect();
-    anyhow::ensure!(
-        watchtower_challenge_txids.len() == watchtower_public_keys.len(),
-        "watchtower challenge txids and public keys must have equal lengths"
-    );
+    let (indexed_watchtower_inputs, graph_watchtower_xonly_public_keys) =
+        parse_indexed_watchtower_inputs(watchtower_challenge_txids, watchtower_public_keys)?;
     let btc_client = BTCClient::new(bitcoin_network, Some(&esplora_url));
 
     let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid)?;
@@ -166,6 +190,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
 
     // --- watchtower_challenge_txns --- //
     let mut watchtower_challenge_txns = Vec::new();
+    let mut watchtower_challenge_indices = Vec::new();
     let mut watchtower_challenge_txn_prev_outs: Vec<TxOut> = Vec::new();
     let mut watchtower_challenge_txn_pubkeys = Vec::new();
     let mut watchtower_challenge_txn_scripts: Vec<ScriptBuf> = Vec::new();
@@ -179,12 +204,11 @@ pub async fn fetch_target_block_and_watchtower_tx(
             ),
         };
 
-    for (id, pk) in watchtower_challenge_txids.iter().zip(watchtower_public_keys.iter()) {
-        tracing::info!("txid: {}, pk: {}", id, pk);
-        let txid = id.parse()?;
+    for (node_index, txid, public_key) in indexed_watchtower_inputs {
+        tracing::info!("txid: {}, pk: {}", txid, public_key);
         let txn = match btc_client.get_tx(&txid).await? {
             Some(tx) => tx,
-            None => anyhow::bail!("Failed to fetch watchtower challenge txn: {}", id),
+            None => anyhow::bail!("Failed to fetch watchtower challenge txn: {}", txid),
         };
         // get prev outs
         // FIXME: update the index
@@ -192,8 +216,8 @@ pub async fn fetch_target_block_and_watchtower_tx(
         watchtower_challenge_txn_prev_outs
             .push(watchtower_challlenge_init_txn.output[index].clone());
 
-        let public_key = PublicKey::from_str(pk).unwrap();
-        watchtower_challenge_txn_pubkeys.push(public_key.clone());
+        watchtower_challenge_indices.push(node_index);
+        watchtower_challenge_txn_pubkeys.push(public_key);
         watchtower_challenge_txns.push(txn);
 
         // https://github.com/GOATNetwork/BitVM/blob/GA/goat/src/transactions/watchtower_challenge.rs#L45
@@ -214,6 +238,8 @@ pub async fn fetch_target_block_and_watchtower_tx(
         target_block_ss_commit,
         operator_committed_blockhash,
         operator_latest_sequencer_commit_txn,
+        watchtower_challenge_indices,
+        graph_watchtower_xonly_public_keys,
         watchtower_challenge_txns,
         watchtower_challenge_txn_prev_outs,
         watchtower_challenge_txn_pubkeys,
@@ -271,6 +297,8 @@ impl ProofBuilder for OperatorProofBuilder {
 
             operator_committed_blockhash,
 
+            watchtower_challenge_indices,
+            graph_watchtower_xonly_public_keys,
             watchtower_challenge_txns,
             watchtower_challenge_txn_prev_outs,
             watchtower_challenge_txn_pubkeys,
@@ -413,6 +441,8 @@ impl ProofBuilder for OperatorProofBuilder {
                 stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
                 stdin.write(&operator_latest_sequencer_commit_txn);
 
+                stdin.write(&watchtower_challenge_indices);
+                stdin.write(&graph_watchtower_xonly_public_keys);
                 stdin.write(&watchtower_challenge_txns);
                 stdin.write(&watchtower_challenge_txn_pubkeys);
                 stdin.write(&watchtower_challenge_txn_scripts);

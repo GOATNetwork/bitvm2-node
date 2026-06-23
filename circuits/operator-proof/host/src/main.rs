@@ -16,6 +16,8 @@ async fn main() {
         target_block_ss_commit,
         operator_committed_blockhash,
         operator_latest_sequencer_commit_txn,
+        watchtower_challenge_indices,
+        graph_watchtower_xonly_public_keys,
         watchtower_challenge_txns,
         watchtower_challenge_txn_prev_outs,
         watchtower_challenge_txn_pubkeys,
@@ -51,6 +53,8 @@ async fn main() {
         operator_latest_sequencer_commit_txn,
         operator_committed_blockhash,
 
+        watchtower_challenge_indices,
+        graph_watchtower_xonly_public_keys,
         watchtower_challenge_txns,
         watchtower_challenge_txn_prev_outs,
         watchtower_challenge_txn_pubkeys,

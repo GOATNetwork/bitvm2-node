@@ -26,10 +26,6 @@ alloy-primitives = { version = "1.0.0", features = ["sha3-keccak", "map-foldhash
 #revm = { git = "https://github.com/ziren-patches/revm", branch = "patch-31.0.2", features = ["serde", "bn"], default-features = false }
 sha2 = "0.10.9"
 
-[build-dependencies]
-hex = "0.4.3"
-
-
 [patch.crates-io]
 # Precompile patches
 sha2 = { git = "https://github.com/ziren-patches/RustCrypto-hashes", branch = "patch-sha2-0.10.9", package = "sha2" }

@@ -163,6 +163,52 @@ pub mod todo_funcs {
         1
     }
 
+    /// Validates the graph's ordered watchtower selection against the contract registry and bound constant.
+    pub(super) fn validate_watchtower_selection(
+        selected: &[XOnlyPublicKey],
+        registered: &[XOnlyPublicKey],
+        graph_id: [u8; 16],
+        genesis_txid: [u8; 32],
+        constant: [u8; 32],
+    ) -> Result<()> {
+        use std::collections::HashSet;
+
+        if selected.len() < min_required_watchtower() {
+            bail!(SpecialError::InvalidGraph(format!(
+                "insufficient watchtowers: have {}, required {}",
+                selected.len(),
+                min_required_watchtower()
+            )));
+        }
+        if selected.len() > 256 {
+            bail!(SpecialError::InvalidGraph(format!(
+                "too many watchtowers: {}, max 256",
+                selected.len()
+            )));
+        }
+
+        let mut seen = HashSet::new();
+        for key in selected {
+            if !seen.insert(*key) {
+                bail!(SpecialError::InvalidGraph(
+                    "duplicate watchtower pubkey in graph".to_string()
+                ));
+            }
+            if !registered.contains(key) {
+                bail!(SpecialError::InvalidGraph(format!("watchtower {} is not registered", key)));
+            }
+        }
+
+        let key_bytes = selected.iter().map(XOnlyPublicKey::serialize).collect::<Vec<_>>();
+        let expected = hash_operator_constant(graph_id, genesis_txid, &key_bytes);
+        if constant != expected {
+            bail!(SpecialError::InvalidGraph(
+                "operator constant mismatch for graph watchtower list".to_string()
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn validate_init_graph(
         local_db: &LocalDB,
         btc_client: &BTCClient,
@@ -207,31 +253,13 @@ pub mod todo_funcs {
                 SpecialError::InvalidGraph(format!("failed to load watchtowers from chain: {e}"))
             })?;
 
-        // deduplicate watchtower pubkeys: reject graphs that contain duplicate watchtower entries
-        {
-            use std::collections::HashSet;
-            let mut seen = HashSet::new();
-            for pk in &graph.parameters.watchtower_pubkeys {
-                if !seen.insert(*pk) {
-                    bail!(SpecialError::InvalidGraph(
-                        "duplicate watchtower pubkey in graph".to_string()
-                    ));
-                }
-            }
-        }
-        // allow unregistered watchtowers as long as enough registered ones exist
-        let required = super::todo_funcs::min_required_watchtower();
-        let valid_registered = graph
-            .parameters
-            .watchtower_pubkeys
-            .iter()
-            .filter(|pk| watchtowers_on_chain.contains(pk))
-            .count();
-        if valid_registered < required {
-            bail!(SpecialError::InvalidGraph(format!(
-                "insufficient registered watchtowers: have {valid_registered}, required {required}"
-            )));
-        }
+        validate_watchtower_selection(
+            &graph.parameters.watchtower_pubkeys,
+            &watchtowers_on_chain,
+            *graph.parameters.graph_id.as_bytes(),
+            get_genesis_sequencer_commit_id(),
+            graph.parameters.pubin_disprove_constant,
+        )?;
 
         // 6) Operator stake sanity: verify operator is registered and has enough locked stake
         let op_pk_bytes = graph.parameters.operator_pubkey.to_bytes();
@@ -290,6 +318,18 @@ pub mod todo_funcs {
         if graph.parameters.challenge_amount != super::todo_funcs::challenge_amount() {
             bail!(SpecialError::InvalidGraph("unexpected challenge amount".to_string()));
         }
+
+        let watchtowers_on_chain =
+            goat_client.committee_mana_get_watchtowers().await.map_err(|e| {
+                SpecialError::InvalidGraph(format!("failed to load watchtowers from chain: {e}"))
+            })?;
+        validate_watchtower_selection(
+            &graph.parameters.watchtower_pubkeys,
+            &watchtowers_on_chain,
+            *graph.parameters.graph_id.as_bytes(),
+            get_genesis_sequencer_commit_id(),
+            graph.parameters.pubin_disprove_constant,
+        )?;
 
         // 3) Validate endorsements: unique, from legitimate committee members, and signatures recover to the provided EVM address
         use std::collections::HashSet;
@@ -2033,12 +2073,27 @@ fn combined_operator_vk_hash(operator_vk_hash: &str, zkm_version: &str) -> Resul
     Ok(encoded)
 }
 
-pub fn derive_operator_statement(graph_id: Uuid) -> Result<OperatorStatement> {
+fn operator_identity() -> Result<([u8; 32], String, ark_bn254::Fr)> {
     let vk_hash = get_operator_vk_hash()?;
     let zkm_version = get_operator_zkm_version()?;
-    let combined_hash = combined_operator_vk_hash(&format!("0x{}", hex::encode(vk_hash)), &zkm_version)?;
+    let combined_hash =
+        combined_operator_vk_hash(&format!("0x{}", hex::encode(vk_hash)), &zkm_version)?;
     let static_input = load_ark_public_inputs_from_bytes(&combined_hash, &[0u8; 32])[0];
-    let constant = hash_operator_constant(*graph_id.as_bytes(), get_genesis_sequencer_commit_id());
+    Ok((vk_hash, zkm_version, static_input))
+}
+
+pub fn derive_operator_static_input() -> Result<ark_bn254::Fr> {
+    Ok(operator_identity()?.2)
+}
+
+pub fn derive_operator_statement(
+    graph_id: Uuid,
+    watchtower_pubkeys: &[XOnlyPublicKey],
+) -> Result<OperatorStatement> {
+    let (vk_hash, zkm_version, static_input) = operator_identity()?;
+    let key_bytes = watchtower_pubkeys.iter().map(XOnlyPublicKey::serialize).collect::<Vec<_>>();
+    let constant =
+        hash_operator_constant(*graph_id.as_bytes(), get_genesis_sequencer_commit_id(), &key_bytes);
     Ok(OperatorStatement { static_input, vk_hash, zkm_version, constant })
 }
 
@@ -2123,7 +2178,11 @@ pub async fn get_operator_proof(
         return Ok((None, get_operator_proof_wait_secs()));
     };
 
-    let statement = derive_operator_statement(graph_id)?;
+    let statement =
+        derive_operator_statement(graph_id, &bitvm_graph.parameters.watchtower_pubkeys)?;
+    if statement.constant != bitvm_graph.parameters.pubin_disprove_constant {
+        bail!("graph operator constant does not match its watchtower list");
+    }
 
     let proof: ZKMProofWithPublicValues = bincode::deserialize(proof_data.proof.as_slice())
         .map_err(|err| anyhow!("failed to deserialize operator proof: {err}"))?;
@@ -2133,7 +2192,8 @@ pub async fn get_operator_proof(
     if operator_vk_hash_raw != statement.vk_hash {
         bail!("operator proof vk hash does not match configured operator identity");
     }
-    if proof.zkm_version != statement.zkm_version || proof_data.zkm_version != statement.zkm_version {
+    if proof.zkm_version != statement.zkm_version || proof_data.zkm_version != statement.zkm_version
+    {
         bail!("operator proof Ziren version does not match configured operator identity");
     }
 
@@ -2810,7 +2870,17 @@ pub async fn build_graph_params(
             .to_byte_array()
         })
         .collect();
-    let pubin_disprove_constant = get_guest_constant_value(instance_id, graph_id)?;
+    let pubin_disprove_constant =
+        get_guest_constant_value(instance_id, graph_id, &watchtower_pubkeys)?;
+    // Local graph construction selects the full on-chain registry; passing the same list twice
+    // intentionally reuses the helper's size and uniqueness checks.
+    todo_funcs::validate_watchtower_selection(
+        &watchtower_pubkeys,
+        &watchtower_pubkeys,
+        *graph_id.as_bytes(),
+        get_genesis_sequencer_commit_id(),
+        pubin_disprove_constant,
+    )?;
     Ok(BitvmGcGraphParameters {
         instance_parameters,
         prekickoff_parameters,
@@ -4532,8 +4602,13 @@ pub(super) async fn find_instances_by_escrow_hash<'a>(
     if size > 0 { Ok(Some(instances[0].clone())) } else { Ok(None) }
 }
 
-pub fn get_guest_constant_value(_instance_id: Uuid, graph_id: Uuid) -> Result<[u8; 32]> {
-    Ok(hash_operator_constant(graph_id.into_bytes(), get_genesis_sequencer_commit_id()))
+pub fn get_guest_constant_value(
+    _instance_id: Uuid,
+    graph_id: Uuid,
+    watchtower_pubkeys: &[XOnlyPublicKey],
+) -> Result<[u8; 32]> {
+    let key_bytes = watchtower_pubkeys.iter().map(XOnlyPublicKey::serialize).collect::<Vec<_>>();
+    Ok(hash_operator_constant(graph_id.into_bytes(), get_genesis_sequencer_commit_id(), &key_bytes))
 }
 pub(crate) async fn get_bridge_out_global_stats<'a>(
     storage_processor: &mut StorageProcessor<'a>,

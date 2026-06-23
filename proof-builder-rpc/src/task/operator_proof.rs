@@ -52,24 +52,13 @@ pub(crate) fn spawn_operator_proof_task(
                                 args.graph_id
                             );
                             args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
-                            let included_challenges: Vec<_> = next_task
+                            args.watchtower_challenge_txids = next_task
                                 .watchtower_challenge_txids
                                 .iter()
-                                .zip(&next_task.watchtower_public_keys)
-                                .filter_map(|(txid, public_key)| {
-                                    txid.as_ref().map(|txid| (txid.as_str(), public_key.as_str()))
-                                })
-                                .collect();
-                            args.watchtower_challenge_txids = included_challenges
-                                .iter()
-                                .map(|(txid, _)| *txid)
+                                .map(|txid| txid.as_deref().unwrap_or(""))
                                 .collect::<Vec<_>>()
                                 .join(",");
-                            args.watchtower_public_keys = included_challenges
-                                .iter()
-                                .map(|(_, public_key)| *public_key)
-                                .collect::<Vec<_>>()
-                                .join(",");
+                            args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
                             // LE array to string, e.g. [1, 1, 1, 0] => 7
                             args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers).to_string();
                             task_index = next_task.task_index;
@@ -92,6 +81,8 @@ pub(crate) fn spawn_operator_proof_task(
                         target_block_ss_commit,
                         operator_committed_blockhash,
                         operator_latest_sequencer_commit_txn,
+                        watchtower_challenge_indices,
+                        graph_watchtower_xonly_public_keys,
                         watchtower_challenge_txns,
                         watchtower_challenge_txn_prev_outs,
                         watchtower_challenge_txn_pubkeys,
@@ -131,6 +122,8 @@ pub(crate) fn spawn_operator_proof_task(
 
                         operator_committed_blockhash,
 
+                        watchtower_challenge_indices,
+                        graph_watchtower_xonly_public_keys,
                         watchtower_challenge_txns,
                         watchtower_challenge_txn_prev_outs,
                         watchtower_challenge_txn_pubkeys,

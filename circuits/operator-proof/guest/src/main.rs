@@ -8,8 +8,6 @@ use header_chain::{HeaderChainCircuitInput, SPV};
 use state_chain::StateChainCircuitInput;
 use std::str::FromStr;
 
-include!(concat!(env!("OUT_DIR"), "/fixed_watchtowers.rs"));
-
 pub fn main() {
     // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
     let included_watchtowers: U256 = zkm_zkvm::io::read::<U256>();
@@ -20,6 +18,8 @@ pub fn main() {
     let latest_sequencer_commit_txid = operator_latest_sequencer_commit_txn.compute_txid(); // public input
 
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
+    let watchtower_challenge_indices: Vec<u16> = zkm_zkvm::io::read();
+    let graph_watchtower_xonly_public_keys: Vec<[u8; 32]> = zkm_zkvm::io::read();
     let watchtower_challenge_txns: Vec<Transaction> = zkm_zkvm::io::read();
     let watchtower_challenge_txn_pubkey: Vec<bitcoin::secp256k1::PublicKey> = zkm_zkvm::io::read();
     let watchtower_challenge_txn_scripts: Vec<ScriptBuf> = zkm_zkvm::io::read();
@@ -36,11 +36,12 @@ pub fn main() {
             included_watchtowers,
             graph_id,
             operator_genesis_sequencer_commit_txid,
+            watchtower_challenge_indices,
             watchtower_challenge_txns,
             watchtower_challenge_txn_pubkey,
             watchtower_challenge_txn_scripts,
             watchtower_challenge_txn_prev_outs,
-            &FIXED_WATCHTOWER_XONLY_PUBLIC_KEYS,
+            &graph_watchtower_xonly_public_keys,
             operator_header_chain,
             operator_commit_chain,
             operator_state_chain,

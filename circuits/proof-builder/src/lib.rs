@@ -63,6 +63,8 @@ pub enum ProofRequest {
 
         operator_committed_blockhash: BlockHash,
 
+        watchtower_challenge_indices: Vec<u16>,
+        graph_watchtower_xonly_public_keys: Vec<[u8; 32]>,
         watchtower_challenge_txns: Vec<Transaction>,
         watchtower_challenge_txn_prev_outs: Vec<TxOut>,
         watchtower_challenge_txn_pubkeys: Vec<bitcoin::secp256k1::PublicKey>,

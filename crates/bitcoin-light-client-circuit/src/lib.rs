@@ -174,14 +174,14 @@ pub fn le_bits_to_u256(bits: &[bool]) -> U256 {
     u
 }
 
-pub fn verify_fixed_watchtower_pubkey(
-    fixed_watchtower_xonly_public_keys: &[[u8; 32]],
+pub fn verify_graph_watchtower_pubkey(
+    graph_watchtower_xonly_public_keys: &[[u8; 32]],
     index: usize,
     pubkey: &PublicKey,
 ) -> Result<(), String> {
-    // The fixed list is order-sensitive: index must match graph watchtower_pubkeys/node_index.
-    let Some(expected) = fixed_watchtower_xonly_public_keys.get(index) else {
-        return Err(format!("watchtower index {index} exceeds fixed watchtower list"));
+    // The graph list is order-sensitive: index must match graph watchtower_pubkeys/node_index.
+    let Some(expected) = graph_watchtower_xonly_public_keys.get(index) else {
+        return Err(format!("watchtower index {index} exceeds graph watchtower list"));
     };
     let xonly: XOnlyPublicKey = (*pubkey).into();
     let actual = xonly.serialize();
@@ -195,6 +195,37 @@ pub fn verify_fixed_watchtower_pubkey(
     Ok(())
 }
 
+/// Validates challenge indices against the graph-sized public inclusion bitmap.
+pub fn validate_watchtower_challenge_indices(
+    included_watchtowers: &[bool; 256],
+    graph_watchtower_count: usize,
+    challenge_indices: &[u16],
+    challenge_count: usize,
+) -> Result<(), String> {
+    if graph_watchtower_count == 0 || graph_watchtower_count > 256 {
+        return Err(format!("invalid graph watchtower count {graph_watchtower_count}"));
+    }
+    if challenge_indices.len() != challenge_count {
+        return Err("watchtower challenge index count mismatch".to_string());
+    }
+
+    let mut seen = [false; 256];
+    for index in challenge_indices {
+        let index = *index as usize;
+        if index >= graph_watchtower_count {
+            return Err(format!("watchtower challenge index {index} out of bounds"));
+        }
+        if seen[index] {
+            return Err(format!("duplicate watchtower challenge index {index}"));
+        }
+        seen[index] = true;
+    }
+    if included_watchtowers != &seen {
+        return Err("watchtower challenge indices do not match included bitmap".to_string());
+    }
+    Ok(())
+}
+
 // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
 #[allow(clippy::too_many_arguments)]
 pub fn propose_longest_chain(
@@ -202,11 +233,12 @@ pub fn propose_longest_chain(
     graph_id: [u8; GRAPH_ID_SIZE],                    // pis
     operator_genesis_sequencer_commit_txid: [u8; 32], // pis
 
+    watchtower_challenge_indices: Vec<u16>,
     watchtower_challenge_txns: Vec<Transaction>,
     watchtower_challenge_txn_pubkey: Vec<PublicKey>,
     watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
     watchtower_challenge_txn_prev_outs: Vec<TxOut>,
-    fixed_watchtower_xonly_public_keys: &[[u8; 32]],
+    graph_watchtower_xonly_public_keys: &[[u8; 32]],
 
     operator_header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
@@ -262,24 +294,35 @@ pub fn propose_longest_chain(
     // parse included_watchtowers into bits array
     let included_watchtowers_bits = u256_to_le_bits(included_watchtowers);
     println!("included watchtowers:{included_watchtowers_bits:?}");
+    assert_eq!(watchtower_challenge_txns.len(), watchtower_challenge_txn_pubkey.len());
+    assert_eq!(watchtower_challenge_txns.len(), watchtower_challenge_txn_scripts.len());
+    assert_eq!(watchtower_challenge_txns.len(), watchtower_challenge_txn_prev_outs.len());
+    validate_watchtower_challenge_indices(
+        &included_watchtowers_bits,
+        graph_watchtower_xonly_public_keys.len(),
+        &watchtower_challenge_indices,
+        watchtower_challenge_txns.len(),
+    )
+    .expect("invalid indexed watchtower challenges");
 
     let mut valid_included_watchtower_count = 0usize;
     // For each watchtowers, if the included_watchtowers[i] is true,
     //   verify the watchtower_challenge_txns[i] is valid
     //   verify watchtower_challenge_txns[i].total_work <= operator_header_chain.total_work
     //   verify watchtower_challenge_txns[i].epoch <= operator_latest_sequencer_commit_tx.epoch
-    for i in 0..watchtower_challenge_txns.len() {
+    for (challenge_position, node_index) in watchtower_challenge_indices.iter().enumerate() {
+        let i = *node_index as usize;
         if included_watchtowers_bits[i] {
-            let tx = &watchtower_challenge_txns[i];
+            let tx = &watchtower_challenge_txns[challenge_position];
             println!("Verify watchtower[{i}] tx: {}, {:?}", tx.compute_txid(), tx);
-            let prev_out = &watchtower_challenge_txn_prev_outs[i];
+            let prev_out = &watchtower_challenge_txn_prev_outs[challenge_position];
             let prev_index = tx.input[0].previous_output.vout as usize;
-            let pubkey = &watchtower_challenge_txn_pubkey[i];
+            let pubkey = &watchtower_challenge_txn_pubkey[challenge_position];
 
             if let Err(err) =
-                verify_fixed_watchtower_pubkey(fixed_watchtower_xonly_public_keys, i, pubkey)
+                verify_graph_watchtower_pubkey(graph_watchtower_xonly_public_keys, i, pubkey)
             {
-                println!("Watchtower[{i}] fixed pubkey verification: {err}");
+                println!("Watchtower[{i}] graph pubkey verification: {err}");
                 continue;
             }
 
@@ -301,7 +344,7 @@ pub fn propose_longest_chain(
             };
             // check tx signature is valid
             match verify_taproot_leaf_schnorr_signature(
-                &watchtower_challenge_txn_scripts[i],
+                &watchtower_challenge_txn_scripts[challenge_position],
                 tx,
                 prev_index,
                 prev_out,
@@ -436,7 +479,11 @@ pub fn propose_longest_chain(
         "operator_genesis_sequencer_commit_txid hex: {:?}",
         hex::encode(operator_genesis_sequencer_commit_txid)
     );
-    let constant = hash_operator_constant(graph_id, operator_genesis_sequencer_commit_txid);
+    let constant = hash_operator_constant(
+        graph_id,
+        operator_genesis_sequencer_commit_txid,
+        graph_watchtower_xonly_public_keys,
+    );
     println!("constant hex: {:?}", hex::encode(constant));
 
     println!("btc_best_block_hash hex: {:?}", hex::encode(btc_best_block_hash));
@@ -458,10 +505,16 @@ pub fn propose_longest_chain(
 pub fn hash_operator_constant(
     graph_id: [u8; GRAPH_ID_SIZE],
     operator_genesis_sequencer_commit_txid: [u8; 32],
+    watchtower_xonly_public_keys: &[[u8; 32]],
 ) -> [u8; 32] {
     let mut engine = sha256::HashEngine::default();
+    engine.input(b"bitvm2/operator-constant/v2");
     engine.input(&graph_id);
     engine.input(&operator_genesis_sequencer_commit_txid);
+    engine.input(&(watchtower_xonly_public_keys.len() as u16).to_be_bytes());
+    for key in watchtower_xonly_public_keys {
+        engine.input(key);
+    }
     let hash = sha256::Hash::from_engine(engine);
     *hash.as_byte_array()
 }
@@ -711,6 +764,47 @@ mod tests {
             hash_partial_binding_witness(constant, btc_best_block_hash, included_watchtowers),
             *expected.as_byte_array()
         );
+    }
+
+    #[test]
+    fn test_hash_operator_constant_binds_ordered_watchtower_keys() {
+        use bitcoin::hashes::Hash as _;
+
+        let graph_id = [1u8; GRAPH_ID_SIZE];
+        let genesis_txid = [2u8; 32];
+        let watchtower_keys = [[3u8; 32], [4u8; 32]];
+        let mut input = b"bitvm2/operator-constant/v2".to_vec();
+        input.extend_from_slice(&graph_id);
+        input.extend_from_slice(&genesis_txid);
+        input.extend_from_slice(&(watchtower_keys.len() as u16).to_be_bytes());
+        for key in &watchtower_keys {
+            input.extend_from_slice(key);
+        }
+        let expected = bitcoin::hashes::sha256::Hash::hash(&input);
+
+        assert_eq!(
+            hash_operator_constant(graph_id, genesis_txid, &watchtower_keys),
+            *expected.as_byte_array()
+        );
+        assert_ne!(
+            hash_operator_constant(
+                graph_id,
+                genesis_txid,
+                &[watchtower_keys[1], watchtower_keys[0]],
+            ),
+            *expected.as_byte_array()
+        );
+    }
+
+    #[test]
+    fn watchtower_challenge_indices_preserve_sparse_bitmap_positions() {
+        let mut included = [false; 256];
+        included[1] = true;
+        included[4] = true;
+
+        validate_watchtower_challenge_indices(&included, 5, &[1, 4], 2).unwrap();
+        assert!(validate_watchtower_challenge_indices(&included, 5, &[0, 1], 2).is_err());
+        assert!(validate_watchtower_challenge_indices(&included, 5, &[1, 1], 2).is_err());
     }
 
     #[test]

@@ -1203,7 +1203,7 @@ async fn handle_init_graph_verifier(
     } else {
         get_babe_gc_asset_paths()?;
         let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE setup")?;
-        let static_input = derive_operator_statement(graph_id)?.static_input;
+        let static_input = derive_operator_static_input()?;
         let (setup_package, private_state) = tokio::task::spawn_blocking(move || {
             build_real_setup_package(BABE_N_CC, &vk, static_input)
         })
@@ -1402,7 +1402,7 @@ async fn handle_cut_circuits_verifier(
     get_babe_gc_asset_paths()?;
 
     let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE opening")?;
-    let static_input = derive_operator_statement(graph_id)?.static_input;
+    let static_input = derive_operator_static_input()?;
     let private_state = verifier_state.private_state.clone();
     let selected_indices = selected_circuit_indexes.clone();
     let package_for_opening = setup_package.clone();
@@ -1658,7 +1658,7 @@ async fn handle_compact_soldering_proof_operator(
             .context("expand compact soldering proof payload")?;
 
     let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE validation")?;
-    let static_input = derive_operator_statement(graph_id)?.static_input;
+    let static_input = derive_operator_static_input()?;
     let package_for_validation = setup_package.clone();
     let opened_for_validation = opened.clone();
     let finalized_for_validation = finalized.clone();
@@ -3935,7 +3935,7 @@ async fn handle_assert_sent_verifier(
         return Ok(());
     }
     let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE challenge")?;
-    let static_input = derive_operator_statement(graph_id)?.static_input;
+    let static_input = derive_operator_static_input()?;
     let challenge_witness = build_real_challenge_assert_witness(
         &saved_verifier_state.private_state,
         &saved_verifier_state.setup_package,

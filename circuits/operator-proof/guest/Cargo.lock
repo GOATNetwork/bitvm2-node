@@ -2273,7 +2273,6 @@ dependencies = [
  "bitcoin-light-client-circuit",
  "commit-chain",
  "header-chain",
- "hex",
  "sha2 0.10.9",
  "state-chain",
  "tracing",
