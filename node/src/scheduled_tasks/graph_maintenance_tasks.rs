@@ -543,7 +543,6 @@ async fn detect_watchtower_flow(
         connector_e_spent_txid.is_some() && !operator_commit_timeout_on_chain;
 
     let mut all_watchtower_branches_resolved = true;
-    let mut any_included_watchtower = false;
     let mut any_watchtower_timeout_ready = false;
     let mut any_nack_ready = false;
     for watchtower_index in 0..watchtower_num {
@@ -602,8 +601,6 @@ async fn detect_watchtower_flow(
                     {
                         any_nack_ready = true;
                     }
-                } else {
-                    any_included_watchtower = true;
                 }
             }
             Some(_) => {}
@@ -644,7 +641,6 @@ async fn detect_watchtower_flow(
     }
 
     if all_watchtower_branches_resolved
-        && any_included_watchtower
         && connector_e_spent_txid.is_none()
         && connector_f_spent_txid.is_none()
     {
@@ -672,7 +668,6 @@ async fn detect_watchtower_flow(
     }
 
     if all_watchtower_branches_resolved
-        && any_included_watchtower
         && pubin_commit_completed
         && let Some(operator_assert_txid) = graph.operator_assert_txid.clone()
         && !btc_client.get_tx_status(&operator_assert_txid.0).await?.confirmed
@@ -730,7 +725,6 @@ async fn detect_assert_sent_flow(
             instance_id: graph.instance_id,
             graph_id: graph.graph_id,
             assert_txid: operator_assert_txid,
-            assert_witness: None,
         }),
     )];
 
@@ -755,7 +749,6 @@ async fn detect_assert_sent_flow(
                 graph_id: graph.graph_id,
                 challenge_assert_txid,
                 verifier_index,
-                challenge_witness: None,
             }),
             verifier_index.to_string(),
         ));
@@ -852,7 +845,6 @@ async fn detect_assert_disprove_ready(
                     graph_id: graph.graph_id,
                     challenge_assert_txid: verifier_assert_txid,
                     verifier_index: index,
-                    wrongly_challenged_witness: None,
                 }),
                 Some(index.to_string()),
             )));

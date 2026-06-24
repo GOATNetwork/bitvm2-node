@@ -502,31 +502,15 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
             Actor::Operator,
         ) => handle_assert_ready_operator(ctx, *instance_id, *graph_id).await,
         (
-            GOATMessageContent::AssertSent(AssertSent {
-                instance_id,
-                graph_id,
-                assert_txid,
-                assert_witness,
-            }),
+            GOATMessageContent::AssertSent(AssertSent { instance_id, graph_id, assert_txid }),
             Actor::Verifier,
-        ) => {
-            handle_assert_sent_verifier(
-                ctx,
-                *instance_id,
-                *graph_id,
-                *assert_txid,
-                assert_witness,
-                content,
-            )
-            .await
-        }
+        ) => handle_assert_sent_verifier(ctx, *instance_id, *graph_id, *assert_txid, content).await,
         (
             GOATMessageContent::ChallengeAssertSent(ChallengeAssertSent {
                 instance_id,
                 graph_id,
                 challenge_assert_txid,
                 verifier_index,
-                challenge_witness,
                 ..
             }),
             Actor::Operator,
@@ -537,7 +521,6 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 *graph_id,
                 *challenge_assert_txid,
                 *verifier_index,
-                challenge_witness,
                 content,
             )
             .await
@@ -4127,7 +4110,6 @@ async fn handle_assert_sent_verifier(
     instance_id: Uuid,
     graph_id: Uuid,
     assert_txid: Txid,
-    assert_witness: &Option<TxAssertWitness>,
     content: &GOATMessageContent,
 ) -> Result<()> {
     let (graph, _graph_status, _graph_sub_status) =
@@ -4221,9 +4203,22 @@ async fn handle_assert_sent_verifier(
                         Ok(None) => tracing::debug!(
                             "PubinDisprove invalid for {instance_id}:{graph_id}: operator pubin consistent, proceeding to ChallengeAssert"
                         ),
-                        Err(e) => tracing::warn!(
-                            "PubinDisprove check failed for {instance_id}:{graph_id}: {e}, proceeding to ChallengeAssert"
-                        ),
+                        Err(e) => {
+                            let delay_secs =
+                                todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                            let message = make_message(ctx, content);
+                            push_local_unhandled_messages(
+                                ctx.local_db,
+                                graph_id,
+                                &message,
+                                delay_secs as usize,
+                            )
+                            .await?;
+                            tracing::warn!(
+                                "Retry AssertSent later for {instance_id}:{graph_id}: PubinDisprove check failed: {e}"
+                            );
+                            return Ok(());
+                        }
                     }
                 }
             }
@@ -4231,29 +4226,21 @@ async fn handle_assert_sent_verifier(
     }
 
     // recover TxAssertWitness from the assert tx witness and graph.
-    let assert_witness_recovered: TxAssertWitness;
-    let assert_witness: &TxAssertWitness = match assert_witness {
-        Some(w) => w,
-        None => {
-            let raw_witness = graph
-                .connector_c()
-                .extract_leaf_1_raw_witness(
-                    assert_tx
-                        .input
-                        .first()
-                        .ok_or_else(|| anyhow!("operator assert transaction has no input"))?,
-                )
-                .map_err(|e| anyhow!("failed to extract WOTS signature from assert tx: {e}"))?;
-            let mut bitcoin_witness = bitcoin::Witness::new();
-            for item in &raw_witness {
-                bitcoin_witness.push(item);
-            }
-            assert_witness_recovered = TxAssertWitness {
-                wots_sig: Wots96::raw_witness_to_signature(&bitcoin_witness).to_vec(),
-            };
-            &assert_witness_recovered
-        }
-    };
+    let raw_witness = graph
+        .connector_c()
+        .extract_leaf_1_raw_witness(
+            assert_tx
+                .input
+                .first()
+                .ok_or_else(|| anyhow!("operator assert transaction has no input"))?,
+        )
+        .map_err(|e| anyhow!("failed to extract WOTS signature from assert tx: {e}"))?;
+    let mut bitcoin_witness = bitcoin::Witness::new();
+    for item in &raw_witness {
+        bitcoin_witness.push(item);
+    }
+    let assert_witness =
+        TxAssertWitness { wots_sig: Wots96::raw_witness_to_signature(&bitcoin_witness).to_vec() };
 
     let Some(saved_verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
         .and_then(|state| state.verifier)
@@ -4278,7 +4265,7 @@ async fn handle_assert_sent_verifier(
         &vk,
         static_input,
         &graph.parameters.operator_assert_wots_pubkey,
-        assert_witness,
+        &assert_witness,
         verifier_index,
     )?;
     let labels: [Vec<u8>; goat::assert_scripts::INPUT_WIRE_NUM] = challenge_witness
@@ -4315,7 +4302,6 @@ async fn handle_challenge_assert_sent_operator(
     graph_id: Uuid,
     challenge_assert_txid: Txid,
     verifier_index: usize,
-    challenge_witness: &Option<BabeChallengeAssertWitness>,
     content: &GOATMessageContent,
 ) -> Result<()> {
     let (graph, _graph_status, _graph_sub_status) =
@@ -4338,16 +4324,8 @@ async fn handle_challenge_assert_sent_operator(
         return Ok(());
     };
 
-    let challenge_witness_recovered: BabeChallengeAssertWitness;
-    let challenge_witness: &BabeChallengeAssertWitness = match challenge_witness {
-        Some(w) => w,
-        None => {
-            challenge_witness_recovered =
-                recover_challenge_assert_witness(&challenge_assert_tx, verifier_index)?;
-            &challenge_witness_recovered
-        }
-    };
-    validate_challenge_witness_index(verifier_index, challenge_witness)?;
+    let challenge_witness = recover_challenge_assert_witness(&challenge_assert_tx, verifier_index)?;
+    validate_challenge_witness_index(verifier_index, &challenge_witness)?;
 
     let labels: [Vec<u8>; goat::assert_scripts::INPUT_WIRE_NUM] = challenge_witness
         .witness
@@ -4416,7 +4394,7 @@ async fn handle_challenge_assert_sent_operator(
         })?;
     let wrongly_challenged_witness = recover_real_wrongly_challenged_witness(
         prover_state,
-        challenge_witness,
+        &challenge_witness,
         &proof,
         vk,
         dyn_pubin,

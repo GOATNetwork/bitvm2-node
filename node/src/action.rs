@@ -11,10 +11,7 @@ use alloy::primitives::Address as EvmAddress;
 use anyhow::{Context, Result, anyhow};
 use bitcoin::{PublicKey, Txid};
 use bitvm_lib::actors::Actor;
-use bitvm_lib::babe_adapter::{
-    BabeBundleBuilder, BabeChallengeAssertWitness, BabeWronglyChallengedWitness, CACSetupPackage,
-    TxAssertWitness,
-};
+use bitvm_lib::babe_adapter::{BabeBundleBuilder, CACSetupPackage};
 use bitvm_lib::committee::*;
 use bitvm_lib::types::{BitvmGcGraph, SimplifiedBitvmGcGraph};
 use client::goat_chain::DisproveTxType;
@@ -245,7 +242,6 @@ pub struct AssertSent {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
     pub assert_txid: Txid,
-    pub assert_witness: Option<TxAssertWitness>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChallengeAssertSent {
@@ -253,7 +249,6 @@ pub struct ChallengeAssertSent {
     pub graph_id: Uuid,
     pub challenge_assert_txid: Txid,
     pub verifier_index: usize,
-    pub challenge_witness: Option<BabeChallengeAssertWitness>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct WronglyChallengeTimeout {
@@ -261,7 +256,6 @@ pub struct WronglyChallengeTimeout {
     pub graph_id: Uuid,
     pub challenge_assert_txid: Txid,
     pub verifier_index: usize,
-    pub wrongly_challenged_witness: Option<BabeWronglyChallengedWitness>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DisproveSent {
