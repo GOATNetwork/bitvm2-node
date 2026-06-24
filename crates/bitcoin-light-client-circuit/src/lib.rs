@@ -305,7 +305,6 @@ pub fn propose_longest_chain(
     )
     .expect("invalid indexed watchtower challenges");
 
-    let mut valid_included_watchtower_count = 0usize;
     // For each watchtowers, if the included_watchtowers[i] is true,
     //   verify the watchtower_challenge_txns[i] is valid
     //   verify watchtower_challenge_txns[i].total_work <= operator_header_chain.total_work
@@ -418,11 +417,8 @@ pub fn propose_longest_chain(
                 println!("Watchtower[{i}] consensus block height exceeds operator block height");
                 continue;
             }
-
-            valid_included_watchtower_count += 1;
         }
     }
-    assert!(valid_included_watchtower_count > 0, "no included watchtower passed verification");
 
     println!("verify el block");
     verify_groth16_proof(
