@@ -179,6 +179,46 @@ async fn get_confirmed_tx_monitor(
     Ok(Some(monitor))
 }
 
+async fn detect_watchtower_flow_disprove(
+    btc_client: &BTCClient,
+    graph: &Graph,
+) -> anyhow::Result<Option<DetectedGraphMessage>> {
+    for (index, txid) in graph.operator_challenge_nack_txids.iter().enumerate() {
+        if btc_client.get_tx_status(&txid.0).await?.confirmed {
+            return Ok(Some(DetectedGraphMessage::with_sub_type(
+                Actor::Committee,
+                GOATMessageContent::DisproveSent(DisproveSent {
+                    instance_id: graph.instance_id,
+                    graph_id: graph.graph_id,
+                    disprove_type: DisproveTxType::OperatorChallengeNack,
+                    index,
+                    challenge_start_txid: None,
+                    challenge_finish_txid: txid.0,
+                }),
+                index.to_string(),
+            )));
+        }
+    }
+
+    if let Some(txid) = graph.operator_commit_timeout_txid.clone()
+        && btc_client.get_tx_status(&txid.0).await?.confirmed
+    {
+        return Ok(Some(DetectedGraphMessage::new(
+            Actor::Committee,
+            GOATMessageContent::DisproveSent(DisproveSent {
+                instance_id: graph.instance_id,
+                graph_id: graph.graph_id,
+                disprove_type: DisproveTxType::OperatorCommitTimeout,
+                index: 0,
+                challenge_start_txid: None,
+                challenge_finish_txid: txid.0,
+            }),
+        )));
+    }
+
+    Ok(None)
+}
+
 fn is_timelock_ready(confirmed_height: i64, lock_blocks: i64, current_height: i64) -> bool {
     confirmed_height > 0 && confirmed_height + lock_blocks <= current_height
 }
@@ -478,6 +518,10 @@ async fn detect_watchtower_flow(
     );
     if watchtower_num == 0 {
         return Ok(messages);
+    }
+
+    if let Some(disprove_message) = detect_watchtower_flow_disprove(btc_client, graph).await? {
+        return Ok(vec![disprove_message]);
     }
 
     let connector_e_vout =

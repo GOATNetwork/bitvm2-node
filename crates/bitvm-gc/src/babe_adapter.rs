@@ -2,9 +2,10 @@ use std::collections::HashSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 
+use crate::types::BitvmGcCircuitData;
 use anyhow::{Result, bail};
-use ark_bn254::{Bn254, Fr};
 use ark_bn254::g1::G1Affine;
+use ark_bn254::{Bn254, Fr};
 use ark_groth16::VerifyingKey as Groth16VerifyingKey;
 use ark_serialize::CanonicalSerialize;
 use garbled_snark_verifier::bag::S;
@@ -16,18 +17,22 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use soldering_host::BabeBundle;
 pub use soldering_host::BabeBundleBuilder;
-use verifiable_circuit_babe::babe::{WeKnownPi1SetupCt, GC_INPUT_WIRES, build_challenge_assert_witness_raw, deinterleave_dummy_positions, interleave_dummy_positions};
-pub use verifiable_circuit_babe::cac::{CACSetupPackage, FinalizedInstanceData};
+use verifiable_circuit_babe::babe::{
+    GC_INPUT_WIRES, WeKnownPi1SetupCt, build_challenge_assert_witness_raw,
+    deinterleave_dummy_positions, interleave_dummy_positions,
+};
 use verifiable_circuit_babe::cac::cac_finalize_indices;
-use verifiable_circuit_babe::gc::{SparseAdaptorTable, SGC_PART1_CONSTANT_SIZE};
+pub use verifiable_circuit_babe::cac::{CACSetupPackage, FinalizedInstanceData};
+use verifiable_circuit_babe::gc::{SGC_PART1_CONSTANT_SIZE, SparseAdaptorTable};
 pub use verifiable_circuit_babe::instance::commit::CACInstanceCommit;
 use verifiable_circuit_babe::prover::BABEProver;
-use verifiable_circuit_babe::soldering::{SolderedLabelsData, SolderingData as RealSolderingData, SolderingProof as RealSolderingProof};
-pub use verifiable_circuit_babe::transactions::TxAssertWitness;
+use verifiable_circuit_babe::soldering::{
+    SolderedLabelsData, SolderingData as RealSolderingData, SolderingProof as RealSolderingProof,
+};
 pub use verifiable_circuit_babe::transactions::ChallengeAssertWitnessRaw;
+pub use verifiable_circuit_babe::transactions::TxAssertWitness;
 use verifiable_circuit_babe::utils::pi1_xd_to_wots96_msg;
 use verifiable_circuit_babe::verifier::BABEVerifier;
-use crate::types::BitvmGcCircuitData;
 
 /// Number of Wots96 digit signatures expected by the GOAT GC-V2 connector.
 pub const WOTS_SIG_COUNT: usize = Wots96::TOTAL_DIGIT_LEN as usize;
@@ -52,14 +57,12 @@ pub struct CompactSolderingProofPayload {
     pub soldering: CompactSolderingData,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SolderingData {
     pub finalized_indices: Vec<usize>,
     pub soldered_output: SolderedLabelsData,
     pub proof: Vec<u8>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BabeVerifierPrivateState {
@@ -95,7 +98,6 @@ pub struct BabeWronglyChallengedWitness {
     pub final_msg: Vec<u8>,
 }
 
-
 /// Builds deterministic placeholder setup commitments for tests and wiring.
 pub fn sample_cac_instance_commit(seed: u8) -> CACInstanceCommit {
     let epk = (0..GC_INPUT_WIRES)
@@ -106,12 +108,7 @@ pub fn sample_cac_instance_commit(seed: u8) -> CACInstanceCommit {
         .collect();
 
     let constant_commit_sgc: Vec<_> = (0..SGC_PART1_CONSTANT_SIZE)
-        .map(|_| {
-            [
-                hash32(&[seed, 0xf0, 0]),
-                hash32(&[seed, 0xf0, 1]),
-            ]
-        })
+        .map(|_| [hash32(&[seed, 0xf0, 0]), hash32(&[seed, 0xf0, 1])])
         .collect();
 
     CACInstanceCommit {
@@ -130,18 +127,9 @@ pub fn sample_cac_instance_commit(seed: u8) -> CACInstanceCommit {
 }
 
 pub fn sample_finalized_instance_data(index: usize) -> FinalizedInstanceData {
-    let adaptor_tables = [
-        SparseAdaptorTable {
-            entries: vec![]
-        },
-        SparseAdaptorTable {
-            entries: vec![]
-        }
-    ];
-    let ct_setup = WeKnownPi1SetupCt {
-        ct2_r_delta_g2: vec![],
-        ct3_masked_msg: vec![],
-    };
+    let adaptor_tables =
+        [SparseAdaptorTable { entries: vec![] }, SparseAdaptorTable { entries: vec![] }];
+    let ct_setup = WeKnownPi1SetupCt { ct2_r_delta_g2: vec![], ct3_masked_msg: vec![] };
 
     FinalizedInstanceData {
         index,
@@ -153,7 +141,6 @@ pub fn sample_finalized_instance_data(index: usize) -> FinalizedInstanceData {
         b: G1Affine::identity(),
     }
 }
-
 
 impl SolderingData {
     /// Builds deterministic placeholder soldering data for the selected finalized indices.
@@ -215,11 +202,7 @@ pub fn open_real_setup_and_solder(
     let bundle = soldering_builder
         .babe_verifier_open_and_solder(&verifier, finalized_indices)
         .map_err(anyhow::Error::msg)?;
-    Ok((
-        bundle.opened,
-        bundle.finalized,
-        from_real_soldering(&bundle.soldering)?,
-    ))
+    Ok((bundle.opened, bundle.finalized, from_real_soldering(&bundle.soldering)?))
 }
 
 /// Verifies real CAC openings, commitments, and the native Ziren soldering proof.
@@ -327,7 +310,6 @@ pub fn verify_setup(
         if data.index >= n_cc {
             bail!("finalized index {} out of range", data.index);
         }
-
     }
     Ok(())
 }
@@ -344,10 +326,8 @@ pub fn extract_gc_circuit_data(
         bail!("BABE epk has {} entries; expected {GC_INPUT_WIRES}", epk.len());
     }
     let n = GC_INPUT_WIRES / 3;
-    let to_wire_hash = |pair: &[[u8; 20]; 2]| WireHash {
-        false_label_hash: pair[0],
-        true_label_hash: pair[1],
-    };
+    let to_wire_hash =
+        |pair: &[[u8; 20]; 2]| WireHash { false_label_hash: pair[0], true_label_hash: pair[1] };
     let dummy_hash = label_hash(&vec![0u8; 16]);
     let dummy = WireHash { false_label_hash: dummy_hash, true_label_hash: dummy_hash };
 
@@ -356,17 +336,11 @@ pub fn extract_gc_circuit_data(
     let x_d: Vec<WireHash> = epk[2 * n..].iter().map(to_wire_hash).collect();
     let wire_hashes_vec = interleave_dummy_positions(&pi1_x, &pi1_y, &x_d, dummy);
 
-    let wire_hashes: [WireHash; INPUT_WIRE_NUM] = wire_hashes_vec.try_into().map_err(
-        |v: Vec<WireHash>| anyhow::anyhow!(
-            "wire hash count {} does not match expected {INPUT_WIRE_NUM}",
-            v.len()
-        ),
-    )?;
-    Ok(BitvmGcCircuitData {
-        verifier_pubkey,
-        final_msg_hashlocks: h_msgs.to_vec(),
-        wire_hashes,
-    })
+    let wire_hashes: [WireHash; INPUT_WIRE_NUM] =
+        wire_hashes_vec.try_into().map_err(|v: Vec<WireHash>| {
+            anyhow::anyhow!("wire hash count {} does not match expected {INPUT_WIRE_NUM}", v.len())
+        })?;
+    Ok(BitvmGcCircuitData { verifier_pubkey, final_msg_hashlocks: h_msgs.to_vec(), wire_hashes })
 }
 
 /// Builds the native BABE assertion witness from the validated wrapper Groth16 proof.
@@ -386,7 +360,7 @@ pub fn build_assert_witness(
 pub fn assert_wots_message(assert_witness: &TxAssertWitness) -> Result<[u8; 96]> {
     let recover = assert_witness.recover_pi1_xd_without_verify();
     if recover.is_none() {
-        return Err(anyhow::anyhow!("Cannot recover pi1 and xd"))
+        return Err(anyhow::anyhow!("Cannot recover pi1 and xd"));
     }
     let (pi1, x_d) = recover.unwrap();
     Ok(pi1_xd_to_wots96_msg(&pi1, x_d))
@@ -409,7 +383,7 @@ pub fn build_challenge_assert_witness(
                 .map(|index| hash16_with_index(&bytes, index))
                 .collect(),
             wots_sig: assert_witness.wots_sig.clone(),
-        }
+        },
     })
 }
 
@@ -435,7 +409,7 @@ pub fn build_real_challenge_assert_witness(
 
     let recover = assert_witness.recover_pi1_xd_without_verify();
     if recover.is_none() {
-        return Err(anyhow::anyhow!("Cannot recover pi1 and xd"))
+        return Err(anyhow::anyhow!("Cannot recover pi1 and xd"));
     }
     let (pi1, x_d) = recover.unwrap();
     let expected_message = pi1_xd_to_wots96_msg(&pi1, x_d);
@@ -458,12 +432,12 @@ pub fn build_real_challenge_assert_witness(
     let witness = witness.unwrap();
 
     if witness.input_labels.len() != INPUT_WIRE_NUM {
-        bail!("real BABE challenge labels have {}; expected {INPUT_WIRE_NUM}", witness.input_labels.len());
+        bail!(
+            "real BABE challenge labels have {}; expected {INPUT_WIRE_NUM}",
+            witness.input_labels.len()
+        );
     }
-    Ok(BabeChallengeAssertWitness {
-        verifier_index,
-        witness,
-    })
+    Ok(BabeChallengeAssertWitness { verifier_index, witness })
 }
 
 /// Builds a wrongly-challenged witness from a valid recovered finalized-message preimage.
@@ -505,16 +479,19 @@ pub fn build_wrongly_challenged_witness_from_preimages(
         bail!("message is not a valid preimage");
     }
 
-    Ok(BabeWronglyChallengedWitness {
-        verifier_index: challenge_witness.verifier_index,
-        final_msg,
-    })
+    Ok(BabeWronglyChallengedWitness { verifier_index: challenge_witness.verifier_index, final_msg })
 }
 
 fn ensure_real_gc_assets_configured() -> Result<()> {
     for name in [
-        "FGC_GATES_PATH", "FGC_OUT_INDICES_PATH", "SGC_GATES_PATH", "SGC_OUT_INDICES_PATH",
-        "FGC_COMPACT_GATES_PATH", "FGC_COMPACT_OUT_INDICES_PATH", "SGC_COMPACT_GATES_PATH", "SGC_COMPACT_OUT_INDICES_PATH"
+        "FGC_GATES_PATH",
+        "FGC_OUT_INDICES_PATH",
+        "SGC_GATES_PATH",
+        "SGC_OUT_INDICES_PATH",
+        "FGC_COMPACT_GATES_PATH",
+        "FGC_COMPACT_OUT_INDICES_PATH",
+        "SGC_COMPACT_GATES_PATH",
+        "SGC_COMPACT_OUT_INDICES_PATH",
     ] {
         let path = PathBuf::from(
             std::env::var(name)
@@ -540,9 +517,7 @@ fn restore_real_verifier(
     vk: &Groth16VerifyingKey<Bn254>,
     static_inputs: Fr,
 ) -> Result<BABEVerifier> {
-    let verifier = BABEVerifier::from_state(
-        &state.instance_seeds, package, vk, static_inputs
-    );
+    let verifier = BABEVerifier::from_state(&state.instance_seeds, package, vk, static_inputs);
     if verifier.is_none() {
         Err(anyhow::anyhow!("Cannot restore real verifier"))
     } else {
@@ -619,7 +594,8 @@ fn recover_a_valid_finalized_messages(
         bail!("BABE prover state has no finalized instances");
     }
 
-    let base_input_labels: Vec<S> = challenge_witness.witness.input_labels.iter().map(|&b| S(b)).collect();
+    let base_input_labels: Vec<S> =
+        challenge_witness.witness.input_labels.iter().map(|&b| S(b)).collect();
     // Strip the 6 dummy labels before passing to the GC (which has GC_INPUT_WIRES real wires).
     let (pi1_x_labels, pi1_y_labels, x_d_labels) = deinterleave_dummy_positions(&base_input_labels);
     let pi1_labels: Vec<S> = pi1_x_labels.into_iter().chain(pi1_y_labels).collect();
@@ -641,14 +617,18 @@ fn recover_a_valid_finalized_messages(
         &prover_state.h_msgs,
     );
 
-
     if !found {
         bail!("Cannot find any valid msg");
     }
 
     Ok(BabeWronglyChallengedWitness {
         verifier_index: challenge_witness.verifier_index,
-        final_msg: prover.valid_msg.ok_or_else(|| anyhow::anyhow!("check_compute_msg returned true but valid_msg is not set"))?.to_vec(),
+        final_msg: prover
+            .valid_msg
+            .ok_or_else(|| {
+                anyhow::anyhow!("check_compute_msg returned true but valid_msg is not set")
+            })?
+            .to_vec(),
     })
 }
 

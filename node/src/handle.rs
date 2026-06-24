@@ -3283,13 +3283,7 @@ async fn handle_kickoff_sent_verifier(
             let (challenge_tx, _) = export_challenge_tx(&graph).unwrap();
             let challenge_txid = challenge_tx.compute_txid();
             if ctx.btc_client.get_tx(&challenge_txid).await?.is_none() {
-                let challenge_txid = send_challenge_tx(ctx.btc_client, &graph).await?;
-                let message_content = GOATMessageContent::ChallengeSent(ChallengeSent {
-                    instance_id,
-                    graph_id,
-                    challenge_txid,
-                });
-                send_to_peer(ctx.swarm, GOATMessage::new(Actor::All, message_content)).await?;
+                send_challenge_tx(ctx.btc_client, &graph).await?;
             }
         }
     } else {
@@ -3477,12 +3471,6 @@ async fn handle_challenge_sent_operator(
         }
         None => broadcast_tx(ctx.btc_client, &watchtower_challenge_init_tx).await?,
     };
-    let message_content =
-        GOATMessageContent::WatchtowerChallengeInitSent(WatchtowerChallengeInitSent {
-            instance_id,
-            graph_id,
-        });
-    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Watchtower, message_content)).await?;
     Ok(())
 }
 
@@ -3600,12 +3588,6 @@ async fn handle_watchtower_challenge_init_sent_watchtower(
     tracing::info!(
         "WatchtowerChallengeSent for {instance_id}:{graph_id}: watchtower_index={node_index}, txid={watchtower_challenge_txid}"
     );
-    let message_content = GOATMessageContent::WatchtowerChallengeSent(WatchtowerChallengeSent {
-        instance_id,
-        graph_id,
-        watchtower_index: node_index,
-    });
-    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Operator, message_content)).await?;
     Ok(())
 }
 
@@ -4071,14 +4053,6 @@ async fn handle_assert_ready_operator(
     let assert_tx = operator_sign_assert(&mut graph, &assert_secret_key, &assert_message)?;
     broadcast_nonstandard_tx(ctx.btc_client, &assert_tx).await?;
 
-    let message_content = GOATMessageContent::AssertSent(AssertSent {
-        instance_id,
-        graph_id,
-        assert_txid: assert_tx.compute_txid(),
-        assert_witness: Some(assert_witness),
-    });
-    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Verifier, message_content)).await?;
-
     Ok(())
 }
 
@@ -4239,19 +4213,6 @@ async fn handle_assert_sent_verifier(
                                 output: vec![goat::scripts::p2a_output()],
                             };
                             broadcast_nonstandard_tx(ctx.btc_client, &pubin_disprove_tx).await?;
-                            let message_content = GOATMessageContent::DisproveSent(DisproveSent {
-                                instance_id,
-                                graph_id,
-                                disprove_type: DisproveTxType::PubinDisprove,
-                                index: verifier_index,
-                                challenge_start_txid: None,
-                                challenge_finish_txid: pubin_disprove_tx.compute_txid(),
-                            });
-                            send_to_peer(
-                                ctx.swarm,
-                                GOATMessage::new(Actor::Committee, message_content),
-                            )
-                            .await?;
                             return Ok(());
                         }
                         Ok(None) => tracing::debug!(
@@ -4339,14 +4300,6 @@ async fn handle_assert_sent_verifier(
     let challenge_assert_tx =
         build_verifier_assert_tx(&graph, operator_assert_txin, verifier_index, labels)?;
     broadcast_nonstandard_tx(ctx.btc_client, &challenge_assert_tx).await?;
-    let message_content = GOATMessageContent::ChallengeAssertSent(ChallengeAssertSent {
-        instance_id,
-        graph_id,
-        challenge_assert_txid: challenge_assert_tx.compute_txid(),
-        verifier_index,
-        challenge_witness: Some(challenge_witness),
-    });
-    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Operator, message_content)).await?;
 
     Ok(())
 }
@@ -4569,16 +4522,6 @@ async fn handle_wrongly_challenge_timeout_verifier(
 
     let disprove_tx = build_disprove_tx(&graph, verifier_index, None)?;
     broadcast_nonstandard_tx(ctx.btc_client, &disprove_tx).await?;
-
-    let message_content = GOATMessageContent::DisproveSent(DisproveSent {
-        instance_id,
-        graph_id,
-        disprove_type: DisproveTxType::Disprove,
-        index: verifier_index,
-        challenge_start_txid: Some(challenge_assert_txid),
-        challenge_finish_txid: disprove_tx.compute_txid(),
-    });
-    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Committee, message_content)).await?;
 
     Ok(())
 }

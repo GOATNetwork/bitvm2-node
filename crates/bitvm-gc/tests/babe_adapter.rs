@@ -4,11 +4,12 @@ use ark_groth16::Groth16;
 use bitvm_gc::assert_scripts::{INPUT_WIRE_NUM, label_hash};
 use bitvm_gc::babe_adapter::{
     BABE_M_CC, BabeBundleBuilder, BabeChallengeAssertWitness, BabeProverState, BabeVerifierState,
-    CACSetupPackage, ChallengeAssertWitnessRaw, FinalizedInstanceData, SolderingData, WOTS_SIG_COUNT,
-    build_assert_witness, build_challenge_assert_witness, build_real_setup_package, build_setup_package,
-    build_wrongly_challenged_witness, build_wrongly_challenged_witness_from_preimages, derive_finalized_indices,
-    extract_gc_circuit_data, open_and_solder, open_real_setup_and_solder, verify_real_setup, verify_setup,
-    sample_cac_instance_commit, sample_finalized_instance_data
+    CACSetupPackage, ChallengeAssertWitnessRaw, FinalizedInstanceData, SolderingData,
+    WOTS_SIG_COUNT, build_assert_witness, build_challenge_assert_witness, build_real_setup_package,
+    build_setup_package, build_wrongly_challenged_witness,
+    build_wrongly_challenged_witness_from_preimages, derive_finalized_indices,
+    extract_gc_circuit_data, open_and_solder, open_real_setup_and_solder,
+    sample_cac_instance_commit, sample_finalized_instance_data, verify_real_setup, verify_setup,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha12Rng;
@@ -92,8 +93,8 @@ fn babe_setup_payload_round_trips_and_derives_gc_data() {
         .collect::<Vec<_>>();
     let epk = &package.commits[finalized[0].index].epk;
     let h_msgs: Vec<[u8; 20]> = finalized.iter().map(|f| package.commits[f.index].h_msg).collect();
-    let gc_data = extract_gc_circuit_data(verifier_pubkey(), epk, &h_msgs)
-        .expect("extract gc data");
+    let gc_data =
+        extract_gc_circuit_data(verifier_pubkey(), epk, &h_msgs).expect("extract gc data");
 
     assert_eq!(gc_data.verifier_pubkey, verifier_pubkey());
     assert_eq!(gc_data.final_msg_hashlocks.len(), BABE_M_CC);
@@ -107,12 +108,11 @@ fn protocol_finalized_instances_contribute_one_base_wire_slot() {
     };
     let finalized: Vec<FinalizedInstanceData> =
         (0..BABE_M_CC).map(sample_finalized_instance_data).collect();
-    let h_msgs: Vec<[u8; 20]> =
-        finalized.iter().map(|f| package.commits[f.index].h_msg).collect();
+    let h_msgs: Vec<[u8; 20]> = finalized.iter().map(|f| package.commits[f.index].h_msg).collect();
     let epk = &package.commits[finalized[0].index].epk;
 
-    let gc_data = extract_gc_circuit_data(verifier_pubkey(), epk, &h_msgs)
-        .expect("one verifier graph slot");
+    let gc_data =
+        extract_gc_circuit_data(verifier_pubkey(), epk, &h_msgs).expect("one verifier graph slot");
 
     // M finalized instances each contribute one hashlock …
     assert_eq!(gc_data.final_msg_hashlocks, h_msgs);
@@ -199,8 +199,8 @@ fn witness_builders_validate_inputs_and_indices() {
     };
     let dynamic_input = Fr::from(0u64);
 
-    let assert_witness = build_assert_witness(&proof, &assert_secret_key, dynamic_input)
-        .expect("assert witness");
+    let assert_witness =
+        build_assert_witness(&proof, &assert_secret_key, dynamic_input).expect("assert witness");
     assert_eq!(assert_witness.wots_sig.len(), WOTS_SIG_COUNT);
     assert!(assert_witness.recover_pi1_xd_without_verify().is_some());
     assert!(build_assert_witness(&proof, &Vec::new(), dynamic_input).is_err());
@@ -290,7 +290,7 @@ fn setup_package_and_open_reject_degenerate_inputs() {
 
     let pkg = build_setup_package(4).expect("setup package");
     assert!(open_and_solder(&pkg, &[0, 0]).is_err()); // duplicate finalized index
-    assert!(open_and_solder(&pkg, &[99]).is_err());   // out-of-range finalized index
+    assert!(open_and_solder(&pkg, &[99]).is_err()); // out-of-range finalized index
 }
 
 #[test]
@@ -311,17 +311,14 @@ fn witness_builders_reject_wrong_finalized_count() {
         verifier_index: 0,
         witness: ChallengeAssertWitnessRaw { input_labels: vec![], wots_sig: vec![] },
     };
-    assert!(build_wrongly_challenged_witness_from_preimages(
-        &[],
-        &challenge,
-        b"msg".to_vec(),
-    ).is_err());
+    assert!(
+        build_wrongly_challenged_witness_from_preimages(&[], &challenge, b"msg".to_vec(),).is_err()
+    );
     let too_many = vec![[0u8; 20]; BABE_M_CC + 1];
-    assert!(build_wrongly_challenged_witness_from_preimages(
-        &too_many,
-        &challenge,
-        b"msg".to_vec(),
-    ).is_err());
+    assert!(
+        build_wrongly_challenged_witness_from_preimages(&too_many, &challenge, b"msg".to_vec(),)
+            .is_err()
+    );
 }
 
 #[test]
@@ -343,9 +340,8 @@ fn assert_witness_preserves_pi1_and_dynamic_input() {
 
     let assert_witness = build_assert_witness(&proof, &sk, dynamic_input).expect("assert witness");
 
-    let (recovered_pi1, recovered_xd) = assert_witness
-        .recover_pi1_xd_without_verify()
-        .expect("recover pi1 and xd");
+    let (recovered_pi1, recovered_xd) =
+        assert_witness.recover_pi1_xd_without_verify().expect("recover pi1 and xd");
     assert_eq!(recovered_pi1, proof.a);
     assert_eq!(recovered_xd, dynamic_input);
 

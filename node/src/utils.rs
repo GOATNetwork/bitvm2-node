@@ -966,6 +966,35 @@ async fn detect_connector_d_disprove(
     }))
 }
 
+async fn detect_watchtower_flow_disprove(
+    btc_client: &BTCClient,
+    graph: &BitvmGcGraph,
+) -> Result<Option<DetectedDisprove>> {
+    for (index, nack) in graph.operator_challenge_nacks.iter().enumerate() {
+        let txid = nack.tx().compute_txid();
+        if tx_on_chain(btc_client, &txid).await? {
+            return Ok(Some(DetectedDisprove {
+                disprove_type: DisproveTxType::OperatorChallengeNack,
+                index,
+                challenge_start_txid: None,
+                challenge_finish_txid: txid,
+            }));
+        }
+    }
+
+    let txid = graph.operator_commit_timeout.tx().compute_txid();
+    if tx_on_chain(btc_client, &txid).await? {
+        return Ok(Some(DetectedDisprove {
+            disprove_type: DisproveTxType::OperatorCommitTimeout,
+            index: 0,
+            challenge_start_txid: None,
+            challenge_finish_txid: txid,
+        }));
+    }
+
+    Ok(None)
+}
+
 async fn scan_graph_chain_state(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
@@ -1156,6 +1185,19 @@ async fn scan_graph_chain_state(
             });
         }
 
+        if let Some(disprove) = detect_watchtower_flow_disprove(btc_client, graph).await? {
+            sub_status.disprove_type = Some(disprove.disprove_type);
+            sub_status.disprove_index = disprove.index as i32;
+            return Ok(GraphChainScan {
+                status: GraphStatus::Disprove,
+                sub_status,
+                challenge_txid,
+                watchtower_challenge_init_on_chain,
+                operator_assert_on_chain,
+                disprove: Some(disprove),
+            });
+        }
+
         let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
         watchtower_challenge_init_on_chain =
             tx_on_chain(btc_client, &watchtower_challenge_init_txid).await?;
@@ -1206,6 +1248,19 @@ async fn scan_graph_chain_state(
 
     if current_status == GraphStatus::Challenge {
         if let Some(disprove) = detect_guardian_disprove(btc_client, graph, challenge_txid).await? {
+            sub_status.disprove_type = Some(disprove.disprove_type);
+            sub_status.disprove_index = disprove.index as i32;
+            return Ok(GraphChainScan {
+                status: GraphStatus::Disprove,
+                sub_status,
+                challenge_txid,
+                watchtower_challenge_init_on_chain,
+                operator_assert_on_chain,
+                disprove: Some(disprove),
+            });
+        }
+
+        if let Some(disprove) = detect_watchtower_flow_disprove(btc_client, graph).await? {
             sub_status.disprove_type = Some(disprove.disprove_type);
             sub_status.disprove_index = disprove.index as i32;
             return Ok(GraphChainScan {
