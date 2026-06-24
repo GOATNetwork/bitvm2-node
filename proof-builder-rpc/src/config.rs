@@ -9,8 +9,6 @@ pub(crate) struct ProofBuilderConfig {
     pub state_chain: state_chain_proof::Args,
     pub watchtower: watchtower_proof::Args,
     pub operator: operator_proof::Args,
-    #[serde(default)]
-    pub wrapper: operator_wrapper_proof::Args,
 }
 
 impl ProofBuilderConfig {

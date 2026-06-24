@@ -343,7 +343,7 @@ pub fn extract_gc_circuit_data(
     Ok(BitvmGcCircuitData { verifier_pubkey, final_msg_hashlocks: h_msgs.to_vec(), wire_hashes })
 }
 
-/// Builds the native BABE assertion witness from the validated wrapper Groth16 proof.
+/// Builds the native BABE assertion witness from the validated operator Groth16 proof.
 pub fn build_assert_witness(
     proof: &ark_groth16::Proof<Bn254>,
     assert_secret_key: &OperatorAssertSecretKey,

@@ -3,13 +3,11 @@ mod header_chain_proof;
 mod operator_proof;
 mod state_chain_proof;
 mod watchtower_proof;
-mod wrapper_proof;
 use crate::config::ProofBuilderConfig;
 use crate::task::{
     commit_chain_proof::spawn_commit_chain_proof_task,
     header_chain_proof::spawn_header_chain_proof_task, operator_proof::spawn_operator_proof_task,
     state_chain_proof::spawn_state_chain_proof_task, watchtower_proof::spawn_watchtower_proof_task,
-    wrapper_proof::spawn_wrapper_proof_task,
 };
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
@@ -20,7 +18,6 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::time::UNIX_EPOCH;
 use uuid::Uuid;
-pub(crate) use wrapper_proof::create_missing_wrapper_tasks;
 
 use futures::future::Either;
 use proof_builder::{OnDemandTask, ProofBuilder};
@@ -35,7 +32,6 @@ pub(crate) fn is_start_generate_proof_tasks(cfg: &ProofBuilderConfig) -> bool {
         || cfg.state_chain.enable
         || cfg.watchtower.enable
         || cfg.operator.enable
-        || cfg.wrapper.enable
 }
 
 pub(crate) async fn run_generate_proof_tasks(
@@ -98,18 +94,6 @@ pub(crate) async fn run_generate_proof_tasks(
             local_db.clone(),
             interval,
             interval * 3 / 4,
-            cancellation_token.clone(),
-        ))
-    } else {
-        Either::Right(std::future::pending::<Result<anyhow::Result<_>, tokio::task::JoinError>>())
-    };
-
-    let wrapper_proof_future = if cfg.wrapper.enable {
-        Either::Left(spawn_wrapper_proof_task(
-            cfg.wrapper.clone(),
-            local_db.clone(),
-            interval,
-            interval,
             cancellation_token.clone(),
         ))
     } else {
@@ -189,21 +173,6 @@ pub(crate) async fn run_generate_proof_tasks(
                 Err(e) => {
                    error!("Watchtower proof generate task panic: {:?}", e);
                     anyhow::bail!("Watchtower proof generate task panic: {:?}", e);
-                }
-            }
-        }
-        result = wrapper_proof_future => {
-            match result {
-                Ok(Ok(_)) => {
-                    info!("Wrapper proof generate task completed successfully");
-                }
-                Ok(Err(e)) => {
-                    error!("Wrapper proof generate task error: {}", e);
-                    return Err(e);
-                }
-                Err(e) => {
-                   error!("Wrapper proof generate task panic: {:?}", e);
-                    anyhow::bail!("Wrapper proof generate task panic: {:?}", e);
                 }
             }
         }

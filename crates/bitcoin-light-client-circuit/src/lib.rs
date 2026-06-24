@@ -47,32 +47,19 @@ pub struct OperatorPublicOutputs {
     pub btc_best_block_hash: [u8; 32],
     pub constant: [u8; 32],
     pub included_watchtowers: [u8; 32],
-    pub operator_vk_hash: [u8; 32],
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct LegacyOperatorPublicOutputs {
-    btc_best_block_hash: [u8; 32],
-    constant: [u8; 32],
-    included_watchtowers: [u8; 32],
 }
 
 pub fn decode_operator_public_outputs(
     public_values: &[u8],
-    actual_operator_vk_hash: [u8; 32],
 ) -> Result<OperatorPublicOutputs, String> {
-    if let Ok(outputs) = bincode::deserialize::<OperatorPublicOutputs>(public_values) {
-        return Ok(outputs);
+    if public_values.len() != 96 {
+        return Err(format!(
+            "operator public values must be 96 bytes, got {}",
+            public_values.len()
+        ));
     }
-
-    let legacy_outputs = bincode::deserialize::<LegacyOperatorPublicOutputs>(public_values)
-        .map_err(|err| format!("failed to decode operator public values: {err}"))?;
-    Ok(OperatorPublicOutputs {
-        btc_best_block_hash: legacy_outputs.btc_best_block_hash,
-        constant: legacy_outputs.constant,
-        included_watchtowers: legacy_outputs.included_watchtowers,
-        operator_vk_hash: actual_operator_vk_hash,
-    })
+    bincode::deserialize(public_values)
+        .map_err(|err| format!("failed to decode operator public values: {err}"))
 }
 
 pub fn watch_longest_chain(
@@ -226,8 +213,7 @@ pub fn propose_longest_chain(
     state_chain: StateChainCircuitInput,
     spv_ss_commit: SPV,
     operator_committed_blockhash: [u8; 32],
-    actual_operator_vk_hash: [u8; 32],
-) -> ([u8; 32], [u8; 32], [u8; 32], [u8; 32]) {
+) -> ([u8; 32], [u8; 32], [u8; 32]) {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
     verify_groth16_proof(
@@ -466,26 +452,7 @@ pub fn propose_longest_chain(
     );
 
     //operator_public_input
-    (
-        operator_committed_blockhash,
-        constant,
-        included_watchtowers.to_le_bytes::<32>(),
-        resolve_operator_vk_hash(
-            commit_chain_output.chain_state.operator_vk_hash,
-            actual_operator_vk_hash,
-        ),
-    )
-}
-
-pub fn resolve_operator_vk_hash(
-    commit_chain_operator_vk_hash: [u8; 32],
-    actual_operator_vk_hash: [u8; 32],
-) -> [u8; 32] {
-    if commit_chain_operator_vk_hash == commit_chain::LEGACY_OPERATOR_VK_HASH {
-        actual_operator_vk_hash
-    } else {
-        commit_chain_operator_vk_hash
-    }
+    (operator_committed_blockhash, constant, included_watchtowers.to_le_bytes::<32>())
 }
 
 pub fn hash_operator_constant(
@@ -497,38 +464,6 @@ pub fn hash_operator_constant(
     engine.input(&operator_genesis_sequencer_commit_txid);
     let hash = sha256::Hash::from_engine(engine);
     *hash.as_byte_array()
-}
-
-pub const WRAPPER_PUBLIC_VALUES_SIZE: usize = 32 + GRAPH_ID_SIZE + 32;
-
-pub fn wrapper_public_values(
-    operator_vk_hash: [u8; 32],
-    graph_id: [u8; GRAPH_ID_SIZE],
-    genesis_sequencer_commit_txid: [u8; 32],
-) -> [u8; WRAPPER_PUBLIC_VALUES_SIZE] {
-    let mut public_values = [0u8; WRAPPER_PUBLIC_VALUES_SIZE];
-    public_values[..32].copy_from_slice(&operator_vk_hash);
-    public_values[32..32 + GRAPH_ID_SIZE].copy_from_slice(&graph_id);
-    public_values[32 + GRAPH_ID_SIZE..].copy_from_slice(&genesis_sequencer_commit_txid);
-    public_values
-}
-
-// zkm_vk_hash: 66 bytes, prefix with '0x'
-pub fn zkm_vk_hash_to_raw(vk_hash: &[u8]) -> Result<[u8; 32], String> {
-    let vk_hash =
-        std::str::from_utf8(vk_hash).map_err(|err| format!("invalid zkm vk hash UTF-8: {err}"))?;
-    let Some(hex_hash) = vk_hash.strip_prefix("0x") else {
-        return Err("zkm vk hash must have 0x prefix".to_string());
-    };
-    if hex_hash.len() != 64 {
-        return Err(format!("zkm vk hash must be 64 hex chars, got {}", hex_hash.len()));
-    }
-    let bytes = hex::decode(hex_hash).map_err(|err| format!("invalid zkm vk hash hex: {err}"))?;
-    bytes.try_into().map_err(|_| "zkm vk hash must decode to 32 bytes".to_string())
-}
-
-pub fn zkm_vk_hash_from_raw(raw: &[u8; 32]) -> Vec<u8> {
-    format!("0x{}", hex::encode(raw)).into_bytes()
 }
 
 pub fn hash_partial_binding_witness(
@@ -847,21 +782,5 @@ mod tests {
         commitment.extend_from_slice(&[0xff, 0xff]);
 
         assert!(parse_watchtower_commitment(&commitment).is_err());
-    }
-
-    #[test]
-    fn test_zkm_vk_hash_to_raw_accepts_prefixed_hash() {
-        let raw = [0xabu8; 32];
-        let prefixed = zkm_vk_hash_from_raw(&raw);
-
-        assert_eq!(zkm_vk_hash_to_raw(&prefixed).unwrap(), raw);
-    }
-
-    #[test]
-    fn test_zkm_vk_hash_to_raw_rejects_unprefixed_hash() {
-        let raw = [0xcdu8; 32];
-        let unprefixed = hex::encode(raw);
-
-        assert!(zkm_vk_hash_to_raw(unprefixed.as_bytes()).is_err());
     }
 }

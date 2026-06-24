@@ -8647,29 +8647,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "operator-wrapper-proof"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "bincode",
- "bitcoin",
- "bitcoin-light-client-circuit",
- "clap",
- "dotenv",
- "hex",
- "proof-builder",
- "serde",
- "sha2 0.10.9",
- "tokio",
- "tracing",
- "tracing-subscriber 0.3.23",
- "zkm-build",
- "zkm-primitives",
- "zkm-prover",
- "zkm-sdk",
-]
-
-[[package]]
 name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9788,7 +9765,6 @@ dependencies = [
  "header-chain-proof",
  "http-body-util",
  "operator-proof",
- "operator-wrapper-proof",
  "prometheus-client",
  "proof-builder",
  "serde",

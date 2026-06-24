@@ -23,7 +23,6 @@ members = [
     "circuits/state-chain-proof/host",
     "circuits/watchtower-proof/host",
     "circuits/operator-proof/host",
-    "circuits/operator-wrapper-proof/host",
     "circuits/proof-builder",
 ]
 default-members = ["node"]
@@ -127,7 +126,6 @@ state-chain = { path = "crates/state-chain" }
 verifier = { path = "crates/verifier" }
 state-chain-proof = { path = "circuits/state-chain-proof/host" }
 operator-proof = { path = "circuits/operator-proof/host" }
-operator-wrapper-proof = { path = "circuits/operator-wrapper-proof/host" }
 watchtower-proof = { path = "circuits/watchtower-proof/host" }
 proof-builder = { path = "circuits/proof-builder" }
 
