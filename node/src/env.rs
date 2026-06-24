@@ -8,11 +8,11 @@ use base64::Engine;
 use bitcoin::{Network, PublicKey, key::Keypair};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::keys::NodeMasterKey;
+use bitvm_lib::timelocks::{default_connector_z_timelock_blocks, estimated_block_interval_secs};
 use client::goat_chain::utils::{
     get_committee_management_contract, get_gateway_relay_contracts, is_validate_committee,
 };
 use client::goat_chain::{GoatInitConfig, GoatNetwork};
-use goat::constants::{CONNECTOR_Z_TIMELOCK, NUM_BLOCKS_PER_HOUR};
 use libp2p::PeerId;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
@@ -132,10 +132,6 @@ pub const MESSAGE_SAVE_INTERVAL_SECOND: i64 = 3600 * 24 * 3;
 
 pub const GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED: i64 = 3600 * 48;
 
-// update me later
-pub const INSTANCE_PRESIGNED_TIME_EXPIRED: i64 =
-    (3600 / NUM_BLOCKS_PER_HOUR as i64) * CONNECTOR_Z_TIMELOCK as i64 * 2 / 3;
-
 pub const SYNC_GRAPH_INTERVAL: u64 = 3;
 pub const SYNC_GRAPH_MAX_WAIT_SECS: u64 = 30;
 
@@ -171,6 +167,12 @@ pub fn get_network() -> Network {
             Network::Testnet4
         }
     }
+}
+
+pub fn get_instance_presigned_time_expired_secs() -> i64 {
+    let network = get_network();
+    let connector_z_blocks = default_connector_z_timelock_blocks(network) as i64;
+    estimated_block_interval_secs(network) * connector_z_blocks * 2 / 3
 }
 
 pub fn get_goat_network() -> GoatNetwork {
@@ -636,9 +638,8 @@ pub struct BabeGcAssetPaths {
 
 pub fn get_babe_gc_asset_paths() -> anyhow::Result<BabeGcAssetPaths> {
     fn read_path(name: &str) -> anyhow::Result<PathBuf> {
-        let path = PathBuf::from(
-            std::env::var(name).map_err(|_| anyhow::anyhow!("{name} is missing"))?,
-        );
+        let path =
+            PathBuf::from(std::env::var(name).map_err(|_| anyhow::anyhow!("{name} is missing"))?);
         if !path.is_file() {
             anyhow::bail!("{name} does not point to a readable file: {}", path.display());
         }

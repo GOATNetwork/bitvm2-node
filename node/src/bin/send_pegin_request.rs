@@ -25,7 +25,7 @@ use anyhow::{Result, anyhow};
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::{Address, Amount, key::Keypair};
-use bitcoin::{Network, TapSighashType, XOnlyPublicKey};
+use bitcoin::{Network, TapSighashType};
 use bitvm_lib::types::BitvmGcInstanceParameters;
 use clap::{Parser, Subcommand};
 use client::btc_chain::BTCClient;
@@ -33,7 +33,6 @@ use client::goat_chain::utils::get_gateway_relay_contracts;
 use client::goat_chain::{GOATClient, GoatInitConfig, GoatNetwork, Utxo as ClientUtxo};
 use dotenv::dotenv;
 use goat::connectors::base::TaprootConnector;
-use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::pre_signed::{PreSignedTransaction, pre_sign_taproot_input_default};
 use reqwest::Url;
 use sha2::{Digest, Sha256};
@@ -231,7 +230,7 @@ async fn main() -> Result<()> {
             action_prepare(network, &btc_client, &goat_client, &uuid_str, &user_btc_secret).await
         }
         Commands::Cancel { instance_id, user_btc_secret } => {
-            action_cancel(network, &btc_client, &goat_client, &instance_id, &user_btc_secret).await
+            action_cancel(&btc_client, &goat_client, &instance_id, &user_btc_secret).await
         }
     }
 }
@@ -373,7 +372,6 @@ async fn action_prepare(
 }
 
 async fn action_cancel(
-    network: Network,
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     instance_id_str: &str,
@@ -390,17 +388,14 @@ async fn action_cancel(
         &hex::encode(sk.secret_bytes()).to_string()
     };
     let user_keypair = Keypair::from_seckey_str_global(user_btc_secret)?;
-    let user_taproot_public_key = user_keypair.public_key().x_only_public_key().0;
 
     let instance_params: BitvmGcInstanceParameters =
         bitvm_noded::utils::read_instance_info_from_goat(goat_client, instance_id).await?;
-    let n_of_n_taproot_public_key = XOnlyPublicKey::from(instance_params.committee_agg_pubkey);
 
     // Build pegin deposit/confirm/refund transactions and pick the refund (cancel)
     let (_deposit, _confirm, mut pegin_refund) = instance_params.build_pegin_tx()?;
 
-    let connector_z =
-        ConnectorZ::new(network, &n_of_n_taproot_public_key, &user_taproot_public_key);
+    let connector_z = instance_params.connector_z();
     pre_sign_taproot_input_default(
         &mut pegin_refund,
         0,

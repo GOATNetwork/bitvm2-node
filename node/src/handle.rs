@@ -31,7 +31,6 @@ use bitvm_lib::verifier::*;
 use client::goat_chain::{DisproveTxType, PeginStatus, WithdrawStatus};
 use client::http_client::async_client::HttpAsyncClient;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
-use goat::connectors::connector_z::ConnectorZ;
 use goat::transactions::base::output_topology;
 use goat::transactions::pre_signed::PreSignedTransaction;
 use goat::transactions::pre_signed_musig2::verify_public_nonce;
@@ -2696,11 +2695,7 @@ async fn handle_pegin_confirm_nonce_committee(
                             "Failed to aggregate Pegin-Confirm's signatures for {instance_id}: {e}"
                         )
                     })?;
-                let connector_z = ConnectorZ::new(
-                    context.network,
-                    &context.n_of_n_taproot_public_key,
-                    &instance_params.user_info.user_xonly_pubkey,
-                );
+                let connector_z = instance_params.connector_z();
                 pegin_confirm.push_input_0_signature(&connector_z, full_sig);
                 broadcast_tx(ctx.btc_client, pegin_confirm.tx()).await?;
             }
@@ -2855,11 +2850,7 @@ async fn handle_pegin_confirm_partial_sig_committee(
                 .map_err(|e| {
                     anyhow!("Failed to aggregate Pegin-Confirm's signatures for {instance_id}: {e}")
                 })?;
-            let connector_z = ConnectorZ::new(
-                context.network,
-                &context.n_of_n_taproot_public_key,
-                &instance_params.user_info.user_xonly_pubkey,
-            );
+            let connector_z = instance_params.connector_z();
             pegin_confirm.push_input_0_signature(&connector_z, full_sig);
             broadcast_tx(ctx.btc_client, pegin_confirm.tx()).await?;
         }
@@ -3092,7 +3083,10 @@ async fn handle_kickoff_ready_operator(
             );
             let nonce_interval =
                 graph.parameters.graph_nonce - current_graph.parameters.graph_nonce;
-            let min_pegout_time_secs = take1_timelock(ctx.btc_client.network()) as u64
+            let min_pegout_time_secs = take1_timelock_with_config(
+                ctx.btc_client.network(),
+                &current_graph.parameters.timelock_config,
+            ) as u64
                 * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
             let delay_secs = min_pegout_time_secs * nonce_interval;
             push_local_unhandled_messages(
@@ -3126,7 +3120,10 @@ async fn handle_kickoff_ready_operator(
                 );
                 let nonce_interval =
                     graph.parameters.graph_nonce - current_graph.parameters.graph_nonce;
-                let min_pegout_time_secs = take1_timelock(ctx.btc_client.network()) as u64
+                let min_pegout_time_secs = take1_timelock_with_config(
+                    ctx.btc_client.network(),
+                    &current_graph.parameters.timelock_config,
+                ) as u64
                     * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
                 let delay_secs = min_pegout_time_secs * nonce_interval;
                 push_local_unhandled_messages(
@@ -4547,7 +4544,10 @@ async fn handle_wrongly_challenge_timeout_verifier(
     };
 
     let disprove_height = challenge_assert_height
-        + disprove_timelock(graph.parameters.instance_parameters.network) as u64;
+        + disprove_timelock_with_config(
+            graph.parameters.instance_parameters.network,
+            &graph.parameters.timelock_config,
+        ) as u64;
     let goat_confirmed_height = ctx.goat_client.btc_spv_latest_height().await?;
     if goat_confirmed_height < disprove_height {
         let retry_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
@@ -4745,7 +4745,9 @@ async fn handle_take1_ready_operator(
             return Ok(());
         }
     };
-    if !is_take1_timelock_expired(ctx.btc_client, kickoff_height).await? {
+    if !is_take1_timelock_expired(ctx.btc_client, kickoff_height, &graph.parameters.timelock_config)
+        .await?
+    {
         tracing::warn!(
             "Ignore Take1Ready for {instance_id}:{graph_id}: kickoff tx timelock not expired yet"
         );
@@ -4885,7 +4887,8 @@ async fn handle_take2_ready_operator(
         return Ok(());
     }
     let operator_assert_txid = graph.operator_assert.tx().compute_txid();
-    // Take2 spends Connector-0, Connector-D, and Guardian Connector. Recheck every input before
+    let watchtower_challenge_init_txid = graph.watchtower_challenge_init.tx().compute_txid();
+    // Take2 spends Connector-0, Connector-D, Connector-F, and Guardian Connector. Recheck every input before
     // signing so a stale Take2Ready cannot race an already-spent connector.
     let take2_inputs =
         graph.take2.tx().input.iter().map(|txin| txin.previous_output).collect::<Vec<OutPoint>>();
@@ -4917,7 +4920,28 @@ async fn handle_take2_ready_operator(
             return Ok(());
         }
     };
-    if !is_take2_timelock_expired(ctx.btc_client, operator_assert_height).await? {
+    let watchtower_challenge_init_height = match ctx
+        .btc_client
+        .get_tx_status(&watchtower_challenge_init_txid)
+        .await?
+        .block_height
+    {
+        Some(height) => height,
+        None => {
+            tracing::warn!(
+                "Ignore Take2Ready for {instance_id}:{graph_id}: watchtower challenge init tx not confirmed yet"
+            );
+            return Ok(());
+        }
+    };
+    if !is_take2_timelock_expired(
+        ctx.btc_client,
+        operator_assert_height,
+        watchtower_challenge_init_height,
+        &graph.parameters.timelock_config,
+    )
+    .await?
+    {
         tracing::warn!(
             "Ignore Take2Ready for {instance_id}:{graph_id}: take2 timelock not expired yet"
         );

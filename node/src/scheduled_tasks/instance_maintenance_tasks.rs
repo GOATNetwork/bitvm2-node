@@ -1,7 +1,7 @@
 use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
 use crate::env::{
-    COMMITTEE_INSTANCE_KEYS_DIR, INSTANCE_PRESIGNED_TIME_EXPIRED, get_bitvm_key,
-    get_committee_instance_key_delete_timelock_blocks, get_instance_maintenance_batch_size,
+    COMMITTEE_INSTANCE_KEYS_DIR, get_bitvm_key, get_committee_instance_key_delete_timelock_blocks,
+    get_instance_maintenance_batch_size, get_instance_presigned_time_expired_secs,
     is_enable_committee_instance_key_delete,
 };
 use crate::rpc_service::current_time_secs;
@@ -14,8 +14,8 @@ use crate::utils::{
 };
 use alloy::sol_types::SolType;
 use bitvm_lib::actors::Actor;
-use bitvm_lib::constants::CONNECTOR_Z_TIMELOCK;
 use bitvm_lib::keys::CommitteeMasterKey;
+use bitvm_lib::timelocks::default_connector_z_timelock_blocks;
 use bitvm_lib::transactions::base::BaseTransaction;
 use client::Utxo;
 use client::btc_chain::BTCClient;
@@ -293,7 +293,7 @@ pub async fn instance_expiration_monitor(
             .update_expired_instance(
                 &InstanceBridgeInStatus::UserBroadcastPeginPrepare.to_string(),
                 &InstanceBridgeInStatus::PresignedFailed.to_string(),
-                current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
+                current_time - get_instance_presigned_time_expired_secs(),
             )
             .await?;
         info!("Presigned expired instances is {expired_num}");
@@ -310,7 +310,7 @@ pub async fn instance_expiration_monitor(
         .await?
     };
 
-    let lock_height = CONNECTOR_Z_TIMELOCK as i64;
+    let lock_height = default_connector_z_timelock_blocks(btc_client.network()) as i64;
     let mut storage_processor = local_db.acquire().await?;
     for instance in instances {
         if instance.btc_height > 0 && current_height > instance.btc_height + lock_height {

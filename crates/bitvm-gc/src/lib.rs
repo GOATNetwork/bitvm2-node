@@ -7,6 +7,7 @@ pub mod actors;
 pub mod babe_adapter;
 pub mod keys;
 pub mod pegin;
+pub mod timelocks;
 pub mod types;
 
 pub use goat::*;

@@ -33,6 +33,7 @@ use bitvm_lib::actors::Actor;
 use bitvm_lib::committee::*;
 use bitvm_lib::keys::{OperatorMasterKey, VerifierMasterKey, WatchtowerMasterKey};
 use bitvm_lib::operator::*;
+use bitvm_lib::timelocks::{connector_f_timelock_blocks, default_timelock_config};
 use bitvm_lib::types::{
     BitvmGcCircuitData, BitvmGcGraph, BitvmGcGraphParameters, BitvmGcInstanceParameters,
     PrekickoffParameters, SimplifiedBitvmGcGraph, UserInfo,
@@ -46,6 +47,7 @@ use goat::connectors::{
     base::TaprootConnector,
     kickoff_connectors::{ForceSkipConnector, KickoffConnector, PrekickoffConnector},
 };
+use goat::constants::TimelockConfig;
 use goat::contexts::base::generate_n_of_n_public_key;
 use goat::scripts::{generate_opreturn_script, p2a_output};
 use goat::transactions::base::{Input, output_topology};
@@ -158,18 +160,12 @@ pub mod todo_funcs {
     #![allow(dead_code, unreachable_code, unused_variables)]
 
     use super::*;
+    use bitvm_lib::timelocks::estimated_block_interval_secs;
     use bitvm_lib::types::SimplifiedBitvmGcGraph;
 
     // other operations
     pub fn avg_block_time_secs(network: Network) -> u64 {
-        match network {
-            Network::Bitcoin => 600,  // 10 minutes
-            Network::Testnet => 300,  // 5 minutes
-            Network::Testnet4 => 300, // 5 minutes
-            Network::Regtest => 60,   // 1 minute
-            Network::Signet => 60,    // 1 minute
-                                       // _ => 600,                // default to 10 minutes
-        }
+        estimated_block_interval_secs(network) as u64
     }
     pub fn min_required_operator() -> usize {
         // todo!("get min required operator number")
@@ -1749,8 +1745,12 @@ pub async fn read_instance_info_from_goat(
     })
 }
 
-pub async fn is_take1_timelock_expired(client: &BTCClient, kickoff_height: u32) -> Result<bool> {
-    let lock_blocks = take1_timelock(get_network());
+pub async fn is_take1_timelock_expired(
+    client: &BTCClient,
+    kickoff_height: u32,
+    timelock_config: &TimelockConfig,
+) -> Result<bool> {
+    let lock_blocks = take1_timelock_with_config(get_network(), timelock_config);
     let current_height = client.get_height().await?;
     Ok(current_height >= kickoff_height + lock_blocks)
 }
@@ -1758,10 +1758,15 @@ pub async fn is_take1_timelock_expired(client: &BTCClient, kickoff_height: u32) 
 pub async fn is_take2_timelock_expired(
     client: &BTCClient,
     operator_assert_height: u32,
+    watchtower_challenge_init_height: u32,
+    timelock_config: &TimelockConfig,
 ) -> Result<bool> {
-    let lock_blocks = take2_timelock(get_network());
+    let network = get_network();
+    let connector_d_lock_blocks = take2_timelock_with_config(network, timelock_config);
+    let connector_f_lock_blocks = connector_f_timelock_blocks(network, timelock_config);
     let current_height = client.get_height().await?;
-    Ok(current_height >= operator_assert_height + lock_blocks)
+    Ok(current_height >= operator_assert_height + connector_d_lock_blocks
+        && current_height >= watchtower_challenge_init_height + connector_f_lock_blocks)
 }
 
 pub async fn get_fee_rate(client: &BTCClient) -> Result<f64> {
@@ -3026,6 +3031,7 @@ pub async fn build_graph_params(
     graph_id: Uuid,
 ) -> Result<BitvmGcGraphParameters> {
     let instance_id = instance_parameters.instance_id;
+    let network = instance_parameters.network;
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let operator_master_keypair = operator_master_key.master_keypair();
     let operator_pubkey = operator_master_keypair.public_key().into();
@@ -3048,6 +3054,7 @@ pub async fn build_graph_params(
     Ok(BitvmGcGraphParameters {
         instance_parameters,
         prekickoff_parameters,
+        timelock_config: default_timelock_config(network),
         graph_id,
         graph_nonce,
         challenge_amount: todo_funcs::challenge_amount(),

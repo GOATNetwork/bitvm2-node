@@ -5,7 +5,7 @@ use goat::assert_scripts::{
     OperatorAssertPublicKey, OperatorAssertSecretKey, OperatorCommitPubinPublicKey,
     OperatorCommitPubinSecretKey,
 };
-use goat::constants::{CONNECTOR_A_TIMELOCK, CONNECTOR_D_TIMELOCK};
+use goat::constants::TimelockConfig;
 use goat::transactions::assert::{
     DisproveTransaction, OperatorAssertTransaction, VerifierAssertTransaction, wrongly_challenged,
 };
@@ -24,10 +24,12 @@ use goat::transactions::watchtower_challenge::{
     WatchtowerChallengeInitTransaction, WatchtowerChallengeTimeoutTransaction,
     operator_challenge_ack, operator_commit_pubin,
 };
-use goat::utils::num_blocks_per_network;
 use goat::wots::{Wots, Wots96};
 
 use crate::keys::hkdf_derive_bytes;
+use crate::timelocks::{
+    default_timelock_config, take1_timelock_blocks, take2_timelock_blocks, validate_timelock_config,
+};
 use crate::types::{BitvmGcGraph, BitvmGcGraphParameters};
 
 const OPERATOR_ASSERT_WOTS_HKDF_SALT: &[u8] = b"bitvm-gc/operator-wots/v2";
@@ -66,6 +68,8 @@ pub fn operator_presig_num() -> usize {
 }
 
 pub fn generate_bitvm_graph(params: BitvmGcGraphParameters) -> Result<BitvmGcGraph> {
+    validate_timelock_config(params.network(), &params.timelock_config)?;
+
     let watchtower_num = params.watchtower_pubkeys.len();
     let verifier_num = params.gc_data.len();
     if params.watchtower_ack_hashlocks.len() != watchtower_num {
@@ -589,9 +593,17 @@ pub fn operator_sign_wrongly_challenged(
 }
 
 pub fn take1_timelock(network: Network) -> u32 {
-    num_blocks_per_network(network, CONNECTOR_A_TIMELOCK)
+    take1_timelock_with_config(network, &default_timelock_config(network))
+}
+
+pub fn take1_timelock_with_config(network: Network, timelock_config: &TimelockConfig) -> u32 {
+    take1_timelock_blocks(network, timelock_config)
 }
 
 pub fn take2_timelock(network: Network) -> u32 {
-    num_blocks_per_network(network, CONNECTOR_D_TIMELOCK)
+    take2_timelock_with_config(network, &default_timelock_config(network))
+}
+
+pub fn take2_timelock_with_config(network: Network, timelock_config: &TimelockConfig) -> u32 {
+    take2_timelock_blocks(network, timelock_config)
 }

@@ -7,18 +7,17 @@ use crate::action::{
 use crate::env::get_network;
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
-use crate::utils::{SELF_SENDER, outpoint_spent_txid, upsert_message};
+use crate::utils::{SELF_SENDER, outpoint_spent_txid, parse_graph_raw_data, upsert_message};
 use bitcoin::Txid;
 use bitvm_lib::actors::Actor;
-use bitvm_lib::operator::{take1_timelock, take2_timelock};
-use bitvm_lib::verifier::disprove_timelock;
+use bitvm_lib::timelocks::{
+    connector_f_timelock_blocks, default_timelock_config, disprove_timelock_blocks,
+    operator_ack_timelock_blocks, operator_commit_timelock_blocks, take1_timelock_blocks,
+    take2_timelock_blocks, validate_timelock_config, watchtower_challenge_timelock_blocks,
+};
 use client::btc_chain::BTCClient;
 use client::goat_chain::DisproveTxType;
-use goat::{
-    constants::{OPERATOR_ACK_TIMELOCK, OPERATOR_COMMIT_TIMELOCK, WATCHTOWER_CHALLENGE_TIMELOCK},
-    transactions::base::output_topology,
-    utils::num_blocks_per_network,
-};
+use goat::{constants::TimelockConfig, transactions::base::output_topology};
 use serde::{Deserialize, Serialize};
 use store::localdb::{LocalDB, StorageProcessor};
 use store::{
@@ -32,18 +31,6 @@ const MONITE_BTC_TX_NAME_KICKOFF: &str = "kickoff";
 const MONITE_BTC_TX_NAME_WATCHTOWER_INIT: &str = "watchtower_init";
 const MONITE_BTC_TX_NAME_PROVER_ASSERT: &str = "prover_assert";
 const MONITE_BTC_TX_NAME_VERIFIER_ASSERT: &str = "verifier_assert";
-
-fn get_take1_timelock_config() -> i64 {
-    take1_timelock(get_network()) as i64
-}
-
-fn get_take2_timelock_config() -> i64 {
-    take2_timelock(get_network()) as i64
-}
-
-fn get_disprove_timelock_config() -> i64 {
-    disprove_timelock(get_network()) as i64
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Display, EnumString)]
 enum OperatorWithdrawType {
@@ -84,6 +71,27 @@ impl DetectedGraphMessage {
     fn with_sub_type(actor: Actor, content: GOATMessageContent, sub_type: String) -> Self {
         Self { actor, content, sub_type: Some(sub_type) }
     }
+}
+
+async fn graph_timelock_config(
+    local_db: &LocalDB,
+    graph_id: Uuid,
+) -> anyhow::Result<TimelockConfig> {
+    let raw_data = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor.find_graph_raw_data(&graph_id).await?
+    };
+    let Some(raw_data) = raw_data else {
+        warn!("graph {graph_id} raw data is missing, fallback to default timelock config");
+        return Ok(default_timelock_config(get_network()));
+    };
+
+    let graph = parse_graph_raw_data(raw_data.raw_data, graph_id).await?;
+    validate_timelock_config(
+        graph.parameters.instance_parameters.network,
+        &graph.parameters.timelock_config,
+    )?;
+    Ok(graph.parameters.timelock_config)
 }
 
 impl ChallengeSubStatus {
@@ -302,8 +310,9 @@ pub async fn detect_take1_or_challenge(
         "start tick action: detect_take1_or_challenge, graphs: {}, current_height: {current_height}",
         graphs.len()
     );
-    let lock_blocks = get_take1_timelock_config();
     for graph in graphs {
+        let timelock_config = graph_timelock_config(local_db, graph.graph_id).await?;
+        let lock_blocks = take1_timelock_blocks(get_network(), &timelock_config) as i64;
         if detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await? {
             warn!(
                 "process_graph_challenge detect_kickoff_ref_disprove_tx happened at graph:{}",
@@ -454,6 +463,7 @@ async fn detect_watchtower_flow(
         );
         return Ok(vec![]);
     };
+    let timelock_config = graph_timelock_config(local_db, graph.graph_id).await?;
 
     let mut messages = vec![DetectedGraphMessage::new(
         Actor::Watchtower,
@@ -526,7 +536,7 @@ async fn detect_watchtower_flow(
                     && connector_f_spent_txid.is_none()
                     && is_timelock_ready(
                         monitor.height,
-                        num_blocks_per_network(get_network(), OPERATOR_ACK_TIMELOCK) as i64,
+                        operator_ack_timelock_blocks(get_network(), &timelock_config) as i64,
                         current_height,
                     )
                 {
@@ -539,7 +549,8 @@ async fn detect_watchtower_flow(
                 if ack_spent_txid.is_none()
                     && is_timelock_ready(
                         monitor.height,
-                        num_blocks_per_network(get_network(), WATCHTOWER_CHALLENGE_TIMELOCK) as i64,
+                        watchtower_challenge_timelock_blocks(get_network(), &timelock_config)
+                            as i64,
                         current_height,
                     )
                 {
@@ -583,7 +594,7 @@ async fn detect_watchtower_flow(
 
         if is_timelock_ready(
             monitor.height,
-            num_blocks_per_network(get_network(), OPERATOR_COMMIT_TIMELOCK) as i64,
+            operator_commit_timelock_blocks(get_network(), &timelock_config) as i64,
             current_height,
         ) {
             messages.push(DetectedGraphMessage::new(
@@ -719,6 +730,9 @@ async fn detect_assert_disprove_ready(
         return Ok(None);
     }
 
+    let timelock_config = graph_timelock_config(local_db, graph.graph_id).await?;
+    let disprove_timelock = disprove_timelock_blocks(get_network(), &timelock_config) as i64;
+
     for (index, verifier_assert_txid) in graph.verifier_assert_txids.iter().enumerate() {
         let verifier_assert_txid: Txid = verifier_assert_txid.clone().into();
         if outpoint_spent_txid(btc_client, &verifier_assert_txid, 0).await?.is_some() {
@@ -761,7 +775,7 @@ async fn detect_assert_disprove_ready(
             height
         };
 
-        if height + get_disprove_timelock_config() <= current_height {
+        if height + disprove_timelock <= current_height {
             info!(
                 "detect_assert_disprove_ready graph_id:{} verifier_assert index:{} is ready to disprove",
                 graph.graph_id, index
@@ -1022,17 +1036,26 @@ async fn detect_take2(
     graph: &Graph,
     current_height: i64,
 ) -> anyhow::Result<Option<(Actor, GOATMessageContent)>> {
-    let (kickoff_txid, operator_assert_txid, take2_txid) = match (
+    let (kickoff_txid, watchtower_challenge_init_txid, operator_assert_txid, take2_txid) = match (
         graph.kickoff_txid.clone(),
+        graph.watchtower_challenge_init_txid.clone(),
         graph.operator_assert_txid.clone(),
         graph.take2_txid.clone(),
     ) {
-        (Some(kickoff_txid), Some(operator_assert_txid), Some(take2_txid)) => {
-            (kickoff_txid.into(), operator_assert_txid.into(), take2_txid.into())
-        }
+        (
+            Some(kickoff_txid),
+            Some(watchtower_challenge_init_txid),
+            Some(operator_assert_txid),
+            Some(take2_txid),
+        ) => (
+            kickoff_txid.into(),
+            watchtower_challenge_init_txid.into(),
+            operator_assert_txid.into(),
+            take2_txid.into(),
+        ),
         _ => {
             warn!(
-                "detect_take2 graph_id:{} kickoff_txid/operator_assert_txid/take2_txid has none value",
+                "detect_take2 graph_id:{} kickoff_txid/watchtower_challenge_init_txid/operator_assert_txid/take2_txid has none value",
                 graph.graph_id
             );
             return Ok(None);
@@ -1113,17 +1136,27 @@ async fn detect_take2(
             .unwrap_or_default()
             .height
     };
+    let timelock_config = graph_timelock_config(local_db, graph.graph_id).await?;
     if check_operator_withdraw_ready_condition(
         btc_client,
         local_db,
         graph.graph_id,
-        vec![(
-            operator_assert_txid,
-            MONITE_BTC_TX_NAME_PROVER_ASSERT.to_string(),
-            OperatorWithdrawType::Take2,
-            height,
-            get_take2_timelock_config(),
-        )],
+        vec![
+            (
+                operator_assert_txid,
+                MONITE_BTC_TX_NAME_PROVER_ASSERT.to_string(),
+                OperatorWithdrawType::Take2,
+                height,
+                take2_timelock_blocks(get_network(), &timelock_config) as i64,
+            ),
+            (
+                watchtower_challenge_init_txid,
+                MONITE_BTC_TX_NAME_WATCHTOWER_INIT.to_string(),
+                OperatorWithdrawType::Take2,
+                0,
+                connector_f_timelock_blocks(get_network(), &timelock_config) as i64,
+            ),
+        ],
         current_height,
     )
     .await?

@@ -1,11 +1,14 @@
-use crate::types::BitvmGcGraph;
+use crate::{
+    timelocks::{default_timelock_config, disprove_timelock_blocks},
+    types::BitvmGcGraph,
+};
 use anyhow::{Result, bail};
 use bitcoin::{Address, Amount, Network, ScriptBuf, Transaction, TxIn, TxOut};
 use bitvm::chunk::api::type_conversion_utils::RawWitness;
 use goat::{
     assert_scripts::{INPUT_WIRE_NUM, Label},
     connectors::{base::TaprootConnector, connector_d::CONNECTOR_D_PUBIN_DISPROVE_LEAF_INDEX},
-    constants::PROVER_CONNECTOR_TIMELOCK,
+    constants::TimelockConfig,
     scripts::{generate_opreturn_script, p2a_output},
     transactions::{
         assert::{pubin_disprove, validate_pubin},
@@ -13,7 +16,6 @@ use goat::{
         pre_signed::PreSignedTransaction,
         watchtower_challenge::extract_operator_preimage_from_ack_txin,
     },
-    utils::num_blocks_per_network,
 };
 
 /// challenge has a pre-signed SinglePlusAnyoneCanPay input and output
@@ -234,5 +236,9 @@ pub fn build_pubin_disprove_txin(
 }
 
 pub fn disprove_timelock(network: Network) -> u32 {
-    num_blocks_per_network(network, PROVER_CONNECTOR_TIMELOCK)
+    disprove_timelock_with_config(network, &default_timelock_config(network))
+}
+
+pub fn disprove_timelock_with_config(network: Network, timelock_config: &TimelockConfig) -> u32 {
+    disprove_timelock_blocks(network, timelock_config)
 }
