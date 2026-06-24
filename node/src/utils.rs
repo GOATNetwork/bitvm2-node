@@ -2010,6 +2010,7 @@ pub async fn get_watchtower_commitment(
 pub async fn get_watchtower_challenge_info(
     btc_client: &BTCClient,
     watchtower_challenge_init_txid: &SerializableTxid,
+    watchtower_timeout_txids: &[Txid],
     num_watchtowers: usize,
 ) -> Result<(Vec<Option<String>>, Vec<bool>)> {
     let mut challenge_txids = Vec::with_capacity(num_watchtowers);
@@ -2024,10 +2025,19 @@ pub async fn get_watchtower_challenge_info(
             Some(txid) => {
                 let status = btc_client.get_tx_status(&txid).await?;
                 if !status.confirmed {
-                    bail!("watchtower challenge tx {txid} at index {index} is not confirmed yet");
+                    bail!("watchtower branch tx {txid} at index {index} is not confirmed yet");
                 }
-                challenge_txids.push(Some(txid.to_string()));
-                included_watchtowers.push(true);
+
+                let is_timeout = watchtower_timeout_txids
+                    .get(index)
+                    .is_some_and(|timeout_txid| txid == *timeout_txid);
+                if is_timeout {
+                    challenge_txids.push(None);
+                    included_watchtowers.push(false);
+                } else {
+                    challenge_txids.push(Some(txid.to_string()));
+                    included_watchtowers.push(true);
+                }
             }
             None => {
                 challenge_txids.push(None);
@@ -2215,9 +2225,12 @@ pub async fn get_operator_wrapper_proof(
         .watchtower_challenge_init_txid
         .ok_or_else(|| anyhow::anyhow!("watchtower_challenge_init_txid is none"))?;
     let num_challenger = bitvm_graph.parameters.watchtower_pubkeys.len();
+    let watchtower_timeout_txids: Vec<Txid> =
+        bitvm_graph.watchtower_challenge_timeouts.iter().map(|tx| tx.tx().compute_txid()).collect();
     let (watchtower_challenge_txids, included_watchtowers) = match get_watchtower_challenge_info(
         btc_client,
         &watchtower_challenge_init_txid,
+        &watchtower_timeout_txids,
         num_challenger,
     )
     .await
@@ -2356,9 +2369,12 @@ pub async fn get_operator_proof(
         .watchtower_challenge_init_txid
         .ok_or_else(|| anyhow::anyhow!("watchtower_challenge_init_txid is none"))?;
     let num_challenger = bitvm_graph.parameters.watchtower_pubkeys.len();
+    let watchtower_timeout_txids: Vec<Txid> =
+        bitvm_graph.watchtower_challenge_timeouts.iter().map(|tx| tx.tx().compute_txid()).collect();
     let (watchtower_challenge_txids, included_watchtowers) = match get_watchtower_challenge_info(
         btc_client,
         &watchtower_challenge_init_txid,
+        &watchtower_timeout_txids,
         num_challenger,
     )
     .await
@@ -5301,8 +5317,9 @@ mod commit_pubin_tests {
 
         let challenge_vout_0 =
             output_topology::watchtower_challenge_init::watchtower_connector(0) as u32;
+        let ack_vout_0 = output_topology::watchtower_challenge_init::ack_connector(0) as u32;
 
-        // watchtower 0 spent its challenge connector; watchtower 1 left its connector unspent.
+        // watchtower 0 spent its challenge connector and ACK connector; watchtower 1 is unresolved.
         mock_adaptor.set_tx(
             challenge_txid_wt0,
             create_confirmed_tx(
@@ -5312,10 +5329,21 @@ mod commit_pubin_tests {
                 block_hash,
             ),
         );
+        let ack_txid_wt0 = make_txid(0x02);
+        mock_adaptor.set_tx(
+            ack_txid_wt0,
+            create_confirmed_tx(
+                ack_txid_wt0,
+                &[(watchtower_init_txid, ack_vout_0)],
+                101,
+                block_hash,
+            ),
+        );
 
         let (txids, bits) = get_watchtower_challenge_info(
             &btc_client,
             &SerializableTxid::from(watchtower_init_txid),
+            &[],
             2, // 2 watchtowers
         )
         .await

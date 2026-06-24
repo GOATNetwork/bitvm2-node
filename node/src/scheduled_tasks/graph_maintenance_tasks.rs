@@ -542,7 +542,8 @@ async fn detect_watchtower_flow(
     let pubin_commit_completed =
         connector_e_spent_txid.is_some() && !operator_commit_timeout_on_chain;
 
-    let mut all_watchtower_connectors_spent = true;
+    let mut all_watchtower_branches_resolved = true;
+    let mut any_included_watchtower = false;
     let mut any_watchtower_timeout_ready = false;
     let mut any_nack_ready = false;
     for watchtower_index in 0..watchtower_num {
@@ -558,13 +559,26 @@ async fn detect_watchtower_flow(
             outpoint_spent_txid(btc_client, &watchtower_challenge_init_txid, ack_vout).await?;
         let timeout_txid =
             graph.watchtower_challenge_timeout_txids.get(watchtower_index).cloned().map(Into::into);
+        let watchtower_spend_confirmed = match watchtower_spent_txid.as_ref() {
+            Some(txid) => btc_client.get_tx_status(txid).await?.confirmed,
+            None => false,
+        };
+        let ack_spend_confirmed = match ack_spent_txid.as_ref() {
+            Some(txid) => btc_client.get_tx_status(txid).await?.confirmed,
+            None => false,
+        };
         let watchtower_timeout_spent = match (watchtower_spent_txid.as_ref(), timeout_txid.as_ref())
         {
-            (Some(spent_txid), Some(timeout_txid)) => spent_txid == timeout_txid,
+            (Some(spent_txid), Some(timeout_txid)) => {
+                spent_txid == timeout_txid && watchtower_spend_confirmed
+            }
             _ => false,
         };
 
         match watchtower_spent_txid {
+            Some(_) if !watchtower_spend_confirmed => {
+                all_watchtower_branches_resolved = false;
+            }
             Some(_) if !watchtower_timeout_spent => {
                 messages.push(DetectedGraphMessage::with_sub_type(
                     Actor::Operator,
@@ -576,20 +590,25 @@ async fn detect_watchtower_flow(
                     watchtower_index.to_string(),
                 ));
 
-                if ack_spent_txid.is_none()
-                    && connector_f_spent_txid.is_none()
-                    && is_timelock_ready(
-                        monitor.height,
-                        operator_ack_timelock_blocks(get_network(), &timelock_config) as i64,
-                        current_height,
-                    )
-                {
-                    any_nack_ready = true;
+                if !ack_spend_confirmed {
+                    all_watchtower_branches_resolved = false;
+                    if connector_f_spent_txid.is_none()
+                        && ack_spent_txid.is_none()
+                        && is_timelock_ready(
+                            monitor.height,
+                            operator_ack_timelock_blocks(get_network(), &timelock_config) as i64,
+                            current_height,
+                        )
+                    {
+                        any_nack_ready = true;
+                    }
+                } else {
+                    any_included_watchtower = true;
                 }
             }
             Some(_) => {}
             None => {
-                all_watchtower_connectors_spent = false;
+                all_watchtower_branches_resolved = false;
                 if ack_spent_txid.is_none()
                     && is_timelock_ready(
                         monitor.height,
@@ -624,7 +643,8 @@ async fn detect_watchtower_flow(
         ));
     }
 
-    if all_watchtower_connectors_spent
+    if all_watchtower_branches_resolved
+        && any_included_watchtower
         && connector_e_spent_txid.is_none()
         && connector_f_spent_txid.is_none()
     {
@@ -651,7 +671,8 @@ async fn detect_watchtower_flow(
         }
     }
 
-    if all_watchtower_connectors_spent
+    if all_watchtower_branches_resolved
+        && any_included_watchtower
         && pubin_commit_completed
         && let Some(operator_assert_txid) = graph.operator_assert_txid.clone()
         && !btc_client.get_tx_status(&operator_assert_txid.0).await?.confirmed

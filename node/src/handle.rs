@@ -3856,10 +3856,13 @@ async fn handle_operator_commit_pubin_ready_operator(
     let watchtower_challenge_init_txid =
         SerializableTxid::from(graph.watchtower_challenge_init.tx().compute_txid());
     let num_watchtowers = graph.parameters.watchtower_pubkeys.len();
+    let watchtower_timeout_txids: Vec<Txid> =
+        graph.watchtower_challenge_timeouts.iter().map(|tx| tx.tx().compute_txid()).collect();
     let wait_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) as usize;
     let (challenge_txids, included_watchtowers_bits) = match get_watchtower_challenge_info(
         ctx.btc_client,
         &watchtower_challenge_init_txid,
+        &watchtower_timeout_txids,
         num_watchtowers,
     )
     .await
