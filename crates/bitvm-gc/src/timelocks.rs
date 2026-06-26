@@ -155,3 +155,13 @@ pub fn operator_ack_timelock_blocks(network: Network, config: &TimelockConfig) -
 pub fn operator_commit_timelock_blocks(network: Network, config: &TimelockConfig) -> u32 {
     timelock_blocks(network, config.operator_commit)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn testnet4_connector_z_defaults_to_100_blocks() {
+        assert_eq!(default_connector_z_timelock_blocks(Network::Testnet4), 100);
+    }
+}
