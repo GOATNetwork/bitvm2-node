@@ -4248,7 +4248,7 @@ async fn handle_assert_sent_verifier(
         .input
         .first()
         .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
-    let assert_witness = extract_operator_assert_witness(&graph, assert_txin)
+    let assert_witness = extract_operator_assert_witness_for_challenge(&graph, assert_txin)
         .map_err(|e| anyhow!("failed to extract operator assert witness: {e}"))?;
     let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for operator assert")?;
     let static_input = derive_operator_static_input()?;

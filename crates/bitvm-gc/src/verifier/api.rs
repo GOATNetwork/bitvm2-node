@@ -6,7 +6,9 @@ use crate::{
 use anyhow::{Result, bail};
 use ark_bn254::{G1Affine, G2Affine};
 use ark_serialize::CanonicalSerialize;
-use bitcoin::{Address, Amount, Network, ScriptBuf, Transaction, TxIn, TxOut};
+use bitcoin::{
+    Address, Amount, Network, ScriptBuf, Transaction, TxIn, TxOut, script::read_scriptint,
+};
 use bitvm::chunk::api::type_conversion_utils::RawWitness;
 use goat::{
     assert_scripts::{INPUT_WIRE_NUM, Label, PROVER_SIG_LEN},
@@ -19,7 +21,7 @@ use goat::{
         pre_signed::PreSignedTransaction,
         watchtower_challenge::extract_operator_preimage_from_ack_txin,
     },
-    wots::{Wots, Wots96},
+    wots::{WOTS96_BASE, Wots, Wots96},
 };
 
 /// challenge has a pre-signed SinglePlusAnyoneCanPay input and output
@@ -151,6 +153,54 @@ fn split_operator_assert_wots_and_extra_data(
     Ok((operator_assertion, extra_data))
 }
 
+fn operator_assert_wots_signature(operator_assertion: &RawWitness) -> Result<Vec<[u8; 21]>> {
+    if operator_assertion.len() != PROVER_SIG_LEN {
+        bail!(
+            "operator assert WOTS witness has {} stack items; expected {PROVER_SIG_LEN}",
+            operator_assertion.len()
+        );
+    }
+
+    let mut wots_sig = Vec::with_capacity(Wots96::TOTAL_DIGIT_LEN as usize);
+    for i in (0..operator_assertion.len()).step_by(2) {
+        let digit_signature = &operator_assertion[i];
+        let digit_value_bytes = &operator_assertion[i + 1];
+        if digit_signature.len() != 20 {
+            bail!(
+                "operator assert WOTS digit signature has {} bytes; expected 20",
+                digit_signature.len()
+            );
+        }
+        if digit_value_bytes.len() > 2 {
+            bail!(
+                "operator assert WOTS digit value has {} bytes; expected at most 2",
+                digit_value_bytes.len()
+            );
+        }
+        let digit_value = read_scriptint(digit_value_bytes)
+            .map_err(|e| anyhow::anyhow!("invalid operator assert WOTS digit value: {e}"))?;
+        if !(0..WOTS96_BASE as i64).contains(&digit_value) {
+            bail!("operator assert WOTS digit value {digit_value} is out of range");
+        }
+
+        let mut item = [0u8; 21];
+        item[..20].copy_from_slice(digit_signature);
+        item[20] = digit_value as u8;
+        wots_sig.push(item);
+    }
+    Ok(wots_sig)
+}
+
+fn split_operator_assert_extra_data(extra_data: Vec<u8>) -> Result<(Vec<u8>, Vec<u8>)> {
+    let pi2_len = G2Affine::default().compressed_size();
+    let pi3_len = G1Affine::default().compressed_size();
+    let expected_len = pi2_len + pi3_len;
+    if extra_data.len() != expected_len {
+        bail!("operator assert extra-data has {} bytes; expected {expected_len}", extra_data.len());
+    }
+    Ok((extra_data[..pi2_len].to_vec(), extra_data[pi2_len..].to_vec()))
+}
+
 pub fn extract_operator_assert_witness(
     graph: &BitvmGcGraph,
     operator_assert_txin: &TxIn,
@@ -163,26 +213,30 @@ pub fn extract_operator_assert_witness(
     let (operator_assertion, extra_data) =
         split_operator_assert_wots_and_extra_data(operator_assertion)?;
 
-    let mut bitcoin_witness = bitcoin::Witness::new();
-    for item in &operator_assertion {
-        bitcoin_witness.push(item);
-    }
-    let wots_sig = Wots96::raw_witness_to_signature(&bitcoin_witness).to_vec();
-    let pi2_len = G2Affine::default().compressed_size();
-    let pi3_len = G1Affine::default().compressed_size();
-    let expected_len = pi2_len + pi3_len;
-    if extra_data.len() != expected_len {
-        bail!("operator assert extra-data has {} bytes; expected {expected_len}", extra_data.len());
-    }
-    let assert_witness = TxAssertWitness {
-        wots_sig,
-        pi2: extra_data[..pi2_len].to_vec(),
-        pi3: extra_data[pi2_len..].to_vec(),
-    };
+    let wots_sig = operator_assert_wots_signature(&operator_assertion)?;
+    let (pi2, pi3) = split_operator_assert_extra_data(extra_data)?;
+    let assert_witness = TxAssertWitness { wots_sig, pi2, pi3 };
     if assert_witness.recover_pi2_pi3().is_none() {
         bail!("operator assert extra-data cannot recover pi2 and pi3");
     }
     Ok(assert_witness)
+}
+
+pub fn extract_operator_assert_witness_for_challenge(
+    graph: &BitvmGcGraph,
+    operator_assert_txin: &TxIn,
+) -> Result<TxAssertWitness> {
+    let operator_assertion =
+        graph
+            .connector_c()
+            .extract_leaf_1_raw_witness(operator_assert_txin)
+            .map_err(|e| anyhow::anyhow!("failed to extract operator assertion: {e}"))?;
+    let (operator_assertion, extra_data) =
+        split_operator_assert_wots_and_extra_data(operator_assertion)?;
+    let wots_sig = operator_assert_wots_signature(&operator_assertion)?;
+    let (pi2, pi3) =
+        split_operator_assert_extra_data(extra_data).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+    Ok(TxAssertWitness { wots_sig, pi2, pi3 })
 }
 
 pub fn build_verifier_assert_tx(
