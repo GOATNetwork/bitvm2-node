@@ -11,7 +11,7 @@ use crate::soldering_payload_store::{
 };
 use crate::utils::*;
 use anyhow::{Context, Result, anyhow, bail};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::CanonicalSerialize;
 use bitcoin::{Amount, OutPoint, Txid};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm_lib::actors::Actor;
@@ -4043,7 +4043,9 @@ async fn handle_assert_ready_operator(
 
     let assert_tx =
         operator_sign_assert(&mut graph, &assert_secret_key, &assert_message, &assert_extra_data)?;
-    broadcast_nonstandard_tx(ctx.btc_client, &assert_tx).await?;
+    let assert_tx_total_input_amount =
+        graph.operator_assert.prev_outs().iter().map(|o| o.value).sum::<Amount>();
+    broadcast_tx_with_cpfp(ctx.btc_client, assert_tx, assert_tx_total_input_amount).await?;
 
     Ok(())
 }
@@ -4195,6 +4197,11 @@ async fn handle_assert_sent_verifier(
                     ) {
                         Ok(Some((witness_data, _))) => {
                             // build pubin disprove Tx
+                            let pubin_disprove_tx_total_input_amount = graph
+                                .operator_assert
+                                .connector_d_input()
+                                .map_err(|e| anyhow!("failed to get connector-d input: {e}"))?
+                                .amount;
                             let pubin_disprove_txin =
                                 build_pubin_disprove_txin(&graph, witness_data)?;
                             let pubin_disprove_tx = bitcoin::Transaction {
@@ -4203,7 +4210,12 @@ async fn handle_assert_sent_verifier(
                                 input: vec![pubin_disprove_txin],
                                 output: vec![goat::scripts::p2a_output()],
                             };
-                            broadcast_nonstandard_tx(ctx.btc_client, &pubin_disprove_tx).await?;
+                            broadcast_tx_with_cpfp(
+                                ctx.btc_client,
+                                pubin_disprove_tx,
+                                pubin_disprove_tx_total_input_amount,
+                            )
+                            .await?;
                             return Ok(());
                         }
                         Ok(None) => tracing::debug!(
@@ -4238,8 +4250,14 @@ async fn handle_assert_sent_verifier(
         .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
     let assert_witness = extract_operator_assert_witness(&graph, assert_txin)
         .map_err(|e| anyhow!("failed to extract operator assert witness: {e}"))?;
-    let _operator_proof = recover_operator_proof_from_assert_witness(&assert_witness)
-        .map_err(|e| anyhow!("invalid operator assert proof data: {e}"))?;
+    let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for operator assert")?;
+    let static_input = derive_operator_static_input()?;
+    if assert_witness.verify_groth16_proof(&vk, &[static_input]) {
+        tracing::info!(
+            "Skip ChallengeAssert for {instance_id}:{graph_id}: operator assert proof is valid"
+        );
+        return Ok(());
+    }
 
     let Some(saved_verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
         .and_then(|state| state.verifier)
@@ -4255,8 +4273,6 @@ async fn handle_assert_sent_verifier(
         );
         return Ok(());
     }
-    let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE challenge")?;
-    let static_input = derive_operator_static_input()?;
     let challenge_witness = build_real_challenge_assert_witness(
         &saved_verifier_state.private_state,
         &saved_verifier_state.setup_package,
@@ -4288,7 +4304,14 @@ async fn handle_assert_sent_verifier(
         .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
     let challenge_assert_tx =
         build_verifier_assert_tx(&graph, operator_assert_txin, verifier_index, labels)?;
-    broadcast_nonstandard_tx(ctx.btc_client, &challenge_assert_tx).await?;
+    let challenge_assert_tx_total_input_amount =
+        graph.verifier_asserts[verifier_index].prev_outs().iter().map(|o| o.value).sum::<Amount>();
+    broadcast_tx_with_cpfp(
+        ctx.btc_client,
+        challenge_assert_tx,
+        challenge_assert_tx_total_input_amount,
+    )
+    .await?;
 
     Ok(())
 }
@@ -4384,12 +4407,8 @@ async fn handle_challenge_assert_sent_operator(
         pi2: operator_assert_witness.pi2,
         pi3: operator_assert_witness.pi3,
     };
-    let proof = match operator_state.asserted_operator_proof.as_ref() {
-        Some(proof_bytes) => Groth16Proof::deserialize_compressed(proof_bytes.as_slice())
-            .context("deserialize asserted operator proof")?,
-        None => recover_operator_proof_from_assert_witness(&assert_witness)
-            .context("recover asserted operator proof from operator assert witness")?,
-    };
+    let proof = recover_operator_proof_from_assert_witness(&assert_witness)
+        .context("recover asserted operator proof from on-chain assert witness")?;
     let vk = crate::vk::get_vk()
         .await
         .context("load Groth16 verifying key for BABE wrongly challenged")?;
@@ -4415,7 +4434,7 @@ async fn handle_challenge_assert_sent_operator(
         input: vec![wrongly_challenged_input],
         output: vec![goat::scripts::p2a_output()],
     };
-    broadcast_nonstandard_tx(ctx.btc_client, &wrongly_challenged_tx).await?;
+    broadcast_tx(ctx.btc_client, &wrongly_challenged_tx).await?;
 
     Ok(())
 }
@@ -4506,7 +4525,9 @@ async fn handle_wrongly_challenge_timeout_verifier(
     }
 
     let disprove_tx = build_disprove_tx(&graph, verifier_index, None)?;
-    broadcast_nonstandard_tx(ctx.btc_client, &disprove_tx).await?;
+    let disprove_tx_total_input_amount =
+        graph.disproves[verifier_index].prev_outs().iter().map(|o| o.value).sum::<Amount>();
+    broadcast_tx_with_cpfp(ctx.btc_client, disprove_tx, disprove_tx_total_input_amount).await?;
 
     Ok(())
 }
