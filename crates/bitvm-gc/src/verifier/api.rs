@@ -1,12 +1,15 @@
 use crate::{
+    babe_adapter::TxAssertWitness,
     timelocks::{default_timelock_config, disprove_timelock_blocks},
     types::BitvmGcGraph,
 };
 use anyhow::{Result, bail};
+use ark_bn254::{G1Affine, G2Affine};
+use ark_serialize::CanonicalSerialize;
 use bitcoin::{Address, Amount, Network, ScriptBuf, Transaction, TxIn, TxOut};
 use bitvm::chunk::api::type_conversion_utils::RawWitness;
 use goat::{
-    assert_scripts::{INPUT_WIRE_NUM, Label},
+    assert_scripts::{INPUT_WIRE_NUM, Label, PROVER_SIG_LEN},
     connectors::{base::TaprootConnector, connector_d::CONNECTOR_D_PUBIN_DISPROVE_LEAF_INDEX},
     constants::TimelockConfig,
     scripts::{generate_opreturn_script, p2a_output},
@@ -16,6 +19,7 @@ use goat::{
         pre_signed::PreSignedTransaction,
         watchtower_challenge::extract_operator_preimage_from_ack_txin,
     },
+    wots::{Wots, Wots96},
 };
 
 /// challenge has a pre-signed SinglePlusAnyoneCanPay input and output
@@ -131,6 +135,56 @@ pub fn verify_prover_assertion(_graph: &BitvmGcGraph, _operator_assert_txin: TxI
     todo!("verify operator assertion")
 }
 
+fn split_operator_assert_wots_and_extra_data(
+    mut operator_assertion: RawWitness,
+) -> Result<(RawWitness, Vec<u8>)> {
+    let expected_len = PROVER_SIG_LEN + 1;
+    if operator_assertion.len() != expected_len {
+        bail!(
+            "operator assert witness has {} stack items; expected {expected_len}",
+            operator_assertion.len()
+        );
+    }
+    let extra_data = operator_assertion
+        .pop()
+        .ok_or_else(|| anyhow::anyhow!("operator assert witness is empty"))?;
+    Ok((operator_assertion, extra_data))
+}
+
+pub fn extract_operator_assert_witness(
+    graph: &BitvmGcGraph,
+    operator_assert_txin: &TxIn,
+) -> Result<TxAssertWitness> {
+    let operator_assertion =
+        graph
+            .connector_c()
+            .extract_leaf_1_raw_witness(operator_assert_txin)
+            .map_err(|e| anyhow::anyhow!("failed to extract operator assertion: {e}"))?;
+    let (operator_assertion, extra_data) =
+        split_operator_assert_wots_and_extra_data(operator_assertion)?;
+
+    let mut bitcoin_witness = bitcoin::Witness::new();
+    for item in &operator_assertion {
+        bitcoin_witness.push(item);
+    }
+    let wots_sig = Wots96::raw_witness_to_signature(&bitcoin_witness).to_vec();
+    let pi2_len = G2Affine::default().compressed_size();
+    let pi3_len = G1Affine::default().compressed_size();
+    let expected_len = pi2_len + pi3_len;
+    if extra_data.len() != expected_len {
+        bail!("operator assert extra-data has {} bytes; expected {expected_len}", extra_data.len());
+    }
+    let assert_witness = TxAssertWitness {
+        wots_sig,
+        pi2: extra_data[..pi2_len].to_vec(),
+        pi3: extra_data[pi2_len..].to_vec(),
+    };
+    if assert_witness.recover_pi2_pi3().is_none() {
+        bail!("operator assert extra-data cannot recover pi2 and pi3");
+    }
+    Ok(assert_witness)
+}
+
 pub fn build_verifier_assert_tx(
     graph: &BitvmGcGraph,
     operator_assert_txin: TxIn,
@@ -145,6 +199,8 @@ pub fn build_verifier_assert_tx(
     let operator_assertion = connector_c
         .extract_leaf_1_raw_witness(&operator_assert_txin)
         .map_err(|e| anyhow::anyhow!("failed to extract operator assertion: {e}"))?;
+    let (operator_assertion, _extra_data) =
+        split_operator_assert_wots_and_extra_data(operator_assertion)?;
 
     let verifier_connector = graph.verifier_connector(verifier_index)?;
     let mut verifier_assert = graph.verifier_asserts[verifier_index].clone();
@@ -210,6 +266,8 @@ pub fn validate_pubin_disprove(
     let operator_assert_witness = connector_c
         .extract_leaf_1_raw_witness(operator_assert_txin)
         .map_err(|e| anyhow::anyhow!("failed to extract operator assert witness: {e}"))?;
+    let (operator_assert_witness, _extra_data) =
+        split_operator_assert_wots_and_extra_data(operator_assert_witness)?;
     let connector_d = graph.connector_d();
     let input_lock_script =
         connector_d.generate_taproot_leaf_script(CONNECTOR_D_PUBIN_DISPROVE_LEAF_INDEX);

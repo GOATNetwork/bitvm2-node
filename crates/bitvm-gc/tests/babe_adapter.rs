@@ -1,5 +1,6 @@
 use ark_bn254::Fr;
 use ark_crypto_primitives::snark::CircuitSpecificSetupSNARK;
+use ark_ec::AffineRepr;
 use ark_groth16::Groth16;
 use bitvm_gc::assert_scripts::{INPUT_WIRE_NUM, label_hash};
 use bitvm_gc::babe_adapter::{
@@ -9,7 +10,8 @@ use bitvm_gc::babe_adapter::{
     build_setup_package, build_wrongly_challenged_witness,
     build_wrongly_challenged_witness_from_preimages, derive_finalized_indices,
     extract_gc_circuit_data, open_and_solder, open_real_setup_and_solder,
-    sample_cac_instance_commit, sample_finalized_instance_data, verify_real_setup, verify_setup,
+    recover_operator_proof_from_assert_witness, sample_cac_instance_commit,
+    sample_finalized_instance_data, verify_real_setup, verify_setup,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha12Rng;
@@ -194,8 +196,8 @@ fn witness_builders_validate_inputs_and_indices() {
             y: ark_bn254::Fq::from(2u64),
             infinity: false,
         },
-        b: ark_bn254::G2Affine::default(),
-        c: ark_bn254::G1Affine::default(),
+        b: ark_bn254::G2Affine::generator(),
+        c: ark_bn254::G1Affine::generator(),
     };
     let dynamic_input = Fr::from(0u64);
 
@@ -303,7 +305,7 @@ fn witness_builders_reject_wrong_finalized_count() {
         finalized_indices: vec![0], // 1, not BABE_M_CC
         verifier_pubkey: verifier_pubkey(),
     };
-    let dummy_assert = TxAssertWitness { wots_sig: vec![] };
+    let dummy_assert = TxAssertWitness { wots_sig: vec![], pi2: vec![], pi3: vec![] };
     assert!(build_challenge_assert_witness(&bad_state, &dummy_assert, 0).is_err());
 
     // build_wrongly_challenged_witness_from_preimages rejects h_msgs.len() != BABE_M_CC
@@ -334,8 +336,8 @@ fn assert_witness_preserves_pi1_and_dynamic_input() {
             y: ark_bn254::Fq::from(2u64),
             infinity: false,
         },
-        b: ark_bn254::G2Affine::default(),
-        c: ark_bn254::G1Affine::default(),
+        b: ark_bn254::G2Affine::generator(),
+        c: ark_bn254::G1Affine::generator(),
     };
 
     let assert_witness = build_assert_witness(&proof, &sk, dynamic_input).expect("assert witness");

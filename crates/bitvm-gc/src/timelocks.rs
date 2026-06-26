@@ -18,14 +18,14 @@ pub const NODE_BITCOIN_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
     connector_f: 576,
 };
 pub const NODE_TESTNET_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
-    connector_z: 6,
-    connector_a: 6,
-    prover_connector: 12,
-    connector_d: 24,
-    watchtower_challenge: 24,
-    operator_ack: 36,
-    operator_commit: 48,
-    connector_f: 60,
+    connector_z: 100,
+    connector_a: 16,
+    prover_connector: 22,
+    connector_d: 34,
+    watchtower_challenge: 34,
+    operator_ack: 46,
+    operator_commit: 58,
+    connector_f: 70,
 };
 pub const NODE_SIGNET_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
     connector_z: 6,

@@ -20,7 +20,8 @@ use bitvm_lib::babe_adapter::{
     CACSetupPackage, ChallengeAssertWitnessRaw, CompactSolderingProofPayload, TxAssertWitness,
     WOTS_SIG_COUNT, assert_wots_message, build_assert_witness, build_real_challenge_assert_witness,
     build_real_setup_package, derive_finalized_indices, expand_compact_soldering_proof_payload,
-    extract_gc_circuit_data, open_real_setup_and_solder, recover_real_wrongly_challenged_witness,
+    extract_gc_circuit_data, open_real_setup_and_solder,
+    recover_operator_proof_from_assert_witness, recover_real_wrongly_challenged_witness,
     verify_real_setup,
 };
 use bitvm_lib::committee::*;
@@ -4020,6 +4021,10 @@ async fn handle_assert_ready_operator(
     let assert_witness =
         build_assert_witness(&operator_proof.proof, &assert_secret_key, dynamic_input)?;
     let assert_message = assert_wots_message(&assert_witness)?;
+    let mut assert_extra_data =
+        Vec::with_capacity(assert_witness.pi2.len() + assert_witness.pi3.len());
+    assert_extra_data.extend_from_slice(&assert_witness.pi2);
+    assert_extra_data.extend_from_slice(&assert_witness.pi3);
     let mut asserted_operator_proof = Vec::new();
     operator_proof.proof.serialize_compressed(&mut asserted_operator_proof)?;
     let mut setup_state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
@@ -4036,7 +4041,8 @@ async fn handle_assert_ready_operator(
     operator_state.asserted_operator_proof = Some(asserted_operator_proof);
     save_babe_setup_state(ctx.local_db, instance_id, graph_id, &setup_state)?;
 
-    let assert_tx = operator_sign_assert(&mut graph, &assert_secret_key, &assert_message)?;
+    let assert_tx =
+        operator_sign_assert(&mut graph, &assert_secret_key, &assert_message, &assert_extra_data)?;
     broadcast_nonstandard_tx(ctx.btc_client, &assert_tx).await?;
 
     Ok(())
@@ -4225,22 +4231,15 @@ async fn handle_assert_sent_verifier(
         }
     }
 
-    // recover TxAssertWitness from the assert tx witness and graph.
-    let raw_witness = graph
-        .connector_c()
-        .extract_leaf_1_raw_witness(
-            assert_tx
-                .input
-                .first()
-                .ok_or_else(|| anyhow!("operator assert transaction has no input"))?,
-        )
-        .map_err(|e| anyhow!("failed to extract WOTS signature from assert tx: {e}"))?;
-    let mut bitcoin_witness = bitcoin::Witness::new();
-    for item in &raw_witness {
-        bitcoin_witness.push(item);
-    }
-    let assert_witness =
-        TxAssertWitness { wots_sig: Wots96::raw_witness_to_signature(&bitcoin_witness).to_vec() };
+    // recover TxAssertWitness from the assert tx witness.
+    let assert_txin = assert_tx
+        .input
+        .first()
+        .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
+    let assert_witness = extract_operator_assert_witness(&graph, assert_txin)
+        .map_err(|e| anyhow!("failed to extract operator assert witness: {e}"))?;
+    let _operator_proof = recover_operator_proof_from_assert_witness(&assert_witness)
+        .map_err(|e| anyhow!("invalid operator assert proof data: {e}"))?;
 
     let Some(saved_verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
         .and_then(|state| state.verifier)
@@ -4356,8 +4355,10 @@ async fn handle_challenge_assert_sent_operator(
         .first()
         .cloned()
         .ok_or_else(|| anyhow!("published operator assert transaction has no input"))?;
+    let operator_assert_witness = extract_operator_assert_witness(&graph, &operator_assert_txin)
+        .map_err(|e| anyhow!("failed to extract operator assert witness: {e}"))?;
     let expected_challenge_assert =
-        build_verifier_assert_tx(&graph, operator_assert_txin, verifier_index, labels)?;
+        build_verifier_assert_tx(&graph, operator_assert_txin.clone(), verifier_index, labels)?;
     if expected_challenge_assert.input.first().map(|input| &input.witness)
         != challenge_assert_tx.input.first().map(|input| &input.witness)
     {
@@ -4378,20 +4379,23 @@ async fn handle_challenge_assert_sent_operator(
         .prover_state
         .as_ref()
         .ok_or_else(|| anyhow!("missing BABE prover state for verifier slot {verifier_index}"))?;
-    let proof_bytes = operator_state
-        .asserted_operator_proof
-        .as_ref()
-        .ok_or_else(|| anyhow!("missing asserted operator proof for graph {graph_id}"))?;
-    let proof = Groth16Proof::deserialize_compressed(proof_bytes.as_slice())
-        .context("deserialize asserted operator proof")?;
+    let assert_witness = TxAssertWitness {
+        wots_sig: challenge_witness.witness.wots_sig.clone(),
+        pi2: operator_assert_witness.pi2,
+        pi3: operator_assert_witness.pi3,
+    };
+    let proof = match operator_state.asserted_operator_proof.as_ref() {
+        Some(proof_bytes) => Groth16Proof::deserialize_compressed(proof_bytes.as_slice())
+            .context("deserialize asserted operator proof")?,
+        None => recover_operator_proof_from_assert_witness(&assert_witness)
+            .context("recover asserted operator proof from operator assert witness")?,
+    };
     let vk = crate::vk::get_vk()
         .await
         .context("load Groth16 verifying key for BABE wrongly challenged")?;
-    let (_, dyn_pubin) = TxAssertWitness { wots_sig: challenge_witness.witness.wots_sig.clone() }
-        .recover_pi1_xd_without_verify()
-        .ok_or_else(|| {
-            anyhow!("cannot recover dynamic input from challenge witness WOTS signature")
-        })?;
+    let (_, dyn_pubin) = assert_witness.recover_pi1_xd_without_verify().ok_or_else(|| {
+        anyhow!("cannot recover dynamic input from challenge witness WOTS signature")
+    })?;
     let wrongly_challenged_witness = recover_real_wrongly_challenged_witness(
         prover_state,
         &challenge_witness,

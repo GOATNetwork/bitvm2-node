@@ -36,6 +36,7 @@ strum = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 ark-crypto-primitives = { workspace = true }
+ark-ec = { workspace = true }
 rand_chacha = { workspace = true }
 
 [features]

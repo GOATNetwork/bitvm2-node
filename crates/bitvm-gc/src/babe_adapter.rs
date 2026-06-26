@@ -6,6 +6,7 @@ use crate::types::BitvmGcCircuitData;
 use anyhow::{Result, bail};
 use ark_bn254::g1::G1Affine;
 use ark_bn254::{Bn254, Fr};
+use ark_groth16::Proof as Groth16Proof;
 use ark_groth16::VerifyingKey as Groth16VerifyingKey;
 use ark_serialize::CanonicalSerialize;
 use garbled_snark_verifier::bag::S;
@@ -354,7 +355,11 @@ pub fn build_assert_witness(
     }
     let msg = pi1_xd_to_wots96_msg(&proof.a, dynamic_input);
     let wots_sig = Wots96::sign(assert_secret_key, &msg);
-    Ok(TxAssertWitness { wots_sig: wots_sig.to_vec() })
+    let mut pi2 = Vec::new();
+    let mut pi3 = Vec::new();
+    proof.b.serialize_compressed(&mut pi2)?;
+    proof.c.serialize_compressed(&mut pi3)?;
+    Ok(TxAssertWitness { wots_sig: wots_sig.to_vec(), pi2, pi3 })
 }
 
 pub fn assert_wots_message(assert_witness: &TxAssertWitness) -> Result<[u8; 96]> {
@@ -364,6 +369,18 @@ pub fn assert_wots_message(assert_witness: &TxAssertWitness) -> Result<[u8; 96]>
     }
     let (pi1, x_d) = recover.unwrap();
     Ok(pi1_xd_to_wots96_msg(&pi1, x_d))
+}
+
+pub fn recover_operator_proof_from_assert_witness(
+    assert_witness: &TxAssertWitness,
+) -> Result<Groth16Proof<Bn254>> {
+    let (pi1, _) = assert_witness
+        .recover_pi1_xd_without_verify()
+        .ok_or_else(|| anyhow::anyhow!("Cannot recover pi1 and xd"))?;
+    let (pi2, pi3) = assert_witness
+        .recover_pi2_pi3()
+        .ok_or_else(|| anyhow::anyhow!("Cannot recover pi2 and pi3"))?;
+    Ok(Groth16Proof { a: pi1, b: pi2, c: pi3 })
 }
 
 /// Builds a placeholder verifier challenge witness from an assert witness.
