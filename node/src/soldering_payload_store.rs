@@ -109,6 +109,19 @@ pub(crate) async fn read_soldering_proof_store_payload(path: &str) -> Result<Vec
         .with_context(|| format!("read soldering proof payload {}", path.trim()))
 }
 
+pub(crate) async fn delete_soldering_proof_store_payload(path: &str) -> Result<()> {
+    if is_soldering_proof_s3_path(path) {
+        bail!("S3 soldering proof cleanup is not supported");
+    }
+    match tokio::fs::remove_file(path.trim()).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => {
+            Err(err).with_context(|| format!("delete soldering proof payload {}", path.trim()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

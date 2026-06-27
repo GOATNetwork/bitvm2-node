@@ -35,5 +35,3 @@ circuits/*/*/*.bin.in
 **/*.out
 **/*/output.data*
 proof-builder-rpc/*.ckpt
-
-runner

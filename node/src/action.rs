@@ -112,7 +112,7 @@ pub struct CutCircuits {
     pub verifier_index: usize,
     pub selected_circuit_indexes: Vec<usize>,
 }
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct SolderingProofReady {
     pub instance_id: Uuid,
     pub graph_id: Uuid,

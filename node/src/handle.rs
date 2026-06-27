@@ -17,12 +17,12 @@ use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::babe_adapter::{
     BABE_M_CC, BABE_N_CC, BabeBundleBuilder, BabeChallengeAssertWitness, BabeProverState,
-    CACSetupPackage, ChallengeAssertWitnessRaw, CompactSolderingProofPayload, TxAssertWitness,
-    WOTS_SIG_COUNT, assert_wots_message, build_assert_witness, build_real_challenge_assert_witness,
-    build_real_setup_package, derive_finalized_indices, expand_compact_soldering_proof_payload,
-    extract_gc_circuit_data, open_real_setup_and_solder,
-    recover_operator_proof_from_assert_witness, recover_real_wrongly_challenged_witness,
-    verify_real_setup,
+    CACSetupPackage, ChallengeAssertWitnessRaw, CompactSolderingProofPayload,
+    FinalizedInstanceData, SolderingData, TxAssertWitness, WOTS_SIG_COUNT, assert_wots_message,
+    build_assert_witness, build_real_challenge_assert_witness, build_real_setup_package,
+    derive_finalized_indices, expand_compact_soldering_proof_payload, extract_gc_circuit_data,
+    open_real_setup_and_solder, recover_operator_proof_from_assert_witness,
+    recover_real_wrongly_challenged_witness, verify_real_setup,
 };
 use bitvm_lib::committee::*;
 use bitvm_lib::keys::*;
@@ -641,7 +641,8 @@ fn record_candidate_gc_data(
     verifier_index: usize,
     setup_package: &CACSetupPackage,
     gc_data: BitvmGcCircuitData,
-    prover_state: BabeProverState,
+    prover_state: &BabeProverState,
+    soldering_proof_ready: SolderingProofReady,
 ) -> Result<Option<Vec<BitvmGcCircuitData>>> {
     let frozen = state
         .frozen_verifier_pubkeys
@@ -673,6 +674,9 @@ fn record_candidate_gc_data(
     if candidate.selected_circuit_indexes != prover_state.soldering.finalized_indices {
         bail!("BABE prover state finalized indices do not match selected verifier cut");
     }
+    if soldering_proof_ready.verifier_index != verifier_index {
+        bail!("soldering proof reference verifier index does not match selected verifier slot");
+    }
     if prover_state.finalized.len() != BABE_M_CC || prover_state.h_msgs.len() != BABE_M_CC {
         bail!("BABE prover state must contain exactly {BABE_M_CC} finalized instances and hashes");
     }
@@ -684,21 +688,39 @@ fn record_candidate_gc_data(
     {
         bail!("conflicting GC slot received for selected verifier");
     }
-    if let Some(existing) = &candidate.prover_state
-        && existing != &prover_state
+    if let Some(existing) = &candidate.soldering_proof_ready
+        && existing != &soldering_proof_ready
     {
-        bail!("conflicting BABE prover state received for selected verifier");
+        bail!("conflicting soldering proof reference received for selected verifier");
     }
     if candidate.gc_data.is_none() {
         candidate.gc_data = Some(gc_data);
     }
-    if candidate.prover_state.is_none() {
-        candidate.prover_state = Some(prover_state);
+    if candidate.soldering_proof_ready.is_none() {
+        candidate.soldering_proof_ready = Some(soldering_proof_ready);
     }
     if state.candidates.iter().any(|candidate| candidate.gc_data.is_none()) {
         return Ok(None);
     }
     Ok(Some(state.candidates.iter().map(|candidate| candidate.gc_data.clone().unwrap()).collect()))
+}
+
+fn build_babe_prover_state(
+    setup_package: &CACSetupPackage,
+    finalized: Vec<FinalizedInstanceData>,
+    soldering: SolderingData,
+) -> Result<BabeProverState> {
+    let h_msgs = finalized
+        .iter()
+        .map(|finalized| {
+            setup_package
+                .commits
+                .get(finalized.index)
+                .map(|commit| commit.h_msg)
+                .ok_or_else(|| anyhow!("finalized BABE instance index is out of range"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(BabeProverState { package: setup_package.clone(), finalized, soldering, h_msgs })
 }
 
 fn validate_verifier_slot_lengths(
@@ -1213,11 +1235,8 @@ async fn handle_init_graph_verifier(
             verifier_pubkey,
             setup_package,
             private_state,
-            verifier_index: None,
             finalized_indices: vec![],
-            opened: vec![],
-            finalized: vec![],
-            soldering: None,
+            soldering_proof_ready: None,
         }
     };
 
@@ -1295,7 +1314,7 @@ async fn handle_gen_circuits_operator(
             verifier_index: None,
             selected_circuit_indexes: vec![],
             gc_data: None,
-            prover_state: None,
+            soldering_proof_ready: None,
         });
     }
 
@@ -1371,30 +1390,26 @@ async fn handle_cut_circuits_verifier(
         return Ok(());
     }
 
-    if let Some(saved_index) = verifier_state.verifier_index {
-        if saved_index != verifier_index {
+    if let Some(soldering_proof_ready) = verifier_state.soldering_proof_ready.clone() {
+        if soldering_proof_ready.verifier_index != verifier_index {
             bail!(
-                "CutCircuits verifier index {verifier_index} conflicts with persisted slot {saved_index}"
+                "CutCircuits verifier index {verifier_index} conflicts with persisted slot {}",
+                soldering_proof_ready.verifier_index
             );
         }
         if verifier_state.finalized_indices != *selected_circuit_indexes {
             bail!("CutCircuits finalized indices conflict with persisted selection");
         }
-        if let Some(soldering) = verifier_state.soldering.clone() {
-            let setup_state = verifier_state;
-            send_soldering_proof_to_operator(
-                ctx.swarm,
-                instance_id,
-                graph_id,
-                verifier_index,
-                &setup_state.opened,
-                &setup_state.finalized,
-                &soldering,
-            )
-            .await?;
+        send_to_peer(
+            ctx.swarm,
+            GOATMessage::new(
+                Actor::Operator,
+                GOATMessageContent::SolderingProofReady(soldering_proof_ready),
+            ),
+        )
+        .await?;
 
-            return Ok(());
-        }
+        return Ok(());
     }
 
     let setup_package = verifier_state.setup_package.clone();
@@ -1423,24 +1438,28 @@ async fn handle_cut_circuits_verifier(
     .await
     .context("real BABE opening task failed")??;
 
-    verifier_state.verifier_index = Some(verifier_index);
-    verifier_state.finalized_indices = selected_circuit_indexes.clone();
-    verifier_state.opened = opened.clone();
-    verifier_state.finalized = finalized.clone();
-    verifier_state.soldering = Some(soldering.clone());
-
-    update_babe_setup_state(ctx.local_db, instance_id, graph_id, |state| {
-        state.verifier = Some(verifier_state);
-    })?;
-
-    send_soldering_proof_to_operator(
-        ctx.swarm,
+    let soldering_proof_ready = save_soldering_proof_payload(
         instance_id,
         graph_id,
         verifier_index,
         &opened,
         &finalized,
         &soldering,
+    )
+    .await?;
+    verifier_state.finalized_indices = selected_circuit_indexes.clone();
+    verifier_state.soldering_proof_ready = Some(soldering_proof_ready.clone());
+
+    update_babe_setup_state(ctx.local_db, instance_id, graph_id, |state| {
+        state.verifier = Some(verifier_state);
+    })?;
+
+    send_to_peer(
+        ctx.swarm,
+        GOATMessage::new(
+            Actor::Operator,
+            GOATMessageContent::SolderingProofReady(soldering_proof_ready),
+        ),
     )
     .await?;
 
@@ -1459,6 +1478,8 @@ async fn handle_soldering_proof_ready_operator(
     if total_len == 0 {
         bail!("SolderingProofReady total_len must be greater than zero");
     }
+    let soldering_proof_ready =
+        SolderingProofReady { instance_id, graph_id, verifier_index, payload_hash, total_len };
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
     if !pending_graph_belongs_to_operator(
@@ -1548,29 +1569,16 @@ async fn handle_soldering_proof_ready_operator(
         payload_hash = %soldering_payload_hash_hex(&payload_hash),
         "start processing soldering proof payload"
     );
-    handle_soldering_proof_payload_operator(
-        ctx,
-        instance_id,
-        graph_id,
-        verifier_index,
-        payload_hash,
-        total_len,
-        &payload,
-    )
-    .await
+    handle_soldering_proof_payload_operator(ctx, &soldering_proof_ready, &payload).await
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn handle_soldering_proof_payload_operator(
-    ctx: &mut HandlerContext<'_>,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    verifier_index: usize,
-    payload_hash: [u8; 32],
-    total_len: usize,
+fn decode_soldering_proof_payload(
+    soldering_proof_ready: &SolderingProofReady,
     payload: &[u8],
-) -> Result<()> {
-    if payload.len() != total_len {
+) -> Result<CompactSolderingProofPayload> {
+    let SolderingProofReady { instance_id, graph_id, verifier_index, payload_hash, total_len } =
+        soldering_proof_ready;
+    if payload.len() != *total_len {
         tracing::warn!(
             instance_id = %instance_id,
             graph_id = %graph_id,
@@ -1586,7 +1594,7 @@ pub(crate) async fn handle_soldering_proof_payload_operator(
         );
     }
     let actual_hash = soldering_payload_hash(payload);
-    if actual_hash != payload_hash {
+    if actual_hash != *payload_hash {
         tracing::warn!(
             instance_id = %instance_id,
             graph_id = %graph_id,
@@ -1597,21 +1605,28 @@ pub(crate) async fn handle_soldering_proof_payload_operator(
         );
         bail!("SolderingProof payload hash mismatch");
     }
-    let payload: CompactSolderingProofPayload =
-        bincode::deserialize(payload).context("deserialize compact soldering proof payload")?;
-    handle_compact_soldering_proof_operator(ctx, instance_id, graph_id, verifier_index, payload)
-        .await
+    bincode::deserialize(payload).context("deserialize compact soldering proof payload")
+}
+
+pub(crate) async fn handle_soldering_proof_payload_operator(
+    ctx: &mut HandlerContext<'_>,
+    soldering_proof_ready: &SolderingProofReady,
+    payload: &[u8],
+) -> Result<()> {
+    let payload = decode_soldering_proof_payload(soldering_proof_ready, payload)?;
+    handle_compact_soldering_proof_operator(ctx, soldering_proof_ready, payload).await
 }
 
 // verify Verifier SolderingProof, build Graph and broadcast CreateGraph.
-#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %soldering_proof_ready.instance_id, graph_id = %soldering_proof_ready.graph_id))]
 async fn handle_compact_soldering_proof_operator(
     ctx: &mut HandlerContext<'_>,
-    instance_id: Uuid,
-    graph_id: Uuid,
-    verifier_index: usize,
+    soldering_proof_ready: &SolderingProofReady,
     payload: CompactSolderingProofPayload,
 ) -> Result<()> {
+    let instance_id = soldering_proof_ready.instance_id;
+    let graph_id = soldering_proof_ready.graph_id;
+    let verifier_index = soldering_proof_ready.verifier_index;
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
     if !pending_graph_belongs_to_operator(
@@ -1685,22 +1700,16 @@ async fn handle_compact_soldering_proof_operator(
         bail!("each verifier must contribute exactly {BABE_M_CC} finalized BABE instances");
     }
     let epk = &setup_package.commits[finalized[0].index].epk;
-    let h_msgs: Vec<[u8; 20]> =
-        finalized.iter().map(|f| setup_package.commits[f.index].h_msg).collect();
-    let gc_data = extract_gc_circuit_data(verifier_pubkey, epk, &h_msgs)?;
-    let prover_state = BabeProverState {
-        package: setup_package.clone(),
-        finalized,
-        soldering,
-        h_msgs: gc_data.final_msg_hashlocks.clone(),
-    };
+    let prover_state = build_babe_prover_state(&setup_package, finalized, soldering)?;
+    let gc_data = extract_gc_circuit_data(verifier_pubkey, epk, &prover_state.h_msgs)?;
     let Some(bitvm_gc_circuit_datas) = record_candidate_gc_data(
         operator_state,
         verifier_pubkey,
         verifier_index,
         &setup_package,
         gc_data,
-        prover_state,
+        &prover_state,
+        soldering_proof_ready.clone(),
     )?
     else {
         save_babe_setup_state(ctx.local_db, instance_id, graph_id, &state)?;
@@ -4267,7 +4276,13 @@ async fn handle_assert_sent_verifier(
         );
         return Ok(());
     };
-    if saved_verifier_state.verifier_index != Some(verifier_index) {
+    let Some(soldering_proof_ready) = saved_verifier_state.soldering_proof_ready.as_ref() else {
+        tracing::warn!(
+            "Ignore AssertSent for {instance_id}:{graph_id}: missing soldering proof reference"
+        );
+        return Ok(());
+    };
+    if soldering_proof_ready.verifier_index != verifier_index {
         tracing::warn!(
             "Ignore AssertSent for {instance_id}:{graph_id}: local setup slot does not match graph owner slot"
         );
@@ -4398,10 +4413,24 @@ async fn handle_challenge_assert_sent_operator(
         .iter()
         .find(|candidate| candidate.verifier_index == Some(verifier_index))
         .ok_or_else(|| anyhow!("missing BABE prover state for verifier slot {verifier_index}"))?;
-    let prover_state = candidate
-        .prover_state
-        .as_ref()
-        .ok_or_else(|| anyhow!("missing BABE prover state for verifier slot {verifier_index}"))?;
+    let soldering_proof_ready = candidate.soldering_proof_ready.as_ref().ok_or_else(|| {
+        anyhow!("missing soldering proof reference for verifier slot {verifier_index}")
+    })?;
+    let store_base_path = get_soldering_proof_payload_store_path()?;
+    let payload_path = soldering_proof_payload_store_path(
+        &store_base_path,
+        instance_id,
+        graph_id,
+        verifier_index,
+        &soldering_proof_ready.payload_hash,
+    )?;
+    let payload = read_soldering_proof_store_payload(&payload_path)
+        .await
+        .with_context(|| format!("read soldering proof payload from {payload_path}"))?;
+    let payload = decode_soldering_proof_payload(soldering_proof_ready, &payload)?;
+    let (_, finalized, soldering) = expand_compact_soldering_proof_payload(payload)
+        .context("expand compact soldering proof payload for challenge")?;
+    let prover_state = build_babe_prover_state(&candidate.setup_package, finalized, soldering)?;
     let assert_witness = TxAssertWitness {
         wots_sig: challenge_witness.witness.wots_sig.clone(),
         pi2: operator_assert_witness.pi2,
@@ -4416,7 +4445,7 @@ async fn handle_challenge_assert_sent_operator(
         anyhow!("cannot recover dynamic input from challenge witness WOTS signature")
     })?;
     let wrongly_challenged_witness = recover_real_wrongly_challenged_witness(
-        prover_state,
+        &prover_state,
         &challenge_witness,
         &proof,
         vk,
@@ -5109,6 +5138,16 @@ mod tests {
         (package, gc_data, prover_state)
     }
 
+    fn soldering_proof_ready(hash_byte: u8) -> SolderingProofReady {
+        SolderingProofReady {
+            instance_id: Uuid::nil(),
+            graph_id: Uuid::nil(),
+            verifier_index: 0,
+            payload_hash: [hash_byte; 32],
+            total_len: 1,
+        }
+    }
+
     fn operator_state(package: CACSetupPackage) -> OperatorBabeSetupState {
         OperatorBabeSetupState {
             frozen_verifier_pubkeys: Some(vec![verifier_pubkey()]),
@@ -5118,7 +5157,7 @@ mod tests {
                 verifier_index: Some(0),
                 selected_circuit_indexes: (0..BABE_M_CC).collect(),
                 gc_data: None,
-                prover_state: None,
+                soldering_proof_ready: None,
             }],
             asserted_operator_proof: None,
         }
@@ -5135,7 +5174,7 @@ mod tests {
                 verifier_index: None,
                 selected_circuit_indexes: vec![],
                 gc_data: None,
-                prover_state: None,
+                soldering_proof_ready: None,
             }],
             asserted_operator_proof: None,
         };
@@ -5146,9 +5185,10 @@ mod tests {
     }
 
     #[test]
-    fn candidate_records_one_slot_and_full_prover_state_idempotently() {
+    fn candidate_records_one_slot_and_payload_reference_idempotently() {
         let (package, gc_data, prover_state) = gc_submission();
         let mut state = operator_state(package.clone());
+        let soldering_proof_ready = soldering_proof_ready(1);
 
         let graph_data = record_candidate_gc_data(
             &mut state,
@@ -5156,14 +5196,18 @@ mod tests {
             0,
             &package,
             gc_data.clone(),
-            prover_state.clone(),
+            &prover_state,
+            soldering_proof_ready.clone(),
         )
         .unwrap()
         .unwrap();
 
         assert_eq!(graph_data.len(), 1);
         assert_eq!(graph_data[0].final_msg_hashlocks.len(), BABE_M_CC);
-        assert_eq!(state.candidates[0].prover_state.as_ref().unwrap().finalized.len(), BABE_M_CC);
+        assert_eq!(
+            state.candidates[0].soldering_proof_ready.as_ref(),
+            Some(&soldering_proof_ready)
+        );
 
         let duplicate = record_candidate_gc_data(
             &mut state,
@@ -5171,7 +5215,8 @@ mod tests {
             0,
             &package,
             gc_data.clone(),
-            prover_state.clone(),
+            &prover_state,
+            soldering_proof_ready.clone(),
         )
         .unwrap()
         .unwrap();
@@ -5186,21 +5231,26 @@ mod tests {
                 0,
                 &package,
                 gc_data,
-                conflict,
+                &conflict,
+                soldering_proof_ready,
             )
             .is_err()
         );
     }
 
     #[test]
-    fn legacy_operator_candidate_without_prover_state_deserializes() {
-        let (package, _, _) = gc_submission();
-        let mut value = serde_json::to_value(operator_state(package)).unwrap();
-        value["candidates"][0].as_object_mut().unwrap().remove("prover_state");
+    fn rebuilds_prover_state_from_persisted_payload_data() {
+        let package = build_setup_package(BABE_M_CC + 1).unwrap();
+        let selected = (0..BABE_M_CC).collect::<Vec<_>>();
+        let (_, finalized, soldering) = open_and_solder(&package, &selected).unwrap();
 
-        let restored: OperatorBabeSetupState = serde_json::from_value(value).unwrap();
+        let restored =
+            build_babe_prover_state(&package, finalized.clone(), soldering.clone()).unwrap();
 
-        assert!(restored.candidates[0].prover_state.is_none());
+        assert_eq!(restored.package, package);
+        assert_eq!(restored.finalized, finalized);
+        assert_eq!(restored.soldering, soldering);
+        assert_eq!(restored.h_msgs.len(), BABE_M_CC);
     }
 
     // ── collect_ack_txins ─────────────────────────────────────────────────────

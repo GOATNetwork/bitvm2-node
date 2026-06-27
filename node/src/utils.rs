@@ -8,8 +8,8 @@ use crate::error::SpecialError;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::soldering_payload_store::{
-    is_soldering_proof_s3_path, soldering_proof_payload_store_path,
-    write_soldering_proof_store_payload,
+    delete_soldering_proof_store_payload, is_soldering_proof_s3_path,
+    soldering_proof_payload_store_path, write_soldering_proof_store_payload,
 };
 use alloy::primitives::{Address as EvmAddress, Signature as EvmSignature};
 use alloy::signers::Signer;
@@ -85,8 +85,8 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use bitcoin_light_client_circuit::hash_operator_constant;
 use bitvm_lib::babe_adapter::{
-    BabeProverState, BabeVerifierPrivateState, CACSetupPackage, FinalizedInstanceData,
-    SolderingData, compact_soldering_proof_payload,
+    BabeVerifierPrivateState, CACSetupPackage, FinalizedInstanceData, SolderingData,
+    compact_soldering_proof_payload,
 };
 use bitvm_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
@@ -4959,7 +4959,7 @@ pub(crate) fn babe_setup_state_root(local_db: &LocalDB) -> PathBuf {
 }
 
 fn babe_setup_state_path(local_db: &LocalDB, instance_id: Uuid, graph_id: Uuid) -> PathBuf {
-    babe_setup_state_root(local_db).join(instance_id.to_string()).join(format!("{graph_id}.json"))
+    babe_setup_state_root(local_db).join(instance_id.to_string()).join(format!("{graph_id}.bin"))
 }
 
 pub(crate) fn soldering_payload_hash(payload: &[u8]) -> [u8; 32] {
@@ -4983,15 +4983,14 @@ pub(crate) async fn pending_graph_belongs_to_operator(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn send_soldering_proof_to_operator(
-    swarm: &mut Swarm<AllBehaviours>,
+pub(crate) async fn save_soldering_proof_payload(
     instance_id: Uuid,
     graph_id: Uuid,
     verifier_index: usize,
     opened: &[(usize, u64)],
     finalized: &[FinalizedInstanceData],
     soldering: &SolderingData,
-) -> Result<()> {
+) -> Result<SolderingProofReady> {
     let compact_payload = compact_soldering_proof_payload(opened, finalized, soldering)?;
     let payload = bincode::serialize(&compact_payload)
         .context("serialize compact soldering proof payload")?;
@@ -5026,23 +5025,17 @@ pub(crate) async fn send_soldering_proof_to_operator(
         total_len,
         payload_hash = %soldering_payload_hash_hex(&payload_hash),
         payload_path = %payload_path,
-        "send compact soldering proof ready from payload store"
+        "saved compact soldering proof to payload store"
     );
-    let message_content = GOATMessageContent::SolderingProofReady(SolderingProofReady {
-        instance_id,
-        graph_id,
-        verifier_index,
-        payload_hash,
-        total_len,
-    });
-    send_to_peer(swarm, GOATMessage::new(Actor::Operator, message_content)).await?;
-
-    Ok(())
+    Ok(SolderingProofReady { instance_id, graph_id, verifier_index, payload_hash, total_len })
 }
 
 fn load_babe_setup_state_from_path(path: &Path) -> Result<Option<BabeSetupState>> {
     match std::fs::read(path) {
-        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Ok(bytes) => Ok(Some(
+            bincode::deserialize(&bytes)
+                .with_context(|| format!("decode BABE setup state {}", path.display()))?,
+        )),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err).with_context(|| format!("read BABE setup state {}", path.display())),
     }
@@ -5053,9 +5046,15 @@ fn save_babe_setup_state_to_path(path: &Path, state: &BabeSetupState) -> Result<
         std::fs::create_dir_all(parent)
             .with_context(|| format!("create BABE setup state dir {}", parent.display()))?;
     }
-    let bytes = serde_json::to_vec_pretty(state)?;
-    std::fs::write(path, bytes)
-        .with_context(|| format!("write BABE setup state {}", path.display()))
+    let bytes = bincode::serialize(state)?;
+    let mut temp_path = path.as_os_str().to_os_string();
+    temp_path.push(".tmp");
+    let temp_path = PathBuf::from(temp_path);
+    std::fs::write(&temp_path, bytes)
+        .with_context(|| format!("write BABE setup state {}", temp_path.display()))?;
+    std::fs::rename(&temp_path, path).with_context(|| {
+        format!("move BABE setup state {} to {}", temp_path.display(), path.display())
+    })
 }
 
 pub(crate) fn load_babe_setup_state(
@@ -5087,6 +5086,92 @@ pub(crate) fn update_babe_setup_state(
     Ok(state)
 }
 
+pub(crate) async fn cleanup_babe_setup_states(
+    local_db: &LocalDB,
+    payload_store: &str,
+) -> Result<usize> {
+    let root = babe_setup_state_root(local_db);
+    let instance_dirs = match std::fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(err) => {
+            return Err(err)
+                .with_context(|| format!("read BABE setup state root {}", root.display()));
+        }
+    };
+    let mut storage = local_db.acquire().await?;
+    let mut deleted = 0;
+    for instance_dir in instance_dirs {
+        let instance_dir = instance_dir?;
+        if !instance_dir.file_type()?.is_dir() {
+            continue;
+        }
+        let Ok(instance_id) = Uuid::parse_str(&instance_dir.file_name().to_string_lossy()) else {
+            continue;
+        };
+        for state_file in std::fs::read_dir(instance_dir.path())? {
+            let state_file = state_file?;
+            let path = state_file.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("bin") {
+                continue;
+            }
+            let Some(graph_id) = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| Uuid::parse_str(stem).ok())
+            else {
+                continue;
+            };
+            let Some(graph) = storage.find_graph(&graph_id).await? else {
+                continue;
+            };
+            let Ok(status) = GraphStatus::from_str(&graph.status) else {
+                warn!(
+                    "Skip BABE setup cleanup for {graph_id}: invalid graph status {}",
+                    graph.status
+                );
+                continue;
+            };
+            if graph.instance_id != instance_id || !status.is_closed() {
+                continue;
+            }
+            let Some(state) = load_babe_setup_state_from_path(&path)? else {
+                continue;
+            };
+            let mut payloads = Vec::new();
+            if let Some(ready) = state.verifier.and_then(|verifier| verifier.soldering_proof_ready)
+            {
+                payloads.push(ready);
+            }
+            if let Some(operator) = state.operator {
+                payloads.extend(
+                    operator
+                        .candidates
+                        .into_iter()
+                        .filter_map(|candidate| candidate.soldering_proof_ready),
+                );
+            }
+            for ready in payloads {
+                if ready.instance_id != instance_id || ready.graph_id != graph_id {
+                    bail!("BABE setup payload reference does not match state path");
+                }
+                let payload_path = soldering_proof_payload_store_path(
+                    payload_store,
+                    instance_id,
+                    graph_id,
+                    ready.verifier_index,
+                    &ready.payload_hash,
+                )?;
+                delete_soldering_proof_store_payload(&payload_path).await?;
+            }
+            std::fs::remove_file(&path)
+                .with_context(|| format!("delete BABE setup state {}", path.display()))?;
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct BabeSetupState {
     pub verifier: Option<VerifierBabeSetupState>,
@@ -5098,11 +5183,8 @@ pub struct VerifierBabeSetupState {
     pub verifier_pubkey: PublicKey,
     pub setup_package: CACSetupPackage,
     pub private_state: BabeVerifierPrivateState,
-    pub verifier_index: Option<usize>,
     pub finalized_indices: Vec<usize>,
-    pub opened: Vec<(usize, u64)>,
-    pub finalized: Vec<FinalizedInstanceData>,
-    pub soldering: Option<SolderingData>,
+    pub soldering_proof_ready: Option<SolderingProofReady>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -5112,8 +5194,7 @@ pub struct OperatorVerifierCandidate {
     pub verifier_index: Option<usize>,
     pub selected_circuit_indexes: Vec<usize>,
     pub gc_data: Option<BitvmGcCircuitData>,
-    #[serde(default)]
-    pub prover_state: Option<BabeProverState>,
+    pub soldering_proof_ready: Option<SolderingProofReady>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
