@@ -7,7 +7,10 @@ mod sequencer_set_hash_monitor_task;
 mod spv_maintenance_tasks;
 
 use crate::action::GOATMessageContent;
-use crate::env::{get_maintenance_run_timeout_secs, is_enable_update_spv_contract, is_relayer};
+use crate::env::{
+    get_maintenance_run_timeout_secs, is_enable_babe_setup_state_cleanup,
+    is_enable_update_spv_contract, is_relayer,
+};
 use crate::scheduled_tasks::babe_setup_state_cleanup_task::babe_setup_state_cleanup_monitor;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
@@ -57,7 +60,8 @@ async fn run(
     let btc_client = btc_client.as_ref();
     let goat_client = goat_client.as_ref();
 
-    if matches!(&actor, Actor::Verifier | Actor::Operator | Actor::All)
+    if is_enable_babe_setup_state_cleanup()
+        && matches!(&actor, Actor::Verifier | Actor::Operator | Actor::All)
         && let Err(err) = babe_setup_state_cleanup_monitor(local_db).await
     {
         warn!("babe_setup_state_cleanup_monitor, err {:?}", err)

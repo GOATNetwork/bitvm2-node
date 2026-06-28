@@ -872,6 +872,7 @@ real graph raw data in the database.
 | `GOAT_PRIVATE_KEY` | Conditional | GOAT chain private key (required for Committee) | - |
 | `GOAT_ADDRESS` | Conditional | GOAT address (required for Operator/Verifier) | - |
 | `ENABLE_RELAYER` | No | Enable relayer mode for Committee nodes | `false` |
+| `ENABLE_BABE_SETUP_STATE_CLEANUP` | No | Enable scheduled BABE setup state cleanup for Operator/Verifier nodes | `false` |
 | `BTC_CHAIN_URL` | No | Bitcoin Esplora API endpoint | Public Esplora |
 | `MARA_SLIPSTREAM_API_URL` | No | MARA slipstream API base URL (used for non-standard tx broadcast) | mainnet: `https://slipstream.mara.com/api`; testnet4: `https://teststream.mara.com/api` |
 | `GOAT_PROOF_BUILD_URL` | No | Proof Builder RPC endpoint | - |

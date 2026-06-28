@@ -34,6 +34,7 @@ pub const ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS: &str =
     "ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS";
 pub const ENV_ENABLE_RELAYER: &str = "ENABLE_RELAYER";
 pub const ENV_ENABLE_UPDATE_SPV_CONTRACT: &str = "ENABLE_UPDATE_SPV_CONTRACT";
+pub const ENV_ENABLE_BABE_SETUP_STATE_CLEANUP: &str = "ENABLE_BABE_SETUP_STATE_CLEANUP";
 pub const ENV_BTC_BLOCK_CONFIRMS: &str = "BTC_BLOCK_CONFIRMS";
 pub const ENV_MARA_SLIPSTREAM_API_URL: &str = "MARA_SLIPSTREAM_API_URL";
 pub const DEFAULT_MARA_SLIPSTREAM_MAINNET_API_URL: &str = "https://slipstream.mara.com/api";
@@ -237,6 +238,13 @@ pub fn is_relayer() -> bool {
 pub fn is_enable_update_spv_contract() -> bool {
     match std::env::var(ENV_ENABLE_UPDATE_SPV_CONTRACT) {
         Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+
+pub fn is_enable_babe_setup_state_cleanup() -> bool {
+    match std::env::var(ENV_ENABLE_BABE_SETUP_STATE_CLEANUP) {
+        Ok(value) => value.eq_ignore_ascii_case("true"),
         Err(_) => false,
     }
 }
