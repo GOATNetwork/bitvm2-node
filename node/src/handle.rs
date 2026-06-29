@@ -1281,8 +1281,11 @@ async fn handle_gen_circuits_operator(
         return Ok(());
     }
 
-    if setup_package.commits.is_empty() {
-        bail!("GenCircuits setup package has no commitments");
+    if setup_package.commits.len() != BABE_N_CC {
+        bail!(
+            "invalid GenCircuits setup package commitment count: expected {BABE_N_CC}, got {}",
+            setup_package.commits.len()
+        );
     }
 
     let mut state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?.unwrap_or_default();
