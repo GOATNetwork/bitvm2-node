@@ -212,11 +212,19 @@ pub mod todo_funcs {
         goat_client: &GOATClient,
         graph: &SimplifiedBitvmGcGraph,
     ) -> Result<()> {
+        if !graph.operator_pre_signed() {
+            bail!(SpecialError::InvalidGraph(
+                "graph is missing operator pre-signatures".to_string()
+            ));
+        }
         // Basic structural and on-chain consistency checks for an incoming graph proposal.
         // Return SpecialError::InvalidGraph on any validation failure.
         // 1) Rebuild full graph (ensures signatures present if flags are set and tx graph is coherent)
         let full_graph = BitvmGcGraph::from_simplified(graph)
             .map_err(|e| SpecialError::InvalidGraph(format!("invalid graph structure: {e}")))?;
+        verify_graph_operator_pre_signatures(&full_graph).map_err(|e| {
+            SpecialError::InvalidGraph(format!("invalid operator pre-signatures: {e}"))
+        })?;
 
         // 2) Network must match local node network
         let net = get_network();
@@ -290,9 +298,20 @@ pub mod todo_funcs {
         graph: &SimplifiedBitvmGcGraph,
         endorse_sigs: &[(PublicKey, EvmAddress, Vec<u8>)],
     ) -> Result<()> {
+        if !graph.operator_pre_signed() || !graph.committee_pre_signed() {
+            bail!(SpecialError::InvalidGraph(
+                "finalized graph is missing operator or committee pre-signatures".to_string()
+            ));
+        }
         // 1) Rebuild full graph to ensure structure is coherent and txns derivable
         let full_graph = BitvmGcGraph::from_simplified(graph)
             .map_err(|e| SpecialError::InvalidGraph(format!("invalid graph structure: {e}")))?;
+        verify_graph_operator_pre_signatures(&full_graph).map_err(|e| {
+            SpecialError::InvalidGraph(format!("invalid operator pre-signatures: {e}"))
+        })?;
+        verify_graph_committee_pre_signatures(&full_graph).map_err(|e| {
+            SpecialError::InvalidGraph(format!("invalid committee pre-signatures: {e}"))
+        })?;
 
         // 2) Repeat key static checks (network, committee set, counts)
         let net = get_network();

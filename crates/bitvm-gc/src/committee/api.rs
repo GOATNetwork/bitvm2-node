@@ -4,7 +4,7 @@ use bitcoin::{
     PublicKey, Script, TapLeafHash, TapSighash, TapSighashType, Transaction, TxOut,
     key::Keypair,
     sighash::{Prevouts, SighashCache},
-    taproot::{LeafVersion, Signature as TaprootSignature},
+    taproot::{ControlBlock, LeafVersion, Signature as TaprootSignature},
 };
 use goat::contexts::base::generate_n_of_n_public_key;
 use goat::transactions::base::BaseTransaction;
@@ -13,7 +13,7 @@ use goat::transactions::pre_signed_musig2::{get_nonce_message, verify_public_non
 use goat::transactions::signing_musig2::generate_aggregated_nonce;
 use musig2::secp::Point;
 use musig2::{AggNonce, KeyAggContext, PartialSignature, PubNonce, SecNonce, verify_partial};
-use secp256k1::schnorr::Signature as SchnorrSignature;
+use secp256k1::{Message, SECP256K1, schnorr::Signature as SchnorrSignature};
 use serde::{Deserialize, Serialize};
 
 use crate::keys::hkdf_derive_bytes;
@@ -411,7 +411,10 @@ fn taproot_script_spend_sighash(
     prevouts: &[TxOut],
     leaf_hash: TapLeafHash,
     sighash_type: TapSighashType,
-) -> TapSighash {
+) -> Result<TapSighash> {
+    let prevout = prevouts
+        .get(input_index)
+        .ok_or_else(|| anyhow::anyhow!("missing prevout for input {input_index}"))?;
     if sighash_type == TapSighashType::AllPlusAnyoneCanPay
         || sighash_type == TapSighashType::SinglePlusAnyoneCanPay
         || sighash_type == TapSighashType::NonePlusAnyoneCanPay
@@ -419,11 +422,11 @@ fn taproot_script_spend_sighash(
         SighashCache::new(tx)
             .taproot_script_spend_signature_hash(
                 input_index,
-                &Prevouts::One(input_index, &prevouts[input_index]),
+                &Prevouts::One(input_index, prevout),
                 leaf_hash,
                 sighash_type,
             )
-            .expect("Failed to construct sighash")
+            .map_err(|e| anyhow::anyhow!("failed to construct input {input_index} sighash: {e}"))
     } else {
         SighashCache::new(tx)
             .taproot_script_spend_signature_hash(
@@ -432,7 +435,7 @@ fn taproot_script_spend_sighash(
                 leaf_hash,
                 sighash_type,
             )
-            .expect("Failed to construct sighash")
+            .map_err(|e| anyhow::anyhow!("failed to construct input {input_index} sighash: {e}"))
     }
 }
 
@@ -457,9 +460,89 @@ pub fn verify_taproot_partial_signature(
 ) -> Result<()> {
     let key_agg_ctx = key_agg_context(committee_pubkeys)?;
     let leaf_hash = TapLeafHash::from_script(script, LeafVersion::TapScript);
-    let sighash = taproot_script_spend_sighash(tx, input_index, prevouts, leaf_hash, sighash_type);
+    let sighash = taproot_script_spend_sighash(tx, input_index, prevouts, leaf_hash, sighash_type)?;
     verify_partial(&key_agg_ctx, partial_sig, agg_nonce, committee_pubkey.inner, pub_nonce, sighash)
         .map_err(|e| anyhow::anyhow!("invalid partial signature from {committee_pubkey}: {e}"))
+}
+
+pub fn verify_taproot_pre_signed_input<T: PreSignedTransaction + BaseTransaction>(
+    tx: &T,
+    signing_pubkey: &XOnlyPublicKey,
+    input_index: usize,
+    sighash_type: TapSighashType,
+) -> Result<()> {
+    let input = tx
+        .tx()
+        .input
+        .get(input_index)
+        .ok_or_else(|| anyhow::anyhow!("{} input {input_index} is missing", tx.name()))?;
+    ensure!(
+        input.witness.len() == 3,
+        "{} input {input_index} must contain signature, script and control block",
+        tx.name()
+    );
+    let signature_bytes = input
+        .witness
+        .nth(0)
+        .ok_or_else(|| anyhow::anyhow!("{} input {input_index} signature is missing", tx.name()))?;
+    let witness_script = input
+        .witness
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("{} input {input_index} script is missing", tx.name()))?;
+    let control_block_bytes = input.witness.nth(2).ok_or_else(|| {
+        anyhow::anyhow!("{} input {input_index} control block is missing", tx.name())
+    })?;
+    let prevout = tx
+        .prev_outs()
+        .get(input_index)
+        .ok_or_else(|| anyhow::anyhow!("{} input {input_index} prevout is missing", tx.name()))?;
+    let script = tx
+        .prev_scripts()
+        .get(input_index)
+        .ok_or_else(|| anyhow::anyhow!("{} input {input_index} script is missing", tx.name()))?;
+
+    ensure!(
+        witness_script == script.as_bytes(),
+        "{} input {input_index} witness script mismatch",
+        tx.name()
+    );
+    ensure!(
+        prevout.script_pubkey.is_p2tr(),
+        "{} input {input_index} prevout is not P2TR",
+        tx.name()
+    );
+    let output_key =
+        XOnlyPublicKey::from_slice(&prevout.script_pubkey.as_bytes()[2..]).map_err(|e| {
+            anyhow::anyhow!("{} input {input_index} output key is invalid: {e}", tx.name())
+        })?;
+    let control_block = ControlBlock::decode(control_block_bytes).map_err(|e| {
+        anyhow::anyhow!("{} input {input_index} control block is invalid: {e}", tx.name())
+    })?;
+    ensure!(
+        control_block.verify_taproot_commitment(SECP256K1, output_key, script),
+        "{} input {input_index} control block does not commit to the expected script",
+        tx.name()
+    );
+
+    let signature = TaprootSignature::from_slice(signature_bytes).map_err(|e| {
+        anyhow::anyhow!("{} input {input_index} signature is invalid: {e}", tx.name())
+    })?;
+    ensure!(
+        signature.sighash_type == sighash_type,
+        "{} input {input_index} sighash type mismatch",
+        tx.name()
+    );
+    let leaf_hash = TapLeafHash::from_script(script, LeafVersion::TapScript);
+    let sighash = taproot_script_spend_sighash(
+        tx.tx(),
+        input_index,
+        tx.prev_outs(),
+        leaf_hash,
+        sighash_type,
+    )?;
+    SECP256K1.verify_schnorr(&signature.signature, &Message::from(sighash), signing_pubkey).map_err(
+        |e| anyhow::anyhow!("{} input {input_index} signature verification failed: {e}", tx.name()),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -627,6 +710,50 @@ pub fn verify_graph_committee_partial_sigs(
         )?;
     }
 
+    Ok(())
+}
+
+pub fn verify_graph_committee_pre_signatures(graph: &BitvmGcGraph) -> Result<()> {
+    ensure!(graph.committee_pre_signed(), "graph is not pre-signed by the committee");
+    let (_, committee_pubkey) =
+        generate_n_of_n_public_key(&graph.parameters.instance_parameters.committee_pubkeys);
+    ensure!(
+        committee_pubkey == graph.parameters.instance_parameters.n_of_n_taproot_public_key(),
+        "graph committee aggregate public key mismatch"
+    );
+
+    verify_taproot_pre_signed_input(&graph.take1, &committee_pubkey, 0, TapSighashType::All)?;
+    verify_taproot_pre_signed_input(&graph.take1, &committee_pubkey, 3, TapSighashType::All)?;
+    verify_taproot_pre_signed_input(&graph.take2, &committee_pubkey, 0, TapSighashType::All)?;
+    verify_taproot_pre_signed_input(
+        &graph.challenge,
+        &committee_pubkey,
+        0,
+        TapSighashType::SinglePlusAnyoneCanPay,
+    )?;
+    for tx in &graph.watchtower_challenge_timeouts {
+        verify_taproot_pre_signed_input(tx, &committee_pubkey, 1, TapSighashType::None)?;
+    }
+    for tx in &graph.operator_challenge_nacks {
+        verify_taproot_pre_signed_input(tx, &committee_pubkey, 0, TapSighashType::All)?;
+        verify_taproot_pre_signed_input(tx, &committee_pubkey, 1, TapSighashType::All)?;
+    }
+    verify_taproot_pre_signed_input(
+        &graph.operator_commit_timeout,
+        &committee_pubkey,
+        0,
+        TapSighashType::All,
+    )?;
+    verify_taproot_pre_signed_input(
+        &graph.operator_commit_timeout,
+        &committee_pubkey,
+        1,
+        TapSighashType::All,
+    )?;
+    for tx in &graph.disproves {
+        verify_taproot_pre_signed_input(tx, &committee_pubkey, 0, TapSighashType::None)?;
+        verify_taproot_pre_signed_input(tx, &committee_pubkey, 1, TapSighashType::None)?;
+    }
     Ok(())
 }
 

@@ -5128,6 +5128,18 @@ async fn handle_sync_graph(
         return Ok(());
     }
 
+    if let Err(e) = verify_graph_operator_pre_signatures(&graph) {
+        tracing::warn!(
+            "Ignore SyncGraph for {instance_id}:{graph_id}: invalid operator pre-signatures: {e}"
+        );
+        return Ok(());
+    }
+    if let Err(e) = verify_graph_committee_pre_signatures(&graph) {
+        tracing::warn!(
+            "Ignore SyncGraph for {instance_id}:{graph_id}: invalid committee pre-signatures: {e}"
+        );
+        return Ok(());
+    }
     let simplified_graph = graph.to_simplified()?;
     store_graph(ctx.local_db, &simplified_graph).await?;
     refresh_and_compensate(

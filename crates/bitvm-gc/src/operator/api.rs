@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
-use bitcoin::{Address, Amount, Transaction, TxIn, key::Keypair};
-use bitcoin::{Network, PublicKey, Witness};
+use bitcoin::{Address, Amount, TapSighashType, Transaction, TxIn, key::Keypair};
+use bitcoin::{Network, PublicKey, Witness, XOnlyPublicKey};
 use goat::assert_scripts::{
     OperatorAssertPublicKey, OperatorAssertSecretKey, OperatorCommitPubinPublicKey,
     OperatorCommitPubinSecretKey,
@@ -26,6 +26,7 @@ use goat::transactions::watchtower_challenge::{
 };
 use goat::wots::{Wots, Wots96};
 
+use crate::committee::verify_taproot_pre_signed_input;
 use crate::keys::hkdf_derive_bytes;
 use crate::timelocks::{
     default_timelock_config, take1_timelock_blocks, take2_timelock_blocks, validate_timelock_config,
@@ -390,6 +391,51 @@ pub fn push_operator_pre_signature(
     graph.challenge_incomplete_kickoff.tx_mut().input[1].witness = signed_witness[5].clone();
 
     graph.operator_pre_signed = true;
+    Ok(())
+}
+
+pub fn verify_graph_operator_pre_signatures(graph: &BitvmGcGraph) -> Result<()> {
+    if !graph.operator_pre_signed() {
+        bail!("graph is not pre-signed by the operator");
+    }
+    let operator_pubkey = XOnlyPublicKey::from(graph.parameters.operator_pubkey);
+
+    verify_taproot_pre_signed_input(
+        &graph.force_skip_kickoff,
+        &operator_pubkey,
+        0,
+        TapSighashType::None,
+    )?;
+    verify_taproot_pre_signed_input(
+        &graph.force_skip_kickoff,
+        &operator_pubkey,
+        1,
+        TapSighashType::None,
+    )?;
+    verify_taproot_pre_signed_input(
+        &graph.quick_challenge,
+        &operator_pubkey,
+        0,
+        TapSighashType::None,
+    )?;
+    verify_taproot_pre_signed_input(
+        &graph.quick_challenge,
+        &operator_pubkey,
+        1,
+        TapSighashType::None,
+    )?;
+    verify_taproot_pre_signed_input(
+        &graph.challenge_incomplete_kickoff,
+        &operator_pubkey,
+        0,
+        TapSighashType::None,
+    )?;
+    verify_taproot_pre_signed_input(
+        &graph.challenge_incomplete_kickoff,
+        &operator_pubkey,
+        1,
+        TapSighashType::None,
+    )?;
     Ok(())
 }
 
