@@ -1829,9 +1829,7 @@ async fn handle_create_graph_committee(
 ) -> Result<()> {
     // received from Operator
     // 1. check graph data & operator stake
-    if let Err(e) =
-        todo_funcs::validate_init_graph(ctx.local_db, ctx.btc_client, ctx.goat_client, graph).await
-    {
+    if let Err(e) = todo_funcs::validate_init_graph(ctx.btc_client, ctx.goat_client, graph).await {
         if should_ignore_invalid_graph(&e, instance_id, graph_id, "CreateGraph", None) {
             return Ok(());
         }
@@ -2483,7 +2481,9 @@ async fn handle_graph_finalize_committee(
 ) -> Result<()> {
     // received from Operator
     // 1. check graph data
-    if let Err(e) = todo_funcs::validate_finalized_graph(ctx.goat_client, graph, endorse_sigs).await
+    if let Err(e) =
+        todo_funcs::validate_finalized_graph(ctx.btc_client, ctx.goat_client, graph, endorse_sigs)
+            .await
     {
         if should_ignore_invalid_graph(
             &e,
@@ -2591,7 +2591,9 @@ async fn handle_graph_finalize_default(
 ) -> Result<()> {
     // received from Operator
     // 1. check graph data
-    if let Err(e) = todo_funcs::validate_finalized_graph(ctx.goat_client, graph, endorse_sigs).await
+    if let Err(e) =
+        todo_funcs::validate_finalized_graph(ctx.btc_client, ctx.goat_client, graph, endorse_sigs)
+            .await
     {
         if should_ignore_invalid_graph(
             &e,
@@ -5118,6 +5120,18 @@ async fn handle_sync_graph(
             "Failed to validate graph_id on GoatChain for SyncGraph {instance_id}:{graph_id}: {e}"
         )
     })?;
+    if let Err(e) = todo_funcs::validate_graph_instance_parameters(
+        ctx.btc_client,
+        ctx.goat_client,
+        &graph.parameters.instance_parameters,
+    )
+    .await
+    {
+        tracing::warn!(
+            "Ignore SyncGraph for {instance_id}:{graph_id}: invalid instance parameters: {e}"
+        );
+        return Ok(());
+    }
     let graph = BitvmGcGraph::from_simplified(graph)?;
     let graph_data = build_graph_data(&graph)?;
     let graph_data_on_goat = ctx.goat_client.gateway_get_graph_data(&graph_id).await?;
