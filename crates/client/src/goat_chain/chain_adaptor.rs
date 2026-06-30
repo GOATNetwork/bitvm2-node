@@ -362,7 +362,7 @@ pub struct WithdrawData {
     pub btc_block_height_withdraw: U256,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GraphData {
     pub operator_pubkey_prefix: u8,
     pub operator_pubkey: [u8; 32],

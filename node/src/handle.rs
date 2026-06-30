@@ -5085,13 +5085,51 @@ async fn handle_sync_graph(
         );
         return Ok(());
     }
+
+    if !ctx
+        .goat_client
+        .committee_mana_is_validate_peer_id(&ctx.from_peer_id.to_bytes())
+        .await
+        .with_context(|| {
+            format!(
+                "failed to validate SyncGraph sender {} against the committee registry",
+                ctx.from_peer_id
+            )
+        })?
+    {
+        tracing::warn!(
+            "Ignore SyncGraph for {instance_id}:{graph_id}: sender {} is not a registered committee peer",
+            ctx.from_peer_id
+        );
+        return Ok(());
+    }
+
+    if graph.parameters.instance_parameters.instance_id != instance_id
+        || graph.parameters.graph_id != graph_id
+    {
+        tracing::warn!(
+            "Ignore SyncGraph for {instance_id}:{graph_id}: message identifiers do not match graph parameters"
+        );
+        return Ok(());
+    }
+
     validate_graph_id_on_goat(ctx.goat_client, instance_id, graph_id).await.map_err(|e| {
         anyhow!(
             "Failed to validate graph_id on GoatChain for SyncGraph {instance_id}:{graph_id}: {e}"
         )
     })?;
-    store_graph(ctx.local_db, graph).await?;
     let graph = BitvmGcGraph::from_simplified(graph)?;
+    let graph_data = build_graph_data(&graph)?;
+    let graph_data_on_goat = ctx.goat_client.gateway_get_graph_data(&graph_id).await?;
+    if graph_data != graph_data_on_goat {
+        tracing::warn!(
+            "Ignore SyncGraph for {instance_id}:{graph_id}: reconstructed graph data does not match GoatChain"
+        );
+        return Ok(());
+    }
+
+    let simplified_graph = graph.to_simplified()?;
+    store_graph(ctx.local_db, &simplified_graph).await?;
     refresh_and_compensate(
         ctx,
         instance_id,
