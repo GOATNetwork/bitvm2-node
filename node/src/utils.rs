@@ -335,6 +335,18 @@ pub mod todo_funcs {
         let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await.map_err(|e| {
             SpecialError::InvalidGraph(format!("failed to load instance data: {e}"))
         })?;
+        if pegin_data.committee_pubkeys.len() != pegin_data.committee_addresses.len() {
+            bail!(SpecialError::InvalidGraph(
+                "on-chain committee pubkey and address counts differ".to_string()
+            ));
+        }
+        if endorse_sigs.len() != pegin_data.committee_pubkeys.len() {
+            bail!(SpecialError::InvalidGraph(format!(
+                "endorsement count {} does not match instance committee count {}",
+                endorse_sigs.len(),
+                pegin_data.committee_pubkeys.len()
+            )));
+        }
 
         for (pk, evm_addr, sig) in endorse_sigs.iter() {
             // no duplicates
