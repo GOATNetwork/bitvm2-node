@@ -10,7 +10,7 @@ use bitvm_gc::babe_adapter::{
     build_setup_package, build_wrongly_challenged_witness,
     build_wrongly_challenged_witness_from_preimages, derive_finalized_indices,
     extract_gc_circuit_data, open_and_solder, open_real_setup_and_solder,
-    recover_operator_proof_from_assert_witness, sample_cac_instance_commit,
+    sample_cac_instance_commit,
     sample_finalized_instance_data, verify_real_setup, verify_setup,
 };
 use rand::SeedableRng;
@@ -72,7 +72,7 @@ fn real_setup_restores_private_state_and_verifies_soldering_proof() {
     let epk = &package.commits[finalized[0].index].epk;
     let h_msgs: Vec<[u8; 20]> = finalized.iter().map(|f| package.commits[f.index].h_msg).collect();
     extract_gc_circuit_data(verifier_pubkey(), epk, &h_msgs)
-        .expect("extract native 508-wire graph data");
+        .expect("extract native 768-wire graph data");
 }
 
 #[test]
@@ -118,21 +118,21 @@ fn protocol_finalized_instances_contribute_one_base_wire_slot() {
 
     // M finalized instances each contribute one hashlock …
     assert_eq!(gc_data.final_msg_hashlocks, h_msgs);
-    let n = GC_INPUT_WIRES / 3; // 254 real wires per group
-    // pi1_x: positions 0..n
+    let n = GC_INPUT_WIRES / 3; // N_PADDED = 256 wires per group, no dummy positions
+    // EPK maps 1:1 to wire_hashes: pi1_x[0..n], pi1_y[n..2n], x_d[2n..3n]
     assert_eq!(gc_data.wire_hashes[0].false_label_hash, epk[0][0]);
     assert_eq!(gc_data.wire_hashes[0].true_label_hash, epk[0][1]);
     assert_eq!(gc_data.wire_hashes[n - 1].false_label_hash, epk[n - 1][0]);
-    assert_eq!(gc_data.wire_hashes[n + 2].false_label_hash, epk[n][0]);
-    assert_eq!(gc_data.wire_hashes[2 * (n + 2)].false_label_hash, epk[2 * n][0]);
-    assert_eq!(gc_data.wire_hashes[2 * (n + 2) + n - 1].false_label_hash, epk[3 * n - 1][0]);
+    assert_eq!(gc_data.wire_hashes[n].false_label_hash, epk[n][0]);
+    assert_eq!(gc_data.wire_hashes[2 * n].false_label_hash, epk[2 * n][0]);
+    assert_eq!(gc_data.wire_hashes[3 * n - 1].false_label_hash, epk[3 * n - 1][0]);
 }
 
 #[test]
 fn gc_slot_rejects_invalid_epk_length() {
     use verifiable_circuit_babe::babe::GC_INPUT_WIRES;
     let h_msgs = vec![[0u8; 20]; BABE_M_CC];
-    for bad_len in [0, 1, GC_INPUT_WIRES - 1, GC_INPUT_WIRES + 1, INPUT_WIRE_NUM] {
+    for bad_len in [0, 1, GC_INPUT_WIRES - 1, GC_INPUT_WIRES + 1] {
         let bad_epk = vec![[[0u8; 20]; 2]; bad_len];
         match extract_gc_circuit_data(verifier_pubkey(), &bad_epk, &h_msgs) {
             Ok(_) => panic!("epk length {bad_len} should be rejected"),
@@ -204,7 +204,7 @@ fn witness_builders_validate_inputs_and_indices() {
     let assert_witness =
         build_assert_witness(&proof, &assert_secret_key, dynamic_input).expect("assert witness");
     assert_eq!(assert_witness.wots_sig.len(), WOTS_SIG_COUNT);
-    assert!(assert_witness.recover_pi1_xd_without_verify().is_some());
+    assert!(assert_witness.try_recover_pi1_xd().is_some());
     assert!(build_assert_witness(&proof, &Vec::new(), dynamic_input).is_err());
 
     let verifier_state = BabeVerifierState {
@@ -343,7 +343,7 @@ fn assert_witness_preserves_pi1_and_dynamic_input() {
     let assert_witness = build_assert_witness(&proof, &sk, dynamic_input).expect("assert witness");
 
     let (recovered_pi1, recovered_xd) =
-        assert_witness.recover_pi1_xd_without_verify().expect("recover pi1 and xd");
+        assert_witness.try_recover_pi1_xd().expect("recover pi1 and xd");
     assert_eq!(recovered_pi1, proof.a);
     assert_eq!(recovered_xd, dynamic_input);
 
@@ -351,4 +351,23 @@ fn assert_witness_preserves_pi1_and_dynamic_input() {
     let msg = assert_wots_message(&assert_witness).expect("wots message");
     let msg2 = assert_wots_message(&assert_witness).expect("wots message 2");
     assert_eq!(msg, msg2);
+}
+
+#[test]
+fn assert_wots_message_works_for_invalid_field_elements() {
+    use bitvm_gc::babe_adapter::{TxAssertWitness, assert_wots_message};
+    use goat::wots::Wots96;
+    use bitvm::signatures::Wots;
+
+    // Construct a WOTS sig over bytes that are NOT valid Fq/Fr field elements (all 0xFF).
+    let sk = Wots96::generate_secret_key();
+    let raw_msg = [0xFFu8; 96];
+    let sig = Wots96::sign(&sk, &raw_msg);
+    let witness = TxAssertWitness { wots_sig: sig.to_vec(), pi2: vec![], pi3: vec![] };
+
+    // try_recover_pi1_xd fails because 0xFF..FF > field modulus
+    assert!(witness.try_recover_pi1_xd().is_none());
+    // assert_wots_message succeeds regardless — it works on raw bytes only
+    let msg = assert_wots_message(&witness).expect("raw message extraction must succeed");
+    assert_eq!(msg, raw_msg);
 }

@@ -11,7 +11,7 @@ use ark_groth16::VerifyingKey as Groth16VerifyingKey;
 use ark_serialize::CanonicalSerialize;
 use garbled_snark_verifier::bag::S;
 use goat::assert_scripts::{
-    INPUT_WIRE_NUM, OperatorAssertPublicKey, OperatorAssertSecretKey, WireHash, label_hash,
+    INPUT_WIRE_NUM, OperatorAssertSecretKey, WireHash, label_hash,
 };
 use goat::wots::{Wots, Wots96};
 use serde::{Deserialize, Serialize};
@@ -19,9 +19,9 @@ use sha2::{Digest, Sha256};
 use soldering_host::BabeBundle;
 pub use soldering_host::BabeBundleBuilder;
 use verifiable_circuit_babe::babe::{
-    GC_INPUT_WIRES, WeKnownPi1SetupCt, build_challenge_assert_witness_raw,
-    deinterleave_dummy_positions, interleave_dummy_positions,
+    GC_INPUT_WIRES, WeKnownPi1SetupCt, build_challenge_assert_witness as babe_build_challenge_assert_witness,
 };
+use verifiable_circuit_babe::dre::N_PADDED;
 use verifiable_circuit_babe::cac::cac_finalize_indices;
 pub use verifiable_circuit_babe::cac::{CACSetupPackage, FinalizedInstanceData};
 use verifiable_circuit_babe::gc::{SGC_PART1_CONSTANT_SIZE, SparseAdaptorTable};
@@ -317,7 +317,7 @@ pub fn verify_setup(
 
 /// Extracts one graph slot owned by `verifier_pubkey` from finalized setup data.
 ///
-/// `epk` must have exactly `GC_INPUT_WIRES` (762) entries
+/// `epk` must have exactly `GC_INPUT_WIRES` (768) entries
 pub fn extract_gc_circuit_data(
     verifier_pubkey: bitcoin::PublicKey,
     epk: &[[[u8; 20]; 2]],
@@ -326,19 +326,15 @@ pub fn extract_gc_circuit_data(
     if epk.len() != GC_INPUT_WIRES {
         bail!("BABE epk has {} entries; expected {GC_INPUT_WIRES}", epk.len());
     }
-    let n = GC_INPUT_WIRES / 3;
     let to_wire_hash =
         |pair: &[[u8; 20]; 2]| WireHash { false_label_hash: pair[0], true_label_hash: pair[1] };
-    let dummy_hash = label_hash(&vec![0u8; 16]);
-    let dummy = WireHash { false_label_hash: dummy_hash, true_label_hash: dummy_hash };
 
-    let pi1_x: Vec<WireHash> = epk[..n].iter().map(to_wire_hash).collect();
-    let pi1_y: Vec<WireHash> = epk[n..2 * n].iter().map(to_wire_hash).collect();
-    let x_d: Vec<WireHash> = epk[2 * n..].iter().map(to_wire_hash).collect();
-    let wire_hashes_vec = interleave_dummy_positions(&pi1_x, &pi1_y, &x_d, dummy);
-
-    let wire_hashes: [WireHash; INPUT_WIRE_NUM] =
-        wire_hashes_vec.try_into().map_err(|v: Vec<WireHash>| {
+    let wire_hashes: [WireHash; INPUT_WIRE_NUM] = epk
+        .iter()
+        .map(to_wire_hash)
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|v: Vec<WireHash>| {
             anyhow::anyhow!("wire hash count {} does not match expected {INPUT_WIRE_NUM}", v.len())
         })?;
     Ok(BitvmGcCircuitData { verifier_pubkey, final_msg_hashlocks: h_msgs.to_vec(), wire_hashes })
@@ -363,19 +359,21 @@ pub fn build_assert_witness(
 }
 
 pub fn assert_wots_message(assert_witness: &TxAssertWitness) -> Result<[u8; 96]> {
-    let recover = assert_witness.recover_pi1_xd_without_verify();
-    if recover.is_none() {
-        return Err(anyhow::anyhow!("Cannot recover pi1 and xd"));
-    }
-    let (pi1, x_d) = recover.unwrap();
-    Ok(pi1_xd_to_wots96_msg(&pi1, x_d))
+    let arr_sig: [[u8; 21]; Wots96::TOTAL_DIGIT_LEN as usize] =
+        assert_witness.wots_sig.clone().try_into().map_err(|_| {
+            anyhow::anyhow!(
+                "WOTS signature has wrong length; expected {}",
+                Wots96::TOTAL_DIGIT_LEN
+            )
+        })?;
+    Ok(Wots96::signature_to_message(&arr_sig))
 }
 
 pub fn recover_operator_proof_from_assert_witness(
     assert_witness: &TxAssertWitness,
 ) -> Result<Groth16Proof<Bn254>> {
     let (pi1, _) = assert_witness
-        .recover_pi1_xd_without_verify()
+        .try_recover_pi1_xd()
         .ok_or_else(|| anyhow::anyhow!("Cannot recover pi1 and xd"))?;
     let (pi2, pi3) = assert_witness
         .recover_pi2_pi3()
@@ -405,14 +403,12 @@ pub fn build_challenge_assert_witness(
 }
 
 /// Verifies a native operator assertion and reveals the real base-instance labels.
-#[allow(clippy::too_many_arguments)]
 pub fn build_real_challenge_assert_witness(
     private_state: &BabeVerifierPrivateState,
     package: &CACSetupPackage,
     finalized_indices: &[usize],
     vk: &Groth16VerifyingKey<Bn254>,
     static_inputs: Fr,
-    operator_wots_pubkey: &OperatorAssertPublicKey,
     assert_witness: &TxAssertWitness,
     verifier_index: usize,
 ) -> Result<BabeChallengeAssertWitness> {
@@ -424,37 +420,16 @@ pub fn build_real_challenge_assert_witness(
         bail!("persisted BABE verifier state does not reproduce setup package");
     }
 
-    let recover = assert_witness.recover_pi1_xd_without_verify();
-    if recover.is_none() {
-        return Err(anyhow::anyhow!("Cannot recover pi1 and xd"));
-    }
-    let (pi1, x_d) = recover.unwrap();
-    let expected_message = pi1_xd_to_wots96_msg(&pi1, x_d);
-    let wots_sig = to_real_wots_sig(&assert_witness.wots_sig)?;
-    let signed_message = Wots96::signature_to_message(&wots_sig);
-    if signed_message != expected_message {
-        bail!("operator BABE assertion WOTS signature message does not match pi1/pubin");
-    }
     let base_idx = finalized_indices[0];
+    let witness = babe_build_challenge_assert_witness(&verifier, assert_witness, base_idx);
 
-    let witness = build_challenge_assert_witness_raw(
-        &verifier,
-        assert_witness,
-        operator_wots_pubkey,
-        base_idx,
-    );
-    if witness.is_none() {
-        bail!("cannot generate challenge assert witness");
-    }
-    let witness = witness.unwrap();
-
-    if witness.input_labels.len() != INPUT_WIRE_NUM {
+    if witness.witness.input_labels.len() != GC_INPUT_WIRES {
         bail!(
-            "real BABE challenge labels have {}; expected {INPUT_WIRE_NUM}",
-            witness.input_labels.len()
+            "real BABE challenge labels have {}; expected {GC_INPUT_WIRES}",
+            witness.witness.input_labels.len()
         );
     }
-    Ok(BabeChallengeAssertWitness { verifier_index, witness })
+    Ok(BabeChallengeAssertWitness { verifier_index, witness: witness.witness })
 }
 
 /// Builds a wrongly-challenged witness from a valid recovered finalized-message preimage.
@@ -613,9 +588,8 @@ fn recover_a_valid_finalized_messages(
 
     let base_input_labels: Vec<S> =
         challenge_witness.witness.input_labels.iter().map(|&b| S(b)).collect();
-    // Strip the 6 dummy labels before passing to the GC (which has GC_INPUT_WIRES real wires).
-    let (pi1_x_labels, pi1_y_labels, x_d_labels) = deinterleave_dummy_positions(&base_input_labels);
-    let pi1_labels: Vec<S> = pi1_x_labels.into_iter().chain(pi1_y_labels).collect();
+    let pi1_full_labels = base_input_labels[..2 * N_PADDED].to_vec();
+    let x_d_full_labels = base_input_labels[2 * N_PADDED..].to_vec();
     let real_soldering = to_real_soldering(&prover_state.soldering)?;
 
     let soldered_output = &prover_state.soldering.soldered_output;
@@ -628,8 +602,8 @@ fn recover_a_valid_finalized_messages(
 
     let found = prover.check_compute_msg(
         &prover_state.finalized,
-        &pi1_labels,
-        &x_d_labels,
+        &pi1_full_labels,
+        &x_d_full_labels,
         &real_soldering,
         &prover_state.h_msgs,
     );
@@ -646,15 +620,6 @@ fn recover_a_valid_finalized_messages(
                 anyhow::anyhow!("check_compute_msg returned true but valid_msg is not set")
             })?
             .to_vec(),
-    })
-}
-
-fn to_real_wots_sig(wots_sig: &[[u8; 21]]) -> Result<<Wots96 as Wots>::Signature> {
-    wots_sig.try_into().map_err(|_| {
-        anyhow::anyhow!(
-            "WOTS signature has {} digit signatures; expected {WOTS_SIG_COUNT}",
-            wots_sig.len()
-        )
     })
 }
 

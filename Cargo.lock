@@ -5577,7 +5577,6 @@ dependencies = [
 [[package]]
 name = "garbled-snark-verifier"
 version = "0.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fgoat-bitvm3#bcdca2a02b0a8ef80835df9304d285cf8aa37e28"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -12202,8 +12201,7 @@ dependencies = [
 
 [[package]]
 name = "soldering-host"
-version = "1.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fgoat-bitvm3#bcdca2a02b0a8ef80835df9304d285cf8aa37e28"
+version = "0.0.1"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -13889,7 +13887,6 @@ dependencies = [
 [[package]]
 name = "verifiable-circuit-babe"
 version = "0.0.1"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fgoat-bitvm3#bcdca2a02b0a8ef80835df9304d285cf8aa37e28"
 dependencies = [
  "aes",
  "ark-bn254",

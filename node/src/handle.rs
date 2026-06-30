@@ -4279,7 +4279,6 @@ async fn handle_assert_sent_verifier(
         &saved_verifier_state.finalized_indices,
         &vk,
         static_input,
-        &graph.parameters.operator_assert_wots_pubkey,
         &assert_witness,
         verifier_index,
     )?;
@@ -4412,7 +4411,7 @@ async fn handle_challenge_assert_sent_operator(
     let vk = crate::vk::get_vk()
         .await
         .context("load Groth16 verifying key for BABE wrongly challenged")?;
-    let (_, dyn_pubin) = assert_witness.recover_pi1_xd_without_verify().ok_or_else(|| {
+    let (_, dyn_pubin) = assert_witness.try_recover_pi1_xd().ok_or_else(|| {
         anyhow!("cannot recover dynamic input from challenge witness WOTS signature")
     })?;
     let wrongly_challenged_witness = recover_real_wrongly_challenged_witness(
