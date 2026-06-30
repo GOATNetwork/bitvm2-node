@@ -622,6 +622,12 @@ fn freeze_operator_candidates(state: &mut OperatorBabeSetupState) -> Result<()> 
             todo_funcs::min_required_verifier()
         );
     }
+    let mut verifier_peer_ids = std::collections::HashSet::new();
+    for candidate in &state.candidates {
+        if !verifier_peer_ids.insert(&candidate.verifier_peer_id) {
+            bail!("cannot freeze duplicate verifier peer id");
+        }
+    }
     state.candidates.truncate(todo_funcs::min_required_verifier());
     state.candidates.sort_by_key(|candidate| candidate.verifier_pubkey.to_bytes());
     for (verifier_index, candidate) in state.candidates.iter_mut().enumerate() {
@@ -1266,6 +1272,20 @@ async fn handle_gen_circuits_operator(
         bail!("GenCircuits setup package has no commitments");
     }
 
+    let verifier_peer_id = ctx.from_peer_id.to_bytes();
+    if !ctx.goat_client.committee_mana_is_verifier(&verifier_peer_id).await.with_context(|| {
+        format!(
+            "failed to validate GenCircuits sender {} against the verifier registry",
+            ctx.from_peer_id
+        )
+    })? {
+        tracing::warn!(
+            "Ignore GenCircuits for {instance_id}:{graph_id}: sender {} is not a registered verifier",
+            ctx.from_peer_id
+        );
+        return Ok(());
+    }
+
     let mut state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?.unwrap_or_default();
     let operator_state = state.operator.get_or_insert_with(|| OperatorBabeSetupState {
         frozen_verifier_pubkeys: None,
@@ -1277,11 +1297,27 @@ async fn handle_gen_circuits_operator(
     if let Some(existing) = operator_state
         .candidates
         .iter()
-        .find(|candidate| candidate.verifier_pubkey == *verifier_pubkey)
+        .find(|candidate| candidate.verifier_peer_id == verifier_peer_id)
     {
+        if existing.verifier_pubkey != *verifier_pubkey {
+            tracing::warn!(
+                "Ignore GenCircuits for {instance_id}:{graph_id}: verifier peer {} already submitted a different public key",
+                ctx.from_peer_id
+            );
+            return Ok(());
+        }
         if existing.setup_package != *setup_package {
             bail!("conflicting GenCircuits setup package for verifier {verifier_pubkey}");
         }
+    } else if operator_state
+        .candidates
+        .iter()
+        .any(|candidate| candidate.verifier_pubkey == *verifier_pubkey)
+    {
+        tracing::warn!(
+            "Ignore GenCircuits for {instance_id}:{graph_id}: verifier public key {verifier_pubkey} is already bound to another peer"
+        );
+        return Ok(());
     } else if was_frozen {
         tracing::debug!(
             "Ignore GenCircuits for {instance_id}:{graph_id}: verifier membership is frozen"
@@ -1290,6 +1326,7 @@ async fn handle_gen_circuits_operator(
         return Ok(());
     } else {
         operator_state.candidates.push(OperatorVerifierCandidate {
+            verifier_peer_id,
             verifier_pubkey: *verifier_pubkey,
             setup_package: setup_package.clone(),
             verifier_index: None,
@@ -1496,6 +1533,14 @@ async fn handle_soldering_proof_ready_operator(
         .ok_or_else(|| anyhow!("selected verifier candidate is missing"))?;
     if candidate.verifier_index != Some(verifier_index) {
         bail!("selected verifier candidate index does not match SolderingProofReady slot");
+    }
+    let verifier_peer_id = ctx.from_peer_id.to_bytes();
+    if candidate.verifier_peer_id != verifier_peer_id {
+        tracing::warn!(
+            "Ignore SolderingProofReady for {instance_id}:{graph_id}: sender {} does not own verifier slot {verifier_index}",
+            ctx.from_peer_id
+        );
+        return Ok(());
     }
 
     let store_base_path = get_soldering_proof_payload_store_path()?;
@@ -5113,6 +5158,7 @@ mod tests {
         OperatorBabeSetupState {
             frozen_verifier_pubkeys: Some(vec![verifier_pubkey()]),
             candidates: vec![OperatorVerifierCandidate {
+                verifier_peer_id: vec![1],
                 verifier_pubkey: verifier_pubkey(),
                 setup_package: package,
                 verifier_index: Some(0),
@@ -5130,6 +5176,7 @@ mod tests {
         let mut state = OperatorBabeSetupState {
             frozen_verifier_pubkeys: None,
             candidates: vec![OperatorVerifierCandidate {
+                verifier_peer_id: vec![1],
                 verifier_pubkey: verifier_pubkey(),
                 setup_package: package,
                 verifier_index: None,

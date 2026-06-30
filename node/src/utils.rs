@@ -5107,6 +5107,7 @@ pub struct VerifierBabeSetupState {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OperatorVerifierCandidate {
+    pub verifier_peer_id: Vec<u8>,
     pub verifier_pubkey: PublicKey,
     pub setup_package: CACSetupPackage,
     pub verifier_index: Option<usize>,
