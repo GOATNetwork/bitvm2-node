@@ -29,7 +29,7 @@ default-members = ["node"]
 
 [workspace.dependencies]
 bitvm = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "gc-v2" }
-goat = { git = "https://github.com/KSlashh/BitVM.git", branch = "gc-v2" }
+goat = { git = "https://github.com/GOATNetwork/BitVM.git", branch = "gc-v2" }
 
 libp2p = { version = "0.55.0", features = ["tokio", "dns", "kad", "noise", "tcp", "yamux", "rsa", "ping", "mdns"] }
 libp2p-swarm-derive = "0.35.0"
