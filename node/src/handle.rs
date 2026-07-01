@@ -4068,10 +4068,6 @@ async fn handle_assert_ready_operator(
     let assert_witness =
         build_assert_witness(&operator_proof.proof, &assert_secret_key, dynamic_input)?;
     let assert_message = assert_wots_message(&assert_witness)?;
-    let mut assert_extra_data =
-        Vec::with_capacity(assert_witness.pi2.len() + assert_witness.pi3.len());
-    assert_extra_data.extend_from_slice(&assert_witness.pi2);
-    assert_extra_data.extend_from_slice(&assert_witness.pi3);
     let mut asserted_operator_proof = Vec::new();
     operator_proof.proof.serialize_compressed(&mut asserted_operator_proof)?;
     let mut setup_state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
@@ -4088,8 +4084,13 @@ async fn handle_assert_ready_operator(
     operator_state.asserted_operator_proof = Some(asserted_operator_proof);
     save_babe_setup_state(ctx.local_db, instance_id, graph_id, &setup_state)?;
 
-    let assert_tx =
-        operator_sign_assert(&mut graph, &assert_secret_key, &assert_message, &assert_extra_data)?;
+    let assert_tx = operator_sign_assert(
+        &mut graph,
+        &assert_secret_key,
+        &assert_message,
+        &assert_witness.pi2,
+        &assert_witness.pi3,
+    )?;
     let assert_tx_total_input_amount =
         graph.operator_assert.prev_outs().iter().map(|o| o.value).sum::<Amount>();
     broadcast_tx_with_cpfp(ctx.btc_client, assert_tx, assert_tx_total_input_amount).await?;

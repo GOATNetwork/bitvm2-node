@@ -139,18 +139,21 @@ pub fn verify_prover_assertion(_graph: &BitvmGcGraph, _operator_assert_txin: TxI
 
 fn split_operator_assert_wots_and_extra_data(
     mut operator_assertion: RawWitness,
-) -> Result<(RawWitness, Vec<u8>)> {
-    let expected_len = PROVER_SIG_LEN + 1;
+) -> Result<(RawWitness, Vec<u8>, Vec<u8>)> {
+    let expected_len = PROVER_SIG_LEN + 2;
     if operator_assertion.len() != expected_len {
         bail!(
             "operator assert witness has {} stack items; expected {expected_len}",
             operator_assertion.len()
         );
     }
-    let extra_data = operator_assertion
+    let pi3 = operator_assertion
         .pop()
         .ok_or_else(|| anyhow::anyhow!("operator assert witness is empty"))?;
-    Ok((operator_assertion, extra_data))
+    let pi2 = operator_assertion
+        .pop()
+        .ok_or_else(|| anyhow::anyhow!("operator assert witness is missing pi2"))?;
+    Ok((operator_assertion, pi2, pi3))
 }
 
 fn operator_assert_wots_signature(operator_assertion: &RawWitness) -> Result<Vec<[u8; 21]>> {
@@ -191,14 +194,16 @@ fn operator_assert_wots_signature(operator_assertion: &RawWitness) -> Result<Vec
     Ok(wots_sig)
 }
 
-fn split_operator_assert_extra_data(extra_data: Vec<u8>) -> Result<(Vec<u8>, Vec<u8>)> {
+fn validate_operator_assert_extra_data(pi2: &[u8], pi3: &[u8]) -> Result<()> {
     let pi2_len = G2Affine::default().compressed_size();
     let pi3_len = G1Affine::default().compressed_size();
-    let expected_len = pi2_len + pi3_len;
-    if extra_data.len() != expected_len {
-        bail!("operator assert extra-data has {} bytes; expected {expected_len}", extra_data.len());
+    if pi2.len() != pi2_len {
+        bail!("operator assert pi2 has {} bytes; expected {pi2_len}", pi2.len());
     }
-    Ok((extra_data[..pi2_len].to_vec(), extra_data[pi2_len..].to_vec()))
+    if pi3.len() != pi3_len {
+        bail!("operator assert pi3 has {} bytes; expected {pi3_len}", pi3.len());
+    }
+    Ok(())
 }
 
 pub fn extract_operator_assert_witness(
@@ -210,11 +215,11 @@ pub fn extract_operator_assert_witness(
             .connector_c()
             .extract_leaf_1_raw_witness(operator_assert_txin)
             .map_err(|e| anyhow::anyhow!("failed to extract operator assertion: {e}"))?;
-    let (operator_assertion, extra_data) =
+    let (operator_assertion, pi2, pi3) =
         split_operator_assert_wots_and_extra_data(operator_assertion)?;
 
     let wots_sig = operator_assert_wots_signature(&operator_assertion)?;
-    let (pi2, pi3) = split_operator_assert_extra_data(extra_data)?;
+    validate_operator_assert_extra_data(&pi2, &pi3)?;
     let assert_witness = TxAssertWitness { wots_sig, pi2, pi3 };
     if assert_witness.recover_pi2_pi3().is_none() {
         bail!("operator assert extra-data cannot recover pi2 and pi3");
@@ -231,11 +236,14 @@ pub fn extract_operator_assert_witness_for_challenge(
             .connector_c()
             .extract_leaf_1_raw_witness(operator_assert_txin)
             .map_err(|e| anyhow::anyhow!("failed to extract operator assertion: {e}"))?;
-    let (operator_assertion, extra_data) =
+    let (operator_assertion, pi2, pi3) =
         split_operator_assert_wots_and_extra_data(operator_assertion)?;
     let wots_sig = operator_assert_wots_signature(&operator_assertion)?;
-    let (pi2, pi3) =
-        split_operator_assert_extra_data(extra_data).unwrap_or_else(|_| (Vec::new(), Vec::new()));
+    let (pi2, pi3) = if validate_operator_assert_extra_data(&pi2, &pi3).is_ok() {
+        (pi2, pi3)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     Ok(TxAssertWitness { wots_sig, pi2, pi3 })
 }
 
@@ -253,7 +261,7 @@ pub fn build_verifier_assert_tx(
     let operator_assertion = connector_c
         .extract_leaf_1_raw_witness(&operator_assert_txin)
         .map_err(|e| anyhow::anyhow!("failed to extract operator assertion: {e}"))?;
-    let (operator_assertion, _extra_data) =
+    let (operator_assertion, _pi2, _pi3) =
         split_operator_assert_wots_and_extra_data(operator_assertion)?;
 
     let verifier_connector = graph.verifier_connector(verifier_index)?;
@@ -320,7 +328,7 @@ pub fn validate_pubin_disprove(
     let operator_assert_witness = connector_c
         .extract_leaf_1_raw_witness(operator_assert_txin)
         .map_err(|e| anyhow::anyhow!("failed to extract operator assert witness: {e}"))?;
-    let (operator_assert_witness, _extra_data) =
+    let (operator_assert_witness, _pi2, _pi3) =
         split_operator_assert_wots_and_extra_data(operator_assert_witness)?;
     let connector_d = graph.connector_d();
     let input_lock_script =

@@ -603,7 +603,8 @@ pub fn operator_sign_assert(
     graph: &mut BitvmGcGraph,
     wots_secret_key: &OperatorAssertSecretKey,
     proof: &[u8; 96],
-    extra_data: &[u8],
+    pi2: &[u8],
+    pi3: &[u8],
 ) -> Result<Transaction> {
     if Wots96::generate_public_key(wots_secret_key) != graph.parameters.operator_assert_wots_pubkey
     {
@@ -613,7 +614,7 @@ pub fn operator_sign_assert(
     let connector_c = graph.connector_c();
     graph
         .operator_assert
-        .operator_commit_proof(wots_secret_key, &connector_c, proof, extra_data)
+        .operator_commit_proof(wots_secret_key, &connector_c, proof, pi2, pi3)
         .map_err(|e| anyhow::anyhow!("failed to sign operator assert: {e}"))?;
     Ok(graph.operator_assert.tx().clone())
 }

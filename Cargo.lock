@@ -3034,6 +3034,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitvm"
+version = "0.1.0"
+source = "git+https://github.com/KSlashh/BitVM.git?branch=gc-v2#c21064192ea34dfd224057289c24c7d6074bf50a"
+dependencies = [
+ "ark-bn254",
+ "ark-crypto-primitives",
+ "ark-ec",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-relations",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "bitcoin",
+ "bitcoin-script",
+ "bitcoin-script-stack",
+ "bitcoin-scriptexec",
+ "blake3",
+ "colored",
+ "itertools 0.13.0",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "paste",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "regex",
+ "serde",
+ "sha2 0.10.9",
+ "tqdm",
+]
+
+[[package]]
 name = "bitvm-gc"
 version = "0.4.0"
 dependencies = [
@@ -5738,7 +5769,7 @@ dependencies = [
 [[package]]
 name = "goat"
 version = "0.1.0"
-source = "git+https://github.com/GOATNetwork/BitVM.git?branch=gc-v2#fd8a985c16f39f0df26ad46749c266a3fb516d10"
+source = "git+https://github.com/KSlashh/BitVM.git?branch=gc-v2#c21064192ea34dfd224057289c24c7d6074bf50a"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -5753,7 +5784,7 @@ dependencies = [
  "bitcoin",
  "bitcoin-script",
  "bitcoin-scriptexec",
- "bitvm 0.1.0 (git+https://github.com/GOATNetwork/BitVM.git?branch=gc-v2)",
+ "bitvm 0.1.0 (git+https://github.com/KSlashh/BitVM.git?branch=gc-v2)",
  "clap",
  "colored",
  "hex",
