@@ -240,6 +240,7 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<String>;
 
     async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256>;
+    async fn peg_btc_decimals(&self) -> anyhow::Result<u8>;
 }
 
 #[derive(Clone, Debug)]

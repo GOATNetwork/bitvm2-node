@@ -1645,6 +1645,16 @@ pub async fn send_challenge(
     ok_response(SendChallengeResponse { challenge_txid: txid.to_string() })
 }
 
+const BTC_DECIMALS: u8 = 8;
+
+fn sats_to_token_amount(amount_sats: u64, token_decimals: u8) -> U256 {
+    if token_decimals >= BTC_DECIMALS {
+        U256::from(amount_sats) * U256::from(10).pow(U256::from(token_decimals - BTC_DECIMALS))
+    } else {
+        U256::from(amount_sats / 10u64.pow(u32::from(BTC_DECIMALS - token_decimals)))
+    }
+}
+
 /// Initiate operator pegout (Gateway.initWithdraw)
 ///
 /// Selects an eligible graph (or uses the provided graph_id), checks L2 pegin/withdraw
@@ -1817,8 +1827,10 @@ pub async fn pegout(
         });
     }
 
-    // Ensure pegBTC allowance
-    let amount_u256 = U256::from(amount as u64);
+    // Mirror Gateway._amountFromSats using the on-chain pegin amount and pegBTC decimals.
+    let peg_btc_decimals =
+        app_state.goat_client.peg_btc_decimals().await.api_error("PEGOUT_ERROR")?;
+    let amount_u256 = sats_to_token_amount(pegin_data.pegin_amount_sats, peg_btc_decimals);
     let balance = app_state
         .goat_client
         .peg_btc_balance(&operator_goat_addr.0)
@@ -1827,7 +1839,10 @@ pub async fn pegout(
     if balance < amount_u256 {
         return error_response(
             "PEGOUT_ERROR".to_string(),
-            format!("insufficient pegBTC balance: need {amount}, available {balance}"),
+            format!(
+                "insufficient pegBTC balance: need {amount_u256} base units ({} sats, {peg_btc_decimals} decimals), available {balance}",
+                pegin_data.pegin_amount_sats
+            ),
         );
     }
 

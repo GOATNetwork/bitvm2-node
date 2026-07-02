@@ -202,6 +202,7 @@ async fn wait_for_graph_ready(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     let client = reqwest::Client::new();
     let base_url = &args.rpc_url;
@@ -235,31 +236,41 @@ async fn main() -> Result<()> {
                     break;
                 }
 
-                match call_pegout(&client, base_url, None, dry_run).await {
-                    Ok(resp) => {
-                        let amount = resp.amount as u64;
-                        if total_sent + amount > max_total_amount_sats {
+                match call_pegout(&client, base_url, None, true).await {
+                    Ok(preflight) => {
+                        let amount = u64::try_from(preflight.amount)
+                            .context("pegout API returned a negative amount")?;
+                        if total_sent.saturating_add(amount) > max_total_amount_sats {
                             eprintln!(
                                 "batch stop: next amount {amount} would exceed target {max_total_amount_sats}",
                             );
                             break;
                         }
 
+                        if dry_run {
+                            print_pegout_result(&preflight);
+                            eprintln!(
+                                "batch dry-run stops after the next eligible graph because dry-run does not advance graph state"
+                            );
+                            break;
+                        }
+
+                        let graph_id = Uuid::parse_str(&preflight.graph_id)
+                            .context("pegout API returned an invalid graph id")?;
+                        let resp = call_pegout(&client, base_url, Some(graph_id), false).await?;
                         print_pegout_result(&resp);
                         total_sent = total_sent.saturating_add(amount);
                         count = count.saturating_add(1);
                         eprintln!("batch progress: count {count}, total {total_sent} sats");
 
-                        if !dry_run {
-                            wait_for_graph_ready(
-                                &client,
-                                base_url,
-                                &resp.graph_id,
-                                poll_interval_secs,
-                                max_wait_secs,
-                            )
-                            .await?;
-                        }
+                        wait_for_graph_ready(
+                            &client,
+                            base_url,
+                            &resp.graph_id,
+                            poll_interval_secs,
+                            max_wait_secs,
+                        )
+                        .await?;
                     }
                     Err(e) => {
                         eprintln!("batch stop: {e}");

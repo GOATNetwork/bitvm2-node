@@ -7,7 +7,7 @@
 //!
 //! Env:
 //! - BITVM_SECRET: node BTC private key
-//! - BITCOIN_NETWORK: bitcoin | testnet | testnet4 | signet | regtest (optional)
+//! - BITCOIN_NETWORK: bitcoin | testnet4 | signet | regtest (optional)
 //!
 //! Example:
 //! - cargo run -p bitvm-noded --bin send-rbf -- \
@@ -56,8 +56,8 @@ struct Args {
     fee_amount: u64,
 
     /// Optional esplora base URL override
-    #[arg(long, default_value = "https://mempool.space/testnet4/api")]
-    esplora_url: String,
+    #[arg(long)]
+    esplora_url: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let network = get_network();
-    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
+    let btc_client = BTCClient::new(network, args.esplora_url.as_deref());
 
     let node_keypair = get_bitvm_key()?;
     let node_address = node_p2wsh_address(network, &node_keypair.public_key().into());

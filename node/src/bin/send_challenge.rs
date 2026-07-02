@@ -48,6 +48,7 @@ struct SendChallengeResponse {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     let url = format!(
         "{}/v1/graphs/{}/send-challenge",

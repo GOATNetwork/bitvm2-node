@@ -265,6 +265,7 @@ sol!(
     #[allow(missing_docs)]
     #[sol(rpc)]
     interface IPegBtc{
+         function decimals() external view returns (uint8);
          function balanceOf(address account) external view returns (uint256);
          function allowance(address owner, address spender) external view returns (uint256);
          function approve(address spender, uint256 amount) external returns (bool);
@@ -1615,6 +1616,11 @@ impl ChainAdaptor for GoatAdaptor {
     async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
         let peg_btc = self.get_peg_btc()?;
         Ok(peg_btc.balanceOf(Address::from_slice(address)).call().await?)
+    }
+
+    async fn peg_btc_decimals(&self) -> anyhow::Result<u8> {
+        let peg_btc = self.get_peg_btc()?;
+        Ok(peg_btc.decimals().call().await?)
     }
 
     async fn peg_btc_allowance(

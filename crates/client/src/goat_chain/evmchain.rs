@@ -461,6 +461,10 @@ impl EvmChain {
         self.adaptor.peg_btc_balance(address).await
     }
 
+    pub async fn peg_btc_decimals(&self) -> anyhow::Result<u8> {
+        self.adaptor.peg_btc_decimals().await
+    }
+
     pub async fn peg_btc_allowance(
         &self,
         owner: &[u8; 20],

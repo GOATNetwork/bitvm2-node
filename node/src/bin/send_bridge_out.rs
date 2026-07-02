@@ -739,6 +739,7 @@ async fn call_get_escrow_data(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     let client = reqwest::Client::new();
 

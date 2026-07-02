@@ -496,6 +496,10 @@ impl ChainAdaptor for MockAdaptor {
         Ok(U256::default())
     }
 
+    async fn peg_btc_decimals(&self) -> anyhow::Result<u8> {
+        Ok(18)
+    }
+
     async fn peg_btc_allowance(
         &self,
         _owner: &[u8; 20],
