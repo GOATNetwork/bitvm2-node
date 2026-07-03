@@ -66,6 +66,7 @@ fn real_setup_restores_private_state_and_verifies_soldering_proof() {
         &finalized,
         &soldering,
         &vk,
+        &finalized_indices,
         static_public_inputs,
     )
     .expect("verify soldering proof");

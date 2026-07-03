@@ -18,9 +18,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use soldering_host::BabeBundle;
 pub use soldering_host::BabeBundleBuilder;
-use verifiable_circuit_babe::babe::{
-    GC_INPUT_WIRES, WeKnownPi1SetupCt, build_challenge_assert_witness as babe_build_challenge_assert_witness,
-};
+use verifiable_circuit_babe::babe::{GC_INPUT_WIRES, build_challenge_assert_witness as babe_build_challenge_assert_witness, WitnessEncSetupCt};
 use verifiable_circuit_babe::dre::N_PADDED;
 use verifiable_circuit_babe::cac::cac_finalize_indices;
 pub use verifiable_circuit_babe::cac::{CACSetupPackage, FinalizedInstanceData};
@@ -130,7 +128,7 @@ pub fn sample_cac_instance_commit(seed: u8) -> CACInstanceCommit {
 pub fn sample_finalized_instance_data(index: usize) -> FinalizedInstanceData {
     let adaptor_tables =
         [SparseAdaptorTable { entries: vec![] }, SparseAdaptorTable { entries: vec![] }];
-    let ct_setup = WeKnownPi1SetupCt { ct2_r_delta_g2: vec![], ct3_masked_msg: vec![] };
+    let ct_setup = WitnessEncSetupCt { ct2_r_delta_g2: vec![], ct3_masked_msg: vec![] };
 
     FinalizedInstanceData {
         index,
@@ -214,6 +212,7 @@ pub fn verify_real_setup(
     finalized: &[FinalizedInstanceData],
     soldering: &SolderingData,
     vk: &Groth16VerifyingKey<Bn254>,
+    claimed_finalized_indices: &[usize],
     static_public_inputs: Fr,
 ) -> Result<()> {
     let bundle = BabeBundle {
@@ -222,7 +221,7 @@ pub fn verify_real_setup(
         soldering: to_real_soldering(soldering)?,
     };
     soldering_builder
-        .babe_prover_verify_setup(&package, &bundle, vk, static_public_inputs)
+        .babe_prover_verify_setup(&package, &bundle, vk, static_public_inputs, claimed_finalized_indices)
         .map_err(anyhow::Error::msg)
 }
 

@@ -1715,6 +1715,7 @@ async fn handle_compact_soldering_proof_operator(
         bail!("selected verifier candidate index does not match SolderingProof slot");
     }
     let setup_package = candidate.setup_package.clone();
+    let claimed_finalized_indices = candidate.selected_circuit_indexes.clone();
     let (opened, finalized, soldering) = expand_compact_soldering_proof_payload(payload)
         .context("expand compact soldering proof payload")?;
 
@@ -1738,6 +1739,7 @@ async fn handle_compact_soldering_proof_operator(
             &finalized_for_validation,
             &soldering_for_validation,
             &vk,
+            &claimed_finalized_indices,
             static_input,
         )
     })
