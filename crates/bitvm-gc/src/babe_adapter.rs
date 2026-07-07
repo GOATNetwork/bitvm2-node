@@ -222,7 +222,13 @@ pub fn verify_real_setup(
         soldering: to_real_soldering(soldering)?,
     };
     soldering_builder
-        .babe_prover_verify_setup(&package, &bundle, vk, static_public_inputs, claimed_finalized_indices)
+        .babe_prover_verify_setup(
+            &package,
+            &bundle,
+            vk,
+            static_public_inputs,
+            claimed_finalized_indices,
+        )
         .map_err(anyhow::Error::msg)
 }
 

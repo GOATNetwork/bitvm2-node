@@ -236,8 +236,35 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
         }
         (
             GOATMessageContent::CreateGraph(CreateGraph { instance_id, graph_id, graph, .. }),
+            Actor::Verifier,
+        ) => handle_create_graph_verifier(ctx, *instance_id, *graph_id, graph).await,
+        (
+            GOATMessageContent::CreateGraph(CreateGraph { instance_id, graph_id, graph, .. }),
             Actor::Committee,
-        ) => handle_create_graph_committee(ctx, *instance_id, *graph_id, graph).await,
+        ) => handle_create_graph_committee(ctx, *instance_id, *graph_id, graph, content).await,
+        (
+            GOATMessageContent::VerifierGraphParamsEndorsement(VerifierGraphParamsEndorsement {
+                instance_id,
+                graph_id,
+                verifier_pubkey,
+                verifier_index,
+                canonical_graph_params_hash,
+                signature,
+            }),
+            Actor::Committee,
+        ) => {
+            handle_verifier_graph_params_endorsement_committee(
+                ctx,
+                *instance_id,
+                *graph_id,
+                verifier_pubkey,
+                *verifier_index,
+                *canonical_graph_params_hash,
+                signature,
+                content,
+            )
+            .await
+        }
         (
             GOATMessageContent::NonceGeneration(NonceGeneration {
                 instance_id,
@@ -327,6 +354,7 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 graph_id,
                 committee_pubkey: received_committee_pubkey,
                 committee_sig_for_graph,
+                committee_sig_for_params,
                 committee_evm_address,
             }),
             Actor::Operator,
@@ -337,6 +365,7 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 *graph_id,
                 received_committee_pubkey,
                 committee_sig_for_graph,
+                committee_sig_for_params,
                 committee_evm_address,
             )
             .await
@@ -347,11 +376,20 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 graph_id,
                 graph,
                 endorse_sigs,
+                params_endorse_sigs,
                 ..
             }),
             Actor::Committee,
         ) => {
-            handle_graph_finalize_committee(ctx, *instance_id, *graph_id, graph, endorse_sigs).await
+            handle_graph_finalize_committee(
+                ctx,
+                *instance_id,
+                *graph_id,
+                graph,
+                endorse_sigs,
+                params_endorse_sigs,
+            )
+            .await
         }
         (
             GOATMessageContent::GraphFinalize(GraphFinalize {
@@ -359,10 +397,21 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 graph_id,
                 graph,
                 endorse_sigs,
+                params_endorse_sigs,
                 ..
             }),
             _,
-        ) => handle_graph_finalize_default(ctx, *instance_id, *graph_id, graph, endorse_sigs).await,
+        ) => {
+            handle_graph_finalize_default(
+                ctx,
+                *instance_id,
+                *graph_id,
+                graph,
+                endorse_sigs,
+                params_endorse_sigs,
+            )
+            .await
+        }
         (
             GOATMessageContent::PeginConfirmNonce(PeginConfirmNonce {
                 instance_id,
@@ -1835,23 +1884,126 @@ async fn handle_confirm_instance_default(
 }
 
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
-async fn handle_create_graph_committee(
+async fn handle_create_graph_verifier(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
     graph: &SimplifiedBitvmGcGraph,
 ) -> Result<()> {
-    // received from Operator
-    // 1. check graph data & operator stake
-    if let Err(e) = todo_funcs::validate_init_graph(ctx.btc_client, ctx.goat_client, graph).await {
+    let verifier_master_key = VerifierMasterKey::new(get_bitvm_key()?);
+    let local_verifier_pubkey: PublicKey = verifier_master_key.master_keypair().public_key().into();
+    let Some(verifier_index) =
+        find_verifier_index_by_pubkey(&graph.parameters.gc_data, &local_verifier_pubkey)?
+    else {
+        return Ok(());
+    };
+
+    let full_graph = BitvmGcGraph::from_simplified(graph)?;
+    validate_verifier_slot(&full_graph, verifier_index)?;
+    let Some(verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
+        .and_then(|state| state.verifier)
+    else {
+        tracing::warn!(
+            "Ignore CreateGraph for {instance_id}:{graph_id}: missing local BABE verifier state"
+        );
+        return Ok(());
+    };
+    if verifier_state.verifier_pubkey != local_verifier_pubkey {
+        tracing::warn!(
+            "Ignore CreateGraph for {instance_id}:{graph_id}: local BABE verifier pubkey mismatch"
+        );
+        return Ok(());
+    }
+    let Some(soldering_proof_ready) = verifier_state.soldering_proof_ready.clone() else {
+        tracing::warn!(
+            "Ignore CreateGraph for {instance_id}:{graph_id}: local verifier has no soldering proof"
+        );
+        return Ok(());
+    };
+    if soldering_proof_ready.verifier_index != verifier_index {
+        bail!(
+            "CreateGraph verifier index {verifier_index} conflicts with persisted slot {}",
+            soldering_proof_ready.verifier_index
+        );
+    }
+
+    let store_base_path = get_soldering_proof_payload_store_path()?;
+    let payload_path = soldering_proof_payload_store_path(
+        &store_base_path,
+        instance_id,
+        graph_id,
+        verifier_index,
+        &soldering_proof_ready.payload_hash,
+    )?;
+    let payload = read_soldering_proof_store_payload(&payload_path)
+        .await
+        .context("read local soldering proof payload for graph params endorsement")?;
+    let payload = decode_soldering_proof_payload(&soldering_proof_ready, &payload)?;
+    let (_opened, finalized, soldering) = expand_compact_soldering_proof_payload(payload)
+        .context("expand local soldering proof payload for graph params endorsement")?;
+    if finalized.len() != BABE_M_CC {
+        bail!("local verifier finalized BABE instance count mismatch");
+    }
+    let epk = &verifier_state.setup_package.commits[finalized[0].index].epk;
+    let prover_state =
+        build_babe_prover_state(&verifier_state.setup_package, finalized, soldering)?;
+    let expected_gc_data =
+        extract_gc_circuit_data(local_verifier_pubkey, epk, &prover_state.h_msgs)?;
+    if graph.parameters.gc_data[verifier_index] != expected_gc_data {
+        tracing::warn!(
+            "Ignore CreateGraph for {instance_id}:{graph_id}: graph GC data for local verifier does not match local soldering proof"
+        );
+        return Ok(());
+    }
+
+    let canonical_graph_params_hash = graph.canonical_graph_params_hash()?;
+    let signature = sign_verifier_graph_params(verifier_master_key.master_keypair(), graph)?;
+    let message_content =
+        GOATMessageContent::VerifierGraphParamsEndorsement(VerifierGraphParamsEndorsement {
+            instance_id,
+            graph_id,
+            verifier_pubkey: local_verifier_pubkey,
+            verifier_index,
+            canonical_graph_params_hash,
+            signature,
+        });
+    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Committee, message_content)).await?;
+    Ok(())
+}
+
+async fn try_start_graph_committee_setup(
+    ctx: &mut HandlerContext<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    graph: &SimplifiedBitvmGcGraph,
+) -> Result<()> {
+    let verifier_endorsements =
+        get_verifier_graph_params_endorsements_for_graph(ctx.local_db, instance_id, graph_id)
+            .await?;
+    if verifier_endorsements.len() < graph.parameters.gc_data.len() {
+        tracing::info!(
+            "Defer CreateGraph for {instance_id}:{graph_id}: waiting for verifier graph params endorsements ({}/{})",
+            verifier_endorsements.len(),
+            graph.parameters.gc_data.len()
+        );
+        return Ok(());
+    }
+    if let Err(e) = todo_funcs::validate_init_graph(
+        ctx.local_db,
+        ctx.btc_client,
+        ctx.goat_client,
+        graph,
+        &verifier_endorsements,
+    )
+    .await
+    {
         if should_ignore_invalid_graph(&e, instance_id, graph_id, "CreateGraph", None) {
             return Ok(());
         }
         bail!(e)
     };
-    // 2. save the graph data to local db
-    store_graph(ctx.local_db, graph).await?;
-    // 3. generate Musig2 nonces & broadcast NonceGeneration
+
+    // generate Musig2 nonces & broadcast NonceGeneration
     let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
     let instance_keypair = load_committee_instance_keypair(&committee_master_key, instance_id)?;
     let verifier_num = graph.parameters.gc_data.len();
@@ -1896,7 +2048,7 @@ async fn handle_create_graph_committee(
         pub_nonces,
     )
     .await?;
-    // 4. if collected enough pub_nonces, generate partial signatures & broadcast CommitteePresign
+    // if collected enough pub_nonces, generate partial signatures & broadcast CommitteePresign
     let committee_pubkeys = ctx.goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
     let pub_nonces_unchecked =
         get_committee_pub_nonces_for_graph(ctx.local_db, instance_id, graph_id).await?;
@@ -1963,6 +2115,144 @@ async fn handle_create_graph_committee(
         send_to_peer(ctx.swarm, GOATMessage::new(Actor::All, message_content)).await?;
     }
     Ok(())
+}
+
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
+async fn handle_create_graph_committee(
+    ctx: &mut HandlerContext<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    graph: &SimplifiedBitvmGcGraph,
+    content: &GOATMessageContent,
+) -> Result<()> {
+    // received from Operator
+    if graph.parameters.graph_nonce > 0 {
+        let previous_nonce = graph.parameters.graph_nonce - 1;
+        match get_graph_id_by_nonce(ctx.local_db, previous_nonce, &graph.parameters.operator_pubkey)
+            .await?
+        {
+            Some((previous_instance_id, previous_graph_id)) => {
+                if get_graph(ctx.local_db, previous_instance_id, previous_graph_id).await?.is_none()
+                {
+                    if let Err(e) = try_send_sync_graph_request(
+                        ctx.swarm,
+                        ctx.goat_client,
+                        previous_instance_id,
+                        previous_graph_id,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "Failed to send SyncGraphRequest for previous graph {previous_instance_id}:{previous_graph_id}: {e}"
+                        );
+                    }
+                    let message = make_message(ctx, content);
+                    push_local_unhandled_messages(ctx.local_db, graph_id, &message, 60).await?;
+                    tracing::info!(
+                        "Defer CreateGraph for {instance_id}:{graph_id}: waiting for previous graph raw data {previous_instance_id}:{previous_graph_id}"
+                    );
+                    return Ok(());
+                }
+            }
+            None => {
+                let message = make_message(ctx, content);
+                push_local_unhandled_messages(ctx.local_db, graph_id, &message, 60).await?;
+                tracing::info!(
+                    "Defer CreateGraph for {instance_id}:{graph_id}: previous graph with nonce {previous_nonce} is not available locally"
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    // 1. check graph data & operator stake without verifier params endorsements; those may arrive later.
+    if let Err(e) =
+        todo_funcs::validate_init_graph_base(ctx.local_db, ctx.btc_client, ctx.goat_client, graph)
+            .await
+    {
+        if should_ignore_invalid_graph(&e, instance_id, graph_id, "CreateGraph", None) {
+            return Ok(());
+        }
+        bail!(e)
+    };
+    // 2. save the graph data to local db
+    store_graph(ctx.local_db, graph).await?;
+    // 3. start committee setup once verifier params endorsements are complete
+    try_start_graph_committee_setup(ctx, instance_id, graph_id, graph).await
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
+async fn handle_verifier_graph_params_endorsement_committee(
+    ctx: &mut HandlerContext<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    verifier_pubkey: &PublicKey,
+    verifier_index: usize,
+    canonical_graph_params_hash: [u8; 32],
+    signature: &secp256k1::schnorr::Signature,
+    content: &GOATMessageContent,
+) -> Result<()> {
+    if !ctx.is_self_peer
+        && !ctx.goat_client.committee_mana_is_verifier(&ctx.from_peer_id.to_bytes()).await?
+    {
+        tracing::warn!(
+            "Ignore VerifierGraphParamsEndorsement for {instance_id}:{graph_id}: sender {} is not a registered verifier",
+            ctx.from_peer_id
+        );
+        return Ok(());
+    }
+
+    let message = make_message(ctx, content);
+    let graph = match get_graph_or_defer(
+        ctx.swarm,
+        ctx.local_db,
+        ctx.goat_client,
+        instance_id,
+        graph_id,
+        &message,
+    )
+    .await?
+    {
+        Some(graph) => graph,
+        None => return Ok(()),
+    };
+    let expected_hash = graph.canonical_graph_params_hash()?;
+    if canonical_graph_params_hash != expected_hash {
+        tracing::warn!(
+            "Ignore VerifierGraphParamsEndorsement for {instance_id}:{graph_id} from {verifier_pubkey}: canonical graph params hash mismatch"
+        );
+        return Ok(());
+    }
+    if verifier_index >= graph.parameters.gc_data.len() {
+        tracing::warn!(
+            "Ignore VerifierGraphParamsEndorsement for {instance_id}:{graph_id} from {verifier_pubkey}: verifier index {verifier_index} out of range"
+        );
+        return Ok(());
+    }
+    if graph.parameters.gc_data[verifier_index].verifier_pubkey != *verifier_pubkey {
+        tracing::warn!(
+            "Ignore VerifierGraphParamsEndorsement for {instance_id}:{graph_id}: verifier pubkey does not own slot {verifier_index}"
+        );
+        return Ok(());
+    }
+    if !verify_verifier_graph_params_endorsement(verifier_pubkey, &graph, signature)? {
+        tracing::warn!(
+            "Ignore VerifierGraphParamsEndorsement for {instance_id}:{graph_id} from {verifier_pubkey}: invalid signature"
+        );
+        return Ok(());
+    }
+
+    store_verifier_graph_params_endorsement(
+        ctx.local_db,
+        instance_id,
+        graph_id,
+        *verifier_pubkey,
+        verifier_index,
+        signature.clone(),
+    )
+    .await?;
+    try_start_graph_committee_setup(ctx, instance_id, graph_id, &graph).await
 }
 
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
@@ -2103,6 +2393,7 @@ async fn handle_nonce_generation_committee(
                 .collect::<Vec<_>>();
         if committee_partial_sigs.len() == committee_pubkeys.len() {
             let committee_sig_for_graph = endorse_graph(ctx.goat_client, &graph).await?;
+            let committee_sig_for_params = endorse_graph_params(&graph).await?;
             let committee_evm_address = get_node_goat_address()
                 .ok_or_else(|| anyhow::anyhow!("failed to get node goat address".to_string()))?;
             let message_content = GOATMessageContent::EndorseGraph(EndorseGraph {
@@ -2110,6 +2401,7 @@ async fn handle_nonce_generation_committee(
                 graph_id,
                 committee_pubkey: local_committee_pubkey,
                 committee_sig_for_graph: committee_sig_for_graph.as_bytes().to_vec(),
+                committee_sig_for_params: committee_sig_for_params.as_bytes().to_vec(),
                 committee_evm_address,
             });
             send_to_peer(ctx.swarm, GOATMessage::new(Actor::All, message_content)).await?;
@@ -2341,6 +2633,7 @@ async fn handle_committee_presign_committee(
             .collect::<Vec<_>>();
     if committee_partial_sigs.len() == committee_pubkeys.len() {
         let committee_sig_for_graph = endorse_graph(ctx.goat_client, &graph).await?;
+        let committee_sig_for_params = endorse_graph_params(&graph).await?;
         let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
         let instance_keypair = load_committee_instance_keypair(&committee_master_key, instance_id)?;
         let local_committee_pubkey = instance_keypair.public_key().into();
@@ -2351,6 +2644,7 @@ async fn handle_committee_presign_committee(
             graph_id,
             committee_pubkey: local_committee_pubkey,
             committee_sig_for_graph: committee_sig_for_graph.as_bytes().to_vec(),
+            committee_sig_for_params: committee_sig_for_params.as_bytes().to_vec(),
             committee_evm_address,
         });
         send_to_peer(ctx.swarm, GOATMessage::new(Actor::All, message_content)).await?;
@@ -2418,6 +2712,7 @@ async fn handle_endorse_graph_operator(
     graph_id: Uuid,
     received_committee_pubkey: &PublicKey,
     committee_sig_for_graph: &[u8],
+    committee_sig_for_params: &[u8],
     committee_evm_address: &alloy::primitives::Address,
 ) -> Result<()> {
     // received from Committee members
@@ -2459,6 +2754,27 @@ async fn handle_endorse_graph_operator(
         );
         return Ok(());
     }
+    match verify_graph_params_endorsement(
+        committee_evm_address,
+        &full_graph,
+        committee_sig_for_params,
+    ) {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(
+                "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: invalid params endorsement signature",
+                received_committee_pubkey.to_string()
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Ignore EndorseGraph for {instance_id}:{graph_id} from {}: invalid params endorsement signature: {e}",
+                received_committee_pubkey.to_string()
+            );
+            return Ok(());
+        }
+    }
     // 2. save the endorsement signature to local db
     store_committee_endorsement_for_graph(
         ctx.local_db,
@@ -2467,6 +2783,7 @@ async fn handle_endorse_graph_operator(
         *received_committee_pubkey,
         *committee_evm_address,
         committee_sig_for_graph.to_owned(),
+        committee_sig_for_params.to_owned(),
     )
     .await?;
     // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local database, broadcast GraphFinalize
@@ -2492,12 +2809,18 @@ async fn handle_graph_finalize_committee(
     graph_id: Uuid,
     graph: &SimplifiedBitvmGcGraph,
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
+    params_endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
     // received from Operator
     // 1. check graph data
-    if let Err(e) =
-        todo_funcs::validate_finalized_graph(ctx.btc_client, ctx.goat_client, graph, endorse_sigs)
-            .await
+    if let Err(e) = todo_funcs::validate_finalized_graph(
+        ctx.btc_client,
+        ctx.goat_client,
+        graph,
+        endorse_sigs,
+        params_endorse_sigs,
+    )
+    .await
     {
         if should_ignore_invalid_graph(
             &e,
@@ -2517,6 +2840,7 @@ async fn handle_graph_finalize_committee(
         instance_id,
         graph_id,
         endorse_sigs.to_owned(),
+        params_endorse_sigs.to_owned(),
     )
     .await?;
     // After storing, mark the graph as endorsed
@@ -2602,12 +2926,18 @@ async fn handle_graph_finalize_default(
     graph_id: Uuid,
     graph: &SimplifiedBitvmGcGraph,
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
+    params_endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
     // received from Operator
     // 1. check graph data
-    if let Err(e) =
-        todo_funcs::validate_finalized_graph(ctx.btc_client, ctx.goat_client, graph, endorse_sigs)
-            .await
+    if let Err(e) = todo_funcs::validate_finalized_graph(
+        ctx.btc_client,
+        ctx.goat_client,
+        graph,
+        endorse_sigs,
+        params_endorse_sigs,
+    )
+    .await
     {
         if should_ignore_invalid_graph(
             &e,

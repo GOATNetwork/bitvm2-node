@@ -487,6 +487,7 @@ pub enum MessageType {
     GenCircuits,
     CutCircuits,
     SolderingProof,
+    VerifierGraphParamsEndorsement,
     NonceGeneration,
     CommitteePresign,
     GraphFinalize,

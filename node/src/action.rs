@@ -45,6 +45,7 @@ pub enum GOATMessageContent {
     GenCircuits(GenCircuits),
     CutCircuits(CutCircuits),
     SolderingProofReady(SolderingProofReady),
+    VerifierGraphParamsEndorsement(VerifierGraphParamsEndorsement),
     NonceGeneration(NonceGeneration),
     CommitteePresign(CommitteePresign),
     EndorseGraph(EndorseGraph),
@@ -121,6 +122,15 @@ pub struct SolderingProofReady {
     pub total_len: usize,
 }
 #[derive(Serialize, Deserialize, Clone)]
+pub struct VerifierGraphParamsEndorsement {
+    pub instance_id: Uuid,
+    pub graph_id: Uuid,
+    pub verifier_pubkey: PublicKey,
+    pub verifier_index: usize,
+    pub canonical_graph_params_hash: [u8; 32],
+    pub signature: SchnorrSignature,
+}
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CreateGraph {
     pub instance_id: Uuid,
     pub graph_id: Uuid,
@@ -150,6 +160,7 @@ pub struct EndorseGraph {
     pub committee_pubkey: PublicKey,
     pub committee_evm_address: EvmAddress,
     pub committee_sig_for_graph: Vec<u8>, // ECDSA signature signed with committee evm keypair
+    pub committee_sig_for_params: Vec<u8>, // ECDSA signature over canonical_graph_params_hash
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GraphFinalize {
@@ -158,6 +169,7 @@ pub struct GraphFinalize {
     pub graph_nonce: u64,
     pub graph: SimplifiedBitvmGcGraph,
     pub endorse_sigs: Vec<(PublicKey, EvmAddress, Vec<u8>)>,
+    pub params_endorse_sigs: Vec<(PublicKey, EvmAddress, Vec<u8>)>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PeginConfirmNonce {
@@ -484,11 +496,14 @@ pub async fn try_finalize_graph(
 ) -> Result<()> {
     let endorsements =
         get_committee_endorsements_for_graph(local_db, instance_id, graph_id).await?;
+    let params_endorsements =
+        get_committee_params_endorsements_for_graph(local_db, instance_id, graph_id).await?;
     let pub_nonoces = get_committee_pub_nonces_for_graph(local_db, instance_id, graph_id).await?;
     let partial_sigs =
         get_committee_partial_sigs_for_graph(local_db, instance_id, graph_id).await?;
     let committee_pubkeys = goat_client.gateway_get_committee_pubkeys(&instance_id).await?;
     if endorsements.len() == committee_pubkeys.len()
+        && params_endorsements.len() == committee_pubkeys.len()
         && pub_nonoces.len() == committee_pubkeys.len()
         && partial_sigs.len() == committee_pubkeys.len()
     {
@@ -519,6 +534,7 @@ pub async fn try_finalize_graph(
                 graph_id,
                 graph_nonce: graph.parameters.graph_nonce,
                 endorse_sigs: endorsements,
+                params_endorse_sigs: params_endorsements,
                 graph: simplified_graph,
             });
             send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
