@@ -10,8 +10,7 @@ use bitvm_gc::babe_adapter::{
     build_setup_package, build_wrongly_challenged_witness,
     build_wrongly_challenged_witness_from_preimages, derive_finalized_indices,
     extract_gc_circuit_data, open_and_solder, open_real_setup_and_solder,
-    sample_cac_instance_commit,
-    sample_finalized_instance_data, verify_real_setup, verify_setup,
+    sample_cac_instance_commit, sample_finalized_instance_data, verify_real_setup, verify_setup,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha12Rng;
@@ -356,9 +355,9 @@ fn assert_witness_preserves_pi1_and_dynamic_input() {
 
 #[test]
 fn assert_wots_message_works_for_invalid_field_elements() {
+    use bitvm::signatures::Wots;
     use bitvm_gc::babe_adapter::{TxAssertWitness, assert_wots_message};
     use goat::wots::Wots96;
-    use bitvm::signatures::Wots;
 
     // Construct a WOTS sig over bytes that are NOT valid Fq/Fr field elements (all 0xFF).
     let sk = Wots96::generate_secret_key();

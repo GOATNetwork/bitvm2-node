@@ -3299,6 +3299,7 @@ async fn handle_kickoff_sent_verifier(
             return Ok(());
         }
     };
+    handle_previous_graph_after_prekickoff(ctx, instance_id, graph_id, &graph, &message).await?;
     let take1_txid = graph.take1.tx().compute_txid();
     let (challenge_tx, _) = export_challenge_tx(&graph).unwrap();
     let kickoff_challenge_outpoint = challenge_tx.input[0].previous_output;
@@ -3359,6 +3360,68 @@ async fn handle_kickoff_sent_default(
     Ok(())
 }
 
+async fn handle_previous_graph_after_prekickoff(
+    ctx: &mut HandlerContext<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    graph: &BitvmGcGraph,
+    message: &GOATMessage,
+) -> Result<()> {
+    if !tx_on_chain(
+        ctx.btc_client,
+        &graph.parameters.prekickoff_parameters.cur_prekickoff_txn.tx().compute_txid(),
+    )
+    .await?
+    {
+        tracing::warn!(
+            "Ignore prekickoff follow-up for {instance_id}:{graph_id}: prekickoff tx not on chain"
+        );
+        return Ok(());
+    }
+
+    let graph_nonce = graph.parameters.graph_nonce;
+    if graph_nonce == 0 {
+        return Ok(());
+    }
+
+    let (prev_instance_id, prev_graph_id) =
+        get_graph_id_by_nonce(ctx.local_db, graph_nonce - 1, &graph.parameters.operator_pubkey)
+            .await?
+            .ok_or_else(|| anyhow!("Prev graph not found for {instance_id}:{graph_id}"))?;
+    let prev_graph = match get_graph_or_defer(
+        ctx.swarm,
+        ctx.local_db,
+        ctx.goat_client,
+        prev_instance_id,
+        prev_graph_id,
+        message,
+    )
+    .await?
+    {
+        Some(g) => g,
+        None => return Ok(()),
+    };
+    let prev_graph = BitvmGcGraph::from_simplified(&prev_graph)?;
+    let prev_graph_start_status = get_graph_status(ctx.local_db, prev_instance_id, prev_graph_id)
+        .await?
+        .ok_or_else(|| anyhow!("Graph status not found for {prev_instance_id}:{prev_graph_id}"))?;
+    let (prev_graph_status, _prev_graph_sub_status) = refresh_and_compensate(
+        ctx,
+        prev_instance_id,
+        prev_graph_id,
+        Some(&prev_graph),
+        Some(prev_graph_start_status),
+        prev_graph_start_status,
+    )
+    .await?;
+    if !tx_on_chain(ctx.btc_client, &prev_graph.kickoff.tx().compute_txid()).await? {
+        verifier_force_skip_kickoff(ctx.btc_client, &prev_graph).await?;
+    } else if !prev_graph_status.is_closed() {
+        verifier_quick_challenge(ctx.btc_client, &prev_graph).await?;
+    }
+    Ok(())
+}
+
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_prekickoff_sent_verifier(
     ctx: &mut HandlerContext<'_>,
@@ -3381,58 +3444,7 @@ async fn handle_prekickoff_sent_verifier(
         None => return Ok(()),
     };
     // 1. check the previous graph status
-    if !tx_on_chain(
-        ctx.btc_client,
-        &graph.parameters.prekickoff_parameters.cur_prekickoff_txn.tx().compute_txid(),
-    )
-    .await?
-    {
-        tracing::warn!(
-            "Ignore PreKickoffSent for {instance_id}:{graph_id}: prekickoff tx not on chain"
-        );
-        return Ok(());
-    }
-    let graph_nonce = graph.parameters.graph_nonce;
-    if graph_nonce == 0 {
-        return Ok(());
-    }
-    let (prev_instance_id, prev_graph_id) =
-        get_graph_id_by_nonce(ctx.local_db, graph_nonce - 1, &graph.parameters.operator_pubkey)
-            .await?
-            .ok_or_else(|| anyhow!("Prev graph not found for {instance_id}:{graph_id}"))?;
-    let prev_graph = match get_graph_or_defer(
-        ctx.swarm,
-        ctx.local_db,
-        ctx.goat_client,
-        prev_instance_id,
-        prev_graph_id,
-        &message,
-    )
-    .await?
-    {
-        Some(g) => g,
-        None => return Ok(()),
-    };
-    let prev_graph = BitvmGcGraph::from_simplified(&prev_graph)?;
-    let prev_graph_start_status = get_graph_status(ctx.local_db, prev_instance_id, prev_graph_id)
-        .await?
-        .ok_or_else(|| anyhow!("Graph status not found for {prev_instance_id}:{prev_graph_id}"))?;
-    let (prev_graph_status, _prev_graph_sub_status) = refresh_and_compensate(
-        ctx,
-        prev_instance_id,
-        prev_graph_id,
-        Some(&prev_graph),
-        Some(prev_graph_start_status),
-        prev_graph_start_status,
-    )
-    .await?;
-    if !tx_on_chain(ctx.btc_client, &prev_graph.kickoff.tx().compute_txid()).await? {
-        // 2. if previous kickoff not started, broadcast force-skip-kickoff txn
-        verifier_force_skip_kickoff(ctx.btc_client, &prev_graph).await?;
-    } else if !prev_graph_status.is_closed() {
-        // 3. if previous kickoff is not closed, broadcast quick-challenge/challenge-incomplete-kickoff txn
-        verifier_quick_challenge(ctx.btc_client, &prev_graph).await?;
-    }
+    handle_previous_graph_after_prekickoff(ctx, instance_id, graph_id, &graph, &message).await?;
     Ok(())
 }
 
@@ -3904,7 +3916,11 @@ async fn handle_operator_commit_pubin_ready_operator(
     let watchtower_timeout_txids: Vec<Txid> =
         graph.watchtower_challenge_timeouts.iter().map(|tx| tx.tx().compute_txid()).collect();
     let wait_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) as usize;
-    let (challenge_txids, included_watchtowers_bits) = match get_watchtower_challenge_info(
+    let WatchtowerChallengeInfo {
+        included_watchtowers: included_watchtowers_bits,
+        resolved_branch_txids,
+        ..
+    } = match get_watchtower_challenge_info(
         ctx.btc_client,
         &watchtower_challenge_init_txid,
         &watchtower_timeout_txids,
@@ -3924,7 +3940,7 @@ async fn handle_operator_commit_pubin_ready_operator(
     let (btc_best_block_hash, included_watchtowers_bitmap) =
         match compute_operator_pubin_blockhash_and_bitmap(
             ctx.btc_client,
-            &challenge_txids,
+            &resolved_branch_txids,
             &included_watchtowers_bits,
         )
         .await

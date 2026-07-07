@@ -2110,15 +2110,23 @@ pub async fn get_watchtower_commitment(
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct WatchtowerChallengeInfo {
+    pub challenge_txids: Vec<Option<String>>,
+    pub included_watchtowers: Vec<bool>,
+    pub resolved_branch_txids: Vec<Txid>,
+}
+
 #[tracing::instrument(name = "get_watchtower_challenge_info", skip(btc_client))]
 pub async fn get_watchtower_challenge_info(
     btc_client: &BTCClient,
     watchtower_challenge_init_txid: &SerializableTxid,
     watchtower_timeout_txids: &[Txid],
     num_watchtowers: usize,
-) -> Result<(Vec<Option<String>>, Vec<bool>)> {
+) -> Result<WatchtowerChallengeInfo> {
     let mut challenge_txids = Vec::with_capacity(num_watchtowers);
     let mut included_watchtowers = Vec::with_capacity(num_watchtowers);
+    let mut resolved_branch_txids = Vec::with_capacity(num_watchtowers);
     for index in 0..num_watchtowers {
         let challenge_vout =
             output_topology::watchtower_challenge_init::watchtower_connector(index) as u64;
@@ -2131,6 +2139,7 @@ pub async fn get_watchtower_challenge_info(
                 if !status.confirmed {
                     bail!("watchtower branch tx {txid} at index {index} is not confirmed yet");
                 }
+                resolved_branch_txids.push(txid);
 
                 let is_timeout = watchtower_timeout_txids
                     .get(index)
@@ -2149,23 +2158,23 @@ pub async fn get_watchtower_challenge_info(
             }
         }
     }
-    Ok((challenge_txids, included_watchtowers))
+    Ok(WatchtowerChallengeInfo { challenge_txids, included_watchtowers, resolved_branch_txids })
 }
 
-/// Returns `(btc_best_block_hash, included_watchtowers_bitmap)` from already-fetched
-/// `get_watchtower_challenge_info` output.
+/// Returns `(btc_best_block_hash, included_watchtowers_bitmap)` using every confirmed
+/// challenge-branch resolution for the block hash while only challenges set bitmap bits.
 pub async fn compute_operator_pubin_blockhash_and_bitmap(
     btc_client: &BTCClient,
-    challenge_txids: &[Option<String>],
+    resolved_branch_txids: &[Txid],
     included_watchtowers_bits: &[bool],
 ) -> Result<([u8; 32], [u8; 32])> {
     let btc_best_block_hash = {
         let mut largest: Option<(u32, BlockHash)> = None;
-        for txid in challenge_txids.iter().flatten() {
-            let status = btc_client.get_tx_status(&Txid::from_str(txid)?).await?;
+        for txid in resolved_branch_txids {
+            let status = btc_client.get_tx_status(txid).await?;
             let (height, hash) = match (status.block_height, status.block_hash) {
                 (Some(height), Some(hash)) => (height, hash),
-                _ => bail!("watchtower challenge tx {txid} is not confirmed yet"),
+                _ => bail!("watchtower branch resolution tx {txid} is not confirmed yet"),
             };
             if largest.is_none_or(|(h, _)| height > h) {
                 largest = Some((height, hash));
@@ -2173,7 +2182,7 @@ pub async fn compute_operator_pubin_blockhash_and_bitmap(
         }
         largest
             .map(|(_, hash)| hash.to_byte_array())
-            .ok_or_else(|| anyhow!("no confirmed watchtower challenge tx available"))?
+            .ok_or_else(|| anyhow!("no confirmed watchtower branch resolution tx available"))?
     };
 
     let mut included_watchtowers = [0u8; 32];
@@ -2188,13 +2197,13 @@ pub async fn compute_operator_pubin_blockhash_and_bitmap(
 
 async fn get_operator_committed_blockhash(
     btc_client: &BTCClient,
-    challenge_txids: &[Option<String>],
+    resolved_branch_txids: &[Txid],
     included_watchtowers_bits: &[bool],
     graph_id: Uuid,
 ) -> Result<Option<String>> {
     match compute_operator_pubin_blockhash_and_bitmap(
         btc_client,
-        challenge_txids,
+        resolved_branch_txids,
         included_watchtowers_bits,
     )
     .await
@@ -2304,7 +2313,11 @@ pub async fn get_operator_proof(
     let num_challenger = bitvm_graph.parameters.watchtower_pubkeys.len();
     let watchtower_timeout_txids: Vec<Txid> =
         bitvm_graph.watchtower_challenge_timeouts.iter().map(|tx| tx.tx().compute_txid()).collect();
-    let (watchtower_challenge_txids, included_watchtowers) = match get_watchtower_challenge_info(
+    let WatchtowerChallengeInfo {
+        challenge_txids: watchtower_challenge_txids,
+        included_watchtowers,
+        resolved_branch_txids,
+    } = match get_watchtower_challenge_info(
         btc_client,
         &watchtower_challenge_init_txid,
         &watchtower_timeout_txids,
@@ -2320,7 +2333,7 @@ pub async fn get_operator_proof(
     };
     let Some(operator_committed_blockhash) = get_operator_committed_blockhash(
         btc_client,
-        &watchtower_challenge_txids,
+        &resolved_branch_txids,
         &included_watchtowers,
         graph_id,
     )
@@ -5374,7 +5387,7 @@ mod commit_pubin_tests {
             ),
         );
 
-        let (txids, bits) = get_watchtower_challenge_info(
+        let info = get_watchtower_challenge_info(
             &btc_client,
             &SerializableTxid::from(watchtower_init_txid),
             &[],
@@ -5383,8 +5396,9 @@ mod commit_pubin_tests {
         .await
         .unwrap();
 
-        assert_eq!(txids, vec![Some(challenge_txid_wt0.to_string()), None]);
-        assert_eq!(bits, vec![true, false]);
+        assert_eq!(info.challenge_txids, vec![Some(challenge_txid_wt0.to_string()), None]);
+        assert_eq!(info.included_watchtowers, vec![true, false]);
+        assert_eq!(info.resolved_branch_txids, vec![challenge_txid_wt0]);
     }
 
     #[tokio::test]
@@ -5422,12 +5436,11 @@ mod commit_pubin_tests {
             ),
         );
 
-        let challenge_txids =
-            vec![Some(challenge_txid_wt0.to_string()), None, Some(challenge_txid_wt2.to_string())];
+        let resolved_branch_txids = vec![challenge_txid_wt0, challenge_txid_wt2];
         let bits = vec![true, false, true];
 
         let (best_hash, bitmap) =
-            compute_operator_pubin_blockhash_and_bitmap(&btc_client, &challenge_txids, &bits)
+            compute_operator_pubin_blockhash_and_bitmap(&btc_client, &resolved_branch_txids, &bits)
                 .await
                 .unwrap();
 

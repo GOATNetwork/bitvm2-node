@@ -10,18 +10,19 @@ use ark_groth16::Proof as Groth16Proof;
 use ark_groth16::VerifyingKey as Groth16VerifyingKey;
 use ark_serialize::CanonicalSerialize;
 use garbled_snark_verifier::bag::S;
-use goat::assert_scripts::{
-    INPUT_WIRE_NUM, OperatorAssertSecretKey, WireHash, label_hash,
-};
+use goat::assert_scripts::{INPUT_WIRE_NUM, OperatorAssertSecretKey, WireHash, label_hash};
 use goat::wots::{Wots, Wots96};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use soldering_host::BabeBundle;
 pub use soldering_host::BabeBundleBuilder;
-use verifiable_circuit_babe::babe::{GC_INPUT_WIRES, build_challenge_assert_witness as babe_build_challenge_assert_witness, WitnessEncSetupCt};
-use verifiable_circuit_babe::dre::N_PADDED;
+use verifiable_circuit_babe::babe::{
+    GC_INPUT_WIRES, WitnessEncSetupCt,
+    build_challenge_assert_witness as babe_build_challenge_assert_witness,
+};
 use verifiable_circuit_babe::cac::cac_finalize_indices;
 pub use verifiable_circuit_babe::cac::{CACSetupPackage, FinalizedInstanceData};
+use verifiable_circuit_babe::dre::N_PADDED;
 use verifiable_circuit_babe::gc::{SGC_PART1_CONSTANT_SIZE, SparseAdaptorTable};
 pub use verifiable_circuit_babe::instance::commit::CACInstanceCommit;
 use verifiable_circuit_babe::prover::BABEProver;
@@ -360,10 +361,7 @@ pub fn build_assert_witness(
 pub fn assert_wots_message(assert_witness: &TxAssertWitness) -> Result<[u8; 96]> {
     let arr_sig: [[u8; 21]; Wots96::TOTAL_DIGIT_LEN as usize] =
         assert_witness.wots_sig.clone().try_into().map_err(|_| {
-            anyhow::anyhow!(
-                "WOTS signature has wrong length; expected {}",
-                Wots96::TOTAL_DIGIT_LEN
-            )
+            anyhow::anyhow!("WOTS signature has wrong length; expected {}", Wots96::TOTAL_DIGIT_LEN)
         })?;
     Ok(Wots96::signature_to_message(&arr_sig))
 }
