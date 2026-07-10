@@ -94,11 +94,15 @@ fn parse_indexed_watchtower_inputs(
     watchtower_challenge_txids: &str,
     watchtower_public_keys: &str,
 ) -> anyhow::Result<(Vec<(u16, Txid, PublicKey)>, Vec<[u8; 32]>)> {
-    let txids = watchtower_challenge_txids.split(',').collect::<Vec<_>>();
     let public_keys = watchtower_public_keys
         .split(',')
         .map(PublicKey::from_str)
         .collect::<Result<Vec<_>, _>>()?;
+    let txids = if watchtower_challenge_txids.trim().is_empty() {
+        vec![""; public_keys.len()]
+    } else {
+        watchtower_challenge_txids.split(',').collect::<Vec<_>>()
+    };
     anyhow::ensure!(
         txids.len() == public_keys.len(),
         "watchtower challenge txids and public keys must have equal lengths"

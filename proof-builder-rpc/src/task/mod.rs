@@ -378,16 +378,13 @@ pub(crate) async fn fetch_on_demand_task(
         }
     }
 
-    // double check the committed block height is larger than all the watchtower challenge txns'.
-    match operator_committed_blockhash {
-        Some(ref hash) => match btc_client.get_block_by_hash(&BlockHash::from_str(hash)?).await {
-            Ok(Some(block)) => {
-                if block.bip34_block_height()? != largest_btc_block_height as u64 {
-                    anyhow::bail!(
-                        "Operator committed block {hash} is not confirmed yet, wait for the next round"
-                    );
-                }
-            }
+    let btc_proof_height = if is_watchtower {
+        largest_btc_block_height
+    } else {
+        let hash = operator_committed_blockhash.as_ref().unwrap();
+        let committed_height = match btc_client.get_block_by_hash(&BlockHash::from_str(hash)?).await
+        {
+            Ok(Some(block)) => block.bip34_block_height()? as u32,
             Ok(None) => {
                 tracing::warn!(
                     "Operator committed block hash {hash} is not found in BTC, it might be mempool tx, wait for the next round"
@@ -400,13 +397,18 @@ pub(crate) async fn fetch_on_demand_task(
                 );
                 return Ok(None);
             }
-        },
-        None => {} // skip for watchtowers
+        };
+        if committed_height < largest_btc_block_height {
+            anyhow::bail!(
+                "operator committed block height {committed_height} is lower than challenge tx height {largest_btc_block_height}"
+            );
+        }
+        committed_height
     };
 
     let header_chain_input_proof = match storage_processor
         .find_long_running_task_proof_including_block_number(
-            largest_btc_block_height as i64,
+            btc_proof_height as i64,
             HeaderChainProofBuilder::name(),
         )
         .await?
@@ -415,7 +417,7 @@ pub(crate) async fn fetch_on_demand_task(
         None => {
             tracing::warn!(
                 "Header chain proof is not ready for block: {}, proof not ready",
-                largest_btc_block_height
+                btc_proof_height
             );
             return Ok(None);
         }
@@ -466,7 +468,7 @@ pub(crate) async fn fetch_on_demand_task(
     // commit chain
     let commit_chain_input_proof = match storage_processor
         .find_long_running_task_proof_including_block_number(
-            largest_btc_block_height as i64,
+            btc_proof_height as i64,
             CommitChainProofBuilder::name(),
         )
         .await?
