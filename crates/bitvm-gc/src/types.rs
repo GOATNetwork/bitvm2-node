@@ -718,7 +718,7 @@ impl BitvmGcInstanceParameters {
 
 impl BitvmGcGraphParameters {
     pub fn canonical_graph_params_hash(&self) -> Result<[u8; 32]> {
-        let encoded = bincode::serialize(self)?;
+        let encoded = serde_json::to_vec(self)?;
         let mut hasher = Sha256::new();
         hasher.update(b"GOAT_BITVM_GC_GRAPH_PARAMS_V1");
         hasher.update((encoded.len() as u64).to_be_bytes());
