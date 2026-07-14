@@ -222,9 +222,8 @@ impl ProofBuilder for HeaderChainProofBuilder {
                                 format!("invalid UTF-8 in zkm_version file '{version_path}'")
                             })
                         })?;
-                    let prev_output = zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                     (
-                        HeaderChainPrevProofType::PrevProof(prev_output),
+                        HeaderChainPrevProofType::PrevProof,
                         proof_bytes,
                         public_inputs,
                         zkm_vk_hash.to_vec(),
@@ -285,9 +284,9 @@ impl ProofBuilder for HeaderChainProofBuilder {
 
         tracing::info!("Header chain proof cycles: {}", cycles);
 
-        if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-            panic!("{}", e);
-        }
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated header chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))

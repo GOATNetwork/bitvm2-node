@@ -336,10 +336,8 @@ impl ProofBuilder for StateChainProofBuilder {
                                 format!("invalid UTF-8 in zkm_version file '{version_path}'")
                             })
                         })?;
-                    let prev_output: StateChainCircuitOutput =
-                        zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
                     (
-                        StateChainPrevProofType::PrevProof(prev_output),
+                        StateChainPrevProofType::PrevProof,
                         proof_bytes,
                         public_inputs,
                         zkm_vk_hash.to_vec(),
@@ -390,9 +388,10 @@ impl ProofBuilder for StateChainProofBuilder {
             },
         )?;
         tracing::info!("State chain proof cycles: {}", cycles);
-        if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-            panic!("{}", e);
-        }
+
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated state chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))

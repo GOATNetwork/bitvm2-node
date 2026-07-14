@@ -16,7 +16,7 @@ type WithdrawalSlot = (Address, [u8; 32], Vec<[u8; 16]>);
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub enum StateChainPrevProofType {
     GenesisBlock,
-    PrevProof(StateChainCircuitOutput),
+    PrevProof,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]

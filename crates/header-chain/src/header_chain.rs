@@ -370,7 +370,7 @@ pub struct BlockHeaderCircuitOutput {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
     GenesisBlock,
-    PrevProof(BlockHeaderCircuitOutput),
+    PrevProof,
 }
 
 /// The input of the header chain circuit.

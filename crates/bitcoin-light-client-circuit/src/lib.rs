@@ -2,21 +2,20 @@ mod signature;
 mod utils;
 use alloy_primitives::U32;
 pub use signature::*;
-use state_chain::verify_sequencer_commit;
 pub use utils::*;
 
 use alloy_primitives::U256;
 use bitcoin::Block;
 use bitcoin::hashes::{Hash, HashEngine, sha256};
 use commit_chain::{
-    CommitChainCircuitInput, CommitChainPrevProofType, decode_commit_chain_circuit_output,
+    CommitChainCircuitInput, decode_commit_chain_circuit_output,
     extract_data_from_commitment_outputs, parse_commit_chain_commitment, sequencer_hash,
 };
 use header_chain::{
-    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput,
-    HeaderChainPrevProofType, MMRHost, SPV, verify_merkle_proof,
+    BitcoinMerkleTree, BlockHeaderCircuitOutput, CircuitBlockHeader, CircuitTransaction,
+    HeaderChainCircuitInput, MMRHost, SPV, verify_merkle_proof,
 };
-use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
+use state_chain::{StateChainCircuitInput, StateChainCircuitOutput, verify_sequencer_commit};
 use zkm_primitives::io::ZKMPublicValues;
 
 use bitcoin::{
@@ -83,11 +82,7 @@ pub fn watch_longest_chain(
     )
     .expect("Failed to verify commit chain proof");
 
-    let prev_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
-    let prev_proof = CommitChainPrevProofType::PrevProof(prev_output);
-    let CommitChainPrevProofType::PrevProof(commit_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in watch_longest_chain");
-    };
+    let commit_chain_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
 
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
@@ -105,11 +100,8 @@ pub fn watch_longest_chain(
     )
     .expect("Failed to verify header chain proof");
 
-    let prev_output = ZKMPublicValues::from(&header_chain.zkm_public_values).read();
-    let prev_proof = HeaderChainPrevProofType::PrevProof(prev_output);
-    let HeaderChainPrevProofType::PrevProof(btc_header_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in watch_longest_chain");
-    };
+    let btc_header_chain_output: BlockHeaderCircuitOutput =
+        ZKMPublicValues::from(&header_chain.zkm_public_values).read();
     // verify that the latest_sequecner_commit_tx is in the header chain
     println!("SPV");
     assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
@@ -121,11 +113,8 @@ pub fn watch_longest_chain(
         &state_chain.zkm_version,
     )
     .expect("Failed to verify state chain proof");
-    let prev_output = ZKMPublicValues::from(&state_chain.zkm_public_values).read();
-    let prev_proof = StateChainPrevProofType::PrevProof(prev_output);
-    let StateChainPrevProofType::PrevProof(state_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in watch_longest_chain");
-    };
+    let state_chain_output: StateChainCircuitOutput =
+        ZKMPublicValues::from(&state_chain.zkm_public_values).read();
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =
@@ -255,11 +244,7 @@ pub fn propose_longest_chain(
         &commit_chain.zkm_version,
     )
     .expect("Failed to verify commit chain proof");
-    let prev_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
-    let prev_proof = CommitChainPrevProofType::PrevProof(prev_output);
-    let CommitChainPrevProofType::PrevProof(commit_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in propose_longest_chain");
-    };
+    let commit_chain_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
         spv_ss_commit.transaction.0.compute_txid()
@@ -278,11 +263,8 @@ pub fn propose_longest_chain(
         &operator_header_chain.zkm_version,
     )
     .expect("Failed to verify header chain proof");
-    let prev_output = ZKMPublicValues::from(&operator_header_chain.zkm_public_values).read();
-    let prev_proof = HeaderChainPrevProofType::PrevProof(prev_output);
-    let HeaderChainPrevProofType::PrevProof(btc_header_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in propose_longest_chain");
-    };
+    let btc_header_chain_output: BlockHeaderCircuitOutput =
+        ZKMPublicValues::from(&operator_header_chain.zkm_public_values).read();
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
     let operator_consensus_block_height = U32::from(commit_chain_output.chain_state.block_height);
     // commit header chain best block hash as pis
@@ -429,11 +411,9 @@ pub fn propose_longest_chain(
     )
     .expect("Failed to verify state chain proof");
 
-    let prev_output = ZKMPublicValues::from(&state_chain.zkm_public_values).read();
-    let prev_proof = StateChainPrevProofType::PrevProof(prev_output);
-    let StateChainPrevProofType::PrevProof(state_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in propose_longest_chain");
-    };
+    let state_chain_output: StateChainCircuitOutput =
+        ZKMPublicValues::from(&state_chain.zkm_public_values).read();
+
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =

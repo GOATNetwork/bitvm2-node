@@ -29,7 +29,7 @@ pub struct CommitInfo {
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub enum CommitChainPrevProofType {
     GenesisBlock,
-    PrevProof(CommitChainCircuitOutput),
+    PrevProof,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]

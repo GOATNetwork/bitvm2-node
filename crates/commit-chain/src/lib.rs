@@ -8,7 +8,7 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
         CommitChainPrevProofType::GenesisBlock => {
             CommitChainState::new(input.commits[0].genesis_txid)
         }
-        CommitChainPrevProofType::PrevProof(prev_proof) => {
+        CommitChainPrevProofType::PrevProof => {
             println!("verify commit chain of prev proof");
             verifier::verify_groth16_proof(
                 &input.zkm_proof,
@@ -18,8 +18,7 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
             )
             .unwrap();
 
-            // todo: read from input.zkm_public_values
-            prev_proof.chain_state
+            decode_commit_chain_circuit_output(&input.zkm_public_values).chain_state
         }
     };
 

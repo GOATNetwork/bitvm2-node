@@ -2383,6 +2383,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "verifier",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -5135,6 +5136,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "verifier",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 

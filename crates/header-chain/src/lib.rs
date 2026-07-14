@@ -10,6 +10,8 @@ pub use merkle_tree::*;
 pub use mmr::*;
 pub use transaction::*;
 
+use zkm_primitives::io::ZKMPublicValues;
+
 pub mod spv;
 pub use spv::SPV;
 
@@ -19,7 +21,7 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
     // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
     let mut chain_state = match input.prev_proof {
         HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
-        HeaderChainPrevProofType::PrevProof(prev_proof) => {
+        HeaderChainPrevProofType::PrevProof => {
             println!("verify header chain of prev proof");
             verifier::verify_groth16_proof(
                 &input.zkm_proof,
@@ -29,7 +31,9 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
             )
             .unwrap();
 
-            prev_proof.chain_state
+            let btc_header_chain_output: BlockHeaderCircuitOutput =
+                ZKMPublicValues::from(&input.zkm_public_values).read();
+            btc_header_chain_output.chain_state
         }
     };
 

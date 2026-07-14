@@ -4,6 +4,8 @@ mod state_chain;
 pub use cbft::*;
 pub use state_chain::*;
 
+use zkm_primitives::io::ZKMPublicValues;
+
 pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOutput {
     let mut chain_state = match input.prev_proof {
         StateChainPrevProofType::GenesisBlock => {
@@ -12,7 +14,7 @@ pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOu
             let cosmos_block = input.blocks[0].cosmos_block.clone();
             StateChainState::new(block_height, block_hash, cosmos_block)
         }
-        StateChainPrevProofType::PrevProof(prev_proof) => {
+        StateChainPrevProofType::PrevProof => {
             println!("verify state chain of prev proof");
             verifier::verify_groth16_proof(
                 &input.zkm_proof,
@@ -22,7 +24,9 @@ pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOu
             )
             .unwrap();
 
-            prev_proof.chain_state
+            let state_chain_output: StateChainCircuitOutput =
+                ZKMPublicValues::from(&input.zkm_public_values).read();
+            state_chain_output.chain_state
         }
     };
 

@@ -206,9 +206,8 @@ impl ProofBuilder for CommitChainProofBuilder {
                                 format!("invalid UTF-8 in zkm_version file '{version_path}'")
                             })
                         })?;
-                    let prev_output = decode_commit_chain_circuit_output(&public_inputs);
                     (
-                        CommitChainPrevProofType::PrevProof(prev_output),
+                        CommitChainPrevProofType::PrevProof,
                         proof_bytes,
                         public_inputs,
                         zkm_vk_hash.to_vec(),
@@ -264,10 +263,9 @@ impl ProofBuilder for CommitChainProofBuilder {
 
         tracing::info!("Commit chain proof cycles: {}", cycles);
 
-        // todo: verify the proof laterr
-        // if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-        //     panic!("{}", e);
-        // }
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated commit chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))

@@ -1117,6 +1117,7 @@ dependencies = [
  "serde",
  "sha2",
  "verifier",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 

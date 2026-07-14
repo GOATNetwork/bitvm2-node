@@ -15,6 +15,7 @@ header-chain = { path = "../header-chain" }
 # Ziren
 verifier = { workspace = true }
 zkm-zkvm = { workspace = true }
+zkm-primitives = { workspace = true }
 #zkm-verifier = { path = "../../../Ziren/crates/verifier" }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 
