@@ -122,7 +122,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
             header_chain_input_proof,
             commit_chain_input_proof,
             state_chain_input_proof,
-            latest_sequencer_commit_txid,
             genesis_sequencer_commit_txid,
             target_block,
             block_pos,
@@ -215,7 +214,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
         };
         // --- spv --- //
         let genesis_sequencer_commit_txid = Txid::from_str(genesis_sequencer_commit_txid)?;
-        let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid)?;
         let bitcoin_block_headers = {
             let headers: Vec<u8> = std::fs::read(format!("{header_chain_input_proof}.blocks"))?;
             headers
@@ -247,7 +245,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
             || -> anyhow::Result<(ZKMProofWithPublicValues, u64, f32)> {
                 let mut stdin = ZKMStdin::new();
                 stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
-                stdin.write(&latest_sequencer_commit_txid.to_byte_array());
                 stdin.write(&header_chain_input);
                 stdin.write(&commit_chain_input);
                 stdin.write(&state_chain_input);

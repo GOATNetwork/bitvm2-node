@@ -19,7 +19,7 @@ use state_chain::{StateChainCircuitInput, StateChainCircuitOutput, verify_sequen
 use zkm_primitives::io::ZKMPublicValues;
 
 use bitcoin::{
-    ScriptBuf, Transaction, TxOut, Txid,
+    ScriptBuf, Transaction, TxOut,
     secp256k1::{PublicKey, XOnlyPublicKey},
 };
 pub use guest_executor::io::EthClientExecutorInput;
@@ -63,7 +63,6 @@ pub fn decode_operator_public_outputs(
 
 pub fn watch_longest_chain(
     genesis_sequencer_commit_txid: [u8; 32],
-    latest_sequencer_commit_txid: [u8; 32],
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
     state_chain: StateChainCircuitInput,
@@ -83,10 +82,9 @@ pub fn watch_longest_chain(
     .expect("Failed to verify commit chain proof");
 
     let commit_chain_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
-
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
-        Txid::from_byte_array(latest_sequencer_commit_txid)
+        spv.transaction.0.compute_txid()
     );
     assert_eq!(genesis_sequencer_commit_txid, commit_chain_output.chain_state.genesis_txid);
 
