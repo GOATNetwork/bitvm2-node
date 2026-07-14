@@ -4667,25 +4667,82 @@ async fn handle_assert_sent_verifier(
         return Ok(());
     }
 
-    let Some(saved_verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
-        .and_then(|state| state.verifier)
+    let strict = false;
+    broadcast_verifier_challenge_assert_tx(
+        ctx.local_db,
+        ctx.btc_client,
+        &graph,
+        instance_id,
+        graph_id,
+        &assert_tx,
+        strict,
+    )
+    .await?;
+
+    Ok(())
+}
+
+pub async fn broadcast_verifier_challenge_assert_tx(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    graph: &BitvmGcGraph,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    assert_tx: &bitcoin::Transaction,
+    strict: bool,
+) -> Result<Option<(Txid, usize)>> {
+    let verifier_master_key = VerifierMasterKey::new(get_bitvm_key()?);
+    let verifier_pubkey = verifier_master_key.master_keypair().public_key().into();
+    let Some(verifier_index) =
+        find_verifier_index_by_pubkey(&graph.parameters.gc_data, &verifier_pubkey)?
     else {
+        if strict {
+            bail!("local verifier has no graph slot for {instance_id}:{graph_id}");
+        }
+        tracing::debug!(
+            "Ignore AssertSent for {instance_id}:{graph_id}: local verifier has no graph slot"
+        );
+        return Ok(None);
+    };
+    validate_verifier_slot(graph, verifier_index)?;
+
+    let assert_txin = assert_tx
+        .input
+        .first()
+        .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
+    let assert_witness = extract_operator_assert_witness_for_challenge(graph, assert_txin)
+        .map_err(|e| anyhow!("failed to extract operator assert witness: {e}"))?;
+    let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for operator assert")?;
+    let static_input = derive_operator_static_input()?;
+
+    let Some(saved_verifier_state) =
+        load_babe_setup_state(local_db, instance_id, graph_id)?.and_then(|state| state.verifier)
+    else {
+        if strict {
+            bail!("missing BABE verifier setup state for {instance_id}:{graph_id}");
+        }
         tracing::warn!(
             "Ignore AssertSent for {instance_id}:{graph_id}: missing BABE verifier setup state"
         );
-        return Ok(());
+        return Ok(None);
     };
     let Some(soldering_proof_ready) = saved_verifier_state.soldering_proof_ready.as_ref() else {
+        if strict {
+            bail!("missing soldering proof reference for {instance_id}:{graph_id}");
+        }
         tracing::warn!(
             "Ignore AssertSent for {instance_id}:{graph_id}: missing soldering proof reference"
         );
-        return Ok(());
+        return Ok(None);
     };
     if soldering_proof_ready.verifier_index != verifier_index {
+        if strict {
+            bail!("local setup slot does not match graph owner slot for {instance_id}:{graph_id}");
+        }
         tracing::warn!(
             "Ignore AssertSent for {instance_id}:{graph_id}: local setup slot does not match graph owner slot"
         );
-        return Ok(());
+        return Ok(None);
     }
     let challenge_witness = build_real_challenge_assert_witness(
         &saved_verifier_state.private_state,
@@ -4717,16 +4774,19 @@ async fn handle_assert_sent_verifier(
         .ok_or_else(|| anyhow!("operator assert transaction has no input"))?;
     let challenge_assert_tx =
         build_verifier_assert_tx(&graph, operator_assert_txin, verifier_index, labels)?;
+    let challenge_assert_txid = challenge_assert_tx.compute_txid();
+    if btc_client.get_tx(&challenge_assert_txid).await?.is_some() {
+        tracing::info!(
+            "Verifier ChallengeAssert already exists for {instance_id}:{graph_id}: verifier_index={verifier_index}, txid={challenge_assert_txid}"
+        );
+        return Ok(Some((challenge_assert_txid, verifier_index)));
+    }
     let challenge_assert_tx_total_input_amount =
         graph.verifier_asserts[verifier_index].prev_outs().iter().map(|o| o.value).sum::<Amount>();
-    broadcast_tx_with_cpfp(
-        ctx.btc_client,
-        challenge_assert_tx,
-        challenge_assert_tx_total_input_amount,
-    )
-    .await?;
+    broadcast_tx_with_cpfp(btc_client, challenge_assert_tx, challenge_assert_tx_total_input_amount)
+        .await?;
 
-    Ok(())
+    Ok(Some((challenge_assert_txid, verifier_index)))
 }
 
 // compute msg after ChallengeAssert is broadcast and broadcast WronglyChallenge transaction.

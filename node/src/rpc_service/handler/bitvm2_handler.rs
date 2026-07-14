@@ -3,6 +3,7 @@ use crate::env::{
     get_goat_address_from_env, get_goat_gateway_contract_from_env, get_network,
     get_node_goat_address, get_node_pubkey,
 };
+use crate::handle::broadcast_verifier_challenge_assert_tx;
 use crate::rpc_service::auth::verify_request_auth;
 use crate::rpc_service::bitvm::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
@@ -1643,6 +1644,90 @@ pub async fn send_challenge(
         .api_error("SEND_CHALLENGE_ERROR")?;
 
     ok_response(SendChallengeResponse { challenge_txid: txid.to_string() })
+}
+
+/// Force the local verifier to broadcast its ChallengeAssert transaction for a graph.
+///
+/// This is a test endpoint. Unlike the normal AssertSent verifier flow, it does
+/// not skip ChallengeAssert when the operator assert proof is valid.
+#[axum::debug_handler]
+pub async fn send_verifier_challenge(
+    headers: HeaderMap,
+    Path(graph_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<SendVerifierChallengeResponse> {
+    verify_request_auth(&headers)?;
+    let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+
+    let mut storage_process =
+        app_state.local_db.acquire().await.api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;
+
+    let graph_raw_data = storage_process
+        .find_graph_raw_data(&graph_id_uuid)
+        .await
+        .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                    message: format!("graph:{graph_id} raw data not found in db"),
+                }),
+            )
+        })?;
+
+    let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
+        parse_graph_raw_data(graph_raw_data.raw_data, graph_id_uuid)
+            .await
+            .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;
+
+    let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(&simplified_bitvm_graph)
+        .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;
+
+    let assert_txid = bitvm_graph.operator_assert.tx().compute_txid();
+    let assert_tx = app_state
+        .btc_client
+        .get_tx(&assert_txid)
+        .await
+        .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                    message: format!("operator assert tx {assert_txid} not found on Bitcoin"),
+                }),
+            )
+        })?;
+
+    let strict = true;
+    let (challenge_assert_txid, verifier_index) = broadcast_verifier_challenge_assert_tx(
+        &app_state.local_db,
+        &app_state.btc_client,
+        &bitvm_graph,
+        simplified_bitvm_graph.parameters.instance_parameters.instance_id,
+        graph_id_uuid,
+        &assert_tx,
+        strict,
+    )
+    .await
+    .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+    .ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                message: format!(
+                    "local verifier cannot broadcast ChallengeAssert for graph {graph_id}"
+                ),
+            }),
+        )
+    })?;
+
+    ok_response(SendVerifierChallengeResponse {
+        challenge_assert_txid: challenge_assert_txid.to_string(),
+        verifier_index,
+    })
 }
 
 const BTC_DECIMALS: u8 = 8;

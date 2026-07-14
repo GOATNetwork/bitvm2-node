@@ -101,6 +101,12 @@ pub struct SendChallengeResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct SendVerifierChallengeResponse {
+    pub challenge_assert_txid: String,
+    pub verifier_index: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PegoutRequest {
     pub graph_id: Option<String>,
     #[serde(default)]

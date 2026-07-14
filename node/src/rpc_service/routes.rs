@@ -21,6 +21,7 @@ pub(crate) mod v1 {
     pub const GRAPHS_NEIGHBOR_IDS: &str = "/v1/graphs/{:id}/neighbor-ids";
     pub const GRAPHS_TX_BY_ID: &str = "/v1/graphs/{:id}/tx";
     pub const GRAPHS_SEND_CHALLENGE: &str = "/v1/graphs/{:id}/send-challenge";
+    pub const GRAPHS_SEND_VERIFIER_CHALLENGE: &str = "/v1/graphs/{:id}/send-verifier-challenge";
     pub const PEGOUT: &str = "/v1/graphs/pegout";
     // pub const PROOFS_BASE: &str = "/v1/proofs";
     pub const PROOFS_CHAIN_PROOFS_DESC: &str = "/v1/proofs/chain_proofs_desc";
