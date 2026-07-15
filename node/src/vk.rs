@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use std::fs;
 use std::path::PathBuf;
 use zkm_sdk::install::CIRCUIT_ARTIFACTS_URL_BASE;
-use zkm_verifier::load_ark_groth16_verifying_key_from_bytes;
+use zkm_verifier::{IMM_GROTH16_VK_BYTES, load_ark_groth16_verifying_key_from_bytes};
 
 use {
     futures::StreamExt,
@@ -31,6 +31,12 @@ pub async fn get_vk() -> Result<VerifyingKey> {
     let build_dir = try_install_circuit_artifacts();
     let vk_file = build_dir.join("groth16_vk.bin");
     let content = fs::read(&vk_file)?;
+    ensure!(
+        content.as_slice() == *IMM_GROTH16_VK_BYTES,
+        "Groth16 verifying key at {} does not match embedded IMM Groth16 verifying key",
+        vk_file.display()
+    );
+
     Ok(load_ark_groth16_verifying_key_from_bytes(&content)?)
 }
 
