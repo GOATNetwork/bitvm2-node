@@ -70,7 +70,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub const SELF_SENDER: &str = "self";
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use store::localdb::{
     GraphQuery, GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor,
 };
@@ -2229,8 +2229,35 @@ pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) 
 /// - The mempool API URL must be configured.
 /// - The transaction should already be fully signed.
 pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> Result<()> {
-    client.broadcast(tx).await?;
-    Ok(())
+    let txid = tx.compute_txid();
+    let started_at = Instant::now();
+    match client.broadcast(tx).await {
+        Ok(()) => {
+            tracing::info!(
+                event = "btc_tx_broadcast",
+                outcome = "broadcasted",
+                txid = %txid,
+                input_count = tx.input.len(),
+                output_count = tx.output.len(),
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                "bitcoin transaction broadcast accepted by client"
+            );
+            Ok(())
+        }
+        Err(err) => {
+            tracing::warn!(
+                event = "btc_tx_broadcast",
+                outcome = "failed",
+                txid = %txid,
+                input_count = tx.input.len(),
+                output_count = tx.output.len(),
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                error = %err,
+                "bitcoin transaction broadcast failed"
+            );
+            Err(err.into())
+        }
+    }
 }
 
 pub async fn broadcast_package(
@@ -2238,13 +2265,29 @@ pub async fn broadcast_package(
     txns: &[Transaction],
     fallback_on_failure: bool,
 ) -> Result<()> {
+    let txids: Vec<Txid> = txns.iter().map(Transaction::compute_txid).collect();
+    let started_at = Instant::now();
     match client.broadcast_package(txns).await {
-        Ok(_) => {}
+        Ok(_) => {
+            tracing::info!(
+                event = "btc_tx_package_broadcast",
+                outcome = "broadcasted",
+                transaction_count = txids.len(),
+                txids = ?txids,
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                "bitcoin transaction package broadcast accepted by client"
+            );
+        }
         Err(e) => {
             if fallback_on_failure {
                 tracing::warn!(
-                    "broadcast_package failed: {}, falling back to broadcasting one by one",
-                    e
+                    event = "btc_tx_package_broadcast",
+                    outcome = "fallback_to_individual_broadcast",
+                    transaction_count = txids.len(),
+                    txids = ?txids,
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    error = %e,
+                    "bitcoin transaction package broadcast failed; falling back to individual broadcasts"
                 );
                 for tx in txns {
                     broadcast_tx(client, tx).await?;
@@ -3734,6 +3777,7 @@ pub async fn upsert_message(
                 lock_time_until: current_time_secs() + lock_time,
                 state: MessageState::Pending.to_string(),
                 message_version: 0,
+                created_at: 0,
             })
             .await?;
     } else {

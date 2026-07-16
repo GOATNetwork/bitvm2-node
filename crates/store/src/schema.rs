@@ -448,6 +448,7 @@ pub struct Message {
     pub message_version: i64,
     pub weight: i64,
     pub lock_time_until: i64,
+    pub created_at: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]

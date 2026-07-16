@@ -18,9 +18,9 @@ use crate::rpc_service::handler::{
     get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph,
     get_unsigned_pegin_txn, instance_settings, pegout, send_challenge, send_verifier_challenge,
 };
+use anyhow::Context;
 use axum::body::Body;
 use axum::extract::Request;
-use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::put;
 use axum::{
@@ -31,8 +31,6 @@ use bitvm_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::http_client::async_client::HttpAsyncClient;
-use http::{HeaderMap, StatusCode};
-use http_body_util::BodyExt;
 use prometheus_client::registry::Registry;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
@@ -41,8 +39,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::CorsLayer;
-use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::Level;
+use tower_http::trace::TraceLayer;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -144,6 +141,7 @@ pub async fn serve_with_app_state(
     app_state: Arc<AppState>,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
+    let node_span = tracing::Span::current();
     let server = Router::new()
         .route(routes::ROOT, get(root))
         .route(routes::v1::NODES_BASE, get(get_nodes))
@@ -169,41 +167,61 @@ pub async fn serve_with_app_state(
         .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_desc))
         .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_desc))
         .route(routes::METRICS, get(metrics_handler))
-        .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(create_secure_cors_layer())
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .make_span_with(move |request: &Request<Body>| {
+                    tracing::info_span!(
+                        parent: &node_span,
+                        "http_request",
+                        method = %request.method(),
+                        path = request.uri().path(),
+                        version = ?request.version(),
+                    )
+                })
                 .on_request(|request: &Request<Body>, _span: &tracing::Span| {
                     tracing::info!(
-                        "API Request: {} {}, {:?}, Headers: {:?}, Content-Type: {:?}",
-                        request.method(),
-                        request.uri(),
-                        request.version(),
-                        request.headers(),
-                        request.headers().get("content-type")
+                        event = "http_request",
+                        method = %request.method(),
+                        path = request.uri().path(),
+                        content_type = ?request.headers().get("content-type"),
+                        "RPC request received"
                     );
                 })
                 .on_response(
                     |response: &Response<Body>, latency: Duration, _span: &tracing::Span| {
                         tracing::info!(
-                            "API Response: - Status: {} - Latency: {:?}",
-                            response.status(),
-                            latency
+                            event = "http_response",
+                            status = %response.status(),
+                            elapsed_ms = latency.as_millis() as u64,
+                            "RPC response sent"
                         );
                     },
                 )
                 .on_failure(
-                    |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
-                        tracing::error!("API Error: {:?}", error);
+                    |error: ServerErrorsFailureClass, latency: Duration, _span: &tracing::Span| {
+                        tracing::error!(
+                            event = "http_request_failure",
+                            error_class = ?error,
+                            elapsed_ms = latency.as_millis() as u64,
+                            "RPC request failed"
+                        );
                     },
                 ),
         )
         .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
         .with_state(app_state);
 
-    let listener = TcpListener::bind(addr).await.unwrap();
-    tracing::info!("RPC listening on {}", listener.local_addr().unwrap());
+    let listener = TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("failed to bind RPC listener to {addr}"))?;
+    let listening_addr =
+        listener.local_addr().context("failed to determine RPC listener address")?;
+    tracing::info!(
+        event = "rpc_listening",
+        address = %listening_addr,
+        "RPC listener started"
+    );
 
     tokio::select! {
         result = axum::serve(listener, server) => {
@@ -232,39 +250,6 @@ pub async fn serve(
 ) -> anyhow::Result<String> {
     let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, registry).await?;
     serve_with_app_state(addr, app_state, cancellation_token).await
-}
-
-/// This method introduces performance overhead and is temporarily used for debugging with the frontend.
-/// It will be removed afterwards.
-async fn print_req_and_resp_detail(
-    _headers: HeaderMap,
-    req: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    // TODO remove after the service stabilizes.
-    let mut print_str = format!(
-        "API Request: method:{}, uri:{}, content_type:{:?}, body:",
-        req.method(),
-        req.uri(),
-        req.headers().get("content-type")
-    );
-    let (parts, body) = req.into_parts();
-    let bytes = body.collect().await.unwrap().to_bytes();
-    if !bytes.is_empty() {
-        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
-    }
-    tracing::debug!("{}", print_str);
-    let req = Request::from_parts(parts, axum::body::Body::from(bytes));
-    let resp = next.run(req).await;
-
-    let mut print_str = format!("API Response: status:{}, body:", resp.status(),);
-    let (parts, body) = resp.into_parts();
-    let bytes = body.collect().await.unwrap().to_bytes();
-    if !bytes.is_empty() {
-        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
-    }
-    tracing::debug!("{}", print_str);
-    Ok(Response::from_parts(parts, axum::body::Body::from(bytes)))
 }
 
 #[cfg(test)]

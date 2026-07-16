@@ -9,6 +9,7 @@ use crate::{
 use indexmap::IndexMap;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
+use sqlx::sqlite::SqliteRow;
 use sqlx::types::Uuid;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
 use std::collections::HashMap;
@@ -21,6 +22,22 @@ fn get_current_timestamp_secs() -> i64 {
 
 fn get_current_timestamp_millis() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
+}
+
+fn message_from_row(row: &SqliteRow) -> Result<Message, sqlx::Error> {
+    Ok(Message {
+        message_id: row.try_get("message_id")?,
+        business_id: row.try_get("business_id")?,
+        actor: row.try_get("actor")?,
+        from_peer: row.try_get("from_peer")?,
+        msg_type: row.try_get("msg_type")?,
+        content: row.try_get("content")?,
+        state: row.try_get("state")?,
+        message_version: row.try_get("message_version")?,
+        weight: row.try_get("weight")?,
+        lock_time_until: row.try_get("lock_time_until")?,
+        created_at: row.try_get("created_at")?,
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -43,13 +60,25 @@ pub struct StorageProcessor<'a> {
     pub in_transaction: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct MessageQueueStats {
+    pub pending_ready: i64,
+    pub pending_locked: i64,
+    pub failed: i64,
+    pub oldest_pending_at: Option<i64>,
+}
+
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 impl LocalDB {
     pub async fn new(path: &str, is_mem: bool) -> LocalDB {
         if !Sqlite::database_exists(path).await.unwrap_or(false) {
             tracing::info!("Creating database {}", path);
             match Sqlite::create_database(path).await {
-                Ok(_) => println!("Create db success"),
+                Ok(_) => tracing::info!(
+                    event = "database_lifecycle",
+                    outcome = "created",
+                    "local database created"
+                ),
                 Err(error) => panic!("error: {error}"),
             }
         } else {
@@ -1884,10 +1913,9 @@ impl<'a> StorageProcessor<'a> {
         business_id: &Uuid,
         msg_type: &str,
     ) -> anyhow::Result<Option<Message>> {
-        let res = sqlx::query_as!(
-            Message,
+        let row = sqlx::query(
             "SELECT message_id,
-                    business_id AS \"business_id:Uuid\",
+                    business_id,
                     from_peer,
                     actor,
                     msg_type,
@@ -1895,24 +1923,24 @@ impl<'a> StorageProcessor<'a> {
                     message_version,
                     state,
                     weight,
-                    lock_time_until
+                    lock_time_until,
+                    created_at
              FROM message
              WHERE business_id = ? AND msg_type = ?",
-            business_id,
-            msg_type,
         )
+        .bind(business_id)
+        .bind(msg_type)
         .fetch_optional(self.conn())
         .await?;
-        Ok(res)
+        Ok(row.map(|row| message_from_row(&row)).transpose()?)
     }
     pub async fn find_messages_by_id(
         &mut self,
         message_id: &str,
     ) -> anyhow::Result<Option<Message>> {
-        let res = sqlx::query_as!(
-            Message,
+        let row = sqlx::query(
             "SELECT message_id,
-                    business_id AS \"business_id:Uuid\",
+                    business_id,
                     from_peer,
                     actor,
                     msg_type,
@@ -1920,14 +1948,15 @@ impl<'a> StorageProcessor<'a> {
                     message_version,
                     state,
                     weight,
-                    lock_time_until
+                    lock_time_until,
+                    created_at
              FROM message
              WHERE message_id = ?",
-            message_id,
         )
+        .bind(message_id)
         .fetch_optional(self.conn())
         .await?;
-        Ok(res)
+        Ok(row.map(|row| message_from_row(&row)).transpose()?)
     }
 
     pub async fn filter_messages(
@@ -1939,10 +1968,9 @@ impl<'a> StorageProcessor<'a> {
         limit: i64,
         offset: i64,
     ) -> anyhow::Result<Vec<Message>> {
-        let res = sqlx::query_as!(
-            Message,
+        let rows = sqlx::query(
             "SELECT message_id,
-                    business_id AS \"business_id:Uuid\",
+                    business_id,
                     from_peer,
                     actor,
                     msg_type,
@@ -1950,7 +1978,8 @@ impl<'a> StorageProcessor<'a> {
                     message_version,
                     state,
                     weight,
-                    lock_time_until
+                    lock_time_until,
+                    created_at
              FROM message
              WHERE state = ?
                AND weight >= ?
@@ -1958,16 +1987,46 @@ impl<'a> StorageProcessor<'a> {
                AND updated_at >= ?
              ORDER BY created_at ASC
              LIMIT ? OFFSET ?",
-            state,
-            weight,
-            lock_time_until,
-            expired,
-            limit,
-            offset
         )
+        .bind(state)
+        .bind(weight)
+        .bind(lock_time_until)
+        .bind(expired)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(self.conn())
         .await?;
-        Ok(res)
+        rows.into_iter()
+            .map(|row| message_from_row(&row))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub async fn get_message_queue_stats(
+        &mut self,
+        actor: &str,
+        now: i64,
+    ) -> anyhow::Result<MessageQueueStats> {
+        let row = sqlx::query(
+            r#"SELECT
+                    COALESCE(SUM(CASE WHEN state = 'Pending' AND lock_time_until <= ? THEN 1 ELSE 0 END), 0) AS pending_ready,
+                    COALESCE(SUM(CASE WHEN state = 'Pending' AND lock_time_until > ? THEN 1 ELSE 0 END), 0) AS pending_locked,
+                    COALESCE(SUM(CASE WHEN state = 'Failed' THEN 1 ELSE 0 END), 0) AS failed,
+                    MIN(CASE WHEN state = 'Pending' THEN created_at END) AS oldest_pending_at
+               FROM message
+               WHERE actor = ?"#,
+        )
+        .bind(now)
+        .bind(now)
+        .bind(actor)
+        .fetch_one(self.conn())
+        .await?;
+        Ok(MessageQueueStats {
+            pending_ready: row.try_get("pending_ready")?,
+            pending_locked: row.try_get("pending_locked")?,
+            failed: row.try_get("failed")?,
+            oldest_pending_at: row.try_get("oldest_pending_at")?,
+        })
     }
 
     pub async fn upsert_message(&mut self, msg: Message) -> anyhow::Result<bool> {

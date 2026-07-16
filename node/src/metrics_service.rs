@@ -120,6 +120,7 @@ pub async fn metrics_middleware(
         request.uri().path().to_owned()
     };
     let method = request.method().to_string();
+    state.metrics_state.http_requests_in_flight.inc();
     let response = next.run(request).await;
     state.metrics_state.http_requests_in_flight.dec();
     let status = response.status().as_u16();
