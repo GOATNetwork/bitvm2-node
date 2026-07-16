@@ -1205,6 +1205,69 @@ async fn handle_pegin_request_default(
     Ok(())
 }
 
+async fn defer_confirm_instance_until_previous_graph_presigned(
+    ctx: &mut HandlerContext<'_>,
+    instance_id: Uuid,
+    successor_nonce: u64,
+    operator_pubkey: &PublicKey,
+) -> Result<bool> {
+    if successor_nonce == 0 {
+        return Ok(false);
+    }
+
+    let previous_nonce = successor_nonce - 1;
+    let retry_message = GOATMessage::new(
+        Actor::Operator,
+        GOATMessageContent::ConfirmInstance(ConfirmInstance { instance_id }),
+    );
+    let Some((previous_instance_id, previous_graph_id)) =
+        get_graph_id_by_nonce(ctx.local_db, previous_nonce, operator_pubkey).await?
+    else {
+        push_local_unhandled_messages(ctx.local_db, instance_id, &retry_message, 60).await?;
+        tracing::warn!(
+            "Defer ConfirmInstance for {instance_id}: previous graph with nonce {previous_nonce} is not available locally"
+        );
+        return Ok(true);
+    };
+    let Some(previous_graph) =
+        get_graph(ctx.local_db, previous_instance_id, previous_graph_id).await?
+    else {
+        if let Err(error) = try_send_sync_graph_request(
+            ctx.swarm,
+            ctx.goat_client,
+            previous_instance_id,
+            previous_graph_id,
+        )
+        .await
+        {
+            tracing::warn!(
+                "Failed to send SyncGraphRequest for previous graph {previous_instance_id}:{previous_graph_id}: {error}"
+            );
+        }
+        push_local_unhandled_messages(ctx.local_db, instance_id, &retry_message, 60).await?;
+        tracing::info!(
+            "Defer ConfirmInstance for {instance_id}: waiting for previous graph raw data {previous_instance_id}:{previous_graph_id}"
+        );
+        return Ok(true);
+    };
+    if previous_graph.committee_pre_signed() {
+        return Ok(false);
+    }
+
+    push_local_unhandled_messages(ctx.local_db, instance_id, &retry_message, 60).await?;
+    let message_content = GOATMessageContent::CreateGraph(CreateGraph {
+        instance_id: previous_instance_id,
+        graph_id: previous_graph_id,
+        graph_nonce: previous_graph.parameters.graph_nonce,
+        graph: previous_graph,
+    });
+    send_to_peer(ctx.swarm, GOATMessage::new(Actor::All, message_content)).await?;
+    tracing::info!(
+        "Defer ConfirmInstance for {instance_id}: re-broadcast previous CreateGraph {previous_instance_id}:{previous_graph_id} until it is committee pre-signed"
+    );
+    Ok(true)
+}
+
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id))]
 async fn handle_confirm_instance_operator(
     ctx: &mut HandlerContext<'_>,
@@ -1221,6 +1284,16 @@ async fn handle_confirm_instance_operator(
     )
     .await?
     {
+        if defer_confirm_instance_until_previous_graph_presigned(
+            ctx,
+            instance_id,
+            graph.parameters.graph_nonce,
+            &local_operator_pubkey,
+        )
+        .await?
+        {
+            return Ok(());
+        }
         let graph_id = graph.parameters.graph_id;
         tracing::info!("Graph already created for {instance_id}, graph_id: {}", graph_id);
         let message_content = GOATMessageContent::CreateGraph(CreateGraph {
@@ -1245,6 +1318,18 @@ async fn handle_confirm_instance_operator(
             .map(|pending| pending.graph_id)
     };
     if let Some(graph_id) = pending_graph_id {
+        if let Some((next_graph_nonce, _)) =
+            get_current_prekickoff_tx(ctx.local_db, &local_operator_pubkey).await?
+            && defer_confirm_instance_until_previous_graph_presigned(
+                ctx,
+                instance_id,
+                next_graph_nonce,
+                &local_operator_pubkey,
+            )
+            .await?
+        {
+            return Ok(());
+        }
         tracing::info!("Resume pending graph setup for {instance_id}, graph_id: {graph_id}");
         let message_content = GOATMessageContent::InitGraph(InitGraph { instance_id, graph_id });
         send_to_peer(ctx.swarm, GOATMessage::new(Actor::Verifier, message_content)).await?;
@@ -1268,6 +1353,19 @@ async fn handle_confirm_instance_operator(
             "Ignore ConfirmInstance for {instance_id}: pegin deposit tx {pegin_deposit_txid} not found on chain"
         );
         bail!("Invalid ConfirmInstance: pegin deposit tx {pegin_deposit_txid} not found on chain");
+    }
+
+    if let Some((next_graph_nonce, _)) =
+        get_current_prekickoff_tx(ctx.local_db, &local_operator_pubkey).await?
+        && defer_confirm_instance_until_previous_graph_presigned(
+            ctx,
+            instance_id,
+            next_graph_nonce,
+            &local_operator_pubkey,
+        )
+        .await?
+    {
+        return Ok(());
     }
     // after PeginPrepare is confirmed, broadcast InitGraph and let Verifiers generate GC.
 
@@ -2155,8 +2253,9 @@ async fn handle_create_graph_committee(
             .await?
         {
             Some((previous_instance_id, previous_graph_id)) => {
-                if get_graph(ctx.local_db, previous_instance_id, previous_graph_id).await?.is_none()
-                {
+                let Some(previous_graph) =
+                    get_graph(ctx.local_db, previous_instance_id, previous_graph_id).await?
+                else {
                     if let Err(e) = try_send_sync_graph_request(
                         ctx.swarm,
                         ctx.goat_client,
@@ -2173,6 +2272,14 @@ async fn handle_create_graph_committee(
                     push_local_unhandled_messages(ctx.local_db, graph_id, &message, 60).await?;
                     tracing::info!(
                         "Defer CreateGraph for {instance_id}:{graph_id}: waiting for previous graph raw data {previous_instance_id}:{previous_graph_id}"
+                    );
+                    return Ok(());
+                };
+                if !previous_graph.committee_pre_signed() {
+                    let message = make_message(ctx, content);
+                    push_local_unhandled_messages(ctx.local_db, graph_id, &message, 60).await?;
+                    tracing::info!(
+                        "Defer CreateGraph for {instance_id}:{graph_id}: waiting for previous graph {previous_instance_id}:{previous_graph_id} to be committee pre-signed"
                     );
                     return Ok(());
                 }
