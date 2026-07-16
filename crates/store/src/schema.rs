@@ -199,8 +199,8 @@ pub enum InstanceBridgeInStatus {
     // committee won't answer if userRequest is invalid(e.g. insufficient fee)
     CommitteesAnswered,        // enough committee responsed & window expired
     UserBroadcastPeginPrepare, // user pegin prepare
-    Presigned,                 // all committee signed PeginConfirm
-    PresignedFailed,           // includes operator and Committee presigns
+    Presigned,                 // enough graphs completed committee pre-signing
+    PresignedFailed,           // required graph pre-signing did not finish in time
     RelayerL1Broadcasted,      // PeginConfirm broadcast by relayer
     RelayerL2Minted,           // success
     RelayerL2MintedFailed,

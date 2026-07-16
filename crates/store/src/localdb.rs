@@ -1005,6 +1005,29 @@ impl<'a> StorageProcessor<'a> {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Transition an instance only when it is still in the expected status.
+    pub async fn update_instance_status_if_current(
+        &mut self,
+        instance_id: &Uuid,
+        current_status: &str,
+        new_status: &str,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let result = sqlx::query!(
+            "UPDATE instance SET status = ?, status_updated_at = ?, updated_at = ? \
+             WHERE instance_id = ? AND status = ?",
+            new_status,
+            current_time,
+            current_time,
+            instance_id,
+            current_status,
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Update instance pegin confirmation information
     ///
     /// Method specifically for updating pegin confirmation transaction ID and fee

@@ -621,7 +621,7 @@ pub async fn try_finalize_graph(
     graph_id: Uuid,
     graph: Option<&SimplifiedBitvmGcGraph>,
     broadcast_graph_finalize: bool,
-) -> Result<()> {
+) -> Result<Option<(BitvmGcGraph, FinalizedGraphStoreOutcome)>> {
     let endorsements =
         get_committee_endorsements_for_graph(local_db, instance_id, graph_id).await?;
     let params_endorsements =
@@ -655,7 +655,9 @@ pub async fn try_finalize_graph(
         let committee_sig_for_graph = signature_aggregation(&partial_sigs, &agg_nonces, &graph)?;
         push_committee_pre_signatures(&mut graph, &committee_sig_for_graph)?;
         let simplified_graph = graph.to_simplified()?;
-        store_graph(local_db, &simplified_graph).await?;
+        let store_outcome = store_finalized_graph_if_needed(local_db, &simplified_graph).await?;
+        mark_graph_as_endorsed(local_db, instance_id, graph_id).await?;
+        try_transition_instance_to_presigned(local_db, instance_id).await?;
         if broadcast_graph_finalize {
             let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
                 instance_id,
@@ -667,8 +669,9 @@ pub async fn try_finalize_graph(
             });
             send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
         }
+        return Ok(Some((graph, store_outcome)));
     }
-    Ok(())
+    Ok(None)
 }
 
 pub async fn send_to_peer(

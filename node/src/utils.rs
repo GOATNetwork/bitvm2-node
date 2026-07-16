@@ -71,9 +71,7 @@ use std::str::FromStr;
 
 pub const SELF_SENDER: &str = "self";
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use store::localdb::{
-    GraphQuery, GraphUpdate, InstanceQuery, InstanceUpdate, LocalDB, StorageProcessor,
-};
+use store::localdb::{GraphQuery, GraphUpdate, InstanceQuery, LocalDB, StorageProcessor};
 
 use crate::env;
 use crate::rpc_service::routes::v1::{
@@ -4440,11 +4438,42 @@ fn convert_graph(bitvm_graph: &BitvmGcGraph, current_time: i64) -> Graph {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FinalizedGraphStoreOutcome {
+    NewlyStored,
+    AlreadyFinalized,
+}
+
+/// Store a finalized graph once without replacing a graph whose finalized form is already known.
+pub async fn store_finalized_graph_if_needed(
+    local_db: &LocalDB,
+    simple_graph: &SimplifiedBitvmGcGraph,
+) -> Result<FinalizedGraphStoreOutcome> {
+    let graph_id = simple_graph.parameters.graph_id;
+    let instance_id = simple_graph.parameters.instance_parameters.instance_id;
+    if !simple_graph.operator_pre_signed() || !simple_graph.committee_pre_signed() {
+        bail!(SpecialError::InvalidGraph(format!("graph {graph_id} is not fully pre-signed")));
+    }
+
+    if let Some(existing_graph) = get_graph(local_db, instance_id, graph_id).await?
+        && existing_graph.committee_pre_signed()
+    {
+        if !existing_graph.eq(simple_graph) {
+            bail!(SpecialError::InvalidGraph(format!(
+                "conflicting finalized graph for graph_id {graph_id}"
+            )));
+        }
+        return Ok(FinalizedGraphStoreOutcome::AlreadyFinalized);
+    }
+
+    store_graph(local_db, simple_graph).await?;
+    Ok(FinalizedGraphStoreOutcome::NewlyStored)
+}
+
 pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvmGcGraph) -> Result<()> {
     let mut tx = local_db.start_transaction().await?;
     let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(simple_graph)?;
     let graph_id = simple_graph.parameters.graph_id;
-    let instance_id = simple_graph.parameters.instance_parameters.instance_id;
     let current_time = current_time_secs();
     let mut graph = convert_graph(&bitvm_graph, current_time);
     let incoming_parameters_hash = simple_graph.parameters_hash()?;
@@ -4480,13 +4509,6 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvmGcGra
     }
 
     tx.upsert_graph(&graph).await?;
-    if bitvm_graph.committee_pre_signed() {
-        tx.update_instance(
-            &InstanceUpdate::new_with_instance_id(instance_id)
-                .with_status(InstanceBridgeInStatus::Presigned.to_string()),
-        )
-        .await?;
-    }
 
     let raw_data = serialize_graph_raw_data(simple_graph, graph_id).await?;
     tx.upsert_graph_raw_data(GraphRawData {
@@ -5014,17 +5036,51 @@ pub async fn get_verifier_graph_params_endorsements_for_graph(
 }
 pub async fn mark_graph_as_endorsed(
     local_db: &LocalDB,
-    _instance_id: Uuid,
+    instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
-    storage_processor.update_pegin_graph_endorsed(&graph_id, true).await?;
-    Ok(())
+    let (_, process_data) = find_pegin_graph_process_data(&mut storage_processor, graph_id).await?;
+    upsert_pegin_graph_process_data(
+        &mut storage_processor,
+        graph_id,
+        instance_id,
+        true,
+        &process_data,
+    )
+    .await
 }
 pub async fn get_endorsed_graph_count(local_db: &LocalDB, instance_id: Uuid) -> Result<usize> {
     let mut storage_processor = local_db.acquire().await?;
     Ok(storage_processor.get_pegin_graph_endorsed_len_by_instance_id(&instance_id, true).await?
         as usize)
+}
+
+pub async fn has_required_presigned_graphs(local_db: &LocalDB, instance_id: Uuid) -> Result<bool> {
+    Ok(get_endorsed_graph_count(local_db, instance_id).await?
+        >= todo_funcs::min_required_operator())
+}
+
+pub async fn try_transition_instance_to_presigned(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+) -> Result<bool> {
+    if !has_required_presigned_graphs(local_db, instance_id).await? {
+        return Ok(false);
+    }
+
+    let mut storage_processor = local_db.acquire().await?;
+    let transitioned = storage_processor
+        .update_instance_status_if_current(
+            &instance_id,
+            &InstanceBridgeInStatus::UserBroadcastPeginPrepare.to_string(),
+            &InstanceBridgeInStatus::Presigned.to_string(),
+        )
+        .await?;
+    if transitioned {
+        info!("Instance {instance_id} reached the required finalized graph threshold");
+    }
+    Ok(transitioned)
 }
 pub async fn store_committee_pub_nonce_for_instance(
     local_db: &LocalDB,
@@ -5228,7 +5284,7 @@ pub async fn try_update_graph_challenge_txid(
 
 pub async fn update_graph_status(
     local_db: &LocalDB,
-    instance_id: Uuid,
+    _instance_id: Uuid,
     graph_id: Uuid,
     new_status: GraphStatus,
     sub_status: Option<ChallengeSubStatus>,
@@ -5250,15 +5306,6 @@ pub async fn update_graph_status(
             warn!("graph: {graph_id} is not update, so not update");
             return Ok(());
         }
-    }
-
-    if new_status == GraphStatus::CommitteePresigned {
-        storage_processor
-            .update_instance(
-                &InstanceUpdate::new_with_instance_id(instance_id)
-                    .with_status(InstanceBridgeInStatus::Presigned.to_string()),
-            )
-            .await?;
     }
 
     let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());

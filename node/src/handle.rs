@@ -1032,6 +1032,29 @@ async fn refresh_and_compensate(
     Ok((graph_status, sub_status))
 }
 
+async fn refresh_newly_finalized_graph(
+    ctx: &HandlerContext<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    graph: &BitvmGcGraph,
+    store_outcome: FinalizedGraphStoreOutcome,
+) -> Result<()> {
+    if store_outcome == FinalizedGraphStoreOutcome::AlreadyFinalized {
+        return Ok(());
+    }
+
+    refresh_and_compensate(
+        ctx,
+        instance_id,
+        graph_id,
+        Some(graph),
+        None,
+        GraphStatus::CommitteePresigned,
+    )
+    .await?;
+    Ok(())
+}
+
 async fn get_graph_and_status(
     ctx: &HandlerContext<'_>,
     instance_id: Uuid,
@@ -2478,7 +2501,7 @@ async fn handle_nonce_generation_operator(
     // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local db, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
-    try_finalize_graph(
+    if let Some((finalized_graph, store_outcome)) = try_finalize_graph(
         ctx.swarm,
         ctx.local_db,
         ctx.goat_client,
@@ -2487,7 +2510,11 @@ async fn handle_nonce_generation_operator(
         Some(&graph),
         true,
     )
-    .await?;
+    .await?
+    {
+        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
+            .await?;
+    }
     Ok(())
 }
 
@@ -2700,8 +2727,20 @@ async fn handle_committee_presign_operator(
     // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local database, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
-    try_finalize_graph(ctx.swarm, ctx.local_db, ctx.goat_client, instance_id, graph_id, None, true)
-        .await?;
+    if let Some((finalized_graph, store_outcome)) = try_finalize_graph(
+        ctx.swarm,
+        ctx.local_db,
+        ctx.goat_client,
+        instance_id,
+        graph_id,
+        None,
+        true,
+    )
+    .await?
+    {
+        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
+            .await?;
+    }
     Ok(())
 }
 
@@ -2789,7 +2828,7 @@ async fn handle_endorse_graph_operator(
     // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local database, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
-    try_finalize_graph(
+    if let Some((finalized_graph, store_outcome)) = try_finalize_graph(
         ctx.swarm,
         ctx.local_db,
         ctx.goat_client,
@@ -2798,7 +2837,11 @@ async fn handle_endorse_graph_operator(
         Some(&graph),
         true,
     )
-    .await?;
+    .await?
+    {
+        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
+            .await?;
+    }
     Ok(())
 }
 
@@ -2833,8 +2876,8 @@ async fn handle_graph_finalize_committee(
         }
         bail!(e)
     }
-    // 2. save the graph data to local db
-    store_graph(ctx.local_db, graph).await?;
+    // 2. Store a finalized graph only when it upgrades the local graph.
+    let store_outcome = store_finalized_graph_if_needed(ctx.local_db, graph).await?;
     store_committee_endorsements_for_graph(
         ctx.local_db,
         instance_id,
@@ -2843,12 +2886,14 @@ async fn handle_graph_finalize_committee(
         params_endorse_sigs.to_owned(),
     )
     .await?;
-    // After storing, mark the graph as endorsed
+    // After storing, mark the graph as finalized for the instance threshold.
     mark_graph_as_endorsed(ctx.local_db, instance_id, graph_id).await?;
+    try_transition_instance_to_presigned(ctx.local_db, instance_id).await?;
+    let finalized_graph = BitvmGcGraph::from_simplified(graph)?;
+    refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
+        .await?;
     // 3. if endorsed graph count >= threshold, generate & broadcast PeginConfirmNonce
-    if get_endorsed_graph_count(ctx.local_db, instance_id).await?
-        >= todo_funcs::min_required_operator()
-    {
+    if has_required_presigned_graphs(ctx.local_db, instance_id).await? {
         let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
         let instance_keypair = load_committee_instance_keypair(&committee_master_key, instance_id)?;
         let local_committee_pubkey = instance_keypair.public_key().into();
@@ -2950,8 +2995,21 @@ async fn handle_graph_finalize_default(
         }
         bail!(e)
     }
-    // 2. save the graph data to local db
-    store_graph(ctx.local_db, graph).await?;
+    // 2. Store a finalized graph only when it upgrades the local graph.
+    let store_outcome = store_finalized_graph_if_needed(ctx.local_db, graph).await?;
+    store_committee_endorsements_for_graph(
+        ctx.local_db,
+        instance_id,
+        graph_id,
+        endorse_sigs.to_owned(),
+        params_endorse_sigs.to_owned(),
+    )
+    .await?;
+    mark_graph_as_endorsed(ctx.local_db, instance_id, graph_id).await?;
+    try_transition_instance_to_presigned(ctx.local_db, instance_id).await?;
+    let finalized_graph = BitvmGcGraph::from_simplified(graph)?;
+    refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
+        .await?;
     Ok(())
 }
 
