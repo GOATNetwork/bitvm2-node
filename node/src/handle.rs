@@ -4909,22 +4909,36 @@ async fn handle_challenge_assert_sent_operator(
         vk,
         dyn_pubin,
     )?;
-    let (wrongly_challenged_input, _amount) = operator_sign_wrongly_challenged(
+    let (wrongly_challenged_input, input_amount) = operator_sign_wrongly_challenged(
         &graph,
         verifier_index,
         &wrongly_challenged_witness.final_msg,
     )?;
 
-    let wrongly_challenged_tx = bitcoin::Transaction {
-        version: bitcoin::transaction::Version(2),
-        lock_time: bitcoin::absolute::LockTime::ZERO,
-        input: vec![wrongly_challenged_input],
-        output: vec![goat::scripts::p2a_output()],
-    };
-    broadcast_tx(ctx.btc_client, &wrongly_challenged_tx).await?;
+    let operator_keypair = OperatorMasterKey::new(get_bitvm_key()?).master_keypair();
+    build_sign_and_broadcast_tx(
+        ctx.btc_client,
+        operator_keypair,
+        vec![wrongly_challenged_input],
+        input_amount,
+        vec![
+            goat::scripts::p2a_output(),
+            // This makes the non-witness transaction size safely exceed the
+            // relay minimum even before the locally funded fee input is added.
+            bitcoin::TxOut {
+                value: Amount::ZERO,
+                script_pubkey: goat::scripts::generate_opreturn_script(
+                    WRONGLY_CHALLENGED_OP_RETURN_DATA.to_vec(),
+                ),
+            },
+        ],
+    )
+    .await?;
 
     Ok(())
 }
+
+const WRONGLY_CHALLENGED_OP_RETURN_DATA: &[u8] = b"wrongly-challenged";
 
 // broadcast NoWithdraw after the ChallengeAssert timelock expires.
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
@@ -5915,5 +5929,30 @@ mod tests {
             output: vec![],
         };
         assert!(recover_challenge_assert_witness(&empty_tx, 0).is_err());
+    }
+
+    #[test]
+    fn wrongly_challenge_outputs_exceed_minimum_non_witness_size() {
+        // Bitcoin Core rejects standard transactions smaller than 65 non-witness bytes.
+        let tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![bitcoin::TxIn::default()],
+            output: vec![
+                goat::scripts::p2a_output(),
+                bitcoin::TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: goat::scripts::generate_opreturn_script(
+                        WRONGLY_CHALLENGED_OP_RETURN_DATA.to_vec(),
+                    ),
+                },
+            ],
+        };
+
+        assert!(
+            tx.base_size() >= 65,
+            "wrongly-challenge transaction is {} non-witness bytes",
+            tx.base_size()
+        );
     }
 }
