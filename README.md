@@ -55,6 +55,10 @@ java -jar ~/.local/share/tlaplus/tla2tools.jar -config <Spec>.cfg <Spec>.tla
 | `InstancePresigned.tla` | `InstancePresignedFixed.cfg` | proposed fix (verified, not applied) | pass - guard design closes the regression |
 | `Take2DisproveRace.tla` | `Take2DisproveRace.cfg` | proposed fix (verified, not applied) | pass - Take2 vs. Disprove UTXO race has strict margin on all networks *with the proposed `crates/bitvm-gc/src/timelocks.rs` values*; current shipped `connector_d` for testnet4 (34) does **not** have this margin - that boundary case is how this spec found the bug in the first place |
 | `MultiActorRace.tla` | `MultiActorRace.cfg` | proposed fix (verified, not applied) | pass - the 1-of-N watchtower/verifier security property holds under the same proposed timelock values, checked against 2 independent actors per role rather than 1 |
+| `InstanceBridgeOutRace.tla` | `InstanceBridgeOutRace.cfg` | **current code** | **fails - live bug**: `InstanceBridgeOutStatus` can be resurrected to `Initialize` after reaching `Claim`/`Timeout`/`Refund` by a stale RPC upsert or maintenance-task write |
+| `InstanceBridgeOutRace.tla` | `InstanceBridgeOutRaceFixed.cfg` | proposed fix (verified, not applied) | pass - atomic guard design (write only if not already terminal) closes the resurrection |
+| `MessageStateRace.tla` | `MessageStateRace.cfg` | **current code** | **fails - live bug**: `MessageState::Cancelled` can be resurrected to `Pending` by `upsert_message`'s unconditional `ON CONFLICT DO UPDATE`, re-dispatching a message whose graph already closed |
+| `MessageStateRace.tla` | `MessageStateRaceFixed.cfg` | proposed fix (verified, not applied) | pass - guarding the resurrect-to-Pending write against terminal status closes the race |
 
 Additional standalone tools available in the jar if needed: SANY (parser/type-checker)
 via `java -cp tla2tools.jar tla2sany.SANY <Spec>.tla`, and the PlusCal translator

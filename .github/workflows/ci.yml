@@ -106,6 +106,8 @@ jobs:
           java -jar "$JAR" -config InstancePresignedFixed.cfg InstancePresigned.tla
           java -jar "$JAR" -config Take2DisproveRace.cfg Take2DisproveRace.tla
           java -jar "$JAR" -config MultiActorRace.cfg MultiActorRace.tla
+          java -jar "$JAR" -config InstanceBridgeOutRaceFixed.cfg InstanceBridgeOutRace.tla
+          java -jar "$JAR" -config MessageStateRaceFixed.cfg MessageStateRace.tla
       # These model the CURRENT, unfixed code and are expected to keep
       # failing until the corresponding fix design above is actually applied
       # to the Rust source - that failure is a real, live issue, not a
@@ -122,6 +124,8 @@ jobs:
             "GraphLifecycle.cfg:GraphLifecycle.tla" \
             "GraphLifecycleFineGrained.cfg:GraphLifecycleFineGrained.tla" \
             "InstancePresignedBug.cfg:InstancePresigned.tla" \
+            "InstanceBridgeOutRace.cfg:InstanceBridgeOutRace.tla" \
+            "MessageStateRace.cfg:MessageStateRace.tla" \
           ; do
             cfg="${pair%%:*}"; tla="${pair##*:}"
             if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
