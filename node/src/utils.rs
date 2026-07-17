@@ -5182,15 +5182,28 @@ pub async fn try_update_graph_challenge_txid(
     Ok(())
 }
 
-pub async fn update_graph_status(
-    local_db: &LocalDB,
-    instance_id: Uuid,
+/// Writes a graph's status, guarded against clobbering a closed/terminal
+/// status (`GraphStatus::is_closed()`) with a different one.
+///
+/// Two independently-scheduled subsystems write `GraphStatus` for the same
+/// graph with no coordination between them: the Bitcoin-chain-scan path
+/// (`scan_graph_chain_state` -> this function) and the GoatChain L2-event
+/// watcher (`node/src/scheduled_tasks/event_watch_task.rs`, which now also
+/// routes through this function instead of writing `update_graph` directly).
+/// Without this guard a stale/replayed/reordered event from either side can
+/// silently revert an already-closed graph (e.g. an on-chain-proven
+/// `Disprove` reverting to `OperatorDataPushed` because an old
+/// `PostGraphDataEvent` got reprocessed after a restart) or flip between the
+/// two mutually exclusive payout paths (`OperatorTake1` <-> `OperatorTake2`).
+/// Formally demonstrated in `node/tla/GraphLifecycle.tla`.
+pub async fn update_graph_status_guarded<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    instance_id: Option<Uuid>,
     graph_id: Uuid,
     new_status: GraphStatus,
     sub_status: Option<ChallengeSubStatus>,
 ) -> Result<()> {
-    let mut storage_processor = local_db.acquire().await?;
-    match storage_processor.find_graph(&graph_id).await? {
+    let current_status = match storage_processor.find_graph(&graph_id).await? {
         Some(graph) => {
             if graph.status == new_status.to_string()
                 && let Some(ref sub_status) = sub_status
@@ -5201,14 +5214,49 @@ pub async fn update_graph_status(
                 );
                 return Ok(());
             }
+            graph.status.parse::<GraphStatus>()?
         }
         None => {
             warn!("graph: {graph_id} is not update, so not update");
             return Ok(());
         }
+    };
+
+    if current_status.is_closed() && current_status != new_status {
+        warn!(
+            "graph: {graph_id}: refusing to move closed status {current_status} -> {new_status}; \
+             a closed graph's status never changes again (likely a stale/reordered event)"
+        );
+        return Ok(());
     }
 
-    if new_status == GraphStatus::CommitteePresigned {
+    // OperatorDataPushed only causally precedes PreKickoff; a correctly
+    // functioning node never needs to "re-push" data after kickoff has
+    // already happened. Without this, a replayed/reordered PostGraphDataEvent
+    // could knock an already-advanced graph (e.g. OperatorKickOff) back to
+    // OperatorDataPushed, which combined with Obsoleted's resurrection edge
+    // (see scan_graph_chain_state) can cycle a graph forever without ever
+    // reaching a terminal status. Caught by node/tla/GraphLifecycle.tla's
+    // EventuallyTerminal property - the `is_closed()` guard above alone is
+    // not sufficient, since OperatorDataPushed itself isn't a closed status.
+    if new_status == GraphStatus::OperatorDataPushed
+        && !matches!(
+            current_status,
+            GraphStatus::OperatorPresigned
+                | GraphStatus::CommitteePresigned
+                | GraphStatus::OperatorDataPushed
+        )
+    {
+        warn!(
+            "graph: {graph_id}: refusing to move status back to OperatorDataPushed from \
+             {current_status} (already progressed past data-push; likely a stale/replayed event)"
+        );
+        return Ok(());
+    }
+
+    if let Some(instance_id) = instance_id
+        && new_status == GraphStatus::CommitteePresigned
+    {
         storage_processor
             .update_instance(
                 &InstanceUpdate::new_with_instance_id(instance_id)
@@ -5224,6 +5272,24 @@ pub async fn update_graph_status(
 
     storage_processor.update_graph(&graph_update).await?;
     Ok(())
+}
+
+pub async fn update_graph_status(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    new_status: GraphStatus,
+    sub_status: Option<ChallengeSubStatus>,
+) -> Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    update_graph_status_guarded(
+        &mut storage_processor,
+        Some(instance_id),
+        graph_id,
+        new_status,
+        sub_status,
+    )
+    .await
 }
 pub async fn get_graph_ids_for_instance(
     local_db: &LocalDB,

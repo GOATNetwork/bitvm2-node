@@ -13,6 +13,7 @@ use crate::utils::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_da
 use crate::utils::{
     GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance,
     get_bridge_out_global_stats, outpoint_available, reflect_goat_address, strip_hex_prefix_owned,
+    update_graph_status_guarded,
 };
 use alloy::primitives::{Address as EvmAddress, U256};
 use alloy::sol_types::{SolType, SolValue};
@@ -410,13 +411,13 @@ async fn handle_withdraw_paths_events<'a>(
                 v.graph_id.clone(),
                 v.instance_id.clone(),
                 GoatTxType::WithdrawHappyPath.to_string(),
-                GraphStatus::OperatorTake1.to_string(),
+                GraphStatus::OperatorTake1,
             ),
             WithdrawPathsEvent::WithdrawUnhappyEvent(v) => (
                 v.graph_id.clone(),
                 v.instance_id.clone(),
                 GoatTxType::WithdrawUnhappyPath.to_string(),
-                GraphStatus::OperatorTake2.to_string(),
+                GraphStatus::OperatorTake2,
             ),
         };
         let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&graph_id))?;
@@ -434,7 +435,7 @@ async fn handle_withdraw_paths_events<'a>(
                 created_at: current_time_secs(),
             })
             .await?;
-        storage_processor.update_graph(&GraphUpdate::new(graph_id).with_status(status)).await?;
+        update_graph_status_guarded(storage_processor, None, graph_id, status, None).await?;
         // cancel unfinished p2p message
         storage_processor
             .update_messages_state_by_business_id(
@@ -483,10 +484,7 @@ async fn handle_withdraw_disproved_events<'a>(
             U256::from_str(&event.disprover_amount_sats).unwrap_or_default(),
         )
         .await?;
-        storage_processor
-            .update_graph(
-                &GraphUpdate::new(graph_id).with_status(GraphStatus::Disprove.to_string()),
-            )
+        update_graph_status_guarded(storage_processor, None, graph_id, GraphStatus::Disprove, None)
             .await?;
         // cancel unfinished p2p message
         storage_processor
@@ -933,12 +931,14 @@ async fn handle_post_graph_data_events<'a>(
 ) -> anyhow::Result<()> {
     for event in post_graph_data_events {
         if let Ok(graph_id) = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id)) {
-            storage_processor
-                .update_graph(
-                    &GraphUpdate::new(graph_id)
-                        .with_status(GraphStatus::OperatorDataPushed.to_string()),
-                )
-                .await?;
+            update_graph_status_guarded(
+                storage_processor,
+                None,
+                graph_id,
+                GraphStatus::OperatorDataPushed,
+                None,
+            )
+            .await?;
         } else {
             warn!("failed to parse instance id:{event:?}");
         }
