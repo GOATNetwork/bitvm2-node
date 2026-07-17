@@ -72,5 +72,53 @@ jobs:
       - name: Run all unit tests
         run: |
           set -e
-          source ~/.zkm-toolchain/env 
+          source ~/.zkm-toolchain/env
           cargo test -r --all --all-targets
+  tla-plus:
+    name: TLA+ Formal Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Download TLA+ tools
+        run: |
+          mkdir -p ~/.local/share/tlaplus
+          curl -sL -o ~/.local/share/tlaplus/tla2tools.jar \
+            https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
+      # These model the CURRENT code and must always pass. A failure here is
+      # a real regression - see README.md's "Formal verification (TLA+)"
+      # section for what each spec covers.
+      - name: Run current-code specs (must pass)
+        working-directory: node/tla
+        run: |
+          set -e
+          JAR=~/.local/share/tlaplus/tla2tools.jar
+          java -jar "$JAR" -config GraphLifecycleCoreOnly.cfg GraphLifecycle.tla
+          java -jar "$JAR" -config GraphLifecycleFixed.cfg GraphLifecycle.tla
+          java -jar "$JAR" -config GraphLifecycleFineGrainedFixed.cfg GraphLifecycleFineGrainedFixed.tla
+          java -jar "$JAR" -config InstancePresignedFixed.cfg InstancePresigned.tla
+          java -jar "$JAR" -config Take2DisproveRace.cfg Take2DisproveRace.tla
+      # These model PRE-FIX behavior and are permanent regression artifacts -
+      # they are expected to keep failing forever. If one of these starts
+      # passing, either the bug config or the spec itself silently changed
+      # meaning and no longer demonstrates the bug it's supposed to.
+      - name: Confirm pre-fix specs still fail (regression artifacts)
+        working-directory: node/tla
+        run: |
+          JAR=~/.local/share/tlaplus/tla2tools.jar
+          status=0
+          for pair in \
+            "GraphLifecycle.cfg:GraphLifecycle.tla" \
+            "GraphLifecycleFineGrained.cfg:GraphLifecycleFineGrained.tla" \
+            "InstancePresignedBug.cfg:InstancePresigned.tla" \
+          ; do
+            cfg="${pair%%:*}"; tla="${pair##*:}"
+            if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
+              echo "::error::$tla / $cfg was expected to keep failing (pre-fix regression artifact) but passed - it no longer demonstrates the bug"
+              status=1
+            fi
+          done
+          exit $status

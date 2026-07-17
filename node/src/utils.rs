@@ -1325,6 +1325,12 @@ async fn detect_watchtower_flow_disprove(
     Ok(None)
 }
 
+/// Every `status = ...` / `current_status = ...` assignment below is a real
+/// GraphStatus transition edge, and the full set is hardcoded as
+/// `AllowedTransitions`/`ChainScanNext` in `node/tla/GraphLifecycle.tla`
+/// (checked against `GraphLifecycleCoreOnly.cfg`). If you add, remove, or
+/// change a transition here, update that spec too - nothing else will catch
+/// the drift.
 async fn scan_graph_chain_state(
     btc_client: &BTCClient,
     goat_client: &GOATClient,

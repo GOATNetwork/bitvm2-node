@@ -274,6 +274,17 @@ pub struct BridgeOutGlobalStats {
 }
 
 /// graph status
+///
+/// Formally verified in `node/tla/GraphLifecycle.tla`: the real transition
+/// table (ground-truthed from `node/src/utils.rs::scan_graph_chain_state`,
+/// not from this enum's own `get_previous_status` below, which is a
+/// simplified single-parent view - see that method's doc comment) and the
+/// terminal/closed set (`get_closed_status` below) both have a hardcoded
+/// counterpart in the spec. If you change which statuses exist, which
+/// transitions are valid, or which are terminal, update the spec too -
+/// nothing will fail loudly if you don't except the CI job that runs it,
+/// which only catches the spec's own properties breaking, not the spec
+/// silently drifting out of sync with this enum.
 #[derive(
     Copy, Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, Display, EnumString,
 )]
@@ -301,6 +312,9 @@ pub enum GraphStatus {
 }
 
 impl GraphStatus {
+    /// This exact set is hardcoded as `TerminalStatuses` in
+    /// `node/tla/GraphLifecycle.tla` and `GraphLifecycleFineGrained*.tla`.
+    /// If you add/remove a status from this list, update those specs too.
     pub fn get_closed_status() -> Vec<GraphStatus> {
         vec![
             GraphStatus::OperatorTake1,
@@ -817,5 +831,27 @@ mod tests {
         let hex_str: String = i64_array.into();
         let parsed: I64Array1 = hex_str.try_into().unwrap();
         assert_eq!(i64_array.0, parsed.0);
+    }
+
+    /// node/tla/GraphLifecycle.tla hardcodes this exact set as
+    /// `TerminalStatuses` rather than reading `get_closed_status()` - the
+    /// spec's absorbing-terminal-status properties only hold for what's
+    /// asserted here. If this test breaks because you changed which
+    /// statuses are closed, update node/tla/GraphLifecycle.tla (and
+    /// GraphLifecycleFineGrained*.tla, which use the same set) to match,
+    /// then re-run its configs (see root README.md) before updating this
+    /// test's expected values.
+    #[test]
+    fn closed_status_set_matches_tla_model() {
+        let mut closed = GraphStatus::get_closed_status();
+        closed.sort_by_key(|s| s.to_string());
+        let mut expected = vec![
+            GraphStatus::OperatorTake1,
+            GraphStatus::OperatorTake2,
+            GraphStatus::Skipped,
+            GraphStatus::Disprove,
+        ];
+        expected.sort_by_key(|s| s.to_string());
+        assert_eq!(closed, expected);
     }
 }

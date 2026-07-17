@@ -2,6 +2,14 @@ use anyhow::{Result, bail};
 use bitcoin::Network;
 use goat::constants::TimelockConfig;
 
+// The four `prover_connector`/`connector_d`/`connector_f` values per network
+// below, plus `min_reaction_blocks`'s output for each network, are hardcoded
+// in `node/tla/Take2DisproveRace.tla` (checked against `Take2DisproveRace.cfg`).
+// That spec is what caught the testnet4 `connector_d` boundary bug this file
+// was fixed for - it does not read these constants, so if you change any of
+// them (or `min_reaction_blocks`'s formula), the spec goes stale silently
+// unless you also update it. See `shipped_timelock_configs_match_tla_model`
+// below for the tripwire that at least catches value drift.
 pub const NODE_BITCOIN_BLOCK_INTERVAL_SECS: i64 = 600;
 pub const NODE_TESTNET_BLOCK_INTERVAL_SECS: i64 = 300;
 pub const NODE_SIGNET_BLOCK_INTERVAL_SECS: i64 = 60;
@@ -216,4 +224,55 @@ pub fn operator_ack_timelock_blocks(network: Network, config: &TimelockConfig) -
 
 pub fn operator_commit_timelock_blocks(network: Network, config: &TimelockConfig) -> u32 {
     timelock_blocks(network, config.operator_commit)
+}
+
+#[cfg(test)]
+mod tla_model_tripwire_tests {
+    use super::*;
+
+    /// node/tla/Take2DisproveRace.tla hardcodes these exact values (its
+    /// `ProverConnector`, `ConnectorD`, `ConnectorF`, `MinReactionBlocks`
+    /// tables) rather than reading this file - its guarantees only hold for
+    /// what's asserted here. If you change a timelock constant or
+    /// `min_reaction_blocks`'s formula and this test breaks, that is
+    /// expected: go update node/tla/Take2DisproveRace.tla to match, then
+    /// re-run `java -jar tla2tools.jar -config Take2DisproveRace.cfg
+    /// Take2DisproveRace.tla` (see root README.md) before updating this
+    /// test's expected values.
+    #[test]
+    fn shipped_timelock_configs_match_tla_model() {
+        assert_eq!(NODE_BITCOIN_TIMELOCK_CONFIG.prover_connector, 144);
+        assert_eq!(NODE_BITCOIN_TIMELOCK_CONFIG.connector_d, 432);
+        assert_eq!(NODE_BITCOIN_TIMELOCK_CONFIG.connector_f, 576);
+
+        assert_eq!(NODE_TESTNET_TIMELOCK_CONFIG.prover_connector, 22);
+        assert_eq!(NODE_TESTNET_TIMELOCK_CONFIG.connector_d, 35);
+        assert_eq!(NODE_TESTNET_TIMELOCK_CONFIG.connector_f, 70);
+
+        assert_eq!(NODE_SIGNET_TIMELOCK_CONFIG.prover_connector, 6);
+        assert_eq!(NODE_SIGNET_TIMELOCK_CONFIG.connector_d, 18);
+        assert_eq!(NODE_SIGNET_TIMELOCK_CONFIG.connector_f, 24);
+
+        assert_eq!(NODE_REGTEST_TIMELOCK_CONFIG.prover_connector, 1);
+        assert_eq!(NODE_REGTEST_TIMELOCK_CONFIG.connector_d, 3);
+        assert_eq!(NODE_REGTEST_TIMELOCK_CONFIG.connector_f, 4);
+
+        assert_eq!(min_reaction_blocks(Network::Bitcoin), 6);
+        assert_eq!(min_reaction_blocks(Network::Testnet4), 12);
+        assert_eq!(min_reaction_blocks(Network::Signet), 1);
+        assert_eq!(min_reaction_blocks(Network::Regtest), 1);
+    }
+
+    /// Sanity check that the shipped configs actually pass validation -
+    /// this alone doesn't catch TLA+ model drift (that's the test above),
+    /// but it would catch someone editing a value without re-running
+    /// validate_timelock_config in their head.
+    #[test]
+    fn shipped_timelock_configs_are_individually_valid() {
+        for network in
+            [Network::Bitcoin, Network::Testnet4, Network::Signet, Network::Regtest]
+        {
+            validate_timelock_config(network, &default_timelock_config(network)).unwrap();
+        }
+    }
 }
