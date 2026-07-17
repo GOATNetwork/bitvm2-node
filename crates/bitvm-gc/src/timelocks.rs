@@ -324,16 +324,15 @@ mod tla_model_tripwire_tests {
         };
         let expected_tokens: Vec<&str> = expected_line.split_whitespace().collect();
 
-        let actual_line = tla_source
-            .lines()
-            .find(|l| l.split_whitespace().next() == Some(name))
-            .unwrap_or_else(|| {
-                panic!("could not find a line starting with `{name}` in the .tla file")
-            });
+        let actual_line =
+            tla_source.lines().find(|l| l.split_whitespace().next() == Some(name)).unwrap_or_else(
+                || panic!("could not find a line starting with `{name}` in the .tla file"),
+            );
         let actual_tokens: Vec<&str> = actual_line.split_whitespace().collect();
 
         assert_eq!(
-            expected_tokens, actual_tokens,
+            expected_tokens,
+            actual_tokens,
             "node/tla/Take2DisproveRace.tla's `{name}` line has drifted from the shipped Rust \
              values.\n  expected (from Rust): {expected_line}\n  found in .tla file:   {}",
             actual_line.trim()
@@ -346,9 +345,7 @@ mod tla_model_tripwire_tests {
     /// validate_timelock_config in their head.
     #[test]
     fn shipped_timelock_configs_are_individually_valid() {
-        for network in
-            [Network::Bitcoin, Network::Testnet4, Network::Signet, Network::Regtest]
-        {
+        for network in [Network::Bitcoin, Network::Testnet4, Network::Signet, Network::Regtest] {
             validate_timelock_config(network, &default_timelock_config(network)).unwrap();
         }
     }
