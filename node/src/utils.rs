@@ -4437,11 +4437,7 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvmGcGra
 
     tx.upsert_graph(&graph).await?;
     if bitvm_graph.committee_pre_signed() {
-        tx.update_instance(
-            &InstanceUpdate::new_with_instance_id(instance_id)
-                .with_status(InstanceBridgeInStatus::Presigned.to_string()),
-        )
-        .await?;
+        set_instance_presigned_guarded(&mut tx, instance_id).await?;
     }
 
     let raw_data = serialize_graph_raw_data(simple_graph, graph_id).await?;
@@ -5182,6 +5178,50 @@ pub async fn try_update_graph_challenge_txid(
     Ok(())
 }
 
+/// Refuses to write `InstanceBridgeInStatus::Presigned` onto an instance that
+/// has already progressed past it.
+///
+/// `Instance` has no terminal-status concept anywhere in this codebase
+/// (unlike `GraphStatus::is_closed()`), so rather than build out a full
+/// ordering this narrowly guards the one confirmed regression: both call
+/// sites below (`store_graph` and `update_graph_status_guarded`) write
+/// `Presigned` unconditionally as a side effect of a graph reaching
+/// `CommitteePresigned`, reachable from independent P2P-message and
+/// chain-rescan paths with no coordination between them - a stale/replayed
+/// event must never be able to revert an instance that has already moved on
+/// (e.g. to `RelayerL1Broadcasted` or `RelayerL2Minted`).
+async fn set_instance_presigned_guarded<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    instance_id: Uuid,
+) -> Result<()> {
+    let Some(instance) = storage_processor.find_instance(&instance_id).await? else {
+        return Ok(());
+    };
+    let current_status = instance.status.parse::<InstanceBridgeInStatus>()?;
+    let not_yet_presigned = matches!(
+        &current_status,
+        InstanceBridgeInStatus::UserIniting
+            | InstanceBridgeInStatus::UserInited
+            | InstanceBridgeInStatus::CommitteesAnswered
+            | InstanceBridgeInStatus::UserBroadcastPeginPrepare
+            | InstanceBridgeInStatus::Presigned
+    );
+    if !not_yet_presigned {
+        warn!(
+            "instance: {instance_id}: refusing to move status back to Presigned from \
+             {current_status} (already progressed past presigning; likely a stale/replayed event)"
+        );
+        return Ok(());
+    }
+    storage_processor
+        .update_instance(
+            &InstanceUpdate::new_with_instance_id(instance_id)
+                .with_status(InstanceBridgeInStatus::Presigned.to_string()),
+        )
+        .await?;
+    Ok(())
+}
+
 /// Writes a graph's status, guarded against clobbering a closed/terminal
 /// status (`GraphStatus::is_closed()`) with a different one.
 ///
@@ -5257,12 +5297,7 @@ pub async fn update_graph_status_guarded<'a>(
     if let Some(instance_id) = instance_id
         && new_status == GraphStatus::CommitteePresigned
     {
-        storage_processor
-            .update_instance(
-                &InstanceUpdate::new_with_instance_id(instance_id)
-                    .with_status(InstanceBridgeInStatus::Presigned.to_string()),
-            )
-            .await?;
+        set_instance_presigned_guarded(storage_processor, instance_id).await?;
     }
 
     let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());

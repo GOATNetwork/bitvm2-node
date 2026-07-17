@@ -227,32 +227,55 @@ pub async fn instance_window_expiration_monitor(
     .await?;
 
     let committee_quorum_size = goat_client.committee_mana_quorum_size().await?;
-    for mut instance in instances {
+    for instance in instances {
         match goat_client.gateway_get_pegin_data(&instance.instance_id).await {
             Ok(pegin_data) => {
+                let mut storage_processor = local_db.acquire().await?;
+                // Re-read fresh right before deciding/writing instead of reusing the
+                // batch-start `instance` snapshot: this loop does one RPC call per
+                // instance, so for batch position k the snapshot can be stale by the
+                // sum of k prior RPC latencies. A concurrent writer (e.g. a P2P
+                // committee-response landing via handle_committee_response_events)
+                // could update committees_answers in that window; merging into the
+                // stale map and upserting it back would silently drop that update and
+                // could even compute the wrong status (NoEnoughCommitteesAnswered for
+                // an instance that actually reached quorum). Mirrors the Graph.status
+                // fix in node/src/utils.rs (see node/tla/GraphLifecycle.tla).
+                let Some(mut fresh_instance) =
+                    storage_processor.find_instance(&instance.instance_id).await?
+                else {
+                    continue;
+                };
+                if fresh_instance.status != InstanceBridgeInStatus::UserInited.to_string() {
+                    info!(
+                        "instance_window_expiration_monitor: instance {} already moved to {} since this batch was read, skipping",
+                        fresh_instance.instance_id, fresh_instance.status
+                    );
+                    continue;
+                }
+
                 for (committee_addr, pubkey) in
                     pegin_data.committee_addresses.iter().zip(pegin_data.committee_pubkeys)
                 {
-                    instance.committees_answers.insert(committee_addr.to_string(), pubkey);
+                    fresh_instance.committees_answers.insert(committee_addr.to_string(), pubkey);
                 }
 
-                if committee_quorum_size <= instance.committees_answers.len() as u64 {
-                    instance.status = InstanceBridgeInStatus::CommitteesAnswered.to_string();
-                    if let Err(err) = update_pegin_txids(&mut instance) {
+                if committee_quorum_size <= fresh_instance.committees_answers.len() as u64 {
+                    fresh_instance.status = InstanceBridgeInStatus::CommitteesAnswered.to_string();
+                    if let Err(err) = update_pegin_txids(&mut fresh_instance) {
                         warn!(
                             "instance_window_expiration_monitor fail to update_pegin_txids for instance {}, err: {:?}",
-                            instance.instance_id, err
+                            fresh_instance.instance_id, err
                         );
                     }
                 } else {
-                    instance.status =
+                    fresh_instance.status =
                         InstanceBridgeInStatus::NoEnoughCommitteesAnswered.to_string();
                 }
-                let mut storage_processor = local_db.acquire().await?;
-                if let Err(err) = storage_processor.upsert_instance(&instance).await {
+                if let Err(err) = storage_processor.upsert_instance(&fresh_instance).await {
                     warn!(
                         "failed to upsert instance {}, err: {}",
-                        instance.instance_id,
+                        fresh_instance.instance_id,
                         err.to_string()
                     );
                 }
