@@ -216,12 +216,6 @@ pub struct InstanceUpdate {
     pub btc_height: Option<i64>,
     pub committees_answers: Option<HashMap<String, Vec<u8>>>,
     pub bridge_out_lock_time: Option<i64>,
-    /// Optional compare-and-swap guard: when set, the UPDATE only applies if
-    /// the row's current `status` is one of these values (`WHERE status IN
-    /// (...)`), evaluated atomically by the database as part of the same
-    /// UPDATE statement - not as a separate read-then-write in application
-    /// code. `rows_affected() == 0` means the guard rejected the write.
-    pub only_if_status_in: Option<Vec<String>>,
 }
 
 impl InstanceUpdate {
@@ -239,7 +233,6 @@ impl InstanceUpdate {
             btc_height: None,
             committees_answers: None,
             bridge_out_lock_time: None,
-            only_if_status_in: None,
         }
     }
     pub fn new_with_escrow_hash(escrow_hash: String) -> Self {
@@ -255,15 +248,7 @@ impl InstanceUpdate {
             btc_height: None,
             committees_answers: None,
             bridge_out_lock_time: None,
-            only_if_status_in: None,
         }
-    }
-
-    /// Only apply this UPDATE if the row's current `status` is one of
-    /// `allowed`, checked atomically by the database in the same statement.
-    pub fn with_only_if_status_in(mut self, allowed: Vec<String>) -> Self {
-        self.only_if_status_in = Some(allowed);
-        self
     }
 
     /// Set from_addr
@@ -383,9 +368,6 @@ impl InstanceUpdate {
         if let Some(ref escrow_hash) = self.escrow_hash {
             query_builder
                 .and_where("escrow_hash = ? ", Some(QueryParam::Text(escrow_hash.clone())));
-        }
-        if let Some(ref allowed) = self.only_if_status_in {
-            query_builder.and_where_in("status", allowed, false);
         }
 
         query_builder
@@ -528,14 +510,6 @@ pub struct GraphUpdate {
     pub bridge_out_start_at: Option<i64>,
     pub init_withdraw_tx_hash: Option<String>,
     pub proceed_withdraw_height: Option<i64>,
-    /// Optional compare-and-swap guard: when set, the UPDATE only applies if
-    /// the row's current `status` is one of these values (`WHERE status IN
-    /// (...)`), evaluated atomically by the database as part of the same
-    /// UPDATE statement - not as a separate read-then-write in application
-    /// code. `rows_affected() == 0` means the guard rejected the write.
-    /// Added specifically to close a TOCTOU race a read-then-write guard
-    /// couldn't (see node/tla/GraphLifecycleFineGrained.tla).
-    pub only_if_status_in: Option<Vec<String>>,
 }
 
 impl GraphUpdate {
@@ -553,15 +527,7 @@ impl GraphUpdate {
             bridge_out_start_at: None,
             init_withdraw_tx_hash: None,
             proceed_withdraw_height: None,
-            only_if_status_in: None,
         }
-    }
-
-    /// Only apply this UPDATE if the row's current `status` is one of
-    /// `allowed`, checked atomically by the database in the same statement.
-    pub fn with_only_if_status_in(mut self, allowed: Vec<String>) -> Self {
-        self.only_if_status_in = Some(allowed);
-        self
     }
 
     /// Set status
@@ -721,9 +687,6 @@ impl GraphUpdate {
             "hex(graph_id) = ? COLLATE NOCASE",
             Some(QueryParam::Text(hex::encode(self.graph_id))),
         );
-        if let Some(ref allowed) = self.only_if_status_in {
-            query_builder.and_where_in("status", allowed, false);
-        }
 
         query_builder
     }
@@ -1324,17 +1287,13 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
-    /// Returns whether the row was actually updated. Always `true` unless
-    /// `params.only_if_status_in` was set and didn't match the row's current
-    /// status (an atomic compare-and-swap rejection) or `graph_id` doesn't
-    /// exist.
-    pub async fn update_graph(&mut self, params: &GraphUpdate) -> anyhow::Result<bool> {
+    pub async fn update_graph(&mut self, params: &GraphUpdate) -> anyhow::Result<()> {
         let query_builder = params.get_query_builder("graph");
         let update_sql = query_builder.get_sql();
         let query = sqlx::query(&update_sql);
         let query = query_builder.query(query);
-        let result = query.execute(self.conn()).await?;
-        Ok(result.rows_affected() > 0)
+        let _ = query.execute(self.conn()).await?;
+        Ok(())
     }
 
     pub async fn find_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {

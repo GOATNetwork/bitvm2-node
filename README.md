@@ -15,15 +15,18 @@ GOAT Network's BitVM2 bridge implementation. See [GOAT BitVM2 Whitepaper](https:
 
 `node/tla/` contains TLA+ specs that formally verify the graph/instance status
 state machines and the peg-out timelock configuration against real races and
-boundary conditions found in the Rust implementation.
+boundary conditions found in the Rust implementation. This is an **audit
+pass**: the specs prove several real bugs exist in the *current* code, and
+prove a correct fix design for each - but the fixes themselves have **not
+been applied to the Rust code yet**. That's tracked as follow-up work; see
+each spec's header comment and `node/README.md`'s "Known gap" sections for
+exactly what's still open.
 
-Each bug this uncovered has a **pair** of configs: one modeling the pre-fix
-behavior, one modeling the current, fixed code. The pre-fix configs are
-expected to **fail forever** - that's not a live issue, it's a permanent
-regression artifact proving the bug was real and the fix actually changed
-something. Only the "current code" column reflects what's in the repo today;
-all of those should always pass. If one of those starts failing, that's a
-real regression.
+Concretely: for each bug found, there is a **pair** of configs - one modeling
+the actual current code (still buggy - **expected to fail**, and that failure
+is a real, live issue, not a historical artifact) and one modeling the
+verified fix design (**expected to pass**, proving the design is sound and
+ready to implement, not that it's already shipped).
 
 **Setup** (once): install a JRE (11+) and download the official TLA+ tools jar:
 
@@ -43,14 +46,15 @@ java -jar ~/.local/share/tlaplus/tla2tools.jar -config <Spec>.cfg <Spec>.tla
 
 | Spec | Config | Models | Result |
 |---|---|---|---|
-| `GraphLifecycle.tla` | `GraphLifecycleCoreOnly.cfg` | current code | pass - chain-scan state machine alone is sound |
-| `GraphLifecycle.tla` | `GraphLifecycle.cfg` | pre-fix (historical) | **fails forever, by design** - the unguarded race between the Bitcoin-chain-scan and GoatChain-event writers of `Graph.status` this codebase *used to have* |
-| `GraphLifecycle.tla` | `GraphLifecycleFixed.cfg` | current code | pass - with the atomic guard fix applied |
-| `GraphLifecycleFineGrained.tla` | `GraphLifecycleFineGrained.cfg` | pre-fix (historical) | **fails forever, by design** - exposes the read/write gap a naive (non-atomic) guard implementation *used to have* |
-| `GraphLifecycleFineGrainedFixed.tla` | `GraphLifecycleFineGrainedFixed.cfg` | current code | pass - single-statement atomic CAS closes the gap |
-| `InstancePresigned.tla` | `InstancePresignedBug.cfg` | pre-fix (historical) | **fails forever, by design** - `Instance.status` *used to be able to* regress past `Presigned` |
-| `InstancePresigned.tla` | `InstancePresignedFixed.cfg` | current code | pass - with the guard fix applied |
-| `Take2DisproveRace.tla` | `Take2DisproveRace.cfg` | current code | pass - Take2 vs. Disprove UTXO race has strict margin on all networks (also how the testnet4 timelock boundary bug in `crates/bitvm-gc/src/timelocks.rs` was found and fixed) |
+| `GraphLifecycle.tla` | `GraphLifecycleCoreOnly.cfg` | current code (baseline) | pass - chain-scan state machine alone is sound |
+| `GraphLifecycle.tla` | `GraphLifecycle.cfg` | **current code** | **fails - live bug**: unguarded race between the Bitcoin-chain-scan and GoatChain-event writers of `Graph.status` |
+| `GraphLifecycle.tla` | `GraphLifecycleFixed.cfg` | proposed fix (verified, not applied) | pass - atomic guard design closes the race |
+| `GraphLifecycleFineGrained.tla` | `GraphLifecycleFineGrained.cfg` | current code | **fails - live bug**: the read/write gap a naive (non-atomic) guard would still have |
+| `GraphLifecycleFineGrainedFixed.tla` | `GraphLifecycleFineGrainedFixed.cfg` | proposed fix (verified, not applied) | pass - single-statement atomic CAS design closes the gap |
+| `InstancePresigned.tla` | `InstancePresignedBug.cfg` | **current code** | **fails - live bug**: `Instance.status` can regress past `Presigned` |
+| `InstancePresigned.tla` | `InstancePresignedFixed.cfg` | proposed fix (verified, not applied) | pass - guard design closes the regression |
+| `Take2DisproveRace.tla` | `Take2DisproveRace.cfg` | proposed fix (verified, not applied) | pass - Take2 vs. Disprove UTXO race has strict margin on all networks *with the proposed `crates/bitvm-gc/src/timelocks.rs` values*; current shipped `connector_d` for testnet4 (34) does **not** have this margin - that boundary case is how this spec found the bug in the first place |
+| `MultiActorRace.tla` | `MultiActorRace.cfg` | proposed fix (verified, not applied) | pass - the 1-of-N watchtower/verifier security property holds under the same proposed timelock values, checked against 2 independent actors per role rather than 1 |
 
 Additional standalone tools available in the jar if needed: SANY (parser/type-checker)
 via `java -cp tla2tools.jar tla2sany.SANY <Spec>.tla`, and the PlusCal translator

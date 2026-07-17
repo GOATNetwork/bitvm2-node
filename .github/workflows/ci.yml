@@ -89,10 +89,13 @@ jobs:
           mkdir -p ~/.local/share/tlaplus
           curl -sL -o ~/.local/share/tlaplus/tla2tools.jar \
             https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
-      # These model the CURRENT code and must always pass. A failure here is
-      # a real regression - see README.md's "Formal verification (TLA+)"
+      # This audit pass proves bugs exist in CURRENT code and proves correct
+      # fix designs for them - the fixes are NOT yet applied to the Rust code
+      # (see node/README.md's "Known gap" sections). These configs model the
+      # verified fix designs (or a baseline that was never buggy) and must
+      # always pass. See root README.md's "Formal verification (TLA+)"
       # section for what each spec covers.
-      - name: Run current-code specs (must pass)
+      - name: Run baseline + proposed-fix specs (must pass)
         working-directory: node/tla
         run: |
           set -e
@@ -102,11 +105,15 @@ jobs:
           java -jar "$JAR" -config GraphLifecycleFineGrainedFixed.cfg GraphLifecycleFineGrainedFixed.tla
           java -jar "$JAR" -config InstancePresignedFixed.cfg InstancePresigned.tla
           java -jar "$JAR" -config Take2DisproveRace.cfg Take2DisproveRace.tla
-      # These model PRE-FIX behavior and are permanent regression artifacts -
-      # they are expected to keep failing forever. If one of these starts
-      # passing, either the bug config or the spec itself silently changed
-      # meaning and no longer demonstrates the bug it's supposed to.
-      - name: Confirm pre-fix specs still fail (regression artifacts)
+          java -jar "$JAR" -config MultiActorRace.cfg MultiActorRace.tla
+      # These model the CURRENT, unfixed code and are expected to keep
+      # failing until the corresponding fix design above is actually applied
+      # to the Rust source - that failure is a real, live issue, not a
+      # historical artifact. If one of these starts passing without a
+      # matching code change, either the bug config or the spec itself
+      # silently changed meaning and no longer demonstrates the bug it's
+      # supposed to.
+      - name: Confirm known-bug specs still fail (fix not yet applied)
         working-directory: node/tla
         run: |
           JAR=~/.local/share/tlaplus/tla2tools.jar
@@ -118,7 +125,7 @@ jobs:
           ; do
             cfg="${pair%%:*}"; tla="${pair##*:}"
             if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
-              echo "::error::$tla / $cfg was expected to keep failing (pre-fix regression artifact) but passed - it no longer demonstrates the bug"
+              echo "::error::$tla / $cfg was expected to keep failing (bug not yet fixed in code) but passed - either the fix was applied (update this config's status) or the spec no longer demonstrates the bug"
               status=1
             fi
           done

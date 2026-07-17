@@ -1325,12 +1325,6 @@ async fn detect_watchtower_flow_disprove(
     Ok(None)
 }
 
-/// Every `status = ...` / `current_status = ...` assignment below is a real
-/// GraphStatus transition edge, and the full set is hardcoded as
-/// `AllowedTransitions`/`ChainScanNext` in `node/tla/GraphLifecycle.tla`
-/// (checked against `GraphLifecycleCoreOnly.cfg`). If you add, remove, or
-/// change a transition here, update that spec too - nothing else will catch
-/// the drift.
 async fn scan_graph_chain_state(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
@@ -4443,7 +4437,11 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvmGcGra
 
     tx.upsert_graph(&graph).await?;
     if bitvm_graph.committee_pre_signed() {
-        set_instance_presigned_guarded(&mut tx, instance_id).await?;
+        tx.update_instance(
+            &InstanceUpdate::new_with_instance_id(instance_id)
+                .with_status(InstanceBridgeInStatus::Presigned.to_string()),
+        )
+        .await?;
     }
 
     let raw_data = serialize_graph_raw_data(simple_graph, graph_id).await?;
@@ -5184,144 +5182,6 @@ pub async fn try_update_graph_challenge_txid(
     Ok(())
 }
 
-/// Statuses an instance may be in for it to still legitimately move to
-/// `Presigned` (itself included, so a redundant re-write is a harmless no-op
-/// rather than a rejected CAS).
-fn instance_not_yet_presigned_statuses() -> Vec<String> {
-    vec![
-        InstanceBridgeInStatus::UserIniting.to_string(),
-        InstanceBridgeInStatus::UserInited.to_string(),
-        InstanceBridgeInStatus::CommitteesAnswered.to_string(),
-        InstanceBridgeInStatus::UserBroadcastPeginPrepare.to_string(),
-        InstanceBridgeInStatus::Presigned.to_string(),
-    ]
-}
-
-/// Refuses to write `InstanceBridgeInStatus::Presigned` onto an instance that
-/// has already progressed past it.
-///
-/// `Instance` has no terminal-status concept anywhere in this codebase
-/// (unlike `GraphStatus::is_closed()`), so rather than build out a full
-/// ordering this narrowly guards the one confirmed regression: both call
-/// sites below (`store_graph` and `update_graph_status_guarded`) write
-/// `Presigned` as a side effect of a graph reaching `CommitteePresigned`,
-/// reachable from independent P2P-message and chain-rescan paths with no
-/// coordination between them - a stale/replayed event must never be able to
-/// revert an instance that has already moved on (e.g. to
-/// `RelayerL1Broadcasted` or `RelayerL2Minted`).
-///
-/// The guard is enforced atomically via `InstanceUpdate::only_if_status_in`
-/// (a `WHERE status IN (...)` on the UPDATE itself), not by reading the
-/// status first and deciding in application code: a separate read-then-write
-/// still leaves a real gap where another writer's update can land in between
-/// - see `node/tla/GraphLifecycleFineGrained.tla`, which demonstrates that
-/// gap is reachable even when both sides check a guard before writing.
-async fn set_instance_presigned_guarded<'a>(
-    storage_processor: &mut StorageProcessor<'a>,
-    instance_id: Uuid,
-) -> Result<()> {
-    if storage_processor.find_instance(&instance_id).await?.is_none() {
-        return Ok(());
-    }
-    let applied = storage_processor
-        .update_instance(
-            &InstanceUpdate::new_with_instance_id(instance_id)
-                .with_status(InstanceBridgeInStatus::Presigned.to_string())
-                .with_only_if_status_in(instance_not_yet_presigned_statuses()),
-        )
-        .await?;
-    if !applied {
-        warn!(
-            "instance: {instance_id}: atomic write to Presigned was rejected (instance already \
-             progressed past presigning, or a concurrent writer changed it first)"
-        );
-    }
-    Ok(())
-}
-
-/// Writes a graph's status, guarded against clobbering a closed/terminal
-/// status (`GraphStatus::is_closed()`) with a different one.
-///
-/// Two independently-scheduled subsystems write `GraphStatus` for the same
-/// graph with no coordination between them: the Bitcoin-chain-scan path
-/// (`scan_graph_chain_state` -> this function) and the GoatChain L2-event
-/// watcher (`node/src/scheduled_tasks/event_watch_task.rs`, which now also
-/// routes through this function instead of writing `update_graph` directly).
-/// Without this guard a stale/replayed/reordered event from either side can
-/// silently revert an already-closed graph (e.g. an on-chain-proven
-/// `Disprove` reverting to `OperatorDataPushed` because an old
-/// `PostGraphDataEvent` got reprocessed after a restart) or flip between the
-/// two mutually exclusive payout paths (`OperatorTake1` <-> `OperatorTake2`).
-/// Formally demonstrated in `node/tla/GraphLifecycle.tla`.
-///
-/// The guard is enforced atomically via `GraphUpdate::only_if_status_in` (a
-/// `WHERE status IN (...)` evaluated by the database as part of the UPDATE
-/// itself), not by reading the status first and deciding in application
-/// code. A separate read-then-write still leaves a real gap where another
-/// writer's update can land in between the read and the write - confirmed
-/// reachable (not just theoretical) by `node/tla/GraphLifecycleFineGrained.tla`,
-/// which models this function's own former read/decide/write structure at
-/// per-statement granularity and finds a terminal-status regression even
-/// with both guards from an earlier version of this function in place.
-pub async fn update_graph_status_guarded<'a>(
-    storage_processor: &mut StorageProcessor<'a>,
-    instance_id: Option<Uuid>,
-    graph_id: Uuid,
-    new_status: GraphStatus,
-    sub_status: Option<ChallengeSubStatus>,
-) -> Result<()> {
-    if storage_processor.find_graph(&graph_id).await?.is_none() {
-        warn!("graph: {graph_id} does not exist, not updating");
-        return Ok(());
-    }
-
-    // OperatorDataPushed only causally precedes PreKickoff; a correctly
-    // functioning node never needs to "re-push" data after kickoff has
-    // already happened. Every other status is only refused once the graph is
-    // already closed (GraphStatus::get_closed_status()) - combining both into
-    // one allow-list keeps the CAS a single `WHERE status IN (...)`.
-    let allowed_from: Vec<String> = if new_status == GraphStatus::OperatorDataPushed {
-        vec![
-            GraphStatus::OperatorPresigned.to_string(),
-            GraphStatus::CommitteePresigned.to_string(),
-            GraphStatus::OperatorDataPushed.to_string(),
-        ]
-    } else {
-        vec![
-            GraphStatus::OperatorPresigned.to_string(),
-            GraphStatus::CommitteePresigned.to_string(),
-            GraphStatus::OperatorDataPushed.to_string(),
-            GraphStatus::PreKickoff.to_string(),
-            GraphStatus::OperatorKickOff.to_string(),
-            GraphStatus::Challenge.to_string(),
-            GraphStatus::Obsoleted.to_string(),
-        ]
-    };
-
-    if let Some(instance_id) = instance_id
-        && new_status == GraphStatus::CommitteePresigned
-    {
-        set_instance_presigned_guarded(storage_processor, instance_id).await?;
-    }
-
-    let mut graph_update = GraphUpdate::new(graph_id)
-        .with_status(new_status.to_string())
-        .with_only_if_status_in(allowed_from);
-    if let Some(sub_status) = sub_status {
-        graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
-    }
-
-    let applied = storage_processor.update_graph(&graph_update).await?;
-    if !applied {
-        warn!(
-            "graph: {graph_id}: atomic status write to {new_status} was rejected (graph's \
-             current status is not in the allowed set for this transition, or a concurrent \
-             writer changed it first; likely a stale/reordered event)"
-        );
-    }
-    Ok(())
-}
-
 pub async fn update_graph_status(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -5330,14 +5190,40 @@ pub async fn update_graph_status(
     sub_status: Option<ChallengeSubStatus>,
 ) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
-    update_graph_status_guarded(
-        &mut storage_processor,
-        Some(instance_id),
-        graph_id,
-        new_status,
-        sub_status,
-    )
-    .await
+    match storage_processor.find_graph(&graph_id).await? {
+        Some(graph) => {
+            if graph.status == new_status.to_string()
+                && let Some(ref sub_status) = sub_status
+                && *sub_status == ChallengeSubStatus::default()
+            {
+                warn!(
+                    "graph: {graph_id}, new_status: {new_status} is equal old status and ChallengeSubStatus is None, so not update"
+                );
+                return Ok(());
+            }
+        }
+        None => {
+            warn!("graph: {graph_id} is not update, so not update");
+            return Ok(());
+        }
+    }
+
+    if new_status == GraphStatus::CommitteePresigned {
+        storage_processor
+            .update_instance(
+                &InstanceUpdate::new_with_instance_id(instance_id)
+                    .with_status(InstanceBridgeInStatus::Presigned.to_string()),
+            )
+            .await?;
+    }
+
+    let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());
+    if let Some(sub_status) = sub_status {
+        graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
+    }
+
+    storage_processor.update_graph(&graph_update).await?;
+    Ok(())
 }
 pub async fn get_graph_ids_for_instance(
     local_db: &LocalDB,
