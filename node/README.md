@@ -474,13 +474,15 @@ pub enum DisproveTxType { Disprove, QuickChallenge, ChallengeIncompleteKickoff, 
 
 `watchtower_challenge_status` and `verifier_challenge_status` are **observational bookkeeping only** — they are recorded for the frontend/API (`node/src/rpc_service/bitvm.rs:672-693`, collapsed there into a simpler `SimpleChallengeSubStatus{None, WatchtowerChallenge, Assert}` view) but are never read by anything that decides `GraphStatus`. In particular, `ChallengeSubStatus::is_watchtower_challenge_success` (`graph_maintenance_tasks.rs:98-105`) has no call sites anywhere in the repo. The real `Challenge --> OperatorTake2` gate is purely `tx_on_chain(take2_txid)` after none of the four disprove detectors fired (`node/src/utils.rs:1661-1670`); the operator's actual authorization to broadcast take2 is enforced by Bitcoin-script timelocks (`detect_take2`, `graph_maintenance_tasks.rs:1089-1233`), not by any application-level quorum over watchtower or verifier counts.
 
-### Known gap: no ordering guarantee between chain-scan and L2-event writers
+### Resolved: ordering between chain-scan and L2-event writers
 
-`GraphStatus` is written from two independently-scheduled places with no coordination between them:
+`GraphStatus` is written from two independently-scheduled places with no inherent coordination between them:
 - `scan_graph_chain_state` above (Bitcoin-poll derived), and
-- the GoatChain L2-event watcher, `node/src/scheduled_tasks/event_watch_task.rs:392-502`, which writes `OperatorDataPushed`/`OperatorTake1`/`OperatorTake2`/`Disprove` directly via `StorageProcessor::update_graph` with no precondition on the graph's current status.
+- the GoatChain L2-event watcher, `node/src/scheduled_tasks/event_watch_task.rs:392-502`, which writes `OperatorDataPushed`/`OperatorTake1`/`OperatorTake2`/`Disprove`.
 
-Both ultimately call a raw `UPDATE graph SET status = ?` (`crates/store/src/localdb.rs:1290-1297`) with no guard preventing a closed/terminal status (`GraphStatus::is_closed()`: `OperatorTake1`, `OperatorTake2`, `Skipped`, `Disprove`) from being overwritten by a later, differently-ordered write from the other subsystem — e.g. a `Disprove` status can be silently reverted by a stale `PostGraphDataEvent` replay. See `node/tla/GraphLifecycle.tla` / `GraphLifecycle.cfg` for a machine-checked counterexample (`OperatorTake1 -> OperatorTake2` in 2 steps) and the fix tracked alongside it.
+Originally both went through a raw `UPDATE graph SET status = ?` with no guard, so a closed/terminal status (`GraphStatus::is_closed()`: `OperatorTake1`, `OperatorTake2`, `Skipped`, `Disprove`) could be silently overwritten by a later, differently-ordered write from the other subsystem — e.g. a `Disprove` status reverted by a stale `PostGraphDataEvent` replay. `node/tla/GraphLifecycle.tla` / `GraphLifecycle.cfg` has the machine-checked counterexample (`OperatorTake1 -> OperatorTake2` in 2 steps).
+
+This is now fixed: both writers route through `update_graph_status_guarded` (`node/src/utils.rs`), which enforces the guard **atomically** as part of the `UPDATE` statement itself — `GraphUpdate::only_if_status_in` compiles to a `WHERE status IN (...)` clause (`crates/store/src/localdb.rs`), not a separate read-then-decide-then-write in application code. That distinction matters: an earlier version of the fix that checked the guard via a plain read before writing still had a real gap where another writer's update could land in between the read and the write — demonstrated in `node/tla/GraphLifecycleFineGrained.tla` (fails) and closed in `node/tla/GraphLifecycleFineGrainedFixed.tla` (passes), which model the fix at per-statement granularity rather than treating the guard-check-and-write as a single black-box step. See `GraphLifecycleFixed.cfg` for the fully-fixed system passing all safety and liveness properties.
 
 ---
 
