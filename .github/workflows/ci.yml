@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - dev
+      - gc-v2
 
 env:
   CARGO_TERM_COLOR: always
