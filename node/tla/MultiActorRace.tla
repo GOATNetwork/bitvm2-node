@@ -37,6 +37,7 @@ Networks == {"Bitcoin", "Testnet4", "Signet", "Regtest"}
 \* Shipped values, crates/bitvm-gc/src/timelocks.rs.
 WatchtowerChallenge == [Bitcoin |-> 144, Testnet4 |-> 34, Signet |-> 6, Regtest |-> 1]
 OperatorAck          == [Bitcoin |-> 288, Testnet4 |-> 46, Signet |-> 12, Regtest |-> 2]
+OperatorCommit        == [Bitcoin |-> 432, Testnet4 |-> 58, Signet |-> 18, Regtest |-> 3]
 ConnectorF            == [Bitcoin |-> 576, Testnet4 |-> 70, Signet |-> 24, Regtest |-> 4]
 ProverConnector       == [Bitcoin |-> 144, Testnet4 |-> 22, Signet |-> 6, Regtest |-> 1]
 ConnectorD            == [Bitcoin |-> 432, Testnet4 |-> 35, Signet |-> 18, Regtest |-> 3]
@@ -87,6 +88,26 @@ WatchtowerAckWindowAlwaysPositive ==
 NackAlwaysBeatsTake2ViaF ==
     /\ (Challenged(wtChallengeHeight1) => NackDeadline < Take2ReadyHeightViaF)
     /\ (Challenged(wtChallengeHeight2) => NackDeadline < Take2ReadyHeightViaF)
+
+--------------------------------------------------------------------------
+(* ConnectorF leaf 1 (the "committee blocks Take2" leaf) has TWO           *)
+(* alternative spenders, not one - confirmed by reading                    *)
+(* goat/src/transactions/watchtower_challenge.rs directly:                 *)
+(* OperatorChallengeNackTransaction (leaf1, checked above via              *)
+(* NackAlwaysBeatsTake2ViaF) AND OperatorCommitTimeoutTransaction (also     *)
+(* leaf1, watchtower_challenge.rs:714-747, jointly spending ConnectorE     *)
+(* leaf1 as its other input). The Rust side already enforces               *)
+(* operator_commit < connector_f (timelocks.rs's                          *)
+(* ensure_lt("operator_commit", ..., "connector_f", ...)) but - unlike the *)
+(* operator_ack/Nack case - that comparison was never independently        *)
+(* confirmed here using real shipped values. Same shared clock root as     *)
+(* every other property in this module (WatchtowerChallengeInit's          *)
+(* confirmation - operator_commit's clock starts there via ConnectorE's    *)
+(* own construction, symmetric to operator_ack's), and not a multi-actor   *)
+(* quantity (one operator, one commit-or-not decision per graph, not per   *)
+(* watchtower), so no new VARIABLE is needed - just the real numbers.      *)
+CommitTimeoutDeadline == OperatorCommit[net]
+CommitTimeoutAlwaysBeatsTake2ViaF == CommitTimeoutDeadline < Take2ReadyHeightViaF
 
 --------------------------------------------------------------------------
 (* Verifier side: genuinely independent clocks - each verifier's own delta. *)

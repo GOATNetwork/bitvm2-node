@@ -59,6 +59,9 @@ java -jar ~/.local/share/tlaplus/tla2tools.jar -config <Spec>.cfg <Spec>.tla
 | `InstanceBridgeOutRace.tla` | `InstanceBridgeOutRaceFixed.cfg` | proposed fix (verified, not applied) | pass - atomic guard design (write only if not already terminal) closes the resurrection |
 | `MessageStateRace.tla` | `MessageStateRace.cfg` | **current code** | **fails - live bug**: `MessageState::Cancelled` can be resurrected to `Pending` by `upsert_message`'s unconditional `ON CONFLICT DO UPDATE`, re-dispatching a message whose graph already closed |
 | `MessageStateRace.tla` | `MessageStateRaceFixed.cfg` | proposed fix (verified, not applied) | pass - guarding the resurrect-to-Pending write against terminal status closes the race |
+| `Take1ChallengeRace.tla` | `Take1ChallengeRace.cfg` | **current code** | **fails - live gap**: `connector_a` (Take1 vs. Challenge) has *no* margin check anywhere in `validate_timelock_config`, unlike every other timelock field; on Regtest the real shipped value gives a challenger exactly zero reaction margin |
+| `Take1ChallengeRace.tla` | `Take1ChallengeRaceFixed.cfg` | proposed fix (verified, not applied) | pass - adding the missing margin check (mirroring Finding 4's floor) closes the gap |
+| `MultiActorRace.tla` | `MultiActorRace.cfg` | proposed fix (verified, not applied) | pass - also now confirms `operator_commit`'s margin against the shared `ConnectorF` UTXO (the `OperatorCommitTimeoutTransaction` path, `ConnectorF` leaf 1's second spender) holds with real shipped values, closing a gap where only a scalar Rust check existed |
 
 Additional standalone tools available in the jar if needed: SANY (parser/type-checker)
 via `java -cp tla2tools.jar tla2sany.SANY <Spec>.tla`, and the PlusCal translator

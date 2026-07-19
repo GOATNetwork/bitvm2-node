@@ -108,6 +108,7 @@ jobs:
           java -jar "$JAR" -config MultiActorRace.cfg MultiActorRace.tla
           java -jar "$JAR" -config InstanceBridgeOutRaceFixed.cfg InstanceBridgeOutRace.tla
           java -jar "$JAR" -config MessageStateRaceFixed.cfg MessageStateRace.tla
+          java -jar "$JAR" -config Take1ChallengeRaceFixed.cfg Take1ChallengeRace.tla
       # These model the CURRENT, unfixed code and are expected to keep
       # failing until the corresponding fix design above is actually applied
       # to the Rust source - that failure is a real, live issue, not a
@@ -126,6 +127,7 @@ jobs:
             "InstancePresignedBug.cfg:InstancePresigned.tla" \
             "InstanceBridgeOutRace.cfg:InstanceBridgeOutRace.tla" \
             "MessageStateRace.cfg:MessageStateRace.tla" \
+            "Take1ChallengeRace.cfg:Take1ChallengeRace.tla" \
           ; do
             cfg="${pair%%:*}"; tla="${pair##*:}"
             if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
