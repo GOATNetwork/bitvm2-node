@@ -21,60 +21,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions-rs/toolchain@v1
-        timeout-minutes: 30
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - run: rustup component add rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions-rs/toolchain@v1
-        timeout-minutes: 30
-        with:
-          profile: minimal
-          toolchain: nightly-2025-12-11
-          override: true
-          components: clippy
-      - run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
-      - name: Install Dependencies
-        run: sudo apt update && sudo apt install protobuf-compiler
-      - run: |
-          source ~/.zkm-toolchain/env
-          cargo clippy --all-targets -- -D warnings
-  test:
-    name: Cargo Test
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        toolchain:
-          - nightly-2025-12-11
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install Ziren toolchain
-        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
-      - name: Install Dependencies
-        run: sudo apt update && sudo apt install protobuf-compiler
-      - name: Launch the Regtest
-        run: cd scripts && docker compose up -d
-      - name: Run all unit tests
-        run: |
-          set -e
-          source ~/.zkm-toolchain/env
-          cargo test -r --all --all-targets
+  # Runs first and gates everything else (fmt/clippy/test all `needs: tla-plus`
+  # below) - it's the fastest job (seconds, no Rust toolchain to build) and a
+  # failure here means either a real regression the other, much slower jobs
+  # can't catch, or a stale/broken spec - either way not worth burning 30+
+  # minutes of Cargo Test/Clippy compute on before finding out.
   tla-plus:
     name: TLA+ Formal Verification
     runs-on: ubuntu-latest
@@ -136,3 +87,60 @@ jobs:
             fi
           done
           exit $status
+  fmt:
+    name: Rustfmt
+    needs: tla-plus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rs/toolchain@v1
+        timeout-minutes: 30
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - run: rustup component add rustfmt
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+  clippy:
+    name: Clippy
+    needs: tla-plus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rs/toolchain@v1
+        timeout-minutes: 30
+        with:
+          profile: minimal
+          toolchain: nightly-2025-12-11
+          override: true
+          components: clippy
+      - run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
+      - name: Install Dependencies
+        run: sudo apt update && sudo apt install protobuf-compiler
+      - run: |
+          source ~/.zkm-toolchain/env
+          cargo clippy --all-targets -- -D warnings
+  test:
+    name: Cargo Test
+    needs: tla-plus
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - nightly-2025-12-11
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Ziren toolchain
+        run: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/ProjectZKM/toolchain/refs/heads/main/setup.sh | sh
+      - name: Install Dependencies
+        run: sudo apt update && sudo apt install protobuf-compiler
+      - name: Launch the Regtest
+        run: cd scripts && docker compose up -d
+      - name: Run all unit tests
+        run: |
+          set -e
+          source ~/.zkm-toolchain/env
+          cargo test -r --all --all-targets
