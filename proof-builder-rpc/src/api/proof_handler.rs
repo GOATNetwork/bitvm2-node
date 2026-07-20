@@ -67,7 +67,7 @@ pub(super) async fn get_chain_proof_task_desc(
                     block_end: proof.block_end,
                     proof_type: payload.proof_type.to_string(),
                     state: ProofState::from_i64(proof.proof_state)
-                        .unwrap_or_else(|| ProofState::New)
+                        .unwrap_or(ProofState::New)
                         .to_string(),
                     proving_cycles: proof.cycles,
                     proving_time: proof.proving_time,
@@ -110,7 +110,7 @@ pub(super) async fn get_operator_proof_task_desc(
                     block_end: operator_proof.execution_layer_block_number + 1,
                     proof_type: "Operator".to_string(),
                     state: ProofState::from_i64(operator_proof.proof_state)
-                        .unwrap_or_else(|| ProofState::New)
+                        .unwrap_or(ProofState::New)
                         .to_string(),
                     proving_cycles: operator_proof.cycles,
                     proving_time: operator_proof.proving_time,

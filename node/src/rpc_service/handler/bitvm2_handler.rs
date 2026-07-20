@@ -3,6 +3,7 @@ use crate::env::{
     get_goat_address_from_env, get_goat_gateway_contract_from_env, get_network,
     get_node_goat_address, get_node_pubkey,
 };
+use crate::handle::broadcast_verifier_challenge_assert_tx;
 use crate::rpc_service::auth::verify_request_auth;
 use crate::rpc_service::bitvm::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
@@ -12,42 +13,29 @@ use crate::rpc_service::response::{
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::{
-    find_instances_by_escrow_hash, gen_instance_parameters_local, get_bridge_out_global_stats,
-    parse_graph_raw_data, send_challenge_tx,
+    bridge_out_instance_id_from_escrow_hash, find_instances_by_escrow_hash,
+    gen_instance_parameters_local, get_bridge_out_global_stats, load_validated_graph_definition,
+    send_challenge_tx,
 };
 use alloy::primitives::{Address, U256};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
-use bitvm_lib::types::{BitvmGcGraph, SimplifiedBitvmGcGraph};
+use bitvm_lib::types::BitvmGcGraph;
 use client::goat_chain::{PeginStatus, WithdrawStatus};
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::{HeaderMap, StatusCode};
-use sha2::{Digest, Sha256};
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use store::localdb::{GraphQuery, InstanceQuery, StorageProcessor};
+use store::localdb::{GraphQuery, InstanceQuery, InstanceUpdate, StorageProcessor};
 use store::{
     GoatTxType, Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
 };
 use tokio::time::{Duration, sleep};
 use tracing::warn;
 use uuid::Uuid;
-
-const BRIDGE_OUT_INSTANCE_ID_PREFIX: [u8; 4] = *b"BOID";
-
-fn bridge_out_instance_id_from_escrow_hash(escrow_hash: &str) -> Uuid {
-    let mut hasher = Sha256::new();
-    hasher.update(b"bridge-out:");
-    hasher.update(escrow_hash.as_bytes());
-    let digest = hasher.finalize();
-    let mut bytes = [0u8; 16];
-    bytes.copy_from_slice(&digest[..16]);
-    bytes[..4].copy_from_slice(&BRIDGE_OUT_INSTANCE_ID_PREFIX);
-    Uuid::from_bytes(bytes)
-}
 
 fn bridge_out_retry_jitter_ms(attempt: u32) -> u64 {
     let now = SystemTime::now()
@@ -306,51 +294,31 @@ pub async fn bridge_out_init_tag(
     let current_time = current_time_secs();
 
     for attempt in 0..=MAX_BRIDGE_OUT_INIT_RETRIES {
-        if let Some(mut instance) =
-            find_instances_by_escrow_hash(&mut storage_process, &escrow_hash)
-                .await
-                .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?
+        if let Some(instance) = find_instances_by_escrow_hash(&mut storage_process, &escrow_hash)
+            .await
+            .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?
         {
-            if instance.status == InstanceBridgeOutStatus::Initialize.to_string() {
-                instance.to_addr = payload.to_addr.clone();
-                instance.network = get_network().to_string();
-                storage_process
-                    .upsert_instance(&instance)
-                    .await
-                    .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
+            let updated = storage_process
+                .update_instance(
+                    &InstanceUpdate::new_with_instance_id(instance.instance_id)
+                        .with_to_addr(payload.to_addr.clone())
+                        .with_only_if_status_in(vec![
+                            InstanceBridgeOutStatus::Initialize.to_string(),
+                        ])
+                        .with_only_if_is_bridge_in(false),
+                )
+                .await
+                .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
+            if !updated {
+                warn!(
+                    "bridge_out_init_tag ignored for resolved instance {} with status {}",
+                    instance.instance_id, instance.status
+                );
             }
             return ok_response(BridgeOutInitTagResponse {});
         }
 
-        let candidate_instance_id = if attempt == 0 {
-            bridge_out_instance_id_from_escrow_hash(&escrow_hash)
-        } else {
-            Uuid::new_v4()
-        };
-
-        if let Some(existing) = storage_process
-            .find_instance(&candidate_instance_id)
-            .await
-            .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?
-        {
-            let escrow_hash_matches = existing
-                .escrow_hash
-                .as_ref()
-                .map(|hash| hash.eq_ignore_ascii_case(&escrow_hash))
-                .unwrap_or(false);
-            if !existing.is_bridge_in && escrow_hash_matches {
-                continue;
-            }
-            if attempt < MAX_BRIDGE_OUT_INIT_RETRIES {
-                sleep(Duration::from_millis(bridge_out_retry_jitter_ms(attempt))).await;
-                continue;
-            }
-            return error_response(
-                "BRIDGE_OUT_INSTANCE_ID_CONFLICT".to_string(),
-                "failed to allocate bridge-out instance_id for escrow_hash".to_string(),
-            );
-        }
-
+        let candidate_instance_id = bridge_out_instance_id_from_escrow_hash(&escrow_hash);
         let mut instance = Instance {
             instance_id: candidate_instance_id,
             from_addr: from_addr.clone(),
@@ -365,12 +333,58 @@ pub async fn bridge_out_init_tag(
         };
         instance.to_addr = payload.to_addr.clone();
 
-        match storage_process.upsert_instance(&instance).await {
-            Ok(_) => return ok_response(BridgeOutInitTagResponse {}),
+        match storage_process.insert_instance_if_absent(&instance).await {
+            Ok(true) => return ok_response(BridgeOutInitTagResponse {}),
+            Ok(false) => {
+                let Some(existing) = storage_process
+                    .find_instance(&candidate_instance_id)
+                    .await
+                    .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?
+                else {
+                    if attempt < MAX_BRIDGE_OUT_INIT_RETRIES {
+                        sleep(Duration::from_millis(bridge_out_retry_jitter_ms(attempt))).await;
+                        continue;
+                    }
+                    return error_response(
+                        "BRIDGE_OUT_INSTANCE_ID_CONFLICT".to_string(),
+                        "bridge-out instance disappeared while being created".to_string(),
+                    );
+                };
+                let escrow_hash_matches = existing
+                    .escrow_hash
+                    .as_ref()
+                    .map(|hash| hash.eq_ignore_ascii_case(&escrow_hash))
+                    .unwrap_or(false);
+                if existing.is_bridge_in || !escrow_hash_matches {
+                    return error_response(
+                        "BRIDGE_OUT_INSTANCE_ID_CONFLICT".to_string(),
+                        "failed to allocate bridge-out instance_id for escrow_hash".to_string(),
+                    );
+                }
+
+                let updated = storage_process
+                    .update_instance(
+                        &InstanceUpdate::new_with_instance_id(existing.instance_id)
+                            .with_to_addr(payload.to_addr.clone())
+                            .with_only_if_status_in(vec![
+                                InstanceBridgeOutStatus::Initialize.to_string(),
+                            ])
+                            .with_only_if_is_bridge_in(false),
+                    )
+                    .await
+                    .api_error("PUT_BRIDGE_OUT_INIT_TAG_ERROR")?;
+                if !updated {
+                    warn!(
+                        "bridge_out_init_tag ignored for concurrently resolved instance {} with status {}",
+                        existing.instance_id, existing.status
+                    );
+                }
+                return ok_response(BridgeOutInitTagResponse {});
+            }
             Err(err) => {
                 if attempt < MAX_BRIDGE_OUT_INIT_RETRIES {
                     warn!(
-                        "bridge_out_init_tag upsert failed at attempt {}, retrying: {}",
+                        "bridge_out_init_tag insert failed at attempt {}, retrying: {}",
                         attempt, err
                     );
                     sleep(Duration::from_millis(bridge_out_retry_jitter_ms(attempt))).await;
@@ -1202,22 +1216,27 @@ pub async fn get_graph_tx(
 
     let mut storage_process = app_state.local_db.acquire().await.api_error("GET_GRAPH_TX_ERROR")?;
 
-    let graph_raw_data = storage_process
-        .find_graph_raw_data(&graph_id_uuid)
-        .await
-        .api_error("GET_GRAPH_TX_ERROR")?;
     let graph = storage_process.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
 
-    if let (Some(graph_raw_data), Some(graph)) = (graph_raw_data, graph) {
+    if let Some(graph) = graph {
         let (progresses, fail_reason) =
             get_graph_btc_tx_process_data(&mut storage_process, tx_name, &graph)
                 .await
                 .api_error("GET_GRAPH_TX_ERROR")?;
 
-        let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
-            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph_id_uuid)
+        let simplified_bitvm_graph =
+            load_validated_graph_definition(&mut storage_process, graph.instance_id, graph_id_uuid)
                 .await
-                .api_error("GET_GRAPH_TXN_ERROR")?;
+                .api_error("GET_GRAPH_TXN_ERROR")?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "GET_GRAPH_TXN_ERROR".to_string(),
+                            message: format!("graph:{graph_id} raw data is not record in db"),
+                        }),
+                    )
+                })?;
 
         let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(&simplified_bitvm_graph)
             .api_error("GET_GRAPH_TX_ERROR")?;
@@ -1368,26 +1387,25 @@ pub async fn get_graph_txn(
             graph
         };
 
-        let graph_raw_data = storage_processor
-            .find_graph_raw_data(&graph.graph_id)
-            .await
-            .api_error("GET_GRAPH_TXN_ERROR")?
-            .ok_or_else(|| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "GET_GRAPH_TXN_ERROR".to_string(),
-                        message: format!(
-                            "graph:{graph_id} with cursor:{} raw data is not record in db",
-                            params.cursor
-                        ),
-                    }),
-                )
-            })?;
-        let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
-            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph.graph_id)
-                .await
-                .api_error("GET_GRAPH_TXN_ERROR")?;
+        let simplified_bitvm_graph = load_validated_graph_definition(
+            &mut storage_processor,
+            graph.instance_id,
+            graph.graph_id,
+        )
+        .await
+        .api_error("GET_GRAPH_TXN_ERROR")?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_GRAPH_TXN_ERROR".to_string(),
+                    message: format!(
+                        "graph:{graph_id} with cursor:{} raw data is not record in db",
+                        params.cursor
+                    ),
+                }),
+            )
+        })?;
         let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(&simplified_bitvm_graph)
             .api_error("GET_GRAPH_TXN_ERROR")?;
 
@@ -1616,8 +1634,8 @@ pub async fn send_challenge(
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("SEND_CHALLENGE_ERROR")?;
 
-    let graph_raw_data = storage_process
-        .find_graph_raw_data(&graph_id_uuid)
+    let graph = storage_process
+        .find_graph(&graph_id_uuid)
         .await
         .api_error("SEND_CHALLENGE_ERROR")?
         .ok_or_else(|| {
@@ -1625,15 +1643,24 @@ pub async fn send_challenge(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "SEND_CHALLENGE_ERROR".to_string(),
-                    message: format!("graph:{graph_id} raw data not found in db"),
+                    message: format!("graph:{graph_id} not found in db"),
                 }),
             )
         })?;
 
-    let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
-        parse_graph_raw_data(graph_raw_data.raw_data, graph_id_uuid)
+    let simplified_bitvm_graph =
+        load_validated_graph_definition(&mut storage_process, graph.instance_id, graph_id_uuid)
             .await
-            .api_error("SEND_CHALLENGE_ERROR")?;
+            .api_error("SEND_CHALLENGE_ERROR")?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "SEND_CHALLENGE_ERROR".to_string(),
+                        message: format!("graph:{graph_id} raw data not found in db"),
+                    }),
+                )
+            })?;
 
     let bitvm_graph: BitvmGcGraph =
         BitvmGcGraph::from_simplified(&simplified_bitvm_graph).api_error("SEND_CHALLENGE_ERROR")?;
@@ -1643,6 +1670,99 @@ pub async fn send_challenge(
         .api_error("SEND_CHALLENGE_ERROR")?;
 
     ok_response(SendChallengeResponse { challenge_txid: txid.to_string() })
+}
+
+/// Force the local verifier to broadcast its ChallengeAssert transaction for a graph.
+///
+/// This is a test endpoint. Unlike the normal AssertSent verifier flow, it does
+/// not skip ChallengeAssert when the operator assert proof is valid.
+#[axum::debug_handler]
+pub async fn send_verifier_challenge(
+    headers: HeaderMap,
+    Path(graph_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<SendVerifierChallengeResponse> {
+    verify_request_auth(&headers)?;
+    let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
+
+    let mut storage_process =
+        app_state.local_db.acquire().await.api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;
+
+    let graph = storage_process
+        .find_graph(&graph_id_uuid)
+        .await
+        .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                    message: format!("graph:{graph_id} not found in db"),
+                }),
+            )
+        })?;
+
+    let simplified_bitvm_graph =
+        load_validated_graph_definition(&mut storage_process, graph.instance_id, graph_id_uuid)
+            .await
+            .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                        message: format!("graph:{graph_id} raw data not found in db"),
+                    }),
+                )
+            })?;
+
+    let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(&simplified_bitvm_graph)
+        .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;
+
+    let assert_txid = bitvm_graph.operator_assert.tx().compute_txid();
+    let assert_tx = app_state
+        .btc_client
+        .get_tx(&assert_txid)
+        .await
+        .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                    message: format!("operator assert tx {assert_txid} not found on Bitcoin"),
+                }),
+            )
+        })?;
+
+    let strict = true;
+    let (challenge_assert_txid, verifier_index) = broadcast_verifier_challenge_assert_tx(
+        &app_state.local_db,
+        &app_state.btc_client,
+        &bitvm_graph,
+        simplified_bitvm_graph.parameters.instance_parameters.instance_id,
+        graph_id_uuid,
+        &assert_tx,
+        strict,
+    )
+    .await
+    .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+    .ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                message: format!(
+                    "local verifier cannot broadcast ChallengeAssert for graph {graph_id}"
+                ),
+            }),
+        )
+    })?;
+
+    ok_response(SendVerifierChallengeResponse {
+        challenge_assert_txid: challenge_assert_txid.to_string(),
+        verifier_index,
+    })
 }
 
 const BTC_DECIMALS: u8 = 8;

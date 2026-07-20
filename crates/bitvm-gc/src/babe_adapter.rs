@@ -513,8 +513,8 @@ fn restore_real_verifier(
     vk: &Groth16VerifyingKey<Bn254>,
     static_inputs: Fr,
 ) -> Result<BABEVerifier> {
-    let verifier = BABEVerifier::from_state(&state.instance_seeds, package, vk, static_inputs);
-    verifier.ok_or_else(|| anyhow::anyhow!("Cannot restore real verifier"))
+    BABEVerifier::from_state(&state.instance_seeds, package, vk, static_inputs)
+        .ok_or_else(|| anyhow::anyhow!("Cannot restore real verifier"))
 }
 
 fn validate_finalized_indices(

@@ -8,7 +8,7 @@ use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::*;
 use alloy::primitives::Address as EvmAddress;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use bitcoin::{PublicKey, Txid};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::babe_adapter::{BabeBundleBuilder, CACSetupPackage};
@@ -23,9 +23,9 @@ use musig2::{PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Instant;
 use store::MessageState;
 use store::localdb::LocalDB;
-use tracing::warn;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -78,6 +78,55 @@ pub enum GOATMessageContent {
     SyncGraph(SyncGraph),
     InstanceDiscarded(InstanceDiscarded),
     Tick,
+}
+
+impl GOATMessageContent {
+    /// Stable message name for logs/metrics.  Keep this independent of `Debug`, whose
+    /// output can include protocol payloads (and, for proofs, be very large).
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            Self::PeginRequest(_) => "PeginRequest",
+            Self::CreateGraph(_) => "CreateGraph",
+            Self::ConfirmInstance(_) => "ConfirmInstance",
+            Self::InitGraph(_) => "InitGraph",
+            Self::GenCircuits(_) => "GenCircuits",
+            Self::CutCircuits(_) => "CutCircuits",
+            Self::SolderingProofReady(_) => "SolderingProofReady",
+            Self::VerifierGraphParamsEndorsement(_) => "VerifierGraphParamsEndorsement",
+            Self::NonceGeneration(_) => "NonceGeneration",
+            Self::CommitteePresign(_) => "CommitteePresign",
+            Self::EndorseGraph(_) => "EndorseGraph",
+            Self::GraphFinalize(_) => "GraphFinalize",
+            Self::PeginConfirmNonce(_) => "PeginConfirmNonce",
+            Self::PeginConfirmPartialSig(_) => "PeginConfirmPartialSig",
+            Self::PostReady(_) => "PostReady",
+            Self::KickoffReady(_) => "KickoffReady",
+            Self::KickoffSent(_) => "KickoffSent",
+            Self::PreKickoffSent(_) => "PreKickoffSent",
+            Self::ChallengeSent(_) => "ChallengeSent",
+            Self::WatchtowerChallengeInitSent(_) => "WatchtowerChallengeInitSent",
+            Self::WatchtowerChallengeSent(_) => "WatchtowerChallengeSent",
+            Self::WatchtowerChallengeTimeout(_) => "WatchtowerChallengeTimeout",
+            Self::NackReady(_) => "NackReady",
+            Self::OperatorCommitPubinReady(_) => "OperatorCommitPubinReady",
+            Self::OperatorCommitPubinTimeout(_) => "OperatorCommitPubinTimeout",
+            Self::AssertReady(_) => "AssertReady",
+            Self::AssertSent(_) => "AssertSent",
+            Self::ChallengeAssertSent(_) => "ChallengeAssertSent",
+            Self::WronglyChallengeTimeout(_) => "WronglyChallengeTimeout",
+            Self::DisproveSent(_) => "DisproveSent",
+            Self::Take1Ready(_) => "Take1Ready",
+            Self::Take1Sent(_) => "Take1Sent",
+            Self::Take2Ready(_) => "Take2Ready",
+            Self::Take2Sent(_) => "Take2Sent",
+            Self::RequestNodeInfo(_) => "RequestNodeInfo",
+            Self::ResponseNodeInfo(_) => "ResponseNodeInfo",
+            Self::SyncGraphRequest(_) => "SyncGraphRequest",
+            Self::SyncGraph(_) => "SyncGraph",
+            Self::InstanceDiscarded(_) => "InstanceDiscarded",
+            Self::Tick => "Tick",
+        }
+    }
 }
 
 /// Pegin
@@ -389,20 +438,37 @@ pub async fn handle_self_p2p_msg(
     message: &[u8],
 ) -> Result<()> {
     if id != GOATMessage::default_message_id() {
-        tracing::warn!("handle_self_p2p_msg received unexpected message id: {:?}", id);
+        tracing::warn!(
+            event = "local_message_queue",
+            outcome = "unexpected_message_id",
+            message_id = ?id,
+            "ignoring local queue trigger with an unexpected message id"
+        );
         return Ok(());
     }
     let message = GOATMessage::deserialize_message(message).await?;
     tracing::info!(
-        "Got self p2p message: {} with id: {} from peer: {:?}",
-        &message.actor.to_string(),
-        id,
-        from_peer_id
+        event = "local_message_queue",
+        outcome = "trigger_received",
+        role = %message.actor,
+        message_type = message.content.event_type(),
+        message_id = ?id,
+        from_peer_id = %from_peer_id,
+        "received local queue trigger"
     );
 
     let messages =
         pop_batch_local_unhandle_msg(local_db, actor.clone(), current_time_secs(), 0, 50).await?;
+    tracing::info!(
+        event = "local_message_queue",
+        outcome = "batch_loaded",
+        role = %actor,
+        batch_size = messages.len(),
+        "loaded pending local messages"
+    );
     for message in messages {
+        let queue_wait_secs = current_time_secs().saturating_sub(message.created_at);
+        let started_at = Instant::now();
         match recv_and_dispatch(
             swarm,
             local_db,
@@ -419,19 +485,53 @@ pub async fn handle_self_p2p_msg(
         {
             Ok(_) => {
                 let mut storage_processor = local_db.acquire().await?;
-                storage_processor
+                let state_updated = storage_processor
                     .update_messages_state(
                         &message.message_id,
                         message.message_version,
                         MessageState::Processed.to_string(),
                     )
                     .await?;
+                if state_updated {
+                    tracing::info!(
+                        event = "local_message_queue",
+                        outcome = "processed",
+                        role = %actor,
+                        business_id = %message.business_id,
+                        queued_message_id = %message.message_id,
+                        message_type = %message.msg_type,
+                        queue_wait_secs,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        "processed local message"
+                    );
+                } else {
+                    tracing::warn!(
+                        event = "local_message_queue",
+                        outcome = "state_update_conflict",
+                        role = %actor,
+                        business_id = %message.business_id,
+                        queued_message_id = %message.message_id,
+                        message_type = %message.msg_type,
+                        queue_wait_secs,
+                        elapsed_ms = started_at.elapsed().as_millis() as u64,
+                        "local message handler completed but its processed state was not persisted"
+                    );
+                }
             }
             Err(err) => {
                 let lock_time = 600;
-                warn!(
-                    "fail to process message:{}: {} will lock seconds {lock_time}",
-                    message.message_id, err
+                tracing::warn!(
+                    event = "local_message_queue",
+                    outcome = "deferred",
+                    role = %actor,
+                    business_id = %message.business_id,
+                    queued_message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    retry_after_secs = lock_time,
+                    queue_wait_secs,
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    error = %err,
+                    "failed to process local message; deferred for retry"
                 );
                 let mut storage_processor = local_db.acquire().await?;
                 storage_processor
@@ -470,6 +570,10 @@ pub async fn recv_and_dispatch(
     // Determine whether the message comes from this node itself to optionally skip validations
     let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
     let message = GOATMessage::deserialize_message(message).await?;
+    let message_type = message.content.event_type();
+    let role = actor.to_string();
+    let from_peer_id_string = from_peer_id.to_string();
+    let started_at = Instant::now();
     let mut handler_ctx = HandlerContext {
         swarm,
         local_db,
@@ -482,10 +586,34 @@ pub async fn recv_and_dispatch(
         id,
         is_self_peer,
     };
-    handle_dispatch(&mut handler_ctx, message.content()).await
+    let result = handle_dispatch(&mut handler_ctx, message.content()).await;
+    match &result {
+        Ok(()) => tracing::info!(
+            event = "message_dispatch_result",
+            outcome = "handled",
+            role,
+            message_type,
+            from_peer_id = %from_peer_id_string,
+            is_self_peer,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "message dispatch completed"
+        ),
+        Err(err) => tracing::warn!(
+            event = "message_dispatch_result",
+            outcome = "failed",
+            role,
+            message_type,
+            from_peer_id = %from_peer_id_string,
+            is_self_peer,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            error = %err,
+            "message dispatch failed"
+        ),
+    }
+    result
 }
 
-pub async fn try_finalize_graph(
+pub(crate) async fn try_finalize_graph(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     goat_client: &GOATClient,
@@ -493,7 +621,7 @@ pub async fn try_finalize_graph(
     graph_id: Uuid,
     graph: Option<&SimplifiedBitvmGcGraph>,
     broadcast_graph_finalize: bool,
-) -> Result<()> {
+) -> Result<Option<(BitvmGcGraph, FinalizedGraphStoreOutcome)>> {
     let endorsements =
         get_committee_endorsements_for_graph(local_db, instance_id, graph_id).await?;
     let params_endorsements =
@@ -516,6 +644,15 @@ pub async fn try_finalize_graph(
                 BitvmGcGraph::from_simplified(&g)?
             }
         };
+        if graph.parameters.instance_parameters.instance_id != instance_id
+            || graph.parameters.graph_id != graph_id
+        {
+            bail!(
+                "refuse to finalize graph {instance_id}:{graph_id} with mismatched graph parameters {}:{}",
+                graph.parameters.instance_parameters.instance_id,
+                graph.parameters.graph_id
+            );
+        }
         let pub_nonces =
             order_committee_values(&committee_pubkeys, pub_nonoces, "graph committee pub nonces")?;
         let agg_nonces = nonces_aggregation(&pub_nonces)?;
@@ -527,7 +664,9 @@ pub async fn try_finalize_graph(
         let committee_sig_for_graph = signature_aggregation(&partial_sigs, &agg_nonces, &graph)?;
         push_committee_pre_signatures(&mut graph, &committee_sig_for_graph)?;
         let simplified_graph = graph.to_simplified()?;
-        store_graph(local_db, &simplified_graph).await?;
+        let store_outcome = store_finalized_graph_if_needed(local_db, &simplified_graph).await?;
+        mark_graph_as_endorsed(local_db, instance_id, graph_id).await?;
+        try_transition_instance_to_presigned(local_db, instance_id).await?;
         if broadcast_graph_finalize {
             let message_content = GOATMessageContent::GraphFinalize(GraphFinalize {
                 instance_id,
@@ -539,21 +678,44 @@ pub async fn try_finalize_graph(
             });
             send_to_peer(swarm, GOATMessage::new(Actor::All, message_content)).await?;
         }
+        return Ok(Some((graph, store_outcome)));
     }
-    Ok(())
+    Ok(None)
 }
 
 pub async fn send_to_peer(
     swarm: &mut Swarm<AllBehaviours>,
     message: GOATMessage,
 ) -> Result<MessageId> {
-    let actor = message.actor.to_string();
-    let topic = crate::middleware::get_topic_name(&actor);
+    let target_actor = message.actor.to_string();
+    let message_type = message.content.event_type();
+    let topic = crate::middleware::get_topic_name(&target_actor);
     let gossipsub_topic = gossipsub::IdentTopic::new(topic);
-    Ok(swarm
-        .behaviour_mut()
-        .gossipsub
-        .publish(gossipsub_topic, message.serialize_message().await?)?)
+    let serialized = message.serialize_message().await?;
+    match swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, serialized) {
+        Ok(message_id) => {
+            tracing::info!(
+                event = "p2p_message_publish",
+                outcome = "published",
+                target_actor,
+                message_type,
+                message_id = ?message_id,
+                "published protocol message"
+            );
+            Ok(message_id)
+        }
+        Err(err) => {
+            tracing::warn!(
+                event = "p2p_message_publish",
+                outcome = "failed",
+                target_actor,
+                message_type,
+                error = %err,
+                "failed to publish protocol message"
+            );
+            Err(err.into())
+        }
+    }
 }
 
 pub async fn push_local_unhandled_messages(
@@ -592,21 +754,49 @@ pub(crate) async fn get_graph_or_defer(
         Some(g) => Ok(Some(g)),
         None => {
             // Ask for sync and push to local queue with a short retry delay
-            if let Err(e) =
+            let sync_request_outcome = if let Err(error) =
                 try_send_sync_graph_request(swarm, goat_client, instance_id, graph_id).await
             {
-                tracing::warn!("Failed to send SyncGraphRequest for {instance_id}:{graph_id}: {e}");
-            }
+                tracing::warn!(
+                    event = "graph_resolution",
+                    outcome = "sync_request_failed",
+                    instance_id = %instance_id,
+                    graph_id = %graph_id,
+                    message_type = message.content.event_type(),
+                    error_class = "p2p",
+                    error = %error,
+                    "failed to request graph synchronization"
+                );
+                "failed"
+            } else {
+                "submitted"
+            };
             let delay_secs: usize = 60; // 1 min default retry
-            if let Err(e) =
+            if let Err(error) =
                 push_local_unhandled_messages(local_db, graph_id, message, delay_secs).await
             {
-                tracing::warn!(
-                    "Failed to enqueue deferred message for {instance_id}:{graph_id}: {e}"
+                tracing::error!(
+                    event = "graph_resolution",
+                    outcome = "defer_failed",
+                    instance_id = %instance_id,
+                    graph_id = %graph_id,
+                    message_type = message.content.event_type(),
+                    retry_after_secs = delay_secs,
+                    error_class = "database",
+                    error = %error,
+                    "failed to enqueue message while graph is missing"
                 );
+                return Err(error).context("failed to defer message while graph is missing");
             }
             tracing::info!(
-                "Graph missing locally for {instance_id}:{graph_id}; requested sync and deferred"
+                event = "graph_resolution",
+                outcome = "deferred_missing_graph",
+                instance_id = %instance_id,
+                graph_id = %graph_id,
+                message_type = message.content.event_type(),
+                sync_request_outcome,
+                retry_after_secs = delay_secs,
+                "graph missing locally; requested sync and deferred message"
             );
             Ok(None)
         }

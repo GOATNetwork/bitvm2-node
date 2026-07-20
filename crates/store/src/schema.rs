@@ -199,8 +199,8 @@ pub enum InstanceBridgeInStatus {
     // committee won't answer if userRequest is invalid(e.g. insufficient fee)
     CommitteesAnswered,        // enough committee responsed & window expired
     UserBroadcastPeginPrepare, // user pegin prepare
-    Presigned,                 // all committee signed PeginConfirm
-    PresignedFailed,           // includes operator and Committee presigns
+    Presigned,                 // enough graphs completed committee pre-signing
+    PresignedFailed,           // required graph pre-signing did not finish in time
     RelayerL1Broadcasted,      // PeginConfirm broadcast by relayer
     RelayerL2Minted,           // success
     RelayerL2MintedFailed,
@@ -300,6 +300,26 @@ pub enum GraphStatus {
     Disproving,
 }
 
+/// The evidence that authorizes a graph status transition.
+///
+/// Graph definitions, finalized Goat events, and chain reconciliation have
+/// different authority. Keeping the source explicit prevents a generic
+/// database update from accidentally becoming a state-transition bypass.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum GraphStatusSource {
+    Definition,
+    GoatEvent,
+    ChainReconcile,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum GraphStatusTransitionOutcome {
+    Applied,
+    AlreadyCurrent,
+    Rejected { current: GraphStatus },
+    NotFound,
+}
+
 impl GraphStatus {
     pub fn get_closed_status() -> Vec<GraphStatus> {
         vec![
@@ -329,47 +349,97 @@ impl GraphStatus {
     pub fn is_obsoleted(&self) -> bool {
         self.eq(&GraphStatus::Obsoleted)
     }
-    pub fn get_previous_status(&self) -> Option<GraphStatus> {
-        match self {
-            GraphStatus::OperatorPresigned => None,
-            GraphStatus::CommitteePresigned => Some(GraphStatus::OperatorPresigned),
-            GraphStatus::OperatorDataPushed => Some(GraphStatus::CommitteePresigned),
-            GraphStatus::PreKickoff => Some(GraphStatus::OperatorDataPushed),
-            GraphStatus::Skipped => Some(GraphStatus::OperatorDataPushed),
-            GraphStatus::Obsoleted => Some(GraphStatus::OperatorDataPushed),
-            GraphStatus::OperatorKickOff => Some(GraphStatus::PreKickoff),
-            GraphStatus::OperatorTake1 => Some(GraphStatus::OperatorKickOff),
-            GraphStatus::Challenge => Some(GraphStatus::OperatorKickOff),
-            GraphStatus::Disprove => Some(GraphStatus::Challenge),
-            GraphStatus::OperatorTake2 => Some(GraphStatus::Challenge),
-            // frontend use only
-            GraphStatus::Created => None,
-            GraphStatus::Presigned => Some(GraphStatus::Created),
-            GraphStatus::L2Recorded => Some(GraphStatus::Presigned),
-            GraphStatus::OperatorKickOffing => Some(GraphStatus::L2Recorded),
-            GraphStatus::Challenging => Some(GraphStatus::OperatorKickOffing),
-            GraphStatus::Disproving => Some(GraphStatus::Challenging),
-        }
+
+    /// Whether this is a backend protocol state rather than a frontend-only
+    /// display alias.
+    pub fn is_protocol_status(self) -> bool {
+        matches!(
+            self,
+            Self::OperatorPresigned
+                | Self::CommitteePresigned
+                | Self::OperatorDataPushed
+                | Self::PreKickoff
+                | Self::OperatorKickOff
+                | Self::Challenge
+                | Self::Disprove
+                | Self::Obsoleted
+                | Self::Skipped
+                | Self::OperatorTake1
+                | Self::OperatorTake2
+        )
     }
-    pub fn is_before(&self, other: &GraphStatus) -> bool {
-        let mut current = *other;
-        while let Some(prev) = current.get_previous_status() {
-            if &prev == self {
-                return true;
-            }
-            current = prev;
+
+    /// States from which `self` may be reached with the supplied evidence.
+    ///
+    /// These sets intentionally contain transitive predecessors. A chain scan
+    /// can observe several confirmed transactions in one pass, so requiring a
+    /// locally persisted intermediate state would make recovery after restart
+    /// impossible. Closed states are deliberately absent from all sets.
+    pub fn allowed_transition_from(self, source: GraphStatusSource) -> &'static [GraphStatus] {
+        use GraphStatus::*;
+
+        const EARLY: &[GraphStatus] = &[OperatorPresigned, CommitteePresigned];
+        const EARLY_OR_OBSOLETED: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, Obsoleted];
+        const PRE_KICKOFF: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, OperatorDataPushed, Obsoleted];
+        const KICKOFF: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, OperatorDataPushed, PreKickoff, Obsoleted];
+        const CHALLENGE: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            Obsoleted,
+            OperatorKickOff,
+        ];
+        const TAKE1: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            Obsoleted,
+            OperatorKickOff,
+        ];
+        const TAKE2_OR_DISPROVE: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            Obsoleted,
+            OperatorKickOff,
+            Challenge,
+        ];
+        const SKIPPED: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, OperatorDataPushed, PreKickoff, Obsoleted];
+
+        match source {
+            GraphStatusSource::Definition => match self {
+                CommitteePresigned => &[OperatorPresigned],
+                _ => &[],
+            },
+            GraphStatusSource::GoatEvent => match self {
+                OperatorDataPushed => EARLY,
+                OperatorTake1 => TAKE1,
+                OperatorTake2 | Disprove => TAKE2_OR_DISPROVE,
+                _ => &[],
+            },
+            GraphStatusSource::ChainReconcile => match self {
+                CommitteePresigned => &[OperatorPresigned],
+                // Obsoleted is a provisional branch when GraphData was not
+                // yet visible. A later full chain scan may correct it, but
+                // ordinary Goat event replay may not.
+                OperatorDataPushed => EARLY_OR_OBSOLETED,
+                PreKickoff | Obsoleted => PRE_KICKOFF,
+                OperatorKickOff => KICKOFF,
+                Challenge => CHALLENGE,
+                OperatorTake1 => TAKE1,
+                OperatorTake2 | Disprove => TAKE2_OR_DISPROVE,
+                Skipped => SKIPPED,
+                OperatorPresigned | Created | Presigned | L2Recorded | OperatorKickOffing
+                | Challenging | Disproving => &[],
+            },
         }
-        false
-    }
-    pub fn is_after(&self, other: &GraphStatus) -> bool {
-        let mut current = *self;
-        while let Some(prev) = current.get_previous_status() {
-            if &prev == other {
-                return true;
-            }
-            current = prev;
-        }
-        false
     }
 }
 
@@ -386,6 +456,9 @@ pub struct Graph {
     pub status: String,     // GraphStatus
     pub sub_status: String, // GraphStatus
     pub operator_pubkey: String,
+    /// Canonical hash of the immutable graph parameters. This binds the
+    /// runtime projection to exactly one transaction-graph definition.
+    pub definition_hash: String,
     pub next_prekickoff: Option<SerializableTxid>,
     pub cur_prekickoff_txid: Option<SerializableTxid>,
     pub force_skip_kickoff_txid: Option<SerializableTxid>,
@@ -448,6 +521,7 @@ pub struct Message {
     pub message_version: i64,
     pub weight: i64,
     pub lock_time_until: i64,
+    pub created_at: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]

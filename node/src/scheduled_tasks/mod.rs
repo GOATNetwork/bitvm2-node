@@ -11,6 +11,7 @@ use crate::env::{
     get_maintenance_run_timeout_secs, is_enable_babe_setup_state_cleanup,
     is_enable_update_spv_contract, is_relayer,
 };
+use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::babe_setup_state_cleanup_task::babe_setup_state_cleanup_monitor;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
     detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
@@ -27,12 +28,13 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 pub use event_watch_task::{is_processing_gateway_history_events, run_watch_event_task};
 pub use sequencer_set_hash_monitor_task::run_sequencer_set_hash_monitor_task;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::localdb::{LocalDB, StorageProcessor};
 use store::{Graph, MessageType};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 async fn fetch_on_turn_graph_by_status<'a>(
     storage_processor: &mut StorageProcessor<'a>,
@@ -51,78 +53,124 @@ async fn fetch_on_turn_graph_by_status<'a>(
     }
     Ok(graphs)
 }
+
+async fn run_maintenance_subtask<T>(
+    task: &'static str,
+    operation: impl Future<Output = anyhow::Result<T>>,
+) {
+    let started_at = Instant::now();
+    match operation.await {
+        Ok(_) => debug!(
+            event = "maintenance_subtask_result",
+            task,
+            outcome = "succeeded",
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "maintenance subtask completed"
+        ),
+        Err(error) => warn!(
+            event = "maintenance_subtask_result",
+            task,
+            outcome = "failed",
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            error_class = "maintenance",
+            error = %error,
+            "maintenance subtask failed after execution"
+        ),
+    }
+}
+
+enum MaintenanceRunOutcome {
+    Completed,
+    DeferredHistorySync,
+}
+
 async fn run(
     actor: Actor,
     local_db: &LocalDB,
     btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<MaintenanceRunOutcome> {
     let btc_client = btc_client.as_ref();
     let goat_client = goat_client.as_ref();
 
     if is_enable_babe_setup_state_cleanup()
         && matches!(&actor, Actor::Verifier | Actor::Operator | Actor::All)
-        && let Err(err) = babe_setup_state_cleanup_monitor(local_db).await
     {
-        warn!("babe_setup_state_cleanup_monitor, err {:?}", err)
+        run_maintenance_subtask(
+            "babe_setup_state_cleanup_monitor",
+            babe_setup_state_cleanup_monitor(local_db),
+        )
+        .await;
     }
 
-    if (actor == Actor::Operator || is_relayer())
-        && let Err(err) = node_available_pbtc_update_monitor(local_db, goat_client).await
-    {
-        warn!("node_available_pbtc_update_monitor, err {:?}", err)
+    if actor == Actor::Operator || is_relayer() {
+        run_maintenance_subtask(
+            "node_available_pbtc_update_monitor",
+            node_available_pbtc_update_monitor(local_db, goat_client),
+        )
+        .await;
     }
 
-    if is_enable_update_spv_contract()
-        && let Err(err) = spv_header_hash_update(btc_client, goat_client).await
-    {
-        warn!("spv_header_hash_update, err {:?}", err)
+    if is_enable_update_spv_contract() {
+        run_maintenance_subtask(
+            "spv_header_hash_update",
+            spv_header_hash_update(btc_client, goat_client),
+        )
+        .await;
     }
 
     if is_processing_gateway_history_events(local_db, goat_client).await? {
-        warn!("Still in history events processing");
-        return Ok(());
+        info!(
+            event = "maintenance_subtask_result",
+            task = "gateway_history_sync",
+            outcome = "deferred",
+            role = %actor,
+            reason = "history_sync_in_progress",
+            "maintenance protocol work deferred while gateway history sync is active"
+        );
+        return Ok(MaintenanceRunOutcome::DeferredHistorySync);
     }
 
-    if let Err(err) = instance_answers_monitor(local_db, btc_client, goat_client).await {
-        warn!("instance_answers_monitor, err {:?}", err)
-    }
-    if let Err(err) = instance_window_expiration_monitor(local_db, goat_client).await {
-        warn!("instance_window_expiration_monitor, err {:?}", err)
-    }
-
-    if let Err(err) = instance_expiration_monitor(local_db, btc_client).await {
-        warn!("instance_expiration_monitor, err {:?}", err)
-    }
-
-    if let Err(err) = instance_btc_tx_monitor(local_db, btc_client).await {
-        warn!("instance_btc_tx_monitor, err {:?}", err)
-    }
-
-    if let Err(err) = instance_committee_key_cleanup_monitor(local_db, btc_client).await {
-        warn!("instance_committee_key_cleanup_monitor, err {:?}", err)
-    }
-
-    if let Err(err) = instance_bridge_out_monitor(local_db).await {
-        warn!("instance_bridge_out_monitor, err {:?}", err)
-    }
-
-    if let Err(err) = detect_init_withdraw_call(local_db).await {
-        warn!("detect_init_withdraw_call, err {:?}", err)
-    }
-
-    if let Err(err) = detect_kickoff(local_db, btc_client).await {
-        warn!("detect_kickoff, err {:?}", err)
-    }
-
-    if let Err(err) = detect_take1_or_challenge(local_db, btc_client).await {
-        warn!("detect_take1_or_challenge, err {:?}", err)
-    }
-
-    if let Err(err) = process_graph_challenge(local_db, btc_client).await {
-        warn!("process_grpah_challenge, err {:?}", err)
-    }
-    Ok(())
+    run_maintenance_subtask(
+        "instance_answers_monitor",
+        instance_answers_monitor(local_db, btc_client, goat_client),
+    )
+    .await;
+    run_maintenance_subtask(
+        "instance_window_expiration_monitor",
+        instance_window_expiration_monitor(local_db, goat_client),
+    )
+    .await;
+    run_maintenance_subtask(
+        "instance_expiration_monitor",
+        instance_expiration_monitor(local_db, btc_client),
+    )
+    .await;
+    run_maintenance_subtask(
+        "instance_btc_tx_monitor",
+        instance_btc_tx_monitor(local_db, btc_client),
+    )
+    .await;
+    run_maintenance_subtask(
+        "instance_committee_key_cleanup_monitor",
+        instance_committee_key_cleanup_monitor(local_db, btc_client),
+    )
+    .await;
+    run_maintenance_subtask("instance_bridge_out_monitor", instance_bridge_out_monitor(local_db))
+        .await;
+    run_maintenance_subtask("detect_init_withdraw_call", detect_init_withdraw_call(local_db)).await;
+    run_maintenance_subtask("detect_kickoff", detect_kickoff(local_db, btc_client)).await;
+    run_maintenance_subtask(
+        "detect_take1_or_challenge",
+        detect_take1_or_challenge(local_db, btc_client),
+    )
+    .await;
+    run_maintenance_subtask(
+        "process_graph_challenge",
+        process_graph_challenge(local_db, btc_client),
+    )
+    .await;
+    Ok(MaintenanceRunOutcome::Completed)
 }
 
 pub async fn run_maintenance_tasks(
@@ -140,26 +188,102 @@ pub async fn run_maintenance_tasks(
             _ = tokio::time::sleep(Duration::from_secs(interval)) => {
                 tick += 1;
                 let tick_start = Instant::now();
-                info!(tick, interval_secs = interval, "maintenance task tick start");
+                info!(
+                    event = "maintenance_tick",
+                    tick,
+                    interval_secs = interval,
+                    outcome = "started",
+                    "maintenance task tick started"
+                );
                 // Execute the normal monitoring logic
                 match tokio::time::timeout(
                     maintenance_run_timeout,
                     run(actor.clone(),&local_db,btc_client.clone(),goat_client.clone()),
                 ).await {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(err)) => {error!("run_scheduled_tasks, err {:?}", err)}
+                    Ok(Ok(MaintenanceRunOutcome::Completed)) => {
+                        info!(
+                            event = "maintenance_tick_result",
+                            tick,
+                            outcome = "succeeded",
+                            elapsed_ms = tick_start.elapsed().as_millis() as u64,
+                            "maintenance task tick completed"
+                        );
+                    }
+                    Ok(Ok(MaintenanceRunOutcome::DeferredHistorySync)) => {
+                        info!(
+                            event = "maintenance_tick_result",
+                            tick,
+                            outcome = "deferred",
+                            reason = "history_sync_in_progress",
+                            elapsed_ms = tick_start.elapsed().as_millis() as u64,
+                            "maintenance protocol work was deferred"
+                        );
+                    }
+                    Ok(Err(error)) => {
+                        error!(
+                            event = "maintenance_tick_result",
+                            tick,
+                            outcome = "failed",
+                            elapsed_ms = tick_start.elapsed().as_millis() as u64,
+                            error = %error,
+                            "maintenance task returned an error"
+                        )
+                    }
                     Err(_) => {
                         error!(
+                            event = "maintenance_tick_result",
                             tick,
+                            outcome = "timed_out",
                             timeout_secs = maintenance_run_timeout.as_secs(),
-                            "maintenance run timeout"
+                            elapsed_ms = tick_start.elapsed().as_millis() as u64,
+                            "maintenance task tick timed out"
                         )
                     }
                 }
-                info!(tick, elapsed_ms = tick_start.elapsed().as_millis() as u64, "maintenance task tick end");
+                if tick.is_multiple_of(6) {
+                    let queue_started_at = Instant::now();
+                    match local_db.acquire().await {
+                        Ok(mut storage) => match storage
+                            .get_message_queue_stats(&actor.to_string(), current_time_secs())
+                            .await
+                        {
+                            Ok(stats) => info!(
+                                event = "message_queue_snapshot",
+                                role = %actor,
+                                pending_ready = stats.pending_ready,
+                                pending_locked = stats.pending_locked,
+                                failed = stats.failed,
+                                oldest_pending_at = ?stats.oldest_pending_at,
+                                elapsed_ms = queue_started_at.elapsed().as_millis() as u64,
+                                "local message queue snapshot"
+                            ),
+                            Err(error) => error!(
+                                event = "db_operation_result",
+                                operation = "get_message_queue_stats",
+                                outcome = "failed",
+                                elapsed_ms = queue_started_at.elapsed().as_millis() as u64,
+                                error = %error,
+                                "failed to collect local message queue snapshot"
+                            ),
+                        },
+                        Err(error) => error!(
+                            event = "db_operation_result",
+                            operation = "acquire_db_for_message_queue_snapshot",
+                            outcome = "failed",
+                            elapsed_ms = queue_started_at.elapsed().as_millis() as u64,
+                            error = %error,
+                            "failed to acquire local database for message queue snapshot"
+                        ),
+                    }
+                }
             }
             _ = cancellation_token.cancelled() => {
-                tracing::info!("maintenance task received shutdown signal");
+                tracing::info!(
+                    event = "maintenance_lifecycle",
+                    outcome = "shutdown",
+                    role = %actor,
+                    "maintenance task received shutdown signal"
+                );
                 return Ok("maintenance_shutdown".to_string());
             }
         }

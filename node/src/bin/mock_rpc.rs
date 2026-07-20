@@ -21,9 +21,11 @@ use clap::Parser;
 use client::Utxo;
 use prometheus_client::registry::Registry;
 use secp256k1::Secp256k1;
+use store::localdb::{GraphRuntimeUpdate, StorageProcessor};
 use store::{
     BridgeOutGlobalStats, GoatTxProcessingStatus, GoatTxRecord, GoatTxType, Graph, GraphStatus,
-    Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, Node, UInt64Array3, create_local_db,
+    GraphStatusSource, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus, Node,
+    UInt64Array3, create_local_db,
 };
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
@@ -211,6 +213,7 @@ fn seeded_graph(
         status: status.to_string(),
         sub_status,
         operator_pubkey: operator_pubkey.to_string(),
+        definition_hash: format!("mock-{graph_id}"),
         init_withdraw_tx_hash,
         bridge_out_start_at: now - 300,
         status_updated_at: now - 120,
@@ -219,6 +222,52 @@ fn seeded_graph(
         updated_at: now,
         ..Default::default()
     }
+}
+
+async fn seed_graph_runtime(tx: &mut StorageProcessor<'_>, graph: &Graph) -> Result<()> {
+    let target_status = GraphStatus::from_str(&graph.status)
+        .map_err(|_| anyhow::anyhow!("invalid mock graph status {}", graph.status))?;
+    let sub_status = graph.sub_status.clone();
+    let challenge_txid = graph.challenge_txid.clone();
+    let init_withdraw_tx_hash = graph.init_withdraw_tx_hash.clone();
+    let bridge_out_start_at = graph.bridge_out_start_at;
+    let proceed_withdraw_height = graph.proceed_withdraw_height;
+
+    let mut definition = graph.clone();
+    definition.status = GraphStatus::OperatorPresigned.to_string();
+    definition.sub_status.clear();
+    definition.challenge_txid = None;
+    definition.init_withdraw_tx_hash = None;
+    definition.bridge_out_start_at = 0;
+    definition.proceed_withdraw_height = 0;
+    tx.upsert_graph_definition(&definition).await?;
+
+    if target_status != GraphStatus::OperatorPresigned {
+        tx.transition_graph_status(
+            graph.instance_id,
+            graph.graph_id,
+            target_status,
+            GraphStatusSource::ChainReconcile,
+            (!sub_status.is_empty()).then_some(sub_status),
+        )
+        .await?;
+    }
+
+    let mut runtime = GraphRuntimeUpdate::new(graph.instance_id, graph.graph_id);
+    if let Some(challenge_txid) = challenge_txid {
+        runtime = runtime.with_challenge_txid(challenge_txid);
+    }
+    if let Some(init_withdraw_tx_hash) = init_withdraw_tx_hash {
+        runtime = runtime.with_init_withdraw_tx_hash(init_withdraw_tx_hash);
+    }
+    if bridge_out_start_at != 0 {
+        runtime = runtime.with_bridge_out_start_at(bridge_out_start_at);
+    }
+    if proceed_withdraw_height != 0 {
+        runtime = runtime.with_proceed_withdraw_height(proceed_withdraw_height);
+    }
+    tx.update_graph_runtime(&runtime).await?;
+    Ok(())
 }
 
 async fn seed_mock_data(
@@ -294,7 +343,7 @@ async fn seed_mock_data(
         tx.upsert_instance(&instance).await?;
     }
     for graph in [ready_graph, challenge_graph] {
-        tx.upsert_graph(&graph).await?;
+        seed_graph_runtime(&mut tx, &graph).await?;
     }
     tx.upsert_goat_tx_record(&GoatTxRecord {
         instance_id: bridge_out_instance_id,

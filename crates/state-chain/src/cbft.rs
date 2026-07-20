@@ -153,7 +153,7 @@ mod tests {
     pub fn test_verify_goat_block() {
         // https://explorer.goat.network/block/5756298
         // curl "http://127.0.0.1:26657/block?height=5756784" | jq .result.block.data
-        let cosmos_txns: Vec<String> = serde_json::from_str(&LB_1_JSON_TXNS).unwrap();
+        let cosmos_txns: Vec<String> = serde_json::from_str(LB_1_JSON_TXNS).unwrap();
         let cosmos_txns =
             cosmos_txns.into_iter().map(|s| BASE64.decode(s).unwrap()).collect::<Vec<_>>();
         // loght block 5756784
@@ -177,7 +177,7 @@ mod tests {
         let light_block_2 = serde_json::from_str::<LightBlock>(LB_2_JSON).unwrap();
         // curl "http://127.0.0.1:26657/block?height=5756785" | jq .result.block.data
         // https://explorer.goat.network/block/5756299
-        let cosmos_txns: Vec<String> = serde_json::from_str(&LB_2_JSON_TXNS).unwrap();
+        let cosmos_txns: Vec<String> = serde_json::from_str(LB_2_JSON_TXNS).unwrap();
         let cosmos_txns =
             cosmos_txns.into_iter().map(|s| BASE64.decode(s).unwrap()).collect::<Vec<_>>();
         check_el_block_from_payload(

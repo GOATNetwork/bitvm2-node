@@ -127,14 +127,14 @@ mod tests {
             }],
             output: vec![TxOut {
                 value: Amount::from_sat(49_000),
-                script_pubkey: ScriptBuf::new_op_return(&[0x6a]),
+                script_pubkey: ScriptBuf::new_op_return([0x6a]),
             }],
         };
 
         // 6. Generate Schnorr signature
         let sig = generate_taproot_leaf_schnorr_signature(
             &mut spending_tx,
-            &[prev_out.clone()],
+            std::slice::from_ref(&prev_out),
             0,
             TapSighashType::AllPlusAnyoneCanPay,
             &script,

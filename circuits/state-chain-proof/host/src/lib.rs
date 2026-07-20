@@ -98,7 +98,7 @@ async fn fetch_withdrawal_events(
     start: u64,
     batch_size: u64,
 ) -> anyhow::Result<Vec<(u64, [u8; 16], Address)>> {
-    let rpc_url = Url::parse(&execution_layer_rpc)?;
+    let rpc_url = Url::parse(execution_layer_rpc)?;
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
     let mut withdrawals = vec![];
     for i in start..start + batch_size {
@@ -150,7 +150,7 @@ async fn fetch_exection_layer_block(
     genesis: &Genesis,
 ) -> anyhow::Result<EthClientExecutorInput> {
     // Setup the provider.
-    let rpc_url = Url::parse(&execution_layer_rpc)?;
+    let rpc_url = Url::parse(execution_layer_rpc)?;
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
     //let rpc_db = RpcDb::new(provider.clone(), provider.clone(), execution_layer_block_number - 1);
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
@@ -170,6 +170,7 @@ async fn fetch_exection_layer_block(
     Ok(client_input)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_state_chain(
     l2_contract_addresses: &str,
     proceed_withdraw_method_ids: &str,
@@ -194,7 +195,7 @@ pub async fn fetch_state_chain(
     let genesis = if genesis == "goattest" { Genesis::GoatTestnet } else { Genesis::GOAT };
     assert!(start > 0, "Don't get genesis block from the consensus layer.");
     let mut blocks: Vec<_> = Vec::new();
-    let base_slot: [u8; 32] = U256::from(16).to_be_bytes().try_into()?;
+    let base_slot: [u8; 32] = U256::from(16).to_be_bytes();
     // fetch graph_block_numbers and graph_ids between in goat block(start, start + batch_size)
     let withdrawal_events = fetch_withdrawal_events(
         execution_layer_rpc,
@@ -207,7 +208,7 @@ pub async fn fetch_state_chain(
 
     for i in start..(start + batch_size) {
         let evm_block =
-            fetch_exection_layer_block(&execution_layer_rpc, i, &genesis).await.map_err(|e| {
+            fetch_exection_layer_block(execution_layer_rpc, i, &genesis).await.map_err(|e| {
                 tracing::error!("fetch_exection_layer_block: {e:?}");
                 proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
             })?;
@@ -216,10 +217,9 @@ pub async fn fetch_state_chain(
             evm_block.current_block.header.parent_beacon_block_root.unwrap();
 
         let parent_cosmos_block_height =
-            match get_cosmos_block_height_at(cosmos_rpc_url, *parent_beacon_block_root).await {
-                Ok(d) => d,
-                Err(_) => None,
-            };
+            get_cosmos_block_height_at(cosmos_rpc_url, *parent_beacon_block_root)
+                .await
+                .unwrap_or_default();
 
         let (_, cl_block_number) =
             fetch_cbft_validator_info(cosmos_rpc_url, i, parent_cosmos_block_height, 1000)
@@ -265,7 +265,7 @@ pub async fn fetch_state_chain(
         blocks.push(CircuitStateBlock { cosmos_txns, cosmos_block, evm_block, withdrawals });
     }
     let block_bytes = serde_json::to_vec(&blocks)?;
-    std::fs::write(&blocks_file, block_bytes)?;
+    std::fs::write(blocks_file, block_bytes)?;
     Ok(blocks)
 }
 
@@ -276,6 +276,7 @@ pub struct StateChainProofBuilder {
 }
 
 impl StateChainProofBuilder {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(STATE_CHAIN);
@@ -313,7 +314,7 @@ impl ProofBuilder for StateChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof))
+            let public_inputs = fs::read(format!("{}.public_inputs.bin", input_proof))
                 .context("Read public input")?;
             Some(public_inputs)
         };
@@ -323,8 +324,8 @@ impl ProofBuilder for StateChainProofBuilder {
                 Some(public_inputs) => {
                     let proof_bytes =
                         fs::read(input_proof).context("Failed to read input proof file")?;
-                    let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof))
-                        .context("Read vk_hash")?;
+                    let zkm_vk_hash =
+                        fs::read(format!("{}.vk_hash.bin", input_proof)).context("Read vk_hash")?;
                     let version_path = format!("{input_proof}.zkm_version.bin");
                     let zkm_version = fs::read(&version_path)
                         .with_context(|| {
@@ -407,16 +408,16 @@ impl ProofBuilder for StateChainProofBuilder {
         let ProofRequest::StateChainProofRequest { output_proof, .. } = ctx else {
             anyhow::bail!("Invalid state chain inputs");
         };
-        std::fs::write(&format!("{}", output_proof), proof.bytes())?;
+        std::fs::write(output_proof, proof.bytes())?;
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
         std::fs::write(
-            &format!("{}.public_inputs.bin", output_proof),
+            format!("{}.public_inputs.bin", output_proof),
             proof.public_values.to_vec(),
         )?;
-        std::fs::write(&format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
-        std::fs::write(&format!("{}.zkm_version.bin", output_proof), zkm_version)?;
+        std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
 
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok((public_value_hex, proof_size))

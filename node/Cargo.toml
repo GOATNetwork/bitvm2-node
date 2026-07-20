@@ -16,6 +16,10 @@ name = "challenge"
 path = "src/bin/send_challenge.rs"
 
 [[bin]]
+name = "verifier-challenge"
+path = "src/bin/send_verifier_challenge.rs"
+
+[[bin]]
 name = "sequencer-set-publish"
 path = "src/bin/sequencer-set-publish.rs"
 
@@ -93,7 +97,7 @@ prometheus-client = { workspace = true }
 esplora-client = { workspace = true }
 
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 thiserror = "2.0"
 
 bitcoin = { workspace = true, features = ["serde"] }

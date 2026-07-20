@@ -1,17 +1,19 @@
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    BridgeOutGlobalStats, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, Instance,
-    LongRunningTaskProof, Message, Node, NodesOverview, OperatorProof, PeginGraphProcessData,
-    PeginInstanceProcessData, PendingGraphInit, SequencerSetHashChange, SequencerSetScanState,
-    SerializableTxid, WatchContract, WatchtowerProof,
+    BridgeOutGlobalStats, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, GraphStatus,
+    GraphStatusSource, GraphStatusTransitionOutcome, Instance, LongRunningTaskProof, Message, Node,
+    NodesOverview, OperatorProof, PeginGraphProcessData, PeginInstanceProcessData,
+    PendingGraphInit, SequencerSetHashChange, SequencerSetScanState, SerializableTxid,
+    WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolConnection;
+use sqlx::sqlite::SqliteRow;
 use sqlx::types::Uuid;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool, Transaction, migrate::MigrateDatabase};
-use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
@@ -19,8 +21,20 @@ fn get_current_timestamp_secs() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
 }
 
-fn get_current_timestamp_millis() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
+fn message_from_row(row: &SqliteRow) -> Result<Message, sqlx::Error> {
+    Ok(Message {
+        message_id: row.try_get("message_id")?,
+        business_id: row.try_get("business_id")?,
+        actor: row.try_get("actor")?,
+        from_peer: row.try_get("from_peer")?,
+        msg_type: row.try_get("msg_type")?,
+        content: row.try_get("content")?,
+        state: row.try_get("state")?,
+        message_version: row.try_get("message_version")?,
+        weight: row.try_get("weight")?,
+        lock_time_until: row.try_get("lock_time_until")?,
+        created_at: row.try_get("created_at")?,
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -43,13 +57,25 @@ pub struct StorageProcessor<'a> {
     pub in_transaction: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct MessageQueueStats {
+    pub pending_ready: i64,
+    pub pending_locked: i64,
+    pub failed: i64,
+    pub oldest_pending_at: Option<i64>,
+}
+
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 impl LocalDB {
     pub async fn new(path: &str, is_mem: bool) -> LocalDB {
         if !Sqlite::database_exists(path).await.unwrap_or(false) {
             tracing::info!("Creating database {}", path);
             match Sqlite::create_database(path).await {
-                Ok(_) => println!("Create db success"),
+                Ok(_) => tracing::info!(
+                    event = "database_lifecycle",
+                    outcome = "created",
+                    "local database created"
+                ),
                 Err(error) => panic!("error: {error}"),
             }
         } else {
@@ -78,6 +104,16 @@ impl LocalDB {
     pub async fn start_transaction<'a>(&self) -> anyhow::Result<StorageProcessor<'a>> {
         Ok(StorageProcessor {
             conn: ConnectionHolder::Transaction(self.conn.begin().await?),
+            in_transaction: true,
+        })
+    }
+
+    /// Start a short write transaction before reading state that will be
+    /// immediately reconciled. This prevents a stale snapshot from dropping
+    /// a concurrent update between the read and the conditional write.
+    pub async fn start_immediate_transaction<'a>(&self) -> anyhow::Result<StorageProcessor<'a>> {
+        Ok(StorageProcessor {
+            conn: ConnectionHolder::Transaction(self.conn.begin_with("BEGIN IMMEDIATE").await?),
             in_transaction: true,
         })
     }
@@ -211,44 +247,54 @@ pub struct InstanceUpdate {
     pub to_addr: Option<String>,
     pub btc_txid: Option<SerializableTxid>,
     pub status: Option<String>,
-    pub pegin_confirm_txid: Option<String>,
+    pub pegin_confirm_txid: Option<SerializableTxid>,
+    pub pegin_cancel_txid: Option<SerializableTxid>,
     pub post_pegin_txhash: Option<String>,
     pub btc_height: Option<i64>,
-    pub committees_answers: Option<HashMap<String, Vec<u8>>>,
+    pub committees_answers: Option<IndexMap<String, Vec<u8>>>,
     pub bridge_out_lock_time: Option<i64>,
+    pub bridge_out_amount: Option<String>,
+    pub goat_tx_hash: Option<String>,
+    pub goat_tx_height: Option<i64>,
+    pub user_change_addr: Option<String>,
+    pub user_refund_addr: Option<String>,
+    pub only_if_status_in: Option<Vec<String>>,
+    pub only_if_is_bridge_in: Option<bool>,
+    pub only_if_goat_tx_hash: Option<String>,
 }
 
 impl InstanceUpdate {
-    /// Create new update parameters
-    pub fn new_with_instance_id(instance_id: Uuid) -> Self {
+    fn empty() -> Self {
         Self {
-            instance_id: Some(instance_id),
+            instance_id: None,
             escrow_hash: None,
             from_addr: None,
             to_addr: None,
             btc_txid: None,
             status: None,
             pegin_confirm_txid: None,
+            pegin_cancel_txid: None,
             post_pegin_txhash: None,
             btc_height: None,
             committees_answers: None,
             bridge_out_lock_time: None,
+            bridge_out_amount: None,
+            goat_tx_hash: None,
+            goat_tx_height: None,
+            user_change_addr: None,
+            user_refund_addr: None,
+            only_if_status_in: None,
+            only_if_is_bridge_in: None,
+            only_if_goat_tx_hash: None,
         }
     }
+
+    /// Create new update parameters
+    pub fn new_with_instance_id(instance_id: Uuid) -> Self {
+        Self { instance_id: Some(instance_id), ..Self::empty() }
+    }
     pub fn new_with_escrow_hash(escrow_hash: String) -> Self {
-        Self {
-            instance_id: None,
-            escrow_hash: Some(escrow_hash),
-            to_addr: None,
-            from_addr: None,
-            btc_txid: None,
-            status: None,
-            pegin_confirm_txid: None,
-            post_pegin_txhash: None,
-            btc_height: None,
-            committees_answers: None,
-            bridge_out_lock_time: None,
-        }
+        Self { escrow_hash: Some(escrow_hash), ..Self::empty() }
     }
 
     /// Set from_addr
@@ -274,9 +320,15 @@ impl InstanceUpdate {
         self
     }
 
-    /// Set pegin confirmation information
-    pub fn with_pegin_confirm(mut self, txid: String, _fee: i64) -> Self {
+    /// Set pegin confirmation transaction ID.
+    pub fn with_pegin_confirm_txid(mut self, txid: SerializableTxid) -> Self {
         self.pegin_confirm_txid = Some(txid);
+        self
+    }
+
+    /// Set pegin cancellation transaction ID.
+    pub fn with_pegin_cancel_txid(mut self, txid: SerializableTxid) -> Self {
+        self.pegin_cancel_txid = Some(txid);
         self
     }
 
@@ -287,7 +339,10 @@ impl InstanceUpdate {
     }
 
     /// Set committees answers
-    pub fn with_committees_answers(mut self, committees_answers: HashMap<String, Vec<u8>>) -> Self {
+    pub fn with_committees_answers(
+        mut self,
+        committees_answers: IndexMap<String, Vec<u8>>,
+    ) -> Self {
         self.committees_answers = Some(committees_answers);
         self
     }
@@ -303,6 +358,52 @@ impl InstanceUpdate {
         self.bridge_out_lock_time = Some(bridge_out_lock_time);
         self
     }
+
+    pub fn with_bridge_out_amount(mut self, bridge_out_amount: String) -> Self {
+        self.bridge_out_amount = Some(bridge_out_amount);
+        self
+    }
+
+    pub fn with_goat_tx_hash(mut self, goat_tx_hash: String) -> Self {
+        self.goat_tx_hash = Some(goat_tx_hash);
+        self
+    }
+
+    pub fn with_goat_tx_height(mut self, goat_tx_height: i64) -> Self {
+        self.goat_tx_height = Some(goat_tx_height);
+        self
+    }
+
+    pub fn with_user_change_addr(mut self, user_change_addr: String) -> Self {
+        self.user_change_addr = Some(user_change_addr);
+        self
+    }
+
+    pub fn with_user_refund_addr(mut self, user_refund_addr: String) -> Self {
+        self.user_refund_addr = Some(user_refund_addr);
+        self
+    }
+
+    /// Apply this update only while the instance is still in one of the
+    /// expected states. The condition is folded into the UPDATE statement.
+    pub fn with_only_if_status_in(mut self, statuses: Vec<String>) -> Self {
+        self.only_if_status_in = Some(statuses);
+        self
+    }
+
+    /// Apply this update only to the expected bridge direction.
+    pub fn with_only_if_is_bridge_in(mut self, is_bridge_in: bool) -> Self {
+        self.only_if_is_bridge_in = Some(is_bridge_in);
+        self
+    }
+
+    /// Apply this update only when the existing Goat transaction hash is the
+    /// expected value. Used to make swap initialization idempotent.
+    pub fn with_only_if_goat_tx_hash(mut self, goat_tx_hash: String) -> Self {
+        self.only_if_goat_tx_hash = Some(goat_tx_hash);
+        self
+    }
+
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
         self.escrow_hash.is_some()
@@ -311,10 +412,16 @@ impl InstanceUpdate {
             || self.btc_txid.is_some()
             || self.status.is_some()
             || self.pegin_confirm_txid.is_some()
+            || self.pegin_cancel_txid.is_some()
             || self.post_pegin_txhash.is_some()
             || self.btc_height.is_some()
             || self.committees_answers.is_some()
             || self.bridge_out_lock_time.is_some()
+            || self.bridge_out_amount.is_some()
+            || self.goat_tx_hash.is_some()
+            || self.goat_tx_height.is_some()
+            || self.user_change_addr.is_some()
+            || self.user_refund_addr.is_some()
     }
 
     pub fn get_query_builder(&self, base_sql: &str) -> QueryBuilder {
@@ -327,7 +434,11 @@ impl InstanceUpdate {
         }
 
         if let Some(ref txid) = self.pegin_confirm_txid {
-            query_builder.set_field("pegin_confirm_txid", QueryParam::Text(txid.clone()));
+            query_builder.set_field("pegin_confirm_txid", QueryParam::BTCTxid(txid.clone()));
+        }
+
+        if let Some(ref txid) = self.pegin_cancel_txid {
+            query_builder.set_field("pegin_cancel_txid", QueryParam::BTCTxid(txid.clone()));
         }
 
         if let Some(ref txid) = self.post_pegin_txhash {
@@ -354,6 +465,33 @@ impl InstanceUpdate {
             query_builder.set_field("bridge_out_lock_time", QueryParam::Int(bridge_out_lock_time));
         }
 
+        if let Some(ref bridge_out_amount) = self.bridge_out_amount {
+            query_builder
+                .set_field("bridge_out_amount", QueryParam::Text(bridge_out_amount.clone()));
+        }
+
+        if let Some(ref goat_tx_hash) = self.goat_tx_hash {
+            query_builder.set_field("goat_tx_hash", QueryParam::Text(goat_tx_hash.clone()));
+        }
+
+        if let Some(goat_tx_height) = self.goat_tx_height {
+            query_builder.set_field("goat_tx_height", QueryParam::Int(goat_tx_height));
+        }
+
+        if let Some(ref user_change_addr) = self.user_change_addr {
+            query_builder.set_field("user_change_addr", QueryParam::Text(user_change_addr.clone()));
+        }
+
+        if let Some(ref user_refund_addr) = self.user_refund_addr {
+            query_builder.set_field("user_refund_addr", QueryParam::Text(user_refund_addr.clone()));
+        }
+
+        if let Some(ref committees_answers) = self.committees_answers {
+            let committees_answers = serde_json::to_string(committees_answers)
+                .expect("IndexMap<String, Vec<u8>> serialization is infallible");
+            query_builder.set_field("committees_answers", QueryParam::Text(committees_answers));
+        }
+
         // Add update time
         let current_time = get_current_timestamp_secs();
         query_builder.set_field("updated_at", QueryParam::Int(current_time));
@@ -368,6 +506,25 @@ impl InstanceUpdate {
         if let Some(ref escrow_hash) = self.escrow_hash {
             query_builder
                 .and_where("escrow_hash = ? ", Some(QueryParam::Text(escrow_hash.clone())));
+        }
+
+        if let Some(ref statuses) = self.only_if_status_in {
+            if statuses.is_empty() {
+                // An empty allow-list must reject the update rather than
+                // silently dropping the compare-and-swap guard.
+                query_builder.and_where("1 = 0", None);
+            } else {
+                query_builder.and_where_in("status", statuses, false);
+            }
+        }
+
+        if let Some(is_bridge_in) = self.only_if_is_bridge_in {
+            query_builder.and_where("is_bridge_in = ?", Some(QueryParam::Bool(is_bridge_in)));
+        }
+
+        if let Some(ref goat_tx_hash) = self.only_if_goat_tx_hash {
+            query_builder
+                .and_where("goat_tx_hash = ?", Some(QueryParam::Text(goat_tx_hash.clone())));
         }
 
         query_builder
@@ -497,86 +654,37 @@ impl GraphQuery {
     }
 }
 
+/// Runtime graph fields that are not part of the signed graph definition.
+///
+/// Status is intentionally absent. All graph status changes must go through
+/// `StorageProcessor::transition_graph_status` so a stale event cannot replace
+/// a later chain-observed state.
 #[derive(Clone, Debug)]
-pub struct GraphUpdate {
+pub struct GraphRuntimeUpdate {
+    pub instance_id: Uuid,
     pub graph_id: Uuid,
-    pub status: Option<String>,
-    pub sub_status: Option<String>,
     pub challenge_txid: Option<SerializableTxid>,
-    pub disprove_txids: Option<Vec<SerializableTxid>>,
-    pub watchtower_challenge_timeout_txids: Option<Vec<SerializableTxid>>,
-    pub operator_challenge_nack_txids: Option<Vec<SerializableTxid>>,
-    pub operator_commit_timeout_txid: Option<Option<SerializableTxid>>,
     pub bridge_out_start_at: Option<i64>,
     pub init_withdraw_tx_hash: Option<String>,
     pub proceed_withdraw_height: Option<i64>,
 }
 
-impl GraphUpdate {
+impl GraphRuntimeUpdate {
     /// Create new update parameters
-    pub fn new(graph_id: Uuid) -> Self {
+    pub fn new(instance_id: Uuid, graph_id: Uuid) -> Self {
         Self {
+            instance_id,
             graph_id,
-            status: None,
-            sub_status: None,
             challenge_txid: None,
-            disprove_txids: None,
-            watchtower_challenge_timeout_txids: None,
-            operator_challenge_nack_txids: None,
-            operator_commit_timeout_txid: None,
             bridge_out_start_at: None,
             init_withdraw_tx_hash: None,
             proceed_withdraw_height: None,
         }
     }
 
-    /// Set status
-    pub fn with_status(mut self, status: String) -> Self {
-        self.status = Some(status);
-        self
-    }
-    /// Set sub_status
-    pub fn with_sub_status(mut self, sub_status: String) -> Self {
-        self.sub_status = Some(sub_status);
-        self
-    }
-
     /// Set challenge transaction ID
     pub fn with_challenge_txid(mut self, challenge_txid: SerializableTxid) -> Self {
         self.challenge_txid = Some(challenge_txid);
-        self
-    }
-
-    /// Set disprove transaction IDs
-    pub fn with_disprove_txids(mut self, disprove_txids: Vec<SerializableTxid>) -> Self {
-        self.disprove_txids = Some(disprove_txids);
-        self
-    }
-
-    /// Set watchtower challenge timeout transaction IDs
-    pub fn with_watchtower_challenge_timeout_txids(
-        mut self,
-        watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
-    ) -> Self {
-        self.watchtower_challenge_timeout_txids = Some(watchtower_challenge_timeout_txids);
-        self
-    }
-
-    /// Set operator challenge NACK transaction IDs
-    pub fn with_operator_challenge_nack_txids(
-        mut self,
-        operator_challenge_nack_txids: Vec<SerializableTxid>,
-    ) -> Self {
-        self.operator_challenge_nack_txids = Some(operator_challenge_nack_txids);
-        self
-    }
-
-    /// Set operator commit timeout transaction ID
-    pub fn with_operator_commit_timeout_txid(
-        mut self,
-        operator_commit_timeout_txid: Option<SerializableTxid>,
-    ) -> Self {
-        self.operator_commit_timeout_txid = Some(operator_commit_timeout_txid);
         self
     }
 
@@ -600,13 +708,7 @@ impl GraphUpdate {
 
     /// Check if any fields need to be updated
     pub fn has_updates(&self) -> bool {
-        self.status.is_some()
-            || self.sub_status.is_some()
-            || self.challenge_txid.is_some()
-            || self.disprove_txids.is_some()
-            || self.watchtower_challenge_timeout_txids.is_some()
-            || self.operator_challenge_nack_txids.is_some()
-            || self.operator_commit_timeout_txid.is_some()
+        self.challenge_txid.is_some()
             || self.bridge_out_start_at.is_some()
             || self.init_withdraw_tx_hash.is_some()
             || self.proceed_withdraw_height.is_some()
@@ -615,50 +717,8 @@ impl GraphUpdate {
     pub fn get_query_builder(&self, base_sql: &str) -> QueryBuilder {
         let mut query_builder = QueryBuilder::update(base_sql);
         // Add SET fields
-        if let Some(ref status) = self.status {
-            query_builder.set_field("status", QueryParam::Text(status.clone()));
-            query_builder
-                .set_field("status_updated_at", QueryParam::Int(get_current_timestamp_secs()));
-        }
-        if let Some(ref sub_status) = self.sub_status {
-            query_builder.set_field("sub_status", QueryParam::Text(sub_status.clone()));
-        }
         if let Some(ref challenge_txid) = self.challenge_txid {
             query_builder.set_field("challenge_txid", QueryParam::BTCTxid(challenge_txid.clone()));
-        }
-        if let Some(ref disprove_txids) = self.disprove_txids {
-            let disprove_txids_json =
-                serde_json::to_string(disprove_txids).unwrap_or_else(|_| "[]".into());
-            query_builder.set_field("disprove_txids", QueryParam::Text(disprove_txids_json));
-        }
-        if let Some(ref watchtower_challenge_timeout_txids) =
-            self.watchtower_challenge_timeout_txids
-        {
-            let watchtower_challenge_timeout_txids_json =
-                serde_json::to_string(watchtower_challenge_timeout_txids)
-                    .unwrap_or_else(|_| "[]".into());
-            query_builder.set_field(
-                "watchtower_challenge_timeout_txids",
-                QueryParam::Text(watchtower_challenge_timeout_txids_json),
-            );
-        }
-        if let Some(ref operator_challenge_nack_txids) = self.operator_challenge_nack_txids {
-            let operator_challenge_nack_txids_json =
-                serde_json::to_string(operator_challenge_nack_txids)
-                    .unwrap_or_else(|_| "[]".into());
-            query_builder.set_field(
-                "operator_challenge_nack_txids",
-                QueryParam::Text(operator_challenge_nack_txids_json),
-            );
-        }
-        if let Some(ref operator_commit_timeout_txid) = self.operator_commit_timeout_txid {
-            match operator_commit_timeout_txid {
-                Some(operator_commit_timeout_txid) => query_builder.set_field(
-                    "operator_commit_timeout_txid",
-                    QueryParam::BTCTxid(operator_commit_timeout_txid.clone()),
-                ),
-                None => query_builder.set_field_null("operator_commit_timeout_txid"),
-            }
         }
         if let Some(bridge_out_start_at) = self.bridge_out_start_at {
             query_builder.set_field("bridge_out_start_at", QueryParam::Int(bridge_out_start_at));
@@ -686,6 +746,10 @@ impl GraphUpdate {
         query_builder.and_where(
             "hex(graph_id) = ? COLLATE NOCASE",
             Some(QueryParam::Text(hex::encode(self.graph_id))),
+        );
+        query_builder.and_where(
+            "hex(instance_id) = ? COLLATE NOCASE",
+            Some(QueryParam::Text(hex::encode(self.instance_id))),
         );
 
         query_builder
@@ -845,6 +909,56 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected() > 0)
     }
 
+    /// Insert an instance only when its ID is not already present.
+    ///
+    /// Creation paths that race with status transitions must use this instead
+    /// of `upsert_instance`, whose `INSERT OR REPLACE` semantics can restore
+    /// a stale full row over a newer terminal status.
+    pub async fn insert_instance_if_absent(&mut self, instance: &Instance) -> anyhow::Result<bool> {
+        let committees_answers_json = serde_json::to_string(&instance.committees_answers)?;
+        let res = sqlx::query(
+            "INSERT INTO instance \
+             (instance_id, is_bridge_in, network, from_addr, to_addr, amount, fees, input_utxos, \
+              status, goat_tx_hash, goat_tx_height, user_xonly_pubkey, user_change_addr, \
+              user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers, \
+              pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, \
+              bridge_out_lock_time, post_pegin_txhash, bridge_out_amount, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(instance_id) DO NOTHING",
+        )
+        .bind(instance.instance_id)
+        .bind(instance.is_bridge_in)
+        .bind(&instance.network)
+        .bind(&instance.from_addr)
+        .bind(&instance.to_addr)
+        .bind(instance.amount)
+        .bind(instance.fees)
+        .bind(&instance.input_utxos)
+        .bind(&instance.status)
+        .bind(&instance.goat_tx_hash)
+        .bind(instance.goat_tx_height)
+        .bind(instance.user_xonly_pubkey)
+        .bind(&instance.user_change_addr)
+        .bind(&instance.user_refund_addr)
+        .bind(&instance.btc_txid)
+        .bind(&instance.pegin_confirm_txid)
+        .bind(&instance.pegin_cancel_txid)
+        .bind(committees_answers_json)
+        .bind(&instance.pegin_data_tx_hash)
+        .bind(instance.btc_height)
+        .bind(&instance.parameters)
+        .bind(instance.status_updated_at)
+        .bind(&instance.escrow_hash)
+        .bind(instance.bridge_out_lock_time)
+        .bind(&instance.post_pegin_txhash)
+        .bind(&instance.bridge_out_amount)
+        .bind(instance.created_at)
+        .bind(instance.updated_at)
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     /// Find a single instance by its ID
     ///
     /// Retrieves an instance from the database using its unique instance_id.
@@ -976,6 +1090,29 @@ impl<'a> StorageProcessor<'a> {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Transition an instance only when it is still in the expected status.
+    pub async fn update_instance_status_if_current(
+        &mut self,
+        instance_id: &Uuid,
+        current_status: &str,
+        new_status: &str,
+    ) -> anyhow::Result<bool> {
+        let current_time = get_current_timestamp_secs();
+        let result = sqlx::query!(
+            "UPDATE instance SET status = ?, status_updated_at = ?, updated_at = ? \
+             WHERE instance_id = ? AND status = ?",
+            new_status,
+            current_time,
+            current_time,
+            instance_id,
+            current_status,
+        )
+        .execute(self.conn())
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Update instance pegin confirmation information
     ///
     /// Method specifically for updating pegin confirmation transaction ID and fee
@@ -1026,6 +1163,9 @@ impl<'a> StorageProcessor<'a> {
         if !params.has_updates() {
             return Ok(false);
         }
+        if params.instance_id.is_none() && params.escrow_hash.is_none() {
+            anyhow::bail!("instance update requires instance_id or escrow_hash");
+        }
         let query_builder = params.get_query_builder("instance");
         // Get SQL and parameters
         let update_sql = query_builder.get_sql();
@@ -1038,28 +1178,28 @@ impl<'a> StorageProcessor<'a> {
 
     /// Add or update a single committee answer for an instance
     ///
-    /// This method allows adding or updating a single committee's answer
-    /// without needing to provide the entire committees_answers HashMap.
+    /// This method merges one committee answer atomically so concurrent event
+    /// handlers cannot overwrite each other's answers with stale full maps.
     pub async fn update_instance_committee_answer(
         &mut self,
         instance_id: &Uuid,
         committee_addr: &str,
         pubkey: Vec<u8>,
     ) -> anyhow::Result<bool> {
-        // First, get the current committees_answers
-        let current_instance = self.find_instance(instance_id).await?;
-        if current_instance.is_none() {
-            return Ok(false);
-        }
-
-        let mut committees_answers = current_instance.unwrap().committees_answers;
-        committees_answers
-            .entry(committee_addr.to_string())
-            .and_modify(|existing| {
-                *existing = pubkey.clone();
-            })
-            .or_insert_with(|| pubkey);
-        self.update_instance_committees_answers_map(instance_id, &committees_answers).await
+        let committee_patch = serde_json::json!({ (committee_addr): pubkey }).to_string();
+        let current_time = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "UPDATE instance \
+             SET committees_answers = json_patch(COALESCE(committees_answers, '{}'), json(?)), \
+                 updated_at = ? \
+             WHERE instance_id = ?",
+        )
+        .bind(committee_patch)
+        .bind(current_time)
+        .bind(instance_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     /// Remove a committee answer from an instance
@@ -1070,16 +1210,23 @@ impl<'a> StorageProcessor<'a> {
         instance_id: &Uuid,
         committee: &str,
     ) -> anyhow::Result<bool> {
-        // First, get the current committees_answers
-        let current_instance = self.find_instance(instance_id).await?;
-        if current_instance.is_none() {
-            return Ok(false);
-        }
-        let mut committees_answers = current_instance.unwrap().committees_answers;
-        // Remove the committee answer
-        committees_answers.shift_remove(committee);
-        // Update the instance with the new committees_answers
-        self.update_instance_committees_answers_map(instance_id, &committees_answers).await
+        // JSON merge-patch removes object members with a null value, so this
+        // stays atomic with concurrent single-answer additions.
+        let committee_patch =
+            serde_json::json!({ (committee): serde_json::Value::Null }).to_string();
+        let current_time = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "UPDATE instance \
+             SET committees_answers = json_patch(COALESCE(committees_answers, '{}'), json(?)), \
+                 updated_at = ? \
+             WHERE instance_id = ?",
+        )
+        .bind(committee_patch)
+        .bind(current_time)
+        .bind(instance_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     /// Get committees answers for an instance
@@ -1097,10 +1244,10 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    /// Update instance committees answers with HashMap (convenience method)
+    /// Replace the complete committee-answer map.
     ///
-    /// This is a convenience method that accepts a HashMap directly.
-    /// Internally converts it to arrays and calls the main update method.
+    /// Callers that add a single answer should use
+    /// `update_instance_committee_answer` instead, which merges atomically.
     pub async fn update_instance_committees_answers_map(
         &mut self,
         instance_id: &Uuid,
@@ -1219,81 +1366,238 @@ impl<'a> StorageProcessor<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Insert or update a graph
+    /// Insert a graph definition or verify a compatible replay.
     ///
-    /// Performs an INSERT OR REPLACE operation on the graph table.
-    /// If a graph with the same graph_id exists, it will be updated.
-    /// If no graph exists, a new one will be created.
-    ///
-    /// Parameters:
-    /// - graph: The complete graph data to insert or update
-    ///
-    /// Returns:
-    /// - Ok(affected_rows) number of rows affected by the operation
-    /// - Err if the operation failed
-    pub async fn upsert_graph(&mut self, graph: &Graph) -> anyhow::Result<u64> {
+    /// The canonical definition hash is an identity fence: a new graph may
+    /// never reuse an existing graph id and inherit its runtime projection.
+    /// Compatible replays may only fill missing non-identity metadata; they
+    /// never replace status, observed transaction ids, or withdraw metadata.
+    pub async fn upsert_graph_definition(&mut self, graph: &Graph) -> anyhow::Result<u64> {
+        if graph.definition_hash.is_empty() {
+            anyhow::bail!("graph {} is missing its definition hash", graph.graph_id);
+        }
+        if graph.status != GraphStatus::OperatorPresigned.to_string()
+            || !graph.sub_status.is_empty()
+            || graph.challenge_txid.is_some()
+            || graph.init_withdraw_tx_hash.is_some()
+            || graph.bridge_out_start_at != 0
+            || graph.proceed_withdraw_height != 0
+        {
+            anyhow::bail!(
+                "graph {} definition writes must use the OperatorPresigned baseline without runtime data",
+                graph.graph_id
+            );
+        }
         let verifier_assert_txids_json = serde_json::to_string(&graph.verifier_assert_txids)?;
         let disprove_txids_json = serde_json::to_string(&graph.disprove_txids)?;
         let watchtower_challenge_timeout_txids_json =
             serde_json::to_string(&graph.watchtower_challenge_timeout_txids)?;
         let operator_challenge_nack_txids_json =
             serde_json::to_string(&graph.operator_challenge_nack_txids)?;
-        let res = sqlx::query!(
-            "INSERT OR
-             REPLACE INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, amount, challenge_amount,
-                    status, sub_status, operator_pubkey, cur_prekickoff_txid, next_prekickoff, force_skip_kickoff_txid,
+        let res = sqlx::query(
+            "INSERT INTO graph (graph_id, instance_id, kickoff_index, from_addr, to_addr, amount, challenge_amount,
+                    status, sub_status, operator_pubkey, definition_hash, cur_prekickoff_txid, next_prekickoff, force_skip_kickoff_txid,
                     quick_challenge_txid, challenge_incomplete_kickoff_txid, pegin_txid, kickoff_txid, take1_txid,
                     challenge_txid, take2_txid, watchtower_challenge_init_txid, operator_assert_txid, verifier_assert_txids, disprove_txids,
                     watchtower_challenge_timeout_txids, operator_challenge_nack_txids, operator_commit_timeout_txid,
-                    init_withdraw_tx_hash,
-                    bridge_out_start_at, status_updated_at, proceed_withdraw_height,  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            graph.graph_id,
-            graph.instance_id,
-            graph.kickoff_index,
-            graph.from_addr,
-            graph.to_addr,
-            graph.amount,
-            graph.challenge_amount,
-            graph.status,
-            graph.sub_status,
-            graph.operator_pubkey,
-            graph.cur_prekickoff_txid,
-            graph.next_prekickoff,
-            graph.force_skip_kickoff_txid,
-            graph.quick_challenge_txid,
-            graph.challenge_incomplete_kickoff_txid,
-            graph.pegin_txid,
-            graph.kickoff_txid,
-            graph.take1_txid,
-            graph.challenge_txid,
-            graph.take2_txid,
-            graph.watchtower_challenge_init_txid,
-            graph.operator_assert_txid,
-            verifier_assert_txids_json,
-            disprove_txids_json,
-            watchtower_challenge_timeout_txids_json,
-            operator_challenge_nack_txids_json,
-            graph.operator_commit_timeout_txid,
-            graph.init_withdraw_tx_hash,
-            graph.bridge_out_start_at,
-            graph.status_updated_at,
-            graph.proceed_withdraw_height,
-            graph.created_at,
-            graph.updated_at,
+                    init_withdraw_tx_hash, bridge_out_start_at, status_updated_at, proceed_withdraw_height, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(graph_id) DO UPDATE SET
+                    from_addr = CASE
+                        WHEN graph.from_addr = '' AND excluded.from_addr <> '' THEN excluded.from_addr
+                        ELSE graph.from_addr
+                    END,
+                    to_addr = CASE
+                        WHEN graph.to_addr = '' AND excluded.to_addr <> '' THEN excluded.to_addr
+                        ELSE graph.to_addr
+                    END
+             WHERE graph.definition_hash = excluded.definition_hash
+               AND graph.instance_id = excluded.instance_id",
         )
+        .bind(graph.graph_id)
+        .bind(graph.instance_id)
+        .bind(graph.kickoff_index)
+        .bind(&graph.from_addr)
+        .bind(&graph.to_addr)
+        .bind(graph.amount)
+        .bind(graph.challenge_amount)
+        .bind(GraphStatus::OperatorPresigned.to_string())
+        .bind("")
+        .bind(&graph.operator_pubkey)
+        .bind(&graph.definition_hash)
+        .bind(graph.cur_prekickoff_txid.clone())
+        .bind(graph.next_prekickoff.clone())
+        .bind(graph.force_skip_kickoff_txid.clone())
+        .bind(graph.quick_challenge_txid.clone())
+        .bind(graph.challenge_incomplete_kickoff_txid.clone())
+        .bind(graph.pegin_txid.clone())
+        .bind(graph.kickoff_txid.clone())
+        .bind(graph.take1_txid.clone())
+        .bind(Option::<SerializableTxid>::None)
+        .bind(graph.take2_txid.clone())
+        .bind(graph.watchtower_challenge_init_txid.clone())
+        .bind(graph.operator_assert_txid.clone())
+        .bind(verifier_assert_txids_json)
+        .bind(disprove_txids_json)
+        .bind(watchtower_challenge_timeout_txids_json)
+        .bind(operator_challenge_nack_txids_json)
+        .bind(graph.operator_commit_timeout_txid.clone())
+        .bind(Option::<String>::None)
+        .bind(0_i64)
+        .bind(graph.status_updated_at)
+        .bind(0_i64)
+        .bind(graph.created_at)
+        .bind(graph.updated_at)
         .execute(self.conn())
         .await?;
+        if res.rows_affected() == 0 {
+            let Some(existing) = self.find_graph(&graph.graph_id).await? else {
+                anyhow::bail!("graph {} disappeared while storing its definition", graph.graph_id);
+            };
+            if existing.definition_hash != graph.definition_hash {
+                anyhow::bail!(
+                    "conflicting graph definition for graph_id {}: existing={}, incoming={}",
+                    graph.graph_id,
+                    existing.definition_hash,
+                    graph.definition_hash
+                );
+            }
+            if existing.instance_id != graph.instance_id {
+                anyhow::bail!(
+                    "graph definition instance mismatch for graph_id {}: existing={}, incoming={}",
+                    graph.graph_id,
+                    existing.instance_id,
+                    graph.instance_id
+                );
+            }
+        }
         Ok(res.rows_affected())
     }
 
-    pub async fn update_graph(&mut self, params: &GraphUpdate) -> anyhow::Result<()> {
+    pub async fn update_graph_runtime(
+        &mut self,
+        params: &GraphRuntimeUpdate,
+    ) -> anyhow::Result<bool> {
+        if !params.has_updates() {
+            return Ok(false);
+        }
         let query_builder = params.get_query_builder("graph");
         let update_sql = query_builder.get_sql();
         let query = sqlx::query(&update_sql);
         let query = query_builder.query(query);
-        let _ = query.execute(self.conn()).await?;
-        Ok(())
+        let result = query.execute(self.conn()).await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Atomically advance a graph status according to its evidence source.
+    ///
+    /// The conditional UPDATE is the authority check. The follow-up read only
+    /// distinguishes an idempotent replay from a stale event; it never decides
+    /// whether a write is permitted.
+    pub async fn transition_graph_status(
+        &mut self,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        target: GraphStatus,
+        source: GraphStatusSource,
+        sub_status: Option<String>,
+    ) -> anyhow::Result<GraphStatusTransitionOutcome> {
+        if !target.is_protocol_status() {
+            anyhow::bail!("frontend-only graph status {target} cannot be persisted");
+        }
+
+        let allowed_from = target.allowed_transition_from(source);
+        if allowed_from.is_empty() {
+            // Some verified scans merely observe a baseline state (for
+            // example, an operator-pre-signed graph). There is no authorized
+            // predecessor edge to write in that case; return the current
+            // projection without mutating it.
+            return self.graph_status_transition_outcome(instance_id, graph_id, target).await;
+        }
+
+        let allowed_from: Vec<String> = allowed_from.iter().map(ToString::to_string).collect();
+        let current_time = get_current_timestamp_secs();
+        let mut query_builder = QueryBuilder::update("graph");
+        query_builder.set_field("status", QueryParam::Text(target.to_string()));
+        if let Some(sub_status) = sub_status.as_ref() {
+            query_builder.set_field("sub_status", QueryParam::Text(sub_status.clone()));
+        }
+        query_builder.set_field("status_updated_at", QueryParam::Int(current_time));
+        query_builder.set_field("updated_at", QueryParam::Int(current_time));
+        query_builder.and_where(
+            "hex(graph_id) = ? COLLATE NOCASE",
+            Some(QueryParam::Text(hex::encode(graph_id))),
+        );
+        query_builder.and_where(
+            "hex(instance_id) = ? COLLATE NOCASE",
+            Some(QueryParam::Text(hex::encode(instance_id))),
+        );
+        query_builder.and_where_in("status", &allowed_from, false);
+
+        let update_sql = query_builder.get_sql();
+        let query = query_builder.query(sqlx::query(&update_sql));
+        if query.execute(self.conn()).await?.rows_affected() > 0 {
+            return Ok(GraphStatusTransitionOutcome::Applied);
+        }
+
+        // A zero-row conditional update has two distinct meanings: this can
+        // be an idempotent replay, or another writer may have moved the row to
+        // a state which rejects this transition. The follow-up read reports
+        // that distinction; it never authorizes a write.
+        let outcome = self.graph_status_transition_outcome(instance_id, graph_id, target).await?;
+        if !matches!(outcome, GraphStatusTransitionOutcome::AlreadyCurrent) {
+            return Ok(outcome);
+        }
+
+        let Some(sub_status) = sub_status else {
+            return Ok(GraphStatusTransitionOutcome::AlreadyCurrent);
+        };
+
+        let current_time = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "UPDATE graph SET sub_status = ?, updated_at = ? \
+             WHERE graph_id = ? AND instance_id = ? AND status = ?",
+        )
+        .bind(sub_status)
+        .bind(current_time)
+        .bind(graph_id)
+        .bind(instance_id)
+        .bind(target.to_string())
+        .execute(self.conn())
+        .await?;
+        if result.rows_affected() > 0 {
+            return Ok(GraphStatusTransitionOutcome::AlreadyCurrent);
+        }
+
+        // The row may have changed between the outcome read and the optional
+        // sub-status update. Re-read so a concurrent transition is never
+        // misreported as an idempotent replay or a missing graph.
+        self.graph_status_transition_outcome(instance_id, graph_id, target).await
+    }
+
+    async fn graph_status_transition_outcome(
+        &mut self,
+        instance_id: Uuid,
+        graph_id: Uuid,
+        target: GraphStatus,
+    ) -> anyhow::Result<GraphStatusTransitionOutcome> {
+        let Some(current_graph) = self.find_graph(&graph_id).await? else {
+            return Ok(GraphStatusTransitionOutcome::NotFound);
+        };
+        if current_graph.instance_id != instance_id {
+            return Ok(GraphStatusTransitionOutcome::NotFound);
+        }
+        let current = GraphStatus::from_str(&current_graph.status).map_err(|_| {
+            anyhow::anyhow!(
+                "graph {graph_id} has invalid persisted status {}",
+                current_graph.status
+            )
+        })?;
+        Ok(if current == target {
+            GraphStatusTransitionOutcome::AlreadyCurrent
+        } else {
+            GraphStatusTransitionOutcome::Rejected { current }
+        })
     }
 
     pub async fn find_graph(&mut self, graph_id: &Uuid) -> anyhow::Result<Option<Graph>> {
@@ -1342,6 +1646,7 @@ impl<'a> StorageProcessor<'a> {
                     status,
                     sub_status,
                     operator_pubkey,
+                    definition_hash,
                     cur_prekickoff_txid,
                     next_prekickoff,
                     force_skip_kickoff_txid,
@@ -1526,47 +1831,6 @@ impl<'a> StorageProcessor<'a> {
             warn!("Node {peer_id} not found in DB, no rows updated");
         }
 
-        Ok(())
-    }
-
-    pub async fn update_graphs_status_with_instance_id(
-        &mut self,
-        instance_id: Uuid,
-        ignore_graph_id: Option<Uuid>,
-        status: &str,
-    ) -> anyhow::Result<()> {
-        let current_time = get_current_timestamp_secs();
-        if let Some(ignore_graph_id) = ignore_graph_id {
-            sqlx::query!(
-                "UPDATE graph
-                 SET status            = ?,
-                     status_updated_at = ?,
-                     updated_at        = ?
-                 WHERE instance_id = ?
-                   AND graph_id != ?",
-                status,
-                current_time,
-                current_time,
-                instance_id,
-                ignore_graph_id
-            )
-            .execute(self.conn())
-            .await?;
-        } else {
-            sqlx::query!(
-                "UPDATE graph
-                 SET status            = ?,
-                     status_updated_at = ?,
-                     updated_at        = ?
-                 WHERE instance_id = ?",
-                status,
-                current_time,
-                current_time,
-                instance_id,
-            )
-            .execute(self.conn())
-            .await?;
-        }
         Ok(())
     }
 
@@ -1796,14 +2060,17 @@ impl<'a> StorageProcessor<'a> {
         state: String,
     ) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
-        let res = sqlx::query!(
-            "Update  message Set state = ?, updated_at = ? WHERE message_id = ? AND  message_version = ?",
-           state,
-          current_time,
-          message_id,
-          message_version
-
-        ).execute(self.conn()).await?;
+        let res = sqlx::query(
+            "UPDATE message \
+             SET state = ?, updated_at = ? \
+             WHERE message_id = ? AND message_version = ? AND state != 'Cancelled'",
+        )
+        .bind(state)
+        .bind(current_time)
+        .bind(message_id)
+        .bind(message_version)
+        .execute(self.conn())
+        .await?;
 
         Ok(res.rows_affected() > 0)
     }
@@ -1818,23 +2085,31 @@ impl<'a> StorageProcessor<'a> {
         let current_time = get_current_timestamp_secs();
         let res = match msg_type {
             Some(msg_type) => {
-                sqlx::query!(
-                    "Update message Set state = ?, updated_at = ? WHERE business_id = ? AND msg_type = ? AND state = ?",
-                    new_state,
-                    current_time,
-                    business_id,
-                    msg_type,
-                    old_state
-                ).execute(self.conn()).await?
+                sqlx::query(
+                    "UPDATE message \
+                     SET state = ?, updated_at = ? \
+                     WHERE business_id = ? AND msg_type = ? AND state = ? AND state != 'Cancelled'",
+                )
+                .bind(new_state)
+                .bind(current_time)
+                .bind(business_id)
+                .bind(msg_type)
+                .bind(old_state)
+                .execute(self.conn())
+                .await?
             }
             None => {
-                sqlx::query!(
-                    "Update message Set state = ?, updated_at = ? WHERE business_id = ? AND state = ?",
-                    new_state,
-                    current_time,
-                    business_id,
-                    old_state
-                ).execute(self.conn()).await?
+                sqlx::query(
+                    "UPDATE message \
+                     SET state = ?, updated_at = ? \
+                     WHERE business_id = ? AND state = ? AND state != 'Cancelled'",
+                )
+                .bind(new_state)
+                .bind(current_time)
+                .bind(business_id)
+                .bind(old_state)
+                .execute(self.conn())
+                .await?
             }
         };
         Ok(res.rows_affected() > 0)
@@ -1884,10 +2159,9 @@ impl<'a> StorageProcessor<'a> {
         business_id: &Uuid,
         msg_type: &str,
     ) -> anyhow::Result<Option<Message>> {
-        let res = sqlx::query_as!(
-            Message,
+        let row = sqlx::query(
             "SELECT message_id,
-                    business_id AS \"business_id:Uuid\",
+                    business_id,
                     from_peer,
                     actor,
                     msg_type,
@@ -1895,24 +2169,24 @@ impl<'a> StorageProcessor<'a> {
                     message_version,
                     state,
                     weight,
-                    lock_time_until
+                    lock_time_until,
+                    created_at
              FROM message
              WHERE business_id = ? AND msg_type = ?",
-            business_id,
-            msg_type,
         )
+        .bind(business_id)
+        .bind(msg_type)
         .fetch_optional(self.conn())
         .await?;
-        Ok(res)
+        Ok(row.map(|row| message_from_row(&row)).transpose()?)
     }
     pub async fn find_messages_by_id(
         &mut self,
         message_id: &str,
     ) -> anyhow::Result<Option<Message>> {
-        let res = sqlx::query_as!(
-            Message,
+        let row = sqlx::query(
             "SELECT message_id,
-                    business_id AS \"business_id:Uuid\",
+                    business_id,
                     from_peer,
                     actor,
                     msg_type,
@@ -1920,14 +2194,15 @@ impl<'a> StorageProcessor<'a> {
                     message_version,
                     state,
                     weight,
-                    lock_time_until
+                    lock_time_until,
+                    created_at
              FROM message
              WHERE message_id = ?",
-            message_id,
         )
+        .bind(message_id)
         .fetch_optional(self.conn())
         .await?;
-        Ok(res)
+        Ok(row.map(|row| message_from_row(&row)).transpose()?)
     }
 
     pub async fn filter_messages(
@@ -1939,10 +2214,9 @@ impl<'a> StorageProcessor<'a> {
         limit: i64,
         offset: i64,
     ) -> anyhow::Result<Vec<Message>> {
-        let res = sqlx::query_as!(
-            Message,
+        let rows = sqlx::query(
             "SELECT message_id,
-                    business_id AS \"business_id:Uuid\",
+                    business_id,
                     from_peer,
                     actor,
                     msg_type,
@@ -1950,7 +2224,8 @@ impl<'a> StorageProcessor<'a> {
                     message_version,
                     state,
                     weight,
-                    lock_time_until
+                    lock_time_until,
+                    created_at
              FROM message
              WHERE state = ?
                AND weight >= ?
@@ -1958,21 +2233,51 @@ impl<'a> StorageProcessor<'a> {
                AND updated_at >= ?
              ORDER BY created_at ASC
              LIMIT ? OFFSET ?",
-            state,
-            weight,
-            lock_time_until,
-            expired,
-            limit,
-            offset
         )
+        .bind(state)
+        .bind(weight)
+        .bind(lock_time_until)
+        .bind(expired)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(self.conn())
         .await?;
-        Ok(res)
+        rows.into_iter()
+            .map(|row| message_from_row(&row))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub async fn get_message_queue_stats(
+        &mut self,
+        actor: &str,
+        now: i64,
+    ) -> anyhow::Result<MessageQueueStats> {
+        let row = sqlx::query(
+            r#"SELECT
+                    COALESCE(SUM(CASE WHEN state = 'Pending' AND lock_time_until <= ? THEN 1 ELSE 0 END), 0) AS pending_ready,
+                    COALESCE(SUM(CASE WHEN state = 'Pending' AND lock_time_until > ? THEN 1 ELSE 0 END), 0) AS pending_locked,
+                    COALESCE(SUM(CASE WHEN state = 'Failed' THEN 1 ELSE 0 END), 0) AS failed,
+                    MIN(CASE WHEN state = 'Pending' THEN created_at END) AS oldest_pending_at
+               FROM message
+               WHERE actor = ?"#,
+        )
+        .bind(now)
+        .bind(now)
+        .bind(actor)
+        .fetch_one(self.conn())
+        .await?;
+        Ok(MessageQueueStats {
+            pending_ready: row.try_get("pending_ready")?,
+            pending_locked: row.try_get("pending_locked")?,
+            failed: row.try_get("failed")?,
+            oldest_pending_at: row.try_get("oldest_pending_at")?,
+        })
     }
 
     pub async fn upsert_message(&mut self, msg: Message) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
-        let res = sqlx::query!(
+        let res = sqlx::query(
             r#"INSERT INTO message (message_id, business_id, from_peer, actor, msg_type, content, state, message_version,  lock_time_until, weight, updated_at, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(message_id)  DO UPDATE SET business_id = excluded.business_id,
@@ -1984,24 +2289,63 @@ impl<'a> StorageProcessor<'a> {
                                                     message_version = message.message_version + 1,
                                                     lock_time_until = excluded.lock_time_until,
                                                     weight = excluded.weight,
-                                                    updated_at = excluded.updated_at"#,
-            msg.message_id,
-            msg.business_id,
-            msg.from_peer,
-            msg.actor,
-            msg.msg_type,
-            msg.content,
-            msg.state,
-            msg.message_version,
-            msg.lock_time_until,
-            msg.weight,
-            current_time,
-            current_time
-
+                                                    updated_at = excluded.updated_at
+             WHERE message.state != 'Cancelled'"#,
         )
-            .execute(self.conn())
+        .bind(msg.message_id)
+        .bind(msg.business_id)
+        .bind(msg.from_peer)
+        .bind(msg.actor)
+        .bind(msg.msg_type)
+        .bind(msg.content)
+        .bind(msg.state)
+        .bind(msg.message_version)
+        .bind(msg.lock_time_until)
+        .bind(msg.weight)
+        .bind(current_time)
+        .bind(current_time)
+        .execute(self.conn())
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// Record that a chain-derived graph message has been durably enqueued.
+    ///
+    /// Queue rows are intentionally pruned after their retention period, but
+    /// replaying an old SyncGraph must not recreate already-completed protocol
+    /// actions. The caller inserts this marker and its queue row in one
+    /// transaction.
+    pub async fn insert_graph_compensation_marker(
+        &mut self,
+        graph_id: Uuid,
+        message_id: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "INSERT INTO graph_compensation_marker (graph_id, message_id, created_at) \
+             VALUES (?, ?, ?) ON CONFLICT(graph_id, message_id) DO NOTHING",
+        )
+        .bind(graph_id)
+        .bind(message_id)
+        .bind(get_current_timestamp_secs())
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn has_graph_compensation_marker(
+        &mut self,
+        graph_id: Uuid,
+        message_id: &str,
+    ) -> anyhow::Result<bool> {
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM graph_compensation_marker \
+             WHERE graph_id = ? AND message_id = ?)",
+        )
+        .bind(graph_id)
+        .bind(message_id)
+        .fetch_one(self.conn())
+        .await?;
+        Ok(exists != 0)
     }
 
     pub async fn upsert_pegin_instance_process_data(
@@ -2128,18 +2472,48 @@ impl<'a> StorageProcessor<'a> {
 
     pub async fn upsert_graph_raw_data(
         &mut self,
+        instance_id: Uuid,
         graph_raw_data: GraphRawData,
+        definition_hash: &str,
     ) -> anyhow::Result<u64> {
-        let result = sqlx::query!(
-            r#"
-            INSERT OR REPLACE INTO graph_raw_data (graph_id, raw_data, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
-            "#,
-            graph_raw_data.graph_id,
-            graph_raw_data.raw_data,
-            graph_raw_data.created_at,
-            graph_raw_data.updated_at
+        if definition_hash.is_empty() {
+            anyhow::bail!(
+                "graph {} raw definition is missing its canonical definition hash",
+                graph_raw_data.graph_id
+            );
+        }
+        let Some(graph) = self.find_graph(&graph_raw_data.graph_id).await? else {
+            anyhow::bail!(
+                "cannot store raw definition for missing graph {}",
+                graph_raw_data.graph_id
+            );
+        };
+        if graph.instance_id != instance_id {
+            anyhow::bail!(
+                "raw definition instance does not match graph {}: stored={}, incoming={instance_id}",
+                graph_raw_data.graph_id,
+                graph.instance_id
+            );
+        }
+        if graph.definition_hash != definition_hash {
+            anyhow::bail!(
+                "raw definition hash does not match graph {}: stored={}, incoming={definition_hash}",
+                graph_raw_data.graph_id,
+                graph.definition_hash
+            );
+        }
+
+        let result = sqlx::query(
+            "INSERT INTO graph_raw_data (graph_id, raw_data, created_at, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(graph_id) DO UPDATE SET
+                 raw_data = excluded.raw_data,
+                 updated_at = excluded.updated_at",
         )
+        .bind(graph_raw_data.graph_id)
+        .bind(graph_raw_data.raw_data)
+        .bind(graph_raw_data.created_at)
+        .bind(graph_raw_data.updated_at)
         .execute(self.conn())
         .await?;
 
@@ -2164,37 +2538,6 @@ impl<'a> StorageProcessor<'a> {
         .await?;
 
         Ok(row)
-    }
-
-    pub async fn update_graph_raw_data(
-        &mut self,
-        graph_id: &Uuid,
-        raw_data: &str,
-    ) -> anyhow::Result<u64> {
-        let timestamp = get_current_timestamp_millis();
-
-        let result = sqlx::query!(
-            r#"
-            UPDATE graph_raw_data
-            SET raw_data = ?, updated_at = ?
-            WHERE graph_id = ?
-            "#,
-            raw_data,
-            timestamp,
-            graph_id
-        )
-        .execute(self.conn())
-        .await?;
-
-        Ok(result.rows_affected())
-    }
-
-    pub async fn delete_graph_raw_data(&mut self, graph_id: &str) -> anyhow::Result<u64> {
-        let result = sqlx::query!(r#"DELETE FROM graph_raw_data WHERE graph_id = ?"#, graph_id)
-            .execute(self.conn())
-            .await?;
-
-        Ok(result.rows_affected())
     }
 
     pub async fn find_watch_contract(
@@ -3147,7 +3490,7 @@ pub async fn create_local_db(db_path: &str) -> LocalDB {
 }
 
 #[cfg(test)]
-mod sequencer_set_tests {
+mod tests {
     use super::*;
 
     async fn setup_db() -> LocalDB {

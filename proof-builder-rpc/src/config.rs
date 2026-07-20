@@ -18,7 +18,7 @@ impl ProofBuilderConfig {
 
     fn load(url: &str) -> anyhow::Result<Self> {
         let content =
-            std::fs::read_to_string(&url).context(format!("Failed to read config file: {url}"))?;
+            std::fs::read_to_string(url).context(format!("Failed to read config file: {url}"))?;
         Ok(toml::from_str(&content)?)
     }
 

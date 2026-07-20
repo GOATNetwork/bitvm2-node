@@ -11,8 +11,9 @@ use crate::scheduled_tasks::get_timestamp_from_contract_data;
 use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
 use crate::utils::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::utils::{
-    GenerateInstanceParams, find_instances_by_escrow_hash, generate_instance,
-    get_bridge_out_global_stats, outpoint_available, reflect_goat_address, strip_hex_prefix_owned,
+    GenerateInstanceParams, bridge_out_instance_id_from_escrow_hash, find_instances_by_escrow_hash,
+    generate_instance, get_bridge_out_global_stats, outpoint_available, reflect_goat_address,
+    strip_hex_prefix_owned,
 };
 use alloy::primitives::{Address as EvmAddress, U256};
 use alloy::sol_types::{SolType, SolValue};
@@ -39,11 +40,11 @@ use std::ops::AddAssign;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use store::localdb::{GraphUpdate, InstanceUpdate, LocalDB, NodeQuery, StorageProcessor};
+use store::localdb::{GraphRuntimeUpdate, InstanceUpdate, LocalDB, NodeQuery, StorageProcessor};
 use store::{
-    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, Instance,
-    InstanceBridgeInStatus, InstanceBridgeOutStatus, MessageState, WatchContract,
-    WatchContractStatus,
+    GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, GraphStatusSource,
+    GraphStatusTransitionOutcome, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
+    MessageState, WatchContract, WatchContractStatus,
 };
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
@@ -292,13 +293,20 @@ async fn handle_user_withdraw_events<'a>(
             UserGraphWithdrawEvent::InitWithdraw(init_event) => {
                 let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&init_event.graph_id))?;
-                storage_processor
-                    .update_graph(
-                        &GraphUpdate::new(graph_id)
+                if !graph_belongs_to_instance(storage_processor, instance_id, graph_id).await? {
+                    continue;
+                }
+                if !storage_processor
+                    .update_graph_runtime(
+                        &GraphRuntimeUpdate::new(instance_id, graph_id)
                             .with_bridge_out_start_at(current_time_secs())
                             .with_init_withdraw_tx_hash(init_event.transaction_hash.clone()),
                     )
-                    .await?;
+                    .await?
+                {
+                    warn!("ignore InitWithdraw for missing graph {instance_id}:{graph_id}");
+                    continue;
+                }
                 storage_processor
                     .upsert_goat_tx_record(&GoatTxRecord {
                         instance_id,
@@ -317,13 +325,20 @@ async fn handle_user_withdraw_events<'a>(
                 let instance_id =
                     Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.instance_id))?;
                 let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&cancel_event.graph_id))?;
-                storage_processor
-                    .update_graph(
-                        &GraphUpdate::new(graph_id)
+                if !graph_belongs_to_instance(storage_processor, instance_id, graph_id).await? {
+                    continue;
+                }
+                if !storage_processor
+                    .update_graph_runtime(
+                        &GraphRuntimeUpdate::new(instance_id, graph_id)
                             .with_bridge_out_start_at(0)
                             .with_init_withdraw_tx_hash("".to_string()),
                     )
-                    .await?;
+                    .await?
+                {
+                    warn!("ignore CancelWithdraw for missing graph {instance_id}:{graph_id}");
+                    continue;
+                }
                 storage_processor
                     .upsert_goat_tx_record(&GoatTxRecord {
                         instance_id,
@@ -356,24 +371,32 @@ async fn handle_proceed_withdraw_events<'a>(
     for event in proceed_withdraw_events {
         let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id))?;
         let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?;
+        if !graph_belongs_to_instance(storage_processor, instance_id, graph_id).await? {
+            continue;
+        }
+        let height = event.block_number.parse::<i64>()?;
+        if !storage_processor
+            .update_graph_runtime(
+                &GraphRuntimeUpdate::new(instance_id, graph_id)
+                    .with_proceed_withdraw_height(height),
+            )
+            .await?
+        {
+            warn!("ignore ProceedWithdraw for missing graph {instance_id}:{graph_id}");
+            continue;
+        }
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id,
                 graph_id,
                 tx_type: GoatTxType::ProceedWithdraw.to_string(),
                 tx_hash: event.transaction_hash,
-                height: event.block_number.parse::<i64>()?,
+                height,
                 is_local: false,
                 processing_status: processing_status.clone(),
                 extra: None,
                 created_at: current_time_secs(),
             })
-            .await?;
-        storage_processor
-            .update_graph(
-                &GraphUpdate::new(graph_id)
-                    .with_proceed_withdraw_height(event.block_number.parse::<i64>()?),
-            )
             .await?;
 
         // for history events
@@ -389,11 +412,77 @@ async fn handle_proceed_withdraw_events<'a>(
     Ok(())
 }
 
+async fn apply_gateway_graph_status<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+    target: GraphStatus,
+) -> anyhow::Result<GraphStatusTransitionOutcome> {
+    match storage_processor
+        .transition_graph_status(instance_id, graph_id, target, GraphStatusSource::GoatEvent, None)
+        .await?
+    {
+        outcome @ (GraphStatusTransitionOutcome::Applied
+        | GraphStatusTransitionOutcome::AlreadyCurrent) => Ok(outcome),
+        GraphStatusTransitionOutcome::Rejected { current } => {
+            warn!(
+                "ignore stale gateway graph event: graph={graph_id}, target={target}, current={current}"
+            );
+            Ok(GraphStatusTransitionOutcome::Rejected { current })
+        }
+        GraphStatusTransitionOutcome::NotFound => {
+            warn!("ignore gateway graph event for missing graph {graph_id}: target={target}");
+            Ok(GraphStatusTransitionOutcome::NotFound)
+        }
+    }
+}
+
+async fn graph_belongs_to_instance<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> anyhow::Result<bool> {
+    match storage_processor.find_graph(&graph_id).await? {
+        Some(graph) if graph.instance_id == instance_id => Ok(true),
+        Some(graph) => {
+            warn!(
+                "ignore gateway event with mismatched graph instance: graph={graph_id}, event_instance={instance_id}, stored_instance={}",
+                graph.instance_id
+            );
+            Ok(false)
+        }
+        None => {
+            warn!("ignore gateway event for missing graph {instance_id}:{graph_id}");
+            Ok(false)
+        }
+    }
+}
+
 async fn handle_withdraw_paths_events<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     withdraw_paths_events: Vec<WithdrawPathsEvent>,
 ) -> anyhow::Result<()> {
     for event in withdraw_paths_events {
+        let (graph_id, instance_id, tx_type, status) = match event.clone() {
+            WithdrawPathsEvent::WithdrawHappyEvent(v) => (
+                v.graph_id.clone(),
+                v.instance_id.clone(),
+                GoatTxType::WithdrawHappyPath.to_string(),
+                GraphStatus::OperatorTake1,
+            ),
+            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => (
+                v.graph_id.clone(),
+                v.instance_id.clone(),
+                GoatTxType::WithdrawUnhappyPath.to_string(),
+                GraphStatus::OperatorTake2,
+            ),
+        };
+        let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&graph_id))?;
+        let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&instance_id))?;
+        if !graph_belongs_to_instance(storage_processor, instance_id, graph_id).await? {
+            continue;
+        }
+
         let reward_add = U256::from_str(&event.reward_amount_str()).unwrap_or_default();
         let (flag, goat_addr) = reflect_goat_address(Some(event.operator_addr()));
         if !flag {
@@ -404,28 +493,23 @@ async fn handle_withdraw_paths_events<'a>(
             );
             continue;
         }
-        add_node_reward(storage_processor, &goat_addr.unwrap(), reward_add).await?;
-        let (graph_id, instance_id, tx_type, status) = match event.clone() {
-            WithdrawPathsEvent::WithdrawHappyEvent(v) => (
-                v.graph_id.clone(),
-                v.instance_id.clone(),
-                GoatTxType::WithdrawHappyPath.to_string(),
-                GraphStatus::OperatorTake1.to_string(),
-            ),
-            WithdrawPathsEvent::WithdrawUnhappyEvent(v) => (
-                v.graph_id.clone(),
-                v.instance_id.clone(),
-                GoatTxType::WithdrawUnhappyPath.to_string(),
-                GraphStatus::OperatorTake2.to_string(),
-            ),
-        };
-        let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&graph_id))?;
-        let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&instance_id))?;
+        let outcome =
+            apply_gateway_graph_status(storage_processor, instance_id, graph_id, status).await?;
+        if !matches!(
+            outcome,
+            GraphStatusTransitionOutcome::Applied | GraphStatusTransitionOutcome::AlreadyCurrent
+        ) {
+            continue;
+        }
+        let is_new_event = storage_processor
+            .find_graph_goat_tx_record(&instance_id, &graph_id, &tx_type)
+            .await?
+            .is_none();
         storage_processor
             .upsert_goat_tx_record(&GoatTxRecord {
                 instance_id,
                 graph_id,
-                tx_type,
+                tx_type: tx_type.clone(),
                 tx_hash: event.tx_hash(),
                 height: event.get_block_number(),
                 is_local: false,
@@ -434,8 +518,9 @@ async fn handle_withdraw_paths_events<'a>(
                 created_at: current_time_secs(),
             })
             .await?;
-        storage_processor.update_graph(&GraphUpdate::new(graph_id).with_status(status)).await?;
-        // cancel unfinished p2p message
+        if is_new_event {
+            add_node_reward(storage_processor, &goat_addr.unwrap(), reward_add).await?;
+        }
         storage_processor
             .update_messages_state_by_business_id(
                 &graph_id,
@@ -454,6 +539,10 @@ async fn handle_withdraw_disproved_events<'a>(
 ) -> anyhow::Result<()> {
     for event in withdraw_disproved_events {
         let graph_id = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id))?;
+        let instance_id = Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id))?;
+        if !graph_belongs_to_instance(storage_processor, instance_id, graph_id).await? {
+            continue;
+        }
         let (flag, verifier_addr) = reflect_goat_address(Some(event.challenger_addr.clone()));
         if !flag {
             warn!(
@@ -471,24 +560,51 @@ async fn handle_withdraw_disproved_events<'a>(
             continue;
         }
 
-        add_node_reward(
+        let outcome = apply_gateway_graph_status(
             storage_processor,
-            &verifier_addr.unwrap(),
-            U256::from_str(&event.challenger_amount_sats).unwrap_or_default(),
+            instance_id,
+            graph_id,
+            GraphStatus::Disprove,
         )
         .await?;
-        add_node_reward(
-            storage_processor,
-            &disprover_addr.unwrap(),
-            U256::from_str(&event.disprover_amount_sats).unwrap_or_default(),
-        )
-        .await?;
+        if !matches!(
+            outcome,
+            GraphStatusTransitionOutcome::Applied | GraphStatusTransitionOutcome::AlreadyCurrent
+        ) {
+            continue;
+        }
+        let tx_type = GoatTxType::WithdrawDisproved.to_string();
+        let is_new_event = storage_processor
+            .find_graph_goat_tx_record(&instance_id, &graph_id, &tx_type)
+            .await?
+            .is_none();
         storage_processor
-            .update_graph(
-                &GraphUpdate::new(graph_id).with_status(GraphStatus::Disprove.to_string()),
+            .upsert_goat_tx_record(&GoatTxRecord {
+                instance_id,
+                graph_id,
+                tx_type,
+                tx_hash: event.transaction_hash.clone(),
+                height: event.block_number.parse::<i64>()?,
+                is_local: false,
+                processing_status: GoatTxProcessingStatus::Pending.to_string(),
+                extra: None,
+                created_at: current_time_secs(),
+            })
+            .await?;
+        if is_new_event {
+            add_node_reward(
+                storage_processor,
+                &verifier_addr.unwrap(),
+                U256::from_str(&event.challenger_amount_sats).unwrap_or_default(),
             )
             .await?;
-        // cancel unfinished p2p message
+            add_node_reward(
+                storage_processor,
+                &disprover_addr.unwrap(),
+                U256::from_str(&event.disprover_amount_sats).unwrap_or_default(),
+            )
+            .await?;
+        }
         storage_processor
             .update_messages_state_by_business_id(
                 &graph_id,
@@ -631,69 +747,114 @@ async fn handle_swap_init_events<'a>(
         .await?
         {
             let create_time = event.block_timestamp.parse::<i64>()?;
-            let (instance_id, instance) = if let Some(instance) =
+            let event_height = event.block_number.parse::<i64>()?;
+            let (instance_id, initialized) = if let Some(instance) =
                 find_instances_by_escrow_hash(storage_processor, &event.escrow_hash).await?
             {
-                if instance.status != InstanceBridgeOutStatus::Initialize.to_string() {
-                    (instance.instance_id, None)
-                } else {
-                    (instance.instance_id, Some(instance))
-                }
+                let initialized = storage_processor
+                    .update_instance(
+                        &swap_init_instance_update(
+                            instance.instance_id,
+                            &escrow_data,
+                            &event,
+                            event_height,
+                        )
+                        .with_only_if_status_in(vec![
+                            InstanceBridgeOutStatus::Initialize.to_string(),
+                        ])
+                        .with_only_if_is_bridge_in(false)
+                        .with_only_if_goat_tx_hash(String::new()),
+                    )
+                    .await?;
+                (instance.instance_id, initialized)
             } else {
-                let instance_id = Uuid::new_v4();
-                (
+                let instance_id = bridge_out_instance_id_from_escrow_hash(&event.escrow_hash);
+                let instance = Instance {
                     instance_id,
-                    Some(Instance {
-                        instance_id,
-                        is_bridge_in: false,
-                        network: get_network().to_string(),
-                        from_addr: escrow_data.offerer.to_string(),
-                        input_utxos: "[]".to_string(),
-                        status: InstanceBridgeOutStatus::Initialize.to_string(),
-                        escrow_hash: Some(event.escrow_hash.clone()),
-                        status_updated_at: create_time,
-                        created_at: create_time,
-                        ..Default::default()
-                    }),
-                )
-            };
-            if let Some(mut instance) = instance {
-                instance.bridge_out_amount = escrow_data.amount.to_string();
-                instance.goat_tx_hash = event.transaction_hash.clone();
-                instance.goat_tx_height = event.block_number.parse::<i64>()?;
-                instance.user_change_addr = escrow_data.claimer.to_string();
-                instance.user_refund_addr = escrow_data.claimer.to_string();
-                instance.bridge_out_lock_time =
-                    get_timestamp_from_contract_data(&escrow_data.refundData.0);
-                instance.status_updated_at = create_time;
-                storage_processor.upsert_instance(&instance).await?;
-                if escrow_data.token == *gateway_peg_btc_address {
-                    let mut bridge_out_global_stats =
-                        get_bridge_out_global_stats(storage_processor).await?;
-                    let mut initial_amount =
-                        U256::from_str(&bridge_out_global_stats.initial_amount).unwrap_or_default();
-                    initial_amount.add_assign(&escrow_data.amount);
-                    bridge_out_global_stats.initial_amount = initial_amount.to_string();
-                    bridge_out_global_stats.initial_txn += 1;
+                    is_bridge_in: false,
+                    network: get_network().to_string(),
+                    from_addr: escrow_data.offerer.to_string(),
+                    input_utxos: "[]".to_string(),
+                    status: InstanceBridgeOutStatus::Initialize.to_string(),
+                    escrow_hash: Some(event.escrow_hash.clone()),
+                    bridge_out_amount: escrow_data.amount.to_string(),
+                    goat_tx_hash: event.transaction_hash.clone(),
+                    goat_tx_height: event_height,
+                    user_change_addr: escrow_data.claimer.to_string(),
+                    user_refund_addr: escrow_data.claimer.to_string(),
+                    bridge_out_lock_time: get_timestamp_from_contract_data(
+                        &escrow_data.refundData.0,
+                    ),
+                    status_updated_at: create_time,
+                    created_at: create_time,
+                    ..Default::default()
+                };
+                let initialized = if storage_processor.insert_instance_if_absent(&instance).await? {
+                    true
+                } else if let Some(existing) = storage_processor.find_instance(&instance_id).await?
+                {
+                    let escrow_hash_matches = existing
+                        .escrow_hash
+                        .as_ref()
+                        .map(|hash| hash.eq_ignore_ascii_case(&event.escrow_hash))
+                        .unwrap_or(false);
+                    if existing.is_bridge_in || !escrow_hash_matches {
+                        anyhow::bail!(
+                            "bridge-out instance ID collision for escrow hash {}",
+                            event.escrow_hash
+                        );
+                    }
                     storage_processor
-                        .upsert_bridge_out_global_stats(&bridge_out_global_stats)
-                        .await?;
-                    info!(
-                        "swap initialize stats included: tx_hash={}, escrow_hash={}, token={}, amount={}",
-                        event.transaction_hash,
-                        event.escrow_hash,
-                        escrow_data.token,
-                        escrow_data.amount,
-                    );
+                        .update_instance(
+                            &swap_init_instance_update(
+                                existing.instance_id,
+                                &escrow_data,
+                                &event,
+                                event_height,
+                            )
+                            .with_only_if_status_in(vec![
+                                InstanceBridgeOutStatus::Initialize.to_string(),
+                            ])
+                            .with_only_if_is_bridge_in(false)
+                            .with_only_if_goat_tx_hash(String::new()),
+                        )
+                        .await?
                 } else {
-                    info!(
-                        "swap initialize stats skipped(non-pegBTC): tx_hash={}, escrow_hash={}, token={}, expect_token={}",
-                        event.transaction_hash,
-                        event.escrow_hash,
-                        escrow_data.token,
-                        gateway_peg_btc_address,
+                    anyhow::bail!(
+                        "bridge-out instance {} disappeared during creation",
+                        instance_id
                     );
-                }
+                };
+                (instance_id, initialized)
+            };
+            if initialized && escrow_data.token == *gateway_peg_btc_address {
+                let mut bridge_out_global_stats =
+                    get_bridge_out_global_stats(storage_processor).await?;
+                let mut initial_amount =
+                    U256::from_str(&bridge_out_global_stats.initial_amount).unwrap_or_default();
+                initial_amount.add_assign(&escrow_data.amount);
+                bridge_out_global_stats.initial_amount = initial_amount.to_string();
+                bridge_out_global_stats.initial_txn += 1;
+                storage_processor.upsert_bridge_out_global_stats(&bridge_out_global_stats).await?;
+                info!(
+                    "swap initialize stats included: tx_hash={}, escrow_hash={}, token={}, amount={}",
+                    event.transaction_hash,
+                    event.escrow_hash,
+                    escrow_data.token,
+                    escrow_data.amount,
+                );
+            } else if initialized {
+                info!(
+                    "swap initialize stats skipped(non-pegBTC): tx_hash={}, escrow_hash={}, token={}, expect_token={}",
+                    event.transaction_hash,
+                    event.escrow_hash,
+                    escrow_data.token,
+                    gateway_peg_btc_address,
+                );
+            } else {
+                info!(
+                    "swap initialize ignored for resolved or previously initialized instance {instance_id}"
+                );
             }
             storage_processor
                 .upsert_goat_tx_record(&GoatTxRecord {
@@ -701,7 +862,7 @@ async fn handle_swap_init_events<'a>(
                     graph_id: Uuid::nil(),
                     tx_type: GoatTxType::SwapInitialize.to_string(),
                     tx_hash: event.transaction_hash.clone(),
-                    height: event.block_number.parse::<i64>()?,
+                    height: event_height,
                     is_local: false,
                     processing_status: GoatTxProcessingStatus::Skipped.to_string(),
                     extra: Some(hex::encode(escrow_data.abi_encode())),
@@ -713,6 +874,21 @@ async fn handle_swap_init_events<'a>(
         }
     }
     Ok(())
+}
+
+fn swap_init_instance_update(
+    instance_id: Uuid,
+    escrow_data: &EscrowData,
+    event: &SwapInitializeEvent,
+    event_height: i64,
+) -> InstanceUpdate {
+    InstanceUpdate::new_with_instance_id(instance_id)
+        .with_bridge_out_amount(escrow_data.amount.to_string())
+        .with_goat_tx_hash(event.transaction_hash.clone())
+        .with_goat_tx_height(event_height)
+        .with_user_change_addr(escrow_data.claimer.to_string())
+        .with_user_refund_addr(escrow_data.claimer.to_string())
+        .with_bridge_out_lock_time(get_timestamp_from_contract_data(&escrow_data.refundData.0))
 }
 
 async fn handle_swap_claim_events<'a>(
@@ -740,6 +916,25 @@ async fn handle_swap_claim_events<'a>(
                 bitcoin::Script::from_bytes(&claim_data.output_script),
                 get_network(),
             )?;
+            let transitioned = storage_processor
+                .update_instance(
+                    &InstanceUpdate::new_with_instance_id(instance_id)
+                        .with_status(InstanceBridgeOutStatus::Claim.to_string())
+                        .with_btc_txid(claim_data.txid.into())
+                        .with_to_addr(to_addr.to_string())
+                        .with_only_if_status_in(vec![
+                            InstanceBridgeOutStatus::Initialize.to_string(),
+                        ])
+                        .with_only_if_is_bridge_in(false),
+                )
+                .await?;
+            if !transitioned {
+                info!(
+                    "swap claim ignored for resolved instance {instance_id} with status {}",
+                    instance.status
+                );
+                continue;
+            }
             storage_processor
                 .upsert_goat_tx_record(&GoatTxRecord {
                     instance_id,
@@ -752,14 +947,6 @@ async fn handle_swap_claim_events<'a>(
                     extra: Some(claim_data.witness),
                     created_at: current_time_secs(),
                 })
-                .await?;
-            storage_processor
-                .update_instance(
-                    &InstanceUpdate::new_with_escrow_hash(event.escrow_hash.clone())
-                        .with_status(InstanceBridgeOutStatus::Claim.to_string())
-                        .with_btc_txid(claim_data.txid.into())
-                        .with_to_addr(to_addr.to_string()),
-                )
                 .await?;
 
             let is_peg_btc_swap = is_gateway_peg_btc_swap_instance(
@@ -807,12 +994,23 @@ async fn handle_swap_refund_events<'a>(
         if let Some(instance) =
             find_instances_by_escrow_hash(storage_processor, &event.escrow_hash).await?
         {
-            storage_processor
+            let transitioned = storage_processor
                 .update_instance(
-                    &InstanceUpdate::new_with_escrow_hash(event.escrow_hash.clone())
-                        .with_status(InstanceBridgeOutStatus::Refund.to_string()),
+                    &InstanceUpdate::new_with_instance_id(instance.instance_id)
+                        .with_status(InstanceBridgeOutStatus::Refund.to_string())
+                        .with_only_if_status_in(vec![
+                            InstanceBridgeOutStatus::Initialize.to_string(),
+                        ])
+                        .with_only_if_is_bridge_in(false),
                 )
                 .await?;
+            if !transitioned {
+                info!(
+                    "swap refund ignored for resolved instance {} with status {}",
+                    instance.instance_id, instance.status
+                );
+                continue;
+            }
             let is_peg_btc_swap = is_gateway_peg_btc_swap_instance(
                 storage_processor,
                 &instance.instance_id,
@@ -932,15 +1130,20 @@ async fn handle_post_graph_data_events<'a>(
     post_graph_data_events: Vec<PostGraphDataEvent>,
 ) -> anyhow::Result<()> {
     for event in post_graph_data_events {
-        if let Ok(graph_id) = Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id)) {
-            storage_processor
-                .update_graph(
-                    &GraphUpdate::new(graph_id)
-                        .with_status(GraphStatus::OperatorDataPushed.to_string()),
+        match (
+            Uuid::from_str(&strip_hex_prefix_owned(&event.instance_id)),
+            Uuid::from_str(&strip_hex_prefix_owned(&event.graph_id)),
+        ) {
+            (Ok(instance_id), Ok(graph_id)) => {
+                let _ = apply_gateway_graph_status(
+                    storage_processor,
+                    instance_id,
+                    graph_id,
+                    GraphStatus::OperatorDataPushed,
                 )
                 .await?;
-        } else {
-            warn!("failed to parse instance id:{event:?}");
+            }
+            _ => warn!("failed to parse graph event identifiers: {event:?}"),
         }
     }
     Ok(())

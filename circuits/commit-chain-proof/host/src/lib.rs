@@ -82,14 +82,14 @@ pub async fn fetch_commit_chain(
     commits_file: &str,
     network: Network,
 ) -> anyhow::Result<Vec<CircuitCommit>> {
-    let btc_client = BTCClient::new(network, Some(&esplora_url));
+    let btc_client = BTCClient::new(network, Some(esplora_url));
 
     tracing::info!(
         "Fetching commit chain, commit_info_file: {}, commits_file: {}",
         commit_info_file,
         commits_file
     );
-    let rdr = std::fs::File::open(commit_info_file).context(&("read error"))?;
+    let rdr = std::fs::File::open(commit_info_file).context("read error")?;
     let ci: CommitInfo = serde_json::from_reader(rdr)?;
     let mut commits: Vec<CircuitCommit> = vec![];
     let txid = Txid::from_str(&ci.txid)?;
@@ -131,8 +131,8 @@ pub async fn fetch_commit_chain(
         block_height,
     };
     commits.push(commit);
-    std::fs::write(&commits_file, serde_json::to_vec(&commits)?)
-        .expect(&format!("write {commits_file} error"));
+    std::fs::write(commits_file, serde_json::to_vec(&commits)?)
+        .with_context(|| format!("write {commits_file} error"))?;
     Ok(commits)
 }
 
@@ -144,6 +144,7 @@ pub struct CommitChainProofBuilder {
 }
 
 impl CommitChainProofBuilder {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(COMMIT_CHAIN);
@@ -183,7 +184,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof))
+            let public_inputs = fs::read(format!("{}.public_inputs.bin", input_proof))
                 .context("Read public input")?;
             //let prev: CommitChainCircuitOutput = serde_json::from_slice(&public_inputs).unwrap();
             Some(public_inputs)
@@ -193,8 +194,8 @@ impl ProofBuilder for CommitChainProofBuilder {
                 Some(public_inputs) => {
                     let proof_bytes =
                         fs::read(input_proof).context("Failed to read input proof file")?;
-                    let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof))
-                        .context("Read vk hash")?;
+                    let zkm_vk_hash =
+                        fs::read(format!("{}.vk_hash.bin", input_proof)).context("Read vk hash")?;
                     let version_path = format!("{input_proof}.zkm_version.bin");
                     let zkm_version = fs::read(&version_path)
                         .with_context(|| {
@@ -290,16 +291,16 @@ impl ProofBuilder for CommitChainProofBuilder {
         //tracing::info!("Generate proof successfully, proof: {:?}", proof);
         //Ok((public_value_hex, proof_size))
 
-        std::fs::write(&format!("{}", output_proof), proof.bytes())?;
+        std::fs::write(output_proof, proof.bytes())?;
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
         std::fs::write(
-            &format!("{}.public_inputs.bin", output_proof),
+            format!("{}.public_inputs.bin", output_proof),
             proof.public_values.to_vec(),
         )?;
-        std::fs::write(&format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
-        std::fs::write(&format!("{}.zkm_version.bin", output_proof), zkm_version)?;
+        std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
         Ok((public_value_hex, proof_size))
     }
 }
