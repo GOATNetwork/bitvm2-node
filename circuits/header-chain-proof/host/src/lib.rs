@@ -80,8 +80,9 @@ pub async fn fetch_header_chain(
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(block_header_file)
-        .expect(&format!("Open {block_header_file} error"));
+        .with_context(|| format!("Open {block_header_file} error"))?;
 
     let mut headers: Vec<u8> = Vec::new();
     writer.read_to_end(&mut headers)?;
@@ -151,6 +152,7 @@ pub struct HeaderChainProofBuilder {
 }
 
 impl HeaderChainProofBuilder {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(HEADER_CHAIN);
@@ -197,9 +199,10 @@ impl ProofBuilder for HeaderChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof)).expect(
-                &format!("Failed to read public inputs from {}.public_inputs.bin", input_proof),
-            );
+            let public_inputs = fs::read(format!("{}.public_inputs.bin", input_proof))
+                .with_context(|| {
+                    format!("Failed to read public inputs from {}.public_inputs.bin", input_proof)
+                })?;
             Some(public_inputs)
         };
 
@@ -208,7 +211,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
                 Some(public_inputs) => {
                     let proof_bytes =
                         fs::read(input_proof).context("Failed to read input proof file").unwrap();
-                    let zkm_vk_hash = fs::read(&format!("{}.vk_hash.bin", input_proof)).unwrap();
+                    let zkm_vk_hash = fs::read(format!("{}.vk_hash.bin", input_proof)).unwrap();
                     let version_path = format!("{input_proof}.zkm_version.bin");
                     let zkm_version = fs::read(&version_path)
                         .with_context(|| {
@@ -244,7 +247,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
             batch_size
         );
 
-        let block_headers = (&total_block_headers[*start..*start + *batch_size]).to_vec();
+        let block_headers = total_block_headers[*start..*start + *batch_size].to_vec();
         let input: HeaderChainCircuitInput = HeaderChainCircuitInput {
             prev_proof,
             zkm_proof,
@@ -306,16 +309,16 @@ impl ProofBuilder for HeaderChainProofBuilder {
         //fs::write(&format!("{}.vk", output_proof), bincode::serialize(&self.verifying_key)?)?;
         //fs::write(&format!("{}.in", output_proof), input)?;
 
-        std::fs::write(&format!("{}", output_proof), proof.bytes())?;
+        std::fs::write(output_proof, proof.bytes())?;
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
         std::fs::write(
-            &format!("{}.public_inputs.bin", output_proof),
+            format!("{}.public_inputs.bin", output_proof),
             proof.public_values.to_vec(),
         )?;
-        std::fs::write(&format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
-        std::fs::write(&format!("{}.zkm_version.bin", output_proof), zkm_version)?;
+        std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
 
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok((public_value_hex, proof_size))

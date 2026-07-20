@@ -240,7 +240,7 @@ pub async fn run_maintenance_tasks(
                         )
                     }
                 }
-                if tick % 6 == 0 {
+                if tick.is_multiple_of(6) {
                     let queue_started_at = Instant::now();
                     match local_db.acquire().await {
                         Ok(mut storage) => match storage

@@ -921,10 +921,10 @@ mod tests {
             block_headers[..11].iter().map(|header| header.time).collect::<Vec<u32>>();
 
         // The validation is expected to return false
-        assert_eq!(
-            validate_timestamp(block_headers[1].time, first_11_timestamps.try_into().unwrap(),),
-            false
-        );
+        assert!(!validate_timestamp(
+            block_headers[1].time,
+            first_11_timestamps.try_into().unwrap(),
+        ));
     }
 
     #[test]
@@ -937,13 +937,10 @@ mod tests {
         let first_11_timestamps =
             block_headers[..11].iter().map(|header| header.time).collect::<Vec<u32>>();
 
-        assert_eq!(
-            validate_timestamp(
-                block_headers[11].time,
-                first_11_timestamps.clone().try_into().unwrap(),
-            ),
-            true
-        );
+        assert!(validate_timestamp(
+            block_headers[11].time,
+            first_11_timestamps.clone().try_into().unwrap(),
+        ));
     }
 
     #[test]
@@ -1028,7 +1025,7 @@ mod tests {
             nonce: 2083236893,
         };
 
-        let bridge_header: CircuitBlockHeader = header.clone().into();
+        let bridge_header: CircuitBlockHeader = header.into();
 
         assert_eq!(bridge_header.version, header.version.to_consensus());
         assert_eq!(bridge_header.prev_block_hash, *header.prev_blockhash.as_byte_array());
@@ -1072,7 +1069,7 @@ mod tests {
             nonce: 2083236893,
         };
 
-        let bridge_header: CircuitBlockHeader = original_header.clone().into();
+        let bridge_header: CircuitBlockHeader = original_header.into();
         let converted_header: Header = bridge_header.into();
 
         assert_eq!(original_header, converted_header);

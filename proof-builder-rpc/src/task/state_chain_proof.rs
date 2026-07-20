@@ -82,8 +82,8 @@ async fn spawn_state_chain_ctx_builder(
 
                 let snap_path = std::path::Path::new(&args.input_proof).parent().unwrap().to_str().unwrap();
                 tracing::info!("fetch snap_path: {snap_path:?}");
-                std::fs::write(&format!("{}/{}.args", snap_path, args.start), serde_json::to_string(&args)?)?;
-                std::fs::write(&format!("{}/{}.ctx", snap_path, args.start), serde_json::to_string(&ctx)?)?;
+                std::fs::write(format!("{}/{}.args", snap_path, args.start), serde_json::to_string(&args)?)?;
+                std::fs::write(format!("{}/{}.ctx", snap_path, args.start), serde_json::to_string(&ctx)?)?;
 
                 let affected = match create_long_running_task(
                     &local_db,
@@ -133,7 +133,7 @@ async fn spawn_state_chain_prover(
                 tracing::info!("prover: start proving, block_start: {start_index}, batch_size: {batch_size}");
 
                 let snap_path = std::path::Path::new(&input_proof).parent().unwrap().to_str().unwrap();
-                let args: state_chain_proof::Args = match std::fs::read(&format!("{}/{}.args", snap_path, start_index)) {
+                let args: state_chain_proof::Args = match std::fs::read(format!("{}/{}.args", snap_path, start_index)) {
                     Ok(x) => match serde_json::from_slice(&x) {
                         Ok(args) => args,
                         Err(e) => {
@@ -148,7 +148,7 @@ async fn spawn_state_chain_prover(
                     }
                 };
 
-                let ctx: ProofRequest = match &std::fs::read(&format!("{}/{}.ctx", snap_path, start_index)) {
+                let ctx: ProofRequest = match std::fs::read(format!("{}/{}.ctx", snap_path, start_index)) {
                     Ok(x) => match serde_json::from_slice(&x) {
                         Ok(ctx) => ctx,
                         Err(e) => {
@@ -262,18 +262,16 @@ pub(crate) fn spawn_state_chain_proof_task(
         )
         .await?;
 
-        if let Some(task_failed) = cur_task_failed {
-            if let Some(ref task) = cur_task {
-                if task.block_start == task_failed.block_start
-                    && task.block_end == task_failed.block_end
-                {
-                    cur_task = Some(task_failed);
-                } else {
-                    if task.block_start < args.start as i64 {
-                        // load from config
-                        cur_task = None;
-                    }
-                }
+        if let Some(task_failed) = cur_task_failed
+            && let Some(ref task) = cur_task
+        {
+            if task.block_start == task_failed.block_start
+                && task.block_end == task_failed.block_end
+            {
+                cur_task = Some(task_failed);
+            } else if task.block_start < args.start as i64 {
+                // load from config
+                cur_task = None;
             }
         };
 

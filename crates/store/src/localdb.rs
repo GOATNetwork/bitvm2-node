@@ -3492,24 +3492,9 @@ pub async fn create_local_db(db_path: &str) -> LocalDB {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{InstanceBridgeInStatus, InstanceBridgeOutStatus, MessageState};
-    use indexmap::IndexMap;
 
     async fn setup_db() -> LocalDB {
         create_local_db("sqlite::memory:").await
-    }
-
-    fn instance_for_test(instance_id: Uuid, is_bridge_in: bool, status: String) -> Instance {
-        Instance {
-            instance_id,
-            is_bridge_in,
-            network: "regtest".to_string(),
-            from_addr: "from".to_string(),
-            to_addr: "to".to_string(),
-            input_utxos: "[]".to_string(),
-            status,
-            ..Default::default()
-        }
     }
 
     #[tokio::test]

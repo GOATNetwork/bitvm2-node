@@ -2337,7 +2337,7 @@ pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> Result<()> {
                 error = %err,
                 "bitcoin transaction broadcast failed"
             );
-            Err(err.into())
+            Err(err)
         }
     }
 }
@@ -5370,7 +5370,7 @@ pub async fn get_verifier_graph_params_endorsements_for_graph(
         .filter_map(|(k, v)| {
             v.verifier_index
                 .zip(v.verifier_params_signature.as_ref())
-                .map(|(index, signature)| (*k, index, signature.clone()))
+                .map(|(index, signature)| (*k, index, *signature))
         })
         .collect())
 }

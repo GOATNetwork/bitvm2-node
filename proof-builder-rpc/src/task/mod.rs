@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)] // Task persistence APIs mirror the proof metadata schema.
+
 mod commit_chain_proof;
 mod header_chain_proof;
 mod operator_proof;
@@ -273,14 +275,14 @@ async fn read_watchtower_challenge_details<'a>(
                 task.graph_id
             );
         }
-        if let Some(first) = challenge_init_txids.first() {
-            if !challenge_init_txids.iter().all(|x| first == x) {
-                anyhow::bail!(
-                    "Inconsistent watchtower challenge info from instance {} and graph_id {}",
-                    task.instance_id,
-                    task.graph_id
-                );
-            }
+        if let Some(first) = challenge_init_txids.first()
+            && !challenge_init_txids.iter().all(|x| first == x)
+        {
+            anyhow::bail!(
+                "Inconsistent watchtower challenge info from instance {} and graph_id {}",
+                task.instance_id,
+                task.graph_id
+            );
         }
         let challenge_txids: Vec<Option<String>> = watchtower_info
             .iter()
@@ -529,9 +531,9 @@ pub(crate) async fn create_long_running_task(
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    Ok(storage_processor
+    storage_processor
         .create_long_running_task_proof(&LongRunningTaskProof {
-            block_start: start as i64,
+            block_start: start,
             block_end: start + batch_size,
             chain_name,
             path_to_proof: Some(path_to_proof),
@@ -546,7 +548,7 @@ pub(crate) async fn create_long_running_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
-        .await?)
+        .await
 }
 
 /// This is a special function to add a new record while updating the previous record's block_end.
@@ -567,11 +569,11 @@ pub(crate) async fn create_commit_chain_proof(
     let mut storage_processor = local_db.start_transaction().await?;
     // we use start directly since it's block_end is initialized by u64::MAX
     let previous_proof = storage_processor
-        .find_long_running_task_proof_including_block_number(start as i64, chain_name.clone())
+        .find_long_running_task_proof_including_block_number(start, chain_name.clone())
         .await?;
     tracing::info!("previous_proof: {previous_proof:?}");
     if let Some(previous_proof) = previous_proof {
-        let prev_batch_size = start as i64 - previous_proof.block_start;
+        let prev_batch_size = start - previous_proof.block_start;
         tracing::info!("update previous proof from {start} batch_size: {prev_batch_size}");
         storage_processor
             .update_long_running_task_proof_state(
@@ -584,7 +586,7 @@ pub(crate) async fn create_commit_chain_proof(
     }
     let affected = storage_processor
         .create_long_running_task_proof(&LongRunningTaskProof {
-            block_start: start as i64,
+            block_start: start,
             block_end: start + batch_size,
             chain_name,
             path_to_proof: Some(path_to_proof),
@@ -619,7 +621,7 @@ pub(crate) async fn update_long_running_task(
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
     let task = storage_processor
-        .find_long_running_task_proof_including_block_number(start_index as i64, chain_name.clone())
+        .find_long_running_task_proof_including_block_number(start_index, chain_name.clone())
         .await?;
     if task.is_none() {
         anyhow::bail!(
@@ -627,7 +629,7 @@ pub(crate) async fn update_long_running_task(
         );
     }
     let total_time_to_proof = (current_time_secs() - task.unwrap().created_at) * 1000;
-    Ok(storage_processor
+    storage_processor
         .update_long_running_task_proof_success(
             start_index,
             &chain_name,
@@ -641,13 +643,14 @@ pub(crate) async fn update_long_running_task(
             proving_time,
             &zkm_version,
         )
-        .await?)
+        .await
 }
 
 /// table schema: (index, instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, path_to_proof, cycles, state, update_time)
 /// * index: incremental id
 /// * state: 0-new, 1-doing, 2-done, 3-failed
-/// Invocated by API
+///
+/// Invoked by API.
 pub(crate) async fn add_watchtower_task(
     local_db: &LocalDB,
     instance_id: Uuid,
@@ -657,7 +660,7 @@ pub(crate) async fn add_watchtower_task(
     execution_layer_block_number: i64,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    Ok(storage_processor
+    storage_processor
         .create_watchtower_proof(&WatchtowerProof {
             id: 1,
             instance_id,
@@ -671,7 +674,7 @@ pub(crate) async fn add_watchtower_task(
             included: true,
             ..Default::default()
         })
-        .await?)
+        .await
 }
 
 pub(crate) async fn find_watchtower_task(
@@ -719,7 +722,7 @@ pub(crate) async fn update_watchtower_task(
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    Ok(storage_processor
+    storage_processor
         .update_watchtower_proof(
             index,
             path_to_proof,
@@ -731,7 +734,7 @@ pub(crate) async fn update_watchtower_task(
             proving_time,
             &zkm_version,
         )
-        .await?)
+        .await
 }
 
 /// table schema: (index, instance_id, graph_id, execution_layer_block_number, path_to_proof, cycles, state, update_time)
@@ -819,7 +822,7 @@ pub(crate) async fn add_operator_task(
             id: 1,
             instance_id,
             graph_id,
-            execution_layer_block_number: execution_layer_block_number as i64,
+            execution_layer_block_number,
             proof_state: ProofState::New.to_i64(),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
@@ -905,7 +908,7 @@ pub(crate) async fn update_operator_task(
     zkm_version: String,
 ) -> anyhow::Result<u64> {
     let mut storage_processor = local_db.acquire().await?;
-    Ok(storage_processor
+    storage_processor
         .update_operator_proof(
             index,
             path_to_proof,
@@ -917,7 +920,7 @@ pub(crate) async fn update_operator_task(
             proving_time,
             &zkm_version,
         )
-        .await?)
+        .await
 }
 
 #[inline(always)]

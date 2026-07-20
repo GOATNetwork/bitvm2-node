@@ -370,7 +370,7 @@ mod tests {
     fn test_extract_op_return() {
         // Example: construct a fake tx with OP_RETURN
         let expected_op_data = [12, 3, 4, 45];
-        let script = ScriptBuf::new_op_return(&expected_op_data);
+        let script = ScriptBuf::new_op_return(expected_op_data);
         let tx = Transaction {
             version: bitcoin::transaction::Version::TWO,
             lock_time: bitcoin::absolute::LockTime::ZERO,

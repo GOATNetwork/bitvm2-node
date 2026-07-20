@@ -64,7 +64,7 @@ pub async fn fetch_target_block(
     latest_sequencer_commit_txid: &str,
     bitcoin_network: Network,
 ) -> anyhow::Result<(u32, Block, Transaction)> {
-    let btc_client = client::btc_chain::BTCClient::new(bitcoin_network, Some(&esplora_url));
+    let btc_client = client::btc_chain::BTCClient::new(bitcoin_network, Some(esplora_url));
     let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid).unwrap();
 
     let latest_sequencer_commit_tx =
@@ -88,6 +88,7 @@ pub struct WatchtowerProofBuilder {
 }
 
 impl WatchtowerProofBuilder {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(WATCHTOWER);
@@ -135,12 +136,12 @@ impl ProofBuilder for WatchtowerProofBuilder {
         // --- header chain --- //
         let header_chain_input = {
             let zkm_public_values =
-                fs::read(&format!("{}.public_inputs.bin", header_chain_input_proof)).unwrap();
+                fs::read(format!("{}.public_inputs.bin", header_chain_input_proof)).unwrap();
             let zkm_proof = fs::read(header_chain_input_proof)
                 .context("Failed to read input proof file")
                 .unwrap();
             let zkm_vk_hash =
-                fs::read(&format!("{}.vk_hash.bin", header_chain_input_proof)).unwrap();
+                fs::read(format!("{}.vk_hash.bin", header_chain_input_proof)).unwrap();
             let version_path = format!("{header_chain_input_proof}.zkm_version.bin");
             let zkm_version = fs::read(&version_path)
                 .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
@@ -163,12 +164,12 @@ impl ProofBuilder for WatchtowerProofBuilder {
         // --- commit chain --- //
         let commit_chain_input = {
             let zkm_public_values =
-                fs::read(&format!("{}.public_inputs.bin", commit_chain_input_proof)).unwrap();
+                fs::read(format!("{}.public_inputs.bin", commit_chain_input_proof)).unwrap();
             let zkm_proof = fs::read(commit_chain_input_proof)
                 .context("Failed to read input proof file")
                 .unwrap();
             let zkm_vk_hash =
-                fs::read(&format!("{}.vk_hash.bin", commit_chain_input_proof)).unwrap();
+                fs::read(format!("{}.vk_hash.bin", commit_chain_input_proof)).unwrap();
             let version_path = format!("{commit_chain_input_proof}.zkm_version.bin");
             let zkm_version = fs::read(&version_path)
                 .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
@@ -193,9 +194,8 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 .context("Failed to read input proof file")
                 .unwrap();
             let zkm_public_values =
-                fs::read(&format!("{}.public_inputs.bin", state_chain_input_proof)).unwrap();
-            let zkm_vk_hash =
-                fs::read(&format!("{}.vk_hash.bin", state_chain_input_proof)).unwrap();
+                fs::read(format!("{}.public_inputs.bin", state_chain_input_proof)).unwrap();
+            let zkm_vk_hash = fs::read(format!("{}.vk_hash.bin", state_chain_input_proof)).unwrap();
             let version_path = format!("{state_chain_input_proof}.zkm_version.bin");
             let zkm_version = fs::read(&version_path)
                 .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
@@ -214,10 +214,10 @@ impl ProofBuilder for WatchtowerProofBuilder {
             }
         };
         // --- spv --- //
-        let genesis_sequencer_commit_txid = Txid::from_str(&genesis_sequencer_commit_txid)?;
-        let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid)?;
+        let genesis_sequencer_commit_txid = Txid::from_str(genesis_sequencer_commit_txid)?;
+        let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid)?;
         let bitcoin_block_headers = {
-            let headers: Vec<u8> = std::fs::read(&format!("{header_chain_input_proof}.blocks"))?;
+            let headers: Vec<u8> = std::fs::read(format!("{header_chain_input_proof}.blocks"))?;
             headers
                 .chunks(80)
                 .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
@@ -287,13 +287,13 @@ impl ProofBuilder for WatchtowerProofBuilder {
         let ProofRequest::WatchtowerProofRequest { output, .. } = ctx else {
             anyhow::bail!("invalid context");
         };
-        std::fs::write(&format!("{}", output), proof.bytes())?;
+        std::fs::write(output, proof.bytes())?;
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
-        std::fs::write(&format!("{}.public_inputs.bin", output), proof.public_values.to_vec())?;
-        std::fs::write(&format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
-        std::fs::write(&format!("{}.zkm_version.bin", output), zkm_version)?;
+        std::fs::write(format!("{}.public_inputs.bin", output), proof.public_values.to_vec())?;
+        std::fs::write(format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.zkm_version.bin", output), zkm_version)?;
         Ok((public_value_hex, proof_size))
     }
 }

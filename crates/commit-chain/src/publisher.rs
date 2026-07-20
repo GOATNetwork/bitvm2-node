@@ -219,8 +219,7 @@ mod tests {
         let prevout = TxOut { value: prev_value, script_pubkey };
 
         // Fake OutPoint
-        let prev_outpoint =
-            OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32].into()), vout: 0 };
+        let prev_outpoint = OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32]), vout: 0 };
 
         // === Step 4: construct spending tx ===
         let mut tx = Transaction {
@@ -236,7 +235,7 @@ mod tests {
                 value: Amount::from_sat(99_000),
                 script_pubkey: {
                     let btc_pk0 = bitcoin::PublicKey::from(pubkeys[0]);
-                    Address::p2pkh(&btc_pk0, Network::Testnet).script_pubkey()
+                    Address::p2pkh(btc_pk0, Network::Testnet).script_pubkey()
                 },
             }],
         };
@@ -254,15 +253,9 @@ mod tests {
         finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
 
         // === Step 7: verify ===
-        let ok = verify_p2wsh_multisig_witness(
-            &tx,
-            0,
-            &prevout,
-            &redeem_script,
-            &pubkeys,
-            threshold as usize,
-        )
-        .unwrap();
+        let ok =
+            verify_p2wsh_multisig_witness(&tx, 0, &prevout, &redeem_script, &pubkeys, threshold)
+                .unwrap();
 
         assert!(ok, "2-of-3 multisig witness should verify");
     }
@@ -278,8 +271,7 @@ mod tests {
             value: prev_value,
             script_pubkey: ScriptBuf::new_p2wsh(&ScriptBuf::new().wscript_hash()),
         };
-        let prev_outpoint =
-            OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32].into()), vout: 0 };
+        let prev_outpoint = OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32]), vout: 0 };
 
         let mut tx = Transaction {
             version: Version::TWO,
@@ -294,7 +286,7 @@ mod tests {
                 value: Amount::from_sat(99_000),
                 script_pubkey: {
                     let btc_pk0 = bitcoin::PublicKey::from(pubkeys[0]);
-                    Address::p2pkh(&btc_pk0, Network::Testnet).script_pubkey()
+                    Address::p2pkh(btc_pk0, Network::Testnet).script_pubkey()
                 },
             }],
         };
@@ -308,15 +300,8 @@ mod tests {
         finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
 
         assert!(
-            verify_p2wsh_multisig_witness(
-                &tx,
-                0,
-                &prevout,
-                &redeem_script,
-                &pubkeys,
-                threshold as usize,
-            )
-            .is_err()
+            verify_p2wsh_multisig_witness(&tx, 0, &prevout, &redeem_script, &pubkeys, threshold,)
+                .is_err()
         );
     }
 }

@@ -86,7 +86,7 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     let zkm_version = proof.zkm_version.clone();
                     let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
 
-                    create_commit_chain_proof(&local_db, block_start, 0xFFffFFff as i64 - block_start, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, CommitChainProofBuilder::name(), proving_duration as i64, proving_time as i64, store::ProofState::Proven,zkm_version).await?;
+                    create_commit_chain_proof(&local_db, block_start, 0xffffffff_i64 - block_start, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, CommitChainProofBuilder::name(), proving_duration as i64, proving_time as i64, store::ProofState::Proven,zkm_version).await?;
                     args = ProofBuilderConfig::run_next(args, CommitChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {

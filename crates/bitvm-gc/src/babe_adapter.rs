@@ -206,6 +206,7 @@ pub fn open_real_setup_and_solder(
 }
 
 /// Verifies real CAC openings, commitments, and the native Ziren soldering proof.
+#[allow(clippy::too_many_arguments)]
 pub fn verify_real_setup(
     soldering_builder: &BabeBundleBuilder,
     package: &CACSetupPackage,
@@ -223,7 +224,7 @@ pub fn verify_real_setup(
     };
     soldering_builder
         .babe_prover_verify_setup(
-            &package,
+            package,
             &bundle,
             vk,
             static_public_inputs,
@@ -512,12 +513,8 @@ fn restore_real_verifier(
     vk: &Groth16VerifyingKey<Bn254>,
     static_inputs: Fr,
 ) -> Result<BABEVerifier> {
-    let verifier = BABEVerifier::from_state(&state.instance_seeds, package, vk, static_inputs);
-    if verifier.is_none() {
-        Err(anyhow::anyhow!("Cannot restore real verifier"))
-    } else {
-        Ok(verifier.unwrap())
-    }
+    BABEVerifier::from_state(&state.instance_seeds, package, vk, static_inputs)
+        .ok_or_else(|| anyhow::anyhow!("Cannot restore real verifier"))
 }
 
 fn validate_finalized_indices(

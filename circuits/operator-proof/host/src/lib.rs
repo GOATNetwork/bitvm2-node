@@ -89,11 +89,14 @@ use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 
+type IndexedWatchtowerInputs = Vec<(u16, Txid, PublicKey)>;
+type GraphWatchtowerXOnlyPublicKeys = Vec<[u8; 32]>;
+
 /// Parses the full graph key list and keeps each included challenge's original graph index.
 fn parse_indexed_watchtower_inputs(
     watchtower_challenge_txids: &str,
     watchtower_public_keys: &str,
-) -> anyhow::Result<(Vec<(u16, Txid, PublicKey)>, Vec<[u8; 32]>)> {
+) -> anyhow::Result<(IndexedWatchtowerInputs, GraphWatchtowerXOnlyPublicKeys)> {
     let public_keys = watchtower_public_keys
         .split(',')
         .map(PublicKey::from_str)
@@ -143,9 +146,9 @@ pub async fn fetch_target_block_and_watchtower_tx(
 )> {
     let (indexed_watchtower_inputs, graph_watchtower_xonly_public_keys) =
         parse_indexed_watchtower_inputs(watchtower_challenge_txids, watchtower_public_keys)?;
-    let btc_client = BTCClient::new(bitcoin_network, Some(&esplora_url));
+    let btc_client = BTCClient::new(bitcoin_network, Some(esplora_url));
 
-    let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid)?;
+    let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid)?;
     let operator_latest_sequencer_commit_txn =
         match btc_client.get_tx(&latest_sequencer_commit_txid).await? {
             Some(tx) => tx,
@@ -156,7 +159,7 @@ pub async fn fetch_target_block_and_watchtower_tx(
         };
     let tx_status = btc_client.get_tx_status(&latest_sequencer_commit_txid).await?;
     let block_pos_ss_commit = match tx_status.block_height {
-        Some(height) => height as u32,
+        Some(height) => height,
         None => anyhow::bail!(
             "Latest sequencer commit txn is not confirmed yet: {}",
             latest_sequencer_commit_txid
@@ -258,6 +261,7 @@ pub struct OperatorProofBuilder {
 }
 
 impl OperatorProofBuilder {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(OPERATOR);
@@ -316,12 +320,12 @@ impl ProofBuilder for OperatorProofBuilder {
         // --- header chain --- //
         let header_chain_input = {
             let zkm_public_values =
-                fs::read(&format!("{}.public_inputs.bin", header_chain_input_proof)).unwrap();
+                fs::read(format!("{}.public_inputs.bin", header_chain_input_proof)).unwrap();
             let zkm_proof = fs::read(header_chain_input_proof)
                 .context("Failed to read input proof file")
                 .unwrap();
             let zkm_vk_hash =
-                fs::read(&format!("{}.vk_hash.bin", header_chain_input_proof)).unwrap();
+                fs::read(format!("{}.vk_hash.bin", header_chain_input_proof)).unwrap();
             let version_path = format!("{header_chain_input_proof}.zkm_version.bin");
             let zkm_version = fs::read(&version_path)
                 .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
@@ -343,12 +347,12 @@ impl ProofBuilder for OperatorProofBuilder {
         // --- commit chain --- //
         let commit_chain_input = {
             let zkm_public_values =
-                fs::read(&format!("{}.public_inputs.bin", commit_chain_input_proof)).unwrap();
+                fs::read(format!("{}.public_inputs.bin", commit_chain_input_proof)).unwrap();
             let zkm_proof = fs::read(commit_chain_input_proof)
                 .context("Failed to read input proof file")
                 .unwrap();
             let zkm_vk_hash =
-                fs::read(&format!("{}.vk_hash.bin", commit_chain_input_proof)).unwrap();
+                fs::read(format!("{}.vk_hash.bin", commit_chain_input_proof)).unwrap();
             let version_path = format!("{commit_chain_input_proof}.zkm_version.bin");
             let zkm_version = fs::read(&version_path)
                 .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
@@ -373,9 +377,8 @@ impl ProofBuilder for OperatorProofBuilder {
                 .context("Failed to read input proof file")
                 .unwrap();
             let zkm_public_values =
-                fs::read(&format!("{}.public_inputs.bin", state_chain_input_proof)).unwrap();
-            let zkm_vk_hash =
-                fs::read(&format!("{}.vk_hash.bin", state_chain_input_proof)).unwrap();
+                fs::read(format!("{}.public_inputs.bin", state_chain_input_proof)).unwrap();
+            let zkm_vk_hash = fs::read(format!("{}.vk_hash.bin", state_chain_input_proof)).unwrap();
             let version_path = format!("{state_chain_input_proof}.zkm_version.bin");
             let zkm_version = fs::read(&version_path)
                 .with_context(|| format!("failed to read zkm_version file '{version_path}'"))
@@ -398,11 +401,10 @@ impl ProofBuilder for OperatorProofBuilder {
         // --- spv --- //
         //let latest_sequencer_commit_txid = Txid::from_str(&latest_sequencer_commit_txid).unwrap();
 
-        let operator_genesis_sequencer_commit_txid =
-            Txid::from_str(&genesis_sequencer_commit_txid)?;
+        let operator_genesis_sequencer_commit_txid = Txid::from_str(genesis_sequencer_commit_txid)?;
 
         let bitcoin_block_headers = {
-            let headers: Vec<u8> = std::fs::read(&format!("{header_chain_input_proof}.blocks"))
+            let headers: Vec<u8> = std::fs::read(format!("{header_chain_input_proof}.blocks"))
                 .context("read header chain blocks error")?;
             headers
                 .chunks(80)
@@ -426,7 +428,7 @@ impl ProofBuilder for OperatorProofBuilder {
             operator_latest_sequencer_commit_txn.compute_txid()
         );
         let spv_ss_commit = build_spv(
-            &operator_latest_sequencer_commit_txn,
+            operator_latest_sequencer_commit_txn,
             *block_pos_ss_commit,
             target_block_ss_commit.clone(),
             &bitcoin_block_headers,
@@ -437,7 +439,7 @@ impl ProofBuilder for OperatorProofBuilder {
             || -> anyhow::Result<(ZKMProofWithPublicValues, u64, f32)> {
                 let mut stdin = ZKMStdin::new();
 
-                let included_watchtowers: U256 = U256::from_str(&included_watchtowers).unwrap();
+                let included_watchtowers: U256 = U256::from_str(included_watchtowers).unwrap();
                 stdin.write(&included_watchtowers);
 
                 stdin.write(&graph_id);
@@ -495,11 +497,11 @@ impl ProofBuilder for OperatorProofBuilder {
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
-        std::fs::write(&format!("{}.public_inputs.bin", output), proof.public_values.to_vec())?;
-        std::fs::write(&format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
-        std::fs::write(&format!("{}.zkm_version.bin", output), zkm_version)?;
+        std::fs::write(format!("{}.public_inputs.bin", output), proof.public_values.to_vec())?;
+        std::fs::write(format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.zkm_version.bin", output), zkm_version)?;
         let proof = bincode::serialize(&proof)?;
-        std::fs::write(&format!("{}", output), proof)?;
+        std::fs::write(output, proof)?;
         Ok((public_value_hex, proof_size))
     }
 }
