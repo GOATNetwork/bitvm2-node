@@ -30,18 +30,7 @@
 (*     verifier i's own pace (whenever THEY finish detecting fraud), not a *)
 (*     shared height. This is the one place N/M actually could matter.     *)
 (***************************************************************************)
-EXTENDS Integers
-
-Networks == {"Bitcoin", "Testnet4", "Signet", "Regtest"}
-
-\* Shipped values, crates/bitvm-gc/src/timelocks.rs.
-WatchtowerChallenge == [Bitcoin |-> 144, Testnet4 |-> 34, Signet |-> 6, Regtest |-> 1]
-OperatorAck          == [Bitcoin |-> 288, Testnet4 |-> 46, Signet |-> 12, Regtest |-> 2]
-OperatorCommit        == [Bitcoin |-> 432, Testnet4 |-> 58, Signet |-> 18, Regtest |-> 3]
-ConnectorF            == [Bitcoin |-> 576, Testnet4 |-> 70, Signet |-> 24, Regtest |-> 4]
-ProverConnector       == [Bitcoin |-> 144, Testnet4 |-> 22, Signet |-> 6, Regtest |-> 1]
-ConnectorD            == [Bitcoin |-> 432, Testnet4 |-> 35, Signet |-> 18, Regtest |-> 3]
-MinReactionBlocks     == [Bitcoin |-> 6, Testnet4 |-> 12, Signet |-> 1, Regtest |-> 1]
+EXTENDS Integers, ShippedTimelocks
 
 VARIABLES
     net,

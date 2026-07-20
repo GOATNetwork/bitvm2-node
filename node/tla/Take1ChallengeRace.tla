@@ -38,12 +38,12 @@
 (* tx construction + broadcast + confirmation lag) applied to a different  *)
 (* connector.                                                              *)
 (***************************************************************************)
-EXTENDS Integers
-
-Networks == {"Bitcoin", "Testnet4", "Signet", "Regtest"}
+EXTENDS Integers, ShippedTimelocks
 
 \* Real shipped values, crates/bitvm-gc/src/timelocks.rs (current code -
-\* NO validation of this field's margin exists anywhere).
+\* NO validation of this field's margin exists anywhere). Not in
+\* ShippedTimelocks.tla: this pair is the actual subject under test here,
+\* not a settled "known good" shared constant.
 ConnectorA == [Bitcoin |-> 144, Testnet4 |-> 16, Signet |-> 6, Regtest |-> 1]
 
 \* Proposed fix design (not applied to code): add an
@@ -52,10 +52,6 @@ ConnectorA == [Bitcoin |-> 144, Testnet4 |-> 16, Signet |-> 6, Regtest |-> 1]
 \* just the one network that actually needs it (Regtest 1 -> 2) is enough
 \* to satisfy that check with the current values elsewhere already clear.
 ConnectorAFixed == [Bitcoin |-> 144, Testnet4 |-> 16, Signet |-> 6, Regtest |-> 2]
-
-\* Take2DisproveRace.tla's policy floor, reused verbatim (same real-world
-\* reaction-time assumption, different connector).
-MinReactionBlocks == [Bitcoin |-> 6, Testnet4 |-> 12, Signet |-> 1, Regtest |-> 1]
 
 VARIABLE net
 vars == <<net>>

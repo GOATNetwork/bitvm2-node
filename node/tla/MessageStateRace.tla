@@ -25,8 +25,6 @@
 (* the next time a handler in the swarm-message task calls a retry/defer   *)
 (* on it, unrelated to the cancellation.                                   *)
 (***************************************************************************)
-EXTENDS FiniteSets
-
 Statuses == {"Pending", "Cancelled"}
 
 \* Cancelled is an administrative "this message is moot, stop touching it"

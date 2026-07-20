@@ -9,32 +9,7 @@
 (* writes later - so TLC can explore another writer's full read-decide-    *)
 (* write completing in between.                                            *)
 (***************************************************************************)
-EXTENDS FiniteSets
-
-AllStatuses == {
-    "OperatorPresigned", "CommitteePresigned", "OperatorDataPushed",
-    "PreKickoff", "OperatorKickOff", "Challenge",
-    "OperatorTake1", "OperatorTake2", "Skipped", "Obsoleted", "Disprove"
-}
-TerminalStatuses == {"OperatorTake1", "OperatorTake2", "Skipped", "Disprove"}
-
-AllowedTransitions == {
-    <<"OperatorPresigned", "CommitteePresigned">>,
-    <<"CommitteePresigned", "OperatorDataPushed">>,
-    <<"OperatorDataPushed", "PreKickoff">>,
-    <<"OperatorPresigned", "Obsoleted">>,
-    <<"CommitteePresigned", "Obsoleted">>,
-    <<"OperatorDataPushed", "Obsoleted">>,
-    <<"PreKickoff", "OperatorKickOff">>,
-    <<"Obsoleted", "OperatorKickOff">>,
-    <<"PreKickoff", "Skipped">>,
-    <<"Obsoleted", "Skipped">>,
-    <<"OperatorKickOff", "OperatorTake1">>,
-    <<"OperatorKickOff", "Challenge">>,
-    <<"OperatorKickOff", "Disprove">>,
-    <<"Challenge", "OperatorTake2">>,
-    <<"Challenge", "Disprove">>
-}
+EXTENDS GraphTopology
 
 GoatTargets == {"OperatorDataPushed", "OperatorTake1", "OperatorTake2", "Disprove"}
 

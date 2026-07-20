@@ -38,15 +38,7 @@
 (* be used to shortcut this specific race, regardless of when the operator *)
 (* chooses to broadcast WatchtowerChallengeInit.                           *)
 (***************************************************************************)
-EXTENDS Integers
-
-Networks == {"Bitcoin", "Testnet4", "Signet", "Regtest"}
-
-\* Shipped values, crates/bitvm-gc/src/timelocks.rs (post-fix).
-ProverConnector == [Bitcoin |-> 144, Testnet4 |-> 22, Signet |-> 6, Regtest |-> 1]
-ConnectorD       == [Bitcoin |-> 432, Testnet4 |-> 35, Signet |-> 18, Regtest |-> 3]
-ConnectorF       == [Bitcoin |-> 576, Testnet4 |-> 70, Signet |-> 24, Regtest |-> 4]
-MinReactionBlocks == [Bitcoin |-> 6, Testnet4 |-> 12, Signet |-> 1, Regtest |-> 1]
+EXTENDS Integers, ShippedTimelocks
 
 Max(a, b) == IF a >= b THEN a ELSE b
 

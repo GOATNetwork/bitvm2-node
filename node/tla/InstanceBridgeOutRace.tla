@@ -26,8 +26,6 @@
 (* every writer is unconditional on the CURRENT status - that's the        *)
 (* verified real behavior, not a simplification of it.                    *)
 (***************************************************************************)
-EXTENDS FiniteSets
-
 Statuses == {"Initialize", "Claim", "Timeout", "Refund"}
 
 \* Once a bridge-out instance is claimed, timed out, or refunded, that is
