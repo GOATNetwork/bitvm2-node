@@ -96,29 +96,49 @@ jobs:
       # the spec itself silently stopped demonstrating the bug (bad - the
       # spec needs to be fixed). Either way it exits immediately rather
       # than being folded into the generic open-bug count below.
+      # Generates a fix-suggestions report on the fly (no separate committed
+      # file - see git history if a standalone doc is ever wanted again) and
+      # prints it both to the step summary (rendered as markdown on the run
+      # page) and to the raw log, then fails. Each row below is
+      # cfg|tla|finding title|files to touch|one-line fix direction.
       - name: Fail while documented bugs remain unfixed (blocking, by design)
         working-directory: node/tla
         run: |
           JAR=~/.local/share/tlaplus/tla2tools.jar
           open_bugs=0
-          while IFS='|' read -r cfg tla finding; do
+          {
+            echo "## TLA+ audit: open, unfixed findings"
+            echo
+            echo "This branch has TLC-proven bugs still present in the shipped Rust code."
+            echo "Full detail: \`audit/TLAPlus-20260630.md\`. This job fails by design"
+            echo "until each one below is fixed."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS='|' read -r cfg tla finding files hint; do
             [ -z "$cfg" ] && continue
             if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
               echo "::error::$tla / $cfg was expected to keep failing (bug not yet fixed in code) but passed - either the fix was applied (move it to the must-pass step and drop it from this list) or the spec no longer demonstrates the bug"
               exit 1
             fi
-            echo "::warning::$finding ($tla / $cfg) confirmed still present and unfixed - see audit/TLAPlus-20260630.md"
+            echo "::warning::$finding ($tla / $cfg) confirmed still present and unfixed - files: $files - fix: $hint"
+            {
+              echo "### $finding"
+              echo "- **Spec**: \`$tla\` / \`$cfg\`"
+              echo "- **Files**: $files"
+              echo "- **Fix direction**: $hint"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
             open_bugs=$((open_bugs + 1))
           done <<'BUGS'
-          GraphLifecycle.cfg|GraphLifecycle.tla|Finding 1: Graph.status race
-          GraphLifecycleFineGrained.cfg|GraphLifecycleFineGrained.tla|Finding 1b: naive guard still unsafe
-          InstancePresignedBug.cfg|InstancePresigned.tla|Finding 2: Instance.status regression past Presigned
-          InstanceBridgeOutRace.cfg|InstanceBridgeOutRace.tla|Finding 6: InstanceBridgeOutStatus resurrection
-          MessageStateRace.cfg|MessageStateRace.tla|Finding 7: MessageState resurrection
-          Take1ChallengeRace.cfg|Take1ChallengeRace.tla|Finding 9: connector_a has no margin check
+          GraphLifecycle.cfg|GraphLifecycle.tla|Finding 1: Graph.status race|`node/src/utils.rs` (`update_graph_status`), `crates/store/src/localdb.rs` (`GraphUpdate`)|Fold a `status IN (...)` guard into `update_graph`'s SQL via the existing `QueryBuilder::and_where_in` helper so the check-and-write become one atomic `UPDATE`, not a `find_graph` read followed by a separate `update_graph` write.
+          GraphLifecycleFineGrained.cfg|GraphLifecycleFineGrained.tla|Finding 1b: naive guard still unsafe|same as Finding 1|The guard must be a single atomic `UPDATE ... WHERE status IN (...)`, never a `SELECT` followed by an `UPDATE` - even correct guard logic split across two statements re-opens the gap.
+          InstancePresignedBug.cfg|InstancePresigned.tla|Finding 2: Instance.status regression past Presigned|`node/src/utils.rs` (`update_graph_status`'s `CommitteePresigned` branch), `crates/store/src/localdb.rs` (`InstanceUpdate`)|Guard the `Presigned` write with `only_if_status_in([UserIniting, Presigned])` using the same `and_where_in` mechanism as Finding 1.
+          InstanceBridgeOutRace.cfg|InstanceBridgeOutRace.tla|Finding 6: InstanceBridgeOutStatus resurrection|`node/src/rpc_service/handler/bitvm2_handler.rs` (`bridge_out_init_tag`), `node/src/scheduled_tasks/event_watch_task.rs` (SwapClaim/SwapRefund handlers), `node/src/scheduled_tasks/instance_maintenance_tasks.rs` (`instance_bridge_out_monitor`)|Replace the full-row `upsert_instance` calls (no WHERE clause possible) with targeted, guarded `update_instance` calls (`only_if_status_in([Initialize])`); the maintenance-task site already uses `update_instance`, it just needs the guard added.
+          MessageStateRace.cfg|MessageStateRace.tla|Finding 7: MessageState resurrection|`crates/store/src/localdb.rs` (`upsert_message`)|Add `WHERE message.state != 'Cancelled'` to the `ON CONFLICT ... DO UPDATE SET ...` clause (SQLite supports a WHERE on the DO UPDATE itself). Requires regenerating the `.sqlx` query cache.
+          Take1ChallengeRace.cfg|Take1ChallengeRace.tla|Finding 9: connector_a has no margin check|`crates/bitvm-gc/src/timelocks.rs` (`validate_timelock_config`)|Add an `ensure_gt("connector_a", ..., "min_reaction_blocks", floor)` check; bump Regtest's shipped `connector_a` from 1 to 2 to satisfy it.
           BUGS
           if [ "$open_bugs" -gt 0 ]; then
-            echo "::error::$open_bugs documented, TLC-proven bug(s) remain unfixed in the Rust code (Findings 1/1b/2/6/7/9 - Finding 3 has no TLA+ model, see the report). This job intentionally fails until they are fixed - see audit/TLAPlus-20260630.md's Recommendations for the verified fix design for each one."
+            echo "::error::$open_bugs documented, TLC-proven bug(s) remain unfixed in the Rust code (Findings 1/1b/2/6/7/9 - Finding 3 and Finding 4 also remain open but aren't in this loop, see the report). This job intentionally fails until they are fixed."
             exit 1
           fi
   fmt:
