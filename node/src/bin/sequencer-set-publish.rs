@@ -36,7 +36,14 @@ use bitcoin_light_client_circuit::{
     /*create_dummy_publisher_keys,*/ create_fee_tx, create_sequencer_update_partial_tx,
     estimate_tx_vbytes,
 };
+use commit_chain::{
+    CommitChainCircuitOutput, CommitChainPrevProofType, classify_commit_chain_output,
+};
 use commit_chain::{CommitInfo, create_sequencer_update_script, finalize, sign_raw};
+use header_chain::{
+    BlockHeaderCircuitOutput, HeaderChainPrevProofType, classify_header_chain_output,
+};
+use state_chain::{StateChainCircuitOutput, StateChainPrevProofType, classify_state_chain_output};
 use tendermint::validator::Info;
 
 use reqwest::Url;
@@ -209,6 +216,20 @@ async fn get_sequencer_set_hash_from_db(
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    DeriveProgramHistoryRoot {
+        #[arg(long)]
+        header_chain_input_proof: String,
+        #[arg(long)]
+        state_chain_input_proof: String,
+        #[arg(long)]
+        commit_chain_input_proof: String,
+        #[arg(long, value_parser = hex_parse::<32>)]
+        next_header_program_id: [u8; 32],
+        #[arg(long, value_parser = hex_parse::<32>)]
+        next_state_program_id: [u8; 32],
+        #[arg(long, value_parser = hex_parse::<32>)]
+        next_commit_program_id: [u8; 32],
+    },
     Pubkey {
         #[arg(long, short, value_delimiter = ',')]
         btc_key_wifs: Vec<String>,
@@ -232,6 +253,8 @@ enum Commands {
         goat_genesis_block_hash: [u8; 32],
         #[arg(long, env = "OPERATOR_VK_HASH", value_parser = hex_parse::<32>)]
         operator_vk_hash: [u8; 32],
+        #[arg(long, env = "PROGRAM_HISTORY_ROOT", value_parser = hex_parse::<32>)]
+        program_history_root: [u8; 32],
     },
     PushSeq {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
@@ -248,6 +271,8 @@ enum Commands {
         goat_genesis_block_hash: [u8; 32],
         #[arg(long, env = "OPERATOR_VK_HASH", value_parser = hex_parse::<32>)]
         operator_vk_hash: [u8; 32],
+        #[arg(long, env = "PROGRAM_HISTORY_ROOT", value_parser = hex_parse::<32>)]
+        program_history_root: [u8; 32],
         #[arg(long)]
         commit_info: String,
     },
@@ -274,6 +299,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let args = Args::parse();
+    if let Commands::DeriveProgramHistoryRoot {
+        header_chain_input_proof,
+        state_chain_input_proof,
+        commit_chain_input_proof,
+        next_header_program_id,
+        next_state_program_id,
+        next_commit_program_id,
+    } = &args.command
+    {
+        let root = derive_program_history_root(
+            header_chain_input_proof,
+            state_chain_input_proof,
+            commit_chain_input_proof,
+            *next_header_program_id,
+            *next_state_program_id,
+            *next_commit_program_id,
+        )?;
+        println!("0x{}", hex::encode(root));
+        return Ok(());
+    }
     let (btc_client, goat_client) = init_clients(&args).await?;
 
     let output_file = &args.output_file;
@@ -287,6 +332,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     match args.command {
+        Commands::DeriveProgramHistoryRoot { .. } => unreachable!(),
         Commands::Pubkey { btc_key_wifs } => {
             // calculate compressed public key
             btc_key_wifs.iter().for_each(|btc_key_wif| {
@@ -337,6 +383,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             next_publisher_btc_pubkeys,
             goat_genesis_block_hash,
             operator_vk_hash,
+            program_history_root,
         } => {
             let (sequencer_set_hash, goat_block_number, cosmos_block_number) =
                 get_sequencer_set_hash_from_db(&args.db_path, goat_block_number, false).await?;
@@ -358,6 +405,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sequencer_set_hash,
                 goat_genesis_block_hash,
                 operator_vk_hash,
+                program_history_root,
                 goat_block_number,
             )
             .await
@@ -370,6 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             init_genesis,
             goat_genesis_block_hash,
             operator_vk_hash,
+            program_history_root,
             commit_info,
         } => {
             println!("goat genesis block hash: {:#?}", hex::encode(goat_genesis_block_hash));
@@ -393,6 +442,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sequencer_set_hash,
                 goat_genesis_block_hash,
                 operator_vk_hash,
+                program_history_root,
                 output_file,
             )
             .await?;
@@ -414,6 +464,119 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+}
+
+fn load_verified_proof(path: &str) -> anyhow::Result<(Vec<u8>, verifier::ProgramId)> {
+    let proof = std::fs::read(path)?;
+    let public_values = std::fs::read(format!("{path}.public_inputs.bin"))?;
+    let vk_hash = std::fs::read(format!("{path}.vk_hash.bin"))?;
+    let version = String::from_utf8(std::fs::read(format!("{path}.zkm_version.bin"))?)?;
+    let program_id = verifier::verify_groth16_proof(&proof, &public_values, &vk_hash, &version)
+        .map_err(anyhow::Error::msg)?;
+    Ok((public_values, program_id))
+}
+
+fn next_header_history_root(
+    path: &str,
+    next_program_id: verifier::ProgramId,
+) -> anyhow::Result<[u8; 32]> {
+    let (public_values, previous_program_id) = load_verified_proof(path)?;
+    let history = match classify_header_chain_output(&public_values).map_err(anyhow::Error::msg)? {
+        HeaderChainPrevProofType::PrevProof => {
+            let output: BlockHeaderCircuitOutput = bincode::deserialize(&public_values)?;
+            anyhow::ensure!(
+                output.self_program_id == previous_program_id,
+                "header ProgramId mismatch"
+            );
+            verifier::next_history(
+                verifier::ProgramType::Header,
+                output.program_history_hash,
+                previous_program_id,
+                next_program_id,
+            )
+        }
+        HeaderChainPrevProofType::LegacyPrevProof => verifier::legacy_history(
+            verifier::ProgramType::Header,
+            previous_program_id,
+            &public_values,
+        ),
+        HeaderChainPrevProofType::GenesisBlock => unreachable!(),
+    };
+    Ok(verifier::finalize_history(verifier::ProgramType::Header, history, next_program_id))
+}
+
+fn next_state_history_root(
+    path: &str,
+    next_program_id: verifier::ProgramId,
+) -> anyhow::Result<[u8; 32]> {
+    let (public_values, previous_program_id) = load_verified_proof(path)?;
+    let history = match classify_state_chain_output(&public_values).map_err(anyhow::Error::msg)? {
+        StateChainPrevProofType::PrevProof => {
+            let output: StateChainCircuitOutput = bincode::deserialize(&public_values)?;
+            anyhow::ensure!(
+                output.self_program_id == previous_program_id,
+                "state ProgramId mismatch"
+            );
+            verifier::next_history(
+                verifier::ProgramType::State,
+                output.program_history_hash,
+                previous_program_id,
+                next_program_id,
+            )
+        }
+        StateChainPrevProofType::LegacyPrevProof => verifier::legacy_history(
+            verifier::ProgramType::State,
+            previous_program_id,
+            &public_values,
+        ),
+        StateChainPrevProofType::GenesisBlock => unreachable!(),
+    };
+    Ok(verifier::finalize_history(verifier::ProgramType::State, history, next_program_id))
+}
+
+fn next_commit_history_root(
+    path: &str,
+    next_program_id: verifier::ProgramId,
+) -> anyhow::Result<[u8; 32]> {
+    let (public_values, previous_program_id) = load_verified_proof(path)?;
+    let history = match classify_commit_chain_output(&public_values).map_err(anyhow::Error::msg)? {
+        CommitChainPrevProofType::PrevProof => {
+            let output: CommitChainCircuitOutput = bincode::deserialize(&public_values)?;
+            anyhow::ensure!(
+                output.self_program_id == previous_program_id,
+                "commit ProgramId mismatch"
+            );
+            verifier::next_history(
+                verifier::ProgramType::Commit,
+                output.program_history_hash,
+                previous_program_id,
+                next_program_id,
+            )
+        }
+        CommitChainPrevProofType::LegacyPrevProof => verifier::legacy_history(
+            verifier::ProgramType::Commit,
+            previous_program_id,
+            &public_values,
+        ),
+        CommitChainPrevProofType::GenesisBlock => unreachable!(),
+    };
+    Ok(verifier::finalize_history(verifier::ProgramType::Commit, history, next_program_id))
+}
+
+/// Verifies the predecessor proofs and derives the root expected from their next recursive steps.
+fn derive_program_history_root(
+    header_path: &str,
+    state_path: &str,
+    commit_path: &str,
+    next_header_program_id: verifier::ProgramId,
+    next_state_program_id: verifier::ProgramId,
+    next_commit_program_id: verifier::ProgramId,
+) -> anyhow::Result<[u8; 32]> {
+    Ok(verifier::program_history_root(
+        next_header_history_root(header_path, next_header_program_id)?,
+        next_state_history_root(state_path, next_state_program_id)?,
+        next_commit_history_root(commit_path, next_commit_program_id)?,
+    ))
 }
 
 async fn push_fee_tx(
@@ -546,6 +709,7 @@ async fn action_push_sequencer_set_update(
     sequencer_set_hash: [u8; 32],
     goat_genesis_block_hash: [u8; 32],
     operator_vk_hash: [u8; 32],
+    program_history_root: [u8; 32],
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let witnesses = goat_client.ss_get_sequencer_set_update_witness(goat_block_number).await?;
@@ -606,10 +770,11 @@ async fn action_push_sequencer_set_update(
     };
 
     // Skip construction of the genesis tx
-    let mut commitment = [0u8; 96];
+    let mut commitment = [0u8; 128];
     commitment[0..32].copy_from_slice(&sequencer_set_hash);
     commitment[32..64].copy_from_slice(&goat_genesis_block_hash);
-    commitment[64..].copy_from_slice(&operator_vk_hash);
+    commitment[64..96].copy_from_slice(&operator_vk_hash);
+    commitment[96..128].copy_from_slice(&program_history_root);
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,
         &update_connector,
@@ -656,6 +821,7 @@ async fn action_sign_sequencer_set_update(
     sequencer_set_hash: [u8; 32],
     goat_genesis_block_hash: [u8; 32],
     operator_vk_hash: [u8; 32],
+    program_history_root: [u8; 32],
     goat_block_number: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let total = btc_public_keys.len();
@@ -672,10 +838,11 @@ async fn action_sign_sequencer_set_update(
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as f64
         + RELAYER_FEE as f64;
     let replenish_fee = Amount::from_sat(replenish_fee.ceil() as u64);
-    let mut commitment = [0u8; 96];
+    let mut commitment = [0u8; 128];
     commitment[0..32].copy_from_slice(&sequencer_set_hash);
     commitment[32..64].copy_from_slice(&goat_genesis_block_hash);
-    commitment[64..].copy_from_slice(&operator_vk_hash);
+    commitment[64..96].copy_from_slice(&operator_vk_hash);
+    commitment[96..128].copy_from_slice(&program_history_root);
 
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,

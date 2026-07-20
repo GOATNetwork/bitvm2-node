@@ -4,19 +4,21 @@ mod state_chain;
 pub use cbft::*;
 pub use state_chain::*;
 
-use zkm_primitives::io::ZKMPublicValues;
-
 pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOutput {
-    let mut chain_state = match input.prev_proof {
+    let self_program_id = input.self_program_id;
+    let (mut chain_state, program_history_hash) = match input.prev_proof {
         StateChainPrevProofType::GenesisBlock => {
             let block_hash: [u8; 32] = input.blocks[0].evm_block.current_block.hash_slow().into();
             let block_height = input.blocks[0].evm_block.current_block.header.number;
             let cosmos_block = input.blocks[0].cosmos_block.clone();
-            StateChainState::new(block_height, block_hash, cosmos_block)
+            (
+                StateChainState::new(block_height, block_hash, cosmos_block),
+                verifier::initial_history(verifier::ProgramType::State),
+            )
         }
         StateChainPrevProofType::PrevProof => {
             println!("verify state chain of prev proof");
-            verifier::verify_groth16_proof(
+            let previous_program_id = verifier::verify_groth16_proof(
                 &input.zkm_proof,
                 &input.zkm_public_values,
                 &input.zkm_vk_hash,
@@ -25,11 +27,70 @@ pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOu
             .unwrap();
 
             let state_chain_output: StateChainCircuitOutput =
-                ZKMPublicValues::from(&input.zkm_public_values).read();
-            state_chain_output.chain_state
+                bincode::deserialize(&input.zkm_public_values).unwrap();
+            assert_eq!(state_chain_output.self_program_id, previous_program_id);
+            let history = verifier::next_history(
+                verifier::ProgramType::State,
+                state_chain_output.program_history_hash,
+                previous_program_id,
+                self_program_id,
+            );
+            (state_chain_output.chain_state, history)
+        }
+        StateChainPrevProofType::LegacyPrevProof => {
+            let previous_program_id = verifier::verify_groth16_proof(
+                &input.zkm_proof,
+                &input.zkm_public_values,
+                &input.zkm_vk_hash,
+                &input.zkm_version,
+            )
+            .unwrap();
+            let chain_state = decode_legacy_state_chain_output(&input.zkm_public_values).unwrap();
+            let history = verifier::legacy_history(
+                verifier::ProgramType::State,
+                previous_program_id,
+                &input.zkm_public_values,
+            );
+            (chain_state, history)
         }
     };
 
     chain_state.apply_blocks(input.blocks);
-    StateChainCircuitOutput { chain_state }
+    StateChainCircuitOutput { chain_state, self_program_id, program_history_hash }
+}
+
+#[cfg(test)]
+mod circuit_output_tests {
+    use super::*;
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct LegacyOutput {
+        chain_state: StateChainState,
+    }
+
+    fn chain_state() -> StateChainState {
+        StateChainState::new(1, [1u8; 32], Vec::new())
+    }
+
+    #[test]
+    fn classifies_only_current_and_immediate_legacy_outputs() {
+        let legacy = bincode::serialize(&LegacyOutput { chain_state: chain_state() }).unwrap();
+        assert_eq!(
+            classify_state_chain_output(&legacy).unwrap(),
+            StateChainPrevProofType::LegacyPrevProof
+        );
+
+        let current = bincode::serialize(&StateChainCircuitOutput {
+            chain_state: chain_state(),
+            self_program_id: [1u8; 32],
+            program_history_hash: [2u8; 32],
+        })
+        .unwrap();
+        assert_eq!(
+            classify_state_chain_output(&current).unwrap(),
+            StateChainPrevProofType::PrevProof
+        );
+        assert!(classify_state_chain_output(b"unknown").is_err());
+    }
 }

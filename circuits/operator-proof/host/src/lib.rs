@@ -334,12 +334,15 @@ impl ProofBuilder for OperatorProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
             HeaderChainCircuitInput {
                 prev_proof: HeaderChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 block_headers: vec![],
             }
         };
@@ -361,12 +364,15 @@ impl ProofBuilder for OperatorProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
             CommitChainCircuitInput {
                 prev_proof: CommitChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 commits: vec![],
             }
         };
@@ -387,6 +393,8 @@ impl ProofBuilder for OperatorProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
 
             StateChainCircuitInput {
                 prev_proof: StateChainPrevProofType::GenesisBlock, // unused
@@ -394,6 +402,7 @@ impl ProofBuilder for OperatorProofBuilder {
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 blocks: vec![],
             }
         };

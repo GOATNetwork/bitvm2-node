@@ -5,8 +5,8 @@ use borsh::BorshDeserialize;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
-    include_elf,
+    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofKind, ZKMProofWithPublicValues,
+    ZKMStdin, include_elf,
 };
 
 use bitcoin::{Block, Network, Transaction, Txid, hashes::Hash};
@@ -25,6 +25,10 @@ use std::fs;
 // The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -40,7 +44,7 @@ pub struct Args {
     #[clap(long, env)]
     pub latest_sequencer_commit_txid: String,
 
-    #[clap(long, env, short)]
+    #[clap(long, env, short = 'H')]
     pub header_chain_input_proof: String,
 
     #[clap(long, env, short)]
@@ -93,6 +97,11 @@ impl WatchtowerProofBuilder {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(WATCHTOWER);
         Self { client, proving_key, verifying_key }
+    }
+
+    pub fn program_id(&self) -> anyhow::Result<verifier::ProgramId> {
+        verifier::program_id(self.verifying_key.bytes32().as_bytes(), ZKM_CIRCUIT_VERSION)
+            .map_err(anyhow::Error::msg)
     }
 }
 
@@ -149,6 +158,8 @@ impl ProofBuilder for WatchtowerProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
 
             HeaderChainCircuitInput {
                 prev_proof: HeaderChainPrevProofType::GenesisBlock, // unused
@@ -156,6 +167,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 block_headers: vec![],
             }
         };
@@ -177,12 +189,15 @@ impl ProofBuilder for WatchtowerProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
             CommitChainCircuitInput {
                 prev_proof: CommitChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 commits: vec![],
             }
         };
@@ -203,12 +218,15 @@ impl ProofBuilder for WatchtowerProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
             StateChainCircuitInput {
                 prev_proof: StateChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 blocks: vec![],
             }
         };

@@ -12,6 +12,12 @@ async fn main() {
     zkm_sdk::utils::setup_logger();
     tracing::info!("args: {args:?}");
 
+    let builder = HeaderChainProofBuilder::new();
+    if args.print_program_id {
+        println!("{}", hex::encode(builder.program_id().unwrap()));
+        return;
+    }
+
     let total_block_headers = fetch_header_chain(
         &args.esplora_url,
         args.start,
@@ -22,8 +28,6 @@ async fn main() {
     )
     .await
     .unwrap();
-
-    let builder = HeaderChainProofBuilder::new();
 
     let ctx = ProofRequest::HeaderChainProofRequest {
         init_input: args.init_input,

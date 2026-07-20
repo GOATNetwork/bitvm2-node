@@ -17,8 +17,8 @@ use state_chain::*;
 use std::sync::Arc;
 use url::Url;
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
-    include_elf,
+    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofKind, ZKMProofWithPublicValues,
+    ZKMStdin, include_elf,
 };
 
 use sha2::{Digest, Sha256};
@@ -36,6 +36,10 @@ use clap::Parser;
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -282,6 +286,11 @@ impl StateChainProofBuilder {
         let (proving_key, verifying_key) = client.setup(STATE_CHAIN);
         Self { client, proving_key, verifying_key }
     }
+
+    pub fn program_id(&self) -> anyhow::Result<verifier::ProgramId> {
+        verifier::program_id(self.verifying_key.bytes32().as_bytes(), ZKM_CIRCUIT_VERSION)
+            .map_err(anyhow::Error::msg)
+    }
 }
 
 impl ProofBuilder for StateChainProofBuilder {
@@ -319,6 +328,7 @@ impl ProofBuilder for StateChainProofBuilder {
             Some(public_inputs)
         };
 
+        let self_program_id = self.program_id()?;
         let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash, zkm_version) =
             match prev_receipt.clone() {
                 Some(public_inputs) => {
@@ -336,20 +346,16 @@ impl ProofBuilder for StateChainProofBuilder {
                                 format!("invalid UTF-8 in zkm_version file '{version_path}'")
                             })
                         })?;
-                    (
-                        StateChainPrevProofType::PrevProof,
-                        proof_bytes,
-                        public_inputs,
-                        zkm_vk_hash.to_vec(),
-                        zkm_version,
-                    )
+                    let prev_proof =
+                        classify_state_chain_output(&public_inputs).map_err(anyhow::Error::msg)?;
+                    (prev_proof, proof_bytes, public_inputs, zkm_vk_hash.to_vec(), zkm_version)
                 }
                 None => (
                     StateChainPrevProofType::GenesisBlock,
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    "v1.2.5".into(),
+                    ZKM_CIRCUIT_VERSION.into(),
                 ),
             };
 
@@ -359,6 +365,7 @@ impl ProofBuilder for StateChainProofBuilder {
             zkm_public_values,
             zkm_vk_hash,
             zkm_version,
+            self_program_id,
             blocks: blocks.clone(),
         };
         // Generate the proofs.
@@ -392,6 +399,11 @@ impl ProofBuilder for StateChainProofBuilder {
         self.client
             .verify(&proof, &self.verifying_key)
             .context("Failed to verify generated state chain proof")?;
+        anyhow::ensure!(
+            proof.zkm_version == ZKM_CIRCUIT_VERSION,
+            "generated state-chain proof has unexpected Ziren version {}",
+            proof.zkm_version
+        );
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))

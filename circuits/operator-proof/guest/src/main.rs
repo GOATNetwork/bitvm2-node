@@ -8,6 +8,12 @@ use header_chain::{HeaderChainCircuitInput, SPV};
 use state_chain::StateChainCircuitInput;
 use std::str::FromStr;
 
+// Regenerate this ID after changing the Watchtower guest.
+const EXPECTED_WATCHTOWER_PROGRAM_ID: [u8; 32] = [
+    0x84, 0xd5, 0x54, 0x57, 0x78, 0x53, 0xb3, 0xad, 0x73, 0x36, 0xee, 0xd8, 0xbf, 0x0a, 0x53, 0x0b,
+    0x12, 0x69, 0x1a, 0xa2, 0xe5, 0x2f, 0xd5, 0xe8, 0x49, 0xa2, 0x08, 0x2a, 0xcf, 0xdd, 0xe1, 0x4f,
+];
+
 pub fn main() {
     // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
     let included_watchtowers: U256 = zkm_zkvm::io::read::<U256>();
@@ -42,6 +48,7 @@ pub fn main() {
             watchtower_challenge_txn_scripts,
             watchtower_challenge_txn_prev_outs,
             &graph_watchtower_xonly_public_keys,
+            EXPECTED_WATCHTOWER_PROGRAM_ID,
             operator_header_chain,
             operator_commit_chain,
             operator_state_chain,

@@ -2428,6 +2428,7 @@ checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
 name = "header-chain"
 version = "0.4.0"
 dependencies = [
+ "bincode",
  "bitcoin",
  "borsh",
  "crypto-bigint",
@@ -5760,6 +5761,7 @@ dependencies = [
 name = "verifier"
 version = "0.4.0"
 dependencies = [
+ "sha2 0.10.9",
  "zkm-verifier",
 ]
 

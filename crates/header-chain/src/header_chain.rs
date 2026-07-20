@@ -363,6 +363,13 @@ fn calculate_work(target: &[u8; 32]) -> U256 {
 )]
 pub struct BlockHeaderCircuitOutput {
     pub chain_state: ChainState,
+    pub self_program_id: verifier::ProgramId,
+    pub program_history_hash: [u8; 32],
+}
+
+#[derive(Deserialize)]
+struct LegacyBlockHeaderCircuitOutput {
+    chain_state: ChainState,
 }
 
 /// The input proof of the header chain circuit.
@@ -371,6 +378,25 @@ pub struct BlockHeaderCircuitOutput {
 pub enum HeaderChainPrevProofType {
     GenesisBlock,
     PrevProof,
+    LegacyPrevProof,
+}
+
+pub fn classify_header_chain_output(
+    public_values: &[u8],
+) -> Result<HeaderChainPrevProofType, String> {
+    if bincode::deserialize::<BlockHeaderCircuitOutput>(public_values).is_ok() {
+        return Ok(HeaderChainPrevProofType::PrevProof);
+    }
+    if bincode::deserialize::<LegacyBlockHeaderCircuitOutput>(public_values).is_ok() {
+        return Ok(HeaderChainPrevProofType::LegacyPrevProof);
+    }
+    Err("unknown header-chain public output format".to_string())
+}
+
+pub fn decode_legacy_header_chain_output(public_values: &[u8]) -> Result<ChainState, String> {
+    bincode::deserialize::<LegacyBlockHeaderCircuitOutput>(public_values)
+        .map(|output| output.chain_state)
+        .map_err(|err| format!("invalid legacy header-chain output: {err}"))
 }
 
 /// The input of the header chain circuit.
@@ -380,6 +406,7 @@ pub struct HeaderChainCircuitInput {
     pub zkm_public_values: Vec<u8>,
     pub zkm_vk_hash: Vec<u8>,
     pub zkm_version: String,
+    pub self_program_id: verifier::ProgramId,
     pub prev_proof: HeaderChainPrevProofType,
     pub block_headers: Vec<CircuitBlockHeader>,
 }

@@ -17,6 +17,7 @@ type WithdrawalSlot = (Address, [u8; 32], Vec<[u8; 16]>);
 pub enum StateChainPrevProofType {
     GenesisBlock,
     PrevProof,
+    LegacyPrevProof,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -42,6 +43,31 @@ pub struct StateChainState {
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct StateChainCircuitOutput {
     pub chain_state: StateChainState,
+    pub self_program_id: verifier::ProgramId,
+    pub program_history_hash: [u8; 32],
+}
+
+#[derive(Deserialize)]
+struct LegacyStateChainCircuitOutput {
+    chain_state: StateChainState,
+}
+
+pub fn classify_state_chain_output(
+    public_values: &[u8],
+) -> Result<StateChainPrevProofType, String> {
+    if bincode::deserialize::<StateChainCircuitOutput>(public_values).is_ok() {
+        return Ok(StateChainPrevProofType::PrevProof);
+    }
+    if bincode::deserialize::<LegacyStateChainCircuitOutput>(public_values).is_ok() {
+        return Ok(StateChainPrevProofType::LegacyPrevProof);
+    }
+    Err("unknown state-chain public output format".to_string())
+}
+
+pub fn decode_legacy_state_chain_output(public_values: &[u8]) -> Result<StateChainState, String> {
+    bincode::deserialize::<LegacyStateChainCircuitOutput>(public_values)
+        .map(|output| output.chain_state)
+        .map_err(|err| format!("invalid legacy state-chain output: {err}"))
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -50,6 +76,7 @@ pub struct StateChainCircuitInput {
     pub zkm_public_values: Vec<u8>,
     pub zkm_vk_hash: Vec<u8>,
     pub zkm_version: String,
+    pub self_program_id: verifier::ProgramId,
     pub prev_proof: StateChainPrevProofType,
     pub blocks: Vec<CircuitStateBlock>,
 }

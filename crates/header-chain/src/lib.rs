@@ -10,8 +10,6 @@ pub use merkle_tree::*;
 pub use mmr::*;
 pub use transaction::*;
 
-use zkm_primitives::io::ZKMPublicValues;
-
 pub mod spv;
 pub use spv::SPV;
 
@@ -19,11 +17,14 @@ pub use spv::SPV;
 pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircuitOutput {
     // println!("Detected network: {:?}", NETWORK_TYPE);
     // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
-    let mut chain_state = match input.prev_proof {
-        HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
+    let self_program_id = input.self_program_id;
+    let (mut chain_state, program_history_hash) = match input.prev_proof {
+        HeaderChainPrevProofType::GenesisBlock => {
+            (ChainState::new(), verifier::initial_history(verifier::ProgramType::Header))
+        }
         HeaderChainPrevProofType::PrevProof => {
             println!("verify header chain of prev proof");
-            verifier::verify_groth16_proof(
+            let previous_program_id = verifier::verify_groth16_proof(
                 &input.zkm_proof,
                 &input.zkm_public_values,
                 &input.zkm_vk_hash,
@@ -31,12 +32,67 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
             )
             .unwrap();
 
-            let btc_header_chain_output: BlockHeaderCircuitOutput =
-                ZKMPublicValues::from(&input.zkm_public_values).read();
-            btc_header_chain_output.chain_state
+            let output: BlockHeaderCircuitOutput =
+                bincode::deserialize(&input.zkm_public_values).unwrap();
+            assert_eq!(output.self_program_id, previous_program_id);
+            let history = verifier::next_history(
+                verifier::ProgramType::Header,
+                output.program_history_hash,
+                previous_program_id,
+                self_program_id,
+            );
+            (output.chain_state, history)
+        }
+        HeaderChainPrevProofType::LegacyPrevProof => {
+            let previous_program_id = verifier::verify_groth16_proof(
+                &input.zkm_proof,
+                &input.zkm_public_values,
+                &input.zkm_vk_hash,
+                &input.zkm_version,
+            )
+            .unwrap();
+            let chain_state = decode_legacy_header_chain_output(&input.zkm_public_values).unwrap();
+            let history = verifier::legacy_history(
+                verifier::ProgramType::Header,
+                previous_program_id,
+                &input.zkm_public_values,
+            );
+            (chain_state, history)
         }
     };
 
     chain_state.apply_blocks(input.block_headers);
-    BlockHeaderCircuitOutput { chain_state }
+    BlockHeaderCircuitOutput { chain_state, self_program_id, program_history_hash }
+}
+
+#[cfg(test)]
+mod circuit_output_tests {
+    use super::*;
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct LegacyOutput {
+        chain_state: ChainState,
+    }
+
+    #[test]
+    fn classifies_only_current_and_immediate_legacy_outputs() {
+        let legacy = bincode::serialize(&LegacyOutput { chain_state: ChainState::new() }).unwrap();
+        assert_eq!(
+            classify_header_chain_output(&legacy).unwrap(),
+            HeaderChainPrevProofType::LegacyPrevProof
+        );
+
+        let current = bincode::serialize(&BlockHeaderCircuitOutput {
+            chain_state: ChainState::new(),
+            self_program_id: [1u8; 32],
+            program_history_hash: [2u8; 32],
+        })
+        .unwrap();
+        assert_eq!(
+            classify_header_chain_output(&current).unwrap(),
+            HeaderChainPrevProofType::PrevProof
+        );
+        assert!(classify_header_chain_output(b"unknown").is_err());
+    }
 }

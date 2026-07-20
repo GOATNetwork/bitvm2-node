@@ -1801,15 +1801,7 @@ async fn handle_soldering_proof_ready_operator(
         total_len,
         payload_hash = %soldering_payload_hash_hex(&payload_hash),
         payload_path = %payload_path,
-        "read soldering proof payload from store"
-    );
-    tracing::info!(
-        instance_id = %instance_id,
-        graph_id = %graph_id,
-        verifier_index,
-        total_len,
-        payload_hash = %soldering_payload_hash_hex(&payload_hash),
-        "start processing soldering proof payload"
+        "read soldering proof payload from store, start processing"
     );
     handle_soldering_proof_payload_operator(ctx, &soldering_proof_ready, &payload).await
 }
