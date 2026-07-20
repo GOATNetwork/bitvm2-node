@@ -36,7 +36,14 @@ pub struct Args {
     #[arg(long, env, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
 
-    #[arg(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[arg(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub commit_info: String,
 
     #[arg(long, default_value = "commits.bin")]

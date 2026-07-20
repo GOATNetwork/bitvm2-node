@@ -38,22 +38,62 @@ pub struct Args {
     #[arg(long, env, default_value_t = Network::Regtest)]
     pub bitcoin_network: Network,
 
-    #[clap(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub genesis_sequencer_commit_txid: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub latest_sequencer_commit_txid: String,
 
-    #[clap(long, env, short = 'H')]
+    #[clap(
+        long,
+        env,
+        short = 'H',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub header_chain_input_proof: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub commit_chain_input_proof: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub state_chain_input_proof: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub output: String,
 }
 

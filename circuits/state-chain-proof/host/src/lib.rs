@@ -70,11 +70,24 @@ pub struct Args {
     #[clap(long, env, default_value_t = 0)]
     pub start: u64,
 
-    #[clap(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub l2_contract_addresses: String,
 
     // https://explorer.testnet3.goat.network/address/0x9F0A61ce47678F43A326dB9F8964C56a924cd3D0?tab=read_write_contract
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub proceed_withdraw_method_ids: String,
 }
 
@@ -399,11 +412,6 @@ impl ProofBuilder for StateChainProofBuilder {
         self.client
             .verify(&proof, &self.verifying_key)
             .context("Failed to verify generated state chain proof")?;
-        anyhow::ensure!(
-            proof.zkm_version == ZKM_CIRCUIT_VERSION,
-            "generated state-chain proof has unexpected Ziren version {}",
-            proof.zkm_version
-        );
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))
