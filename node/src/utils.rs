@@ -67,8 +67,6 @@ use std::net::SocketAddr;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-pub const SELF_SENDER: &str = "self";
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphQuery, GraphRuntimeUpdate, InstanceQuery, LocalDB, StorageProcessor};
 
@@ -110,6 +108,29 @@ use zkm_verifier::{
     Groth16Verifier, IMM_GROTH16_VK_BYTES, convert_ark_imm_wrap_vk, decode_zkm_vkey_hash,
     load_ark_public_inputs_from_bytes,
 };
+
+pub const SELF_SENDER: &str = "self";
+const BRIDGE_OUT_INSTANCE_ID_PREFIX: [u8; 4] = *b"BOID";
+
+/// Derive the shared bridge-out instance ID from its escrow hash.
+///
+/// Both the RPC tag endpoint and the chain-event watcher must use this ID so
+/// their concurrent create attempts collide on the primary key instead of
+/// creating two rows for one escrow.
+pub(crate) fn bridge_out_instance_id_from_escrow_hash(escrow_hash: &str) -> Uuid {
+    let normalized_escrow_hash = escrow_hash
+        .strip_prefix("0x")
+        .or_else(|| escrow_hash.strip_prefix("0X"))
+        .unwrap_or(escrow_hash);
+    let mut hasher = Sha256::new();
+    hasher.update(b"bridge-out:");
+    hasher.update(normalized_escrow_hash.to_ascii_lowercase().as_bytes());
+    let digest = hasher.finalize();
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[..4].copy_from_slice(&BRIDGE_OUT_INSTANCE_ID_PREFIX);
+    Uuid::from_bytes(bytes)
+}
 
 pub(crate) const BRIDGE_OUT_GLOBAL_STATS_ID: i64 = 1;
 

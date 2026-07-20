@@ -112,14 +112,12 @@ async fn update_instance<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     params: &InstanceUpdate,
 ) -> anyhow::Result<()> {
-    if let Err(err) = storage_processor.update_instance(params).await {
-        warn!(
-            "update_instance_status with input: {:?} failed {}, will try later",
-            params,
-            err.to_string()
-        );
-    } else {
-        info!("update instance with input: {:?}", params);
+    match storage_processor.update_instance(params).await {
+        Ok(true) => info!("update instance with input: {:?}", params),
+        Ok(false) => info!("skip stale instance update with input: {:?}", params),
+        Err(err) => {
+            warn!("update_instance_status with input: {:?} failed {}, will try later", params, err);
+        }
     }
     Ok(())
 }
@@ -227,44 +225,77 @@ pub async fn instance_window_expiration_monitor(
     .await?;
 
     let committee_quorum_size = goat_client.committee_mana_quorum_size().await?;
-    for mut instance in instances {
-        match goat_client.gateway_get_pegin_data(&instance.instance_id).await {
-            Ok(pegin_data) => {
-                for (committee_addr, pubkey) in
-                    pegin_data.committee_addresses.iter().zip(pegin_data.committee_pubkeys)
-                {
-                    instance.committees_answers.insert(committee_addr.to_string(), pubkey);
-                }
-
-                if committee_quorum_size <= instance.committees_answers.len() as u64 {
-                    instance.status = InstanceBridgeInStatus::CommitteesAnswered.to_string();
-                    if let Err(err) = update_pegin_txids(&mut instance) {
-                        warn!(
-                            "instance_window_expiration_monitor fail to update_pegin_txids for instance {}, err: {:?}",
-                            instance.instance_id, err
-                        );
-                    }
-                } else {
-                    instance.status =
-                        InstanceBridgeInStatus::NoEnoughCommitteesAnswered.to_string();
-                }
-                let mut storage_processor = local_db.acquire().await?;
-                if let Err(err) = storage_processor.upsert_instance(&instance).await {
-                    warn!(
-                        "failed to upsert instance {}, err: {}",
-                        instance.instance_id,
-                        err.to_string()
-                    );
-                }
-            }
+    for snapshot in instances {
+        let pegin_data = match goat_client.gateway_get_pegin_data(&snapshot.instance_id).await {
+            Ok(pegin_data) => pegin_data,
             Err(err) => {
                 warn!(
                     "failed to get pegin data for instance {}, err: {}",
-                    instance.instance_id,
-                    err.to_string()
+                    snapshot.instance_id, err
+                );
+                continue;
+            }
+        };
+
+        // The RPC call above can take arbitrarily long. Re-read while holding
+        // SQLite's write lock, then make the decision and its update in the
+        // same short transaction so a late committee response cannot be
+        // overwritten by the stale page snapshot.
+        let mut storage_processor = local_db.start_immediate_transaction().await?;
+        let Some(mut instance) = storage_processor.find_instance(&snapshot.instance_id).await?
+        else {
+            storage_processor.commit().await?;
+            continue;
+        };
+        if instance.status != InstanceBridgeInStatus::UserInited.to_string() {
+            info!(
+                "skip expired response-window reconciliation for instance {} in status {}",
+                instance.instance_id, instance.status
+            );
+            storage_processor.commit().await?;
+            continue;
+        }
+
+        for (committee_addr, pubkey) in
+            pegin_data.committee_addresses.iter().zip(pegin_data.committee_pubkeys)
+        {
+            instance.committees_answers.insert(committee_addr.to_string(), pubkey);
+        }
+
+        let reached_quorum = committee_quorum_size <= instance.committees_answers.len() as u64;
+        let next_status = if reached_quorum {
+            if let Err(err) = update_pegin_txids(&mut instance) {
+                warn!(
+                    "instance_window_expiration_monitor failed to update pegin txids for instance {}, err: {err:?}",
+                    instance.instance_id
                 );
             }
+            InstanceBridgeInStatus::CommitteesAnswered
+        } else {
+            InstanceBridgeInStatus::NoEnoughCommitteesAnswered
+        };
+
+        let mut update = InstanceUpdate::new_with_instance_id(instance.instance_id)
+            .with_status(next_status.to_string())
+            .with_committees_answers(instance.committees_answers.clone())
+            .with_only_if_status_in(vec![InstanceBridgeInStatus::UserInited.to_string()])
+            .with_only_if_is_bridge_in(true);
+        if reached_quorum {
+            if let Some(btc_txid) = instance.btc_txid.clone() {
+                update = update.with_btc_txid(btc_txid);
+            }
+            if let Some(pegin_confirm_txid) = instance.pegin_confirm_txid.clone() {
+                update = update.with_pegin_confirm_txid(pegin_confirm_txid);
+            }
+            if let Some(pegin_cancel_txid) = instance.pegin_cancel_txid.clone() {
+                update = update.with_pegin_cancel_txid(pegin_cancel_txid);
+            }
         }
+
+        if !storage_processor.update_instance(&update).await? {
+            warn!("skip stale response-window update for instance {}", instance.instance_id);
+        }
+        storage_processor.commit().await?;
     }
 
     Ok(())
@@ -494,7 +525,9 @@ pub async fn instance_bridge_out_monitor(local_db: &LocalDB) -> anyhow::Result<(
     .await?;
     let mut storage_processor = local_db.acquire().await?;
     for instance in instances {
-        let mut instance_update = InstanceUpdate::new_with_instance_id(instance.instance_id);
+        let mut instance_update = InstanceUpdate::new_with_instance_id(instance.instance_id)
+            .with_only_if_status_in(vec![InstanceBridgeOutStatus::Initialize.to_string()])
+            .with_only_if_is_bridge_in(false);
         let lock_time = if instance.bridge_out_lock_time == 0 {
             let lock_time =
                 get_bridge_out_deadline(&mut storage_processor, &instance.instance_id).await?;

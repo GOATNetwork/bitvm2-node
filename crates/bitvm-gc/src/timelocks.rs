@@ -39,7 +39,7 @@ pub const NODE_SIGNET_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
 };
 pub const NODE_REGTEST_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
     connector_z: 1,
-    connector_a: 1,
+    connector_a: 2,
     prover_connector: 1,
     connector_d: 3,
     watchtower_challenge: 1,
@@ -112,6 +112,7 @@ pub fn validate_timelock_config(network: Network, config: &TimelockConfig) -> Re
         config.connector_d,
         min_blocks,
     )?;
+    ensure_gt("connector_a", config.connector_a, "min_reaction_blocks", min_blocks)?;
     ensure_lt(
         "watchtower_challenge",
         config.watchtower_challenge,
@@ -143,6 +144,13 @@ fn ensure_reaction_margin(
 fn ensure_lt(left_name: &str, left: u32, right_name: &str, right: u32) -> Result<()> {
     if left >= right {
         bail!("timelock_config.{left_name} must be < timelock_config.{right_name}");
+    }
+    Ok(())
+}
+
+fn ensure_gt(left_name: &str, left: u32, right_name: &str, right: u32) -> Result<()> {
+    if left <= right {
+        bail!("timelock_config.{left_name} must be > {right_name} ({right})");
     }
     Ok(())
 }
