@@ -117,7 +117,7 @@ jobs:
               echo "::error::$tla / $cfg was expected to keep failing (bug not yet fixed in code) but passed - either the fix was applied (move it to the must-pass step and drop it from this list) or the spec no longer demonstrates the bug"
               exit 1
             fi
-            repro="cd node/tla && java -jar tla2tools.jar -config $cfg $tla"
+            repro="cd node/tla && java -jar ~/.local/share/tlaplus/tla2tools.jar -config $cfg $tla"
             echo "::warning::$finding ($tla / $cfg) confirmed still present and unfixed - reproduce: $repro"
             echo "- **$finding** - reproduce: \`$repro\`" >> "$GITHUB_STEP_SUMMARY"
             open_bugs=$((open_bugs + 1))
