@@ -26,6 +26,15 @@ jobs:
   # failure here means either a real regression the other, much slower jobs
   # can't catch, or a stale/broken spec - either way not worth burning 30+
   # minutes of Cargo Test/Clippy compute on before finding out.
+  #
+  # THIS JOB IS EXPECTED TO BE RED ON THIS BRANCH RIGHT NOW. Its second step
+  # deliberately fails for as long as any of the 6 TLC-proven, unfixed bugs
+  # from audit/TLAPlus-20260630.md remain unfixed in the Rust code - that is
+  # not a broken pipeline, it's the point: a clean-looking CI would hide
+  # that this branch has known, proven, un-remediated findings. Every job
+  # gated behind it (fmt/clippy/test) stays red along with it until real
+  # fixes land. See that step's own comment and the audit report's
+  # Recommendations section for the verified fix design for each finding.
   tla-plus:
     name: TLA+ Formal Verification
     runs-on: ubuntu-latest
@@ -67,26 +76,51 @@ jobs:
       # matching code change, either the bug config or the spec itself
       # silently changed meaning and no longer demonstrates the bug it's
       # supposed to.
-      - name: Confirm known-bug specs still fail (fix not yet applied)
+      # This step is DESIGNED to keep this job red for as long as any of
+      # these findings remain unfixed in the Rust code - it is not a drift
+      # check anymore, it's a blocking "you have open, proven bugs" gate.
+      # Each bug config is expected to keep failing (TLC finds the real
+      # counterexample) until its fix design is actually applied; that
+      # expected failure is itself what fails THIS step, on purpose, so the
+      # whole tla-plus job - and everything gated behind it (fmt/clippy/
+      # test) - stays red as a constant, impossible-to-miss signal instead
+      # of a clean-looking CI on a branch with 6 proven, un-remediated
+      # findings. See audit/TLAPlus-20260630.md's Recommendations for the
+      # verified fix design for each one; applying a fix means moving that
+      # finding's bug config out of this list and its *Fixed.cfg into the
+      # "must pass" step above.
+      #
+      # The one case this step treats as MORE severe than "still open" is a
+      # bug config unexpectedly PASSING - that means either the fix landed
+      # without this workflow being updated (great - update the lists) or
+      # the spec itself silently stopped demonstrating the bug (bad - the
+      # spec needs to be fixed). Either way it exits immediately rather
+      # than being folded into the generic open-bug count below.
+      - name: Fail while documented bugs remain unfixed (blocking, by design)
         working-directory: node/tla
         run: |
           JAR=~/.local/share/tlaplus/tla2tools.jar
-          status=0
-          for pair in \
-            "GraphLifecycle.cfg:GraphLifecycle.tla" \
-            "GraphLifecycleFineGrained.cfg:GraphLifecycleFineGrained.tla" \
-            "InstancePresignedBug.cfg:InstancePresigned.tla" \
-            "InstanceBridgeOutRace.cfg:InstanceBridgeOutRace.tla" \
-            "MessageStateRace.cfg:MessageStateRace.tla" \
-            "Take1ChallengeRace.cfg:Take1ChallengeRace.tla" \
-          ; do
-            cfg="${pair%%:*}"; tla="${pair##*:}"
+          open_bugs=0
+          while IFS='|' read -r cfg tla finding; do
+            [ -z "$cfg" ] && continue
             if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
-              echo "::error::$tla / $cfg was expected to keep failing (bug not yet fixed in code) but passed - either the fix was applied (update this config's status) or the spec no longer demonstrates the bug"
-              status=1
+              echo "::error::$tla / $cfg was expected to keep failing (bug not yet fixed in code) but passed - either the fix was applied (move it to the must-pass step and drop it from this list) or the spec no longer demonstrates the bug"
+              exit 1
             fi
-          done
-          exit $status
+            echo "::warning::$finding ($tla / $cfg) confirmed still present and unfixed - see audit/TLAPlus-20260630.md"
+            open_bugs=$((open_bugs + 1))
+          done <<'BUGS'
+          GraphLifecycle.cfg|GraphLifecycle.tla|Finding 1: Graph.status race
+          GraphLifecycleFineGrained.cfg|GraphLifecycleFineGrained.tla|Finding 1b: naive guard still unsafe
+          InstancePresignedBug.cfg|InstancePresigned.tla|Finding 2: Instance.status regression past Presigned
+          InstanceBridgeOutRace.cfg|InstanceBridgeOutRace.tla|Finding 6: InstanceBridgeOutStatus resurrection
+          MessageStateRace.cfg|MessageStateRace.tla|Finding 7: MessageState resurrection
+          Take1ChallengeRace.cfg|Take1ChallengeRace.tla|Finding 9: connector_a has no margin check
+          BUGS
+          if [ "$open_bugs" -gt 0 ]; then
+            echo "::error::$open_bugs documented, TLC-proven bug(s) remain unfixed in the Rust code (Findings 1/1b/2/6/7/9 - Finding 3 has no TLA+ model, see the report). This job intentionally fails until they are fixed - see audit/TLAPlus-20260630.md's Recommendations for the verified fix design for each one."
+            exit 1
+          fi
   fmt:
     name: Rustfmt
     needs: tla-plus

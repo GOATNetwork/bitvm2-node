@@ -22,6 +22,14 @@ been applied to the Rust code yet**. That's tracked as follow-up work; see
 each spec's header comment and `node/README.md`'s "Known gap" sections for
 exactly what's still open.
 
+**CI's `tla-plus` job is expected to be RED on this branch.** It's not
+broken - it's designed to fail for as long as any of the findings below
+remain unfixed in the Rust code, and everything gated behind it (fmt/clippy/
+test) stays red along with it. See `audit/TLAPlus-20260630.md`'s
+Recommendations for the verified fix design for each finding; applying a fix
+means moving that finding's bug config out of the CI job's must-fail list
+and its `*Fixed.cfg` into the must-pass list.
+
 Concretely: for each bug found, there is a **pair** of configs - one modeling
 the actual current code (still buggy - **expected to fail**, and that failure
 is a real, live issue, not a historical artifact) and one modeling the
