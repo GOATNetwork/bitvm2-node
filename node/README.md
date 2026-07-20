@@ -412,20 +412,27 @@ stateDiagram-v2
     PreKickoff --> OperatorKickOff: Kickoff tx broadcast
     PreKickoff --> Skipped: Guardian intervention or force skip
 
+    Obsoleted --> OperatorKickOff: Kickoff tx observed on-chain after all
+    Obsoleted --> Skipped: Guardian intervention or force skip
+
     OperatorKickOff --> OperatorTake1: Timelock expired without challenge
     OperatorKickOff --> Challenge: WatchtowerChallengeInit confirmed
+    OperatorKickOff --> Disprove: Guardian disprove detected before any Challenge opened
 
-    Challenge --> OperatorTake2: All challenge phases completed normally
-    Challenge --> Disprove: WT-Ack/BlockHash-Commit/Assert Timeout or Fraud scripts detected
+    Challenge --> OperatorTake2: Take2 tx confirmed and no disprove detected
+    Challenge --> Disprove: Guardian disprove, watchtower-flow disprove, verifier disprove, or unrecognized connector-D spend
 
     OperatorTake1 --> [*]: Happy Path complete
     OperatorTake2 --> [*]: Challenge Path complete
     Skipped --> [*]: Graph skipped
-    Obsoleted --> [*]: Graph obsoleted
     Disprove --> [*]: Dispute resolved
 ```
 
-**Description**: Graph goes through 9 main states. The normal flow starts from `OperatorPresigned`, proceeds through signature collection, data publishing, and Kickoff, finally completing via Take1 (Happy Path) or Take2 (Challenge Path). Abnormal cases enter `Obsoleted`, `Skipped`, or `Disprove` terminal states.
+**Description**: Graph goes through 9 main states. The normal flow starts from `OperatorPresigned`, proceeds through signature collection, data publishing, and Kickoff, finally completing via Take1 (Happy Path) or Take2 (Challenge Path). `Skipped` and `Disprove` are terminal.
+
+**`Obsoleted` is not terminal.** It is a provisional status: the local node marks a graph `Obsoleted` when it observes the PreKickoff tx on-chain before graph data was posted (or the pegin becomes non-withdrawable), but if it later observes the actual kickoff tx confirm, the graph resumes into `OperatorKickOff` exactly as if it had come from `PreKickoff` — see `scan_graph_chain_state`, `node/src/utils.rs:1418-1434`, which checks `matches!(current_status, GraphStatus::PreKickoff | GraphStatus::Obsoleted)` for both the kickoff and force-skip cases.
+
+`OperatorKickOff --> Disprove` is a direct edge, distinct from the `Challenge --> Disprove` edge below: a guardian can detect and prove operator misbehavior (`detect_guardian_disprove`, `node/src/utils.rs:1237-1262`) before a watchtower ever opens a `Challenge` at all (`node/src/utils.rs:1448-1461`).
 
 ### Fig-04-2-Graph-Status-Transitions
 
@@ -438,53 +445,44 @@ stateDiagram-v2
 | `OperatorDataPushed` | `Obsoleted` | Pegin not withdrawable and no withdrawal request |
 | `PreKickoff` | `OperatorKickOff` | Kickoff tx broadcast successfully |
 | `PreKickoff` | `Skipped` | Guardian intervention or force skip |
-| `OperatorKickOff` | `OperatorTake1` | Timelock expired without challenge |
-| `OperatorKickOff` | `Challenge` | WatchtowerChallengeInit tx confirmed |
-| `Challenge` | `OperatorTake2` | All sub-phases completed normally |
-| `Challenge` | `Disprove` | Timeout or challenge failure detected |
+| `Obsoleted` | `OperatorKickOff` | Kickoff tx broadcast successfully (Obsoleted is provisional, not terminal) |
+| `Obsoleted` | `Skipped` | Guardian intervention or force skip |
+| `OperatorKickOff` | `OperatorTake1` | Connector-A spent by the take1 tx |
+| `OperatorKickOff` | `Challenge` | Connector-A spent by anything other than the take1 tx |
+| `OperatorKickOff` | `Disprove` | Guardian disprove detected (bypasses `Challenge`) |
+| `Challenge` | `OperatorTake2` | Take2 tx observed on-chain and no disprove detector fired |
+| `Challenge` | `Disprove` | Any of: guardian disprove, watchtower-flow disprove (operator-challenge-nack or operator-commit-timeout tx), a verifier's assert answered by its matching disprove tx, or an unrecognized connector-D spend |
 
-### Fig-04-3-Challenge-SubStatus-ER
+Source: `scan_graph_chain_state`, `node/src/utils.rs:1328-1681` (the sole writer of these edges; verified by full read, 2026-07-17).
 
-```mermaid
-erDiagram
-    ChallengeSubStatus {
-        WatchtowerChallengeStatus watchtower_challenge_status
-        CommitBlockHashStatus commit_blockhash_status
-        AssertCommitStatus assert_commit_status
-        DisproveTxType disprove_type
-        int disprove_index
-    }
+### Fig-04-3-Challenge-SubStatus
 
-    WatchtowerChallengeStatus {
-        enum None
-        enum OperatorInit
-        enum WatchtowerChallenge
-        enum WatchtowerChallengeTimeout
-        enum OperatorACKTimeout
-        enum WatchtowerChallengeNormalFinished
-        enum WatchtowerChallengeDisproveFinished
-    }
+`ChallengeSubStatus` is **not** three parallel single-value status enums as earlier revisions of this document claimed — that shape does not exist in the code. The actual struct (`node/src/scheduled_tasks/graph_maintenance_tasks.rs:52-58`) is:
 
-    CommitBlockHashStatus {
-        enum None
-        enum WatchtowerChallengeProcessed
-        enum OperatorCommit
-        enum OperatorCommitTimeout
-    }
+```rust
+pub struct ChallengeSubStatus {
+    pub watchtower_challenge_status: Vec<bool>,                  // per-watchtower: true once that watchtower's challenge connector is spent
+    pub verifier_challenge_status: Vec<VerifierChallengeStatus>, // per-verifier progress
+    pub disprove_type: Option<DisproveTxType>,
+    pub disprove_index: i32,
+}
 
-    AssertCommitStatus {
-        enum None
-        enum OperatorInit
-        enum OperatorCommit
-        enum OperatorCommitTimeout
-    }
+pub enum VerifierChallengeStatus { None, VerifierAsserted, ProverAnswered, Disproved }
 
-    ChallengeSubStatus ||--|| WatchtowerChallengeStatus : contains
-    ChallengeSubStatus ||--|| CommitBlockHashStatus : contains
-    ChallengeSubStatus ||--|| AssertCommitStatus : contains
+pub enum DisproveTxType { Disprove, QuickChallenge, ChallengeIncompleteKickoff, PubinDisprove, OperatorChallengeNack, OperatorCommitTimeout }
 ```
 
-**Description**: `ChallengeSubStatus` aggregates three parallel status trackers. Only when `watchtower_challenge_status == NormalFinished`, `commit_blockhash_status == OperatorCommit`, and `assert_commit_status == OperatorCommit` can the system transition to `OperatorTake2` state.
+`watchtower_challenge_status` and `verifier_challenge_status` are **observational bookkeeping only** — they are recorded for the frontend/API (`node/src/rpc_service/bitvm.rs:672-693`, collapsed there into a simpler `SimpleChallengeSubStatus{None, WatchtowerChallenge, Assert}` view) but are never read by anything that decides `GraphStatus`. In particular, `ChallengeSubStatus::is_watchtower_challenge_success` (`graph_maintenance_tasks.rs:98-105`) has no call sites anywhere in the repo. The real `Challenge --> OperatorTake2` gate is purely `tx_on_chain(take2_txid)` after none of the four disprove detectors fired (`node/src/utils.rs:1661-1670`); the operator's actual authorization to broadcast take2 is enforced by Bitcoin-script timelocks (`detect_take2`, `graph_maintenance_tasks.rs:1089-1233`), not by any application-level quorum over watchtower or verifier counts.
+
+### Known gap: no ordering guarantee between chain-scan and L2-event writers
+
+`GraphStatus` is written from two independently-scheduled places with no inherent coordination between them:
+- `scan_graph_chain_state` above (Bitcoin-poll derived), and
+- the GoatChain L2-event watcher, `node/src/scheduled_tasks/event_watch_task.rs:392-502`, which writes `OperatorDataPushed`/`OperatorTake1`/`OperatorTake2`/`Disprove` directly via `StorageProcessor::update_graph` with no precondition on the graph's current status.
+
+Both currently go through a raw `UPDATE graph SET status = ?` (`crates/store/src/localdb.rs`) with no guard preventing a closed/terminal status (`GraphStatus::is_closed()`: `OperatorTake1`, `OperatorTake2`, `Skipped`, `Disprove`) from being overwritten by a later, differently-ordered write from the other subsystem — e.g. a `Disprove` status can be silently reverted by a stale `PostGraphDataEvent` replay. **This is an open bug, not yet fixed in code.**
+
+`node/tla/GraphLifecycle.tla` / `GraphLifecycle.cfg` has the machine-checked counterexample (`OperatorTake1 -> OperatorTake2` in 2 steps). A verified fix design exists and is formally proven correct — `GraphLifecycleFixed.cfg` (atomic guard: fold the check into the `UPDATE`'s `WHERE status IN (...)` clause rather than a separate read-then-decide-then-write) passes all safety and liveness properties, and `GraphLifecycleFineGrainedFixed.tla` additionally proves that atomicity is necessary (a naive read-then-write version of the same guard, modeled in `GraphLifecycleFineGrained.tla`, still fails). Applying that design to `node/src/utils.rs`/`crates/store/src/localdb.rs` is tracked as follow-up work, not part of this audit pass.
 
 ---
 

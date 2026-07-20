@@ -35,3 +35,4 @@ circuits/*/*/*.bin.in
 **/*.out
 **/*/output.data*
 proof-builder-rpc/*.ckpt
+node/tla/states/

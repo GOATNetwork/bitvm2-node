@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - dev
+      - gc-v2
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,8 +21,417 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Runs first and gates everything else (fmt/clippy/test all `needs: tla-plus`
+  # below) - it's the fastest job (seconds, no Rust toolchain to build) and a
+  # failure here means either a real regression the other, much slower jobs
+  # can't catch, or a stale/broken spec - either way not worth burning 30+
+  # minutes of Cargo Test/Clippy compute on before finding out.
+  #
+  # THIS JOB IS EXPECTED TO BE RED ON THIS BRANCH RIGHT NOW. Its second step
+  # deliberately fails for as long as any of the 6 TLC-proven, unfixed bugs
+  # from audit/TLAPlus-20260630.md remain unfixed in the Rust code - that is
+  # not a broken pipeline, it's the point: a clean-looking CI would hide
+  # that this branch has known, proven, un-remediated findings. Every job
+  # gated behind it (fmt/clippy/test) stays red along with it until real
+  # fixes land. See that step's own comment and the audit report's
+  # Recommendations section for the verified fix design for each finding.
+  tla-plus:
+    name: TLA+ Formal Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Download TLA+ tools
+        run: |
+          mkdir -p ~/.local/share/tlaplus
+          curl -sL -o ~/.local/share/tlaplus/tla2tools.jar \
+            https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
+      # This audit pass proves bugs exist in CURRENT code and proves correct
+      # fix designs for them - the fixes are NOT yet applied to the Rust code
+      # (see node/README.md's "Known gap" sections). These configs model the
+      # verified fix designs (or a baseline that was never buggy) and must
+      # always pass. See root README.md's "Formal verification (TLA+)"
+      # section for what each spec covers.
+      - name: Run baseline + proposed-fix specs (must pass)
+        working-directory: node/tla
+        run: |
+          set -e
+          JAR=~/.local/share/tlaplus/tla2tools.jar
+          java -jar "$JAR" -config GraphLifecycleCoreOnly.cfg GraphLifecycle.tla
+          java -jar "$JAR" -config GraphLifecycleFixed.cfg GraphLifecycle.tla
+          java -jar "$JAR" -config GraphLifecycleFineGrainedFixed.cfg GraphLifecycleFineGrainedFixed.tla
+          java -jar "$JAR" -config InstancePresignedFixed.cfg InstancePresigned.tla
+          java -jar "$JAR" -config Take2DisproveRace.cfg Take2DisproveRace.tla
+          java -jar "$JAR" -config MultiActorRace.cfg MultiActorRace.tla
+          java -jar "$JAR" -config InstanceBridgeOutRaceFixed.cfg InstanceBridgeOutRace.tla
+          java -jar "$JAR" -config MessageStateRaceFixed.cfg MessageStateRace.tla
+          java -jar "$JAR" -config Take1ChallengeRaceFixed.cfg Take1ChallengeRace.tla
+      # These model the CURRENT, unfixed code and are expected to keep
+      # failing until the corresponding fix design above is actually applied
+      # to the Rust source - that failure is a real, live issue, not a
+      # historical artifact. If one of these starts passing without a
+      # matching code change, either the bug config or the spec itself
+      # silently changed meaning and no longer demonstrates the bug it's
+      # supposed to.
+      # This step is DESIGNED to keep this job red for as long as any of
+      # these findings remain unfixed in the Rust code - it is not a drift
+      # check anymore, it's a blocking "you have open, proven bugs" gate.
+      # Each bug config is expected to keep failing (TLC finds the real
+      # counterexample) until its fix design is actually applied; that
+      # expected failure is itself what fails THIS step, on purpose, so the
+      # whole tla-plus job - and everything gated behind it (fmt/clippy/
+      # test) - stays red as a constant, impossible-to-miss signal instead
+      # of a clean-looking CI on a branch with 6 proven, un-remediated
+      # findings. See audit/TLAPlus-20260630.md's Recommendations for the
+      # verified fix design for each one; applying a fix means moving that
+      # finding's bug config out of this list and its *Fixed.cfg into the
+      # "must pass" step above.
+      #
+      # The one case this step treats as MORE severe than "still open" is a
+      # bug config unexpectedly PASSING - that means either the fix landed
+      # without this workflow being updated (great - update the lists) or
+      # the spec itself silently stopped demonstrating the bug (bad - the
+      # spec needs to be fixed). Either way it exits immediately rather
+      # than being folded into the generic open-bug count below.
+      # Generates the full fix-suggestions report on the fly (no separate
+      # committed file - see git history if a standalone doc is ever wanted
+      # again): the loop below just runs each bug config and confirms it
+      # still fails (cfg|tla|finding title rows); if any are still open, the
+      # complete write-up (exact current code, exact suggested change, why
+      # it implements the property the TLA+ spec proved - one section per
+      # finding) is printed verbatim to both the raw log and this run's step
+      # summary (rendered as markdown), then the step fails.
+      - name: Fail while documented bugs remain unfixed (blocking, by design)
+        working-directory: node/tla
+        run: |
+          JAR=~/.local/share/tlaplus/tla2tools.jar
+          open_bugs=0
+          while IFS='|' read -r cfg tla finding; do
+            [ -z "$cfg" ] && continue
+            if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
+              echo "::error::$tla / $cfg was expected to keep failing (bug not yet fixed in code) but passed - either the fix was applied (move it to the must-pass step and drop it from this list) or the spec no longer demonstrates the bug"
+              exit 1
+            fi
+            echo "::warning::$finding ($tla / $cfg) confirmed still present and unfixed - full fix suggestions printed below and in the step summary"
+            open_bugs=$((open_bugs + 1))
+          done <<'BUGS'
+          GraphLifecycle.cfg|GraphLifecycle.tla|Finding 1: Graph.status race
+          GraphLifecycleFineGrained.cfg|GraphLifecycleFineGrained.tla|Finding 1b: naive guard still unsafe
+          InstancePresignedBug.cfg|InstancePresigned.tla|Finding 2: Instance.status regression past Presigned
+          InstanceBridgeOutRace.cfg|InstanceBridgeOutRace.tla|Finding 6: InstanceBridgeOutStatus resurrection
+          MessageStateRace.cfg|MessageStateRace.tla|Finding 7: MessageState resurrection
+          Take1ChallengeRace.cfg|Take1ChallengeRace.tla|Finding 9: connector_a has no margin check
+          BUGS
+          if [ "$open_bugs" -gt 0 ]; then
+            cat <<'FULL_FIX_REPORT_EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          ## TLA+ audit: open, unfixed findings — full fix-implementation guide
+
+          This branch has 6 CI-tracked, TLC-proven bugs still present in the shipped Rust code (plus Finding 3 and Finding 4, which aren't in this CI loop — see `audit/TLAPlus-20260630.md`). This job fails by design until each one below is fixed. Below is the full suggested fix for each — exact current code, exact suggested change, and why it implements the property the corresponding TLA+ spec proved. This is a write-up only; no code has been applied.
+
+          ---
+
+          ### Findings 1, 1b, and 2 — one shared fix, one shared function
+
+          `Graph.status` (Findings 1/1b) and the `InstanceBridgeInStatus::Presigned` side-effect write (Finding 2) both go through the same function, `node/src/utils.rs`'s `update_graph_status` (currently lines 5185–5227):
+
+          ```rust
+          pub async fn update_graph_status(
+              local_db: &LocalDB,
+              instance_id: Uuid,
+              graph_id: Uuid,
+              new_status: GraphStatus,
+              sub_status: Option<ChallengeSubStatus>,
+          ) -> Result<()> {
+              let mut storage_processor = local_db.acquire().await?;
+              match storage_processor.find_graph(&graph_id).await? {
+                  Some(graph) => {
+                      if graph.status == new_status.to_string()
+                          && let Some(ref sub_status) = sub_status
+                          && *sub_status == ChallengeSubStatus::default()
+                      {
+                          warn!("... so not update");
+                          return Ok(());
+                      }
+                  }
+                  None => {
+                      warn!("graph: {graph_id} is not update, so not update");
+                      return Ok(());
+                  }
+              }
+
+              if new_status == GraphStatus::CommitteePresigned {
+                  storage_processor
+                      .update_instance(
+                          &InstanceUpdate::new_with_instance_id(instance_id)
+                              .with_status(InstanceBridgeInStatus::Presigned.to_string()),
+                      )
+                      .await?;
+              }
+
+              let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());
+              if let Some(sub_status) = sub_status {
+                  graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
+              }
+
+              storage_processor.update_graph(&graph_update).await?;
+              Ok(())
+          }
+          ```
+
+          This function is called from both real writers this audit modeled — `scan_graph_chain_state` (`ChainScan` in `GraphLifecycle.tla`) and the GoatChain event handlers in `event_watch_task.rs` (`GoatRace`) — with no coordination between callers. It has exactly the TOCTOU shape `GraphLifecycleFineGrained.tla` demonstrates: `find_graph` (the read) and `update_graph` (the write) are two separate `.await` points, so another caller's full read-decide-write can land in between.
+
+          **Step 1 — add a status guard to the SQL layer.** `GraphUpdate` and `InstanceUpdate` (`crates/store/src/localdb.rs:207` and `:501`) build their SQL via `QueryBuilder` (`crates/store/src/utils.rs`), which already has exactly the right primitive: `and_where_in(field, values, not_in)` (`utils.rs:77-92`) appends `WHERE field IN (?,?,...)` (or `AND ... IN` if a `WHERE` is already present) and binds every value as a `QueryParam::Text` in order. Add a new optional field to both structs:
+
+          ```rust
+          // GraphUpdate (localdb.rs:501)
+          pub struct GraphUpdate {
+              pub graph_id: Uuid,
+              pub status: Option<String>,
+              // ... existing fields ...
+              pub only_if_status_in: Option<Vec<String>>,   // NEW
+          }
+
+          impl GraphUpdate {
+              pub fn with_only_if_status_in(mut self, statuses: Vec<String>) -> Self {
+                  self.only_if_status_in = Some(statuses);
+                  self
+              }
+              // in get_query_builder(), alongside the existing and_where("hex(...)=?", ...) call:
+              if let Some(ref statuses) = self.only_if_status_in {
+                  query_builder.and_where_in("status", statuses, false);
+              }
+          }
+          ```
+
+          Do the identical thing for `InstanceUpdate` (`localdb.rs:207`). Also change `update_graph`'s return type from `()` to `bool` (mirroring `update_instance`'s existing `Ok(result.rows_affected() > 0)` pattern at `localdb.rs:1036`), so callers can tell whether the guarded write actually happened.
+
+          **Step 2 — apply the two guard clauses `GraphLifecycle.tla`'s `GuardOK` proves are both necessary.** The first draft of this fix that only refused writes off a closed/terminal status was found by TLC to still fail `EventuallyTerminal` — `OperatorDataPushed` could still be re-written after the graph progressed past it, combined with `Obsoleted`'s resurrection edges, cycling forever.
+
+          ```rust
+          pub async fn update_graph_status(
+              local_db: &LocalDB,
+              instance_id: Uuid,
+              graph_id: Uuid,
+              new_status: GraphStatus,
+              sub_status: Option<ChallengeSubStatus>,
+          ) -> Result<()> {
+              let mut storage_processor = local_db.acquire().await?;
+
+              // Guard 1: never write OFF a terminal status. GraphStatus doesn't derive
+              // EnumIter, so this is hardcoded directly from GraphTopology.tla's
+              // AllStatuses \ TerminalStatuses rather than computed from
+              // GraphStatus::is_closed() (which exists, schema.rs:326).
+              let mut allowed_from: Vec<String> = vec![
+                  GraphStatus::OperatorPresigned.to_string(),
+                  GraphStatus::CommitteePresigned.to_string(),
+                  GraphStatus::OperatorDataPushed.to_string(),
+                  GraphStatus::PreKickoff.to_string(),
+                  GraphStatus::OperatorKickOff.to_string(),
+                  GraphStatus::Challenge.to_string(),
+                  GraphStatus::Obsoleted.to_string(),
+              ];
+
+              // Guard 2: OperatorDataPushed specifically may only be (re)written while
+              // the graph hasn't progressed past it.
+              if new_status == GraphStatus::OperatorDataPushed {
+                  allowed_from = vec![
+                      GraphStatus::OperatorPresigned.to_string(),
+                      GraphStatus::CommitteePresigned.to_string(),
+                      GraphStatus::OperatorDataPushed.to_string(),
+                  ];
+              }
+
+              if new_status == GraphStatus::CommitteePresigned {
+                  storage_processor
+                      .update_instance(
+                          &InstanceUpdate::new_with_instance_id(instance_id)
+                              .with_status(InstanceBridgeInStatus::Presigned.to_string())
+                              // Finding 2's fix, same pattern: only regress-proof write
+                              // Presigned while the instance hasn't already advanced.
+                              .with_only_if_status_in(vec![
+                                  InstanceBridgeInStatus::UserIniting.to_string(),
+                                  InstanceBridgeInStatus::Presigned.to_string(),
+                              ]),
+                      )
+                      .await?;
+              }
+
+              let graph_update = GraphUpdate::new(graph_id)
+                  .with_status(new_status.to_string())
+                  .with_only_if_status_in(allowed_from);
+              let graph_update = match sub_status {
+                  Some(sub_status) => graph_update.with_sub_status(serde_json::to_string(&sub_status)?),
+                  None => graph_update,
+              };
+
+              storage_processor.update_graph(&graph_update).await?;
+              // A no-op write (0 rows affected because the guard rejected it) is
+              // expected and NOT an error; do not bail! on !update_graph(...).
+              Ok(())
+          }
+          ```
+
+          The critical property, proven by `GraphLifecycleFineGrainedFixed.tla` (132 reachable states, all properties hold): the guard-check and the write must be **one atomic SQL statement** (`UPDATE ... WHERE status IN (...)`), not a `SELECT` followed by an `UPDATE` — even with identical guard logic, splitting them back into two steps re-opens the exact gap `GraphLifecycleFineGrained.tla`'s bug config demonstrates.
+
+          **Files touched**: `crates/store/src/localdb.rs`, `node/src/utils.rs`. No `.sqlx` query-cache regeneration needed here since these use the runtime `QueryBuilder`, not the `sqlx::query!` macro.
+
+          ---
+
+          ### Finding 6 — `InstanceBridgeOutStatus`, three call sites, same guard mechanism
+
+          Reuses `InstanceUpdate::with_only_if_status_in` from above.
+
+          **6a. `bridge_out_init_tag`** (`node/src/rpc_service/handler/bitvm2_handler.rs:308-368`). Current:
+          ```rust
+          if let Some(mut instance) = find_instances_by_escrow_hash(&mut storage_process, &escrow_hash).await? {
+              if instance.status == InstanceBridgeOutStatus::Initialize.to_string() {
+                  instance.to_addr = payload.to_addr.clone();
+                  instance.network = get_network().to_string();
+                  storage_process.upsert_instance(&instance).await?;   // full-row INSERT OR REPLACE
+              }
+              return ok_response(BridgeOutInitTagResponse {});
+          }
+          ```
+          The `if instance.status == Initialize` check reads a stale, already-fetched copy, and `upsert_instance` (`localdb.rs:806-813`) is `INSERT OR REPLACE INTO instance (...)` — no `WHERE` clause possible on that statement shape at all. Fix: stop using `upsert_instance` here, switch to targeted, guarded `update_instance`:
+          ```rust
+          if let Some(instance) = find_instances_by_escrow_hash(&mut storage_process, &escrow_hash).await? {
+              storage_process.update_instance(
+                  &InstanceUpdate::new_with_instance_id(instance.instance_id)
+                      .with_to_addr(payload.to_addr.clone())
+                      .with_only_if_status_in(vec![InstanceBridgeOutStatus::Initialize.to_string()]),
+              ).await?;
+              return ok_response(BridgeOutInitTagResponse {});
+          }
+          ```
+
+          **6b. GoatChain L2-event watcher** (`node/src/scheduled_tasks/event_watch_task.rs:634-669`, SwapClaimEvent/SwapRefundEvent handlers). Same `upsert_instance` full-row shape, same fix direction. Bigger lift than 6a: `InstanceUpdate`'s current fields (`localdb.rs:207-219`) are `instance_id, escrow_hash, from_addr, to_addr, btc_txid, status, pegin_confirm_txid, post_pegin_txhash, btc_height, committees_answers, bridge_out_lock_time` — none of `bridge_out_amount`, `goat_tx_hash`, `goat_tx_height`, `user_change_addr`, `user_refund_addr` exist on it yet, so all five need adding as new `Option<T>` fields plus `with_*` builder methods (following the exact pattern `with_btc_txid`/`with_to_addr` already use) and corresponding `set_field(...)` calls in `get_query_builder`. `upsert_instance` should be reserved for the genuine new-instance-creation branch, which is a real insert, not a status-bearing update.
+
+          **6c. `instance_bridge_out_monitor`** (`node/src/scheduled_tasks/instance_maintenance_tasks.rs:482-517`). Already uses the guardable path — just needs the guard added:
+          ```rust
+          if lock_time < current_time && lock_time > 0 {
+              instance_update = instance_update
+                  .with_status(InstanceBridgeOutStatus::Timeout.to_string())
+                  .with_only_if_status_in(vec![InstanceBridgeOutStatus::Initialize.to_string()]);
+          }
+          ```
+
+          ---
+
+          ### Finding 7 — `MessageState`, `upsert_message`
+
+          Current (`crates/store/src/localdb.rs:1973-2003`, using `sqlx::query!`):
+          ```rust
+          pub async fn upsert_message(&mut self, msg: Message) -> anyhow::Result<bool> {
+              let current_time = get_current_timestamp_secs();
+              let res = sqlx::query!(
+                  r#"INSERT INTO message (message_id, business_id, from_peer, actor, msg_type, content, state, message_version, lock_time_until, weight, updated_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(message_id) DO UPDATE SET business_id = excluded.business_id,
+                                                          from_peer = excluded.from_peer,
+                                                          actor = excluded.actor,
+                                                          msg_type = excluded.msg_type,
+                                                          content = excluded.content,
+                                                          state = excluded.state,
+                                                          message_version = message.message_version + 1,
+                                                          lock_time_until = excluded.lock_time_until,
+                                                          weight = excluded.weight,
+                                                          updated_at = excluded.updated_at"#,
+                  msg.message_id, msg.business_id, msg.from_peer, msg.actor, msg.msg_type,
+                  msg.content, msg.state, msg.message_version, msg.lock_time_until, msg.weight,
+                  current_time, current_time
+              )
+          ```
+
+          SQLite's `ON CONFLICT ... DO UPDATE` supports an optional `WHERE` clause on the `DO UPDATE` itself — exactly the tool for this bug:
+          ```sql
+           ON CONFLICT(message_id) DO UPDATE SET business_id = excluded.business_id,
+                                                  from_peer = excluded.from_peer,
+                                                  actor = excluded.actor,
+                                                  msg_type = excluded.msg_type,
+                                                  content = excluded.content,
+                                                  state = excluded.state,
+                                                  message_version = message.message_version + 1,
+                                                  lock_time_until = excluded.lock_time_until,
+                                                  weight = excluded.weight,
+                                                  updated_at = excluded.updated_at
+           WHERE message.state != 'Cancelled'
+          ```
+          This directly implements `MessageStateRace.tla`'s `NextFixed`: `status \notin TerminalStatuses /\ ResurrectPendingUnconditional`. Verify no legitimate code path needs to resurrect a `Cancelled` message before landing this. Since `upsert_message` uses `sqlx::query!` (compile-time schema-checked), changing the SQL text requires regenerating `crates/store/.sqlx/` via `cargo sqlx prepare` against a running dev database — a plain `cargo check` will fail on a stale cache otherwise.
+
+          ---
+
+          ### Findings 4 and 9 — `validate_timelock_config`, same function, both self-contained
+
+          Current (`crates/bitvm-gc/src/timelocks.rs:69-101`):
+          ```rust
+          pub fn validate_timelock_config(network: Network, config: &TimelockConfig) -> Result<()> {
+              for (name, value) in [
+                  ("connector_z", config.connector_z), ("connector_a", config.connector_a),
+                  ("prover_connector", config.prover_connector), ("connector_d", config.connector_d),
+                  ("watchtower_challenge", config.watchtower_challenge), ("operator_ack", config.operator_ack),
+                  ("operator_commit", config.operator_commit), ("connector_f", config.connector_f),
+              ] {
+                  if value == 0 { bail!("timelock_config.{name} must be greater than 0"); }
+              }
+              // ... connector_z-must-equal-default check ...
+              ensure_lte("prover_connector", config.prover_connector, "connector_d", config.connector_d)?;
+              ensure_lt("watchtower_challenge", config.watchtower_challenge, "operator_ack", config.operator_ack)?;
+              ensure_lt("operator_ack", config.operator_ack, "operator_commit", config.operator_commit)?;
+              ensure_lt("operator_commit", config.operator_commit, "connector_f", config.connector_f)?;
+              Ok(())
+          }
+          ```
+
+          **Finding 9's fix** (`connector_a` has no check at all): add a network-aware reaction-time floor (`Take1ChallengeRace.tla`'s `MinReactionBlocks`, now in `ShippedTimelocks.tla`) and check `connector_a` against it:
+          ```rust
+          fn min_reaction_blocks(network: Network) -> u32 {
+              match network {
+                  Network::Bitcoin => 6,
+                  Network::Testnet | Network::Testnet4 => 12,
+                  Network::Signet => 1,
+                  Network::Regtest => 1,
+              }
+          }
+          fn ensure_gt(left_name: &str, left: u32, right_name: &str, right: u32) -> Result<()> {
+              if left <= right { bail!("timelock_config.{left_name} must be > {right_name} ({right})"); }
+              Ok(())
+          }
+          // in validate_timelock_config:
+          ensure_gt("connector_a", config.connector_a, "min_reaction_blocks", min_reaction_blocks(network))?;
+          ```
+
+          **Finding 4's fix** (`prover_connector <= connector_d` accepts equality, no absolute floor either): change the existing `ensure_lte` to a strict margin check:
+          ```rust
+          // was: ensure_lte("prover_connector", config.prover_connector, "connector_d", config.connector_d)?;
+          let margin = min_reaction_blocks(network);
+          if config.prover_connector + margin >= config.connector_d {
+              bail!(
+                  "timelock_config.prover_connector ({}) + min_reaction_blocks ({}) must be strictly less than connector_d ({})",
+                  config.prover_connector, margin, config.connector_d
+              );
+          }
+          ```
+          Consider exempting Signet/Regtest from `min_reaction_blocks` if a genuinely-zero-margin test config is wanted for local dev — a product decision, not something TLC verified either way.
+
+          **Config value bumps needed** (`crates/bitvm-gc/src/timelocks.rs`'s `NODE_*_TIMELOCK_CONFIG` constants, currently lines ~10-44):
+          - `NODE_TESTNET_TIMELOCK_CONFIG.connector_d`: 34 → 35 (Finding 4)
+          - `NODE_REGTEST_TIMELOCK_CONFIG.connector_a`: 1 → 2 (Finding 9)
+
+          ---
+
+          ### After implementing
+
+          For each finding: re-run its `*Fixed.cfg` (should already pass) and its bug `.cfg` (retire it from the must-fail list once the fix lands, rather than expecting it to keep failing), move it to the must-pass step in `.github/workflows/ci.yml`, and update `audit/TLAPlus-20260630.md` / root `README.md` to say "fix applied". Once all 6 CI-tracked findings are fixed, this step's bug list is empty and it passes on its own.
+          FULL_FIX_REPORT_EOF
+            echo "::error::$open_bugs documented, TLC-proven bug(s) remain unfixed in the Rust code. Full fix suggestions printed above and in this run's step summary."
+            exit 1
+          fi
   fmt:
     name: Rustfmt
+    needs: tla-plus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -38,6 +448,7 @@ jobs:
           args: --all -- --check
   clippy:
     name: Clippy
+    needs: tla-plus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -56,6 +467,7 @@ jobs:
           cargo clippy --all-targets -- -D warnings
   test:
     name: Cargo Test
+    needs: tla-plus
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -72,5 +484,5 @@ jobs:
       - name: Run all unit tests
         run: |
           set -e
-          source ~/.zkm-toolchain/env 
+          source ~/.zkm-toolchain/env
           cargo test -r --all --all-targets
