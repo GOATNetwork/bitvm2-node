@@ -235,13 +235,33 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
             .await
         }
         (
-            GOATMessageContent::CreateGraph(CreateGraph { instance_id, graph_id, graph, .. }),
+            GOATMessageContent::CreateGraph(CreateGraph {
+                instance_id,
+                graph_id,
+                graph_nonce,
+                graph,
+            }),
             Actor::Verifier,
-        ) => handle_create_graph_verifier(ctx, *instance_id, *graph_id, graph).await,
+        ) => handle_create_graph_verifier(ctx, *instance_id, *graph_id, *graph_nonce, graph).await,
         (
-            GOATMessageContent::CreateGraph(CreateGraph { instance_id, graph_id, graph, .. }),
+            GOATMessageContent::CreateGraph(CreateGraph {
+                instance_id,
+                graph_id,
+                graph_nonce,
+                graph,
+            }),
             Actor::Committee,
-        ) => handle_create_graph_committee(ctx, *instance_id, *graph_id, graph, content).await,
+        ) => {
+            handle_create_graph_committee(
+                ctx,
+                *instance_id,
+                *graph_id,
+                *graph_nonce,
+                graph,
+                content,
+            )
+            .await
+        }
         (
             GOATMessageContent::VerifierGraphParamsEndorsement(VerifierGraphParamsEndorsement {
                 instance_id,
@@ -374,10 +394,10 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
             GOATMessageContent::GraphFinalize(GraphFinalize {
                 instance_id,
                 graph_id,
+                graph_nonce,
                 graph,
                 endorse_sigs,
                 params_endorse_sigs,
-                ..
             }),
             Actor::Committee,
         ) => {
@@ -385,6 +405,7 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 ctx,
                 *instance_id,
                 *graph_id,
+                *graph_nonce,
                 graph,
                 endorse_sigs,
                 params_endorse_sigs,
@@ -395,10 +416,10 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
             GOATMessageContent::GraphFinalize(GraphFinalize {
                 instance_id,
                 graph_id,
+                graph_nonce,
                 graph,
                 endorse_sigs,
                 params_endorse_sigs,
-                ..
             }),
             _,
         ) => {
@@ -406,6 +427,7 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 ctx,
                 *instance_id,
                 *graph_id,
+                *graph_nonce,
                 graph,
                 endorse_sigs,
                 params_endorse_sigs,
@@ -657,6 +679,32 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
 
 fn make_message(ctx: &HandlerContext<'_>, content: &GOATMessageContent) -> GOATMessage {
     GOATMessage::new(ctx.actor.clone(), content.clone())
+}
+
+/// A graph-bearing message has two identity representations: its envelope and
+/// the signed graph parameters. Never use one to read/write local state while
+/// using the other to reconstruct or scan the graph.
+fn message_identity_matches(
+    message_kind: &str,
+    message_instance_id: Uuid,
+    message_graph_id: Uuid,
+    message_graph_nonce: Option<u64>,
+    graph_instance_id: Uuid,
+    graph_graph_id: Uuid,
+    graph_nonce: u64,
+) -> bool {
+    let nonce_matches = message_graph_nonce.is_none_or(|nonce| nonce == graph_nonce);
+    if message_instance_id == graph_instance_id
+        && message_graph_id == graph_graph_id
+        && nonce_matches
+    {
+        return true;
+    }
+
+    tracing::warn!(
+        "Ignore {message_kind}: message identity {message_instance_id}:{message_graph_id}:{message_graph_nonce:?} does not match graph parameters {graph_instance_id}:{graph_graph_id}:{graph_nonce}"
+    );
+    false
 }
 
 /// Freezes the first accepted Verifiers and assigns deterministic graph slots.
@@ -1001,35 +1049,29 @@ async fn refresh_and_compensate(
     ctx: &HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
-    graph: Option<&BitvmGcGraph>,
-    scan_from_status: Option<GraphStatus>,
-    compensate_from_status: GraphStatus,
-) -> Result<(GraphStatus, Option<ChallengeSubStatus>)> {
-    let (graph_status, sub_status, scan) = refresh_graph(
-        ctx.local_db,
-        ctx.btc_client,
-        ctx.goat_client,
-        instance_id,
-        graph_id,
-        graph,
-        scan_from_status,
-        None,
-    )
-    .await?;
+    graph: &BitvmGcGraph,
+    compensation_anchor_status: GraphStatus,
+) -> Result<(GraphStatus, Option<ChallengeSubStatus>, bool)> {
+    let refresh =
+        refresh_graph(ctx.local_db, ctx.btc_client, ctx.goat_client, instance_id, graph_id, graph)
+            .await?;
+    let graph_status = refresh.status;
+    let sub_status = refresh.sub_status;
     tracing::info!("Graph {graph_id} latest status: {graph_status}");
-    compensate_graph_events(
-        ctx.local_db,
-        ctx.btc_client,
-        instance_id,
-        graph_id,
-        graph,
-        scan.as_ref(),
-        scan_from_status,
-        compensate_from_status,
-        graph_status,
-    )
-    .await?;
-    Ok((graph_status, sub_status))
+    if refresh.status_transition_accepted {
+        compensate_graph_events(
+            ctx.local_db,
+            ctx.btc_client,
+            instance_id,
+            graph_id,
+            graph,
+            refresh.scan.as_ref(),
+            compensation_anchor_status,
+            graph_status,
+        )
+        .await?;
+    }
+    Ok((graph_status, sub_status, refresh.status_transition_accepted))
 }
 
 async fn refresh_newly_finalized_graph(
@@ -1037,45 +1079,32 @@ async fn refresh_newly_finalized_graph(
     instance_id: Uuid,
     graph_id: Uuid,
     graph: &BitvmGcGraph,
-    store_outcome: FinalizedGraphStoreOutcome,
 ) -> Result<()> {
-    if store_outcome == FinalizedGraphStoreOutcome::AlreadyFinalized {
-        return Ok(());
-    }
-
-    refresh_and_compensate(
-        ctx,
-        instance_id,
-        graph_id,
-        Some(graph),
-        None,
-        GraphStatus::CommitteePresigned,
-    )
-    .await?;
+    // Reconcile every verified GraphFinalize, including a duplicate. A prior
+    // attempt may have stored the finalized definition but failed before its
+    // first chain scan completed.
+    refresh_and_compensate(ctx, instance_id, graph_id, graph, GraphStatus::CommitteePresigned)
+        .await?;
     Ok(())
 }
 
-async fn get_graph_and_status(
+async fn get_graph_for_refresh(
     ctx: &HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
-) -> Result<(BitvmGcGraph, GraphStatus)> {
+) -> Result<BitvmGcGraph> {
     let graph = get_graph(ctx.local_db, instance_id, graph_id)
         .await?
         .ok_or_else(|| anyhow!("Graph not found for {instance_id}:{graph_id}"))?;
-    let graph = BitvmGcGraph::from_simplified(&graph)?;
-    let graph_start_status = get_graph_status(ctx.local_db, instance_id, graph_id)
-        .await?
-        .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-    Ok((graph, graph_start_status))
+    BitvmGcGraph::from_simplified(&graph)
 }
 
-async fn get_graph_and_status_or_defer(
+async fn get_graph_for_refresh_or_defer(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
     message: &GOATMessage,
-) -> Result<Option<(BitvmGcGraph, GraphStatus)>> {
+) -> Result<Option<BitvmGcGraph>> {
     let graph = match get_graph_or_defer(
         ctx.swarm,
         ctx.local_db,
@@ -1089,11 +1118,7 @@ async fn get_graph_and_status_or_defer(
         Some(g) => g,
         None => return Ok(None),
     };
-    let graph = BitvmGcGraph::from_simplified(&graph)?;
-    let graph_start_status = get_graph_status(ctx.local_db, instance_id, graph_id)
-        .await?
-        .ok_or_else(|| anyhow!("Graph status not found for {instance_id}:{graph_id}"))?;
-    Ok(Some((graph, graph_start_status)))
+    Ok(Some(BitvmGcGraph::from_simplified(&graph)?))
 }
 
 async fn refresh_graph_status(
@@ -1103,24 +1128,23 @@ async fn refresh_graph_status(
     message: Option<&GOATMessage>,
     compensate_from_status: GraphStatus,
 ) -> Result<Option<(BitvmGcGraph, GraphStatus, Option<ChallengeSubStatus>)>> {
-    let (graph, graph_start_status) = match message {
+    let graph = match message {
         Some(message) => {
-            match get_graph_and_status_or_defer(ctx, instance_id, graph_id, message).await? {
+            match get_graph_for_refresh_or_defer(ctx, instance_id, graph_id, message).await? {
                 Some(v) => v,
                 None => return Ok(None),
             }
         }
-        None => get_graph_and_status(ctx, instance_id, graph_id).await?,
+        None => get_graph_for_refresh(ctx, instance_id, graph_id).await?,
     };
-    let (graph_status, sub_status) = refresh_and_compensate(
-        ctx,
-        instance_id,
-        graph_id,
-        Some(&graph),
-        Some(graph_start_status),
-        compensate_from_status,
-    )
-    .await?;
+    let (graph_status, sub_status, status_transition_accepted) =
+        refresh_and_compensate(ctx, instance_id, graph_id, &graph, compensate_from_status).await?;
+    if !status_transition_accepted {
+        tracing::warn!(
+            "Ignore graph action for {instance_id}:{graph_id}: chain scan status was rejected or graph is missing"
+        );
+        return Ok(None);
+    }
     Ok(Some((graph, graph_status, sub_status)))
 }
 
@@ -1964,7 +1988,7 @@ async fn handle_compact_soldering_proof_operator(
     operator_pre_sign(operator_master_key.master_keypair(), &mut graph)?;
 
     let graph = graph.to_simplified()?;
-    store_graph(ctx.local_db, &graph).await?;
+    store_operator_presigned_graph(ctx.local_db, &graph).await?;
 
     let mut storage = ctx.local_db.acquire().await?;
     storage.delete_pending_graph_init(&instance_id, &local_operator_pubkey.to_string()).await?;
@@ -2009,8 +2033,21 @@ async fn handle_create_graph_verifier(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
+    graph_nonce: u64,
     graph: &SimplifiedBitvmGcGraph,
 ) -> Result<()> {
+    if !message_identity_matches(
+        "CreateGraph",
+        instance_id,
+        graph_id,
+        Some(graph_nonce),
+        graph.parameters.instance_parameters.instance_id,
+        graph.parameters.graph_id,
+        graph.parameters.graph_nonce,
+    ) {
+        return Ok(());
+    }
+
     let verifier_master_key = VerifierMasterKey::new(get_bitvm_key()?);
     let local_verifier_pubkey: PublicKey = verifier_master_key.master_keypair().public_key().into();
     let Some(verifier_index) =
@@ -2243,9 +2280,22 @@ async fn handle_create_graph_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
+    graph_nonce: u64,
     graph: &SimplifiedBitvmGcGraph,
     content: &GOATMessageContent,
 ) -> Result<()> {
+    if !message_identity_matches(
+        "CreateGraph",
+        instance_id,
+        graph_id,
+        Some(graph_nonce),
+        graph.parameters.instance_parameters.instance_id,
+        graph.parameters.graph_id,
+        graph.parameters.graph_nonce,
+    ) {
+        return Ok(());
+    }
+
     // received from Operator
     if graph.parameters.graph_nonce > 0 {
         let previous_nonce = graph.parameters.graph_nonce - 1;
@@ -2306,7 +2356,7 @@ async fn handle_create_graph_committee(
         bail!(e)
     };
     // 2. save the graph data to local db
-    store_graph(ctx.local_db, graph).await?;
+    store_operator_presigned_graph(ctx.local_db, graph).await?;
     // 3. start committee setup once verifier params endorsements are complete
     try_start_graph_committee_setup(ctx, instance_id, graph_id, graph).await
 }
@@ -2608,7 +2658,7 @@ async fn handle_nonce_generation_operator(
     // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local db, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
-    if let Some((finalized_graph, store_outcome)) = try_finalize_graph(
+    if let Some((finalized_graph, _)) = try_finalize_graph(
         ctx.swarm,
         ctx.local_db,
         ctx.goat_client,
@@ -2619,8 +2669,7 @@ async fn handle_nonce_generation_operator(
     )
     .await?
     {
-        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
-            .await?;
+        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph).await?;
     }
     Ok(())
 }
@@ -2834,7 +2883,7 @@ async fn handle_committee_presign_operator(
     // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local database, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
-    if let Some((finalized_graph, store_outcome)) = try_finalize_graph(
+    if let Some((finalized_graph, _)) = try_finalize_graph(
         ctx.swarm,
         ctx.local_db,
         ctx.goat_client,
@@ -2845,8 +2894,7 @@ async fn handle_committee_presign_operator(
     )
     .await?
     {
-        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
-            .await?;
+        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph).await?;
     }
     Ok(())
 }
@@ -2935,7 +2983,7 @@ async fn handle_endorse_graph_operator(
     // 3. if received enough endorsement signatures, mark the graph as endorsed, send the graph to local database, broadcast GraphFinalize
     // Operator may receive EndorseGraph, CommitteePresign or NonceGeneration messages in any order
     // So we need to check if we have collected enough endorsements, pub_nonces and partial_sigs every time we receive them
-    if let Some((finalized_graph, store_outcome)) = try_finalize_graph(
+    if let Some((finalized_graph, _)) = try_finalize_graph(
         ctx.swarm,
         ctx.local_db,
         ctx.goat_client,
@@ -2946,8 +2994,7 @@ async fn handle_endorse_graph_operator(
     )
     .await?
     {
-        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
-            .await?;
+        refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph).await?;
     }
     Ok(())
 }
@@ -2957,10 +3004,23 @@ async fn handle_graph_finalize_committee(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
+    graph_nonce: u64,
     graph: &SimplifiedBitvmGcGraph,
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
     params_endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
+    if !message_identity_matches(
+        "GraphFinalize",
+        instance_id,
+        graph_id,
+        Some(graph_nonce),
+        graph.parameters.instance_parameters.instance_id,
+        graph.parameters.graph_id,
+        graph.parameters.graph_nonce,
+    ) {
+        return Ok(());
+    }
+
     // received from Operator
     // 1. check graph data
     if let Err(e) = todo_funcs::validate_finalized_graph(
@@ -2984,7 +3044,7 @@ async fn handle_graph_finalize_committee(
         bail!(e)
     }
     // 2. Store a finalized graph only when it upgrades the local graph.
-    let store_outcome = store_finalized_graph_if_needed(ctx.local_db, graph).await?;
+    let _ = store_finalized_graph_if_needed(ctx.local_db, graph).await?;
     store_committee_endorsements_for_graph(
         ctx.local_db,
         instance_id,
@@ -2997,8 +3057,7 @@ async fn handle_graph_finalize_committee(
     mark_graph_as_endorsed(ctx.local_db, instance_id, graph_id).await?;
     try_transition_instance_to_presigned(ctx.local_db, instance_id).await?;
     let finalized_graph = BitvmGcGraph::from_simplified(graph)?;
-    refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
-        .await?;
+    refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph).await?;
     // 3. if endorsed graph count >= threshold, generate & broadcast PeginConfirmNonce
     if has_required_presigned_graphs(ctx.local_db, instance_id).await? {
         let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
@@ -3076,10 +3135,23 @@ async fn handle_graph_finalize_default(
     ctx: &mut HandlerContext<'_>,
     instance_id: Uuid,
     graph_id: Uuid,
+    graph_nonce: u64,
     graph: &SimplifiedBitvmGcGraph,
     endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
     params_endorse_sigs: &[(PublicKey, alloy::primitives::Address, Vec<u8>)],
 ) -> Result<()> {
+    if !message_identity_matches(
+        "GraphFinalize",
+        instance_id,
+        graph_id,
+        Some(graph_nonce),
+        graph.parameters.instance_parameters.instance_id,
+        graph.parameters.graph_id,
+        graph.parameters.graph_nonce,
+    ) {
+        return Ok(());
+    }
+
     // received from Operator
     // 1. check graph data
     if let Err(e) = todo_funcs::validate_finalized_graph(
@@ -3103,7 +3175,7 @@ async fn handle_graph_finalize_default(
         bail!(e)
     }
     // 2. Store a finalized graph only when it upgrades the local graph.
-    let store_outcome = store_finalized_graph_if_needed(ctx.local_db, graph).await?;
+    let _ = store_finalized_graph_if_needed(ctx.local_db, graph).await?;
     store_committee_endorsements_for_graph(
         ctx.local_db,
         instance_id,
@@ -3115,8 +3187,7 @@ async fn handle_graph_finalize_default(
     mark_graph_as_endorsed(ctx.local_db, instance_id, graph_id).await?;
     try_transition_instance_to_presigned(ctx.local_db, instance_id).await?;
     let finalized_graph = BitvmGcGraph::from_simplified(graph)?;
-    refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph, store_outcome)
-        .await?;
+    refresh_newly_finalized_graph(ctx, instance_id, graph_id, &finalized_graph).await?;
     Ok(())
 }
 
@@ -3586,35 +3657,33 @@ async fn handle_kickoff_ready_operator(
             None => return Ok(()),
         };
         let mut current_graph = BitvmGcGraph::from_simplified(&current_graph)?;
-        let current_graph_start_status =
-            get_graph_status(ctx.local_db, current_instance_id, current_graph_id)
-                .await?
-                .ok_or_else(|| {
-                    anyhow!("Graph status not found for {current_instance_id}:{current_graph_id}")
-                })?;
-        let (current_graph_status, _current_graph_sub_status, current_graph_scan) = refresh_graph(
+        let current_graph_refresh = refresh_graph(
             ctx.local_db,
             ctx.btc_client,
             ctx.goat_client,
             current_instance_id,
             current_graph_id,
-            Some(&current_graph),
-            Some(current_graph_start_status),
-            None,
+            &current_graph,
         )
         .await?;
-        compensate_graph_events(
-            ctx.local_db,
-            ctx.btc_client,
-            current_instance_id,
-            current_graph_id,
-            Some(&current_graph),
-            current_graph_scan.as_ref(),
-            Some(current_graph_start_status),
-            current_graph_start_status,
-            current_graph_status,
-        )
-        .await?;
+        let current_graph_status = current_graph_refresh.status;
+        if current_graph_refresh.status_transition_accepted {
+            compensate_graph_events(
+                ctx.local_db,
+                ctx.btc_client,
+                current_instance_id,
+                current_graph_id,
+                &current_graph,
+                current_graph_refresh.scan.as_ref(),
+                // This is a recovery scan, not a transition from the local
+                // projection. Start from the protocol baseline so a previous
+                // crash between status persistence and message enqueue can be
+                // repaired by idempotent message upserts.
+                GraphStatus::OperatorPresigned,
+                current_graph_status,
+            )
+            .await?;
+        }
         if current_graph_status.is_closed() {
             continue;
         } else if current_graph_status.is_pegout_started() {
@@ -3897,18 +3966,24 @@ async fn handle_previous_graph_after_prekickoff(
         None => return Ok(()),
     };
     let prev_graph = BitvmGcGraph::from_simplified(&prev_graph)?;
-    let prev_graph_start_status = get_graph_status(ctx.local_db, prev_instance_id, prev_graph_id)
-        .await?
-        .ok_or_else(|| anyhow!("Graph status not found for {prev_instance_id}:{prev_graph_id}"))?;
-    let (prev_graph_status, _prev_graph_sub_status) = refresh_and_compensate(
-        ctx,
-        prev_instance_id,
-        prev_graph_id,
-        Some(&prev_graph),
-        Some(prev_graph_start_status),
-        prev_graph_start_status,
-    )
-    .await?;
+    let (prev_graph_status, _prev_graph_sub_status, status_transition_accepted) =
+        refresh_and_compensate(
+            ctx,
+            prev_instance_id,
+            prev_graph_id,
+            &prev_graph,
+            // Do not use the persisted status as a compensation anchor: it
+            // may have been committed just before a crash. Idempotent message
+            // upserts make a baseline recovery scan safe to retry.
+            GraphStatus::OperatorPresigned,
+        )
+        .await?;
+    if !status_transition_accepted {
+        tracing::warn!(
+            "Ignore prekickoff follow-up for {instance_id}:{graph_id}: previous graph status scan was rejected"
+        );
+        return Ok(());
+    }
     if !tx_on_chain(ctx.btc_client, &prev_graph.kickoff.tx().compute_txid()).await? {
         verifier_force_skip_kickoff(ctx.btc_client, &prev_graph).await?;
     } else if !prev_graph_status.is_closed() {
@@ -5700,13 +5775,6 @@ async fn handle_sync_graph(
     graph: &SimplifiedBitvmGcGraph,
 ) -> Result<()> {
     // sent by relayer nodes in response to SyncGraphRequest
-    if graph_exists(ctx.local_db, instance_id, graph_id).await? {
-        tracing::warn!(
-            "Ignore SyncGraph for {instance_id}:{graph_id}: graph already exists locally"
-        );
-        return Ok(());
-    }
-
     if !ctx
         .goat_client
         .committee_mana_is_validate_peer_id(&ctx.from_peer_id.to_bytes())
@@ -5725,12 +5793,15 @@ async fn handle_sync_graph(
         return Ok(());
     }
 
-    if graph.parameters.instance_parameters.instance_id != instance_id
-        || graph.parameters.graph_id != graph_id
-    {
-        tracing::warn!(
-            "Ignore SyncGraph for {instance_id}:{graph_id}: message identifiers do not match graph parameters"
-        );
+    if !message_identity_matches(
+        "SyncGraph",
+        instance_id,
+        graph_id,
+        None,
+        graph.parameters.instance_parameters.instance_id,
+        graph.parameters.graph_id,
+        graph.parameters.graph_nonce,
+    ) {
         return Ok(());
     }
 
@@ -5774,16 +5845,9 @@ async fn handle_sync_graph(
         return Ok(());
     }
     let simplified_graph = graph.to_simplified()?;
-    store_graph(ctx.local_db, &simplified_graph).await?;
-    refresh_and_compensate(
-        ctx,
-        instance_id,
-        graph_id,
-        Some(&graph),
-        None,
-        GraphStatus::OperatorPresigned,
-    )
-    .await?;
+    let _ = store_finalized_graph_if_needed(ctx.local_db, &simplified_graph).await?;
+    refresh_and_compensate(ctx, instance_id, graph_id, &graph, GraphStatus::OperatorPresigned)
+        .await?;
     Ok(())
 }
 

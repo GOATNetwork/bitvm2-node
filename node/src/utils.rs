@@ -1,7 +1,6 @@
 use crate::action::{
     ChallengeSent, DisproveSent, GOATMessage, GOATMessageContent, KickoffSent, NodeInfo,
-    PreKickoffSent, SolderingProofReady, Take1Sent, Take2Sent, push_local_unhandled_messages,
-    send_to_peer,
+    PreKickoffSent, SolderingProofReady, Take1Sent, Take2Sent, send_to_peer,
 };
 use crate::env::*;
 use crate::error::SpecialError;
@@ -71,7 +70,7 @@ use std::str::FromStr;
 
 pub const SELF_SENDER: &str = "self";
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use store::localdb::{GraphQuery, GraphUpdate, InstanceQuery, LocalDB, StorageProcessor};
+use store::localdb::{GraphQuery, GraphRuntimeUpdate, InstanceQuery, LocalDB, StorageProcessor};
 
 use crate::env;
 use crate::rpc_service::routes::v1::{
@@ -96,9 +95,10 @@ use proof_builder::{
     WatchtowerProofTimeoutUpdateResponse,
 };
 use store::{
-    BridgeOutGlobalStats, ByteArray32, Graph, GraphRawData, GraphStatus, Instance,
-    InstanceBridgeInStatus, Message, MessageState, MessageType, Node, PeginGraphProcessData,
-    PeginInstanceProcessData, SerializableTxid, UInt64Array3,
+    BridgeOutGlobalStats, ByteArray32, Graph, GraphRawData, GraphStatus, GraphStatusSource,
+    GraphStatusTransitionOutcome, Instance, InstanceBridgeInStatus, Message, MessageState,
+    MessageType, Node, PeginGraphProcessData, PeginInstanceProcessData, SerializableTxid,
+    UInt64Array3,
 };
 use stun_client::{Attribute, Class, Client};
 use tracing::{error, info, warn};
@@ -355,16 +355,17 @@ pub mod todo_funcs {
             )
             .await?;
         if let Some(previous_graph) = graphs.first() {
-            let Some(graph_raw_data) =
-                storage_processor.find_graph_raw_data(&previous_graph.graph_id).await?
-            else {
-                bail!(SpecialError::InvalidGraph(format!(
+            let simplified_graph = super::load_validated_graph_definition(
+                &mut storage_processor,
+                previous_graph.instance_id,
+                previous_graph.graph_id,
+            )
+            .await?
+            .ok_or_else(|| {
+                SpecialError::InvalidGraph(format!(
                     "previous graph raw data is missing for graph nonce {previous_nonce}"
-                )));
-            };
-            let simplified_graph =
-                super::parse_graph_raw_data(graph_raw_data.raw_data, previous_graph.graph_id)
-                    .await?;
+                ))
+            })?;
             let expected_cur_prekickoff =
                 BitvmGcGraph::from_simplified(&simplified_graph)?.next_prekickoff;
             let expected_txid = expected_cur_prekickoff.finalize().compute_txid();
@@ -1124,29 +1125,20 @@ pub(crate) async fn refresh_graph(
     goat_client: &GOATClient,
     instance_id: Uuid,
     graph_id: Uuid,
-    graph: Option<&BitvmGcGraph>,
-    scan_from_status: Option<GraphStatus>,
-    scan_from_sub_status: Option<ChallengeSubStatus>,
-) -> Result<(GraphStatus, Option<ChallengeSubStatus>, Option<GraphChainScan>)> {
-    let Some(graph) = graph else {
-        let status = scan_from_status.unwrap_or(GraphStatus::OperatorPresigned);
-        return Ok((status, scan_from_sub_status, None));
-    };
-
-    let scan = scan_graph_chain_state(
-        btc_client,
-        goat_client,
-        graph,
-        scan_from_status,
-        scan_from_sub_status,
-    )
-    .await?;
-
-    if let Some(challenge_txid) = scan.challenge_txid {
-        update_graph_challenge_txid_if_needed(local_db, graph_id, challenge_txid).await?;
+    graph: &BitvmGcGraph,
+) -> Result<GraphRefreshResult> {
+    if graph.parameters.instance_parameters.instance_id != instance_id
+        || graph.parameters.graph_id != graph_id
+    {
+        bail!(
+            "refuse to refresh graph {instance_id}:{graph_id} with mismatched graph parameters {}:{}",
+            graph.parameters.instance_parameters.instance_id,
+            graph.parameters.graph_id
+        );
     }
 
-    update_graph_status(
+    let scan = scan_graph_chain_state(btc_client, goat_client, graph).await?;
+    let outcome = update_graph_status(
         local_db,
         instance_id,
         graph_id,
@@ -1155,7 +1147,54 @@ pub(crate) async fn refresh_graph(
     )
     .await?;
 
-    Ok((scan.status, Some(scan.sub_status.clone()), Some(scan)))
+    match outcome {
+        GraphStatusTransitionOutcome::Applied => {
+            if let Some(challenge_txid) = scan.challenge_txid {
+                update_graph_challenge_txid_if_needed(local_db, graph_id, challenge_txid).await?;
+            }
+            Ok(GraphRefreshResult {
+                status: scan.status,
+                sub_status: Some(scan.sub_status.clone()),
+                scan: Some(scan),
+                status_transition_accepted: true,
+            })
+        }
+        GraphStatusTransitionOutcome::AlreadyCurrent => {
+            if let Some(challenge_txid) = scan.challenge_txid {
+                update_graph_challenge_txid_if_needed(local_db, graph_id, challenge_txid).await?;
+            }
+            Ok(GraphRefreshResult {
+                status: scan.status,
+                sub_status: Some(scan.sub_status.clone()),
+                // Preserve the verified scan even for an idempotent status
+                // replay. The previous attempt may have committed the status
+                // before it could enqueue the corresponding local message.
+                scan: Some(scan),
+                status_transition_accepted: true,
+            })
+        }
+        GraphStatusTransitionOutcome::Rejected { current } => {
+            warn!(
+                "ignore stale chain scan for graph {instance_id}:{graph_id}: candidate={}, current={current}",
+                scan.status
+            );
+            Ok(GraphRefreshResult {
+                status: current,
+                sub_status: None,
+                scan: None,
+                status_transition_accepted: false,
+            })
+        }
+        GraphStatusTransitionOutcome::NotFound => {
+            warn!("graph {instance_id}:{graph_id} disappeared while applying chain scan");
+            Ok(GraphRefreshResult {
+                status: scan.status,
+                sub_status: None,
+                scan: None,
+                status_transition_accepted: false,
+            })
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1178,11 +1217,15 @@ pub(crate) struct GraphChainScan {
     disprove: Option<DetectedDisprove>,
 }
 
-fn normalize_challenge_sub_status(
-    mut sub_status: ChallengeSubStatus,
-    watchtower_num: usize,
-    verifier_num: usize,
-) -> ChallengeSubStatus {
+pub(crate) struct GraphRefreshResult {
+    pub(crate) status: GraphStatus,
+    pub(crate) sub_status: Option<ChallengeSubStatus>,
+    pub(crate) scan: Option<GraphChainScan>,
+    pub(crate) status_transition_accepted: bool,
+}
+
+fn initial_challenge_sub_status(watchtower_num: usize, verifier_num: usize) -> ChallengeSubStatus {
+    let mut sub_status = ChallengeSubStatus::default();
     sub_status.watchtower_challenge_status.resize(watchtower_num, false);
     sub_status.verifier_challenge_status.resize(verifier_num, VerifierChallengeStatus::None);
     sub_status
@@ -1225,7 +1268,10 @@ async fn update_graph_challenge_txid_if_needed(
     };
     if graph.challenge_txid.as_ref().map(|txid| txid.0) != Some(challenge_txid) {
         storage_processor
-            .update_graph(&GraphUpdate::new(graph_id).with_challenge_txid(challenge_txid.into()))
+            .update_graph_runtime(
+                &GraphRuntimeUpdate::new(graph.instance_id, graph_id)
+                    .with_challenge_txid(challenge_txid.into()),
+            )
             .await?;
     }
     Ok(())
@@ -1327,34 +1373,19 @@ async fn scan_graph_chain_state(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     graph: &BitvmGcGraph,
-    scan_from_status: Option<GraphStatus>,
-    scan_from_sub_status: Option<ChallengeSubStatus>,
 ) -> Result<GraphChainScan> {
     let instance_id = graph.parameters.instance_parameters.instance_id;
     let graph_id = graph.parameters.graph_id;
     let watchtower_num = graph.parameters.watchtower_pubkeys.len();
     let verifier_num = graph.verifier_asserts.len();
-    let mut sub_status = normalize_challenge_sub_status(
-        scan_from_sub_status.unwrap_or_default(),
-        watchtower_num,
-        verifier_num,
-    );
-    let mut current_status = match scan_from_status {
-        Some(s) => s,
-        None => {
-            if graph.committee_pre_signed() {
-                GraphStatus::CommitteePresigned
-            } else {
-                return Ok(GraphChainScan {
-                    status: GraphStatus::OperatorPresigned,
-                    sub_status,
-                    challenge_txid: None,
-                    watchtower_challenge_init_on_chain: false,
-                    operator_assert_on_chain: false,
-                    disprove: None,
-                });
-            }
-        }
+    let mut sub_status = initial_challenge_sub_status(watchtower_num, verifier_num);
+    // Derive the candidate from the graph and both chains, rather than using
+    // the locally persisted status as the scan start. The stored status is a
+    // projection and can be stale after a restart or missed listener event.
+    let mut current_status = if graph.committee_pre_signed() {
+        GraphStatus::CommitteePresigned
+    } else {
+        GraphStatus::OperatorPresigned
     };
 
     let prekickoff_txid = graph.cur_prekickoff.tx().compute_txid();
@@ -1362,12 +1393,12 @@ async fn scan_graph_chain_state(
     let take1_txid = graph.take1.tx().compute_txid();
     let take2_txid = graph.take2.tx().compute_txid();
 
-    // check if Graph has been posted on GoatChain
-    if current_status == GraphStatus::CommitteePresigned {
-        let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
-        if graph_data_on_goat.operator_pubkey != [0u8; 32] {
-            current_status = GraphStatus::OperatorDataPushed;
-        }
+    // GraphData is a Goat-chain fact and must be checked regardless of the
+    // current local projection. A fully synced node may otherwise remain at
+    // OperatorPresigned forever after a prior status regression.
+    let graph_data_on_goat = goat_client.gateway_get_graph_data(&graph_id).await?;
+    if graph_data_on_goat.operator_pubkey != [0u8; 32] {
+        current_status = GraphStatus::OperatorDataPushed;
     }
     // check if Graph has been obsoleted on GoatChain
     if current_status == GraphStatus::OperatorDataPushed {
@@ -1679,7 +1710,7 @@ async fn scan_graph_chain_state(
 }
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum GraphCompensateEventKind {
     PreKickoffSent, // OperatorDataPushed -> PreKickoff
     KickoffSent,    // PreKickoff -> OperatorKickOff
@@ -1697,10 +1728,57 @@ fn map_transition_to_event(from: GraphStatus, to: GraphStatus) -> Option<GraphCo
         (OperatorKickOff, OperatorTake1) => Some(GraphCompensateEventKind::Take1Sent),
         (OperatorKickOff, Challenge) => Some(GraphCompensateEventKind::ChallengeSent),
         (Challenge, Disprove) => Some(GraphCompensateEventKind::DisproveSent),
-        (OperatorKickOff, Disprove) => Some(GraphCompensateEventKind::DisproveSent),
         (Challenge, OperatorTake2) => Some(GraphCompensateEventKind::Take2Sent),
         _ => None,
     }
+}
+
+/// The canonical protocol ancestry used only for recovering missed local
+/// messages. It is deliberately separate from transition authorization: a
+/// chain scan can authorize additional recovery edges such as
+/// `Obsoleted -> OperatorDataPushed`, but those edges do not imply a P2P
+/// phase message should be synthesized.
+fn compensation_previous_status(status: GraphStatus) -> Option<GraphStatus> {
+    use GraphStatus::*;
+
+    match status {
+        CommitteePresigned => Some(OperatorPresigned),
+        OperatorDataPushed => Some(CommitteePresigned),
+        PreKickoff | Obsoleted | Skipped => Some(OperatorDataPushed),
+        OperatorKickOff => Some(PreKickoff),
+        OperatorTake1 | Challenge => Some(OperatorKickOff),
+        Disprove | OperatorTake2 => Some(Challenge),
+        OperatorPresigned | Created | Presigned | L2Recorded | OperatorKickOffing | Challenging
+        | Disproving => None,
+    }
+}
+
+fn compensation_events_from(
+    compensation_anchor_status: GraphStatus,
+    final_status: GraphStatus,
+) -> Option<Vec<GraphCompensateEventKind>> {
+    if compensation_anchor_status == final_status {
+        return Some(vec![]);
+    }
+
+    let mut reverse_path = vec![final_status];
+    let mut cursor = final_status;
+    while cursor != compensation_anchor_status {
+        let previous = compensation_previous_status(cursor)?;
+        reverse_path.push(previous);
+        cursor = previous;
+    }
+    reverse_path.reverse();
+
+    Some(
+        reverse_path
+            .windows(2)
+            .filter_map(|window| match window {
+                [from, to] => map_transition_to_event(*from, *to),
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 async fn upsert_graph_compensate_message(
@@ -1710,7 +1788,14 @@ async fn upsert_graph_compensate_message(
     actor: Actor,
     message_content: GOATMessageContent,
 ) -> Result<()> {
-    let mut storage_processor = local_db.acquire().await?;
+    let message_type = get_goat_message_content_type(&message_content);
+    let message_id = generate_message_id(graph_id, message_type.to_string(), sub_type.clone());
+    let mut storage_processor = local_db.start_transaction().await?;
+    if !storage_processor.insert_graph_compensation_marker(graph_id, &message_id).await? {
+        storage_processor.commit().await?;
+        return Ok(());
+    }
+
     upsert_message(
         &mut storage_processor,
         false,
@@ -1722,7 +1807,8 @@ async fn upsert_graph_compensate_message(
         0,
         0,
     )
-    .await
+    .await?;
+    storage_processor.commit().await
 }
 
 async fn push_graph_compensate_message(
@@ -1731,8 +1817,10 @@ async fn push_graph_compensate_message(
     actor: Actor,
     message_content: GOATMessageContent,
 ) -> Result<()> {
-    let message = GOATMessage::new(actor, message_content);
-    push_local_unhandled_messages(local_db, graph_id, &message, 0).await
+    // Unlike an action retry, an inferred chain event must not reset an
+    // existing queued message. This makes compensation safe to retry when the
+    // status write committed before the message was persisted.
+    upsert_graph_compensate_message(local_db, graph_id, None, actor, message_content).await
 }
 
 #[allow(dead_code)]
@@ -1754,10 +1842,9 @@ pub(crate) async fn compensate_graph_events(
     _btc_client: &BTCClient,
     instance_id: Uuid,
     graph_id: Uuid,
-    _graph: Option<&BitvmGcGraph>,
+    _graph: &BitvmGcGraph,
     scan: Option<&GraphChainScan>,
-    scan_from_status: Option<GraphStatus>,
-    compensate_from_status: GraphStatus,
+    compensation_anchor_status: GraphStatus,
     final_status: GraphStatus,
 ) -> Result<()> {
     let Some(scan) = scan else {
@@ -1767,41 +1854,17 @@ pub(crate) async fn compensate_graph_events(
         return Ok(());
     };
 
-    let scan_start = scan_from_status.unwrap_or(compensate_from_status);
-    let effective_from = if scan_start.is_after(&compensate_from_status) {
-        scan_start
-    } else {
-        compensate_from_status
-    };
-    if !effective_from.is_before(&final_status) {
+    // The action anchor is the only input used to build a recovery path. The
+    // persisted status is a projection and must not manufacture or suppress
+    // messages after a restart. Every enqueue below is idempotent.
+    let Some(events) = compensation_events_from(compensation_anchor_status, final_status) else {
         tracing::debug!(
-            "Skip graph compensation for {instance_id}:{graph_id}: effective_from={effective_from:?}, final_status={final_status:?}"
+            "Skip graph compensation without a canonical observed path for {instance_id}:{graph_id}: anchor={compensation_anchor_status:?}, final={final_status:?}"
         );
         return Ok(());
-    }
+    };
 
-    let mut rev_path = vec![final_status];
-    let mut cursor = final_status;
-    while cursor != effective_from {
-        let Some(prev) = cursor.get_previous_status() else {
-            tracing::debug!(
-                "Skip graph compensation for {instance_id}:{graph_id}: cannot walk from {final_status:?} back to {effective_from:?}"
-            );
-            return Ok(());
-        };
-        rev_path.push(prev);
-        cursor = prev;
-    }
-    rev_path.reverse();
-
-    for window in rev_path.windows(2) {
-        let [from, to] = window else {
-            continue;
-        };
-        let Some(event) = map_transition_to_event(*from, *to) else {
-            continue;
-        };
-
+    for event in events {
         match event {
             GraphCompensateEventKind::PreKickoffSent => {
                 push_graph_compensate_message(
@@ -4227,15 +4290,16 @@ pub async fn get_current_prekickoff_tx(
         )
         .await?;
 
-    if !graphs.is_empty()
-        && let Some(graph_raw_data) =
-            storage_processor.find_graph_raw_data(&graphs[0].graph_id).await?
+    if let Some(graph) = graphs.first()
+        && let Some(simplified_graph) = load_validated_graph_definition(
+            &mut storage_processor,
+            graph.instance_id,
+            graph.graph_id,
+        )
+        .await?
     {
-        let simplified_graph =
-            parse_graph_raw_data(graph_raw_data.raw_data, graphs[0].graph_id).await?;
-
         Ok(Some((
-            (graphs[0].kickoff_index + 1) as u64,
+            (graph.kickoff_index + 1) as u64,
             BitvmGcGraph::from_simplified(&simplified_graph)?.next_prekickoff,
         )))
     } else {
@@ -4371,12 +4435,12 @@ pub async fn get_instance_parameters(
     }
 }
 
-fn convert_graph(bitvm_graph: &BitvmGcGraph, current_time: i64) -> Graph {
-    let mut status = GraphStatus::OperatorPresigned.to_string();
-    if bitvm_graph.committee_pre_signed() {
-        status = GraphStatus::CommitteePresigned.to_string();
-    }
-
+fn convert_graph(
+    bitvm_graph: &BitvmGcGraph,
+    current_time: i64,
+    initial_status: GraphStatus,
+    definition_hash: String,
+) -> Graph {
     Graph {
         graph_id: bitvm_graph.parameters.graph_id,
         instance_id: bitvm_graph.parameters.instance_parameters.instance_id,
@@ -4385,9 +4449,10 @@ fn convert_graph(bitvm_graph: &BitvmGcGraph, current_time: i64) -> Graph {
         to_addr: "".to_string(),
         amount: bitvm_graph.parameters.instance_parameters.pegin_amount.to_sat() as i64,
         challenge_amount: bitvm_graph.parameters.challenge_amount.to_sat() as i64,
-        status,
+        status: initial_status.to_string(),
         sub_status: "".to_string(),
         operator_pubkey: bitvm_graph.parameters.operator_pubkey.to_string(),
+        definition_hash,
         cur_prekickoff_txid: Some(bitvm_graph.cur_prekickoff.finalize().compute_txid().into()),
         next_prekickoff: Some(bitvm_graph.next_prekickoff.finalize().compute_txid().into()),
         force_skip_kickoff_txid: Some(
@@ -4439,66 +4504,200 @@ fn convert_graph(bitvm_graph: &BitvmGcGraph, current_time: i64) -> Graph {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FinalizedGraphStoreOutcome {
+pub(crate) enum FinalizedGraphStoreOutcome {
     NewlyStored,
+    DefinitionUpgraded,
     AlreadyFinalized,
 }
 
-/// Store a finalized graph once without replacing a graph whose finalized form is already known.
-pub async fn store_finalized_graph_if_needed(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GraphDefinitionIngestKind {
+    OperatorPresigned,
+    Finalized,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GraphDefinitionIngestOutcome {
+    Inserted,
+    FinalizedUpgrade,
+    Replay,
+    AlreadyFinalized,
+}
+
+/// Store a verified operator-pre-signed graph definition.
+///
+/// This path is intentionally unable to advance `GraphStatus`: receiving a
+/// CreateGraph message is not evidence of committee finalization.
+pub(crate) async fn store_operator_presigned_graph(
+    local_db: &LocalDB,
+    simple_graph: &SimplifiedBitvmGcGraph,
+) -> Result<()> {
+    if !simple_graph.operator_pre_signed() || simple_graph.committee_pre_signed() {
+        bail!(SpecialError::InvalidGraph(format!(
+            "graph {} is not an operator-pre-signed proposal",
+            simple_graph.parameters.graph_id
+        )));
+    }
+
+    let mut tx = local_db.start_transaction().await?;
+    ingest_graph_definition(&mut tx, simple_graph, GraphDefinitionIngestKind::OperatorPresigned)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Store a verified finalized graph once without replacing a graph whose
+/// finalized form is already known.
+pub(crate) async fn store_finalized_graph_if_needed(
     local_db: &LocalDB,
     simple_graph: &SimplifiedBitvmGcGraph,
 ) -> Result<FinalizedGraphStoreOutcome> {
     let graph_id = simple_graph.parameters.graph_id;
-    let instance_id = simple_graph.parameters.instance_parameters.instance_id;
     if !simple_graph.operator_pre_signed() || !simple_graph.committee_pre_signed() {
         bail!(SpecialError::InvalidGraph(format!("graph {graph_id} is not fully pre-signed")));
     }
 
-    if let Some(existing_graph) = get_graph(local_db, instance_id, graph_id).await?
-        && existing_graph.committee_pre_signed()
-    {
-        if !existing_graph.eq(simple_graph) {
+    let mut tx = local_db.start_transaction().await?;
+    let outcome =
+        ingest_graph_definition(&mut tx, simple_graph, GraphDefinitionIngestKind::Finalized)
+            .await?;
+    tx.commit().await?;
+
+    Ok(match outcome {
+        GraphDefinitionIngestOutcome::Inserted => FinalizedGraphStoreOutcome::NewlyStored,
+        GraphDefinitionIngestOutcome::FinalizedUpgrade => {
+            FinalizedGraphStoreOutcome::DefinitionUpgraded
+        }
+        GraphDefinitionIngestOutcome::AlreadyFinalized => {
+            FinalizedGraphStoreOutcome::AlreadyFinalized
+        }
+        GraphDefinitionIngestOutcome::Replay => {
+            unreachable!("a finalized graph replay must be classified as already finalized")
+        }
+    })
+}
+
+async fn ingest_graph_definition(
+    tx: &mut StorageProcessor<'_>,
+    simple_graph: &SimplifiedBitvmGcGraph,
+    kind: GraphDefinitionIngestKind,
+) -> Result<GraphDefinitionIngestOutcome> {
+    let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(simple_graph)?;
+    let graph_id = simple_graph.parameters.graph_id;
+    verify_graph_operator_pre_signatures(&bitvm_graph).map_err(|error| {
+        SpecialError::InvalidGraph(format!(
+            "graph {graph_id} has invalid operator pre-signatures: {error}"
+        ))
+    })?;
+    if kind == GraphDefinitionIngestKind::Finalized {
+        verify_graph_committee_pre_signatures(&bitvm_graph).map_err(|error| {
+            SpecialError::InvalidGraph(format!(
+                "graph {graph_id} has invalid committee pre-signatures: {error}"
+            ))
+        })?;
+    }
+    let current_time = current_time_secs();
+    let definition_hash = hex::encode(simple_graph.parameters_hash()?);
+    let existing_graph_row = tx.find_graph(&graph_id).await?;
+    let existing_raw_data = tx.find_graph_raw_data(&graph_id).await?;
+    let existing_graph = match (existing_graph_row.as_ref(), existing_raw_data) {
+        (None, None) => None,
+        (Some(_), None) => {
+            bail!(SpecialError::InvalidGraph(format!(
+                "graph {graph_id} has runtime data but no raw definition; explicit repair is required"
+            )));
+        }
+        (None, Some(_)) => {
+            bail!(SpecialError::InvalidGraph(format!(
+                "graph {graph_id} has raw definition but no graph row; explicit repair is required"
+            )));
+        }
+        (Some(existing_row), Some(existing_raw_data)) => {
+            if existing_row.definition_hash.is_empty() {
+                bail!(SpecialError::InvalidGraph(format!(
+                    "graph {graph_id} is missing its stored definition hash; explicit repair is required"
+                )));
+            }
+            if existing_row.definition_hash != definition_hash {
+                bail!(SpecialError::InvalidGraph(format!(
+                    "graph parameters changed for graph_id {graph_id}: existing={}, incoming={definition_hash}",
+                    existing_row.definition_hash
+                )));
+            }
+
+            let existing_graph = parse_graph_raw_data(existing_raw_data.raw_data, graph_id).await?;
+            let existing_raw_hash = hex::encode(existing_graph.parameters_hash()?);
+            if existing_raw_hash != existing_row.definition_hash {
+                bail!(SpecialError::InvalidGraph(format!(
+                    "graph {graph_id} definition hash does not match its stored raw definition"
+                )));
+            }
+            let existing_full_graph = BitvmGcGraph::from_simplified(&existing_graph)?;
+            verify_graph_operator_pre_signatures(&existing_full_graph).map_err(|error| {
+                SpecialError::InvalidGraph(format!(
+                    "stored graph {graph_id} has invalid operator pre-signatures: {error}"
+                ))
+            })?;
+            if existing_full_graph.committee_pre_signed() {
+                verify_graph_committee_pre_signatures(&existing_full_graph).map_err(|error| {
+                    SpecialError::InvalidGraph(format!(
+                        "stored graph {graph_id} has invalid committee pre-signatures: {error}"
+                    ))
+                })?;
+            }
+            Some(existing_graph)
+        }
+    };
+
+    let existing_is_finalized =
+        existing_graph.as_ref().is_some_and(SimplifiedBitvmGcGraph::committee_pre_signed);
+    if existing_is_finalized {
+        let existing_graph = existing_graph.as_ref().expect("checked above");
+        if kind == GraphDefinitionIngestKind::Finalized && existing_graph != simple_graph {
             bail!(SpecialError::InvalidGraph(format!(
                 "conflicting finalized graph for graph_id {graph_id}"
             )));
         }
-        return Ok(FinalizedGraphStoreOutcome::AlreadyFinalized);
+
+        // An old CreateGraph replay is harmless once a verified finalized
+        // graph is stored. Do not replace its raw signatures or runtime.
+        if kind == GraphDefinitionIngestKind::Finalized {
+            confirm_finalized_graph_definition(
+                tx,
+                bitvm_graph.parameters.instance_parameters.instance_id,
+                graph_id,
+            )
+            .await?;
+        }
+        return Ok(GraphDefinitionIngestOutcome::AlreadyFinalized);
     }
 
-    store_graph(local_db, simple_graph).await?;
-    Ok(FinalizedGraphStoreOutcome::NewlyStored)
-}
-
-pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvmGcGraph) -> Result<()> {
-    let mut tx = local_db.start_transaction().await?;
-    let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(simple_graph)?;
-    let graph_id = simple_graph.parameters.graph_id;
-    let current_time = current_time_secs();
-    let mut graph = convert_graph(&bitvm_graph, current_time);
-    let incoming_parameters_hash = simple_graph.parameters_hash()?;
-
-    if let Some(existing_raw_data) = tx.find_graph_raw_data(&graph_id).await? {
-        let existing_graph = parse_graph_raw_data(existing_raw_data.raw_data, graph_id).await?;
-        let existing_parameters_hash = existing_graph.parameters_hash()?;
-        if existing_parameters_hash != incoming_parameters_hash {
-            bail!(SpecialError::InvalidGraph(format!(
-                "graph parameters changed for graph_id {graph_id}: existing={}, incoming={}",
-                hex::encode(existing_parameters_hash),
-                hex::encode(incoming_parameters_hash)
-            )));
-        }
-        if existing_graph.operator_pre_signed() && !simple_graph.operator_pre_signed() {
-            bail!(SpecialError::InvalidGraph(format!(
-                "graph {graph_id} cannot be downgraded after operator pre-signatures are stored"
-            )));
-        }
-        if existing_graph.committee_pre_signed() && !simple_graph.committee_pre_signed() {
-            bail!(SpecialError::InvalidGraph(format!(
-                "graph {graph_id} cannot be downgraded after committee pre-signatures are stored"
-            )));
-        }
+    if kind == GraphDefinitionIngestKind::OperatorPresigned
+        && let Some(existing_graph) = existing_graph.as_ref()
+        && existing_graph != simple_graph
+    {
+        bail!(SpecialError::InvalidGraph(format!(
+            "conflicting operator-pre-signed graph for graph_id {graph_id}"
+        )));
     }
+    if kind == GraphDefinitionIngestKind::Finalized
+        && let Some(existing_graph) = existing_graph.as_ref()
+        && existing_graph.operator_pre_sigs != simple_graph.operator_pre_sigs
+    {
+        bail!(SpecialError::InvalidGraph(format!(
+            "finalized graph {graph_id} changes the stored operator pre-signatures"
+        )));
+    }
+
+    let mut graph = convert_graph(
+        &bitvm_graph,
+        current_time,
+        // A graph row is always created at the operator-presigned baseline.
+        // Only a verified finalized definition may advance it through the
+        // dedicated Definition transition below.
+        GraphStatus::OperatorPresigned,
+        definition_hash.clone(),
+    );
 
     if let Some(node_info) =
         tx.get_node_by_btc_pub_key(&bitvm_graph.parameters.operator_pubkey.to_string()).await?
@@ -4508,19 +4707,80 @@ pub async fn store_graph(local_db: &LocalDB, simple_graph: &SimplifiedBitvmGcGra
             node_p2wsh_address(get_network(), &bitvm_graph.parameters.operator_pubkey).to_string();
     }
 
-    tx.upsert_graph(&graph).await?;
+    tx.upsert_graph_definition(&graph).await?;
 
-    let raw_data = serialize_graph_raw_data(simple_graph, graph_id).await?;
-    tx.upsert_graph_raw_data(GraphRawData {
-        graph_id,
-        raw_data,
-        created_at: current_time,
-        updated_at: current_time,
-    })
-    .await?;
+    let outcome = if existing_graph.is_none() {
+        let raw_data = serialize_graph_raw_data(simple_graph, graph_id).await?;
+        tx.upsert_graph_raw_data(
+            bitvm_graph.parameters.instance_parameters.instance_id,
+            GraphRawData { graph_id, raw_data, created_at: current_time, updated_at: current_time },
+            &definition_hash,
+        )
+        .await?;
+        if kind == GraphDefinitionIngestKind::Finalized {
+            confirm_finalized_graph_definition(
+                tx,
+                bitvm_graph.parameters.instance_parameters.instance_id,
+                graph_id,
+            )
+            .await?;
+        }
+        GraphDefinitionIngestOutcome::Inserted
+    } else if kind == GraphDefinitionIngestKind::Finalized {
+        let raw_data = serialize_graph_raw_data(simple_graph, graph_id).await?;
+        tx.upsert_graph_raw_data(
+            bitvm_graph.parameters.instance_parameters.instance_id,
+            GraphRawData { graph_id, raw_data, created_at: current_time, updated_at: current_time },
+            &definition_hash,
+        )
+        .await?;
 
-    tx.commit().await?;
-    Ok(())
+        // Only a verified finalized definition can advance an existing locally
+        // operator-pre-signed graph. A later chain-observed state is retained.
+        confirm_finalized_graph_definition(
+            tx,
+            bitvm_graph.parameters.instance_parameters.instance_id,
+            graph_id,
+        )
+        .await?;
+        GraphDefinitionIngestOutcome::FinalizedUpgrade
+    } else {
+        GraphDefinitionIngestOutcome::Replay
+    };
+
+    Ok(outcome)
+}
+
+/// Confirm that a fully verified graph definition has reached the committee
+/// pre-signing stage without allowing it to overwrite a later runtime state.
+async fn confirm_finalized_graph_definition(
+    tx: &mut StorageProcessor<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<()> {
+    match tx
+        .transition_graph_status(
+            instance_id,
+            graph_id,
+            GraphStatus::CommitteePresigned,
+            GraphStatusSource::Definition,
+            None,
+        )
+        .await?
+    {
+        GraphStatusTransitionOutcome::Applied | GraphStatusTransitionOutcome::AlreadyCurrent => {
+            Ok(())
+        }
+        GraphStatusTransitionOutcome::Rejected { current } => {
+            tracing::debug!(
+                "keep later graph status while storing finalized definition: graph={graph_id}, current={current}"
+            );
+            Ok(())
+        }
+        GraphStatusTransitionOutcome::NotFound => {
+            bail!("graph {graph_id} disappeared while confirming its finalized definition")
+        }
+    }
 }
 
 /// Parse raw graph data JSON string to SimplifiedBitvmGcGraph using spawn_blocking
@@ -4596,19 +4856,80 @@ pub async fn serialize_graph_raw_data(
     }
 }
 
-pub async fn get_graph(
-    local_db: &LocalDB,
-    _instance_id: Uuid,
+/// Load a graph only after binding its runtime row, raw definition, canonical
+/// parameters and pre-signatures together. Callers must use this instead of
+/// parsing `graph_raw_data` directly.
+pub(crate) async fn load_validated_graph_definition(
+    storage_processor: &mut StorageProcessor<'_>,
+    instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<Option<SimplifiedBitvmGcGraph>> {
-    let mut storage_process = local_db.acquire().await?;
-    if let Some(graph_raw_data) = storage_process.find_graph_raw_data(&graph_id).await?
-        && let Ok(simplified_graph) = parse_graph_raw_data(graph_raw_data.raw_data, graph_id).await
-    {
-        Ok(Some(simplified_graph))
-    } else {
-        Ok(None)
+    let Some(graph_row) = storage_processor.find_graph(&graph_id).await? else {
+        return Ok(None);
+    };
+    if graph_row.instance_id != instance_id {
+        bail!(SpecialError::InvalidGraph(format!(
+            "graph {graph_id} belongs to instance {}, not {instance_id}",
+            graph_row.instance_id
+        )));
     }
+    if graph_row.definition_hash.is_empty() {
+        bail!(SpecialError::InvalidGraph(format!(
+            "graph {graph_id} is missing its definition hash; explicit repair is required"
+        )));
+    }
+
+    let graph_raw_data = storage_processor
+        .find_graph_raw_data(&graph_id)
+        .await?
+        .ok_or_else(|| {
+            SpecialError::InvalidGraph(format!(
+                "graph {graph_id} has a runtime row but no raw definition; explicit repair is required"
+            ))
+        })?;
+    let simplified_graph = parse_graph_raw_data(graph_raw_data.raw_data, graph_id).await?;
+    if simplified_graph.parameters.graph_id != graph_id
+        || simplified_graph.parameters.instance_parameters.instance_id != instance_id
+    {
+        bail!(SpecialError::InvalidGraph(format!(
+            "stored raw definition identifiers do not match graph {instance_id}:{graph_id}"
+        )));
+    }
+    let definition_hash = hex::encode(simplified_graph.parameters_hash()?);
+    if definition_hash != graph_row.definition_hash {
+        bail!(SpecialError::InvalidGraph(format!(
+            "stored raw definition hash does not match graph row for {instance_id}:{graph_id}"
+        )));
+    }
+
+    let full_graph = BitvmGcGraph::from_simplified(&simplified_graph).map_err(|error| {
+        SpecialError::InvalidGraph(format!(
+            "stored raw definition cannot rebuild graph for {instance_id}:{graph_id}: {error}"
+        ))
+    })?;
+    verify_graph_operator_pre_signatures(&full_graph).map_err(|error| {
+        SpecialError::InvalidGraph(format!(
+            "stored raw definition has invalid operator pre-signatures for {instance_id}:{graph_id}: {error}"
+        ))
+    })?;
+    if full_graph.committee_pre_signed() {
+        verify_graph_committee_pre_signatures(&full_graph).map_err(|error| {
+            SpecialError::InvalidGraph(format!(
+                "stored raw definition has invalid committee pre-signatures for {instance_id}:{graph_id}: {error}"
+            ))
+        })?;
+    }
+
+    Ok(Some(simplified_graph))
+}
+
+pub async fn get_graph(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<Option<SimplifiedBitvmGcGraph>> {
+    let mut storage_processor = local_db.acquire().await?;
+    load_validated_graph_definition(&mut storage_processor, instance_id, graph_id).await
 }
 
 pub async fn get_graph_by_instance_id_and_operator_pubkey(
@@ -4620,10 +4941,8 @@ pub async fn get_graph_by_instance_id_and_operator_pubkey(
     if let Some(graph_id) = storage_process
         .get_graph_id_by_instance_id_and_operator_pubkey(&instance_id, &operator_pubkey.to_string())
         .await?
-        && let Some(graph_raw_data) = storage_process.find_graph_raw_data(&graph_id).await?
-        && let Ok(simplified_graph) = parse_graph_raw_data(graph_raw_data.raw_data, graph_id).await
     {
-        Ok(Some(simplified_graph))
+        load_validated_graph_definition(&mut storage_process, instance_id, graph_id).await
     } else {
         Ok(None)
     }
@@ -5274,7 +5593,10 @@ pub async fn try_update_graph_challenge_txid(
         );
         let mut storage_processor = local_db.acquire().await?;
         storage_processor
-            .update_graph(&GraphUpdate::new(graph_id).with_challenge_txid(spent_txid.into()))
+            .update_graph_runtime(
+                &GraphRuntimeUpdate::new(graph.instance_id, graph_id)
+                    .with_challenge_txid(spent_txid.into()),
+            )
             .await?;
     } else {
         info!("try_update_graph_challenge_txid no need to challenge_txid for graph {graph_id}");
@@ -5284,37 +5606,21 @@ pub async fn try_update_graph_challenge_txid(
 
 pub async fn update_graph_status(
     local_db: &LocalDB,
-    _instance_id: Uuid,
+    instance_id: Uuid,
     graph_id: Uuid,
     new_status: GraphStatus,
     sub_status: Option<ChallengeSubStatus>,
-) -> Result<()> {
+) -> Result<GraphStatusTransitionOutcome> {
     let mut storage_processor = local_db.acquire().await?;
-    match storage_processor.find_graph(&graph_id).await? {
-        Some(graph) => {
-            if graph.status == new_status.to_string()
-                && let Some(ref sub_status) = sub_status
-                && *sub_status == ChallengeSubStatus::default()
-            {
-                warn!(
-                    "graph: {graph_id}, new_status: {new_status} is equal old status and ChallengeSubStatus is None, so not update"
-                );
-                return Ok(());
-            }
-        }
-        None => {
-            warn!("graph: {graph_id} is not update, so not update");
-            return Ok(());
-        }
-    }
-
-    let mut graph_update = GraphUpdate::new(graph_id).with_status(new_status.to_string());
-    if let Some(sub_status) = sub_status {
-        graph_update = graph_update.with_sub_status(serde_json::to_string(&sub_status)?);
-    }
-
-    storage_processor.update_graph(&graph_update).await?;
-    Ok(())
+    storage_processor
+        .transition_graph_status(
+            instance_id,
+            graph_id,
+            new_status,
+            GraphStatusSource::ChainReconcile,
+            sub_status.map(|sub_status| serde_json::to_string(&sub_status)).transpose()?,
+        )
+        .await
 }
 pub async fn get_graph_ids_for_instance(
     local_db: &LocalDB,

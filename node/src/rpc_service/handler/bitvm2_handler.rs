@@ -14,13 +14,13 @@ use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::{
     find_instances_by_escrow_hash, gen_instance_parameters_local, get_bridge_out_global_stats,
-    parse_graph_raw_data, send_challenge_tx,
+    load_validated_graph_definition, send_challenge_tx,
 };
 use alloy::primitives::{Address, U256};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use bitcoin::consensus::encode::serialize_hex;
-use bitvm_lib::types::{BitvmGcGraph, SimplifiedBitvmGcGraph};
+use bitvm_lib::types::BitvmGcGraph;
 use client::goat_chain::{PeginStatus, WithdrawStatus};
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::{HeaderMap, StatusCode};
@@ -1203,22 +1203,27 @@ pub async fn get_graph_tx(
 
     let mut storage_process = app_state.local_db.acquire().await.api_error("GET_GRAPH_TX_ERROR")?;
 
-    let graph_raw_data = storage_process
-        .find_graph_raw_data(&graph_id_uuid)
-        .await
-        .api_error("GET_GRAPH_TX_ERROR")?;
     let graph = storage_process.find_graph(&graph_id_uuid).await.api_error("GET_GRAPH_TX_ERROR")?;
 
-    if let (Some(graph_raw_data), Some(graph)) = (graph_raw_data, graph) {
+    if let Some(graph) = graph {
         let (progresses, fail_reason) =
             get_graph_btc_tx_process_data(&mut storage_process, tx_name, &graph)
                 .await
                 .api_error("GET_GRAPH_TX_ERROR")?;
 
-        let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
-            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph_id_uuid)
+        let simplified_bitvm_graph =
+            load_validated_graph_definition(&mut storage_process, graph.instance_id, graph_id_uuid)
                 .await
-                .api_error("GET_GRAPH_TXN_ERROR")?;
+                .api_error("GET_GRAPH_TXN_ERROR")?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "GET_GRAPH_TXN_ERROR".to_string(),
+                            message: format!("graph:{graph_id} raw data is not record in db"),
+                        }),
+                    )
+                })?;
 
         let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(&simplified_bitvm_graph)
             .api_error("GET_GRAPH_TX_ERROR")?;
@@ -1369,26 +1374,25 @@ pub async fn get_graph_txn(
             graph
         };
 
-        let graph_raw_data = storage_processor
-            .find_graph_raw_data(&graph.graph_id)
-            .await
-            .api_error("GET_GRAPH_TXN_ERROR")?
-            .ok_or_else(|| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "GET_GRAPH_TXN_ERROR".to_string(),
-                        message: format!(
-                            "graph:{graph_id} with cursor:{} raw data is not record in db",
-                            params.cursor
-                        ),
-                    }),
-                )
-            })?;
-        let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
-            parse_graph_raw_data(graph_raw_data.raw_data.clone(), graph.graph_id)
-                .await
-                .api_error("GET_GRAPH_TXN_ERROR")?;
+        let simplified_bitvm_graph = load_validated_graph_definition(
+            &mut storage_processor,
+            graph.instance_id,
+            graph.graph_id,
+        )
+        .await
+        .api_error("GET_GRAPH_TXN_ERROR")?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_GRAPH_TXN_ERROR".to_string(),
+                    message: format!(
+                        "graph:{graph_id} with cursor:{} raw data is not record in db",
+                        params.cursor
+                    ),
+                }),
+            )
+        })?;
         let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(&simplified_bitvm_graph)
             .api_error("GET_GRAPH_TXN_ERROR")?;
 
@@ -1617,8 +1621,8 @@ pub async fn send_challenge(
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("SEND_CHALLENGE_ERROR")?;
 
-    let graph_raw_data = storage_process
-        .find_graph_raw_data(&graph_id_uuid)
+    let graph = storage_process
+        .find_graph(&graph_id_uuid)
         .await
         .api_error("SEND_CHALLENGE_ERROR")?
         .ok_or_else(|| {
@@ -1626,15 +1630,24 @@ pub async fn send_challenge(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "SEND_CHALLENGE_ERROR".to_string(),
-                    message: format!("graph:{graph_id} raw data not found in db"),
+                    message: format!("graph:{graph_id} not found in db"),
                 }),
             )
         })?;
 
-    let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
-        parse_graph_raw_data(graph_raw_data.raw_data, graph_id_uuid)
+    let simplified_bitvm_graph =
+        load_validated_graph_definition(&mut storage_process, graph.instance_id, graph_id_uuid)
             .await
-            .api_error("SEND_CHALLENGE_ERROR")?;
+            .api_error("SEND_CHALLENGE_ERROR")?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "SEND_CHALLENGE_ERROR".to_string(),
+                        message: format!("graph:{graph_id} raw data not found in db"),
+                    }),
+                )
+            })?;
 
     let bitvm_graph: BitvmGcGraph =
         BitvmGcGraph::from_simplified(&simplified_bitvm_graph).api_error("SEND_CHALLENGE_ERROR")?;
@@ -1662,8 +1675,8 @@ pub async fn send_verifier_challenge(
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;
 
-    let graph_raw_data = storage_process
-        .find_graph_raw_data(&graph_id_uuid)
+    let graph = storage_process
+        .find_graph(&graph_id_uuid)
         .await
         .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
         .ok_or_else(|| {
@@ -1671,15 +1684,24 @@ pub async fn send_verifier_challenge(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
-                    message: format!("graph:{graph_id} raw data not found in db"),
+                    message: format!("graph:{graph_id} not found in db"),
                 }),
             )
         })?;
 
-    let simplified_bitvm_graph: SimplifiedBitvmGcGraph =
-        parse_graph_raw_data(graph_raw_data.raw_data, graph_id_uuid)
+    let simplified_bitvm_graph =
+        load_validated_graph_definition(&mut storage_process, graph.instance_id, graph_id_uuid)
             .await
-            .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;
+            .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "SEND_VERIFIER_CHALLENGE_ERROR".to_string(),
+                        message: format!("graph:{graph_id} raw data not found in db"),
+                    }),
+                )
+            })?;
 
     let bitvm_graph: BitvmGcGraph = BitvmGcGraph::from_simplified(&simplified_bitvm_graph)
         .api_error("SEND_VERIFIER_CHALLENGE_ERROR")?;

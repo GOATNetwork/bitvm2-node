@@ -277,8 +277,11 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use store::localdb::LocalDB;
-    use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, create_local_db};
+    use store::localdb::{GraphRuntimeUpdate, LocalDB, StorageProcessor};
+    use store::{
+        Graph, GraphStatus, GraphStatusSource, Instance, InstanceBridgeInStatus, Node,
+        create_local_db,
+    };
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
     use tracing::{error, info};
@@ -384,6 +387,54 @@ mod tests {
         Ok(())
     }
 
+    async fn seed_graph_runtime(
+        tx: &mut StorageProcessor<'_>,
+        graph: &Graph,
+    ) -> anyhow::Result<()> {
+        let target_status = GraphStatus::from_str(&graph.status)?;
+        let sub_status = graph.sub_status.clone();
+        let challenge_txid = graph.challenge_txid.clone();
+        let init_withdraw_tx_hash = graph.init_withdraw_tx_hash.clone();
+        let bridge_out_start_at = graph.bridge_out_start_at;
+        let proceed_withdraw_height = graph.proceed_withdraw_height;
+
+        let mut definition = graph.clone();
+        definition.status = GraphStatus::OperatorPresigned.to_string();
+        definition.sub_status.clear();
+        definition.challenge_txid = None;
+        definition.init_withdraw_tx_hash = None;
+        definition.bridge_out_start_at = 0;
+        definition.proceed_withdraw_height = 0;
+        tx.upsert_graph_definition(&definition).await?;
+
+        if target_status != GraphStatus::OperatorPresigned {
+            tx.transition_graph_status(
+                graph.instance_id,
+                graph.graph_id,
+                target_status,
+                GraphStatusSource::ChainReconcile,
+                (!sub_status.is_empty()).then_some(sub_status),
+            )
+            .await?;
+        }
+
+        let mut runtime = GraphRuntimeUpdate::new(graph.instance_id, graph.graph_id);
+        if let Some(challenge_txid) = challenge_txid {
+            runtime = runtime.with_challenge_txid(challenge_txid);
+        }
+        if let Some(init_withdraw_tx_hash) = init_withdraw_tx_hash {
+            runtime = runtime.with_init_withdraw_tx_hash(init_withdraw_tx_hash);
+        }
+        if bridge_out_start_at != 0 {
+            runtime = runtime.with_bridge_out_start_at(bridge_out_start_at);
+        }
+        if proceed_withdraw_height != 0 {
+            runtime = runtime.with_proceed_withdraw_height(proceed_withdraw_height);
+        }
+        tx.update_graph_runtime(&runtime).await?;
+        Ok(())
+    }
+
     async fn init_instance_graph_data(
         local_db: &LocalDB,
         instances: &[Instance],
@@ -394,7 +445,7 @@ mod tests {
             tx.upsert_instance(instance).await?;
         }
         for graph in graphs {
-            tx.upsert_graph(graph).await?;
+            seed_graph_runtime(&mut tx, graph).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -580,6 +631,7 @@ mod tests {
             status: graph_status.clone(),
             sub_status: "".to_string(),
             operator_pubkey: "".to_string(),
+            definition_hash: format!("fixture-{graph_id}"),
             next_prekickoff: None,
             cur_prekickoff_txid: None,
             force_skip_kickoff_txid: None,
@@ -604,8 +656,9 @@ mod tests {
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });
+        let finalized_graph_id = Uuid::new_v4();
         graphs.push(Graph {
-            graph_id: Uuid::new_v4(),
+            graph_id: finalized_graph_id,
             instance_id: bridge_in_instance_id,
             kickoff_index: 0,
             from_addr: graph_from.clone(),
@@ -615,6 +668,7 @@ mod tests {
             status: GraphStatus::CommitteePresigned.to_string(),
             sub_status: "".to_string(),
             operator_pubkey: "".to_string(),
+            definition_hash: format!("fixture-{finalized_graph_id}"),
             next_prekickoff: None,
             cur_prekickoff_txid: None,
             force_skip_kickoff_txid: None,

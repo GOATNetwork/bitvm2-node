@@ -7,13 +7,15 @@ use crate::action::{
 use crate::env::get_network;
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
-use crate::utils::{SELF_SENDER, outpoint_spent_txid, parse_graph_raw_data, upsert_message};
+use crate::utils::{
+    SELF_SENDER, load_validated_graph_definition, outpoint_spent_txid, upsert_message,
+};
 use bitcoin::Txid;
 use bitvm_lib::actors::Actor;
 use bitvm_lib::timelocks::{
-    connector_f_timelock_blocks, default_timelock_config, disprove_timelock_blocks,
-    operator_ack_timelock_blocks, operator_commit_timelock_blocks, take1_timelock_blocks,
-    take2_timelock_blocks, validate_timelock_config, watchtower_challenge_timelock_blocks,
+    connector_f_timelock_blocks, disprove_timelock_blocks, operator_ack_timelock_blocks,
+    operator_commit_timelock_blocks, take1_timelock_blocks, take2_timelock_blocks,
+    validate_timelock_config, watchtower_challenge_timelock_blocks,
 };
 use client::btc_chain::BTCClient;
 use client::goat_chain::DisproveTxType;
@@ -77,16 +79,14 @@ async fn graph_timelock_config(
     local_db: &LocalDB,
     graph_id: Uuid,
 ) -> anyhow::Result<TimelockConfig> {
-    let raw_data = {
-        let mut storage_processor = local_db.acquire().await?;
-        storage_processor.find_graph_raw_data(&graph_id).await?
-    };
-    let Some(raw_data) = raw_data else {
-        warn!("graph {graph_id} raw data is missing, fallback to default timelock config");
-        return Ok(default_timelock_config(get_network()));
-    };
-
-    let graph = parse_graph_raw_data(raw_data.raw_data, graph_id).await?;
+    let mut storage_processor = local_db.acquire().await?;
+    let graph_row = storage_processor.find_graph(&graph_id).await?.ok_or_else(|| {
+        anyhow::anyhow!("graph {graph_id} is missing while loading its timelock config")
+    })?;
+    let graph =
+        load_validated_graph_definition(&mut storage_processor, graph_row.instance_id, graph_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("graph {graph_id} has no validated raw definition"))?;
     validate_timelock_config(
         graph.parameters.instance_parameters.network,
         &graph.parameters.timelock_config,

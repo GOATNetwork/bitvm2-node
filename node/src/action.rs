@@ -8,7 +8,7 @@ use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::*;
 use alloy::primitives::Address as EvmAddress;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use bitcoin::{PublicKey, Txid};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::babe_adapter::{BabeBundleBuilder, CACSetupPackage};
@@ -613,7 +613,7 @@ pub async fn recv_and_dispatch(
     result
 }
 
-pub async fn try_finalize_graph(
+pub(crate) async fn try_finalize_graph(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
     goat_client: &GOATClient,
@@ -644,6 +644,15 @@ pub async fn try_finalize_graph(
                 BitvmGcGraph::from_simplified(&g)?
             }
         };
+        if graph.parameters.instance_parameters.instance_id != instance_id
+            || graph.parameters.graph_id != graph_id
+        {
+            bail!(
+                "refuse to finalize graph {instance_id}:{graph_id} with mismatched graph parameters {}:{}",
+                graph.parameters.instance_parameters.instance_id,
+                graph.parameters.graph_id
+            );
+        }
         let pub_nonces =
             order_committee_values(&committee_pubkeys, pub_nonoces, "graph committee pub nonces")?;
         let agg_nonces = nonces_aggregation(&pub_nonces)?;
