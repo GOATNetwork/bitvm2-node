@@ -37,20 +37,24 @@
 (* since it's the same real-world assumption (off-chain fraud detection +  *)
 (* tx construction + broadcast + confirmation lag) applied to a different  *)
 (* connector.                                                              *)
+(*                                                                         *)
+(* STATUS UPDATE (commit 991faaa, "Dev fix #418"): this finding has since  *)
+(* been fixed - validate_timelock_config now has an ensure_gt("connector_a",*)
+(* ..., "min_reaction_blocks", ...) check, and NODE_REGTEST_TIMELOCK_CONFIG*)
+(* .connector_a was bumped 1 -> 2, exactly matching ConnectorAFixed below. *)
+(* ConnectorA (unchanged from this file's original discovery run) is kept  *)
+(* as a historical record of the exact pre-fix shipped value/counterexample*)
+(* - it deliberately does NOT track crates/bitvm-gc/src/timelocks.rs's     *)
+(* current numbers the way ShippedTimelocks.tla's tables do.               *)
 (***************************************************************************)
 EXTENDS Integers, ShippedTimelocks
 
-\* Real shipped values, crates/bitvm-gc/src/timelocks.rs (current code -
-\* NO validation of this field's margin exists anywhere). Not in
-\* ShippedTimelocks.tla: this pair is the actual subject under test here,
-\* not a settled "known good" shared constant.
+\* Historical: the shipped value at the time this bug was found (pre-fix).
+\* Kept as-is rather than updated to track current timelocks.rs - see the
+\* STATUS UPDATE note above.
 ConnectorA == [Bitcoin |-> 144, Testnet4 |-> 16, Signet |-> 6, Regtest |-> 1]
 
-\* Proposed fix design (not applied to code): add an
-\* ensure_gt("connector_a", config.connector_a, "min_reaction_blocks", ...)
-\* check to validate_timelock_config, mirroring Finding 4's floor. Bumping
-\* just the one network that actually needs it (Regtest 1 -> 2) is enough
-\* to satisfy that check with the current values elsewhere already clear.
+\* The fix design, since actually applied verbatim in commit 991faaa.
 ConnectorAFixed == [Bitcoin |-> 144, Testnet4 |-> 16, Signet |-> 6, Regtest |-> 2]
 
 VARIABLE net
