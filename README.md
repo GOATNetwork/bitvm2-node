@@ -23,21 +23,23 @@ all 8 of those findings have been fixed and verified in the shipped Rust
 code** - see `audit/TLAPlus-20260630.md` for the full report, including what
 each real applied fix looks like.
 
-**CI's `tla-plus` job is still expected to be RED on this branch**, even
-though the underlying bugs are fixed. That's intentional, not broken: each
-bug config (e.g. `GraphLifecycle.cfg`) is kept as a **permanent historical
-regression check**, deliberately still modeling the pre-fix code - if it ever
-started passing, that would mean either the spec silently stopped
+**CI's `tla-plus` job is expected to be GREEN.** Each bug config (e.g.
+`GraphLifecycle.cfg`) is kept as a **permanent historical record**,
+deliberately still modeling the pre-fix code, and correctly reproducing its
+original counterexample - but that expected failure is only printed as an
+informational reproduction pointer in the job summary, it does not fail the
+job. The only thing that *does* fail the job is a bug config **unexpectedly
+passing**, since that would mean either the spec silently stopped
 demonstrating the bug it's supposed to, or (more alarmingly) the fix's guard
 got removed again. See that job's own comments in
 `.github/workflows/ci.yml` for the full reasoning.
 
 Concretely: for each bug found, there is a **pair** of configs - one modeling
 the pre-fix code (still models it as buggy on purpose - **expected to
-fail**, a permanent regression check, not a live issue) and one modeling the
-fix design (**expected to pass** - and for every finding below, that design
-has since actually been applied to the shipped Rust code, not just proven
-sound in the abstract).
+fail**, a permanent historical record, not a live issue, and does not fail
+CI) and one modeling the fix design (**expected to pass**, and does fail CI
+if it doesn't - for every finding below, that design has since actually been
+applied to the shipped Rust code, not just proven sound in the abstract).
 
 **Setup** (once): install a JRE (11+) and download the official TLA+ tools jar:
 

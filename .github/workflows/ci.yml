@@ -27,14 +27,14 @@ jobs:
   # can't catch, or a stale/broken spec - either way not worth burning 30+
   # minutes of Cargo Test/Clippy compute on before finding out.
   #
-  # THIS JOB IS EXPECTED TO BE RED ON THIS BRANCH RIGHT NOW. Its second step
-  # deliberately fails for as long as any of the 6 TLC-proven, unfixed bugs
-  # from audit/TLAPlus-20260630.md remain unfixed in the Rust code - that is
-  # not a broken pipeline, it's the point: a clean-looking CI would hide
-  # that this branch has known, proven, un-remediated findings. Every job
-  # gated behind it (fmt/clippy/test) stays red along with it until real
-  # fixes land. See that step's own comment and the audit report's
-  # Recommendations section for the verified fix design for each finding.
+  # All 8 findings from audit/TLAPlus-20260630.md were fixed in commit
+  # 991faaa, so this job is expected to be GREEN. Its steps still run every
+  # bug config that reproduced the original counterexamples, but a bug
+  # config correctly still failing is no longer treated as a job failure -
+  # see the second step's own comment for why (its constants are frozen
+  # historical snapshots, not a live read of the Rust source, so they can't
+  # detect a regression by staying red; only an unexpected PASS is a real
+  # drift signal now).
   tla-plus:
     name: TLA+ Formal Verification
     runs-on: ubuntu-latest
@@ -69,58 +69,46 @@ jobs:
           java -jar "$JAR" -config InstanceBridgeOutRaceFixed.cfg InstanceBridgeOutRace.tla
           java -jar "$JAR" -config MessageStateRaceFixed.cfg MessageStateRace.tla
           java -jar "$JAR" -config Take1ChallengeRaceFixed.cfg Take1ChallengeRace.tla
-      # These model the CURRENT, unfixed code and are expected to keep
-      # failing until the corresponding fix design above is actually applied
-      # to the Rust source - that failure is a real, live issue, not a
-      # historical artifact. If one of these starts passing without a
-      # matching code change, either the bug config or the spec itself
-      # silently changed meaning and no longer demonstrates the bug it's
-      # supposed to.
-      # This step is DESIGNED to keep this job red for as long as any of
-      # these findings remain unfixed in the Rust code - it is not a drift
-      # check anymore, it's a blocking "you have open, proven bugs" gate.
-      # Each bug config is expected to keep failing (TLC finds the real
-      # counterexample) until its fix design is actually applied; that
-      # expected failure is itself what fails THIS step, on purpose, so the
-      # whole tla-plus job - and everything gated behind it (fmt/clippy/
-      # test) - stays red as a constant, impossible-to-miss signal instead
-      # of a clean-looking CI on a branch with proven, un-remediated
-      # findings.
-      #
-      # The one case this step treats as MORE severe than "still open" is a
-      # bug config unexpectedly PASSING - that means either the fix landed
-      # without this workflow being updated (great - update the lists) or
-      # the spec itself silently stopped demonstrating the bug (bad - the
-      # spec needs to be fixed). Either way it exits immediately rather
-      # than being folded into the generic open-bug count below.
-      #
-      # Deliberately generic: this step prints how to REPRODUCE each open
-      # finding (the exact TLC command), not how to fix it. The verified fix
-      # design for each finding lives in audit/TLAPlus-20260630.md - kept in
-      # one place instead of duplicated here, where it would drift.
-      - name: Fail while documented bugs remain unfixed (blocking, by design)
+      # This job's earlier design (while all 8 findings from this round were
+      # still genuinely unfixed) made this step - and everything gated
+      # behind it - fail for as long as any bug config still reproduced its
+      # counterexample. As of commit 991faaa, every one of those findings
+      # has actually been fixed in the shipped Rust code (see
+      # audit/TLAPlus-20260630.md) - keeping the job permanently red past
+      # that point stopped being useful: these bug configs' constants are
+      # frozen historical snapshots (e.g. Take1ChallengeRace.tla's
+      # ConnectorA), not live readings of the current Rust source, so they
+      # can never detect a real code regression by themselves - they will
+      # keep reproducing the same counterexample forever regardless of
+      # what the Rust code does. Their only genuine ongoing signal is the
+      # OPPOSITE direction: if one of them ever unexpectedly STOPS
+      # reproducing its counterexample, that means the spec itself was
+      # edited into no longer demonstrating the bug it's supposed to -
+      # that's the one case this step still treats as a hard failure.
+      # Otherwise, a bug config correctly still failing is expected and
+      # does not fail the job - it's just printed as an informational
+      # reproduction pointer.
+      - name: Confirm known-bug specs still reproduce their counterexample
         working-directory: node/tla
         run: |
           JAR=~/.local/share/tlaplus/tla2tools.jar
-          open_bugs=0
           {
-            echo "## TLA+ audit: open, unfixed findings"
+            echo "## TLA+ audit: historical bug-reproduction specs"
             echo
-            echo "This branch has TLC-proven bugs still present in the shipped Rust code."
-            echo "Full detail and the verified fix design for each: \`audit/TLAPlus-20260630.md\`."
-            echo "This job fails by design until each one below is fixed."
+            echo "These model the PRE-FIX code as a permanent historical record (all"
+            echo "findings below were fixed in commit 991faaa - see"
+            echo "\`audit/TLAPlus-20260630.md\`). Still correctly reproducing their"
+            echo "original counterexample below is expected and does not fail this job."
             echo
           } >> "$GITHUB_STEP_SUMMARY"
           while IFS='|' read -r cfg tla finding; do
             [ -z "$cfg" ] && continue
             if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
-              echo "::error::$tla / $cfg was expected to keep failing (bug not yet fixed in code) but passed - either the fix was applied (move it to the must-pass step and drop it from this list) or the spec no longer demonstrates the bug"
+              echo "::error::$tla / $cfg was expected to keep reproducing its historical counterexample but passed instead - the spec itself was likely edited into no longer demonstrating the bug it's supposed to. If the underlying Rust fix was somehow reverted, this is also how you'd find out - either way, investigate before trusting this spec again."
               exit 1
             fi
             repro="cd node/tla && java -jar ~/.local/share/tlaplus/tla2tools.jar -config $cfg $tla"
-            echo "::warning::$finding ($tla / $cfg) confirmed still present and unfixed - reproduce: $repro"
             echo "- **$finding** - reproduce: \`$repro\`" >> "$GITHUB_STEP_SUMMARY"
-            open_bugs=$((open_bugs + 1))
           done <<'BUGS'
           GraphLifecycle.cfg|GraphLifecycle.tla|Finding 1: Graph.status race
           GraphLifecycleFineGrained.cfg|GraphLifecycleFineGrained.tla|Finding 1b: naive guard still unsafe
@@ -129,10 +117,6 @@ jobs:
           MessageStateRace.cfg|MessageStateRace.tla|Finding 7: MessageState resurrection
           Take1ChallengeRace.cfg|Take1ChallengeRace.tla|Finding 9: connector_a has no margin check
           BUGS
-          if [ "$open_bugs" -gt 0 ]; then
-            echo "::error::$open_bugs documented, TLC-proven bug(s) remain unfixed in the Rust code. See audit/TLAPlus-20260630.md for the verified fix design for each one; reproduction commands are in the warnings above and the step summary."
-            exit 1
-          fi
   fmt:
     name: Rustfmt
     needs: tla-plus
