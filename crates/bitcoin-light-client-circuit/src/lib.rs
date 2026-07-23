@@ -8,8 +8,8 @@ use alloy_primitives::U256;
 use bitcoin::Block;
 use bitcoin::hashes::{Hash, HashEngine, sha256};
 use commit_chain::{
-    CommitChainCircuitInput, decode_commit_chain_circuit_output,
-    extract_data_from_commitment_outputs, parse_commit_chain_commitment, sequencer_hash,
+    CommitChainCircuitInput, commit_chain_commitment_digest, decode_commit_chain_circuit_output,
+    extract_commit_chain_commitment, extract_data_from_commitment_outputs, sequencer_hash,
 };
 use header_chain::{
     BitcoinMerkleTree, BlockHeaderCircuitOutput, CircuitBlockHeader, CircuitTransaction,
@@ -37,8 +37,8 @@ pub const EXPECTED_STATE_CHAIN_PROGRAM_ID: verifier::ProgramId = [
     0x82, 0x2c, 0x67, 0xf2, 0x97, 0x3a, 0x6f, 0xda, 0xef, 0x9f, 0x2b, 0xa6, 0xab, 0xb7, 0x3a, 0x17,
 ];
 pub const EXPECTED_COMMIT_CHAIN_PROGRAM_ID: verifier::ProgramId = [
-    0x66, 0x40, 0xd5, 0x04, 0x68, 0x8f, 0x8f, 0xbb, 0x98, 0xbf, 0x42, 0x27, 0x9a, 0x50, 0x6c, 0x8a,
-    0xe8, 0x0f, 0xd6, 0x67, 0xa0, 0x24, 0x6d, 0x43, 0xd1, 0xd7, 0x21, 0xce, 0xe6, 0xd9, 0x56, 0x41,
+    0x99, 0xda, 0x42, 0x82, 0x30, 0x8f, 0x07, 0x42, 0x11, 0xd9, 0x59, 0x30, 0xd5, 0x26, 0x2c, 0xc2,
+    0x4e, 0xd9, 0x13, 0x89, 0x79, 0xdf, 0x2e, 0x83, 0x59, 0xea, 0x6e, 0xc6, 0x8b, 0x91, 0xe3, 0x7d,
 ];
 pub const GRAPH_ID_SIZE: usize = 16;
 pub const PROOF_SIZE: usize = 260;
@@ -151,10 +151,9 @@ pub fn watch_longest_chain(
     let expected_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
     assert_eq!(commit_sequencer_set_hash, expected_seqeuencer_set_hash);
 
-    // check commit chain's genesis block
     let commitment =
-        commit_chain::extract_op_return_data(&commit_chain_output.chain_state.commit_txn.output);
-    let commitment = parse_commit_chain_commitment(&commitment);
+        extract_commit_chain_commitment(&commit_chain_output.chain_state.commit_txn.output)
+            .expect("invalid commit-chain commitment output");
     let program_history_root = verifier::program_history_root(
         checked_history_root(
             verifier::ProgramType::Header,
@@ -178,17 +177,18 @@ pub fn watch_longest_chain(
             commit_chain_output.program_history_hash,
         ),
     );
-    assert_eq!(commitment.program_history_root, program_history_root);
-
-    if let tendermint::Hash::Sha256(x) = expected_seqeuencer_set_hash {
-        assert_eq!(commitment.sequencer_set_hash, x);
+    if let tendermint::Hash::Sha256(sequencer_set_hash) = expected_seqeuencer_set_hash {
+        assert_eq!(
+            commitment,
+            commit_chain_commitment_digest(
+                sequencer_set_hash,
+                state_chain_output.chain_state.genesis_evm_block_hash,
+                program_history_root,
+            )
+        );
     } else {
         panic!("Invalid commitment: inconsistent sequencer set hash");
     };
-    assert_eq!(
-        commitment.genesis_evm_block_hash,
-        state_chain_output.chain_state.genesis_evm_block_hash
-    );
 
     println!("commit public inputs");
     // commit public inputs
@@ -478,10 +478,9 @@ pub fn propose_longest_chain(
     let commit_sequencer_set_hash = sequencer_hash(&commit_chain_output.chain_state.sequencers);
     let expected_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
 
-    // check commit chain's genesis block
     let commitment =
-        commit_chain::extract_op_return_data(&commit_chain_output.chain_state.commit_txn.output);
-    let commitment = parse_commit_chain_commitment(&commitment);
+        extract_commit_chain_commitment(&commit_chain_output.chain_state.commit_txn.output)
+            .expect("invalid commit-chain commitment output");
     let program_history_root = verifier::program_history_root(
         checked_history_root(
             verifier::ProgramType::Header,
@@ -505,17 +504,18 @@ pub fn propose_longest_chain(
             commit_chain_output.program_history_hash,
         ),
     );
-    assert_eq!(commitment.program_history_root, program_history_root);
-
-    if let tendermint::Hash::Sha256(x) = expected_seqeuencer_set_hash {
-        assert_eq!(commitment.sequencer_set_hash, x);
+    if let tendermint::Hash::Sha256(sequencer_set_hash) = expected_seqeuencer_set_hash {
+        assert_eq!(
+            commitment,
+            commit_chain_commitment_digest(
+                sequencer_set_hash,
+                state_chain_output.chain_state.genesis_evm_block_hash,
+                program_history_root,
+            )
+        );
     } else {
         panic!("Invalid commitment: inconsistent sequencer set hash");
     };
-    assert_eq!(
-        commitment.genesis_evm_block_hash,
-        state_chain_output.chain_state.genesis_evm_block_hash
-    );
 
     assert_eq!(commit_sequencer_set_hash, expected_seqeuencer_set_hash);
 

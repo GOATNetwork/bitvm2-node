@@ -11,6 +11,7 @@ pub use tendermint_light_client_verifier::{
 
 use bincode::Options as BincodeOptions;
 use bitcoin::{Transaction, TxOut, Witness, hashes::Hash as _, secp256k1::PublicKey};
+use sha2::{Digest, Sha256};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct CommitInfo {
@@ -23,6 +24,8 @@ pub struct CommitInfo {
     pub txid: String,
     pub genesis_txid: String,
     pub sequencers: Vec<SequencerInfo>,
+    pub genesis_evm_block_hash: [u8; 32],
+    pub program_history_root: [u8; 32],
 }
 
 /// The input proof of the commit chain circuit.
@@ -44,6 +47,8 @@ pub struct CircuitCommit {
     #[serde(default)]
     pub next_threshold: Option<u16>,
     pub sequencers: Vec<SequencerInfo>,
+    pub genesis_evm_block_hash: [u8; 32],
+    pub program_history_root: [u8; 32],
     pub block_height: u32, // Bitcoin block height of current commitment
 }
 
@@ -115,14 +120,8 @@ impl CircuitCommit {
 pub const PROOF_SIZE: usize = 260;
 pub const PUBLIC_INPUTS_SIZE: usize = 36;
 pub const VK_HASH_SIZE: usize = 66;
-pub const COMMIT_CHAIN_COMMITMENT_SIZE: usize = 96;
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
-pub struct CommitChainCommitment {
-    pub sequencer_set_hash: [u8; 32],
-    pub genesis_evm_block_hash: [u8; 32],
-    pub program_history_root: [u8; 32],
-}
+pub const COMMIT_CHAIN_COMMITMENT_SIZE: usize = 32;
+const COMMIT_CHAIN_COMMITMENT_DOMAIN: &[u8] = b"bitvm2/commit-chain/v1";
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct CommitChainCircuitOutput {
@@ -166,25 +165,49 @@ pub fn sequencer_hash(sequencers: &[SequencerInfo]) -> Hash {
     sequencer_set.hash()
 }
 
-pub fn parse_commit_chain_commitment(commitment: &[u8]) -> CommitChainCommitment {
-    assert_eq!(
-        commitment.len(),
-        COMMIT_CHAIN_COMMITMENT_SIZE,
-        "commit chain commitment must be 96 bytes"
-    );
+pub fn commit_chain_commitment_digest(
+    sequencer_set_hash: [u8; 32],
+    genesis_evm_block_hash: [u8; 32],
+    program_history_root: [u8; 32],
+) -> [u8; 32] {
+    assert_ne!(program_history_root, [0u8; 32], "program history root must be non-zero");
+    let mut hasher = Sha256::new();
+    hasher.update(COMMIT_CHAIN_COMMITMENT_DOMAIN);
+    hasher.update(sequencer_set_hash);
+    hasher.update(genesis_evm_block_hash);
+    hasher.update(program_history_root);
+    hasher.finalize().into()
+}
 
-    let mut sequencer_set_hash = [0u8; 32];
-    sequencer_set_hash.copy_from_slice(&commitment[0..32]);
-    let mut genesis_evm_block_hash = [0u8; 32];
-    genesis_evm_block_hash.copy_from_slice(&commitment[32..64]);
-    let mut program_history_root = [0u8; 32];
-    program_history_root.copy_from_slice(&commitment[64..96]);
-    assert_ne!(
-        program_history_root, [0u8; 32],
-        "commit chain commitment must include non-zero program history root"
-    );
-
-    CommitChainCommitment { sequencer_set_hash, genesis_evm_block_hash, program_history_root }
+pub fn extract_commit_chain_commitment(tx_output: &[TxOut]) -> Result<[u8; 32], String> {
+    if tx_output.len() != 2 {
+        return Err(format!("commit transaction must have 2 outputs, got {}", tx_output.len()));
+    }
+    let output = &tx_output[1];
+    if output.value != bitcoin::Amount::ZERO {
+        return Err("commitment output must have zero value".to_string());
+    }
+    let instructions = output
+        .script_pubkey
+        .instructions_minimal()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("invalid commitment script: {err}"))?;
+    if instructions.len() != 2 {
+        return Err("commitment script must be OP_RETURN followed by one push".to_string());
+    }
+    if !matches!(
+        instructions[0],
+        bitcoin::script::Instruction::Op(op) if op == bitcoin::opcodes::all::OP_RETURN
+    ) {
+        return Err("commitment output must start with OP_RETURN".to_string());
+    }
+    let bitcoin::script::Instruction::PushBytes(bytes) = &instructions[1] else {
+        return Err("commitment must be pushed bytes".to_string());
+    };
+    bytes
+        .as_bytes()
+        .try_into()
+        .map_err(|_| format!("commitment must be {COMMIT_CHAIN_COMMITMENT_SIZE} bytes"))
 }
 
 /// Decode current commit-chain public values.
@@ -226,11 +249,17 @@ impl CommitChainState {
             }
 
             // calculate the commitment of latest sequencer set and check the equivalent
-            let expected_latest_commit =
-                extract_op_return_data(&latest_commit_txn_with_wtns.output);
-            let latest_commitment = parse_commit_chain_commitment(&expected_latest_commit);
+            let actual_commitment =
+                extract_commit_chain_commitment(&latest_commit_txn_with_wtns.output).unwrap();
             if let Hash::Sha256(latest_sequencer_set_hash) = sequencer_hash(latest_sequencers) {
-                assert_eq!(latest_sequencer_set_hash, latest_commitment.sequencer_set_hash);
+                assert_eq!(
+                    actual_commitment,
+                    commit_chain_commitment_digest(
+                        latest_sequencer_set_hash,
+                        commit.genesis_evm_block_hash,
+                        commit.program_history_root,
+                    )
+                );
             } else {
                 panic!("Invalid latest sequencer set hash");
             }
@@ -238,15 +267,8 @@ impl CommitChainState {
             // check the latest txn's prev out is equals to the output of prev_txn
             let prev_commit_txn_value = &self.commit_txn;
             if has_prev_commit {
-                // calculate the commitment of prev sequencer set and check the equivalent
-                let expected_prev_commit = extract_op_return_data(&prev_commit_txn_value.output);
-                let prev_commitment = parse_commit_chain_commitment(&expected_prev_commit);
-                if let Hash::Sha256(prev_sequencer_set_hash) = sequencer_hash(&self.sequencers) {
-                    assert_eq!(prev_sequencer_set_hash, prev_commitment.sequencer_set_hash);
-                } else {
-                    panic!("Invalid prev sequencer set hash");
-                }
-
+                // The recursive proof or an earlier batch item already authenticated the previous
+                // commitment.
                 let update_connector = &latest_commit_txn_with_wtns.input[0];
                 let prev_commit_txid = prev_commit_txn_value.compute_txid();
                 assert_eq!(update_connector.previous_output.txid, prev_commit_txid);
@@ -311,28 +333,6 @@ pub fn extract_data_from_commitment_outputs(txouts: &[TxOut]) -> Vec<u8> {
     data
 }
 
-pub fn extract_op_return_data(tx_output: &[TxOut]) -> Vec<u8> {
-    let mut results = Vec::new();
-    for output in tx_output {
-        let script = &output.script_pubkey;
-        // Parse instructions from the script
-        let mut instructions = script.instructions();
-        // First instruction should be OP_RETURN
-        if let Some(Ok(bitcoin::script::Instruction::Op(op))) = instructions.next()
-            && op == bitcoin::opcodes::all::OP_RETURN
-        {
-            // Next should be pushed data
-            if let Some(Ok(bitcoin::script::Instruction::PushBytes(data))) = instructions.next() {
-                results = data.as_bytes().to_vec();
-            }
-        }
-    }
-    if results.is_empty() {
-        results = [0u8; 32].to_vec();
-    }
-    results
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,18 +346,20 @@ mod tests {
     };
     #[test]
     fn test_extract_op_return() {
-        // Example: construct a fake tx with OP_RETURN
-        let expected_op_data = [12, 3, 4, 45];
-        let script = ScriptBuf::new_op_return(expected_op_data);
+        let expected_op_data = [12; 32];
+        let script =
+            ScriptBuf::new_op_return(PushBytesBuf::try_from(expected_op_data.to_vec()).unwrap());
         let tx = Transaction {
             version: bitcoin::transaction::Version::TWO,
             lock_time: bitcoin::absolute::LockTime::ZERO,
             input: vec![],
-            output: vec![bitcoin::TxOut { value: Amount::ZERO, script_pubkey: script }],
+            output: vec![
+                bitcoin::TxOut { value: Amount::from_sat(500), script_pubkey: ScriptBuf::new() },
+                bitcoin::TxOut { value: Amount::ZERO, script_pubkey: script },
+            ],
         };
 
-        let op_return_data = extract_op_return_data(&tx.output);
-        assert_eq!(expected_op_data.to_vec(), op_return_data);
+        assert_eq!(expected_op_data, extract_commit_chain_commitment(&tx.output).unwrap());
     }
 
     fn commitment_payload(
@@ -365,52 +367,75 @@ mod tests {
         genesis_evm_block_hash: [u8; 32],
         program_history_root: [u8; 32],
     ) -> PushBytesBuf {
-        let mut payload = Vec::with_capacity(96);
-        if let tendermint_light_client_verifier::types::Hash::Sha256(hash) =
-            sequencer_hash(sequencers)
-        {
-            payload.extend_from_slice(&hash);
-        } else {
-            panic!("expected sha256 sequencer hash");
-        };
-        payload.extend_from_slice(&genesis_evm_block_hash);
-        payload.extend_from_slice(&program_history_root);
-        PushBytesBuf::try_from(payload).expect("commitment payload is pushable")
+        let sequencer_set_hash =
+            if let tendermint_light_client_verifier::types::Hash::Sha256(hash) =
+                sequencer_hash(sequencers)
+            {
+                hash
+            } else {
+                panic!("expected sha256 sequencer hash");
+            };
+        PushBytesBuf::try_from(
+            commit_chain_commitment_digest(
+                sequencer_set_hash,
+                genesis_evm_block_hash,
+                program_history_root,
+            )
+            .to_vec(),
+        )
+        .expect("commitment payload is pushable")
     }
 
     #[test]
-    fn test_parse_commit_chain_commitment_splits_96_byte_payload() {
-        let sequencer_set_hash = [0x11u8; 32];
-        let genesis_evm_block_hash = [0x22u8; 32];
-        let program_history_root = [0x33u8; 32];
-        let mut payload = Vec::with_capacity(96);
-        payload.extend_from_slice(&sequencer_set_hash);
-        payload.extend_from_slice(&genesis_evm_block_hash);
-        payload.extend_from_slice(&program_history_root);
-
-        let commitment = parse_commit_chain_commitment(&payload);
-
-        assert_eq!(commitment.sequencer_set_hash, sequencer_set_hash);
-        assert_eq!(commitment.genesis_evm_block_hash, genesis_evm_block_hash);
-        assert_eq!(commitment.program_history_root, program_history_root);
+    fn test_commit_chain_commitment_digest_known_vector() {
+        assert_eq!(
+            hex::encode(commit_chain_commitment_digest([0x11; 32], [0x22; 32], [0x33; 32],)),
+            "28c3b9bb2c89dcc9867e43e457c5232f229b340823c34a84dc6ed0e8f88147e9"
+        );
     }
 
     #[test]
-    fn test_parse_commit_chain_commitment_rejects_old_payload_sizes() {
-        for size in [64, 128] {
-            let payload = vec![0x11u8; size];
-            let result = std::panic::catch_unwind(|| parse_commit_chain_commitment(&payload));
-            assert!(result.is_err(), "{size}-byte payload must be rejected");
+    fn test_extract_commit_chain_commitment_requires_canonical_push32() {
+        let digest = [0x11; 32];
+        let valid = vec![
+            TxOut { value: Amount::from_sat(500), script_pubkey: ScriptBuf::new() },
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new_op_return(
+                    PushBytesBuf::try_from(digest.to_vec()).unwrap(),
+                ),
+            },
+        ];
+        assert_eq!(extract_commit_chain_commitment(&valid).unwrap(), digest);
+
+        for size in [31, 33, 64, 96, 128] {
+            let mut outputs = valid.clone();
+            outputs[1].script_pubkey =
+                ScriptBuf::new_op_return(PushBytesBuf::try_from(vec![0x11; size]).unwrap());
+            assert!(extract_commit_chain_commitment(&outputs).is_err(), "{size} bytes");
         }
+        assert!(extract_commit_chain_commitment(&valid[..1]).is_err());
+        let mut extra = valid.clone();
+        extra.push(valid[1].clone());
+        assert!(extract_commit_chain_commitment(&extra).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "commit chain commitment must include non-zero program history root")]
-    fn test_parse_commit_chain_commitment_rejects_zero_program_history_root() {
-        let mut payload = vec![0x11u8; 96];
-        payload[64..].fill(0);
+    #[should_panic(expected = "program history root must be non-zero")]
+    fn test_commit_chain_commitment_digest_rejects_zero_program_history_root() {
+        commit_chain_commitment_digest([0x11; 32], [0x22; 32], [0; 32]);
+    }
 
-        parse_commit_chain_commitment(&payload);
+    #[test]
+    fn test_commit_info_requires_commitment_preimage_fields() {
+        let legacy = serde_json::json!({
+            "threshold": 2,
+            "publisher_public_keys": [],
+            "txid": "00",
+            "genesis_txid": "00",
+            "sequencers": []
+        });
+        assert!(serde_json::from_value::<CommitInfo>(legacy).is_err());
     }
 
     #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -537,6 +562,8 @@ mod tests {
             next_publisher_public_keys: Some(current_pubkeys.clone()),
             next_threshold: Some(current_threshold),
             sequencers: empty_sequencers.clone(),
+            genesis_evm_block_hash,
+            program_history_root,
             block_height: 1,
         };
 
@@ -593,6 +620,8 @@ mod tests {
             next_publisher_public_keys: Some(next_pubkeys.clone()),
             next_threshold: Some(next_threshold),
             sequencers: empty_sequencers.clone(),
+            genesis_evm_block_hash,
+            program_history_root: commit1_program_history_root,
             block_height: 2,
         };
 
@@ -657,6 +686,8 @@ mod tests {
             next_publisher_public_keys: Some(final_pubkeys.clone()),
             next_threshold: Some(final_threshold),
             sequencers: empty_sequencers,
+            genesis_evm_block_hash,
+            program_history_root: commit2_program_history_root,
             block_height: 3,
         };
 
@@ -708,12 +739,21 @@ mod tests {
             next_publisher_public_keys: Some(next_pubkeys),
             next_threshold: Some(2),
             sequencers: empty_sequencers,
+            genesis_evm_block_hash,
+            program_history_root,
             block_height: 1,
         };
 
         let old_chain_commit = CircuitCommit { genesis_txid: [0x77; 32], ..commit.clone() };
         let result = std::panic::catch_unwind(|| {
             CommitChainState::new(genesis_txid).apply_commit(vec![old_chain_commit]);
+        });
+        assert!(result.is_err());
+
+        let mismatched_preimage =
+            CircuitCommit { program_history_root: [0x77; 32], ..commit.clone() };
+        let result = std::panic::catch_unwind(|| {
+            CommitChainState::new(genesis_txid).apply_commit(vec![mismatched_preimage]);
         });
         assert!(result.is_err());
 

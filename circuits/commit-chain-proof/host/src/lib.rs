@@ -111,11 +111,18 @@ pub async fn fetch_commit_chain(
     };
     let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
 
-    let op_return_data = extract_op_return_data(&commit_txn.output);
-    let commitment = parse_commit_chain_commitment(&op_return_data);
-
-    if let tendermint::Hash::Sha256(expected_hash) = sequencer_hash(&ci.sequencers) {
-        assert_eq!(expected_hash, commitment.sequencer_set_hash);
+    let commitment =
+        extract_commit_chain_commitment(&commit_txn.output).map_err(anyhow::Error::msg)?;
+    if let tendermint::Hash::Sha256(sequencer_set_hash) = sequencer_hash(&ci.sequencers) {
+        anyhow::ensure!(
+            commitment
+                == commit_chain_commitment_digest(
+                    sequencer_set_hash,
+                    ci.genesis_evm_block_hash,
+                    ci.program_history_root,
+                ),
+            "commit transaction digest does not match commit info"
+        );
     } else {
         panic!("Invalid sequencer set hash");
     }
@@ -139,6 +146,8 @@ pub async fn fetch_commit_chain(
         next_publisher_public_keys,
         next_threshold: ci.next_threshold,
         genesis_txid: Txid::from_str(&ci.genesis_txid)?.as_raw_hash().to_byte_array(),
+        genesis_evm_block_hash: ci.genesis_evm_block_hash,
+        program_history_root: ci.program_history_root,
         block_height,
     };
     commits.push(commit);

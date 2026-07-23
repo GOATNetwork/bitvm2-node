@@ -39,7 +39,9 @@ use bitcoin_light_client_circuit::{
 use commit_chain::{
     CommitChainCircuitOutput, CommitChainPrevProofType, classify_commit_chain_output,
 };
-use commit_chain::{CommitInfo, create_sequencer_update_script, finalize, sign_raw};
+use commit_chain::{
+    CommitInfo, commit_chain_commitment_digest, create_sequencer_update_script, finalize, sign_raw,
+};
 use header_chain::{
     BlockHeaderCircuitOutput, HeaderChainPrevProofType, classify_header_chain_output,
 };
@@ -122,6 +124,8 @@ async fn save_commit_info(
     sequencers: Vec<Info>,
     init_genesis: bool,
     commit_info_file: &str,
+    genesis_evm_block_hash: [u8; 32],
+    program_history_root: [u8; 32],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = std::fs::File::open(output_file)?;
     let output: OutputData = serde_json::from_reader(file).unwrap();
@@ -143,6 +147,8 @@ async fn save_commit_info(
         ),
         genesis_txid,
         sequencers: sequencers.iter().cloned().map(|v| v.into()).collect(),
+        genesis_evm_block_hash,
+        program_history_root,
     };
 
     let commit_info = serde_json::to_string(&commit_info).unwrap();
@@ -221,8 +227,14 @@ enum Commands {
         header_chain_input_proof: String,
         #[arg(long)]
         state_chain_input_proof: String,
-        #[arg(long)]
-        commit_chain_input_proof: String,
+        #[arg(
+            long,
+            required_unless_present = "commit_chain_genesis",
+            conflicts_with = "commit_chain_genesis"
+        )]
+        commit_chain_input_proof: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "commit_chain_input_proof")]
+        commit_chain_genesis: bool,
         #[arg(long, value_parser = hex_parse::<32>)]
         next_header_program_id: [u8; 32],
         #[arg(long, value_parser = hex_parse::<32>)]
@@ -299,6 +311,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         header_chain_input_proof,
         state_chain_input_proof,
         commit_chain_input_proof,
+        commit_chain_genesis,
         next_header_program_id,
         next_state_program_id,
         next_commit_program_id,
@@ -307,7 +320,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let root = derive_program_history_root(
             header_chain_input_proof,
             state_chain_input_proof,
-            commit_chain_input_proof,
+            commit_chain_input_proof.as_deref(),
+            *commit_chain_genesis,
             *next_header_program_id,
             *next_state_program_id,
             *next_commit_program_id,
@@ -438,22 +452,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 output_file,
             )
             .await?;
-            match save_commit_info(
+            save_commit_info(
                 &args.output_file,
                 &publisher_btc_pubkeys,
                 &next_publisher_btc_pubkeys,
                 sequencers,
                 init_genesis,
                 &commit_info,
+                goat_genesis_block_hash,
+                program_history_root,
             )
-            .await
-            {
-                Err(e) => {
-                    println!("Failed to save commit info: {e}, commit_info: {commit_info}");
-                    Ok(())
-                }
-                _ => Ok(()),
-            }
+            .await?;
+            Ok(())
         }
     }
 }
@@ -554,15 +564,28 @@ fn next_commit_history_root(
 fn derive_program_history_root(
     header_path: &str,
     state_path: &str,
-    commit_path: &str,
+    commit_path: Option<&str>,
+    commit_chain_genesis: bool,
     next_header_program_id: verifier::ProgramId,
     next_state_program_id: verifier::ProgramId,
     next_commit_program_id: verifier::ProgramId,
 ) -> anyhow::Result<[u8; 32]> {
+    let commit_history_root = if commit_chain_genesis {
+        verifier::finalize_history(
+            verifier::ProgramType::Commit,
+            verifier::initial_history(verifier::ProgramType::Commit),
+            next_commit_program_id,
+        )
+    } else {
+        next_commit_history_root(
+            commit_path.expect("commit proof is required unless genesis is selected"),
+            next_commit_program_id,
+        )?
+    };
     Ok(verifier::program_history_root(
         next_header_history_root(header_path, next_header_program_id)?,
         next_state_history_root(state_path, next_state_program_id)?,
-        next_commit_history_root(commit_path, next_commit_program_id)?,
+        commit_history_root,
     ))
 }
 
@@ -756,10 +779,11 @@ async fn action_push_sequencer_set_update(
     };
 
     // Skip construction of the genesis tx
-    let mut commitment = [0u8; 96];
-    commitment[0..32].copy_from_slice(&sequencer_set_hash);
-    commitment[32..64].copy_from_slice(&goat_genesis_block_hash);
-    commitment[64..96].copy_from_slice(&program_history_root);
+    let commitment = commit_chain_commitment_digest(
+        sequencer_set_hash,
+        goat_genesis_block_hash,
+        program_history_root,
+    );
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,
         &update_connector,
@@ -822,10 +846,11 @@ async fn action_sign_sequencer_set_update(
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as f64
         + RELAYER_FEE as f64;
     let replenish_fee = Amount::from_sat(replenish_fee.ceil() as u64);
-    let mut commitment = [0u8; 96];
-    commitment[0..32].copy_from_slice(&sequencer_set_hash);
-    commitment[32..64].copy_from_slice(&goat_genesis_block_hash);
-    commitment[64..96].copy_from_slice(&program_history_root);
+    let commitment = commit_chain_commitment_digest(
+        sequencer_set_hash,
+        goat_genesis_block_hash,
+        program_history_root,
+    );
 
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,
