@@ -25,6 +25,10 @@ use zkm_sdk::{
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -34,40 +38,119 @@ pub struct Args {
     #[arg(long, env, default_value_t = Network::Regtest)]
     pub bitcoin_network: Network,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub included_watchtowers: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub graph_id: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub latest_sequencer_commit_txid: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub operator_committed_blockhash: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub genesis_sequencer_commit_txid: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 'H',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub header_chain_input_proof: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 'c',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub commit_chain_input_proof: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 's',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub state_chain_input_proof: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 'e',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some("0"))
+    )]
     pub execution_layer_block_number: u64,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 't',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub watchtower_challenge_txids: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 'w',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub watchtower_public_keys: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 'i',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub watchtower_challenge_init_txid: String,
 
     #[clap(long, env, default_value = "commit-proof.bin")]
@@ -266,6 +349,12 @@ impl OperatorProofBuilder {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(OPERATOR);
         Self { client, proving_key, verifying_key }
+    }
+
+    /// Returns the Program ID derived from this builder's verifying key.
+    pub fn program_id(&self) -> anyhow::Result<verifier::ProgramId> {
+        verifier::program_id(self.verifying_key.bytes32().as_bytes(), zkm_sdk::ZKM_CIRCUIT_VERSION)
+            .map_err(anyhow::Error::msg)
     }
 }
 

@@ -3,6 +3,7 @@ use clap::Parser;
 use operator_proof::{Args, OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{ProofBuilder, ProofRequest};
 use util::hex_parse;
+use zkm_sdk::HashableKey;
 
 #[tokio::main]
 async fn main() {
@@ -10,6 +11,13 @@ async fn main() {
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+
+    let builder = OperatorProofBuilder::new();
+    if args.print_program_id {
+        println!("OPERATOR_PROGRAM_ID={}", hex::encode(builder.program_id().unwrap()));
+        eprintln!("OPERATOR_VK_HASH={}", builder.vk().bytes32());
+        return;
+    }
 
     let (
         block_pos_ss_commit,
@@ -33,8 +41,6 @@ async fn main() {
     )
     .await
     .unwrap();
-
-    let builder = OperatorProofBuilder::new();
 
     let ctx = ProofRequest::OperatorProofRequest {
         included_watchtowers: args.included_watchtowers.clone(),
