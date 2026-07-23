@@ -168,11 +168,6 @@ impl HeaderChainProofBuilder {
         let (proving_key, verifying_key) = client.setup(HEADER_CHAIN);
         Self { client, proving_key, verifying_key }
     }
-
-    pub fn program_id(&self) -> anyhow::Result<verifier::ProgramId> {
-        verifier::program_id(self.verifying_key.bytes32().as_bytes(), ZKM_CIRCUIT_VERSION)
-            .map_err(anyhow::Error::msg)
-    }
 }
 
 impl ProofBuilder for HeaderChainProofBuilder {

@@ -350,12 +350,6 @@ impl OperatorProofBuilder {
         let (proving_key, verifying_key) = client.setup(OPERATOR);
         Self { client, proving_key, verifying_key }
     }
-
-    /// Returns the Program ID derived from this builder's verifying key.
-    pub fn program_id(&self) -> anyhow::Result<verifier::ProgramId> {
-        verifier::program_id(self.verifying_key.bytes32().as_bytes(), zkm_sdk::ZKM_CIRCUIT_VERSION)
-            .map_err(anyhow::Error::msg)
-    }
 }
 
 impl ProofBuilder for OperatorProofBuilder {

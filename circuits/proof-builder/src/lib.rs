@@ -7,7 +7,7 @@ use state_chain::CircuitStateBlock;
 use std::fs;
 use strum::{Display, EnumString};
 use thiserror::Error;
-use zkm_sdk::{ProverClient, ZKMProofWithPublicValues};
+use zkm_sdk::{HashableKey, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
 use zkm_sdk::{ZKMProvingKey, ZKMVerifyingKey};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +86,12 @@ pub trait ProofBuilder {
     fn client(&self) -> &ProverClient;
     fn pk(&self) -> &ZKMProvingKey;
     fn vk(&self) -> &ZKMVerifyingKey;
+
+    /// Returns the Program ID derived from the builder's verifying key.
+    fn program_id(&self) -> Result<verifier::ProgramId> {
+        verifier::program_id(self.vk().bytes32().as_bytes(), ZKM_CIRCUIT_VERSION)
+            .map_err(anyhow::Error::msg)
+    }
 
     fn build_proof(
         &self,

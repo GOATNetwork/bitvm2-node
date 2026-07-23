@@ -5,8 +5,8 @@ use borsh::BorshDeserialize;
 use commit_chain::{CommitChainCircuitInput, CommitChainPrevProofType};
 use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofKind, ZKMProofWithPublicValues,
-    ZKMStdin, include_elf,
+    HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
+    include_elf,
 };
 
 use bitcoin::{Block, Network, Transaction, Txid, hashes::Hash};
@@ -137,11 +137,6 @@ impl WatchtowerProofBuilder {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(WATCHTOWER);
         Self { client, proving_key, verifying_key }
-    }
-
-    pub fn program_id(&self) -> anyhow::Result<verifier::ProgramId> {
-        verifier::program_id(self.verifying_key.bytes32().as_bytes(), ZKM_CIRCUIT_VERSION)
-            .map_err(anyhow::Error::msg)
     }
 }
 
