@@ -117,6 +117,7 @@ impl OutputData {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn save_commit_info(
     output_file: &str,
     btc_public_keys: &[secp256k1::PublicKey],
