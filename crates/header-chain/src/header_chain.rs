@@ -1,4 +1,5 @@
 use crate::MMRGuest;
+use bincode::Options as BincodeOptions;
 use bitcoin::{
     BlockHash, CompactTarget, TxMerkleNode,
     block::{Header, Version},
@@ -367,36 +368,36 @@ pub struct BlockHeaderCircuitOutput {
     pub program_history_hash: [u8; 32],
 }
 
-#[derive(Deserialize)]
-struct LegacyBlockHeaderCircuitOutput {
-    chain_state: ChainState,
-}
-
 /// The input proof of the header chain circuit.
 /// The proof can be either None (implying the beginning) or a Succinct proof.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
     GenesisBlock,
     PrevProof,
-    LegacyPrevProof,
 }
 
 pub fn classify_header_chain_output(
     public_values: &[u8],
 ) -> Result<HeaderChainPrevProofType, String> {
-    if bincode::deserialize::<BlockHeaderCircuitOutput>(public_values).is_ok() {
+    if deserialize_header_chain_output(public_values).is_ok() {
         return Ok(HeaderChainPrevProofType::PrevProof);
-    }
-    if bincode::deserialize::<LegacyBlockHeaderCircuitOutput>(public_values).is_ok() {
-        return Ok(HeaderChainPrevProofType::LegacyPrevProof);
     }
     Err("unknown header-chain public output format".to_string())
 }
 
-pub fn decode_legacy_header_chain_output(public_values: &[u8]) -> Result<ChainState, String> {
-    bincode::deserialize::<LegacyBlockHeaderCircuitOutput>(public_values)
-        .map(|output| output.chain_state)
-        .map_err(|err| format!("invalid legacy header-chain output: {err}"))
+fn deserialize_header_chain_output(
+    public_values: &[u8],
+) -> Result<BlockHeaderCircuitOutput, Box<bincode::ErrorKind>> {
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .reject_trailing_bytes()
+        .deserialize(public_values)
+}
+
+/// Decode current header-chain public values.
+pub fn decode_header_chain_circuit_output(public_values: &[u8]) -> BlockHeaderCircuitOutput {
+    deserialize_header_chain_output(public_values)
+        .expect("failed to decode current header chain circuit output")
 }
 
 /// The input of the header chain circuit.

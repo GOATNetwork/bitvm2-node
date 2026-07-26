@@ -2,6 +2,7 @@ use crate::cbft::check_el_block_from_payload;
 use alloy_consensus::Header;
 use alloy_primitives::utils::keccak256;
 use alloy_primitives::{Address, B256, U256};
+use bincode::Options as BincodeOptions;
 use guest_executor::executor::EthClientExecutor;
 use guest_executor::io::EthClientExecutorInput;
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,6 @@ type WithdrawalSlot = (Address, [u8; 32], Vec<[u8; 16]>);
 pub enum StateChainPrevProofType {
     GenesisBlock,
     PrevProof,
-    LegacyPrevProof,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -47,27 +47,28 @@ pub struct StateChainCircuitOutput {
     pub program_history_hash: [u8; 32],
 }
 
-#[derive(Deserialize)]
-struct LegacyStateChainCircuitOutput {
-    chain_state: StateChainState,
-}
-
 pub fn classify_state_chain_output(
     public_values: &[u8],
 ) -> Result<StateChainPrevProofType, String> {
-    if bincode::deserialize::<StateChainCircuitOutput>(public_values).is_ok() {
+    if deserialize_state_chain_output(public_values).is_ok() {
         return Ok(StateChainPrevProofType::PrevProof);
-    }
-    if bincode::deserialize::<LegacyStateChainCircuitOutput>(public_values).is_ok() {
-        return Ok(StateChainPrevProofType::LegacyPrevProof);
     }
     Err("unknown state-chain public output format".to_string())
 }
 
-pub fn decode_legacy_state_chain_output(public_values: &[u8]) -> Result<StateChainState, String> {
-    bincode::deserialize::<LegacyStateChainCircuitOutput>(public_values)
-        .map(|output| output.chain_state)
-        .map_err(|err| format!("invalid legacy state-chain output: {err}"))
+fn deserialize_state_chain_output(
+    public_values: &[u8],
+) -> Result<StateChainCircuitOutput, Box<bincode::ErrorKind>> {
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .reject_trailing_bytes()
+        .deserialize(public_values)
+}
+
+/// Decode current state-chain public values.
+pub fn decode_state_chain_circuit_output(public_values: &[u8]) -> StateChainCircuitOutput {
+    deserialize_state_chain_output(public_values)
+        .expect("failed to decode current state chain circuit output")
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]

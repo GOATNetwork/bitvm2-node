@@ -26,8 +26,7 @@ pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOu
             )
             .unwrap();
 
-            let state_chain_output: StateChainCircuitOutput =
-                bincode::deserialize(&input.zkm_public_values).unwrap();
+            let state_chain_output = decode_state_chain_circuit_output(&input.zkm_public_values);
             assert_eq!(state_chain_output.self_program_id, previous_program_id);
             let history = verifier::next_history(
                 verifier::ProgramType::State,
@@ -36,22 +35,6 @@ pub fn state_chain_circuit(input: StateChainCircuitInput) -> StateChainCircuitOu
                 self_program_id,
             );
             (state_chain_output.chain_state, history)
-        }
-        StateChainPrevProofType::LegacyPrevProof => {
-            let previous_program_id = verifier::verify_groth16_proof(
-                &input.zkm_proof,
-                &input.zkm_public_values,
-                &input.zkm_vk_hash,
-                &input.zkm_version,
-            )
-            .unwrap();
-            let chain_state = decode_legacy_state_chain_output(&input.zkm_public_values).unwrap();
-            let history = verifier::legacy_history(
-                verifier::ProgramType::State,
-                previous_program_id,
-                &input.zkm_public_values,
-            );
-            (chain_state, history)
         }
     };
 
@@ -74,14 +57,11 @@ mod circuit_output_tests {
     }
 
     #[test]
-    fn classifies_only_current_and_immediate_legacy_outputs() {
+    fn classifies_only_strict_current_outputs() {
         let legacy = bincode::serialize(&LegacyOutput { chain_state: chain_state() }).unwrap();
-        assert_eq!(
-            classify_state_chain_output(&legacy).unwrap(),
-            StateChainPrevProofType::LegacyPrevProof
-        );
+        assert!(classify_state_chain_output(&legacy).is_err());
 
-        let current = bincode::serialize(&StateChainCircuitOutput {
+        let mut current = bincode::serialize(&StateChainCircuitOutput {
             chain_state: chain_state(),
             self_program_id: [1u8; 32],
             program_history_hash: [2u8; 32],
@@ -91,6 +71,8 @@ mod circuit_output_tests {
             classify_state_chain_output(&current).unwrap(),
             StateChainPrevProofType::PrevProof
         );
+        current.push(0);
+        assert!(classify_state_chain_output(&current).is_err());
         assert!(classify_state_chain_output(b"unknown").is_err());
     }
 }

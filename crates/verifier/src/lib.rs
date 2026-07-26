@@ -34,18 +34,6 @@ pub fn initial_history(program_type: ProgramType) -> [u8; 32] {
     tagged_hash(b"bitvm2/vk-history-seed/v1", &[&[program_type as u8]])
 }
 
-pub fn legacy_history(
-    program_type: ProgramType,
-    previous_program_id: ProgramId,
-    previous_public_values: &[u8],
-) -> [u8; 32] {
-    let public_values_hash: [u8; 32] = Sha256::digest(previous_public_values).into();
-    tagged_hash(
-        b"bitvm2/vk-history-migration/v1",
-        &[&[program_type as u8], &previous_program_id, &public_values_hash],
-    )
-}
-
 pub fn next_history(
     program_type: ProgramType,
     previous_history: [u8; 32],

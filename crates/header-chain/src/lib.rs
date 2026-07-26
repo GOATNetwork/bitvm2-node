@@ -32,8 +32,7 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
             )
             .unwrap();
 
-            let output: BlockHeaderCircuitOutput =
-                bincode::deserialize(&input.zkm_public_values).unwrap();
+            let output = decode_header_chain_circuit_output(&input.zkm_public_values);
             assert_eq!(output.self_program_id, previous_program_id);
             let history = verifier::next_history(
                 verifier::ProgramType::Header,
@@ -42,22 +41,6 @@ pub fn header_chain_circuit(input: HeaderChainCircuitInput) -> BlockHeaderCircui
                 self_program_id,
             );
             (output.chain_state, history)
-        }
-        HeaderChainPrevProofType::LegacyPrevProof => {
-            let previous_program_id = verifier::verify_groth16_proof(
-                &input.zkm_proof,
-                &input.zkm_public_values,
-                &input.zkm_vk_hash,
-                &input.zkm_version,
-            )
-            .unwrap();
-            let chain_state = decode_legacy_header_chain_output(&input.zkm_public_values).unwrap();
-            let history = verifier::legacy_history(
-                verifier::ProgramType::Header,
-                previous_program_id,
-                &input.zkm_public_values,
-            );
-            (chain_state, history)
         }
     };
 
@@ -76,14 +59,11 @@ mod circuit_output_tests {
     }
 
     #[test]
-    fn classifies_only_current_and_immediate_legacy_outputs() {
+    fn classifies_only_strict_current_outputs() {
         let legacy = bincode::serialize(&LegacyOutput { chain_state: ChainState::new() }).unwrap();
-        assert_eq!(
-            classify_header_chain_output(&legacy).unwrap(),
-            HeaderChainPrevProofType::LegacyPrevProof
-        );
+        assert!(classify_header_chain_output(&legacy).is_err());
 
-        let current = bincode::serialize(&BlockHeaderCircuitOutput {
+        let mut current = bincode::serialize(&BlockHeaderCircuitOutput {
             chain_state: ChainState::new(),
             self_program_id: [1u8; 32],
             program_history_hash: [2u8; 32],
@@ -93,6 +73,8 @@ mod circuit_output_tests {
             classify_header_chain_output(&current).unwrap(),
             HeaderChainPrevProofType::PrevProof
         );
+        current.push(0);
+        assert!(classify_header_chain_output(&current).is_err());
         assert!(classify_header_chain_output(b"unknown").is_err());
     }
 }

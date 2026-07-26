@@ -43,9 +43,11 @@ use commit_chain::{
     CommitInfo, commit_chain_commitment_digest, create_sequencer_update_script, finalize, sign_raw,
 };
 use header_chain::{
-    BlockHeaderCircuitOutput, HeaderChainPrevProofType, classify_header_chain_output,
+    HeaderChainPrevProofType, classify_header_chain_output, decode_header_chain_circuit_output,
 };
-use state_chain::{StateChainCircuitOutput, StateChainPrevProofType, classify_state_chain_output};
+use state_chain::{
+    StateChainPrevProofType, classify_state_chain_output, decode_state_chain_circuit_output,
+};
 use tendermint::validator::Info;
 
 use reqwest::Url;
@@ -486,7 +488,7 @@ fn next_header_history_root(
     let (public_values, previous_program_id) = load_verified_proof(path)?;
     let history = match classify_header_chain_output(&public_values).map_err(anyhow::Error::msg)? {
         HeaderChainPrevProofType::PrevProof => {
-            let output: BlockHeaderCircuitOutput = bincode::deserialize(&public_values)?;
+            let output = decode_header_chain_circuit_output(&public_values);
             anyhow::ensure!(
                 output.self_program_id == previous_program_id,
                 "header ProgramId mismatch"
@@ -498,11 +500,6 @@ fn next_header_history_root(
                 next_program_id,
             )
         }
-        HeaderChainPrevProofType::LegacyPrevProof => verifier::legacy_history(
-            verifier::ProgramType::Header,
-            previous_program_id,
-            &public_values,
-        ),
         HeaderChainPrevProofType::GenesisBlock => unreachable!(),
     };
     Ok(verifier::finalize_history(verifier::ProgramType::Header, history, next_program_id))
@@ -515,7 +512,7 @@ fn next_state_history_root(
     let (public_values, previous_program_id) = load_verified_proof(path)?;
     let history = match classify_state_chain_output(&public_values).map_err(anyhow::Error::msg)? {
         StateChainPrevProofType::PrevProof => {
-            let output: StateChainCircuitOutput = bincode::deserialize(&public_values)?;
+            let output = decode_state_chain_circuit_output(&public_values);
             anyhow::ensure!(
                 output.self_program_id == previous_program_id,
                 "state ProgramId mismatch"
@@ -527,11 +524,6 @@ fn next_state_history_root(
                 next_program_id,
             )
         }
-        StateChainPrevProofType::LegacyPrevProof => verifier::legacy_history(
-            verifier::ProgramType::State,
-            previous_program_id,
-            &public_values,
-        ),
         StateChainPrevProofType::GenesisBlock => unreachable!(),
     };
     Ok(verifier::finalize_history(verifier::ProgramType::State, history, next_program_id))
