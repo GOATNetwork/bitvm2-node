@@ -5020,7 +5020,17 @@ async fn handle_assert_sent_verifier(
                         version: bitcoin::transaction::Version(2),
                         lock_time: bitcoin::absolute::LockTime::ZERO,
                         input: vec![pubin_disprove_txin],
-                        output: vec![goat::scripts::p2a_output()],
+                        output: vec![
+                            goat::scripts::p2a_output(),
+                            // Keep the parent transaction above Bitcoin Core's
+                            // minimum non-witness relay size before CPFP.
+                            bitcoin::TxOut {
+                                value: Amount::ZERO,
+                                script_pubkey: goat::scripts::generate_opreturn_script(
+                                    PUBIN_DISPROVE_OP_RETURN_DATA.to_vec(),
+                                ),
+                            },
+                        ],
                     };
                     broadcast_tx_with_cpfp(
                         ctx.btc_client,
@@ -5082,6 +5092,8 @@ async fn handle_assert_sent_verifier(
 
     Ok(())
 }
+
+const PUBIN_DISPROVE_OP_RETURN_DATA: &[u8] = b"pubin-disprove";
 
 pub async fn broadcast_verifier_challenge_assert_tx(
     local_db: &LocalDB,
@@ -6342,6 +6354,31 @@ mod tests {
         assert!(
             tx.base_size() >= 65,
             "wrongly-challenge transaction is {} non-witness bytes",
+            tx.base_size()
+        );
+    }
+
+    #[test]
+    fn pubin_disprove_outputs_exceed_minimum_non_witness_size() {
+        // Bitcoin Core rejects standard transactions smaller than 65 non-witness bytes.
+        let tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![bitcoin::TxIn::default()],
+            output: vec![
+                goat::scripts::p2a_output(),
+                bitcoin::TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: goat::scripts::generate_opreturn_script(
+                        PUBIN_DISPROVE_OP_RETURN_DATA.to_vec(),
+                    ),
+                },
+            ],
+        };
+
+        assert!(
+            tx.base_size() >= 65,
+            "pubin-disprove transaction is {} non-witness bytes",
             tx.base_size()
         );
     }
