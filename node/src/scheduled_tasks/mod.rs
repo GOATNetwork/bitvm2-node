@@ -8,9 +8,10 @@ mod spv_maintenance_tasks;
 
 use crate::action::GOATMessageContent;
 use crate::env::{
-    get_maintenance_run_timeout_secs, is_enable_babe_setup_state_cleanup,
-    is_enable_update_spv_contract, is_relayer,
+    get_maintenance_run_timeout_secs, get_network, get_node_goat_address, get_node_pubkey,
+    is_enable_babe_setup_state_cleanup, is_enable_update_spv_contract, is_relayer,
 };
+use crate::metrics_service::MetricsState;
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::babe_setup_state_cleanup_task::babe_setup_state_cleanup_monitor;
 use crate::scheduled_tasks::graph_maintenance_tasks::{
@@ -23,6 +24,7 @@ use crate::scheduled_tasks::instance_maintenance_tasks::{
 };
 use crate::scheduled_tasks::node_maintenance_tasks::node_available_pbtc_update_monitor;
 use crate::scheduled_tasks::spv_maintenance_tasks::spv_header_hash_update;
+use crate::utils::node_p2wsh_address;
 use bitvm_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
@@ -35,6 +37,125 @@ use store::localdb::{LocalDB, StorageProcessor};
 use store::{Graph, MessageType};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+
+/// Refreshes inexpensive dependency and funding signals used by alerting.
+async fn refresh_alert_health(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    metrics_state: &MetricsState,
+    actor: &Actor,
+) {
+    let (btc_height, goat_height, goat_spv_height, peg_btc_decimals) = tokio::join!(
+        btc_client.get_height(),
+        goat_client.get_latest_block_number(),
+        goat_client.btc_spv_latest_height(),
+        goat_client.peg_btc_decimals(),
+    );
+    let btc_height = match btc_height {
+        Ok(height) => {
+            metrics_state.record_btc_backend_probe(true);
+            Some(height)
+        }
+        Err(error) => {
+            metrics_state.record_btc_backend_probe(false);
+            warn!(event = "metrics_backend_probe", backend = "btc", error = %error, "BTC backend health probe failed");
+            None
+        }
+    };
+    let goat_height_healthy = goat_height.is_ok();
+    metrics_state.record_goat_backend_probe(goat_height_healthy);
+    if let Err(error) = goat_height {
+        warn!(event = "metrics_backend_probe", backend = "goat", operation = "get_latest_block_number", error = %error, "Goat backend health probe failed");
+    }
+    let goat_spv_height = match goat_spv_height {
+        Ok(height) => {
+            metrics_state.record_goat_backend_probe(true);
+            Some(height)
+        }
+        Err(error) => {
+            metrics_state.record_goat_backend_probe(false);
+            warn!(event = "metrics_backend_probe", backend = "goat", operation = "btc_spv_latest_height", error = %error, "Goat SPV health probe failed");
+            None
+        }
+    };
+    match peg_btc_decimals {
+        Ok(decimals) => {
+            metrics_state.record_goat_backend_probe(true);
+            metrics_state.set_peg_btc_decimals(decimals);
+        }
+        Err(error) => {
+            metrics_state.record_goat_backend_probe(false);
+            warn!(event = "metrics_backend_probe", backend = "goat", operation = "peg_btc_decimals", error = %error, "failed to load pegBTC decimals");
+        }
+    }
+    metrics_state.apply_chain_health(btc_height, goat_spv_height);
+    metrics_state.mark_backend_ready(
+        btc_height.is_some() && goat_height_healthy && goat_spv_height.is_some(),
+    );
+
+    match get_node_pubkey() {
+        Ok(pubkey) => {
+            match btc_client.get_address_utxo(node_p2wsh_address(get_network(), &pubkey)).await {
+                Ok(utxos) => {
+                    metrics_state.record_btc_backend_probe(true);
+                    let balance_sats = utxos.iter().map(|utxo| utxo.value.to_sat()).sum::<u64>();
+                    metrics_state.apply_fee_wallet(
+                        i64::try_from(balance_sats).unwrap_or(i64::MAX),
+                        i64::try_from(utxos.len()).unwrap_or(i64::MAX),
+                    );
+                }
+                Err(error) => {
+                    metrics_state.record_btc_backend_probe(false);
+                    warn!(event = "metrics_backend_probe", backend = "btc", operation = "get_address_utxo", error = %error, "BTC fee wallet probe failed");
+                }
+            }
+        }
+        Err(error) => {
+            warn!(event = "metrics_fee_wallet", error = %error, "failed to derive fee wallet address")
+        }
+    }
+
+    if let Some(goat_address) = get_node_goat_address() {
+        match goat_client.native_balance(&goat_address.0).await {
+            Ok(balance) => {
+                metrics_state.record_goat_backend_probe(true);
+                metrics_state.apply_goat_gas_balance(balance);
+            }
+            Err(error) => {
+                metrics_state.record_goat_backend_probe(false);
+                warn!(event = "metrics_backend_probe", backend = "goat", operation = "native_balance", error = %error, "Goat gas balance probe failed");
+            }
+        }
+    }
+
+    if *actor == Actor::Operator {
+        let stake = async {
+            let pubkey = get_node_pubkey()?;
+            let xonly: [u8; 32] = pubkey.to_bytes()[1..33]
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("invalid local operator public key"))?;
+            let operator_address = goat_client.stake_mana_pubkey_to_address(&xonly).await?;
+            let (minimum, locked) = tokio::try_join!(
+                goat_client.gateway_get_min_stake_amount(),
+                goat_client.stake_mana_lock_stake_of(&operator_address),
+            )?;
+            Ok::<_, anyhow::Error>(locked >= minimum)
+        }
+        .await;
+        match stake {
+            Ok(sufficient) => {
+                metrics_state.record_goat_backend_probe(true);
+                metrics_state.apply_required_stake(sufficient);
+            }
+            Err(error) => {
+                metrics_state.record_goat_backend_probe(false);
+                warn!(event = "metrics_backend_probe", backend = "goat", operation = "required_stake", error = %error, "required stake probe failed");
+            }
+        }
+    } else {
+        metrics_state.apply_required_stake(true);
+    }
+}
 
 async fn fetch_on_turn_graph_by_status<'a>(
     storage_processor: &mut StorageProcessor<'a>,
@@ -55,27 +176,36 @@ async fn fetch_on_turn_graph_by_status<'a>(
 }
 
 async fn run_maintenance_subtask<T>(
+    metrics_state: &MetricsState,
     task: &'static str,
     operation: impl Future<Output = anyhow::Result<T>>,
 ) {
     let started_at = Instant::now();
     match operation.await {
-        Ok(_) => debug!(
-            event = "maintenance_subtask_result",
-            task,
-            outcome = "succeeded",
-            elapsed_ms = started_at.elapsed().as_millis() as u64,
-            "maintenance subtask completed"
-        ),
-        Err(error) => warn!(
-            event = "maintenance_subtask_result",
-            task,
-            outcome = "failed",
-            elapsed_ms = started_at.elapsed().as_millis() as u64,
-            error_class = "maintenance",
-            error = %error,
-            "maintenance subtask failed after execution"
-        ),
+        Ok(_) => {
+            let elapsed = started_at.elapsed();
+            metrics_state.record_task_run(task, "success", elapsed);
+            debug!(
+                event = "maintenance_subtask_result",
+                task,
+                outcome = "succeeded",
+                elapsed_ms = elapsed.as_millis() as u64,
+                "maintenance subtask completed"
+            )
+        }
+        Err(error) => {
+            let elapsed = started_at.elapsed();
+            metrics_state.record_task_run(task, "failed", elapsed);
+            warn!(
+                event = "maintenance_subtask_result",
+                task,
+                outcome = "failed",
+                elapsed_ms = elapsed.as_millis() as u64,
+                error_class = "maintenance",
+                error = %error,
+                "maintenance subtask failed after execution"
+            )
+        }
     }
 }
 
@@ -89,6 +219,7 @@ async fn run(
     local_db: &LocalDB,
     btc_client: Arc<BTCClient>,
     goat_client: Arc<GOATClient>,
+    metrics_state: &MetricsState,
 ) -> anyhow::Result<MaintenanceRunOutcome> {
     let btc_client = btc_client.as_ref();
     let goat_client = goat_client.as_ref();
@@ -97,6 +228,7 @@ async fn run(
         && matches!(&actor, Actor::Verifier | Actor::Operator | Actor::All)
     {
         run_maintenance_subtask(
+            metrics_state,
             "babe_setup_state_cleanup_monitor",
             babe_setup_state_cleanup_monitor(local_db),
         )
@@ -105,6 +237,7 @@ async fn run(
 
     if actor == Actor::Operator || is_relayer() {
         run_maintenance_subtask(
+            metrics_state,
             "node_available_pbtc_update_monitor",
             node_available_pbtc_update_monitor(local_db, goat_client),
         )
@@ -113,6 +246,7 @@ async fn run(
 
     if is_enable_update_spv_contract() {
         run_maintenance_subtask(
+            metrics_state,
             "spv_header_hash_update",
             spv_header_hash_update(btc_client, goat_client),
         )
@@ -132,45 +266,63 @@ async fn run(
     }
 
     run_maintenance_subtask(
+        metrics_state,
         "instance_answers_monitor",
         instance_answers_monitor(local_db, btc_client, goat_client),
     )
     .await;
     run_maintenance_subtask(
+        metrics_state,
         "instance_window_expiration_monitor",
         instance_window_expiration_monitor(local_db, goat_client),
     )
     .await;
     run_maintenance_subtask(
+        metrics_state,
         "instance_expiration_monitor",
         instance_expiration_monitor(local_db, btc_client),
     )
     .await;
     run_maintenance_subtask(
+        metrics_state,
         "instance_btc_tx_monitor",
         instance_btc_tx_monitor(local_db, btc_client),
     )
     .await;
     run_maintenance_subtask(
+        metrics_state,
         "pegin_confirm_recovery_monitor",
         pegin_confirm_recovery_monitor(local_db, btc_client, &actor),
     )
     .await;
     run_maintenance_subtask(
+        metrics_state,
         "instance_committee_key_cleanup_monitor",
         instance_committee_key_cleanup_monitor(local_db, btc_client),
     )
     .await;
-    run_maintenance_subtask("instance_bridge_out_monitor", instance_bridge_out_monitor(local_db))
-        .await;
-    run_maintenance_subtask("detect_init_withdraw_call", detect_init_withdraw_call(local_db)).await;
-    run_maintenance_subtask("detect_kickoff", detect_kickoff(local_db, btc_client)).await;
     run_maintenance_subtask(
+        metrics_state,
+        "instance_bridge_out_monitor",
+        instance_bridge_out_monitor(local_db),
+    )
+    .await;
+    run_maintenance_subtask(
+        metrics_state,
+        "detect_init_withdraw_call",
+        detect_init_withdraw_call(local_db),
+    )
+    .await;
+    run_maintenance_subtask(metrics_state, "detect_kickoff", detect_kickoff(local_db, btc_client))
+        .await;
+    run_maintenance_subtask(
+        metrics_state,
         "detect_take1_or_challenge",
         detect_take1_or_challenge(local_db, btc_client),
     )
     .await;
     run_maintenance_subtask(
+        metrics_state,
         "process_graph_challenge",
         process_graph_challenge(local_db, btc_client),
     )
@@ -185,6 +337,7 @@ pub async fn run_maintenance_tasks(
     goat_client: Arc<GOATClient>,
     interval: u64,
     cancellation_token: CancellationToken,
+    metrics_state: MetricsState,
 ) -> anyhow::Result<String> {
     let mut tick: u64 = 0;
     let maintenance_run_timeout = Duration::from_secs(get_maintenance_run_timeout_secs());
@@ -203,9 +356,16 @@ pub async fn run_maintenance_tasks(
                 // Execute the normal monitoring logic
                 match tokio::time::timeout(
                     maintenance_run_timeout,
-                    run(actor.clone(),&local_db,btc_client.clone(),goat_client.clone()),
+                    run(
+                        actor.clone(),
+                        &local_db,
+                        btc_client.clone(),
+                        goat_client.clone(),
+                        &metrics_state,
+                    ),
                 ).await {
                     Ok(Ok(MaintenanceRunOutcome::Completed)) => {
+                        metrics_state.record_task_run("maintenance", "success", tick_start.elapsed());
                         info!(
                             event = "maintenance_tick_result",
                             tick,
@@ -215,6 +375,7 @@ pub async fn run_maintenance_tasks(
                         );
                     }
                     Ok(Ok(MaintenanceRunOutcome::DeferredHistorySync)) => {
+                        metrics_state.record_task_run("maintenance", "success", tick_start.elapsed());
                         info!(
                             event = "maintenance_tick_result",
                             tick,
@@ -225,6 +386,7 @@ pub async fn run_maintenance_tasks(
                         );
                     }
                     Ok(Err(error)) => {
+                        metrics_state.record_task_run("maintenance", "failed", tick_start.elapsed());
                         error!(
                             event = "maintenance_tick_result",
                             tick,
@@ -235,6 +397,7 @@ pub async fn run_maintenance_tasks(
                         )
                     }
                     Err(_) => {
+                        metrics_state.record_task_run("maintenance", "failed", tick_start.elapsed());
                         error!(
                             event = "maintenance_tick_result",
                             tick,
@@ -246,6 +409,26 @@ pub async fn run_maintenance_tasks(
                     }
                 }
                 if tick.is_multiple_of(6) {
+                    let btc_client = btc_client.clone();
+                    let goat_client = goat_client.clone();
+                    let metrics_state = metrics_state.clone();
+                    let metrics_actor = actor.clone();
+                    tokio::spawn(async move {
+                        if tokio::time::timeout(
+                            Duration::from_secs(30),
+                            refresh_alert_health(
+                                btc_client.as_ref(),
+                                goat_client.as_ref(),
+                                &metrics_state,
+                                &metrics_actor,
+                            ),
+                        )
+                        .await
+                        .is_err()
+                        {
+                            warn!(event = "metrics_alert_health", "alert health probe timed out");
+                        }
+                    });
                     let queue_started_at = Instant::now();
                     match local_db.acquire().await {
                         Ok(mut storage) => match storage

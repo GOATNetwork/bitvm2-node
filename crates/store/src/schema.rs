@@ -524,6 +524,34 @@ pub struct Message {
     pub created_at: i64,
 }
 
+#[derive(Clone, Debug, FromRow, PartialEq, Eq)]
+pub struct MetricsStateCount {
+    pub category: String,
+    pub state: String,
+    pub count: i64,
+    pub oldest_created_at: Option<i64>,
+    pub last_success_at: Option<i64>,
+}
+
+/// Aggregate, local-only values used for alerting. These values intentionally
+/// contain no business identifiers so they can be exported as Prometheus gauges.
+#[derive(Clone, FromRow, Debug, Default)]
+pub struct NodeAlertMetricsSnapshot {
+    pub pegin_oldest_active_status_updated_at: Option<i64>,
+    pub pegin_oldest_committee_wait_status_updated_at: Option<i64>,
+    pub pegout_oldest_active_status_updated_at: Option<i64>,
+    pub operator_available_pegbtc: Option<String>,
+}
+
+/// Aggregate event watcher progress used to expose a bounded health state.
+#[derive(Clone, FromRow, Debug, Default)]
+pub struct EventWatchMetricsSnapshot {
+    pub lag_blocks: i64,
+    pub watcher_count: i64,
+    pub syncing_count: i64,
+    pub failed_count: i64,
+}
+
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct PeginInstanceProcessData {
     pub instance_id: Uuid,

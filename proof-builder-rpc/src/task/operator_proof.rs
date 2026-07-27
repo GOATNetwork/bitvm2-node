@@ -13,10 +13,13 @@ use tracing::info;
 use util::hex_parse;
 use zkm_sdk::HashableKey;
 
-#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
+use crate::api::metrics_service::{ApiMetricsState, OPERATOR_PROOF};
+
+#[tracing::instrument(level = "info", skip(local_db, metrics_state, cancellation_token))]
 pub(crate) fn spawn_operator_proof_task(
     args: operator_proof::Args,
     local_db: LocalDB,
+    metrics_state: ApiMetricsState,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
@@ -150,7 +153,13 @@ pub(crate) fn spawn_operator_proof_task(
                     };
 
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
-                    let affected = update_operator_task(&local_db, task_index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proof_state, proving_duration as i64, proving_time as i64, zkm_version).await?;
+                    let succeeded = matches!(proof_state, ProofState::Proven);
+                    let update_result = update_operator_task(&local_db, task_index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proof_state, proving_duration as i64, proving_time as i64, zkm_version).await;
+                    let persisted =
+                        matches!(&update_result, Ok(affected) if *affected > 0);
+                    let outcome = if succeeded && persisted { "success" } else { "failed" };
+                    metrics_state.record_attempt(OPERATOR_PROOF, outcome, proving_start.elapsed());
+                    let affected = update_result?;
                     tracing::info!("update operator task: {args:?}, cycles: {cycles}, index: {}, affected row: {affected}", task_index);
                     args = ProofBuilderConfig::run_next(args, OperatorProofBuilder::name())?;
                 }

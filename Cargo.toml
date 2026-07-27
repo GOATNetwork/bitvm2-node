@@ -15,7 +15,6 @@ members = [
     "crates/header-chain",
     "crates/commit-chain",
     "crates/state-chain",
-    #"crates/mara-slipstream-client",
     "crates/bitcoin-light-client-circuit",
     "crates/verifier",
     "circuits/header-chain-proof/host",

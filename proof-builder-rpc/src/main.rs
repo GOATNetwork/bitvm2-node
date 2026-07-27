@@ -3,6 +3,7 @@ mod config;
 mod task;
 
 use crate::task::{is_start_generate_proof_tasks, run_generate_proof_tasks};
+use api::metrics_service::ApiMetricsState;
 use clap::Parser;
 use futures::future;
 use tokio::signal;
@@ -41,13 +42,16 @@ async fn main() -> anyhow::Result<()> {
     let cancellation_token = CancellationToken::new();
     info!("load db {}", opt.database_url);
     let local_db = store::create_local_db(&opt.database_url).await;
+    let metrics_state = ApiMetricsState::new();
     let local_db_clone1 = local_db.clone();
+    let api_metrics_state = metrics_state.clone();
     let mut task_handles: Vec<JoinHandle<anyhow::Result<String, String>>> = vec![];
     let cancel_token_clone = cancellation_token.clone();
     let opt_rpc_addr = opt.rpc_addr.clone();
     info!("start api server");
     task_handles.push(tokio::spawn(async move {
-        match api::serve(opt_rpc_addr, local_db_clone1, cancel_token_clone).await {
+        match api::serve(opt_rpc_addr, local_db_clone1, api_metrics_state, cancel_token_clone).await
+        {
             Ok(tag) => Ok(tag),
             Err(e) => {
                 tracing::error!("RPC service error: {}", e);
@@ -59,7 +63,9 @@ async fn main() -> anyhow::Result<()> {
         info!("start generate proof tasks");
         let cancel_token_clone = cancellation_token.clone();
         task_handles.push(tokio::spawn(async move {
-            match run_generate_proof_tasks(cfg, local_db, 1, cancel_token_clone).await {
+            match run_generate_proof_tasks(cfg, local_db, metrics_state, 1, cancel_token_clone)
+                .await
+            {
                 Ok(tag) => Ok(tag),
                 Err(e) => {
                     tracing::error!("Main program is exiting: {e:?}");

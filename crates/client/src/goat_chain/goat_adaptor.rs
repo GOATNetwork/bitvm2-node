@@ -937,6 +937,10 @@ impl ChainAdaptor for GoatAdaptor {
         }
     }
 
+    async fn native_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
+        Ok(self.provider.get_balance(Address::from_slice(address)).await?)
+    }
+
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
         Ok(self.provider.get_transaction_receipt(TxHash::from_str(tx_hash)?).await?)
     }

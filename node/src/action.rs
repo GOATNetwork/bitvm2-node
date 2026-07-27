@@ -4,6 +4,7 @@
 
 use crate::env::get_local_node_info;
 use crate::handle::{HandlerContext, dispatch as handle_dispatch};
+use crate::metrics_service::MetricsState;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
 use crate::utils::*;
@@ -489,6 +490,7 @@ pub async fn handle_self_p2p_msg(
     from_peer_id: PeerId,
     id: MessageId,
     message: &[u8],
+    metrics_state: &MetricsState,
 ) -> Result<()> {
     if id != GOATMessage::default_message_id() {
         tracing::warn!(
@@ -533,6 +535,8 @@ pub async fn handle_self_p2p_msg(
             from_peer_id,
             id.clone(),
             &message.content,
+            metrics_state,
+            false,
         )
         .await
         {
@@ -579,6 +583,7 @@ pub async fn handle_self_p2p_msg(
                 } else {
                     600
                 };
+                metrics_state.record_message_retry();
                 tracing::warn!(
                     event = "local_message_queue",
                     outcome = "deferred",
@@ -622,6 +627,8 @@ pub async fn recv_and_dispatch(
     from_peer_id: PeerId,
     id: MessageId,
     message: &[u8],
+    metrics_state: &MetricsState,
+    is_p2p_receive: bool,
 ) -> Result<()> {
     let is_local_queue_message = id == GOATMessage::default_message_id();
     if !is_local_queue_message {
@@ -629,7 +636,20 @@ pub async fn recv_and_dispatch(
     }
     // Determine whether the message comes from this node itself to optionally skip validations
     let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
-    let message = GOATMessage::deserialize_message(message).await?;
+    let message = match GOATMessage::deserialize_message(message).await {
+        Ok(message) => {
+            if is_p2p_receive {
+                metrics_state.record_p2p_receive(true);
+            }
+            message
+        }
+        Err(error) => {
+            if is_p2p_receive {
+                metrics_state.record_p2p_receive(false);
+            }
+            return Err(error);
+        }
+    };
     let message_type = message.content.event_type();
     let role = actor.to_string();
     let from_peer_id_string = from_peer_id.to_string();
@@ -641,6 +661,7 @@ pub async fn recv_and_dispatch(
         goat_client,
         http_client,
         soldering_builder,
+        metrics_state,
         actor,
         from_peer_id,
         id,
@@ -680,6 +701,8 @@ pub async fn recv_and_dispatch(
         }
         result => result,
     };
+    metrics_state
+        .record_message_dispatch(message_type, if result.is_ok() { "success" } else { "failed" });
     match &result {
         Ok(()) => tracing::info!(
             event = "message_dispatch_result",
@@ -784,9 +807,25 @@ pub async fn send_to_peer(
     let message_type = message.content.event_type();
     let topic = crate::middleware::get_topic_name(&target_actor);
     let gossipsub_topic = gossipsub::IdentTopic::new(topic);
-    let serialized = message.serialize_message().await?;
+    let serialized = match message.serialize_message().await {
+        Ok(serialized) => serialized,
+        Err(error) => {
+            if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                metrics_state.record_p2p_publish(false);
+            }
+            return Err(error);
+        }
+    };
+    if serialized.len() > crate::middleware::behaviour::MAX_GOSSIPSUB_TRANSMIT_SIZE
+        && let Some(metrics_state) = crate::metrics_service::node_metrics_state()
+    {
+        metrics_state.record_p2p_oversized_message();
+    }
     match swarm.behaviour_mut().gossipsub.publish(gossipsub_topic, serialized) {
         Ok(message_id) => {
+            if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                metrics_state.record_p2p_publish(true);
+            }
             tracing::info!(
                 event = "p2p_message_publish",
                 outcome = "published",
@@ -798,6 +837,9 @@ pub async fn send_to_peer(
             Ok(message_id)
         }
         Err(err) => {
+            if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                metrics_state.record_p2p_publish(false);
+            }
             tracing::warn!(
                 event = "p2p_message_publish",
                 outcome = "failed",
@@ -831,7 +873,13 @@ pub async fn push_local_unhandled_messages(
         0,
         delay_secs as i64,
     )
-    .await
+    .await?;
+    if delay_secs > 0
+        && let Some(metrics_state) = crate::metrics_service::node_metrics_state()
+    {
+        metrics_state.record_message_retry();
+    }
+    Ok(())
 }
 
 /// Helper: try to get graph. If missing, send SyncGraphRequest and defer current handling.

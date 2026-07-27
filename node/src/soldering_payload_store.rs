@@ -50,6 +50,14 @@ fn parse_soldering_proof_s3_path(path: &str) -> Result<(String, String)> {
 }
 
 pub(crate) async fn write_soldering_proof_store_payload(path: &str, payload: &[u8]) -> Result<()> {
+    let result = write_soldering_proof_store_payload_inner(path, payload).await;
+    if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+        metrics_state.record_soldering_payload_io(result.is_ok());
+    }
+    result
+}
+
+async fn write_soldering_proof_store_payload_inner(path: &str, payload: &[u8]) -> Result<()> {
     if is_soldering_proof_s3_path(path) {
         let (bucket, key) = parse_soldering_proof_s3_path(path)?;
         let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
@@ -84,6 +92,14 @@ pub(crate) async fn write_soldering_proof_store_payload(path: &str, payload: &[u
 }
 
 pub(crate) async fn read_soldering_proof_store_payload(path: &str) -> Result<Vec<u8>> {
+    let result = read_soldering_proof_store_payload_inner(path).await;
+    if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+        metrics_state.record_soldering_payload_io(result.is_ok());
+    }
+    result
+}
+
+async fn read_soldering_proof_store_payload_inner(path: &str) -> Result<Vec<u8>> {
     if is_soldering_proof_s3_path(path) {
         let (bucket, key) = parse_soldering_proof_s3_path(path)?;
         let config = aws_config::load_defaults(BehaviorVersion::latest()).await;

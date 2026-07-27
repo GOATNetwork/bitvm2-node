@@ -15,6 +15,7 @@ use bitvm_noded::env::{
     ENV_BITCOIN_NETWORK, ENV_BITVM_SECRET, ENV_GOAT_ADDRESS, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS,
     ENV_GOAT_NETWORK, ENV_GOAT_SWAP_CONTRACT_ADDRESS,
 };
+use bitvm_noded::metrics_service::MetricsState;
 use bitvm_noded::rpc_service::{self, AppState, current_time_secs};
 use bitvm_noded::utils::{generate_local_key, get_rand_btc_address_p2wpkh, get_rand_goat_address};
 use clap::Parser;
@@ -396,8 +397,13 @@ async fn main() -> Result<()> {
         seed_mock_data(&local_db, &peer_id, opts.actor.clone()).await.context("seed mock data")?;
 
     let registry = Arc::new(Mutex::new(Registry::default()));
-    let app_state =
-        AppState::create_arc_mock_app_state(local_db, opts.actor, peer_id, registry).await?;
+    let app_state = AppState::create_arc_mock_app_state(
+        local_db,
+        opts.actor,
+        peer_id,
+        MetricsState::new(registry),
+    )
+    .await?;
     let cancellation_token = CancellationToken::new();
     let shutdown_token = cancellation_token.clone();
     tokio::spawn(async move {

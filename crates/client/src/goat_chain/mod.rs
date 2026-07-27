@@ -129,6 +129,10 @@ impl GOATClient {
         self.chain_service.get_latest_block_number().await
     }
 
+    pub async fn native_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
+        self.chain_service.native_balance(address).await
+    }
+
     pub async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
         self.chain_service.gateway_get_response_window_blocks().await
     }

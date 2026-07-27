@@ -4,6 +4,8 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use std::time::Duration;
 use tokio::io::{self};
 
+pub const MAX_GOSSIPSUB_TRANSMIT_SIZE: usize = 16 * 1024 * 1024;
+
 // We create a custom network behaviour that combines Kademlia and mDNS.
 #[derive(NetworkBehaviour)]
 pub struct AllBehaviours {
@@ -21,7 +23,7 @@ impl AllBehaviours {
         //    .unwrap();
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
-            .max_transmit_size(16 * 1024 * 1024) // 16 MB
+            .max_transmit_size(MAX_GOSSIPSUB_TRANSMIT_SIZE)
             .build()
             .map_err(io::Error::other)
             .unwrap();

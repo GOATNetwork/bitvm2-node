@@ -16,6 +16,7 @@ pub trait ChainAdaptor: Send + Sync {
     fn get_default_signer_address(&self) -> Address;
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64>;
     async fn get_latest_block_number(&self) -> anyhow::Result<i64>;
+    async fn native_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256>;
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
     async fn debug_trace_tx(
         &self,

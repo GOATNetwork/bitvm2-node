@@ -4,6 +4,7 @@ use crate::env::{
     get_soldering_proof_payload_store_path, is_relayer,
 };
 use crate::error::SpecialError;
+use crate::metrics_service::MetricsState;
 use crate::middleware::AllBehaviours;
 use crate::scheduled_tasks::graph_maintenance_tasks::ChallengeSubStatus;
 use crate::soldering_payload_store::{
@@ -50,6 +51,7 @@ pub struct HandlerContext<'a> {
     pub goat_client: &'a GOATClient,
     pub http_client: &'a HttpAsyncClient,
     pub soldering_builder: &'a Option<Arc<BabeBundleBuilder>>,
+    pub metrics_state: &'a MetricsState,
     pub actor: Actor,
     pub from_peer_id: PeerId,
     pub id: MessageId,
@@ -1798,7 +1800,10 @@ async fn handle_soldering_proof_ready_operator(
         payload_hash = %soldering_payload_hash_hex(&payload_hash),
         "start processing soldering proof payload"
     );
-    handle_soldering_proof_payload_operator(ctx, &soldering_proof_ready, &payload).await
+    let result =
+        handle_soldering_proof_payload_operator(ctx, &soldering_proof_ready, &payload).await;
+    ctx.metrics_state.record_pegin_graph_setup(result.is_ok());
+    result
 }
 
 fn decode_soldering_proof_payload(
@@ -2276,15 +2281,16 @@ async fn try_start_graph_committee_setup(
         );
         return Ok(());
     }
-    if let Err(e) = todo_funcs::validate_init_graph(
+    let validation = todo_funcs::validate_init_graph(
         ctx.local_db,
         ctx.btc_client,
         ctx.goat_client,
         graph,
         &verifier_endorsements,
     )
-    .await
-    {
+    .await;
+    ctx.metrics_state.record_graph_validation(validation.is_ok());
+    if let Err(e) = validation {
         if should_ignore_invalid_graph(&e, instance_id, graph_id, "CreateGraph", None) {
             return Ok(());
         }
@@ -2476,10 +2482,11 @@ async fn handle_create_graph_committee(
     }
 
     // 1. check graph data & operator stake without verifier params endorsements; those may arrive later.
-    if let Err(e) =
+    let validation =
         todo_funcs::validate_init_graph_base(ctx.local_db, ctx.btc_client, ctx.goat_client, graph)
-            .await
-    {
+            .await;
+    ctx.metrics_state.record_graph_validation(validation.is_ok());
+    if let Err(e) = validation {
         if should_ignore_invalid_graph(&e, instance_id, graph_id, "CreateGraph", None) {
             return Ok(());
         }
@@ -3153,15 +3160,16 @@ async fn handle_graph_finalize_committee(
 
     // received from Operator
     // 1. check graph data
-    if let Err(e) = todo_funcs::validate_finalized_graph(
+    let validation = todo_funcs::validate_finalized_graph(
         ctx.btc_client,
         ctx.goat_client,
         graph,
         endorse_sigs,
         params_endorse_sigs,
     )
-    .await
-    {
+    .await;
+    ctx.metrics_state.record_graph_validation(validation.is_ok());
+    if let Err(e) = validation {
         if should_ignore_invalid_graph(
             &e,
             instance_id,
@@ -3284,15 +3292,16 @@ async fn handle_graph_finalize_default(
 
     // received from Operator
     // 1. check graph data
-    if let Err(e) = todo_funcs::validate_finalized_graph(
+    let validation = todo_funcs::validate_finalized_graph(
         ctx.btc_client,
         ctx.goat_client,
         graph,
         endorse_sigs,
         params_endorse_sigs,
     )
-    .await
-    {
+    .await;
+    ctx.metrics_state.record_graph_validation(validation.is_ok());
+    if let Err(e) = validation {
         if should_ignore_invalid_graph(
             &e,
             instance_id,
@@ -3442,7 +3451,9 @@ async fn handle_pegin_confirm_nonce_committee(
                     })?;
                 let connector_z = instance_params.connector_z();
                 pegin_confirm.push_input_0_signature(&connector_z, full_sig);
-                broadcast_tx(ctx.btc_client, pegin_confirm.tx()).await?;
+                let result = broadcast_tx(ctx.btc_client, pegin_confirm.tx()).await;
+                ctx.metrics_state.record_pegin_confirm(result.is_ok());
+                result?;
             }
         }
     }
@@ -3601,7 +3612,9 @@ async fn handle_pegin_confirm_partial_sig_committee(
                 })?;
             let connector_z = instance_params.connector_z();
             pegin_confirm.push_input_0_signature(&connector_z, full_sig);
-            broadcast_tx(ctx.btc_client, pegin_confirm.tx()).await?;
+            let result = broadcast_tx(ctx.btc_client, pegin_confirm.tx()).await;
+            ctx.metrics_state.record_pegin_confirm(result.is_ok());
+            result?;
         }
     }
     Ok(())
@@ -3701,9 +3714,12 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
             );
             return Ok(());
         }
-        ctx.goat_client
+        let result = ctx
+            .goat_client
             .gateway_post_pegin_data(ctx.btc_client, &instance_id, &pegin_tx, &endorse_sigs)
-            .await?;
+            .await;
+        ctx.metrics_state.record_pegin_post(result.is_ok());
+        result?;
     } else {
         // already posted
     }
@@ -5541,7 +5557,8 @@ async fn handle_disprove_sent_committee(
         );
         return Ok(());
     }
-    ctx.goat_client
+    let result = ctx
+        .goat_client
         .gateway_finish_withdraw_disproved(
             ctx.btc_client,
             &graph_id,
@@ -5550,7 +5567,9 @@ async fn handle_disprove_sent_committee(
             challenge_start_tx.as_ref(),
             &challenge_finish_tx,
         )
-        .await?;
+        .await;
+    ctx.metrics_state.record_withdraw_finalize(result.is_ok());
+    result?;
     Ok(())
 }
 
@@ -5988,13 +6007,14 @@ async fn handle_sync_graph(
             "Failed to validate graph_id on GoatChain for SyncGraph {instance_id}:{graph_id}: {e}"
         )
     })?;
-    if let Err(e) = todo_funcs::validate_graph_instance_parameters(
+    let validation = todo_funcs::validate_graph_instance_parameters(
         ctx.btc_client,
         ctx.goat_client,
         &graph.parameters.instance_parameters,
     )
-    .await
-    {
+    .await;
+    ctx.metrics_state.record_graph_validation(validation.is_ok());
+    if let Err(e) = validation {
         tracing::warn!(
             "Ignore SyncGraph for {instance_id}:{graph_id}: invalid instance parameters: {e}"
         );

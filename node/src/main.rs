@@ -25,6 +25,7 @@ use bitvm_noded::{
 };
 
 use anyhow::Result;
+use bitvm_noded::metrics_service::{MetricsState, set_node_metrics_state};
 use bitvm_noded::middleware::swarm::{BitvmNetworkManager, BitvmSwarmConfig};
 use bitvm_noded::p2p_msg_handler::BitvmNodeProcessor;
 use client::http_client::async_client::HttpAsyncClient;
@@ -177,6 +178,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let _node_span_guard = node_span.enter();
     let local_db = store::create_local_db(&opt.db_path).await;
+    let metric_registry = Arc::new(Mutex::new(metric_registry));
+    let metrics_state = MetricsState::new(metric_registry);
+    set_node_metrics_state(metrics_state.clone());
     let handler = BitvmNodeProcessor {
         local_db: local_db.clone(),
         btc_client: BTCClient::new(get_network(), get_btc_url_from_env().as_deref()),
@@ -184,6 +188,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         http_client: HttpAsyncClient::new(None),
         soldering_builder: matches!(actor, Actor::Verifier | Actor::Operator)
             .then(|| Arc::new(BabeBundleBuilder::new())),
+        metrics_state: metrics_state.clone(),
     };
 
     tracing::info!(
@@ -206,7 +211,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_db_clone4 = local_db.clone();
     let opt_rpc_addr = opt.rpc_addr.clone();
     let peer_id_string_clone = peer_id_string.clone();
-    let metric_registry_clone = Arc::new(Mutex::new(metric_registry));
 
     tracing::debug!("RPC service listening on {}", &opt.rpc_addr);
     if actor == Actor::Operator {
@@ -215,10 +219,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // validate node info
     check_node_info().await;
     save_local_info(&local_db).await;
+    metrics_state.mark_startup_ready();
 
     // Spawn RPC service task with cancellation support
     let cancel_token_clone = cancellation_token.clone();
     let rpc_task_span = node_span.clone();
+    let rpc_metrics = metrics_state.clone();
     task_handles.push(tokio::spawn(
         async move {
             match rpc_service::serve(
@@ -226,7 +232,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 local_db_clone1,
                 actor_clone1,
                 peer_id_string_clone,
-                metric_registry_clone,
+                rpc_metrics,
                 cancel_token_clone,
             )
             .await
@@ -252,6 +258,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // if actor == Actor::Committee || actor == Actor::Operator {
     let cancel_token_clone = cancellation_token.clone();
     let event_watcher_task_span = node_span.clone();
+    let event_watcher_metrics = metrics_state.clone();
     task_handles.push(tokio::spawn(
         async move {
             let goat_init_config = goat_config_from_env().await;
@@ -267,6 +274,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 5,
                 cancel_token_clone,
                 goat_init_config,
+                event_watcher_metrics,
             )
             .await
             {
@@ -319,6 +327,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let cancel_token_clone = cancellation_token.clone();
     let maintenance_task_span = node_span.clone();
+    let maintenance_metrics = metrics_state.clone();
     task_handles.push(tokio::spawn(
         async move {
             let goat_client =
@@ -332,6 +341,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 goat_client,
                 10,
                 cancel_token_clone,
+                maintenance_metrics,
             )
             .await
             {

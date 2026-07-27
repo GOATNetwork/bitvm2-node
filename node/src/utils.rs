@@ -2276,6 +2276,9 @@ pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> Result<()> {
     let started_at = Instant::now();
     match client.broadcast(tx).await {
         Ok(()) => {
+            if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                metrics_state.record_btc_tx_broadcast(true);
+            }
             tracing::info!(
                 event = "btc_tx_broadcast",
                 outcome = "broadcasted",
@@ -2288,6 +2291,9 @@ pub async fn broadcast_tx(client: &BTCClient, tx: &Transaction) -> Result<()> {
             Ok(())
         }
         Err(err) => {
+            if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                metrics_state.record_btc_tx_broadcast(false);
+            }
             tracing::warn!(
                 event = "btc_tx_broadcast",
                 outcome = "failed",
@@ -2312,6 +2318,9 @@ pub async fn broadcast_package(
     let started_at = Instant::now();
     match client.broadcast_package(txns).await {
         Ok(_) => {
+            if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                metrics_state.record_btc_tx_broadcast(true);
+            }
             tracing::info!(
                 event = "btc_tx_package_broadcast",
                 outcome = "broadcasted",
@@ -2336,6 +2345,9 @@ pub async fn broadcast_package(
                     broadcast_tx(client, tx).await?;
                 }
             } else {
+                if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                    metrics_state.record_btc_tx_broadcast(false);
+                }
                 // Surface the original error when fallback is disabled
                 return Err(e);
             }

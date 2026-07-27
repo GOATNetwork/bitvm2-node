@@ -1,7 +1,8 @@
 use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
-    BridgeOutGlobalStats, GoatTxRecord, Graph, GraphBtcTxVoutMonitor, GraphRawData, GraphStatus,
-    GraphStatusSource, GraphStatusTransitionOutcome, Instance, LongRunningTaskProof, Message, Node,
+    BridgeOutGlobalStats, EventWatchMetricsSnapshot, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
+    GraphRawData, GraphStatus, GraphStatusSource, GraphStatusTransitionOutcome, Instance,
+    LongRunningTaskProof, Message, MetricsStateCount, Node, NodeAlertMetricsSnapshot,
     NodesOverview, OperatorProof, PeginGraphProcessData, PeginInstanceProcessData,
     PendingGraphInit, SequencerSetHashChange, SequencerSetScanState, SerializableTxid,
     WatchContract, WatchtowerProof,
@@ -858,6 +859,145 @@ impl<'a> StorageProcessor<'a> {
                 "StorageProcessor::commit can only be invoked after calling StorageProcessor::begin_transaction"
             );
         }
+    }
+
+    /// Returns grouped instance, graph, and message state counts for Node metrics.
+    pub async fn node_metrics_state_counts(&mut self) -> anyhow::Result<Vec<MetricsStateCount>> {
+        let counts = sqlx::query_as::<_, MetricsStateCount>(
+            r#"
+            SELECT
+                CASE WHEN is_bridge_in THEN 'instance_bridge_in' ELSE 'instance_bridge_out' END AS category,
+                status AS state,
+                COUNT(*) AS count,
+                MIN(created_at) AS oldest_created_at,
+                NULL AS last_success_at
+            FROM instance
+            GROUP BY is_bridge_in, status
+            UNION ALL
+            SELECT
+                'graph' AS category,
+                status AS state,
+                COUNT(*) AS count,
+                MIN(created_at) AS oldest_created_at,
+                NULL AS last_success_at
+            FROM graph
+            GROUP BY status
+            UNION ALL
+            SELECT
+                'message' AS category,
+                state,
+                COUNT(*) AS count,
+                MIN(created_at) AS oldest_created_at,
+                NULL AS last_success_at
+            FROM message
+            GROUP BY state
+            ORDER BY category, state
+            "#,
+        )
+        .fetch_all(self.conn())
+        .await?;
+        Ok(counts)
+    }
+
+    /// Returns local aggregate values for flow-stall and operator-liquidity alerts.
+    pub async fn node_alert_metrics_snapshot(
+        &mut self,
+        local_peer_id: &str,
+    ) -> anyhow::Result<NodeAlertMetricsSnapshot> {
+        let snapshot = sqlx::query_as::<_, NodeAlertMetricsSnapshot>(
+            r#"
+            SELECT
+                MIN(CASE
+                    WHEN is_bridge_in = 1
+                     AND status NOT IN (
+                        'RelayerL2Minted', 'PresignedFailed', 'RelayerL2MintedFailed',
+                        'Timeout', 'UserCanceled', 'NoEnoughCommitteesAnswered', 'UserDiscarded',
+                        'Failed', 'Success', 'Canceled'
+                     )
+                    THEN status_updated_at
+                END) AS pegin_oldest_active_status_updated_at,
+                MIN(CASE
+                    WHEN is_bridge_in = 1 AND status = 'UserInited'
+                    THEN status_updated_at
+                END) AS pegin_oldest_committee_wait_status_updated_at,
+                MIN(CASE
+                    WHEN is_bridge_in = 0 AND status NOT IN ('Claim', 'Timeout', 'Refund')
+                    THEN status_updated_at
+                END) AS pegout_oldest_active_status_updated_at,
+                (
+                    SELECT available_peg_btc
+                    FROM node
+                    WHERE peer_id = ? AND actor = 'Operator'
+                    LIMIT 1
+                ) AS operator_available_pegbtc
+            FROM instance
+            "#,
+        )
+        .bind(local_peer_id)
+        .fetch_one(self.conn())
+        .await?;
+        Ok(snapshot)
+    }
+
+    /// Returns aggregate local progress for the configured event watchers.
+    pub async fn event_watch_metrics_snapshot(
+        &mut self,
+        finalized_height: i64,
+    ) -> anyhow::Result<EventWatchMetricsSnapshot> {
+        Ok(sqlx::query_as::<_, EventWatchMetricsSnapshot>(
+            r#"
+            SELECT
+                COALESCE(MAX(MAX(? - from_height + 1, 0)), 0) AS lag_blocks,
+                COUNT(*) AS watcher_count,
+                COALESCE(SUM(CASE WHEN status IN ('UnSync', 'Syncing') THEN 1 ELSE 0 END), 0)
+                    AS syncing_count,
+                COALESCE(SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END), 0)
+                    AS failed_count
+            FROM watch_contract
+            WHERE from_height != 0
+            "#,
+        )
+        .bind(finalized_height)
+        .fetch_one(self.conn())
+        .await?)
+    }
+
+    /// Returns grouped proof task counts, ages, and latest success times for Proof Builder metrics.
+    pub async fn proof_metrics_state_counts(&mut self) -> anyhow::Result<Vec<MetricsStateCount>> {
+        let counts = sqlx::query_as::<_, MetricsStateCount>(
+            r#"
+            SELECT
+                chain_name AS category,
+                CAST(proof_state AS TEXT) AS state,
+                COUNT(*) AS count,
+                MIN(CASE WHEN proof_state IN (0, 1) THEN created_at END) AS oldest_created_at,
+                MAX(CASE WHEN proof_state = 2 THEN updated_at END) AS last_success_at
+            FROM long_running_task_proof
+            GROUP BY chain_name, proof_state
+            UNION ALL
+            SELECT
+                'operator' AS category,
+                CAST(proof_state AS TEXT) AS state,
+                COUNT(*) AS count,
+                MIN(CASE WHEN proof_state IN (0, 1) THEN created_at END) AS oldest_created_at,
+                MAX(CASE WHEN proof_state = 2 THEN updated_at END) AS last_success_at
+            FROM operator_proof
+            GROUP BY proof_state
+            UNION ALL
+            SELECT
+                'watchtower' AS category,
+                CAST(proof_state AS TEXT) AS state,
+                COUNT(*) AS count,
+                MIN(CASE WHEN proof_state IN (0, 1) THEN created_at END) AS oldest_created_at,
+                MAX(CASE WHEN proof_state = 2 THEN updated_at END) AS last_success_at
+            FROM watchtower_proof
+            GROUP BY proof_state
+            ORDER BY category, state
+            "#,
+        )
+        .fetch_all(self.conn())
+        .await?;
+        Ok(counts)
     }
 
     /// Insert or update an instance
@@ -3501,6 +3641,116 @@ mod tests {
 
     async fn setup_db() -> LocalDB {
         create_local_db("sqlite::memory:").await
+    }
+
+    #[tokio::test]
+    async fn test_node_metrics_state_counts() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO instance (instance_id, is_bridge_in, status, created_at, updated_at) VALUES ('in-1', 1, 'Pending', 20, 20), ('in-2', 1, 'Pending', 10, 10), ('out-1', 0, 'Completed', 30, 30)",
+        )
+        .execute(s.conn())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO graph (graph_id, instance_id, status, created_at, updated_at) VALUES ('graph-1', 'in-1', 'Created', 40, 40), ('graph-2', 'in-2', 'Created', 25, 25)",
+        )
+        .execute(s.conn())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO message (message_id, business_id, actor, msg_type, content, state, created_at, updated_at) VALUES ('message-1', 'in-1', 'operator', 'test', X'00', 'Pending', 15, 15)",
+        )
+        .execute(s.conn())
+        .await
+        .unwrap();
+
+        let counts = s.node_metrics_state_counts().await.unwrap();
+        assert_eq!(
+            counts.iter().find(|count| {
+                count.category == "instance_bridge_in" && count.state == "Pending"
+            }),
+            Some(&MetricsStateCount {
+                category: "instance_bridge_in".to_string(),
+                state: "Pending".to_string(),
+                count: 2,
+                oldest_created_at: Some(10),
+                last_success_at: None,
+            })
+        );
+        assert_eq!(
+            counts
+                .iter()
+                .find(|count| count.category == "graph" && count.state == "Created")
+                .unwrap()
+                .oldest_created_at,
+            Some(25)
+        );
+        assert_eq!(
+            counts
+                .iter()
+                .find(|count| count.category == "message" && count.state == "Pending")
+                .unwrap()
+                .count,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_proof_metrics_state_counts() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+
+        sqlx::query("DELETE FROM long_running_task_proof").execute(s.conn()).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO long_running_task_proof (block_start, block_end, chain_name, proof_state, created_at, updated_at) VALUES (0, 1, 'header-chain', 2, 40, 90), (1, 2, 'header-chain', 2, 20, 100), (2, 3, 'header-chain', 0, 10, 10)",
+        )
+        .execute(s.conn())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO operator_proof (instance_id, graph_id, execution_layer_block_number, operator_committed_blockhash, proof_state, created_at, updated_at) VALUES ('instance', 'graph', 0, 'hash', 2, 50, 80)",
+        )
+        .execute(s.conn())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO watchtower_proof (instance_id, graph_id, public_key, challenge_txid, challenge_init_txid, execution_layer_block_number, proof_state, created_at, updated_at) VALUES ('instance', 'graph', 'key', 'challenge', 'init', 0, 1, 60, 70)",
+        )
+        .execute(s.conn())
+        .await
+        .unwrap();
+
+        let counts = s.proof_metrics_state_counts().await.unwrap();
+        assert_eq!(
+            counts.iter().find(|count| count.category == "header-chain" && count.state == "2"),
+            Some(&MetricsStateCount {
+                category: "header-chain".to_string(),
+                state: "2".to_string(),
+                count: 2,
+                oldest_created_at: None,
+                last_success_at: Some(100),
+            })
+        );
+        assert_eq!(
+            counts
+                .iter()
+                .find(|count| count.category == "operator" && count.state == "2")
+                .unwrap()
+                .last_success_at,
+            Some(80)
+        );
+        assert_eq!(
+            counts
+                .iter()
+                .find(|count| count.category == "watchtower" && count.state == "1")
+                .unwrap()
+                .last_success_at,
+            None
+        );
     }
 
     #[tokio::test]

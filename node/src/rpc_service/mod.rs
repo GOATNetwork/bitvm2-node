@@ -31,8 +31,7 @@ use bitvm_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::http_client::async_client::HttpAsyncClient;
-use prometheus_client::registry::Registry;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
@@ -74,11 +73,10 @@ impl AppState {
         local_db: LocalDB,
         actor: Actor,
         peer_id: String,
-        registry: Arc<Mutex<Registry>>,
+        metrics_state: MetricsState,
     ) -> anyhow::Result<Arc<AppState>> {
         let btc_client = BTCClient::new(get_network(), get_btc_url_from_env().as_deref());
         let goat_client = GOATClient::new(goat_config_from_env().await, get_goat_network());
-        let metrics_state = MetricsState::new(registry);
         let http_client = HttpAsyncClient::new(None);
         Ok(Arc::new(AppState {
             local_db,
@@ -95,7 +93,7 @@ impl AppState {
         local_db: LocalDB,
         actor: Actor,
         peer_id: String,
-        registry: Arc<Mutex<Registry>>,
+        metrics_state: MetricsState,
     ) -> anyhow::Result<Arc<AppState>> {
         let (btc_client, btc_mock_adaptor) = BTCClient::new_mock_client();
         btc_mock_adaptor.set_height(900_000);
@@ -108,7 +106,7 @@ impl AppState {
             local_db,
             btc_client,
             goat_client,
-            metrics_state: MetricsState::new(registry),
+            metrics_state,
             actor,
             peer_id,
             http_client: HttpAsyncClient::new(None),
@@ -166,7 +164,6 @@ pub async fn serve_with_app_state(
         .route(routes::v1::PEGOUT, post(pegout))
         .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_desc))
         .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_desc))
-        .route(routes::METRICS, get(metrics_handler))
         .layer(create_secure_cors_layer())
         .layer(
             TraceLayer::new_for_http()
@@ -210,6 +207,7 @@ pub async fn serve_with_app_state(
                 ),
         )
         .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
+        .route(routes::METRICS, get(metrics_handler))
         .with_state(app_state);
 
     let listener = TcpListener::bind(&addr)
@@ -245,10 +243,10 @@ pub async fn serve(
     local_db: LocalDB,
     actor: Actor,
     peer_id: String,
-    registry: Arc<Mutex<Registry>>,
+    metrics_state: MetricsState,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
-    let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, registry).await?;
+    let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, metrics_state).await?;
     serve_with_app_state(addr, app_state, cancellation_token).await
 }
 
@@ -257,6 +255,7 @@ mod tests {
     use crate::env::{
         ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_PROOF_SEVER_URL, get_network,
     };
+    use crate::metrics_service::MetricsState;
     use crate::rpc_service::bitvm::{
         BRIDGE_IN_AMOUNTS, GraphGetResponse, GraphListResponse, InstanceGetResponse,
         InstanceListResponse, InstanceOverviewResponse, InstanceSettingResponse,
@@ -376,6 +375,52 @@ mod tests {
     fn available_addr() -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         listener.local_addr().unwrap().to_string()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn metrics_use_route_templates_and_exclude_scrapes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let addr = available_addr();
+        let local_db = create_local_db(&temp_sqlite_db_path()).await;
+        let metrics_state = MetricsState::new(Arc::new(Mutex::new(Registry::default())));
+        let app_state = rpc_service::AppState::create_arc_mock_app_state(
+            local_db,
+            Actor::Verifier,
+            generate_local_key().public().to_peer_id().to_string(),
+            metrics_state,
+        )
+        .await?;
+        let cancellation_token = CancellationToken::new();
+        let server_token = cancellation_token.clone();
+        let server =
+            tokio::spawn(rpc_service::serve_with_app_state(addr.clone(), app_state, server_token));
+        sleep(Duration::from_millis(100)).await;
+
+        let client = Client::new();
+        client.get(format!("http://{addr}/")).send().await?.error_for_status()?;
+        let unmatched = client.get(format!("http://{addr}/missing")).send().await?;
+        assert_eq!(unmatched.status().as_u16(), 404);
+        let first_scrape =
+            client.get(format!("http://{addr}/metrics")).send().await?.text().await?;
+        let second_scrape =
+            client.get(format!("http://{addr}/metrics")).send().await?.text().await?;
+
+        assert!(
+            first_scrape
+                .contains("http_requests_total{method=\"GET\",route=\"/\",status=\"200\"} 1")
+        );
+        assert!(
+            first_scrape.contains(
+                "http_requests_total{method=\"GET\",route=\"unmatched\",status=\"404\"} 1"
+            )
+        );
+        assert!(first_scrape.contains("http_requests_in_flight 0"));
+        assert!(!first_scrape.contains("route=\"/metrics\""));
+        assert_eq!(first_scrape, second_scrape);
+
+        cancellation_token.cancel();
+        server.await??;
+        Ok(())
     }
 
     async fn init_nodes_data(local_db: &LocalDB, nodes: &[Node]) -> anyhow::Result<()> {
@@ -498,7 +543,7 @@ mod tests {
             local_db,
             Actor::Verifier,
             generate_local_key().public().to_peer_id().to_string(),
-            Arc::new(Mutex::new(Registry::default())),
+            MetricsState::new(Arc::new(Mutex::new(Registry::default()))),
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(3)).await;
@@ -701,7 +746,7 @@ mod tests {
             local_db.clone(),
             actor.clone(),
             peer_id.clone(),
-            Arc::new(Mutex::new(Registry::default())),
+            MetricsState::new(Arc::new(Mutex::new(Registry::default()))),
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(3)).await;
@@ -854,7 +899,7 @@ mod tests {
             local_db,
             committee,
             committee_peer_id,
-            Arc::new(Mutex::new(Registry::default())),
+            MetricsState::new(Arc::new(Mutex::new(Registry::default()))),
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(3)).await;

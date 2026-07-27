@@ -5,6 +5,7 @@ mod header_chain_proof;
 mod operator_proof;
 mod state_chain_proof;
 mod watchtower_proof;
+use crate::api::metrics_service::ApiMetricsState;
 use crate::config::ProofBuilderConfig;
 use crate::task::{
     commit_chain_proof::spawn_commit_chain_proof_task,
@@ -39,6 +40,7 @@ pub(crate) fn is_start_generate_proof_tasks(cfg: &ProofBuilderConfig) -> bool {
 pub(crate) async fn run_generate_proof_tasks(
     cfg: ProofBuilderConfig,
     local_db: LocalDB,
+    metrics_state: ApiMetricsState,
     interval: u64,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
@@ -46,6 +48,7 @@ pub(crate) async fn run_generate_proof_tasks(
         Either::Left(spawn_header_chain_proof_task(
             cfg.header_chain.clone(),
             local_db.clone(),
+            metrics_state.clone(),
             interval,
             0,
             cancellation_token.clone(),
@@ -58,6 +61,7 @@ pub(crate) async fn run_generate_proof_tasks(
         Either::Left(spawn_commit_chain_proof_task(
             cfg.commit_chain.clone(),
             local_db.clone(),
+            metrics_state.clone(),
             interval,
             interval / 4,
             cancellation_token.clone(),
@@ -70,6 +74,7 @@ pub(crate) async fn run_generate_proof_tasks(
         Either::Left(spawn_state_chain_proof_task(
             cfg.state_chain.clone(),
             local_db.clone(),
+            metrics_state.clone(),
             interval,
             interval / 4,
             cancellation_token.clone(),
@@ -82,6 +87,7 @@ pub(crate) async fn run_generate_proof_tasks(
         Either::Left(spawn_operator_proof_task(
             cfg.operator.clone(),
             local_db.clone(),
+            metrics_state.clone(),
             interval,
             interval / 2,
             cancellation_token.clone(),
@@ -94,6 +100,7 @@ pub(crate) async fn run_generate_proof_tasks(
         Either::Left(spawn_watchtower_proof_task(
             cfg.watchtower.clone(),
             local_db.clone(),
+            metrics_state,
             interval,
             interval * 3 / 4,
             cancellation_token.clone(),

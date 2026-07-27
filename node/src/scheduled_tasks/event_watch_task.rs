@@ -6,6 +6,7 @@ use crate::env::{
     get_goat_gateway_the_graph_urls_from_env, get_goat_swap_event_filter_from_from_env,
     get_goat_swap_event_filter_gap_from_env, get_goat_swap_the_graph_urls_from_env, get_network,
 };
+use crate::metrics_service::{EventWatchState, MetricsState};
 use crate::rpc_service::current_time_secs;
 use crate::scheduled_tasks::get_timestamp_from_contract_data;
 use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
@@ -39,7 +40,7 @@ use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use store::localdb::{GraphRuntimeUpdate, InstanceUpdate, LocalDB, NodeQuery, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxRecord, GoatTxType, GraphStatus, GraphStatusSource,
@@ -50,6 +51,41 @@ use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+async fn refresh_event_watch_metrics(
+    local_db: &LocalDB,
+    goat_client: &GOATClient,
+    metrics_state: &MetricsState,
+) -> anyhow::Result<()> {
+    let finalized_height = goat_client.get_finalized_block_number().await.map_err(|error| {
+        metrics_state.record_goat_backend_probe(false);
+        warn!(event = "metrics_backend_probe", backend = "goat", operation = "get_finalized_block_number", error = %error, "event watcher lag probe failed");
+        error
+    })?;
+    metrics_state.record_goat_backend_probe(true);
+
+    let snapshot = async {
+        let mut storage = local_db.acquire().await?;
+        storage.event_watch_metrics_snapshot(finalized_height).await
+    }
+    .await
+    .map_err(|error| {
+        metrics_state.record_db_error(&error);
+        warn!(event = "metrics_event_watch", error = %error, "failed to collect event watcher state");
+        error
+    })?;
+
+    metrics_state.apply_event_watch_lag(snapshot.lag_blocks);
+    let state = if snapshot.failed_count > 0 {
+        EventWatchState::Failed
+    } else if snapshot.syncing_count > 0 {
+        EventWatchState::Syncing
+    } else {
+        EventWatchState::Healthy
+    };
+    metrics_state.set_event_watch_state(state);
+    Ok(())
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch_and_handle_block_range_events<'a>(
@@ -592,6 +628,9 @@ async fn handle_withdraw_disproved_events<'a>(
             })
             .await?;
         if is_new_event {
+            if let Some(metrics_state) = crate::metrics_service::node_metrics_state() {
+                metrics_state.record_pegout_disprove();
+            }
             add_node_reward(
                 storage_processor,
                 &verifier_addr.unwrap(),
@@ -1291,6 +1330,7 @@ pub async fn monitor_events_item(
         watch_events_config.get_watch_contract_type(),
     )
     .await?;
+
     let query_client = GraphQueryClient::new();
     // let current_finalized = goat_client.get_finalized_block_number().await?;
     let current_finalized = match query_client
@@ -1330,7 +1370,7 @@ pub async fn monitor_events_item(
         let query_client_clone = query_client.clone();
         let watch_events_config_clone = watch_events_config.clone();
         tokio::spawn(async move {
-            let _ = fetch_history_events(
+            if let Err(error) = fetch_history_events(
                 actor.clone(),
                 btc_client.clone(),
                 goat_client,
@@ -1339,7 +1379,10 @@ pub async fn monitor_events_item(
                 watch_contract_clone,
                 watch_events_config_clone,
             )
-            .await;
+            .await
+            {
+                warn!(event = "event_watch_history_sync", error = %error, "event watcher history sync task exited unexpectedly");
+            }
         });
         return Ok(());
     }
@@ -1366,6 +1409,7 @@ pub async fn monitor_events_item(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_watch_event_task(
     actor: Actor,
     local_db: LocalDB,
@@ -1374,6 +1418,7 @@ pub async fn run_watch_event_task(
     interval: u64,
     cancellation_token: CancellationToken,
     goat_init_config: GoatInitConfig,
+    metrics_state: MetricsState,
 ) -> anyhow::Result<String> {
     let gateway_contract: EvmAddress = get_goat_address_from_env(ENV_GOAT_GATEWAY_CONTRACT_ADDRESS)
         .ok_or(anyhow::anyhow!("need to set gateway contract address"))?;
@@ -1490,6 +1535,7 @@ pub async fn run_watch_event_task(
     loop {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(interval)) => {
+                let started_at = Instant::now();
                 // Execute the normal monitoring logic
                 match monitor_events(
                         actor.clone(),
@@ -1500,8 +1546,38 @@ pub async fn run_watch_event_task(
                     )
                     .await
                     {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            metrics_state.record_task_run(
+                                "event_watcher",
+                                "success",
+                                started_at.elapsed(),
+                            );
+                            let local_db = local_db.clone();
+                            let goat_client = goat_client.clone();
+                            let metrics_state = metrics_state.clone();
+                            tokio::spawn(async move {
+                                if let Ok(Err(error)) = tokio::time::timeout(
+                                    Duration::from_secs(30),
+                                    refresh_event_watch_metrics(
+                                        &local_db,
+                                        goat_client.as_ref(),
+                                        &metrics_state,
+                                    ),
+                                )
+                                .await
+                                {
+                                    metrics_state.set_event_watch_state(EventWatchState::Failed);
+                                    warn!(event = "metrics_event_watch", error = %error, "failed to refresh event watcher metrics");
+                                }
+                            });
+                        }
                         Err(e) => {
+                            metrics_state.set_event_watch_state(EventWatchState::Failed);
+                            metrics_state.record_task_run(
+                                "event_watcher",
+                                "failed",
+                                started_at.elapsed(),
+                            );
                             warn!("fail to monitor events: {e}");
                         }
                     }

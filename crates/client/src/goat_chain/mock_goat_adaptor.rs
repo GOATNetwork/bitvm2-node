@@ -78,6 +78,10 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
+    async fn native_balance(&self, _address: &[u8; 20]) -> anyhow::Result<U256> {
+        Ok(U256::ZERO)
+    }
+
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
         info!("call get_tx_receipt");
         Ok(if let Ok(tx_receipt) = self.tx_receipts.lock() {

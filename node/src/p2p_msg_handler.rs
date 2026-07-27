@@ -2,6 +2,7 @@ use crate::action::{
     GOATMessage, GOATMessageContent, handle_self_p2p_msg, recv_and_dispatch, send_to_peer,
 };
 use crate::env::get_local_node_info;
+use crate::metrics_service::MetricsState;
 use crate::middleware::swarm::{BitvmSwarmWrapper, P2pMessageHandler, TickMessageType};
 use crate::utils::detect_heart_beat;
 use bitvm_lib::actors::Actor;
@@ -19,6 +20,7 @@ pub struct BitvmNodeProcessor {
     pub goat_client: GOATClient,
     pub http_client: HttpAsyncClient,
     pub soldering_builder: Option<Arc<BabeBundleBuilder>>,
+    pub metrics_state: MetricsState,
 }
 impl P2pMessageHandler for BitvmNodeProcessor {
     async fn recv_and_dispatch(
@@ -40,6 +42,8 @@ impl P2pMessageHandler for BitvmNodeProcessor {
             from_peer_id,
             id,
             message,
+            &self.metrics_state,
+            true,
         )
         .await
     }
@@ -80,6 +84,7 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                     peer_id,
                     GOATMessage::default_message_id(),
                     &tick_data,
+                    &self.metrics_state,
                 )
                 .await
             }

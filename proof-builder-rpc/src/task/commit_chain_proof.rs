@@ -11,10 +11,13 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
+use crate::api::metrics_service::{ApiMetricsState, COMMIT_CHAIN_PROOF};
+
+#[tracing::instrument(level = "info", skip(local_db, metrics_state, cancellation_token))]
 pub(crate) fn spawn_commit_chain_proof_task(
     args: commit_chain_proof::Args,
     local_db: LocalDB,
+    metrics_state: ApiMetricsState,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
@@ -77,16 +80,56 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     let proving_start = tokio::time::Instant::now();
                     let (input, proof, cycles, proving_time) = match builder.build_proof(&ctx) {
                         Ok(data) => data,
-                        Err(err) => {
-                            tracing::error!("Build proof error, {err:?}");
+                        Err(error) => {
+                            metrics_state.record_attempt(
+                                COMMIT_CHAIN_PROOF,
+                                "failed",
+                                proving_start.elapsed(),
+                            );
+                            tracing::error!("Build proof error: {error:?}");
                             continue;
                         }
                     };
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
                     let zkm_version = proof.zkm_version.clone();
-                    let (public_value_hex, proof_size) = builder.save_proof(&ctx, &input, cycles, proof)?;
-
-                    create_commit_chain_proof(&local_db, block_start, 0xffffffff_i64 - block_start, args.output_proof.clone(), public_value_hex, proof_size as i64, cycles, CommitChainProofBuilder::name(), proving_duration as i64, proving_time as i64, store::ProofState::Proven,zkm_version).await?;
+                    let (public_value_hex, proof_size) =
+                        match builder.save_proof(&ctx, &input, cycles, proof) {
+                            Ok(data) => data,
+                            Err(error) => {
+                                metrics_state.record_attempt(
+                                    COMMIT_CHAIN_PROOF,
+                                    "failed",
+                                    proving_start.elapsed(),
+                                );
+                                return Err(error);
+                            }
+                        };
+                    let persist_result = create_commit_chain_proof(
+                        &local_db,
+                        block_start,
+                        0xffffffff_i64 - block_start,
+                        args.output_proof.clone(),
+                        public_value_hex,
+                        proof_size as i64,
+                        cycles,
+                        CommitChainProofBuilder::name(),
+                        proving_duration as i64,
+                        proving_time as i64,
+                        store::ProofState::Proven,
+                        zkm_version,
+                    )
+                    .await;
+                    let outcome = if matches!(&persist_result, Ok(affected) if *affected > 0) {
+                        "success"
+                    } else {
+                        "failed"
+                    };
+                    metrics_state.record_attempt(
+                        COMMIT_CHAIN_PROOF,
+                        outcome,
+                        proving_start.elapsed(),
+                    );
+                    persist_result?;
                     args = ProofBuilderConfig::run_next(args, CommitChainProofBuilder::name())?;
                 }
                 _ = cancellation_token.cancelled() => {

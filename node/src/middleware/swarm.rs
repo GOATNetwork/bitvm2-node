@@ -9,6 +9,7 @@ use libp2p::gossipsub::MessageId;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{Multiaddr, PeerId, Swarm, gossipsub, kad, noise, tcp, yamux};
+use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
 use std::collections::HashMap;
 
@@ -105,12 +106,26 @@ pub struct BitvmNetworkManager {
     config: BitvmSwarmConfig,
     peer_id: PeerId,
     swarm: BitvmSwarmWrapper,
+    connected_peers: Gauge,
+    required_topics_healthy: Gauge,
 }
 impl BitvmNetworkManager {
     pub fn new(
         config: BitvmSwarmConfig,
         metric_registry: &mut Registry,
     ) -> anyhow::Result<BitvmNetworkManager> {
+        let connected_peers = Gauge::default();
+        let required_topics_healthy = Gauge::default();
+        metric_registry.register(
+            "bitvm_node_p2p_connected_peers",
+            "Number of currently connected P2P peers",
+            connected_peers.clone(),
+        );
+        metric_registry.register(
+            "bitvm_node_p2p_required_topics_healthy",
+            "Whether the local role has a mesh peer for each required P2P topic",
+            required_topics_healthy.clone(),
+        );
         let key_pair = libp2p::identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
             base64::engine::general_purpose::STANDARD.decode(config.local_key.clone())?,
         ))?;
@@ -134,11 +149,25 @@ impl BitvmNetworkManager {
             config,
             swarm: BitvmSwarmWrapper::new(swarm),
             peer_id: key_pair.public().to_peer_id(),
+            connected_peers,
+            required_topics_healthy,
         })
     }
 
     pub fn get_peer_id_string(&self) -> String {
         self.peer_id.to_string()
+    }
+
+    fn refresh_required_topics_health(&self, actor: &Actor) {
+        let role_topic = middleware::get_topic_name(&actor.to_string());
+        let all_topic = middleware::get_topic_name(&Actor::All.to_string());
+        let required_topics =
+            if role_topic == all_topic { vec![role_topic] } else { vec![role_topic, all_topic] };
+        let healthy = required_topics.into_iter().all(|topic| {
+            let topic = gossipsub::IdentTopic::new(topic);
+            self.swarm.behaviour().gossipsub.mesh_peers(&topic.hash()).next().is_some()
+        });
+        self.required_topics_healthy.set(i64::from(healthy));
     }
     pub async fn run<H: P2pMessageHandler>(
         &mut self,
@@ -158,6 +187,7 @@ impl BitvmNetworkManager {
                 (topic_name, gossipsub_topic)
             })
             .collect::<HashMap<String, _>>();
+        self.refresh_required_topics_health(&actor);
 
         if self.config.p2p_port > 0 {
             self.swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{}", self.config.p2p_port).parse()?)?;
@@ -190,6 +220,7 @@ impl BitvmNetworkManager {
                                 Ok(_) => {}
                                 Err(e) => { tracing::error!("Fail to handle tick message {e:?}") }
                             }
+                        self.refresh_required_topics_health(&actor);
 
                     },
 
@@ -198,6 +229,7 @@ impl BitvmNetworkManager {
                                 Ok(_) => {}
                                 Err(e) => { tracing::error!("{e:?}") }
                             }
+                        self.refresh_required_topics_health(&actor);
                     },
 
                     event = self.swarm.select_next_some() => {
@@ -224,8 +256,8 @@ impl BitvmNetworkManager {
                                         data_starts_with_goatbin,
                                         "Fail to handle p2p message"
                                     )
-                                }
                             }
+                        }
                         }
                         SwarmEvent::Behaviour(AllBehavioursEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic})) => {
                             debug!("subscribing: {:?}, {:?}", peer_id, topic);
@@ -269,12 +301,18 @@ impl BitvmNetworkManager {
                             debug!("new external address of peer: {} {}", peer_id, address);
                         }
                         SwarmEvent::ConnectionEstablished {peer_id, connection_id, endpoint, .. } => {
+                            self.connected_peers.set(self.swarm.connected_peers().count() as i64);
                             debug!("connected to {peer_id}: {connection_id}, endpoint: {:?}", endpoint);
+                        }
+                        SwarmEvent::ConnectionClosed {peer_id, connection_id, .. } => {
+                            self.connected_peers.set(self.swarm.connected_peers().count() as i64);
+                            debug!("disconnected from {peer_id}: {connection_id}");
                         }
                         e => {
                             debug!("Unhandled {:?}", e);
                         }
                     }
+                    self.refresh_required_topics_health(&actor);
                 }
             }
         }
