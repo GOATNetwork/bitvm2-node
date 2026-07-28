@@ -5009,7 +5009,8 @@ async fn handle_assert_sent_verifier(
             };
             match validate_pubin_disprove(&graph, commit_pubin_txin, assert_txin, &ack_txins) {
                 Ok(Some((witness_data, _))) => {
-                    // build pubin disprove Tx
+                    // PubinDisprove is not pre-signed, so fund it directly rather
+                    // than relying on CPFP.
                     let pubin_disprove_tx_total_input_amount = graph
                         .operator_assert
                         .connector_d_input()
@@ -5022,8 +5023,8 @@ async fn handle_assert_sent_verifier(
                         input: vec![pubin_disprove_txin],
                         output: vec![
                             goat::scripts::p2a_output(),
-                            // Keep the parent transaction above Bitcoin Core's
-                            // minimum non-witness relay size before CPFP.
+                            // Keep the transaction above Bitcoin Core's minimum
+                            // non-witness relay size.
                             bitcoin::TxOut {
                                 value: Amount::ZERO,
                                 script_pubkey: goat::scripts::generate_opreturn_script(
@@ -5032,10 +5033,14 @@ async fn handle_assert_sent_verifier(
                             },
                         ],
                     };
-                    broadcast_tx_with_cpfp(
+                    let verifier_keypair =
+                        VerifierMasterKey::new(get_bitvm_key()?).master_keypair();
+                    build_sign_and_broadcast_tx(
                         ctx.btc_client,
-                        pubin_disprove_tx,
+                        verifier_keypair,
+                        pubin_disprove_tx.input,
                         pubin_disprove_tx_total_input_amount,
+                        pubin_disprove_tx.output,
                     )
                     .await?;
                     return Ok(());

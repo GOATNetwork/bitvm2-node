@@ -362,3 +362,107 @@ pub fn disprove_timelock(network: Network) -> u32 {
 pub fn disprove_timelock_with_config(network: Network, timelock_config: &TimelockConfig) -> u32 {
     disprove_timelock_blocks(network, timelock_config)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::{
+        OutPoint, TxOut, XOnlyPublicKey,
+        secp256k1::{Keypair, SECP256K1, SecretKey},
+    };
+    use goat::{
+        connectors::{
+            base::TaprootConnector,
+            connector_d::{CONNECTOR_D_PUBIN_DISPROVE_LEAF_INDEX, ConnectorD},
+        },
+        scripts::{generate_opreturn_script, p2a_output},
+        transactions::base::{Input, pubin_disprove_input_amount},
+    };
+
+    #[test]
+    fn pubin_disprove_with_witness_is_standard_sized() {
+        let operator_secret = SecretKey::from_slice(&[1; 32]).expect("valid operator secret");
+        let committee_secret = SecretKey::from_slice(&[2; 32]).expect("valid committee secret");
+        let operator_keypair = Keypair::from_secret_key(SECP256K1, &operator_secret);
+        let committee_keypair = Keypair::from_secret_key(SECP256K1, &committee_secret);
+        let operator_key =
+            XOnlyPublicKey::from(bitcoin::PublicKey::from(operator_keypair.public_key()));
+        let committee_key =
+            XOnlyPublicKey::from(bitcoin::PublicKey::from(committee_keypair.public_key()));
+
+        let guest_secret = Wots96::generate_secret_key();
+        let guest_public_key = Wots96::generate_public_key(&guest_secret);
+        let assert_secret = Wots96::generate_secret_key();
+        let assert_public_key = Wots96::generate_public_key(&assert_secret);
+        let expected_constant = [0x22; 32];
+        let mut guest_pubin = [0u8; 96];
+        guest_pubin[..32].fill(0x11);
+        guest_pubin[32..64].fill(0x23);
+        guest_pubin[64..].fill(0xff);
+        let operator_assert_pubin = [0u8; 96];
+
+        let connector_d = ConnectorD::new(
+            Network::Testnet4,
+            &operator_key,
+            &committee_key,
+            &guest_public_key,
+            &assert_public_key,
+            &expected_constant,
+            &vec![],
+            &default_timelock_config(Network::Testnet4),
+        );
+        let assert_witness =
+            Wots96::sign_to_raw_witness(&assert_secret, &operator_assert_pubin).to_vec();
+        let guest_witness = Wots96::sign_to_raw_witness(&guest_secret, &guest_pubin).to_vec();
+        assert!(
+            validate_pubin(
+                guest_witness.clone(),
+                assert_witness.clone(),
+                vec![],
+                connector_d.generate_taproot_leaf_script(CONNECTOR_D_PUBIN_DISPROVE_LEAF_INDEX),
+            )
+            .is_some(),
+            "locally constructed pubin-disprove witness must satisfy Connector-D",
+        );
+        let mut witness = assert_witness;
+        witness.extend(guest_witness);
+        let input = pubin_disprove(
+            &connector_d,
+            &Input {
+                outpoint: OutPoint::null(),
+                amount: Amount::from_sat(pubin_disprove_input_amount()),
+            },
+            witness,
+        )
+        .expect("build pubin-disprove input");
+        let tx = Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![input],
+            output: vec![
+                p2a_output(),
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: generate_opreturn_script(b"pubin-disprove".to_vec()),
+                },
+            ],
+        };
+
+        let base_size = tx.base_size();
+        let witness_size = tx.input[0].witness.size();
+        let total_size = tx.total_size();
+        println!(
+            "pubin-disprove tx sizes: base_size={base_size}, witness_size={witness_size}, total_size={total_size}"
+        );
+        assert_eq!(
+            total_size,
+            base_size + witness_size + 2,
+            "pubin-disprove total size must include the SegWit marker/flag and script witness: total={total_size}, base={base_size}, witness={witness_size}",
+        );
+        assert!(
+            tx.weight() <= Transaction::MAX_STANDARD_WEIGHT,
+            "pubin-disprove exceeds Bitcoin Core's standard transaction limit: weight={}, total_size={total_size}",
+            tx.weight().to_wu(),
+        );
+    }
+}

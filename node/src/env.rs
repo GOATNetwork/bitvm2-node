@@ -36,10 +36,6 @@ pub const ENV_ENABLE_RELAYER: &str = "ENABLE_RELAYER";
 pub const ENV_ENABLE_UPDATE_SPV_CONTRACT: &str = "ENABLE_UPDATE_SPV_CONTRACT";
 pub const ENV_ENABLE_BABE_SETUP_STATE_CLEANUP: &str = "ENABLE_BABE_SETUP_STATE_CLEANUP";
 pub const ENV_BTC_BLOCK_CONFIRMS: &str = "BTC_BLOCK_CONFIRMS";
-pub const ENV_MARA_SLIPSTREAM_API_URL: &str = "MARA_SLIPSTREAM_API_URL";
-pub const DEFAULT_MARA_SLIPSTREAM_MAINNET_API_URL: &str = "https://slipstream.mara.com/api";
-pub const DEFAULT_MARA_SLIPSTREAM_TESTNET4_API_URL: &str = "https://teststream.mara.com/api";
-
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
 pub const ENV_GOAT_GATEWAY_EVENT_THE_GRAPH_URL: &str = "GOAT_GATEWAY_EVENT_THE_GRAPH_URL";
@@ -390,19 +386,6 @@ pub enum GraphBtcTxName {
 }
 pub fn get_btc_url_from_env() -> Option<String> {
     std::env::var(ENV_BTC_CHAIN_URL).ok()
-}
-
-pub fn get_mara_slipstream_api_base_url(network: Network) -> String {
-    if let Ok(url) = std::env::var(ENV_MARA_SLIPSTREAM_API_URL)
-        && !url.trim().is_empty()
-    {
-        return url;
-    }
-
-    match network {
-        Network::Bitcoin => DEFAULT_MARA_SLIPSTREAM_MAINNET_API_URL.to_string(),
-        _ => DEFAULT_MARA_SLIPSTREAM_TESTNET4_API_URL.to_string(),
-    }
 }
 
 pub fn get_sequencer_set_monitor_start_cosmos_block_from_env() -> Option<u64> {

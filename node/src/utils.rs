@@ -15,7 +15,7 @@ use alloy::signers::Signer;
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::{Context, Result, anyhow, bail};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::consensus::encode::{deserialize, serialize};
+use bitcoin::consensus::encode::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::{
@@ -2266,62 +2266,6 @@ pub async fn get_fee_rate(client: &BTCClient) -> Result<f64> {
     }
 }
 
-pub async fn get_nst_fee_rate(client: &BTCClient) -> Result<f64> {
-    Ok(get_fee_rate(client).await? * 3.0)
-}
-
-pub async fn broadcast_nonstandard_tx(btc_client: &BTCClient, tx: &Transaction) -> Result<()> {
-    match broadcast_tx(btc_client, tx).await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            let network = btc_client.network();
-            let base_url = get_mara_slipstream_api_base_url(network);
-            let submit_url = format!("{}/transactions", base_url.trim_end_matches('/'));
-            let tx_hex = hex::encode(serialize(tx));
-
-            warn!(
-                "normal broadcast failed, fallback to MARA slipstream api. network: {network:?}, url: {submit_url}, err: {e}"
-            );
-
-            let response = reqwest::Client::new()
-                .post(&submit_url)
-                .json(&serde_json::json!({ "tx_hex": tx_hex }))
-                .send()
-                .await
-                .map_err(|fallback_err| {
-                    anyhow!(
-                        "fallback broadcast request failed. normal error: {e}; fallback error: {fallback_err}"
-                    )
-                })?;
-
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "<failed to read response body>".to_string());
-
-            if !status.is_success() {
-                bail!(
-                    "fallback broadcast failed. normal error: {e}; fallback status: {status}; fallback body: {body}"
-                );
-            }
-
-            let status_field = serde_json::from_str::<serde_json::Value>(&body)
-                .ok()
-                .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(str::to_string));
-            if let Some(status_field) = status_field
-                && !status_field.eq_ignore_ascii_case("success")
-            {
-                bail!(
-                    "fallback broadcast returned non-success status. normal error: {e}; fallback body: {body}"
-                );
-            }
-
-            Ok(())
-        }
-    }
-}
-
 /// Broadcasts a raw transaction to the Bitcoin network using the mempool API.
 ///
 /// Requirements:
@@ -2939,68 +2883,6 @@ pub async fn build_sign_and_broadcast_tx(
                 )?;
             }
             broadcast_tx(client, &tx).await?;
-            Ok(tx.compute_txid())
-        }
-        None => {
-            let current_balance = client
-                .get_address_utxo(node_address)
-                .await?
-                .iter()
-                .map(|u| u.value)
-                .sum::<Amount>();
-            bail!(SpecialError::InsufficientBalance(format!(
-                "Not enough balance to complete the transaction, current_balance: {current_balance} < shortfall: {shortfall}"
-            )));
-        }
-    }
-}
-
-pub async fn build_sign_and_broadcast_non_standard_tx(
-    client: &BTCClient,
-    node_keypair: Keypair,
-    mut tx: Transaction,
-    total_input_amount: Amount,
-) -> Result<Txid> {
-    let fixed_inputs_num = tx.input.len();
-    let total_output_amount: Amount = tx.output.iter().map(|o| o.value).sum();
-    let fee_rate = get_nst_fee_rate(client).await?;
-    let node_address = node_p2wsh_address(get_network(), &node_keypair.public_key().into());
-    let shortfall =
-        Amount::from_sat(total_output_amount.to_sat().saturating_sub(total_input_amount.to_sat()));
-    match get_proper_utxo_set(
-        client,
-        tx.weight().to_vbytes_ceil(),
-        node_address.clone(),
-        shortfall,
-        fee_rate,
-    )
-    .await?
-    {
-        Some((inputs, _, change_amount)) => {
-            for input in &inputs {
-                tx.input.push(TxIn {
-                    previous_output: input.outpoint,
-                    script_sig: ScriptBuf::new(),
-                    sequence: Sequence::MAX,
-                    witness: Witness::default(),
-                });
-            }
-            if change_amount > Amount::from_sat(DUST_AMOUNT) {
-                tx.output.push(TxOut {
-                    script_pubkey: node_address.script_pubkey(),
-                    value: change_amount,
-                });
-            }
-            for (i, input) in inputs.iter().enumerate() {
-                node_sign(
-                    &mut tx,
-                    i + fixed_inputs_num,
-                    input.amount,
-                    EcdsaSighashType::All,
-                    &node_keypair,
-                )?;
-            }
-            broadcast_nonstandard_tx(client, &tx).await?;
             Ok(tx.compute_txid())
         }
         None => {
