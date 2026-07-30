@@ -58,12 +58,11 @@ fn merkle_root_from_base64_txns(txns_b64: &[Vec<u8>]) -> [u8; 32] {
 
 pub fn verify_sequencer_commit(light_block: &LightBlock) {
     let vp = ProdVerifier::default();
-    let verdict = vp.verify_commit(&light_block.as_untrusted_state());
-    match verdict {
-        Verdict::Success => {
-            println!("success");
+    let untrusted = light_block.as_untrusted_state();
+    for verdict in [vp.verify_validator_sets(&untrusted), vp.verify_commit(&untrusted)] {
+        if !matches!(verdict, Verdict::Success) {
+            panic!("invalid sequencer commit: {verdict:?}");
         }
-        v => panic!("expected success, got: {v:?}"),
     }
 }
 
@@ -147,6 +146,14 @@ mod tests {
         let light_block_1 = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
         let light_block_2 = serde_json::from_str::<LightBlock>(LB_2_JSON).unwrap();
         verify_sequencer_set(light_block_1, light_block_2.clone());
+    }
+
+    #[test]
+    fn sequencer_commit_rejects_a_validator_hash_mismatch() {
+        let mut light_block = serde_json::from_str::<LightBlock>(LB_1_JSON).unwrap();
+        verify_sequencer_commit(&light_block);
+        light_block.signed_header.header.validators_hash = tendermint::Hash::Sha256([0x42; 32]);
+        assert!(std::panic::catch_unwind(|| verify_sequencer_commit(&light_block)).is_err());
     }
 
     #[test]

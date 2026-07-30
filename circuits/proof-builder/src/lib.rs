@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bitcoin::{Block, BlockHash, ScriptBuf, Transaction, TxOut};
+use bitcoin::{Block, BlockHash, Transaction, Txid};
 use commit_chain::CircuitCommit;
 use header_chain::CircuitBlockHeader;
 use serde::{Deserialize, Serialize};
@@ -63,12 +63,10 @@ pub enum ProofRequest {
 
         operator_committed_blockhash: BlockHash,
 
-        watchtower_challenge_indices: Vec<u16>,
         graph_watchtower_xonly_public_keys: Vec<[u8; 32]>,
-        watchtower_challenge_txns: Vec<Transaction>,
-        watchtower_challenge_txn_prev_outs: Vec<TxOut>,
-        watchtower_challenge_txn_pubkeys: Vec<bitcoin::secp256k1::PublicKey>,
-        watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
+        watchtower_challenge_init_txid: Txid,
+        watchtower_challenge_init_txn: Option<Transaction>,
+        watchtower_challenge_witnesses: Vec<(u16, u32, Block, Transaction)>,
     },
 }
 

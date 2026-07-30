@@ -1,7 +1,7 @@
 use crate::MMRGuest;
 use bincode::Options as BincodeOptions;
 use bitcoin::{
-    BlockHash, CompactTarget, TxMerkleNode,
+    BlockHash, CompactTarget, Network, TxMerkleNode,
     block::{Header, Version},
     hashes::Hash,
 };
@@ -27,6 +27,14 @@ pub const NETWORK_TYPE: &str = {
         None => "mainnet",
         _ => panic!("Invalid network type"),
     }
+};
+
+pub const NETWORK: Network = match NETWORK_TYPE.as_bytes() {
+    b"mainnet" => Network::Bitcoin,
+    b"testnet4" => Network::Testnet4,
+    b"signet" => Network::Signet,
+    b"regtest" => Network::Regtest,
+    _ => panic!("Unsupported network"),
 };
 
 // Const evaluation of network type from environment
@@ -280,6 +288,11 @@ impl ChainState {
         }
 
         self.total_work = current_work.to_be_bytes();
+        assert_eq!(
+            self.block_hashes_mmr.size,
+            self.block_height.checked_add(1).expect("invalid empty header chain state"),
+            "header MMR size must equal block height plus one"
+        );
     }
 }
 
@@ -366,6 +379,7 @@ pub struct BlockHeaderCircuitOutput {
     pub chain_state: ChainState,
     pub self_program_id: verifier::ProgramId,
     pub program_history_hash: [u8; 32],
+    pub upgrade_checkpoint_hash: [u8; 32],
 }
 
 /// The input proof of the header chain circuit.

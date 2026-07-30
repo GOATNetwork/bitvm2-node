@@ -45,6 +45,7 @@ pub struct StateChainCircuitOutput {
     pub chain_state: StateChainState,
     pub self_program_id: verifier::ProgramId,
     pub program_history_hash: [u8; 32],
+    pub upgrade_checkpoint_hash: [u8; 32],
 }
 
 pub fn classify_state_chain_output(

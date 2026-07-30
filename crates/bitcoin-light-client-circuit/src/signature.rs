@@ -7,9 +7,9 @@ pub use tendermint_light_client_verifier::{
 use bitcoin::{
     Script, ScriptBuf, Transaction, TxOut,
     key::Keypair,
-    secp256k1::{Message as EcdsaMessage, PublicKey, Secp256k1, XOnlyPublicKey},
+    secp256k1::{Message as EcdsaMessage, Secp256k1, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache, TapSighashType},
-    taproot::{LeafVersion, Signature as TaprootSignature, TapLeafHash},
+    taproot::{ControlBlock, LeafVersion, Signature as TaprootSignature, TapLeafHash},
 };
 
 /// Generate Taproot script-path's Schnorr signature
@@ -40,26 +40,47 @@ fn generate_taproot_leaf_schnorr_signature(
     TaprootSignature { signature: sig, sighash_type }
 }
 
-/// Verify Schnorr signature
-///
+/// Verifies the Taproot script-path witness and Schnorr signature for one transaction input.
 pub fn verify_taproot_leaf_schnorr_signature(
     script: &ScriptBuf,
     spending_tx: &Transaction,
-    prev_index: usize,
+    input_index: usize,
     prev_out: &TxOut,
-    pubkey: &PublicKey,
-    sig: &TaprootSignature,
+    pubkey: &XOnlyPublicKey,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let input = spending_tx.input.get(input_index).ok_or("Invalid input index")?;
+    let sig = input.witness.iter().next().ok_or("Missing Taproot signature").and_then(|bytes| {
+        TaprootSignature::from_slice(bytes).map_err(|_| "Invalid Taproot signature")
+    })?;
     if sig.sighash_type != TapSighashType::AllPlusAnyoneCanPay {
         return Err("Invalid sig type".into());
     }
     let secp = Secp256k1::verification_only();
+    let witness_len = input.witness.len();
+    if witness_len < 3 {
+        return Err("Invalid Taproot script-path witness".into());
+    }
+    let witness_script =
+        input.witness.iter().nth(witness_len - 2).ok_or("Missing Taproot witness script")?;
+    if witness_script != script.as_bytes() {
+        return Err("Taproot witness script mismatch".into());
+    }
+    let control_block = ControlBlock::decode(
+        input.witness.iter().nth(witness_len - 1).ok_or("Missing Taproot control block")?,
+    )?;
+    let script_pubkey = prev_out.script_pubkey.as_bytes();
+    if script_pubkey.len() != 34 || script_pubkey[0] != 0x51 || script_pubkey[1] != 0x20 {
+        return Err("Prevout is not P2TR".into());
+    }
+    let output_key = XOnlyPublicKey::from_slice(&script_pubkey[2..])?;
+    if !control_block.verify_taproot_commitment(&secp, output_key, script) {
+        return Err("Taproot control block does not commit to the witness script".into());
+    }
+
     let leaf_hash = TapLeafHash::from_script(script, LeafVersion::TapScript);
-    let internal_xonly: XOnlyPublicKey = (*pubkey).into();
     let sighash = match SighashCache::new(spending_tx).taproot_script_spend_signature_hash(
-        0,
-        //&Prevouts::All(&[prev_out.clone()]),
-        &Prevouts::One(prev_index, prev_out.clone()),
+        input_index,
+        &Prevouts::One(input_index, prev_out.clone()),
         leaf_hash,
         TapSighashType::AllPlusAnyoneCanPay,
     ) {
@@ -68,7 +89,7 @@ pub fn verify_taproot_leaf_schnorr_signature(
     };
     let msg = EcdsaMessage::from(sighash);
 
-    Ok(secp.verify_schnorr(&sig.signature, &msg, &internal_xonly)?)
+    Ok(secp.verify_schnorr(&sig.signature, &msg, pubkey)?)
 }
 
 #[cfg(test)]
@@ -141,25 +162,44 @@ mod tests {
             &keypair,
         );
 
-        // 7. Verify the signature
-        verify_taproot_leaf_schnorr_signature(
-            &script,
-            &spending_tx,
-            0,
-            &prev_out,
-            &keypair.public_key(),
-            &sig,
-        )
-        .unwrap();
-        println!("Schnorr signature verified successfully!");
-
-        // 8. Construct control block + witness
+        // 7. Construct control block + witness
         let control_block = taproot_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("control block");
 
-        spending_tx.input[0].witness =
-            Witness::from(vec![sig.to_vec(), script.into_bytes(), control_block.serialize()]);
+        spending_tx.input[0].witness = Witness::from(vec![
+            sig.to_vec(),
+            script.clone().into_bytes(),
+            control_block.serialize(),
+        ]);
+
+        // 8. Verify the signature and Taproot script commitment.
+        verify_taproot_leaf_schnorr_signature(&script, &spending_tx, 0, &prev_out, &internal_xonly)
+            .unwrap();
+        let mut wrong_prevout = prev_out.clone();
+        wrong_prevout.script_pubkey = ScriptBuf::new();
+        assert!(
+            verify_taproot_leaf_schnorr_signature(
+                &script,
+                &spending_tx,
+                0,
+                &wrong_prevout,
+                &internal_xonly,
+            )
+            .is_err()
+        );
+        let mut missing_signature = spending_tx.clone();
+        missing_signature.input[0].witness = Witness::new();
+        assert!(
+            verify_taproot_leaf_schnorr_signature(
+                &script,
+                &missing_signature,
+                0,
+                &prev_out,
+                &internal_xonly,
+            )
+            .is_err()
+        );
 
         println!("Final spending tx hex = {}", hex::encode(serialize(&spending_tx)));
     }

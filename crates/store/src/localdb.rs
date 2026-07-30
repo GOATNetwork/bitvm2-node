@@ -2839,6 +2839,18 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    /// Deletes all persisted proof tasks for one proof chain.
+    pub async fn delete_long_running_task_proofs_by_name(
+        &mut self,
+        chain_name: &str,
+    ) -> anyhow::Result<u64> {
+        let res = sqlx::query("DELETE FROM long_running_task_proof WHERE chain_name = ?")
+            .bind(chain_name)
+            .execute(self.conn())
+            .await?;
+        Ok(res.rows_affected())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn update_long_running_task_proof_success(
         &mut self,

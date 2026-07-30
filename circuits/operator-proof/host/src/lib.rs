@@ -1,13 +1,8 @@
 //! Generate operator proof
 use alloy_primitives::U256;
 use anyhow::Context;
-use bitcoin::{
-    BlockHash, Network, ScriptBuf, Transaction, TxOut, Txid,
-    hashes::Hash,
-    secp256k1::{PublicKey, XOnlyPublicKey},
-};
-use bitcoin_light_client_circuit::build_spv;
-use bitcoin_script::script;
+use bitcoin::{Block, BlockHash, Network, Transaction, Txid, hashes::Hash, secp256k1::PublicKey};
+use bitcoin_light_client_circuit::{IndexedWatchtowerChallenge, build_spv};
 use borsh::BorshDeserialize;
 use clap::Parser;
 use client::btc_chain::BTCClient;
@@ -172,7 +167,7 @@ use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 static ELF_ID: OnceLock<String> = OnceLock::new();
 
-type IndexedWatchtowerInputs = Vec<(u16, Txid, PublicKey)>;
+type IndexedWatchtowerInputs = Vec<(u16, Txid)>;
 type GraphWatchtowerXOnlyPublicKeys = Vec<[u8; 32]>;
 
 /// Parses the full graph key list and keeps each included challenge's original graph index.
@@ -201,7 +196,7 @@ fn parse_indexed_watchtower_inputs(
         .iter()
         .enumerate()
         .filter(|(_, txid)| !txid.trim().is_empty())
-        .map(|(index, txid)| Ok((index as u16, Txid::from_str(txid)?, public_keys[index])))
+        .map(|(index, txid)| Ok((index as u16, Txid::from_str(txid)?)))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok((included, graph_keys))
@@ -220,15 +215,14 @@ pub async fn fetch_target_block_and_watchtower_tx(
     bitcoin::Block,
     BlockHash,
     Transaction,
-    Vec<u16>,
     Vec<[u8; 32]>,
-    Vec<Transaction>,
-    Vec<TxOut>,
-    Vec<PublicKey>,
-    Vec<ScriptBuf>,
+    Txid,
+    Option<Transaction>,
+    Vec<(u16, u32, Block, Transaction)>,
 )> {
     let (indexed_watchtower_inputs, graph_watchtower_xonly_public_keys) =
         parse_indexed_watchtower_inputs(watchtower_challenge_txids, watchtower_public_keys)?;
+    let watchtower_challenge_init_txid = Txid::from_str(watchtower_challenge_init_txid)?;
     let btc_client = BTCClient::new(bitcoin_network, Some(esplora_url));
 
     let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid)?;
@@ -279,48 +273,40 @@ pub async fn fetch_target_block_and_watchtower_tx(
     }
 
     // --- watchtower_challenge_txns --- //
-    let mut watchtower_challenge_txns = Vec::new();
-    let mut watchtower_challenge_indices = Vec::new();
-    let mut watchtower_challenge_txn_prev_outs: Vec<TxOut> = Vec::new();
-    let mut watchtower_challenge_txn_pubkeys = Vec::new();
-    let mut watchtower_challenge_txn_scripts: Vec<ScriptBuf> = Vec::new();
+    let mut watchtower_challenge_witnesses = Vec::new();
 
-    let watchtower_challlenge_init_txn: Transaction =
-        match btc_client.get_tx(&watchtower_challenge_init_txid.parse().unwrap()).await? {
+    let watchtower_challenge_init_txn = if indexed_watchtower_inputs.is_empty() {
+        None
+    } else {
+        let transaction = match btc_client.get_tx(&watchtower_challenge_init_txid).await? {
             Some(tx) => tx,
             None => anyhow::bail!(
                 "Failed to fetch watchtower challenge init txn: {}",
                 watchtower_challenge_init_txid
             ),
         };
+        anyhow::ensure!(
+            transaction.compute_txid() == watchtower_challenge_init_txid,
+            "Fetched watchtower challenge init transaction has the wrong txid"
+        );
+        Some(transaction)
+    };
 
-    for (node_index, txid, public_key) in indexed_watchtower_inputs {
-        tracing::info!("txid: {}, pk: {}", txid, public_key);
+    for (node_index, txid) in indexed_watchtower_inputs {
+        tracing::info!("watchtower challenge txid: {txid}");
         let txn = match btc_client.get_tx(&txid).await? {
             Some(tx) => tx,
             None => anyhow::bail!("Failed to fetch watchtower challenge txn: {}", txid),
         };
-        // get prev outs
-        // FIXME: update the index
-        let index = txn.input[0].previous_output.vout as usize;
-        watchtower_challenge_txn_prev_outs
-            .push(watchtower_challlenge_init_txn.output[index].clone());
-
-        watchtower_challenge_indices.push(node_index);
-        watchtower_challenge_txn_pubkeys.push(public_key);
-        watchtower_challenge_txns.push(txn);
-
-        // https://github.com/GOATNetwork/BitVM/blob/GA/goat/src/transactions/watchtower_challenge.rs#L45
-        // generate_pay_to_pubkey_taproot_script
-        let watchtower_challenge_txn_script: ScriptBuf = {
-            let public_key: XOnlyPublicKey = public_key.into();
-            script! {
-                { public_key }
-                OP_CHECKSIG
-            }
-            .compile()
+        let status = btc_client.get_tx_status(&txid).await?;
+        let block_height = status
+            .block_height
+            .ok_or_else(|| anyhow::anyhow!("watchtower challenge is not confirmed: {txid}"))?;
+        let block = btc_client.get_block_by_height(block_height).await?;
+        if !block.txdata.iter().any(|candidate| candidate.compute_txid() == txid) {
+            anyhow::bail!("watchtower challenge is missing from its reported block: {txid}");
         };
-        watchtower_challenge_txn_scripts.push(watchtower_challenge_txn_script);
+        watchtower_challenge_witnesses.push((node_index, block_height, block, txn));
     }
 
     Ok((
@@ -328,12 +314,10 @@ pub async fn fetch_target_block_and_watchtower_tx(
         target_block_ss_commit,
         operator_committed_blockhash,
         operator_latest_sequencer_commit_txn,
-        watchtower_challenge_indices,
         graph_watchtower_xonly_public_keys,
-        watchtower_challenge_txns,
-        watchtower_challenge_txn_prev_outs,
-        watchtower_challenge_txn_pubkeys,
-        watchtower_challenge_txn_scripts,
+        watchtower_challenge_init_txid,
+        watchtower_challenge_init_txn,
+        watchtower_challenge_witnesses,
     ))
 }
 pub struct OperatorProofBuilder {
@@ -388,12 +372,10 @@ impl ProofBuilder for OperatorProofBuilder {
 
             operator_committed_blockhash,
 
-            watchtower_challenge_indices,
             graph_watchtower_xonly_public_keys,
-            watchtower_challenge_txns,
-            watchtower_challenge_txn_prev_outs,
-            watchtower_challenge_txn_pubkeys,
-            watchtower_challenge_txn_scripts,
+            watchtower_challenge_init_txid,
+            watchtower_challenge_init_txn,
+            watchtower_challenge_witnesses,
             ..
         } = ctx
         else {
@@ -525,6 +507,27 @@ impl ProofBuilder for OperatorProofBuilder {
             target_block_ss_commit.clone(),
             &bitcoin_block_headers,
         );
+        let watchtower_challenges = watchtower_challenge_witnesses
+            .iter()
+            .map(|(node_index, block_height, block, transaction)| {
+                anyhow::ensure!(
+                    bitcoin_block_headers
+                        .get(*block_height as usize)
+                        .map(CircuitBlockHeader::compute_block_hash)
+                        == Some(*block.block_hash().as_byte_array()),
+                    "watchtower challenge block height is not in the authenticated header archive"
+                );
+                Ok(IndexedWatchtowerChallenge {
+                    node_index: *node_index,
+                    spv: build_spv(
+                        transaction,
+                        *block_height,
+                        block.clone(),
+                        &bitcoin_block_headers,
+                    ),
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         // Generate the proofs
         let (proof, cycles, proving_time) = tracing::info_span!("generate proof").in_scope(
@@ -537,14 +540,11 @@ impl ProofBuilder for OperatorProofBuilder {
                 stdin.write(&graph_id);
 
                 stdin.write(&operator_genesis_sequencer_commit_txid.to_byte_array());
-                stdin.write(&operator_latest_sequencer_commit_txn);
 
-                stdin.write(&watchtower_challenge_indices);
+                stdin.write(&watchtower_challenge_init_txid.to_byte_array());
+                stdin.write(&watchtower_challenge_init_txn);
                 stdin.write(&graph_watchtower_xonly_public_keys);
-                stdin.write(&watchtower_challenge_txns);
-                stdin.write(&watchtower_challenge_txn_pubkeys);
-                stdin.write(&watchtower_challenge_txn_scripts);
-                stdin.write(&watchtower_challenge_txn_prev_outs);
+                stdin.write(&watchtower_challenges);
 
                 stdin.write(&header_chain_input);
                 stdin.write(&commit_chain_input);
@@ -604,9 +604,8 @@ mod tests {
     use ark_bn254::Bn254;
 
     use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
-    use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    use zkm_verifier::{Groth16Verifier, IMM_GROTH16_VK_BYTES, convert_ark_imm_wrap_vk};
+    use zkm_verifier::{IMM_GROTH16_VK_BYTES, convert_ark_imm_wrap_vk};
 
     #[tokio::test]
     #[ignore = "local test"]
@@ -629,13 +628,7 @@ mod tests {
             U256::from_le_bytes(a.included_watchtowers)
         );
 
-        let part_stark_vk = catch_unwind(AssertUnwindSafe(|| {
-            Groth16Verifier::get_part_stark_vk(&proof.zkm_version)
-        }))
-        .map_err(|_| {
-            anyhow::anyhow!("Failed to load part_stark_vk for zkm_version {}", proof.zkm_version)
-        })
-        .unwrap();
+        let part_stark_vk = zkm_verifier::Groth16Verifier::get_part_stark_vk(&proof.zkm_version);
         let ark_proof =
             convert_ark_imm_wrap_vk(&proof, &vk_hash, &IMM_GROTH16_VK_BYTES, part_stark_vk)
                 .unwrap();

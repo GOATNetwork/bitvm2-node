@@ -5,11 +5,11 @@ pub use commit_chain::*;
 
 pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircuitOutput {
     let self_program_id = input.self_program_id;
-    let (mut chain_state, program_history_hash) = match input.prev_proof {
-        CommitChainPrevProofType::GenesisBlock => (
-            CommitChainState::new(input.commits[0].genesis_txid),
-            verifier::initial_history(verifier::ProgramType::Commit),
-        ),
+    assert!(!input.commits.is_empty(), "commit batch must be non-empty");
+    let mut chain_state = match input.prev_proof {
+        CommitChainPrevProofType::GenesisBlock => {
+            CommitChainState::new(input.commits[0].genesis_txid)
+        }
         CommitChainPrevProofType::PrevProof => {
             println!("verify commit chain of prev proof");
             let previous_program_id = verifier::verify_groth16_proof(
@@ -22,18 +22,16 @@ pub fn commit_chain_circuit(input: CommitChainCircuitInput) -> CommitChainCircui
 
             let output = decode_commit_chain_circuit_output(&input.zkm_public_values);
             assert_eq!(output.self_program_id, previous_program_id);
-            let history = verifier::next_history(
-                verifier::ProgramType::Commit,
-                output.program_history_hash,
-                previous_program_id,
-                self_program_id,
+            assert_eq!(
+                previous_program_id, self_program_id,
+                "commit predecessor ProgramId must match current ProgramId"
             );
-            (output.chain_state, history)
+            output.chain_state
         }
     };
 
     chain_state.apply_commit(input.commits);
-    CommitChainCircuitOutput { chain_state, self_program_id, program_history_hash }
+    CommitChainCircuitOutput { chain_state, self_program_id }
 }
 
 #[cfg(test)]
@@ -49,7 +47,6 @@ mod circuit_output_tests {
         let current = bincode::serialize(&CommitChainCircuitOutput {
             chain_state: chain_state(),
             self_program_id: [1u8; 32],
-            program_history_hash: [2u8; 32],
         })
         .unwrap();
         assert_eq!(

@@ -81,12 +81,10 @@ pub(crate) fn spawn_operator_proof_task(
                         target_block_ss_commit,
                         operator_committed_blockhash,
                         operator_latest_sequencer_commit_txn,
-                        watchtower_challenge_indices,
                         graph_watchtower_xonly_public_keys,
-                        watchtower_challenge_txns,
-                        watchtower_challenge_txn_prev_outs,
-                        watchtower_challenge_txn_pubkeys,
-                        watchtower_challenge_txn_scripts,
+                        watchtower_challenge_init_txid,
+                        watchtower_challenge_init_txn,
+                        watchtower_challenge_witnesses,
                     ) = match fetch_target_block_and_watchtower_tx(
                         &args.esplora_url,
                         &args.latest_sequencer_commit_txid,
@@ -122,12 +120,10 @@ pub(crate) fn spawn_operator_proof_task(
 
                         operator_committed_blockhash,
 
-                        watchtower_challenge_indices,
                         graph_watchtower_xonly_public_keys,
-                        watchtower_challenge_txns,
-                        watchtower_challenge_txn_prev_outs,
-                        watchtower_challenge_txn_pubkeys,
-                        watchtower_challenge_txn_scripts,
+                        watchtower_challenge_init_txid,
+                        watchtower_challenge_init_txn,
+                        watchtower_challenge_witnesses,
                     };
                     let proving_start = tokio::time::Instant::now();
                     let (cycles, proving_time, public_value_hex, proof_size, proof_state, zkm_version) = match builder.build_proof(&ctx) {
