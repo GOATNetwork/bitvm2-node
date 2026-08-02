@@ -194,3 +194,14 @@ rust.unreachable_pub = "warn"
 rust.unused_must_use = "deny"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rustdoc.all = "warn"
+
+[patch."https://github.com/ProjectZKM/Ziren"]
+zkm-build = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-core-executor = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-prover = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-sdk = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-verifier = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-primitives = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-zkvm = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-recursion-core = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-stark = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
