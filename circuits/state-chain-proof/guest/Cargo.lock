@@ -1070,6 +1070,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aa83c34e62843d924f905e0f5c866eb1dd6545fc4d719e803d9ba6030371fce"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+ "cpufeatures 0.3.0",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1111,7 +1125,7 @@ dependencies = [
  "pairing 0.23.0",
  "rand_core 0.6.4",
  "subtle",
- "zkm-lib",
+ "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
 [[package]]
@@ -1261,7 +1275,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "531185e432bb31db1ecda541e9e7ab21468d4d844ad7505e0546a49b4945d49b"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "proptest",
  "serde_core",
 ]
@@ -1330,6 +1344,15 @@ name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
 dependencies = [
  "libc",
 ]
@@ -1415,7 +1438,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
  "fiat-crypto",
  "rustc_version 0.4.1",
@@ -2384,7 +2407,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "verifier",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-zkvm",
 ]
 
@@ -2760,7 +2783,7 @@ dependencies = [
  "serdect",
  "sha2 0.10.9",
  "signature",
- "zkm-lib",
+ "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
 [[package]]
@@ -2769,7 +2792,7 @@ version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
 dependencies = [
- "cpufeatures",
+ "cpufeatures 0.2.17",
 ]
 
 [[package]]
@@ -3178,7 +3201,7 @@ dependencies = [
  "hex",
  "primeorder",
  "sha2 0.10.9",
- "zkm-lib",
+ "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
 [[package]]
@@ -5000,7 +5023,7 @@ checksum = "4d58a1e1bf39749807d89cf2d98ac2dfa0ff1cb3faa38fbb64dd88ac8013d800"
 dependencies = [
  "block-buffer 0.9.0",
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest 0.9.0",
  "opaque-debug",
 ]
@@ -5011,7 +5034,7 @@ version = "0.10.9"
 source = "git+https://github.com/ziren-patches/RustCrypto-hashes?branch=patch-sha2-0.10.9#dbfdbd088ac7b55e03c0b9eb192278efe35d67dc"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest 0.10.7",
 ]
 
@@ -5137,7 +5160,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "verifier",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-zkvm",
 ]
 
@@ -5215,7 +5238,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "rand 0.8.5",
  "rustc-hex",
- "zkm-lib",
+ "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
 ]
 
 [[package]]
@@ -6317,7 +6340,7 @@ dependencies = [
  "typenum",
  "vec_map",
  "zkm-curves",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-stark",
 ]
 
@@ -6369,7 +6392,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-curves",
  "zkm-derive",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-stark",
 ]
 
@@ -6393,7 +6416,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "typenum",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-stark",
 ]
 
@@ -6410,6 +6433,19 @@ dependencies = [
 [[package]]
 name = "zkm-lib"
 version = "1.2.5"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+dependencies = [
+ "bincode",
+ "cfg-if",
+ "elliptic-curve",
+ "serde",
+ "sha2 0.10.9",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+]
+
+[[package]]
+name = "zkm-lib"
+version = "1.2.5"
 source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
 dependencies = [
  "bincode",
@@ -6417,7 +6453,27 @@ dependencies = [
  "elliptic-curve",
  "serde",
  "sha2 0.10.9",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+]
+
+[[package]]
+name = "zkm-primitives"
+version = "1.2.5"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+dependencies = [
+ "bincode",
+ "blake3",
+ "hex",
+ "lazy_static",
+ "num-bigint 0.4.6",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-monty-31",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "serde",
+ "sha2 0.10.9",
+ "tracing",
 ]
 
 [[package]]
@@ -6471,7 +6527,7 @@ dependencies = [
  "zkhash",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-stark",
 ]
 
@@ -6513,7 +6569,7 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber",
  "zkm-derive",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-zkvm",
 ]
 
@@ -6542,7 +6598,7 @@ dependencies = [
  "thiserror 2.0.18",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives",
+ "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
  "zkm-recursion-core",
  "zkm-stark",
 ]
@@ -6550,9 +6606,10 @@ dependencies = [
 [[package]]
 name = "zkm-zkvm"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "bincode",
+ "blake3",
  "cfg-if",
  "getrandom 0.2.17",
  "lazy_static",
@@ -6562,8 +6619,8 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "sha2 0.10.9",
- "zkm-lib",
- "zkm-primitives",
+ "zkm-lib 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
 ]
 
 [[package]]
