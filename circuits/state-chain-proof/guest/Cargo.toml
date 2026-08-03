@@ -35,6 +35,7 @@ secp256k1-v0-29-1 = { git = "https://github.com/ziren-patches/rust-secp256k1", p
 #secp256k1-v0-30-0 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.30.0" }
 
 [patch."https://github.com/ProjectZKM/Ziren"]
+zkm-verifier = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
 zkm-zkvm = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
 
 [features]

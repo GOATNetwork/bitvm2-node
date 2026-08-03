@@ -6357,7 +6357,7 @@ dependencies = [
 [[package]]
 name = "zkm-core-executor"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "anyhow",
  "bincode",
@@ -6391,14 +6391,14 @@ dependencies = [
  "typenum",
  "vec_map",
  "zkm-curves",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-core-machine"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -6443,14 +6443,14 @@ dependencies = [
  "zkm-core-executor",
  "zkm-curves",
  "zkm-derive",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-curves"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "cfg-if",
  "curve25519-dalek",
@@ -6467,14 +6467,14 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "typenum",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-derive"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6548,7 +6548,7 @@ dependencies = [
 [[package]]
 name = "zkm-recursion-core"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "backtrace",
  "ff 0.13.1",
@@ -6578,14 +6578,14 @@ dependencies = [
  "zkhash",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-stark"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "arrayref",
  "hashbrown 0.14.5",
@@ -6620,14 +6620,14 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber",
  "zkm-derive",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
  "zkm-zkvm",
 ]
 
 [[package]]
 name = "zkm-verifier"
 version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
+source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
 dependencies = [
  "anyhow",
  "bincode",
@@ -6649,7 +6649,7 @@ dependencies = [
  "thiserror 2.0.18",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
  "zkm-recursion-core",
  "zkm-stark",
 ]
