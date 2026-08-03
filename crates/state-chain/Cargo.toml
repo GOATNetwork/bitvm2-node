@@ -43,6 +43,9 @@ tendermint-light-client-verifier = { git = "https://github.com/ProjectZKM/tender
     "rust-crypto",
 ] }
 
+[features]
+imm-wrap-vk = ["verifier/imm-wrap-vk", "header-chain/imm-wrap-vk"]
+
 #pbjson = "0.8"
 
 [dev-dependencies]

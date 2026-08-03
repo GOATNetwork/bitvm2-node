@@ -46,4 +46,7 @@ zkm-verifier = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3"
 zkm-zkvm = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
 
 [features]
-imm-wrap-vk = ["zkm-zkvm/imm-wrap-vk"]
+imm-wrap-vk = [
+    "zkm-zkvm/imm-wrap-vk",
+    "bitcoin-light-client-circuit/imm-wrap-vk",
+]

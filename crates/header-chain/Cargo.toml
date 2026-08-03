@@ -15,5 +15,8 @@ zkm-zkvm = { workspace = true }
 verifier = { workspace = true }
 zkm-primitives = { workspace = true }
 
+[features]
+imm-wrap-vk = ["verifier/imm-wrap-vk"]
+
 [dev-dependencies]
 hex-literal = "1.0.0"
