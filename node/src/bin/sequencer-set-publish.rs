@@ -36,7 +36,16 @@ use bitcoin_light_client_circuit::{
     /*create_dummy_publisher_keys,*/ create_fee_tx, create_sequencer_update_partial_tx,
     estimate_tx_vbytes,
 };
-use commit_chain::{CommitInfo, create_sequencer_update_script, finalize, sign_raw};
+use commit_chain::{
+    AuthorizedProgramIds, CommitInfo, commit_chain_commitment_digest,
+    create_sequencer_update_script, finalize, sign_raw,
+};
+use header_chain::{
+    HeaderChainPrevProofType, classify_header_chain_output, decode_header_chain_circuit_output,
+};
+use state_chain::{
+    StateChainPrevProofType, classify_state_chain_output, decode_state_chain_circuit_output,
+};
 use tendermint::validator::Info;
 
 use reqwest::Url;
@@ -94,6 +103,81 @@ struct OutputData {
     fee_tx: Option<OutPoint>,
     update_connector: Option<OutPoint>,
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProgramIdManifest {
+    network: bitcoin::Network,
+    zkm_version: String,
+    authorized_program_ids: ManifestProgramIds,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestProgramIds {
+    header: String,
+    state: String,
+    commit: String,
+    watchtower: String,
+}
+
+impl ManifestProgramIds {
+    /// Decodes the four 0x-prefixed or plain hex ProgramIds from the release manifest.
+    fn decode(self) -> anyhow::Result<AuthorizedProgramIds> {
+        Ok(AuthorizedProgramIds {
+            header: hex_parse::<32>(&self.header).map_err(anyhow::Error::msg)?,
+            state: hex_parse::<32>(&self.state).map_err(anyhow::Error::msg)?,
+            commit: hex_parse::<32>(&self.commit).map_err(anyhow::Error::msg)?,
+            watchtower: hex_parse::<32>(&self.watchtower).map_err(anyhow::Error::msg)?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod program_id_manifest_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_four_program_ids_and_rejects_removed_operator() {
+        let id = format!("0x{}", "01".repeat(32));
+        let value = serde_json::json!({
+            "header": id,
+            "state": id,
+            "commit": id,
+            "watchtower": id,
+        });
+        assert_eq!(
+            serde_json::from_value::<ManifestProgramIds>(value.clone())
+                .unwrap()
+                .decode()
+                .unwrap()
+                .watchtower,
+            [1u8; 32]
+        );
+        let mut invalid = value.as_object().unwrap().clone();
+        invalid.insert("operator".to_string(), serde_json::Value::String(id));
+        assert!(
+            serde_json::from_value::<ManifestProgramIds>(serde_json::Value::Object(invalid))
+                .is_err()
+        );
+    }
+}
+
+/// Loads and validates the ProgramIds authorized for the target Bitcoin network.
+fn load_program_id_manifest(
+    path: &str,
+    expected_network: bitcoin::Network,
+) -> anyhow::Result<AuthorizedProgramIds> {
+    let manifest: ProgramIdManifest = serde_json::from_slice(&std::fs::read(path)?)?;
+    anyhow::ensure!(
+        manifest.network == expected_network,
+        "ProgramId manifest network does not match Bitcoin client"
+    );
+    zkm_verifier::Groth16Verifier::get_part_stark_vk(&manifest.zkm_version);
+    let authorized_program_ids = manifest.authorized_program_ids.decode()?;
+    authorized_program_ids.validate().map_err(anyhow::Error::msg)?;
+    Ok(authorized_program_ids)
+}
 impl OutputData {
     fn merge(&mut self, other: OutputData) {
         if other.fee_tx.is_some() {
@@ -108,6 +192,7 @@ impl OutputData {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn save_commit_info(
     output_file: &str,
     btc_public_keys: &[secp256k1::PublicKey],
@@ -115,6 +200,10 @@ async fn save_commit_info(
     sequencers: Vec<Info>,
     init_genesis: bool,
     commit_info_file: &str,
+    genesis_evm_block_hash: [u8; 32],
+    program_history_root: [u8; 32],
+    proof_checkpoint_root: [u8; 32],
+    authorized_program_ids: AuthorizedProgramIds,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = std::fs::File::open(output_file)?;
     let output: OutputData = serde_json::from_reader(file).unwrap();
@@ -136,6 +225,10 @@ async fn save_commit_info(
         ),
         genesis_txid,
         sequencers: sequencers.iter().cloned().map(|v| v.into()).collect(),
+        genesis_evm_block_hash,
+        program_history_root,
+        proof_checkpoint_root,
+        authorized_program_ids,
     };
 
     let commit_info = serde_json::to_string(&commit_info).unwrap();
@@ -209,6 +302,14 @@ async fn get_sequencer_set_hash_from_db(
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    DeriveProgramHistoryRoot {
+        #[arg(long)]
+        header_chain_input_proof: String,
+        #[arg(long)]
+        state_chain_input_proof: String,
+        #[arg(long, env = "PROGRAM_ID_MANIFEST")]
+        program_id_manifest: String,
+    },
     Pubkey {
         #[arg(long, short, value_delimiter = ',')]
         btc_key_wifs: Vec<String>,
@@ -230,8 +331,12 @@ enum Commands {
         next_publisher_btc_pubkeys: Vec<secp256k1::PublicKey>,
         #[arg(long, env = "GOAT_GENESIS_BLOCK_HASH", value_parser = hex_parse::<32>)]
         goat_genesis_block_hash: [u8; 32],
-        #[arg(long, env = "OPERATOR_VK_HASH", value_parser = hex_parse::<32>)]
-        operator_vk_hash: [u8; 32],
+        #[arg(long, env = "PROGRAM_HISTORY_ROOT", value_parser = hex_parse::<32>)]
+        program_history_root: [u8; 32],
+        #[arg(long, env = "PROOF_CHECKPOINT_ROOT", value_parser = hex_parse::<32>)]
+        proof_checkpoint_root: [u8; 32],
+        #[arg(long, env = "PROGRAM_ID_MANIFEST")]
+        program_id_manifest: String,
     },
     PushSeq {
         #[arg(long, env = "OWNER_BTC_KEY_WIF")]
@@ -246,8 +351,12 @@ enum Commands {
         init_genesis: bool,
         #[arg(long, env = "GOAT_GENESIS_BLOCK_HASH", value_parser = hex_parse::<32>)]
         goat_genesis_block_hash: [u8; 32],
-        #[arg(long, env = "OPERATOR_VK_HASH", value_parser = hex_parse::<32>)]
-        operator_vk_hash: [u8; 32],
+        #[arg(long, env = "PROGRAM_HISTORY_ROOT", value_parser = hex_parse::<32>)]
+        program_history_root: [u8; 32],
+        #[arg(long, env = "PROOF_CHECKPOINT_ROOT", value_parser = hex_parse::<32>)]
+        proof_checkpoint_root: [u8; 32],
+        #[arg(long, env = "PROGRAM_ID_MANIFEST")]
+        program_id_manifest: String,
         #[arg(long)]
         commit_info: String,
     },
@@ -274,6 +383,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
     let args = Args::parse();
+    if let Commands::DeriveProgramHistoryRoot {
+        header_chain_input_proof,
+        state_chain_input_proof,
+        program_id_manifest,
+    } = &args.command
+    {
+        let authorized_program_ids = load_program_id_manifest(program_id_manifest, get_network())?;
+        let (program_history_root, proof_checkpoint_root) = derive_authorization_roots(
+            header_chain_input_proof,
+            state_chain_input_proof,
+            authorized_program_ids.header,
+            authorized_program_ids.state,
+        )?;
+        println!("program_history_root=0x{}", hex::encode(program_history_root));
+        println!("proof_checkpoint_root=0x{}", hex::encode(proof_checkpoint_root));
+        return Ok(());
+    }
     let (btc_client, goat_client) = init_clients(&args).await?;
 
     let output_file = &args.output_file;
@@ -287,6 +413,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     match args.command {
+        Commands::DeriveProgramHistoryRoot { .. } => unreachable!(),
         Commands::Pubkey { btc_key_wifs } => {
             // calculate compressed public key
             btc_key_wifs.iter().for_each(|btc_key_wif| {
@@ -336,8 +463,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             publisher_btc_pubkeys,
             next_publisher_btc_pubkeys,
             goat_genesis_block_hash,
-            operator_vk_hash,
+            program_history_root,
+            proof_checkpoint_root,
+            program_id_manifest,
         } => {
+            let authorized_program_ids =
+                load_program_id_manifest(&program_id_manifest, btc_client.network())?;
             let (sequencer_set_hash, goat_block_number, cosmos_block_number) =
                 get_sequencer_set_hash_from_db(&args.db_path, goat_block_number, false).await?;
             println!(
@@ -357,7 +488,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 update_connector,
                 sequencer_set_hash,
                 goat_genesis_block_hash,
-                operator_vk_hash,
+                program_history_root,
+                proof_checkpoint_root,
+                authorized_program_ids,
                 goat_block_number,
             )
             .await
@@ -369,9 +502,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             next_publisher_btc_pubkeys,
             init_genesis,
             goat_genesis_block_hash,
-            operator_vk_hash,
+            program_history_root,
+            proof_checkpoint_root,
+            program_id_manifest,
             commit_info,
         } => {
+            let authorized_program_ids =
+                load_program_id_manifest(&program_id_manifest, btc_client.network())?;
             println!("goat genesis block hash: {:#?}", hex::encode(goat_genesis_block_hash));
             let (sequencer_set_hash, goat_block_number, cosmos_block_number) =
                 get_sequencer_set_hash_from_db(&args.db_path, goat_block_number, init_genesis)
@@ -392,28 +529,137 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 goat_block_number,
                 sequencer_set_hash,
                 goat_genesis_block_hash,
-                operator_vk_hash,
+                program_history_root,
+                proof_checkpoint_root,
+                authorized_program_ids,
                 output_file,
             )
             .await?;
-            match save_commit_info(
+            save_commit_info(
                 &args.output_file,
                 &publisher_btc_pubkeys,
                 &next_publisher_btc_pubkeys,
                 sequencers,
                 init_genesis,
                 &commit_info,
+                goat_genesis_block_hash,
+                program_history_root,
+                proof_checkpoint_root,
+                authorized_program_ids,
             )
-            .await
-            {
-                Err(e) => {
-                    println!("Failed to save commit info: {e}, commit_info: {commit_info}");
-                    Ok(())
-                }
-                _ => Ok(()),
-            }
+            .await?;
+            Ok(())
         }
     }
+}
+
+fn load_verified_proof(path: &str) -> anyhow::Result<(Vec<u8>, verifier::ProgramId)> {
+    let proof = std::fs::read(path)?;
+    let public_values = std::fs::read(format!("{path}.public_inputs.bin"))?;
+    let vk_hash = std::fs::read(format!("{path}.vk_hash.bin"))?;
+    let version = String::from_utf8(std::fs::read(format!("{path}.zkm_version.bin"))?)?;
+    let program_id = verifier::verify_groth16_proof(&proof, &public_values, &vk_hash, &version)
+        .map_err(anyhow::Error::msg)?;
+    Ok((public_values, program_id))
+}
+
+fn next_header_history_root(
+    path: &str,
+    next_program_id: verifier::ProgramId,
+) -> anyhow::Result<([u8; 32], [u8; 32])> {
+    let (public_values, previous_program_id) = load_verified_proof(path)?;
+    let (history, checkpoint) =
+        match classify_header_chain_output(&public_values).map_err(anyhow::Error::msg)? {
+            HeaderChainPrevProofType::PrevProof => {
+                let output = decode_header_chain_circuit_output(&public_values);
+                anyhow::ensure!(
+                    output.self_program_id == previous_program_id,
+                    "header ProgramId mismatch"
+                );
+                (
+                    verifier::next_history(
+                        verifier::ProgramType::Header,
+                        output.program_history_hash,
+                        previous_program_id,
+                        next_program_id,
+                    ),
+                    if previous_program_id == next_program_id {
+                        output.upgrade_checkpoint_hash
+                    } else {
+                        verifier::proof_checkpoint(
+                            verifier::ProgramType::Header,
+                            output.upgrade_checkpoint_hash,
+                            previous_program_id,
+                            next_program_id,
+                            &public_values,
+                        )
+                    },
+                )
+            }
+            HeaderChainPrevProofType::GenesisBlock => unreachable!(),
+        };
+    Ok((
+        verifier::finalize_history(verifier::ProgramType::Header, history, next_program_id),
+        checkpoint,
+    ))
+}
+
+fn next_state_history_root(
+    path: &str,
+    next_program_id: verifier::ProgramId,
+) -> anyhow::Result<([u8; 32], [u8; 32])> {
+    let (public_values, previous_program_id) = load_verified_proof(path)?;
+    let (history, checkpoint) =
+        match classify_state_chain_output(&public_values).map_err(anyhow::Error::msg)? {
+            StateChainPrevProofType::PrevProof => {
+                let output = decode_state_chain_circuit_output(&public_values);
+                anyhow::ensure!(
+                    output.self_program_id == previous_program_id,
+                    "state ProgramId mismatch"
+                );
+                (
+                    verifier::next_history(
+                        verifier::ProgramType::State,
+                        output.program_history_hash,
+                        previous_program_id,
+                        next_program_id,
+                    ),
+                    if previous_program_id == next_program_id {
+                        output.upgrade_checkpoint_hash
+                    } else {
+                        verifier::proof_checkpoint(
+                            verifier::ProgramType::State,
+                            output.upgrade_checkpoint_hash,
+                            previous_program_id,
+                            next_program_id,
+                            &public_values,
+                        )
+                    },
+                )
+            }
+            StateChainPrevProofType::GenesisBlock => unreachable!(),
+        };
+    Ok((
+        verifier::finalize_history(verifier::ProgramType::State, history, next_program_id),
+        checkpoint,
+    ))
+}
+
+/// Verifies the predecessor proofs and derives the root expected from their next recursive steps.
+fn derive_authorization_roots(
+    header_path: &str,
+    state_path: &str,
+    next_header_program_id: verifier::ProgramId,
+    next_state_program_id: verifier::ProgramId,
+) -> anyhow::Result<([u8; 32], [u8; 32])> {
+    let (header_history, header_checkpoint) =
+        next_header_history_root(header_path, next_header_program_id)?;
+    let (state_history, state_checkpoint) =
+        next_state_history_root(state_path, next_state_program_id)?;
+    Ok((
+        verifier::program_history_root(header_history, state_history),
+        verifier::proof_checkpoint_root(header_checkpoint, state_checkpoint),
+    ))
 }
 
 async fn push_fee_tx(
@@ -545,7 +791,9 @@ async fn action_push_sequencer_set_update(
     goat_block_number: u64,
     sequencer_set_hash: [u8; 32],
     goat_genesis_block_hash: [u8; 32],
-    operator_vk_hash: [u8; 32],
+    program_history_root: [u8; 32],
+    proof_checkpoint_root: [u8; 32],
+    authorized_program_ids: AuthorizedProgramIds,
     output_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let witnesses = goat_client.ss_get_sequencer_set_update_witness(goat_block_number).await?;
@@ -606,10 +854,13 @@ async fn action_push_sequencer_set_update(
     };
 
     // Skip construction of the genesis tx
-    let mut commitment = [0u8; 96];
-    commitment[0..32].copy_from_slice(&sequencer_set_hash);
-    commitment[32..64].copy_from_slice(&goat_genesis_block_hash);
-    commitment[64..].copy_from_slice(&operator_vk_hash);
+    let commitment = commit_chain_commitment_digest(
+        sequencer_set_hash,
+        goat_genesis_block_hash,
+        program_history_root,
+        proof_checkpoint_root,
+        authorized_program_ids,
+    );
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,
         &update_connector,
@@ -655,7 +906,9 @@ async fn action_sign_sequencer_set_update(
     update_connector: Option<OutPoint>,
     sequencer_set_hash: [u8; 32],
     goat_genesis_block_hash: [u8; 32],
-    operator_vk_hash: [u8; 32],
+    program_history_root: [u8; 32],
+    proof_checkpoint_root: [u8; 32],
+    authorized_program_ids: AuthorizedProgramIds,
     goat_block_number: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let total = btc_public_keys.len();
@@ -672,10 +925,13 @@ async fn action_sign_sequencer_set_update(
         * estimate_tx_vbytes(&[(threshold as u32, total as u32)], &[("p2wsh", 3)], 73) as f64
         + RELAYER_FEE as f64;
     let replenish_fee = Amount::from_sat(replenish_fee.ceil() as u64);
-    let mut commitment = [0u8; 96];
-    commitment[0..32].copy_from_slice(&sequencer_set_hash);
-    commitment[32..64].copy_from_slice(&goat_genesis_block_hash);
-    commitment[64..].copy_from_slice(&operator_vk_hash);
+    let commitment = commit_chain_commitment_digest(
+        sequencer_set_hash,
+        goat_genesis_block_hash,
+        program_history_root,
+        proof_checkpoint_root,
+        authorized_program_ids,
+    );
 
     let mut sequencer_set_publish_tx = create_sequencer_update_partial_tx(
         commitment,

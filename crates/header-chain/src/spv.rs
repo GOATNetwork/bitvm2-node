@@ -23,15 +23,20 @@ impl SPV {
         SPV { transaction, block_inclusion_proof, block_header, mmr_inclusion_proof }
     }
 
-    pub fn verify(&self, mmr_guest: &MMRGuest) -> bool {
+    /// Verifies the transaction and block inclusion proofs and returns the authenticated height.
+    pub fn verify(&self, mmr_guest: &MMRGuest) -> Option<u32> {
         let txid: [u8; 32] = self.transaction.txid();
         println!("txid: {txid:?}");
         let block_merkle_root = self.block_inclusion_proof.get_root(txid);
         println!("block_merkle_root: {block_merkle_root:?}");
         println!("block_header.merkle_root: {:?}", self.block_header.merkle_root);
-        assert_eq!(block_merkle_root, self.block_header.merkle_root);
+        if block_merkle_root != self.block_header.merkle_root {
+            return None;
+        }
         let block_hash = self.block_header.compute_block_hash();
-        mmr_guest.verify_proof(block_hash, &self.mmr_inclusion_proof)
+        mmr_guest
+            .verify_proof(block_hash, &self.mmr_inclusion_proof)
+            .then_some(self.mmr_inclusion_proof.leaf_index)
     }
 }
 
@@ -181,7 +186,7 @@ mod tests {
                     block_headers[j].clone(),
                     mmr_proof,
                 );
-                assert!(spv.verify(&mmr_guest));
+                assert_eq!(spv.verify(&mmr_guest), Some(j as u32));
             }
         }
     }

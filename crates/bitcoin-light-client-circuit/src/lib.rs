@@ -2,27 +2,24 @@ mod signature;
 mod utils;
 use alloy_primitives::U32;
 pub use signature::*;
-use state_chain::verify_sequencer_commit;
 pub use utils::*;
 
 use alloy_primitives::U256;
 use bitcoin::Block;
 use bitcoin::hashes::{Hash, HashEngine, sha256};
 use commit_chain::{
-    CommitChainCircuitInput, CommitChainPrevProofType, decode_commit_chain_circuit_output,
-    extract_data_from_commitment_outputs, parse_commit_chain_commitment, sequencer_hash,
+    AuthorizedProgramIds, CommitChainCircuitInput, CommitChainCircuitOutput,
+    commit_chain_commitment_digest, decode_commit_chain_circuit_output,
+    extract_commit_chain_commitment, extract_data_from_commitment_outputs, sequencer_hash,
 };
 use header_chain::{
-    BitcoinMerkleTree, CircuitBlockHeader, CircuitTransaction, HeaderChainCircuitInput,
-    HeaderChainPrevProofType, MMRHost, SPV, verify_merkle_proof,
+    BitcoinMerkleTree, BlockHeaderCircuitOutput, CircuitBlockHeader, CircuitTransaction,
+    HeaderChainCircuitInput, MMRHost, SPV, verify_merkle_proof,
 };
-use state_chain::{StateChainCircuitInput, StateChainPrevProofType};
+use state_chain::{StateChainCircuitInput, StateChainCircuitOutput, verify_sequencer_commit};
 use zkm_primitives::io::ZKMPublicValues;
 
-use bitcoin::{
-    ScriptBuf, Transaction, TxOut, Txid,
-    secp256k1::{PublicKey, XOnlyPublicKey},
-};
+use bitcoin::{Transaction, secp256k1::XOnlyPublicKey};
 pub use guest_executor::io::EthClientExecutorInput;
 use serde::{Deserialize, Serialize};
 use verifier::verify_groth16_proof;
@@ -49,6 +46,86 @@ pub struct OperatorPublicOutputs {
     pub included_watchtowers: [u8; 32],
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexedWatchtowerChallenge {
+    pub node_index: u16,
+    pub spv: SPV,
+}
+
+/// Verifies that a proof identity matches both its output and Publisher authorization.
+fn check_program_id(
+    actual_program_id: verifier::ProgramId,
+    output_program_id: verifier::ProgramId,
+    authorized_program_id: verifier::ProgramId,
+) {
+    assert_eq!(actual_program_id, authorized_program_id, "unauthorized proof program id");
+    assert_eq!(output_program_id, actual_program_id, "proof output program id mismatch");
+}
+
+fn checked_history_root(
+    program_type: verifier::ProgramType,
+    actual_program_id: verifier::ProgramId,
+    output_program_id: verifier::ProgramId,
+    authorized_program_id: verifier::ProgramId,
+    history: [u8; 32],
+) -> [u8; 32] {
+    check_program_id(actual_program_id, output_program_id, authorized_program_id);
+    verifier::finalize_history(program_type, history, actual_program_id)
+}
+
+/// Verifies that the latest Bitcoin commitment authorizes every supplied circuit proof.
+fn verify_commitment_authorization(
+    commit_chain_output: &CommitChainCircuitOutput,
+    header_chain_output: &BlockHeaderCircuitOutput,
+    state_chain_output: &StateChainCircuitOutput,
+    header_program_id: verifier::ProgramId,
+    state_program_id: verifier::ProgramId,
+    commit_program_id: verifier::ProgramId,
+    sequencer_set_hash: [u8; 32],
+) -> AuthorizedProgramIds {
+    let authorized = commit_chain_output.chain_state.authorized_program_ids;
+    authorized.validate().expect("invalid authorized ProgramIds");
+    check_program_id(commit_program_id, commit_chain_output.self_program_id, authorized.commit);
+    let program_history_root = verifier::program_history_root(
+        checked_history_root(
+            verifier::ProgramType::Header,
+            header_program_id,
+            header_chain_output.self_program_id,
+            authorized.header,
+            header_chain_output.program_history_hash,
+        ),
+        checked_history_root(
+            verifier::ProgramType::State,
+            state_program_id,
+            state_chain_output.self_program_id,
+            authorized.state,
+            state_chain_output.program_history_hash,
+        ),
+    );
+    let checkpoint_root = verifier::proof_checkpoint_root(
+        header_chain_output.upgrade_checkpoint_hash,
+        state_chain_output.upgrade_checkpoint_hash,
+    );
+    assert_eq!(
+        checkpoint_root, commit_chain_output.chain_state.proof_checkpoint_root,
+        "proof checkpoint root mismatch"
+    );
+    let commitment =
+        extract_commit_chain_commitment(&commit_chain_output.chain_state.commit_txn.output)
+            .expect("invalid commit-chain commitment output");
+    assert_eq!(
+        commitment,
+        commit_chain_commitment_digest(
+            sequencer_set_hash,
+            state_chain_output.chain_state.genesis_evm_block_hash,
+            program_history_root,
+            checkpoint_root,
+            authorized,
+        )
+    );
+    authorized
+}
+
 pub fn decode_operator_public_outputs(
     public_values: &[u8],
 ) -> Result<OperatorPublicOutputs, String> {
@@ -64,7 +141,6 @@ pub fn decode_operator_public_outputs(
 
 pub fn watch_longest_chain(
     genesis_sequencer_commit_txid: [u8; 32],
-    latest_sequencer_commit_txid: [u8; 32],
     header_chain: HeaderChainCircuitInput,
     commit_chain: CommitChainCircuitInput,
     state_chain: StateChainCircuitInput,
@@ -75,7 +151,7 @@ pub fn watch_longest_chain(
     //   * Check both latest_sequencer_commit_txid and genesis_sequencer_commit_txid are in all_sequencer_commit_txids (which is a private input)
     //   * Check latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
     // verify the commit chain proof
-    verify_groth16_proof(
+    let commit_program_id = verify_groth16_proof(
         &commit_chain.zkm_proof,
         &commit_chain.zkm_public_values,
         &commit_chain.zkm_vk_hash,
@@ -83,21 +159,16 @@ pub fn watch_longest_chain(
     )
     .expect("Failed to verify commit chain proof");
 
-    let prev_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
-    let prev_proof = CommitChainPrevProofType::PrevProof(prev_output);
-    let CommitChainPrevProofType::PrevProof(commit_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in watch_longest_chain");
-    };
-
+    let commit_chain_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
-        Txid::from_byte_array(latest_sequencer_commit_txid)
+        spv.transaction.0.compute_txid()
     );
     assert_eq!(genesis_sequencer_commit_txid, commit_chain_output.chain_state.genesis_txid);
 
     println!("header chain: applying: {}", header_chain.block_headers.len());
     // verify header_chain is valid
-    verify_groth16_proof(
+    let header_program_id = verify_groth16_proof(
         &header_chain.zkm_proof,
         &header_chain.zkm_public_values,
         &header_chain.zkm_vk_hash,
@@ -105,27 +176,26 @@ pub fn watch_longest_chain(
     )
     .expect("Failed to verify header chain proof");
 
-    let prev_output = ZKMPublicValues::from(&header_chain.zkm_public_values).read();
-    let prev_proof = HeaderChainPrevProofType::PrevProof(prev_output);
-    let HeaderChainPrevProofType::PrevProof(btc_header_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in watch_longest_chain");
-    };
-    // verify that the latest_sequecner_commit_tx is in the header chain
-    println!("SPV");
-    assert!(spv.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
+    let btc_header_chain_output: BlockHeaderCircuitOutput =
+        ZKMPublicValues::from(&header_chain.zkm_public_values).read();
+    assert_eq!(
+        btc_header_chain_output.chain_state.block_hashes_mmr.size,
+        btc_header_chain_output.chain_state.block_height + 1,
+        "header MMR size mismatch"
+    );
+    let commitment_block_height = spv
+        .verify(&btc_header_chain_output.chain_state.block_hashes_mmr)
+        .expect("sequencer commitment SPV verification failed");
 
-    verify_groth16_proof(
+    let state_program_id = verify_groth16_proof(
         &state_chain.zkm_proof,
         &state_chain.zkm_public_values,
         &state_chain.zkm_vk_hash,
         &state_chain.zkm_version,
     )
     .expect("Failed to verify state chain proof");
-    let prev_output = ZKMPublicValues::from(&state_chain.zkm_public_values).read();
-    let prev_proof = StateChainPrevProofType::PrevProof(prev_output);
-    let StateChainPrevProofType::PrevProof(state_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in watch_longest_chain");
-    };
+    let state_chain_output: StateChainCircuitOutput =
+        ZKMPublicValues::from(&state_chain.zkm_public_values).read();
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =
@@ -137,23 +207,23 @@ pub fn watch_longest_chain(
     let expected_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
     assert_eq!(commit_sequencer_set_hash, expected_seqeuencer_set_hash);
 
-    // check commit chain's genesis block
-    let commitment =
-        commit_chain::extract_op_return_data(&commit_chain_output.chain_state.commit_txn.output);
-    let commitment = parse_commit_chain_commitment(&commitment);
-    if let tendermint::Hash::Sha256(x) = expected_seqeuencer_set_hash {
-        assert_eq!(commitment.sequencer_set_hash, x);
+    if let tendermint::Hash::Sha256(sequencer_set_hash) = expected_seqeuencer_set_hash {
+        verify_commitment_authorization(
+            &commit_chain_output,
+            &btc_header_chain_output,
+            &state_chain_output,
+            header_program_id,
+            state_program_id,
+            commit_program_id,
+            sequencer_set_hash,
+        );
     } else {
         panic!("Invalid commitment: inconsistent sequencer set hash");
     };
-    assert_eq!(
-        commitment.genesis_evm_block_hash,
-        state_chain_output.chain_state.genesis_evm_block_hash
-    );
 
     println!("commit public inputs");
     // commit public inputs
-    (btc_header_chain_output.chain_state.total_work, commit_chain_output.chain_state.block_height)
+    (btc_header_chain_output.chain_state.total_work, commitment_block_height)
 }
 
 pub fn u256_to_le_bits(u: U256) -> [bool; 256] {
@@ -174,39 +244,14 @@ pub fn le_bits_to_u256(bits: &[bool]) -> U256 {
     u
 }
 
-pub fn verify_graph_watchtower_pubkey(
-    graph_watchtower_xonly_public_keys: &[[u8; 32]],
-    index: usize,
-    pubkey: &PublicKey,
-) -> Result<(), String> {
-    // The graph list is order-sensitive: index must match graph watchtower_pubkeys/node_index.
-    let Some(expected) = graph_watchtower_xonly_public_keys.get(index) else {
-        return Err(format!("watchtower index {index} exceeds graph watchtower list"));
-    };
-    let xonly: XOnlyPublicKey = (*pubkey).into();
-    let actual = xonly.serialize();
-    if &actual != expected {
-        return Err(format!(
-            "watchtower[{index}] pubkey mismatch: actual={}, expected={}",
-            hex::encode(actual),
-            hex::encode(expected)
-        ));
-    }
-    Ok(())
-}
-
 /// Validates challenge indices against the graph-sized public inclusion bitmap.
 pub fn validate_watchtower_challenge_indices(
     included_watchtowers: &[bool; 256],
     graph_watchtower_count: usize,
     challenge_indices: &[u16],
-    challenge_count: usize,
 ) -> Result<(), String> {
     if graph_watchtower_count == 0 || graph_watchtower_count > 256 {
         return Err(format!("invalid graph watchtower count {graph_watchtower_count}"));
-    }
-    if challenge_indices.len() != challenge_count {
-        return Err("watchtower challenge index count mismatch".to_string());
     }
 
     let mut seen = [false; 256];
@@ -226,6 +271,28 @@ pub fn validate_watchtower_challenge_indices(
     Ok(())
 }
 
+/// Checks an optional challenge-init transaction against its graph txid.
+/// A transaction is required when `challenges_present` is true.
+fn checked_challenge_init_transaction(
+    expected_txid: [u8; 32],
+    transaction: Option<&Transaction>,
+    challenges_present: bool,
+) -> Option<&Transaction> {
+    if let Some(transaction) = transaction {
+        assert_eq!(
+            transaction.compute_txid().to_byte_array(),
+            expected_txid,
+            "watchtower challenge init transaction txid mismatch"
+        );
+    }
+    assert!(
+        !challenges_present || transaction.is_some(),
+        "watchtower challenge init transaction is required when challenges exist"
+    );
+
+    transaction
+}
+
 // calculate operator public input:  https://github.com/ProjectZKM/Ziren/blob/main/crates/sdk/src/utils.rs#L42
 #[allow(clippy::too_many_arguments)]
 pub fn propose_longest_chain(
@@ -233,11 +300,9 @@ pub fn propose_longest_chain(
     graph_id: [u8; GRAPH_ID_SIZE],                    // pis
     operator_genesis_sequencer_commit_txid: [u8; 32], // pis
 
-    watchtower_challenge_indices: Vec<u16>,
-    watchtower_challenge_txns: Vec<Transaction>,
-    watchtower_challenge_txn_pubkey: Vec<PublicKey>,
-    watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
-    watchtower_challenge_txn_prev_outs: Vec<TxOut>,
+    watchtower_challenge_init_txid: [u8; 32],
+    watchtower_challenge_init_txn: Option<Transaction>,
+    watchtower_challenges: Vec<IndexedWatchtowerChallenge>,
     graph_watchtower_xonly_public_keys: &[[u8; 32]],
 
     operator_header_chain: HeaderChainCircuitInput,
@@ -248,18 +313,14 @@ pub fn propose_longest_chain(
 ) -> ([u8; 32], [u8; 32], [u8; 32]) {
     // verify operator_latest_sequencer_commit_txid is valid, and on operator head chain
     //   * Check operator_latest_sequencer_commit_txid is derived from genesis_sequencer_commit_txid
-    verify_groth16_proof(
+    let commit_program_id = verify_groth16_proof(
         &commit_chain.zkm_proof,
         &commit_chain.zkm_public_values,
         &commit_chain.zkm_vk_hash,
         &commit_chain.zkm_version,
     )
     .expect("Failed to verify commit chain proof");
-    let prev_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
-    let prev_proof = CommitChainPrevProofType::PrevProof(prev_output);
-    let CommitChainPrevProofType::PrevProof(commit_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in propose_longest_chain");
-    };
+    let commit_chain_output = decode_commit_chain_circuit_output(&commit_chain.zkm_public_values);
     assert_eq!(
         commit_chain_output.chain_state.commit_txn.compute_txid(),
         spv_ss_commit.transaction.0.compute_txid()
@@ -271,157 +332,28 @@ pub fn propose_longest_chain(
 
     // https://github.com/KSlashh/BitVM/blob/v2/goat/src/transactions/watchtower_challenge.rs#L128
     // verify operator_header_chain is valid
-    verify_groth16_proof(
+    let header_program_id = verify_groth16_proof(
         &operator_header_chain.zkm_proof,
         &operator_header_chain.zkm_public_values,
         &operator_header_chain.zkm_vk_hash,
         &operator_header_chain.zkm_version,
     )
     .expect("Failed to verify header chain proof");
-    let prev_output = ZKMPublicValues::from(&operator_header_chain.zkm_public_values).read();
-    let prev_proof = HeaderChainPrevProofType::PrevProof(prev_output);
-    let HeaderChainPrevProofType::PrevProof(btc_header_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in propose_longest_chain");
-    };
+    let btc_header_chain_output: BlockHeaderCircuitOutput =
+        ZKMPublicValues::from(&operator_header_chain.zkm_public_values).read();
     let operator_total_work = btc_header_chain_output.chain_state.total_work;
-    let operator_consensus_block_height = U32::from(commit_chain_output.chain_state.block_height);
-    // commit header chain best block hash as pis
     let btc_best_block_hash = btc_header_chain_output.chain_state.best_block_hash;
-
-    // verify that the latest_sequecner_commit_tx is in the header chain
-    assert!(spv_ss_commit.verify(&btc_header_chain_output.chain_state.block_hashes_mmr));
-
-    // parse included_watchtowers into bits array
-    let included_watchtowers_bits = u256_to_le_bits(included_watchtowers);
-    println!("included watchtowers:{included_watchtowers_bits:?}");
-    assert_eq!(watchtower_challenge_txns.len(), watchtower_challenge_txn_pubkey.len());
-    assert_eq!(watchtower_challenge_txns.len(), watchtower_challenge_txn_scripts.len());
-    assert_eq!(watchtower_challenge_txns.len(), watchtower_challenge_txn_prev_outs.len());
-    validate_watchtower_challenge_indices(
-        &included_watchtowers_bits,
-        graph_watchtower_xonly_public_keys.len(),
-        &watchtower_challenge_indices,
-        watchtower_challenge_txns.len(),
-    )
-    .expect("invalid indexed watchtower challenges");
-
-    // For each watchtowers, if the included_watchtowers[i] is true,
-    //   verify the watchtower_challenge_txns[i] is valid
-    //   verify watchtower_challenge_txns[i].total_work <= operator_header_chain.total_work
-    //   verify watchtower_challenge_txns[i].epoch <= operator_latest_sequencer_commit_tx.epoch
-    for (challenge_position, node_index) in watchtower_challenge_indices.iter().enumerate() {
-        let i = *node_index as usize;
-        if included_watchtowers_bits[i] {
-            let tx = &watchtower_challenge_txns[challenge_position];
-            println!("Verify watchtower[{i}] tx: {}, {:?}", tx.compute_txid(), tx);
-            let prev_out = &watchtower_challenge_txn_prev_outs[challenge_position];
-            let prev_index = tx.input[0].previous_output.vout as usize;
-            let pubkey = &watchtower_challenge_txn_pubkey[challenge_position];
-
-            if let Err(err) =
-                verify_graph_watchtower_pubkey(graph_watchtower_xonly_public_keys, i, pubkey)
-            {
-                println!("Watchtower[{i}] graph pubkey verification: {err}");
-                continue;
-            }
-
-            let sig = match tx
-                .input
-                .first()
-                .and_then(|input| input.witness.iter().next())
-                .map(bitcoin::taproot::Signature::from_slice)
-            {
-                Some(Ok(sig)) => sig,
-                Some(Err(err)) => {
-                    println!("Watchtower[{i}] invalid taproot signature: {err}");
-                    continue;
-                }
-                None => {
-                    println!("Watchtower[{i}] missing taproot signature");
-                    continue;
-                }
-            };
-            // check tx signature is valid
-            match verify_taproot_leaf_schnorr_signature(
-                &watchtower_challenge_txn_scripts[challenge_position],
-                tx,
-                prev_index,
-                prev_out,
-                pubkey,
-                &sig,
-            ) {
-                Ok(_) => {}
-                Err(msg) => {
-                    println!("Watchtower[{i}] signature verification: {msg}");
-                    continue;
-                }
-            };
-
-            let commitment = &extract_data_from_commitment_outputs(&tx.output)[..];
-            println!("commitment: {commitment:?}");
-            println!("commitment hex: {}", hex::encode(commitment));
-            let (
-                parsed_graph_id,
-                proof,
-                public_values,
-                vk,
-                watchtower_total_work,
-                watchtower_consensus_block_height,
-                zkm_version,
-            ) = match parse_watchtower_commitment(commitment) {
-                Ok(c) => c,
-                Err(err) => {
-                    println!("Watchtower[{i}] parse commitment error, {err}");
-                    continue;
-                }
-            };
-
-            match verify_groth16_proof(&proof, &public_values, &vk, &zkm_version) {
-                Ok(_) => {}
-                Err(err) => {
-                    println!("Watchtower[{i}] invalid proof: {err}");
-                    continue;
-                }
-            }
-
-            if parsed_graph_id != graph_id {
-                println!(
-                    "Watchtower[{i}] invalid commitment: graph id: parsed = {}, expected = {}",
-                    hex::encode(parsed_graph_id),
-                    hex::encode(graph_id)
-                );
-                continue;
-            }
-            println!("check total work with watchtower {i}");
-
-            // extract ChainState
-            // check watchtower_chain_state.total_work <= operator_header_chain.total_work
-            println!("watchtower total work: {:?}", U256::from_be_bytes(watchtower_total_work));
-            println!("operator total work: {operator_total_work:?}");
-
-            println!(
-                "watchtower_consensus_block_height : {:?}",
-                U32::from_le_bytes(watchtower_consensus_block_height)
-            );
-            println!("operator_consensus_block_height : {operator_consensus_block_height:?}");
-
-            if U256::from_be_bytes(watchtower_total_work) > U256::from_be_bytes(operator_total_work)
-            {
-                println!("Watchtower[{i}] total work exceeds operator total work");
-                continue;
-            }
-            // check watchtower.consensus.block_height <= consensus.block_height
-            if U32::from_le_bytes(watchtower_consensus_block_height)
-                > operator_consensus_block_height
-            {
-                println!("Watchtower[{i}] consensus block height exceeds operator block height");
-                continue;
-            }
-        }
-    }
+    assert_eq!(
+        btc_header_chain_output.chain_state.block_hashes_mmr.size,
+        btc_header_chain_output.chain_state.block_height + 1,
+        "header MMR size mismatch"
+    );
+    let operator_consensus_block_height = spv_ss_commit
+        .verify(&btc_header_chain_output.chain_state.block_hashes_mmr)
+        .expect("sequencer commitment SPV verification failed");
 
     println!("verify el block");
-    verify_groth16_proof(
+    let state_program_id = verify_groth16_proof(
         &state_chain.zkm_proof,
         &state_chain.zkm_public_values,
         &state_chain.zkm_vk_hash,
@@ -429,11 +361,9 @@ pub fn propose_longest_chain(
     )
     .expect("Failed to verify state chain proof");
 
-    let prev_output = ZKMPublicValues::from(&state_chain.zkm_public_values).read();
-    let prev_proof = StateChainPrevProofType::PrevProof(prev_output);
-    let StateChainPrevProofType::PrevProof(state_chain_output) = &prev_proof else {
-        panic!("Only PrevProof is supported in propose_longest_chain");
-    };
+    let state_chain_output: StateChainCircuitOutput =
+        ZKMPublicValues::from(&state_chain.zkm_public_values).read();
+
     // check the signature.
     let cosmos_block_bytes = &state_chain_output.chain_state.latest_cosmos_block;
     let cosmos_block: LightBlock =
@@ -443,21 +373,99 @@ pub fn propose_longest_chain(
     let commit_sequencer_set_hash = sequencer_hash(&commit_chain_output.chain_state.sequencers);
     let expected_seqeuencer_set_hash = cosmos_block.signed_header.header.validators_hash;
 
-    // check commit chain's genesis block
-    let commitment =
-        commit_chain::extract_op_return_data(&commit_chain_output.chain_state.commit_txn.output);
-    let commitment = parse_commit_chain_commitment(&commitment);
-    if let tendermint::Hash::Sha256(x) = expected_seqeuencer_set_hash {
-        assert_eq!(commitment.sequencer_set_hash, x);
-    } else {
-        panic!("Invalid commitment: inconsistent sequencer set hash");
-    };
-    assert_eq!(
-        commitment.genesis_evm_block_hash,
-        state_chain_output.chain_state.genesis_evm_block_hash
-    );
-
+    let authorized =
+        if let tendermint::Hash::Sha256(sequencer_set_hash) = expected_seqeuencer_set_hash {
+            verify_commitment_authorization(
+                &commit_chain_output,
+                &btc_header_chain_output,
+                &state_chain_output,
+                header_program_id,
+                state_program_id,
+                commit_program_id,
+                sequencer_set_hash,
+            )
+        } else {
+            panic!("Invalid commitment: inconsistent sequencer set hash");
+        };
     assert_eq!(commit_sequencer_set_hash, expected_seqeuencer_set_hash);
+
+    let included_watchtowers_bits = u256_to_le_bits(included_watchtowers);
+    let challenge_indices =
+        watchtower_challenges.iter().map(|challenge| challenge.node_index).collect::<Vec<_>>();
+    validate_watchtower_challenge_indices(
+        &included_watchtowers_bits,
+        graph_watchtower_xonly_public_keys.len(),
+        &challenge_indices,
+    )
+    .expect("invalid indexed watchtower challenges");
+
+    let watchtower_challenge_init_txn = checked_challenge_init_transaction(
+        watchtower_challenge_init_txid,
+        watchtower_challenge_init_txn.as_ref(),
+        !watchtower_challenges.is_empty(),
+    );
+    for challenge in &watchtower_challenges {
+        let i = challenge.node_index as usize;
+        let challenge_height = challenge
+            .spv
+            .verify(&btc_header_chain_output.chain_state.block_hashes_mmr)
+            .expect("watchtower challenge SPV verification failed");
+        assert!(
+            challenge_height <= btc_header_chain_output.chain_state.block_height,
+            "challenge height exceeds authenticated header chain"
+        );
+
+        let tx = &challenge.spv.transaction.0;
+        let input = tx.input.first().expect("watchtower challenge must have input 0");
+        let expected_vout = u32::from(challenge.node_index) * 2;
+        assert_eq!(input.previous_output.txid.to_byte_array(), watchtower_challenge_init_txid);
+        assert_eq!(input.previous_output.vout, expected_vout);
+
+        let prev_out = watchtower_challenge_init_txn
+            .expect("watchtower challenge init transaction is required")
+            .output
+            .get(expected_vout as usize)
+            .expect("watchtower challenge prevout is missing");
+        let xonly = XOnlyPublicKey::from_slice(&graph_watchtower_xonly_public_keys[i])
+            .expect("invalid graph watchtower x-only key");
+        let script = bitcoin::blockdata::script::Builder::new()
+            .push_x_only_key(&xonly)
+            .push_opcode(bitcoin::opcodes::all::OP_CHECKSIG)
+            .into_script();
+        verify_taproot_leaf_schnorr_signature(&script, tx, 0, prev_out, &xonly)
+            .expect("watchtower challenge signature verification failed");
+
+        let Ok(commitment) = extract_data_from_commitment_outputs(&tx.output) else {
+            continue;
+        };
+        let Ok((
+            parsed_graph_id,
+            proof,
+            public_values,
+            vk,
+            watchtower_total_work,
+            watchtower_consensus_block_height,
+            zkm_version,
+        )) = parse_watchtower_commitment(&commitment)
+        else {
+            continue;
+        };
+        let Ok(program_id) = verify_groth16_proof(&proof, &public_values, &vk, &zkm_version) else {
+            continue;
+        };
+        if program_id != authorized.watchtower || parsed_graph_id != graph_id {
+            continue;
+        }
+        assert!(
+            U256::from_be_bytes(watchtower_total_work) <= U256::from_be_bytes(operator_total_work),
+            "valid watchtower challenge has more work than operator"
+        );
+        assert!(
+            u32::from_le_bytes(watchtower_consensus_block_height)
+                <= operator_consensus_block_height,
+            "valid watchtower challenge has a later commitment than operator"
+        );
+    }
 
     let mut is_found = false;
     for withdrawal in &state_chain_output.chain_state.withdrawals {
@@ -478,6 +486,7 @@ pub fn propose_longest_chain(
     let constant = hash_operator_constant(
         graph_id,
         operator_genesis_sequencer_commit_txid,
+        watchtower_challenge_init_txid,
         graph_watchtower_xonly_public_keys,
     );
     println!("constant hex: {:?}", hex::encode(constant));
@@ -501,12 +510,14 @@ pub fn propose_longest_chain(
 pub fn hash_operator_constant(
     graph_id: [u8; GRAPH_ID_SIZE],
     operator_genesis_sequencer_commit_txid: [u8; 32],
+    watchtower_challenge_init_txid: [u8; 32],
     watchtower_xonly_public_keys: &[[u8; 32]],
 ) -> [u8; 32] {
     let mut engine = sha256::HashEngine::default();
-    engine.input(b"bitvm2/operator-constant/v2");
+    engine.input(b"bitvm/operator-constant/v3");
     engine.input(&graph_id);
     engine.input(&operator_genesis_sequencer_commit_txid);
+    engine.input(&watchtower_challenge_init_txid);
     engine.input(&(watchtower_xonly_public_keys.len() as u16).to_be_bytes());
     for key in watchtower_xonly_public_keys {
         engine.input(key);
@@ -695,12 +706,66 @@ pub fn parse_watchtower_commitment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use bitcoin::Transaction;
     const PROOF: &[u8] = include_bytes!("../../../circuits/data/watchtower/output3.bin.proof.bin");
     const PUBLIC_INPUTS: &[u8] =
         include_bytes!("../../../circuits/data/watchtower/output3.bin.public_inputs.bin");
     const VK_HASH: &str = include_str!("../../../circuits/data/watchtower/output3.bin.vk_hash.bin");
     const ZKM_VERSION: &str = "v1.2.4";
+
+    #[test]
+    fn checked_history_root_binds_actual_output_and_expected_program_ids() {
+        let program_id = [1u8; 32];
+        let history = [2u8; 32];
+        assert_eq!(
+            checked_history_root(
+                verifier::ProgramType::Header,
+                program_id,
+                program_id,
+                program_id,
+                history,
+            ),
+            verifier::finalize_history(verifier::ProgramType::Header, history, program_id)
+        );
+
+        let wrong_expected = std::panic::catch_unwind(|| {
+            checked_history_root(
+                verifier::ProgramType::Header,
+                program_id,
+                program_id,
+                [3u8; 32],
+                history,
+            )
+        });
+        assert!(wrong_expected.is_err());
+
+        let wrong_output = std::panic::catch_unwind(|| {
+            checked_history_root(
+                verifier::ProgramType::Header,
+                program_id,
+                [3u8; 32],
+                program_id,
+                history,
+            )
+        });
+        assert!(wrong_output.is_err());
+    }
+
+    #[test]
+    fn check_program_id_rejects_unauthorized_or_mismatched_outputs() {
+        let program_id = [1u8; 32];
+        check_program_id(program_id, program_id, program_id);
+
+        assert!(
+            std::panic::catch_unwind(|| check_program_id(program_id, program_id, [2u8; 32]))
+                .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| check_program_id(program_id, [2u8; 32], program_id))
+                .is_err()
+        );
+    }
 
     #[test]
     fn test_build_watchtower_commitment() {
@@ -769,9 +834,11 @@ mod tests {
         let graph_id = [1u8; GRAPH_ID_SIZE];
         let genesis_txid = [2u8; 32];
         let watchtower_keys = [[3u8; 32], [4u8; 32]];
-        let mut input = b"bitvm2/operator-constant/v2".to_vec();
+        let challenge_init_txid = [5u8; 32];
+        let mut input = b"bitvm/operator-constant/v3".to_vec();
         input.extend_from_slice(&graph_id);
         input.extend_from_slice(&genesis_txid);
+        input.extend_from_slice(&challenge_init_txid);
         input.extend_from_slice(&(watchtower_keys.len() as u16).to_be_bytes());
         for key in &watchtower_keys {
             input.extend_from_slice(key);
@@ -779,16 +846,41 @@ mod tests {
         let expected = bitcoin::hashes::sha256::Hash::hash(&input);
 
         assert_eq!(
-            hash_operator_constant(graph_id, genesis_txid, &watchtower_keys),
+            hash_operator_constant(graph_id, genesis_txid, challenge_init_txid, &watchtower_keys),
             *expected.as_byte_array()
         );
         assert_ne!(
             hash_operator_constant(
                 graph_id,
                 genesis_txid,
+                challenge_init_txid,
                 &[watchtower_keys[1], watchtower_keys[0]],
             ),
             *expected.as_byte_array()
+        );
+    }
+
+    #[test]
+    fn optional_challenge_init_transaction_is_fail_closed() {
+        let transaction = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let txid = transaction.compute_txid().to_byte_array();
+
+        assert!(checked_challenge_init_transaction(txid, None, false).is_none());
+        assert!(checked_challenge_init_transaction(txid, Some(&transaction), true).is_some());
+        assert!(
+            std::panic::catch_unwind(|| {
+                checked_challenge_init_transaction([1u8; 32], Some(&transaction), false)
+            })
+            .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| { checked_challenge_init_transaction(txid, None, true) })
+                .is_err()
         );
     }
 
@@ -798,9 +890,9 @@ mod tests {
         included[1] = true;
         included[4] = true;
 
-        validate_watchtower_challenge_indices(&included, 5, &[1, 4], 2).unwrap();
-        assert!(validate_watchtower_challenge_indices(&included, 5, &[0, 1], 2).is_err());
-        assert!(validate_watchtower_challenge_indices(&included, 5, &[1, 1], 2).is_err());
+        validate_watchtower_challenge_indices(&included, 5, &[1, 4]).unwrap();
+        assert!(validate_watchtower_challenge_indices(&included, 5, &[0, 1]).is_err());
+        assert!(validate_watchtower_challenge_indices(&included, 5, &[1, 1]).is_err());
     }
 
     #[test]
@@ -831,7 +923,7 @@ mod tests {
         ).unwrap();
         let tx: Transaction = deserialize(&bytes).unwrap();
 
-        let commitment = extract_data_from_commitment_outputs(&tx.output);
+        let commitment = extract_data_from_commitment_outputs(&tx.output).unwrap();
         let parse_result = parse_watchtower_commitment(&commitment);
         assert!(parse_result.is_err(), "legacy commitment with trailing zkm_version should fail");
     }

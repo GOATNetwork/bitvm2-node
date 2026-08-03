@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bitcoin::{Block, BlockHash, ScriptBuf, Transaction, TxOut};
+use bitcoin::{Block, BlockHash, Transaction, Txid};
 use commit_chain::CircuitCommit;
 use header_chain::CircuitBlockHeader;
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use state_chain::CircuitStateBlock;
 use std::fs;
 use strum::{Display, EnumString};
 use thiserror::Error;
-use zkm_sdk::{ProverClient, ZKMProofWithPublicValues};
+use zkm_sdk::{HashableKey, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
 use zkm_sdk::{ZKMProvingKey, ZKMVerifyingKey};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,12 +63,10 @@ pub enum ProofRequest {
 
         operator_committed_blockhash: BlockHash,
 
-        watchtower_challenge_indices: Vec<u16>,
         graph_watchtower_xonly_public_keys: Vec<[u8; 32]>,
-        watchtower_challenge_txns: Vec<Transaction>,
-        watchtower_challenge_txn_prev_outs: Vec<TxOut>,
-        watchtower_challenge_txn_pubkeys: Vec<bitcoin::secp256k1::PublicKey>,
-        watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
+        watchtower_challenge_init_txid: Txid,
+        watchtower_challenge_init_txn: Option<Transaction>,
+        watchtower_challenge_witnesses: Vec<(u16, u32, Block, Transaction)>,
     },
 }
 
@@ -86,6 +84,12 @@ pub trait ProofBuilder {
     fn client(&self) -> &ProverClient;
     fn pk(&self) -> &ZKMProvingKey;
     fn vk(&self) -> &ZKMVerifyingKey;
+
+    /// Returns the Program ID derived from the builder's verifying key.
+    fn program_id(&self) -> Result<verifier::ProgramId> {
+        verifier::program_id(self.vk().bytes32().as_bytes(), ZKM_CIRCUIT_VERSION)
+            .map_err(anyhow::Error::msg)
+    }
 
     fn build_proof(
         &self,

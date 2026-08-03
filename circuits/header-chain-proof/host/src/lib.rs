@@ -1,7 +1,10 @@
 use bitcoin::Network;
 use borsh::{BorshDeserialize, BorshSerialize};
 use client::btc_chain::BTCClient;
-use header_chain::{CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
+use header_chain::{
+    CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
+    classify_header_chain_output,
+};
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use sha2::{Digest, Sha256};
 use std::{
@@ -10,7 +13,10 @@ use std::{
 };
 use util::get_btc_block_confirms;
 use zkm_sdk::ZKMProofKind;
-use zkm_sdk::{HashableKey, Prover, ProverClient, ZKMProofWithPublicValues, ZKMStdin, include_elf};
+use zkm_sdk::{
+    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues, ZKMStdin,
+    include_elf,
+};
 static ELF_ID: OnceLock<String> = OnceLock::new();
 use anyhow::Context;
 use clap::Parser;
@@ -19,6 +25,10 @@ use std::sync::OnceLock;
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -206,6 +216,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
             Some(public_inputs)
         };
 
+        let self_program_id = self.program_id()?;
         let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash, zkm_version) =
             match prev_receipt.clone() {
                 Some(public_inputs) => {
@@ -222,21 +233,16 @@ impl ProofBuilder for HeaderChainProofBuilder {
                                 format!("invalid UTF-8 in zkm_version file '{version_path}'")
                             })
                         })?;
-                    let prev_output = zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
-                    (
-                        HeaderChainPrevProofType::PrevProof(prev_output),
-                        proof_bytes,
-                        public_inputs,
-                        zkm_vk_hash.to_vec(),
-                        zkm_version,
-                    )
+                    let prev_proof =
+                        classify_header_chain_output(&public_inputs).map_err(anyhow::Error::msg)?;
+                    (prev_proof, proof_bytes, public_inputs, zkm_vk_hash.to_vec(), zkm_version)
                 }
                 None => (
                     HeaderChainPrevProofType::GenesisBlock,
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    "v1.2.5".into(),
+                    ZKM_CIRCUIT_VERSION.into(),
                 ),
             };
 
@@ -254,6 +260,7 @@ impl ProofBuilder for HeaderChainProofBuilder {
             zkm_public_values,
             zkm_vk_hash,
             zkm_version,
+            self_program_id,
             block_headers,
         };
 
@@ -285,9 +292,9 @@ impl ProofBuilder for HeaderChainProofBuilder {
 
         tracing::info!("Header chain proof cycles: {}", cycles);
 
-        if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-            panic!("{}", e);
-        }
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated header chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))

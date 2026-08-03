@@ -17,8 +17,8 @@ use state_chain::*;
 use std::sync::Arc;
 use url::Url;
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
-    include_elf,
+    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofKind, ZKMProofWithPublicValues,
+    ZKMStdin, include_elf,
 };
 
 use sha2::{Digest, Sha256};
@@ -36,6 +36,10 @@ use clap::Parser;
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -66,11 +70,24 @@ pub struct Args {
     #[clap(long, env, default_value_t = 0)]
     pub start: u64,
 
-    #[clap(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub l2_contract_addresses: String,
 
     // https://explorer.testnet3.goat.network/address/0x9F0A61ce47678F43A326dB9F8964C56a924cd3D0?tab=read_write_contract
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub proceed_withdraw_method_ids: String,
 }
 
@@ -319,6 +336,7 @@ impl ProofBuilder for StateChainProofBuilder {
             Some(public_inputs)
         };
 
+        let self_program_id = self.program_id()?;
         let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash, zkm_version) =
             match prev_receipt.clone() {
                 Some(public_inputs) => {
@@ -336,22 +354,16 @@ impl ProofBuilder for StateChainProofBuilder {
                                 format!("invalid UTF-8 in zkm_version file '{version_path}'")
                             })
                         })?;
-                    let prev_output: StateChainCircuitOutput =
-                        zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
-                    (
-                        StateChainPrevProofType::PrevProof(prev_output),
-                        proof_bytes,
-                        public_inputs,
-                        zkm_vk_hash.to_vec(),
-                        zkm_version,
-                    )
+                    let prev_proof =
+                        classify_state_chain_output(&public_inputs).map_err(anyhow::Error::msg)?;
+                    (prev_proof, proof_bytes, public_inputs, zkm_vk_hash.to_vec(), zkm_version)
                 }
                 None => (
                     StateChainPrevProofType::GenesisBlock,
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    "v1.2.5".into(),
+                    ZKM_CIRCUIT_VERSION.into(),
                 ),
             };
 
@@ -361,6 +373,7 @@ impl ProofBuilder for StateChainProofBuilder {
             zkm_public_values,
             zkm_vk_hash,
             zkm_version,
+            self_program_id,
             blocks: blocks.clone(),
         };
         // Generate the proofs.
@@ -390,9 +403,10 @@ impl ProofBuilder for StateChainProofBuilder {
             },
         )?;
         tracing::info!("State chain proof cycles: {}", cycles);
-        if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-            panic!("{}", e);
-        }
+
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated state chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))

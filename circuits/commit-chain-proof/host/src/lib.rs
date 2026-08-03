@@ -4,8 +4,8 @@ use commit_chain::*;
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use std::str::FromStr;
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
-    include_elf,
+    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofKind, ZKMProofWithPublicValues,
+    ZKMStdin, include_elf,
 };
 
 use sha2::{Digest, Sha256};
@@ -23,6 +23,10 @@ use clap::Parser;
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -32,11 +36,21 @@ pub struct Args {
     #[arg(long, env, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
 
-    #[arg(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[arg(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub commit_info: String,
 
     #[arg(long, default_value = "commits.bin")]
     pub commits: String,
+
+    #[arg(long, env)]
+    pub upgrade_commits: Option<String>,
 
     #[clap(long, env, default_value_t = 1)]
     pub batch_size: usize,
@@ -52,6 +66,13 @@ pub struct Args {
 
     #[clap(long, env, default_value = "output.bin")]
     pub output_proof: String,
+}
+
+impl Args {
+    /// Returns whether this request must rebuild from Commit Genesis.
+    pub fn starts_from_genesis(&self) -> bool {
+        self.init_input || self.upgrade_commits.is_some()
+    }
 }
 
 impl LongRunning for Args {
@@ -72,6 +93,7 @@ impl LongRunning for Args {
             next_args.start,
         );
         next_args.commits = format!("{}.commits", next_args.input_proof);
+        next_args.upgrade_commits = None;
         next_args
     }
 }
@@ -100,11 +122,20 @@ pub async fn fetch_commit_chain(
     };
     let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
 
-    let op_return_data = extract_op_return_data(&commit_txn.output);
-    let commitment = parse_commit_chain_commitment(&op_return_data);
-
-    if let tendermint::Hash::Sha256(expected_hash) = sequencer_hash(&ci.sequencers) {
-        assert_eq!(expected_hash, commitment.sequencer_set_hash);
+    let commitment =
+        extract_commit_chain_commitment(&commit_txn.output).map_err(anyhow::Error::msg)?;
+    if let tendermint::Hash::Sha256(sequencer_set_hash) = sequencer_hash(&ci.sequencers) {
+        anyhow::ensure!(
+            commitment
+                == commit_chain_commitment_digest(
+                    sequencer_set_hash,
+                    ci.genesis_evm_block_hash,
+                    ci.program_history_root,
+                    ci.proof_checkpoint_root,
+                    ci.authorized_program_ids,
+                ),
+            "commit transaction digest does not match commit info"
+        );
     } else {
         panic!("Invalid sequencer set hash");
     }
@@ -128,11 +159,37 @@ pub async fn fetch_commit_chain(
         next_publisher_public_keys,
         next_threshold: ci.next_threshold,
         genesis_txid: Txid::from_str(&ci.genesis_txid)?.as_raw_hash().to_byte_array(),
+        genesis_evm_block_hash: ci.genesis_evm_block_hash,
+        program_history_root: ci.program_history_root,
         block_height,
+        proof_checkpoint_root: ci.proof_checkpoint_root,
+        authorized_program_ids: ci.authorized_program_ids,
     };
     commits.push(commit);
     std::fs::write(commits_file, serde_json::to_vec(&commits)?)
         .with_context(|| format!("write {commits_file} error"))?;
+    Ok(commits)
+}
+
+/// Loads a full Genesis-to-latest commit replay for a Commit ProgramId upgrade.
+pub fn load_upgrade_commits(
+    path: &str,
+    latest_commit: &CircuitCommit,
+) -> anyhow::Result<Vec<CircuitCommit>> {
+    let commits: Vec<CircuitCommit> =
+        serde_json::from_slice(&std::fs::read(path).with_context(|| format!("read {path}"))?)
+            .with_context(|| format!("parse {path}"))?;
+    anyhow::ensure!(!commits.is_empty(), "upgrade commit replay must be non-empty");
+    anyhow::ensure!(
+        commits[0].commit_txn.compute_txid().as_byte_array() == &commits[0].genesis_txid,
+        "upgrade replay must start at its fixed Genesis"
+    );
+    anyhow::ensure!(
+        commits.last().map(|commit| commit.commit_txn.compute_txid())
+            == Some(latest_commit.commit_txn.compute_txid()),
+        "upgrade replay final transaction does not match current commit info"
+    );
+
     Ok(commits)
 }
 
@@ -180,7 +237,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         };
 
         //let mut zkm_vk_hash = self.verifying_key.hash_u32();
-        // Set the previous proof type based on input_proof argument
+        // Genesis replay deliberately skips every predecessor proof sidecar.
         let prev_receipt = if *init_input {
             None
         } else {
@@ -189,6 +246,7 @@ impl ProofBuilder for CommitChainProofBuilder {
             //let prev: CommitChainCircuitOutput = serde_json::from_slice(&public_inputs).unwrap();
             Some(public_inputs)
         };
+        let self_program_id = self.program_id()?;
         let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash, zkm_version) =
             match prev_receipt.clone() {
                 Some(public_inputs) => {
@@ -206,21 +264,16 @@ impl ProofBuilder for CommitChainProofBuilder {
                                 format!("invalid UTF-8 in zkm_version file '{version_path}'")
                             })
                         })?;
-                    let prev_output = decode_commit_chain_circuit_output(&public_inputs);
-                    (
-                        CommitChainPrevProofType::PrevProof(prev_output),
-                        proof_bytes,
-                        public_inputs,
-                        zkm_vk_hash.to_vec(),
-                        zkm_version,
-                    )
+                    let prev_proof =
+                        classify_commit_chain_output(&public_inputs).map_err(anyhow::Error::msg)?;
+                    (prev_proof, proof_bytes, public_inputs, zkm_vk_hash.to_vec(), zkm_version)
                 }
                 None => (
                     CommitChainPrevProofType::GenesisBlock,
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    "v1.2.5".into(),
+                    ZKM_CIRCUIT_VERSION.into(),
                 ),
             };
 
@@ -229,6 +282,7 @@ impl ProofBuilder for CommitChainProofBuilder {
             zkm_version,
             zkm_proof,
             prev_proof,
+            self_program_id,
             commits: commits.to_vec(),
             zkm_public_values,
         };
@@ -264,10 +318,9 @@ impl ProofBuilder for CommitChainProofBuilder {
 
         tracing::info!("Commit chain proof cycles: {}", cycles);
 
-        // todo: verify the proof laterr
-        // if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-        //     panic!("{}", e);
-        // }
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated commit chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))
@@ -276,7 +329,7 @@ impl ProofBuilder for CommitChainProofBuilder {
     fn save_proof(
         &self,
         ctx: &proof_builder::ProofRequest,
-        _input: &[u8],
+        input: &[u8],
         _cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<(String, usize)> {
@@ -301,6 +354,11 @@ impl ProofBuilder for CommitChainProofBuilder {
         )?;
         std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
         std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
+        let circuit_input: CommitChainCircuitInput = bincode::deserialize(input)?;
+        std::fs::write(
+            format!("{}.commits", output_proof),
+            serde_json::to_vec(&circuit_input.commits)?,
+        )?;
         Ok((public_value_hex, proof_size))
     }
 }
@@ -309,7 +367,88 @@ impl ProofBuilder for CommitChainProofBuilder {
 mod tests {
 
     use super::*;
+    use bitcoin::{Transaction, absolute::LockTime, transaction::Version};
     use tracing::info;
+
+    fn circuit_commit(transaction: Transaction, genesis_txid: [u8; 32]) -> CircuitCommit {
+        CircuitCommit {
+            commit_txn: transaction,
+            genesis_txid,
+            publisher_public_keys: vec![],
+            threshold: 0,
+            next_publisher_public_keys: None,
+            next_threshold: None,
+            sequencers: vec![],
+            genesis_evm_block_hash: [0; 32],
+            program_history_root: [1; 32],
+            block_height: 0,
+            proof_checkpoint_root: [1; 32],
+            authorized_program_ids: AuthorizedProgramIds {
+                header: [1; 32],
+                state: [2; 32],
+                commit: [3; 32],
+                watchtower: [4; 32],
+            },
+        }
+    }
+
+    #[test]
+    fn upgrade_replay_starts_from_genesis_once() {
+        let args = Args::try_parse_from([
+            "commit-chain-proof",
+            "--commit-info",
+            "commit-info.json",
+            "--upgrade-commits",
+            "upgrade-commits.json",
+        ])
+        .unwrap();
+        assert!(args.starts_from_genesis());
+
+        let next = args.rotate();
+        assert!(!next.starts_from_genesis());
+    }
+
+    #[test]
+    fn upgrade_replay_requires_fixed_genesis_and_latest_commit() {
+        let transaction = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let genesis_txid = transaction.compute_txid().to_byte_array();
+        let commit = circuit_commit(transaction, genesis_txid);
+        let path = std::env::temp_dir().join(format!(
+            "commit-upgrade-replay-{}-{}.json",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+
+        std::fs::write(&path, serde_json::to_vec(&vec![commit.clone()]).unwrap()).unwrap();
+        assert_eq!(
+            load_upgrade_commits(path.to_str().unwrap(), &commit).unwrap(),
+            vec![commit.clone()]
+        );
+
+        let other_latest = circuit_commit(
+            Transaction {
+                version: Version::ONE,
+                lock_time: LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            },
+            genesis_txid,
+        );
+        assert!(load_upgrade_commits(path.to_str().unwrap(), &other_latest).is_err());
+
+        let wrong_genesis = CircuitCommit { genesis_txid: [9; 32], ..commit.clone() };
+        std::fs::write(&path, serde_json::to_vec(&vec![wrong_genesis]).unwrap()).unwrap();
+        assert!(load_upgrade_commits(path.to_str().unwrap(), &commit).is_err());
+
+        std::fs::write(&path, serde_json::to_vec(&Vec::<CircuitCommit>::new()).unwrap()).unwrap();
+        assert!(load_upgrade_commits(path.to_str().unwrap(), &commit).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     #[ignore = "local test"]

@@ -11,6 +11,12 @@ async fn main() {
     tracing::info!("args: {:?}", args);
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+    let builder = StateChainProofBuilder::new();
+    if args.print_program_id {
+        println!("{}", hex::encode(builder.program_id().unwrap()));
+        return;
+    }
+
     let blocks = fetch_state_chain(
         &args.l2_contract_addresses,
         &args.proceed_withdraw_method_ids,
@@ -23,8 +29,6 @@ async fn main() {
     )
     .await
     .unwrap();
-
-    let builder = StateChainProofBuilder::new();
 
     let ctx = ProofRequest::StateChainProofRequest {
         init_input: args.init_input,

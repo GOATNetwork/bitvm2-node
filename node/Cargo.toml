@@ -112,8 +112,6 @@ once_cell = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-groth16 = { workspace = true }
 
-indicatif = "0.17.8"
-dirs = "5.0.1"
 
 zkm-sdk = { workspace = true }
 zkm-verifier = { workspace = true, features = ["ark"] }
@@ -132,4 +130,7 @@ store = { workspace = true }
 client = { workspace = true }
 bitcoin-light-client-circuit = { workspace = true }
 commit-chain = { workspace = true }
+header-chain = { workspace = true }
+state-chain = { workspace = true }
+verifier = { workspace = true }
 cbft-rpc = { workspace = true }

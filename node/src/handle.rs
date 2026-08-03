@@ -13,7 +13,7 @@ use crate::soldering_payload_store::{
 use crate::utils::*;
 use anyhow::{Context, Result, anyhow, bail};
 use ark_serialize::CanonicalSerialize;
-use bitcoin::{Amount, OutPoint, Txid};
+use bitcoin::{Amount, OutPoint, Txid, hashes::Hash};
 use bitcoin::{PublicKey, XOnlyPublicKey};
 use bitvm_lib::actors::Actor;
 use bitvm_lib::babe_adapter::{
@@ -1790,15 +1790,7 @@ async fn handle_soldering_proof_ready_operator(
         total_len,
         payload_hash = %soldering_payload_hash_hex(&payload_hash),
         payload_path = %payload_path,
-        "read soldering proof payload from store"
-    );
-    tracing::info!(
-        instance_id = %instance_id,
-        graph_id = %graph_id,
-        verifier_index,
-        total_len,
-        payload_hash = %soldering_payload_hash_hex(&payload_hash),
-        "start processing soldering proof payload"
+        "read soldering proof payload from store, start processing"
     );
     let result =
         handle_soldering_proof_payload_operator(ctx, &soldering_proof_ready, &payload).await;
@@ -2015,7 +2007,7 @@ async fn handle_compact_soldering_proof_operator(
     let prekickoff_params =
         build_prekickoff_params(ctx.btc_client, graph_nonce, cur_prekickoff_txn).await?;
 
-    let graph_params = build_graph_params(
+    let mut graph_params = build_graph_params(
         ctx.local_db,
         ctx.goat_client,
         instance_params,
@@ -2026,7 +2018,18 @@ async fn handle_compact_soldering_proof_operator(
     )
     .await?;
 
+    let challenge_init_txid = generate_bitvm_graph(graph_params.clone())?
+        .watchtower_challenge_init
+        .tx()
+        .compute_txid()
+        .to_byte_array();
+    graph_params.pubin_disprove_constant =
+        get_guest_constant_value(graph_id, challenge_init_txid, &graph_params.watchtower_pubkeys)?;
     let mut graph = generate_bitvm_graph(graph_params)?;
+    anyhow::ensure!(
+        graph.watchtower_challenge_init.tx().compute_txid().to_byte_array() == challenge_init_txid,
+        "Operator constant unexpectedly changes the watchtower challenge init transaction"
+    );
     operator_pre_sign(operator_master_key.master_keypair(), &mut graph)?;
 
     let graph = graph.to_simplified()?;

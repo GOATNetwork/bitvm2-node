@@ -29,6 +29,7 @@ bitcoin = { workspace = true }
 client = { workspace = true }
 proof-builder = { workspace = true }
 util = { workspace = true }
+verifier = { workspace = true }
 
 # Ziren
 zkm-sdk.workspace = true

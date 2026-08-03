@@ -25,6 +25,10 @@ use std::fs;
 // The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -34,22 +38,62 @@ pub struct Args {
     #[arg(long, env, default_value_t = Network::Regtest)]
     pub bitcoin_network: Network,
 
-    #[clap(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub genesis_sequencer_commit_txid: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub latest_sequencer_commit_txid: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short = 'H',
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub header_chain_input_proof: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub commit_chain_input_proof: String,
 
-    #[clap(long, env, short)]
+    #[clap(
+        long,
+        env,
+        short,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub state_chain_input_proof: String,
 
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub output: String,
 }
 
@@ -122,7 +166,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
             header_chain_input_proof,
             commit_chain_input_proof,
             state_chain_input_proof,
-            latest_sequencer_commit_txid,
             genesis_sequencer_commit_txid,
             target_block,
             block_pos,
@@ -150,6 +193,8 @@ impl ProofBuilder for WatchtowerProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
 
             HeaderChainCircuitInput {
                 prev_proof: HeaderChainPrevProofType::GenesisBlock, // unused
@@ -157,6 +202,7 @@ impl ProofBuilder for WatchtowerProofBuilder {
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 block_headers: vec![],
             }
         };
@@ -178,12 +224,15 @@ impl ProofBuilder for WatchtowerProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
             CommitChainCircuitInput {
                 prev_proof: CommitChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 commits: vec![],
             }
         };
@@ -204,18 +253,20 @@ impl ProofBuilder for WatchtowerProofBuilder {
                         format!("invalid UTF-8 in zkm_version file '{version_path}'")
                     })
                 })?;
+            let self_program_id =
+                verifier::program_id(&zkm_vk_hash, &zkm_version).map_err(anyhow::Error::msg)?;
             StateChainCircuitInput {
                 prev_proof: StateChainPrevProofType::GenesisBlock, // unused
                 zkm_proof,
                 zkm_public_values,
                 zkm_vk_hash,
                 zkm_version,
+                self_program_id,
                 blocks: vec![],
             }
         };
         // --- spv --- //
         let genesis_sequencer_commit_txid = Txid::from_str(genesis_sequencer_commit_txid)?;
-        let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid)?;
         let bitcoin_block_headers = {
             let headers: Vec<u8> = std::fs::read(format!("{header_chain_input_proof}.blocks"))?;
             headers
@@ -247,7 +298,6 @@ impl ProofBuilder for WatchtowerProofBuilder {
             || -> anyhow::Result<(ZKMProofWithPublicValues, u64, f32)> {
                 let mut stdin = ZKMStdin::new();
                 stdin.write(&genesis_sequencer_commit_txid.to_byte_array());
-                stdin.write(&latest_sequencer_commit_txid.to_byte_array());
                 stdin.write(&header_chain_input);
                 stdin.write(&commit_chain_input);
                 stdin.write(&state_chain_input);

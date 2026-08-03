@@ -3,6 +3,7 @@ use clap::Parser;
 use operator_proof::{Args, OperatorProofBuilder, fetch_target_block_and_watchtower_tx};
 use proof_builder::{ProofBuilder, ProofRequest};
 use util::hex_parse;
+use zkm_sdk::HashableKey;
 
 #[tokio::main]
 async fn main() {
@@ -11,17 +12,22 @@ async fn main() {
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
 
+    let builder = OperatorProofBuilder::new();
+    if args.print_program_id {
+        println!("OPERATOR_PROGRAM_ID={}", hex::encode(builder.program_id().unwrap()));
+        eprintln!("OPERATOR_VK_HASH={}", builder.vk().bytes32());
+        return;
+    }
+
     let (
         block_pos_ss_commit,
         target_block_ss_commit,
         operator_committed_blockhash,
         operator_latest_sequencer_commit_txn,
-        watchtower_challenge_indices,
         graph_watchtower_xonly_public_keys,
-        watchtower_challenge_txns,
-        watchtower_challenge_txn_prev_outs,
-        watchtower_challenge_txn_pubkeys,
-        watchtower_challenge_txn_scripts,
+        watchtower_challenge_init_txid,
+        watchtower_challenge_init_txn,
+        watchtower_challenge_witnesses,
     ) = fetch_target_block_and_watchtower_tx(
         &args.esplora_url,
         &args.latest_sequencer_commit_txid,
@@ -33,8 +39,6 @@ async fn main() {
     )
     .await
     .unwrap();
-
-    let builder = OperatorProofBuilder::new();
 
     let ctx = ProofRequest::OperatorProofRequest {
         included_watchtowers: args.included_watchtowers.clone(),
@@ -53,12 +57,10 @@ async fn main() {
         operator_latest_sequencer_commit_txn,
         operator_committed_blockhash,
 
-        watchtower_challenge_indices,
         graph_watchtower_xonly_public_keys,
-        watchtower_challenge_txns,
-        watchtower_challenge_txn_prev_outs,
-        watchtower_challenge_txn_pubkeys,
-        watchtower_challenge_txn_scripts,
+        watchtower_challenge_init_txid,
+        watchtower_challenge_init_txn,
+        watchtower_challenge_witnesses,
     };
     let (input, proof, cycles, _) = builder.build_proof(&ctx).unwrap();
     tracing::info!("Operator proof cycles: {cycles}");

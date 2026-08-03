@@ -82,7 +82,7 @@ pub fn create_fee_tx(
 }
 
 pub fn create_sequencer_update_partial_tx(
-    commitment: [u8; 96],
+    commitment: [u8; 32],
     update_connector: &Option<OutPoint>,
     replenish_fee_connector: &Option<OutPoint>,
     next_update_connector: Address,
