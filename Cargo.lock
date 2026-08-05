@@ -3237,7 +3237,7 @@ dependencies = [
  "pairing 0.23.0",
  "rand_core 0.6.4",
  "subtle",
- "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -12670,7 +12670,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "rand 0.8.5",
  "rustc-hex",
- "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -15299,19 +15299,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zkm-lib"
-version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#53a8eff4e716d6091c2ced0401b7b9537535392a"
-dependencies = [
- "bincode",
- "cfg-if",
- "elliptic-curve",
- "serde",
- "sha2 0.10.9",
- "zkm-primitives",
-]
-
-[[package]]
 name = "zkm-primitives"
 version = "1.2.5"
 source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
@@ -15631,7 +15618,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "sha2 0.10.9",
- "zkm-lib 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-lib",
  "zkm-primitives",
 ]
 

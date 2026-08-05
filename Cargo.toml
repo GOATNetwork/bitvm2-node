@@ -205,3 +205,4 @@ zkm-primitives = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake
 zkm-zkvm = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
 zkm-recursion-core = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
 zkm-stark = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
+zkm-lib = { git = "https://github.com/VanhGer/Ziren.git", branch = "blake3" }
