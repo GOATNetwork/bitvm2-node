@@ -6,7 +6,7 @@
 (* `InstanceBridgeOutStatus` (crates/store/src/schema.rs:223-229) is       *)
 (* written from three independently-scheduled, uncoordinated tasks with   *)
 (* no shared transaction spanning read+decide+write in any of them:       *)
-(*   - the RPC-service task (node/src/rpc_service/handler/bitvm2_handler.rs, *)
+(*   - the RPC-service task (node/src/rpc_service/handler/bitvm_handler.rs, *)
 (*     `bridge_out_init_tag`) - stale-read-then-full-row-upsert, sets      *)
 (*     Initialize.                                                        *)
 (*   - the GoatChain L2-event watcher (node/src/scheduled_tasks/          *)
@@ -44,7 +44,7 @@ Init == status = "Initialize"
 (* Every action below is unconditional on the current status - confirmed  *)
 (* real behavior for all three writers, not a modeling simplification.    *)
 
-RpcStaleInit ==      status' = "Initialize" \* bitvm2_handler.rs bridge_out_init_tag, stale full-row upsert
+RpcStaleInit ==      status' = "Initialize" \* bitvm_handler.rs bridge_out_init_tag, stale full-row upsert
 WatchEventClaim ==   status' = "Claim"      \* event_watch_task.rs handle_swap_claim_events
 WatchEventRefund ==  status' = "Refund"     \* event_watch_task.rs handle_swap_refund_events
 MaintenanceTimeout == status' = "Timeout"   \* instance_maintenance_tasks.rs instance_bridge_out_monitor

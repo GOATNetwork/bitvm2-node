@@ -460,7 +460,7 @@ mod tests {
         println!("proof: {public_input:?}, hash : {:?}", hash);
 
         //let input_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/commit-chain/commit_info.json.8";
-        let input_path = "/home/ubuntu/data/stephen/bitvm2-node/circuits/data/commit-chain/commit_info.json.latest";
+        let input_path = "/home/ubuntu/data/stephen/bitvm-node/circuits/data/commit-chain/commit_info.json.latest";
         let input_bytes = std::fs::read(input_path).unwrap();
         let commit_info: CommitInfo = serde_json::from_slice(&input_bytes).unwrap();
         info!("commit info: {:?}", commit_info);

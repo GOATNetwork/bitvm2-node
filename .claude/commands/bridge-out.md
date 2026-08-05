@@ -25,11 +25,11 @@ Initiate Bridge Out via the `bridge-out` binary (payInvoice quote -> swap initia
 
 3. Check if the `bridge-out` binary exists at `./bin/bridge-out`. If not, run the install script to download it:
    ```bash
-   .claude/commands/install-bitvm2.sh install
+   .claude/commands/install-bitvm.sh install
    ```
    To upgrade to the latest version:
    ```bash
-   .claude/commands/install-bitvm2.sh upgrade
+   .claude/commands/install-bitvm.sh upgrade
    ```
    The script auto-detects the platform (x86_64-linux / aarch64-macos), downloads from GitHub Releases,
    verifies the sha256 checksum, and installs all binaries to `./bin/`.

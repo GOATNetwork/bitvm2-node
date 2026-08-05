@@ -27,11 +27,11 @@ Send a pegin request to GoatChain via the `pegin-request` binary.
 
 3. Check if the `pegin-request` binary exists at `./bin/pegin-request`. If not, run the install script to download it:
    ```bash
-   .claude/commands/install-bitvm2.sh install
+   .claude/commands/install-bitvm.sh install
    ```
    To upgrade to the latest version:
    ```bash
-   .claude/commands/install-bitvm2.sh upgrade
+   .claude/commands/install-bitvm.sh upgrade
    ```
    The script auto-detects the platform (x86_64-linux / aarch64-macos), downloads from GitHub Releases, verifies the sha256 checksum, and installs all binaries to `./bin/`.
 

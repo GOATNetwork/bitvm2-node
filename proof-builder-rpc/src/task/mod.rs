@@ -1060,7 +1060,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_watchtower_task() {
         let db_path = std::env::var("TEST_DB")
-            .unwrap_or("sqlite:/tmp/.bitvm2-node-sd.db?mode=rwc".to_string());
+            .unwrap_or("sqlite:/tmp/.bitvm-node-sd.db?mode=rwc".to_string());
         let local_db = create_local_db(&db_path).await;
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
@@ -1085,7 +1085,7 @@ mod tests {
     async fn test_add_operator_proof() {
         tracing_subscriber::fmt::init();
         let db_path =
-            std::env::var("TEST_DB").unwrap_or("sqlite:.bitvm2-node-sd.db?mode=rwc".to_string());
+            std::env::var("TEST_DB").unwrap_or("sqlite:.bitvm-node-sd.db?mode=rwc".to_string());
         let local_db = create_local_db(&db_path).await;
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# BitVM2 Node API Documentation Server
+# BitVM Node API Documentation Server
 # Use Python built-in server to provide documentation access
 
 set -e
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "Starting BitVM2 API Documentation Server..."
+echo "Starting BitVM API Documentation Server..."
 echo ""
 
 # Check if documentation exists
