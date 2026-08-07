@@ -2,11 +2,11 @@ use crate::rpc_service::response::{ApiErrorExt, ApiResult, ErrorResponse, ok_res
 use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use http::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use store::MessageDebugOverview;
+use store::{Graph, GraphStatus, MessageDebugOverview};
 
 #[derive(Serialize)]
 pub struct DebugStatusResponse {
@@ -30,6 +30,69 @@ pub struct DebugMessageQueue {
 #[derive(Serialize)]
 pub struct GraphDebugMessagesResponse {
     pub graph_id: String,
+    pub status: Option<String>,
+    pub flow: String,
+    pub messages: Vec<GraphDebugMessageOverview>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GraphMessageFlow {
+    Pegin,
+    Pegout,
+}
+
+#[derive(Default, Deserialize)]
+pub struct GraphDebugMessagesQuery {
+    /// Optional message-flow filter: `pegin` or `pegout`.
+    pub flow: Option<GraphMessageFlow>,
+}
+
+impl GraphMessageFlow {
+    fn matches_message_type(&self, message_type: &str) -> bool {
+        match self {
+            Self::Pegin => matches!(
+                message_type,
+                "CreateGraph"
+                    | "InitGraph"
+                    | "GenCircuits"
+                    | "CutCircuits"
+                    | "SolderingProofReady"
+                    | "VerifierGraphParamsEndorsement"
+                    | "NonceGeneration"
+                    | "CommitteePresign"
+                    | "EndorseGraph"
+                    | "GraphFinalize"
+            ),
+            Self::Pegout => matches!(
+                message_type,
+                "KickoffReady"
+                    | "KickoffSent"
+                    | "PreKickoffSent"
+                    | "ChallengeSent"
+                    | "WatchtowerChallengeInitSent"
+                    | "WatchtowerChallengeSent"
+                    | "WatchtowerChallengeTimeout"
+                    | "NackReady"
+                    | "OperatorCommitPubinReady"
+                    | "OperatorCommitPubinTimeout"
+                    | "AssertReady"
+                    | "AssertSent"
+                    | "ChallengeAssertSent"
+                    | "WronglyChallengeTimeout"
+                    | "DisproveSent"
+                    | "Take1Ready"
+                    | "Take1Sent"
+                    | "Take2Ready"
+                    | "Take2Sent"
+            ),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct InstanceDebugMessagesResponse {
+    pub instance_id: String,
     pub messages: Vec<GraphDebugMessageOverview>,
 }
 
@@ -91,6 +154,28 @@ fn graph_debug_message_overview(message: MessageDebugOverview) -> GraphDebugMess
     }
 }
 
+fn graph_debug_flow(graph: Option<&Graph>) -> &'static str {
+    let Some(graph) = graph else {
+        return "unknown";
+    };
+    if graph.init_withdraw_tx_hash.is_some()
+        || graph.bridge_out_start_at > 0
+        || matches!(
+            graph.status.parse::<GraphStatus>(),
+            Ok(GraphStatus::PreKickoff
+                | GraphStatus::OperatorKickOff
+                | GraphStatus::Challenge
+                | GraphStatus::Disprove
+                | GraphStatus::OperatorTake1
+                | GraphStatus::OperatorTake2)
+        )
+    {
+        "pegout"
+    } else {
+        "pegin"
+    }
+}
+
 // TODO(auth): Require operator authentication before exposing local debug state.
 #[axum::debug_handler]
 pub async fn get_debug_status(
@@ -129,20 +214,55 @@ pub async fn get_debug_status(
 #[axum::debug_handler]
 pub async fn get_graph_debug_messages(
     Path(graph_id): Path<String>,
+    Query(query): Query<GraphDebugMessagesQuery>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<GraphDebugMessagesResponse> {
     let graph_id = InputValidator::validate_uuid(&graph_id, "graph_id")?;
     let mut storage_processor =
         app_state.local_db.acquire().await.api_error("GET_GRAPH_DEBUG_MESSAGES_ERROR")?;
+    let graph = storage_processor
+        .find_graph(&graph_id)
+        .await
+        .api_error("GET_GRAPH_DEBUG_MESSAGES_ERROR")?;
+    let flow = graph_debug_flow(graph.as_ref()).to_string();
+    let status = graph.map(|graph| graph.status);
     let messages = storage_processor
         .find_message_debug_overviews(&graph_id)
         .await
         .api_error("GET_GRAPH_DEBUG_MESSAGES_ERROR")?
         .into_iter()
+        .filter(|message| {
+            query.flow.as_ref().is_none_or(|flow| flow.matches_message_type(&message.msg_type))
+        })
         .map(graph_debug_message_overview)
         .collect();
 
-    ok_response(GraphDebugMessagesResponse { graph_id: graph_id.to_string(), messages })
+    ok_response(GraphDebugMessagesResponse {
+        graph_id: graph_id.to_string(),
+        status,
+        flow,
+        messages,
+    })
+}
+
+// TODO(auth): Require operator authentication before exposing local debug state.
+#[axum::debug_handler]
+pub async fn get_instance_debug_messages(
+    Path(instance_id): Path<String>,
+    State(app_state): State<Arc<AppState>>,
+) -> ApiResult<InstanceDebugMessagesResponse> {
+    let instance_id = InputValidator::validate_uuid(&instance_id, "instance_id")?;
+    let mut storage_processor =
+        app_state.local_db.acquire().await.api_error("GET_INSTANCE_DEBUG_MESSAGES_ERROR")?;
+    let messages = storage_processor
+        .find_message_debug_overviews(&instance_id)
+        .await
+        .api_error("GET_INSTANCE_DEBUG_MESSAGES_ERROR")?
+        .into_iter()
+        .map(graph_debug_message_overview)
+        .collect();
+
+    ok_response(InstanceDebugMessagesResponse { instance_id: instance_id.to_string(), messages })
 }
 
 // TODO(auth): Require operator authentication before exposing local debug state.

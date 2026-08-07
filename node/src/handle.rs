@@ -3987,7 +3987,7 @@ async fn handle_kickoff_ready_operator(
             let delay_secs = min_pegout_time_secs * nonce_interval;
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
-                current_graph_id,
+                graph_id,
                 &message,
                 delay_secs as usize,
                 MessageDeferReason::PreviousGraphPending,
@@ -4003,7 +4003,7 @@ async fn handle_kickoff_ready_operator(
             let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
-                current_graph_id,
+                graph_id,
                 &message,
                 delay_secs as usize,
                 MessageDeferReason::ChainStatePending,
@@ -4028,7 +4028,7 @@ async fn handle_kickoff_ready_operator(
                 let delay_secs = min_pegout_time_secs * nonce_interval;
                 push_local_unhandled_messages_with_reason(
                     ctx.local_db,
-                    current_graph_id,
+                    graph_id,
                     &message,
                     delay_secs as usize,
                     MessageDeferReason::PreviousGraphPending,
@@ -4044,7 +4044,7 @@ async fn handle_kickoff_ready_operator(
                 let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
                 push_local_unhandled_messages_with_reason(
                     ctx.local_db,
-                    current_graph_id,
+                    graph_id,
                     &message,
                     delay_secs as usize,
                     MessageDeferReason::ChainStatePending,

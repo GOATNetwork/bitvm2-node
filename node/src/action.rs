@@ -40,7 +40,8 @@ const TRANSIENT_PEGIN_RETRY_DELAY_SECS: usize = 30;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MessageDeferReason {
-    RetryScheduled,
+    TransientStorageRetry,
+    RecoveryRepublish,
     PreviousGraphPending,
     CommitteeNoncesPending,
     CommitteeEndorsementsPending,
@@ -60,7 +61,8 @@ pub enum MessageDeferReason {
 impl MessageDeferReason {
     pub const fn code(self) -> &'static str {
         match self {
-            Self::RetryScheduled => "retry_scheduled",
+            Self::TransientStorageRetry => "transient_storage_retry",
+            Self::RecoveryRepublish => "recovery_republish",
             Self::PreviousGraphPending => "previous_graph_pending",
             Self::CommitteeNoncesPending => "committee_nonces_pending",
             Self::CommitteeEndorsementsPending => "committee_endorsements_pending",
@@ -727,11 +729,13 @@ pub async fn recv_and_dispatch(
     let result = match handle_dispatch(&mut handler_ctx, message.content()).await {
         Err(error) if !is_local_queue_message && is_retryable_sqlite_error(&error) => {
             if let Some(business_id) = message.content.pegin_retry_business_id() {
-                match push_local_unhandled_messages(
+                match push_local_unhandled_messages_with_reason(
                     local_db,
                     business_id,
                     &message,
                     TRANSIENT_PEGIN_RETRY_DELAY_SECS,
+                    MessageDeferReason::TransientStorageRetry,
+                    &format!("transient SQLite failure: {error}"),
                 )
                 .await
                 {
@@ -908,23 +912,6 @@ pub async fn send_to_peer(
             Err(err.into())
         }
     }
-}
-
-pub async fn push_local_unhandled_messages(
-    local_db: &LocalDB,
-    business_id: Uuid,
-    message: &GOATMessage,
-    delay_secs: usize,
-) -> Result<()> {
-    push_local_unhandled_messages_with_reason(
-        local_db,
-        business_id,
-        message,
-        delay_secs,
-        MessageDeferReason::RetryScheduled,
-        "retry scheduled without a more specific reason",
-    )
-    .await
 }
 
 pub async fn push_local_unhandled_messages_with_reason(
