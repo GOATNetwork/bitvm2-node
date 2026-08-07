@@ -315,7 +315,7 @@ impl CommitChainState {
                     &self.publisher_public_keys[..],
                     self.threshold as usize,
                 );
-                crate::publisher::verify_p2wsh_multisig_witness(
+                let publisher_witness_valid = crate::publisher::verify_p2wsh_multisig_witness(
                     &latest_commit_txn_with_wtns,
                     0,
                     prevout,
@@ -323,7 +323,11 @@ impl CommitChainState {
                     &self.publisher_public_keys,
                     self.threshold as usize,
                 )
-                .unwrap();
+                .expect("Failed to verify Publisher multisig witness");
+                assert!(
+                    publisher_witness_valid,
+                    "Publisher multisig witness does not meet threshold"
+                );
             }
 
             let expected_next_connector_script = crate::create_sequencer_update_script(

@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 
 use bitcoin::blockdata::{opcodes::all::*, script::Builder};
 use bitcoin::{Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Witness};
@@ -8,13 +8,31 @@ use bitcoin::secp256k1::{
 };
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 
-pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
+/// Validates a Publisher key set before it is committed into a P2WSH multisig script.
+pub fn validate_publisher_set(public_keys: &[PublicKey], threshold: usize) -> Result<(), String> {
     let total = public_keys.len();
     println!("Multi sig: {threshold} of {total}");
-    assert!(
-        threshold <= total,
-        "Threshold must be less than or equal to total number of public keys"
-    );
+
+    if public_keys.is_empty() || total > 20 || threshold == 0 || threshold > total {
+        return Err(format!(
+            "Invalid Publisher set: public key count {total}, threshold {threshold}; expected 1 to 20 public keys and a threshold between 1 and the public key count",
+        ));
+    }
+
+    let mut unique_keys = HashSet::with_capacity(total);
+    for public_key in public_keys {
+        if !unique_keys.insert(public_key.serialize()) {
+            return Err(format!("Duplicate Publisher public key: {public_key}"));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
+    validate_publisher_set(public_keys, threshold)
+        .unwrap_or_else(|error| panic!("Invalid Publisher set: {error}"));
+
     let mut redeem_script = Builder::new().push_int(threshold as i64);
     for pk in public_keys {
         redeem_script = redeem_script.push_slice(pk.serialize());
