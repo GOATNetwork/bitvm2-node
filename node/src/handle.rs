@@ -4843,18 +4843,7 @@ async fn handle_assert_ready_operator(
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let assert_secret_key = operator_master_key.assert_wots_keypair_for_graph(graph_id).0;
 
-    if operator_proof.public_inputs.len() != 2 {
-        bail!(
-            "operator proof has {} public inputs; expected 2",
-            operator_proof.public_inputs.len()
-        );
-    }
-    let dynamic_input = operator_proof.public_inputs.get(1).copied().ok_or_else(|| {
-        anyhow!(
-            "operator proof has {} public inputs; expected dynamic input at index 1",
-            operator_proof.public_inputs.len()
-        )
-    })?;
+    let dynamic_input = operator_assert_dynamic_input(&operator_proof.public_inputs)?;
     let assert_witness =
         build_assert_witness(&operator_proof.proof, &assert_secret_key, dynamic_input)?;
     let assert_message = assert_wots_message(&assert_witness)?;
