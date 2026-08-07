@@ -524,6 +524,30 @@ pub struct Message {
     pub created_at: i64,
 }
 
+#[derive(Clone, Debug, FromRow)]
+pub struct MessageDebugOverview {
+    pub message_id: String,
+    pub actor: String,
+    pub msg_type: String,
+    pub state: String,
+    pub lock_time_until: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub reason_count: i64,
+    pub last_reason_code: Option<String>,
+    pub last_reason_detail: Option<String>,
+    pub last_reason_seen_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, FromRow)]
+pub struct MessageDebugReason {
+    pub reason_code: String,
+    pub reason_detail: String,
+    pub first_seen_at: i64,
+    pub last_seen_at: i64,
+    pub occurrences: i64,
+}
+
 #[derive(Clone, Debug, FromRow, PartialEq, Eq)]
 pub struct MetricsStateCount {
     pub category: String,

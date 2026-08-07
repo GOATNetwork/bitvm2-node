@@ -12,11 +12,12 @@ use crate::env::{get_btc_url_from_env, get_goat_network, get_network, goat_confi
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    bridge_in_request_tag, bridge_out_init_tag, get_chain_proof_desc, get_graph,
-    get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs, get_instance,
-    get_instance_escrow_data, get_instances, get_instances_overview, get_node, get_nodes,
-    get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph,
-    get_unsigned_pegin_txn, instance_settings, pegout, send_challenge, send_verifier_challenge,
+    bridge_in_request_tag, bridge_out_init_tag, get_chain_proof_desc, get_debug_message_details,
+    get_debug_status, get_graph, get_graph_debug_messages, get_graph_neighbor_ids, get_graph_tx,
+    get_graph_txn, get_graphs, get_instance, get_instance_escrow_data, get_instances,
+    get_instances_overview, get_node, get_nodes, get_nodes_overview, get_operator_proof_desc,
+    get_ready_to_kickoff_graph, get_unsigned_pegin_txn, instance_settings, pegout, send_challenge,
+    send_verifier_challenge,
 };
 use anyhow::Context;
 use axum::body::Body;
@@ -159,6 +160,10 @@ pub async fn serve_with_app_state(
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::GRAPHS_NEIGHBOR_IDS, get(get_graph_neighbor_ids))
+        // TODO(auth): Restrict debug endpoints before exposing the RPC outside trusted operators.
+        .route(routes::v1::DEBUG_STATUS, get(get_debug_status))
+        .route(routes::v1::DEBUG_GRAPH_MESSAGES, get(get_graph_debug_messages))
+        .route(routes::v1::DEBUG_MESSAGE_DETAILS, get(get_debug_message_details))
         .route(routes::v1::GRAPHS_SEND_CHALLENGE, post(send_challenge))
         .route(routes::v1::GRAPHS_SEND_VERIFIER_CHALLENGE, post(send_verifier_challenge))
         .route(routes::v1::PEGOUT, post(pegout))

@@ -2,10 +2,10 @@ use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     BridgeOutGlobalStats, EventWatchMetricsSnapshot, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
     GraphRawData, GraphStatus, GraphStatusSource, GraphStatusTransitionOutcome, Instance,
-    LongRunningTaskProof, Message, MetricsStateCount, Node, NodeAlertMetricsSnapshot,
-    NodesOverview, OperatorProof, PeginGraphProcessData, PeginInstanceProcessData,
-    PendingGraphInit, SequencerSetHashChange, SequencerSetScanState, SerializableTxid,
-    WatchContract, WatchtowerProof,
+    LongRunningTaskProof, Message, MessageDebugOverview, MessageDebugReason, MetricsStateCount,
+    Node, NodeAlertMetricsSnapshot, NodesOverview, OperatorProof, PeginGraphProcessData,
+    PeginInstanceProcessData, PendingGraphInit, SequencerSetHashChange, SequencerSetScanState,
+    SerializableTxid, WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -2421,6 +2421,120 @@ impl<'a> StorageProcessor<'a> {
         })
     }
 
+    pub async fn find_message_debug_overviews(
+        &mut self,
+        business_id: &Uuid,
+    ) -> anyhow::Result<Vec<MessageDebugOverview>> {
+        Ok(sqlx::query_as::<_, MessageDebugOverview>(
+            r#"SELECT m.message_id,
+                      m.actor,
+                      m.msg_type,
+                      m.state,
+                      m.lock_time_until,
+                      m.created_at,
+                      m.updated_at,
+                      COALESCE(reason_counts.reason_count, 0) AS reason_count,
+                      latest_reason.reason_code AS last_reason_code,
+                      latest_reason.reason_detail AS last_reason_detail,
+                      latest_reason.last_seen_at AS last_reason_seen_at
+               FROM message m
+               LEFT JOIN (
+                    SELECT message_id, COUNT(*) AS reason_count
+                    FROM message_debug_reason
+                    GROUP BY message_id
+               ) reason_counts ON reason_counts.message_id = m.message_id
+               LEFT JOIN message_debug_reason latest_reason
+                    ON latest_reason.rowid = (
+                        SELECT rowid
+                        FROM message_debug_reason
+                        WHERE message_id = m.message_id
+                        ORDER BY last_seen_at DESC, occurrences DESC, reason_code ASC
+                        LIMIT 1
+                    )
+               WHERE m.business_id = ?
+               ORDER BY m.updated_at DESC"#,
+        )
+        .bind(business_id)
+        .fetch_all(self.conn())
+        .await?)
+    }
+
+    pub async fn find_message_debug_overview(
+        &mut self,
+        message_id: &str,
+    ) -> anyhow::Result<Option<MessageDebugOverview>> {
+        Ok(sqlx::query_as::<_, MessageDebugOverview>(
+            r#"SELECT m.message_id,
+                      m.actor,
+                      m.msg_type,
+                      m.state,
+                      m.lock_time_until,
+                      m.created_at,
+                      m.updated_at,
+                      COALESCE(reason_counts.reason_count, 0) AS reason_count,
+                      latest_reason.reason_code AS last_reason_code,
+                      latest_reason.reason_detail AS last_reason_detail,
+                      latest_reason.last_seen_at AS last_reason_seen_at
+               FROM message m
+               LEFT JOIN (
+                    SELECT message_id, COUNT(*) AS reason_count
+                    FROM message_debug_reason
+                    GROUP BY message_id
+               ) reason_counts ON reason_counts.message_id = m.message_id
+               LEFT JOIN message_debug_reason latest_reason
+                    ON latest_reason.rowid = (
+                        SELECT rowid
+                        FROM message_debug_reason
+                        WHERE message_id = m.message_id
+                        ORDER BY last_seen_at DESC, occurrences DESC, reason_code ASC
+                        LIMIT 1
+                    )
+               WHERE m.message_id = ?"#,
+        )
+        .bind(message_id)
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    pub async fn find_message_debug_reasons(
+        &mut self,
+        message_id: &str,
+    ) -> anyhow::Result<Vec<MessageDebugReason>> {
+        Ok(sqlx::query_as::<_, MessageDebugReason>(
+            "SELECT reason_code, reason_detail, first_seen_at, last_seen_at, occurrences \
+             FROM message_debug_reason WHERE message_id = ? \
+             ORDER BY last_seen_at DESC, reason_code ASC",
+        )
+        .bind(message_id)
+        .fetch_all(self.conn())
+        .await?)
+    }
+
+    pub async fn upsert_message_debug_reason(
+        &mut self,
+        message_id: &str,
+        reason_code: &str,
+        reason_detail: &str,
+    ) -> anyhow::Result<()> {
+        let now = get_current_timestamp_secs();
+        sqlx::query(
+            "INSERT INTO message_debug_reason \
+                (message_id, reason_code, reason_detail, first_seen_at, last_seen_at, occurrences) \
+             VALUES (?, ?, ?, ?, ?, 1) \
+             ON CONFLICT(message_id, reason_code, reason_detail) DO UPDATE SET \
+                 last_seen_at = excluded.last_seen_at, \
+                 occurrences = message_debug_reason.occurrences + 1",
+        )
+        .bind(message_id)
+        .bind(reason_code)
+        .bind(reason_detail.chars().take(512).collect::<String>())
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
     pub async fn upsert_message(&mut self, msg: Message) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let res = sqlx::query(
@@ -3707,6 +3821,54 @@ mod tests {
                 .unwrap()
                 .count,
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_message_debug_reasons_are_deduplicated() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+        let business_id = Uuid::new_v4();
+
+        sqlx::query(
+            "INSERT INTO message (message_id, business_id, actor, msg_type, content, state, lock_time_until, created_at, updated_at) VALUES (?, ?, 'Operator', 'AssertReady', X'00', 'Pending', 30, 10, 20)",
+        )
+        .bind("message-debug-1")
+        .bind(business_id)
+        .execute(s.conn())
+        .await
+        .unwrap();
+
+        for _ in 0..2 {
+            s.upsert_message_debug_reason(
+                "message-debug-1",
+                "operator_proof_pending",
+                "operator proof is not ready",
+            )
+            .await
+            .unwrap();
+        }
+        s.upsert_message_debug_reason(
+            "message-debug-1",
+            "handler_error",
+            "proof RPC request timed out",
+        )
+        .await
+        .unwrap();
+
+        let messages = s.find_message_debug_overviews(&business_id).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].reason_count, 2);
+
+        let reasons = s.find_message_debug_reasons("message-debug-1").await.unwrap();
+        assert_eq!(reasons.len(), 2);
+        assert!(reasons.iter().any(|reason| {
+            reason.reason_code == "operator_proof_pending" && reason.occurrences == 2
+        }));
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.reason_code == "handler_error" && reason.occurrences == 1)
         );
     }
 

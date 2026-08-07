@@ -38,6 +38,47 @@ pub struct GOATMessage {
 const GOAT_MESSAGE_BIN_PREFIX: &[u8] = b"GOATBIN1";
 const TRANSIENT_PEGIN_RETRY_DELAY_SECS: usize = 30;
 
+#[derive(Clone, Copy, Debug)]
+pub enum MessageDeferReason {
+    RetryScheduled,
+    PreviousGraphPending,
+    CommitteeNoncesPending,
+    CommitteeEndorsementsPending,
+    BitcoinTransactionPending,
+    BitcoinConfirmationPending,
+    GoatSpvPending,
+    ProofPending,
+    ProtocolInputsPending,
+    TimelockPending,
+    WithdrawKickoffPending,
+    ChainStatePending,
+    ValidationRetry,
+    GraphSyncPending,
+    HandlerError,
+}
+
+impl MessageDeferReason {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::RetryScheduled => "retry_scheduled",
+            Self::PreviousGraphPending => "previous_graph_pending",
+            Self::CommitteeNoncesPending => "committee_nonces_pending",
+            Self::CommitteeEndorsementsPending => "committee_endorsements_pending",
+            Self::BitcoinTransactionPending => "bitcoin_transaction_pending",
+            Self::BitcoinConfirmationPending => "bitcoin_confirmation_pending",
+            Self::GoatSpvPending => "goat_spv_pending",
+            Self::ProofPending => "proof_pending",
+            Self::ProtocolInputsPending => "protocol_inputs_pending",
+            Self::TimelockPending => "timelock_pending",
+            Self::WithdrawKickoffPending => "withdraw_kickoff_pending",
+            Self::ChainStatePending => "chain_state_pending",
+            Self::ValidationRetry => "validation_retry",
+            Self::GraphSyncPending => "graph_sync_pending",
+            Self::HandlerError => "handler_error",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub enum GOATMessageContent {
     PeginRequest(PeginRequest),
@@ -598,6 +639,22 @@ pub async fn handle_self_p2p_msg(
                     "failed to process local message; deferred for retry"
                 );
                 let mut storage_processor = local_db.acquire().await?;
+                if let Err(reason_error) = storage_processor
+                    .upsert_message_debug_reason(
+                        &message.message_id,
+                        MessageDeferReason::HandlerError.code(),
+                        &err.to_string(),
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        event = "local_message_queue",
+                        outcome = "debug_reason_store_failed",
+                        queued_message_id = %message.message_id,
+                        error = %reason_error,
+                        "failed to persist local message debug reason"
+                    );
+                }
                 storage_processor
                     .update_messages_lock_time_until(
                         &message.message_id,
@@ -859,6 +916,25 @@ pub async fn push_local_unhandled_messages(
     message: &GOATMessage,
     delay_secs: usize,
 ) -> Result<()> {
+    push_local_unhandled_messages_with_reason(
+        local_db,
+        business_id,
+        message,
+        delay_secs,
+        MessageDeferReason::RetryScheduled,
+        "retry scheduled without a more specific reason",
+    )
+    .await
+}
+
+pub async fn push_local_unhandled_messages_with_reason(
+    local_db: &LocalDB,
+    business_id: Uuid,
+    message: &GOATMessage,
+    delay_secs: usize,
+    reason: MessageDeferReason,
+    reason_detail: &str,
+) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
     let actor = message.actor.clone();
     let content: GOATMessageContent = message.content().clone();
@@ -874,6 +950,30 @@ pub async fn push_local_unhandled_messages(
         delay_secs as i64,
     )
     .await?;
+    let persist_result = match storage_processor
+        .find_message_by_business_id(&business_id, message.content.event_type())
+        .await
+    {
+        Ok(Some(queued_message)) => {
+            storage_processor
+                .upsert_message_debug_reason(
+                    &queued_message.message_id,
+                    reason.code(),
+                    reason_detail,
+                )
+                .await
+        }
+        Ok(None) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = persist_result {
+        tracing::warn!(
+            event = "local_message_queue",
+            outcome = "debug_reason_store_failed",
+            error = %error,
+            "failed to persist local message defer reason"
+        );
+    }
     if delay_secs > 0
         && let Some(metrics_state) = crate::metrics_service::node_metrics_state()
     {
@@ -913,8 +1013,15 @@ pub(crate) async fn get_graph_or_defer(
                 "submitted"
             };
             let delay_secs: usize = 60; // 1 min default retry
-            if let Err(error) =
-                push_local_unhandled_messages(local_db, graph_id, message, delay_secs).await
+            if let Err(error) = push_local_unhandled_messages_with_reason(
+                local_db,
+                graph_id,
+                message,
+                delay_secs,
+                MessageDeferReason::GraphSyncPending,
+                "graph is missing locally; requested SyncGraph from a relayer",
+            )
+            .await
             {
                 tracing::error!(
                     event = "graph_resolution",

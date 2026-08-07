@@ -1236,7 +1236,15 @@ async fn defer_confirm_instance_until_previous_graph_presigned(
     let Some((previous_instance_id, previous_graph_id)) =
         get_graph_id_by_nonce(ctx.local_db, previous_nonce, operator_pubkey).await?
     else {
-        push_local_unhandled_messages(ctx.local_db, instance_id, &retry_message, 60).await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            instance_id,
+            &retry_message,
+            60,
+            MessageDeferReason::PreviousGraphPending,
+            "previous graph nonce is not available locally",
+        )
+        .await?;
         tracing::warn!(
             "Defer ConfirmInstance for {instance_id}: previous graph with nonce {previous_nonce} is not available locally"
         );
@@ -1257,7 +1265,15 @@ async fn defer_confirm_instance_until_previous_graph_presigned(
                 "Failed to send SyncGraphRequest for previous graph {previous_instance_id}:{previous_graph_id}: {error}"
             );
         }
-        push_local_unhandled_messages(ctx.local_db, instance_id, &retry_message, 60).await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            instance_id,
+            &retry_message,
+            60,
+            MessageDeferReason::PreviousGraphPending,
+            "previous graph definition is not available locally",
+        )
+        .await?;
         tracing::info!(
             "Defer ConfirmInstance for {instance_id}: waiting for previous graph raw data {previous_instance_id}:{previous_graph_id}"
         );
@@ -1267,7 +1283,15 @@ async fn defer_confirm_instance_until_previous_graph_presigned(
         return Ok(false);
     }
 
-    push_local_unhandled_messages(ctx.local_db, instance_id, &retry_message, 60).await?;
+    push_local_unhandled_messages_with_reason(
+        ctx.local_db,
+        instance_id,
+        &retry_message,
+        60,
+        MessageDeferReason::PreviousGraphPending,
+        "previous graph is waiting for committee pre-signatures",
+    )
+    .await?;
     let message_content = GOATMessageContent::CreateGraph(CreateGraph {
         instance_id: previous_instance_id,
         graph_id: previous_graph_id,
@@ -2458,7 +2482,15 @@ async fn handle_create_graph_committee(
                         );
                     }
                     let message = make_message(ctx, content);
-                    push_local_unhandled_messages(ctx.local_db, graph_id, &message, 60).await?;
+                    push_local_unhandled_messages_with_reason(
+                        ctx.local_db,
+                        graph_id,
+                        &message,
+                        60,
+                        MessageDeferReason::PreviousGraphPending,
+                        "previous graph definition is not available locally",
+                    )
+                    .await?;
                     tracing::info!(
                         "Defer CreateGraph for {instance_id}:{graph_id}: waiting for previous graph raw data {previous_instance_id}:{previous_graph_id}"
                     );
@@ -2466,7 +2498,15 @@ async fn handle_create_graph_committee(
                 };
                 if !previous_graph.committee_pre_signed() {
                     let message = make_message(ctx, content);
-                    push_local_unhandled_messages(ctx.local_db, graph_id, &message, 60).await?;
+                    push_local_unhandled_messages_with_reason(
+                        ctx.local_db,
+                        graph_id,
+                        &message,
+                        60,
+                        MessageDeferReason::PreviousGraphPending,
+                        "previous graph is waiting for committee pre-signatures",
+                    )
+                    .await?;
                     tracing::info!(
                         "Defer CreateGraph for {instance_id}:{graph_id}: waiting for previous graph {previous_instance_id}:{previous_graph_id} to be committee pre-signed"
                     );
@@ -2475,7 +2515,15 @@ async fn handle_create_graph_committee(
             }
             None => {
                 let message = make_message(ctx, content);
-                push_local_unhandled_messages(ctx.local_db, graph_id, &message, 60).await?;
+                push_local_unhandled_messages_with_reason(
+                    ctx.local_db,
+                    graph_id,
+                    &message,
+                    60,
+                    MessageDeferReason::PreviousGraphPending,
+                    "previous graph nonce is not available locally",
+                )
+                .await?;
                 tracing::info!(
                     "Defer CreateGraph for {instance_id}:{graph_id}: previous graph with nonce {previous_nonce} is not available locally"
                 );
@@ -2842,7 +2890,15 @@ async fn validate_committee_presign_for_graph(
     let pub_nonces_unchecked =
         get_committee_pub_nonces_for_graph(ctx.local_db, instance_id, graph_id).await?;
     if pub_nonces_unchecked.len() != committee_pubkeys.len() {
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, 30).await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            30,
+            MessageDeferReason::CommitteeNoncesPending,
+            "waiting for committee public nonces",
+        )
+        .await?;
         tracing::info!(
             "Defer CommitteePresign for {instance_id}:{graph_id}: waiting for committee pub nonces"
         );
@@ -3489,7 +3545,15 @@ async fn handle_pegin_confirm_partial_sig_committee(
     let pub_nonces_unchecked =
         get_committee_pub_nonces_for_instance(ctx.local_db, instance_id).await?;
     if pub_nonces_unchecked.len() != committee_pubkeys.len() {
-        push_local_unhandled_messages(ctx.local_db, instance_id, &message, 30).await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            instance_id,
+            &message,
+            30,
+            MessageDeferReason::CommitteeNoncesPending,
+            "waiting for committee public nonces",
+        )
+        .await?;
         tracing::info!(
             "Defer PeginConfirmPartialSig for {instance_id}: waiting for committee pub nonces"
         );
@@ -3561,7 +3625,15 @@ async fn handle_pegin_confirm_partial_sig_committee(
             return Ok(());
         }
         Err(e) => {
-            push_local_unhandled_messages(ctx.local_db, instance_id, &message, 30).await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                instance_id,
+                &message,
+                30,
+                MessageDeferReason::ValidationRetry,
+                &format!("failed to verify committee endorsement signature: {e}"),
+            )
+            .await?;
             tracing::warn!(
                 "Retry PeginConfirmPartialSig later for {instance_id} from {}: failed to verify endorsement signature: {e}",
                 received_committee_pubkey
@@ -3649,11 +3721,13 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
                     ctx.actor.clone(),
                     GOATMessageContent::PostReady(PostReady { instance_id }),
                 );
-                push_local_unhandled_messages(
+                push_local_unhandled_messages_with_reason(
                     ctx.local_db,
                     instance_id,
                     &message,
                     delay_secs as usize,
+                    MessageDeferReason::BitcoinTransactionPending,
+                    "pegin-confirm transaction is not available from the Bitcoin backend",
                 )
                 .await?;
                 tracing::warn!(
@@ -3673,8 +3747,15 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
                 ctx.actor.clone(),
                 GOATMessageContent::PostReady(PostReady { instance_id }),
             );
-            push_local_unhandled_messages(ctx.local_db, instance_id, &message, delay_secs as usize)
-                .await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                instance_id,
+                &message,
+                delay_secs as usize,
+                MessageDeferReason::CommitteeEndorsementsPending,
+                "waiting for all committee endorsements of the pegin-confirm transaction",
+            )
+            .await?;
             tracing::warn!(
                 "Retry postPeginData later for {instance_id}: not enough endorse sigs for pegin confirm tx: {}",
                 endorse_sigs.len()
@@ -3689,11 +3770,13 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
                     ctx.actor.clone(),
                     GOATMessageContent::PostReady(PostReady { instance_id }),
                 );
-                push_local_unhandled_messages(
+                push_local_unhandled_messages_with_reason(
                     ctx.local_db,
                     instance_id,
                     &message,
                     delay_secs as usize,
+                    MessageDeferReason::BitcoinConfirmationPending,
+                    "pegin-confirm transaction is not confirmed on Bitcoin",
                 )
                 .await?;
                 tracing::info!(
@@ -3710,8 +3793,15 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
                 ctx.actor.clone(),
                 GOATMessageContent::PostReady(PostReady { instance_id }),
             );
-            push_local_unhandled_messages(ctx.local_db, instance_id, &message, delay_secs as usize)
-                .await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                instance_id,
+                &message,
+                delay_secs as usize,
+                MessageDeferReason::GoatSpvPending,
+                "pegin-confirm block is not available through GOAT SPV",
+            )
+            .await?;
             tracing::info!(
                 "Retry postPeginData later for {instance_id}: pegin confirm tx block not posted to goat spv contract yet"
             );
@@ -3764,8 +3854,15 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
             ctx.actor.clone(),
             GOATMessageContent::PostReady(PostReady { instance_id }),
         );
-        push_local_unhandled_messages(ctx.local_db, instance_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            instance_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::CommitteeEndorsementsPending,
+            "waiting for committee graph endorsements",
+        )
+        .await?;
         tracing::info!(
             "Retry postGraphData later for {instance_id}: waiting for committee graph endorsements"
         );
@@ -3888,11 +3985,13 @@ async fn handle_kickoff_ready_operator(
             ) as u64
                 * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
             let delay_secs = min_pegout_time_secs * nonce_interval;
-            push_local_unhandled_messages(
+            push_local_unhandled_messages_with_reason(
                 ctx.local_db,
                 current_graph_id,
                 &message,
                 delay_secs as usize,
+                MessageDeferReason::PreviousGraphPending,
+                "previous graph has an active pegout flow",
             )
             .await?;
             return Ok(());
@@ -3902,11 +4001,13 @@ async fn handle_kickoff_ready_operator(
                 "Operator {operator_pubkey} skipped obsoleted graph {current_instance_id}:{current_graph_id}"
             );
             let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
-            push_local_unhandled_messages(
+            push_local_unhandled_messages_with_reason(
                 ctx.local_db,
                 current_graph_id,
                 &message,
                 delay_secs as usize,
+                MessageDeferReason::ChainStatePending,
+                "waiting for the previous obsoleted graph skip transaction to propagate",
             )
             .await?;
             return Ok(());
@@ -3925,11 +4026,13 @@ async fn handle_kickoff_ready_operator(
                 ) as u64
                     * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
                 let delay_secs = min_pegout_time_secs * nonce_interval;
-                push_local_unhandled_messages(
+                push_local_unhandled_messages_with_reason(
                     ctx.local_db,
                     current_graph_id,
                     &message,
                     delay_secs as usize,
+                    MessageDeferReason::PreviousGraphPending,
+                    "previous graph is available for pegout",
                 )
                 .await?;
                 return Ok(());
@@ -3939,11 +4042,13 @@ async fn handle_kickoff_ready_operator(
                     "Operator {operator_pubkey} skipped non-posted graph {current_instance_id}:{current_graph_id}"
                 );
                 let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
-                push_local_unhandled_messages(
+                push_local_unhandled_messages_with_reason(
                     ctx.local_db,
                     current_graph_id,
                     &message,
                     delay_secs as usize,
+                    MessageDeferReason::ChainStatePending,
+                    "waiting for the previous graph skip transaction to propagate",
                 )
                 .await?;
                 return Ok(());
@@ -3997,8 +4102,15 @@ async fn handle_kickoff_sent_committee(
         None => {
             let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
             let message = make_message(ctx, content);
-            push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-                .await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                graph_id,
+                &message,
+                delay_secs as usize,
+                MessageDeferReason::BitcoinConfirmationPending,
+                "kickoff transaction is not confirmed on Bitcoin",
+            )
+            .await?;
             tracing::info!(
                 "Retry proceedWithdraw later for {instance_id}:{graph_id}: kickoff tx not confirmed on btc yet"
             );
@@ -4010,8 +4122,15 @@ async fn handle_kickoff_sent_committee(
         let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
             * (kickoff_height - goat_confirmed_btc_height);
         let message = make_message(ctx, content);
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::GoatSpvPending,
+            "kickoff block is not available through GOAT SPV",
+        )
+        .await?;
         tracing::info!(
             "Retry proceedWithdraw later for {instance_id}:{graph_id}: kickoff tx block not posted to goat spv contract yet"
         );
@@ -4382,7 +4501,15 @@ async fn handle_watchtower_challenge_init_sent_watchtower(
             tracing::warn!(
                 "Retry WatchtowerChallengeInitSent for {instance_id}:{graph_id} later: watchtower proof not ready, retry after {wait_secs} seconds"
             );
-            push_local_unhandled_messages(ctx.local_db, graph_id, &message, wait_secs).await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                graph_id,
+                &message,
+                wait_secs,
+                MessageDeferReason::ProofPending,
+                "watchtower proof commitment is not ready",
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -4693,7 +4820,15 @@ async fn handle_operator_commit_pubin_ready_operator(
             tracing::info!(
                 "Retry OperatorCommitPubinReady later for {instance_id}:{graph_id}: challenge info is not ready: {e}"
             );
-            push_local_unhandled_messages(ctx.local_db, graph_id, &message, wait_secs).await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                graph_id,
+                &message,
+                wait_secs,
+                MessageDeferReason::ProtocolInputsPending,
+                "watchtower challenge branches are not resolved yet",
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -4710,7 +4845,15 @@ async fn handle_operator_commit_pubin_ready_operator(
                 tracing::info!(
                     "Retry OperatorCommitPubinReady later for {instance_id}:{graph_id}: operator pubin inputs are not ready: {e}"
                 );
-                push_local_unhandled_messages(ctx.local_db, graph_id, &message, wait_secs).await?;
+                push_local_unhandled_messages_with_reason(
+                    ctx.local_db,
+                    graph_id,
+                    &message,
+                    wait_secs,
+                    MessageDeferReason::ProtocolInputsPending,
+                    &e.to_string(),
+                )
+                .await?;
                 return Ok(());
             }
         };
@@ -4833,7 +4976,15 @@ async fn handle_assert_ready_operator(
         tracing::info!(
             "Retry AssertReady later for {instance_id}:{graph_id}: operator proof is not ready"
         );
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, wait_secs).await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            wait_secs,
+            MessageDeferReason::ProofPending,
+            "operator proof is not ready",
+        )
+        .await?;
         return Ok(());
     }
 
@@ -5002,11 +5153,13 @@ async fn handle_assert_sent_verifier(
                 Err(e) => {
                     let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
                     let message = make_message(ctx, content);
-                    push_local_unhandled_messages(
+                    push_local_unhandled_messages_with_reason(
                         ctx.local_db,
                         graph_id,
                         &message,
                         delay_secs as usize,
+                        MessageDeferReason::ProtocolInputsPending,
+                        &format!("operator ACK inputs are not ready: {e}"),
                     )
                     .await?;
                     tracing::info!(
@@ -5059,11 +5212,13 @@ async fn handle_assert_sent_verifier(
                 Err(e) => {
                     let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
                     let message = make_message(ctx, content);
-                    push_local_unhandled_messages(
+                    push_local_unhandled_messages_with_reason(
                         ctx.local_db,
                         graph_id,
                         &message,
                         delay_secs as usize,
+                        MessageDeferReason::ValidationRetry,
+                        &format!("PubinDisprove validation could not complete: {e}"),
                     )
                     .await?;
                     tracing::warn!(
@@ -5237,8 +5392,15 @@ async fn handle_challenge_assert_sent_operator(
     let Some(challenge_assert_tx) = ctx.btc_client.get_tx(&challenge_assert_txid).await? else {
         let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
         let message = make_message(ctx, content);
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::BitcoinTransactionPending,
+            "ChallengeAssert transaction is not available from the Bitcoin backend",
+        )
+        .await?;
         tracing::info!(
             "Retry ChallengeAssertSent later for {instance_id}:{graph_id}: challenge assert tx {challenge_assert_txid} not found on chain"
         );
@@ -5402,8 +5564,15 @@ async fn handle_wrongly_challenge_timeout_verifier(
     let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
     let message = make_message(ctx, content);
     if ctx.btc_client.get_tx(&challenge_assert_txid).await?.is_none() {
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::BitcoinTransactionPending,
+            "ChallengeAssert transaction is not available from the Bitcoin backend",
+        )
+        .await?;
         tracing::info!(
             "Retry WronglyChallengeTimeout later for {instance_id}:{graph_id}: challenge assert tx {challenge_assert_txid} not found on chain"
         );
@@ -5418,8 +5587,15 @@ async fn handle_wrongly_challenge_timeout_verifier(
     {
         Some(height) => height as u64,
         None => {
-            push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-                .await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                graph_id,
+                &message,
+                delay_secs as usize,
+                MessageDeferReason::BitcoinConfirmationPending,
+                "ChallengeAssert transaction is not confirmed on Bitcoin",
+            )
+            .await?;
             tracing::info!(
                 "Retry WronglyChallengeTimeout later for {instance_id}:{graph_id}: challenge assert tx {challenge_assert_txid} is not confirmed"
             );
@@ -5436,8 +5612,15 @@ async fn handle_wrongly_challenge_timeout_verifier(
     if bitcoin_height < disprove_height {
         let retry_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
             * (disprove_height - bitcoin_height);
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, retry_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            retry_secs as usize,
+            MessageDeferReason::TimelockPending,
+            "disprove timelock has not expired",
+        )
+        .await?;
         tracing::info!(
             "Retry WronglyChallengeTimeout later for {instance_id}:{graph_id}: disprove timelock has not expired"
         );
@@ -5530,8 +5713,15 @@ async fn handle_disprove_sent_committee(
         Some(height) => height as u64,
         None => {
             let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
-            push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-                .await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                graph_id,
+                &message,
+                delay_secs as usize,
+                MessageDeferReason::BitcoinConfirmationPending,
+                "challenge finish transaction is not confirmed on Bitcoin",
+            )
+            .await?;
             tracing::info!(
                 "Retry finishWithdrawDisproved later for {instance_id}:{graph_id}: challenge finish tx not confirmed on btc yet"
             );
@@ -5542,8 +5732,15 @@ async fn handle_disprove_sent_committee(
     if goat_confirmed_height < challenge_finish_height {
         let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
             * (challenge_finish_height - goat_confirmed_height);
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::GoatSpvPending,
+            "challenge finish block is not available through GOAT SPV",
+        )
+        .await?;
         tracing::info!(
             "Retry finishWithdrawDisproved later for {instance_id}:{graph_id}: challenge finish tx block not posted to goat spv contract yet"
         );
@@ -5683,8 +5880,15 @@ async fn handle_take1_sent_committee(
     if withdraw_status == WithdrawStatus::Initialized {
         // Kickoff not posted yet, wait for it
         let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) * 6; // wait for 6 blocks
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::WithdrawKickoffPending,
+            "withdraw is initialized but kickoff has not been posted",
+        )
+        .await?;
         tracing::info!(
             "Retry finishWithdrawHappyPath later for {instance_id}:{graph_id} as kickoff not posted yet"
         );
@@ -5700,8 +5904,15 @@ async fn handle_take1_sent_committee(
         Some(height) => height as u64,
         None => {
             let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 block
-            push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-                .await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                graph_id,
+                &message,
+                delay_secs as usize,
+                MessageDeferReason::BitcoinConfirmationPending,
+                "take1 transaction is not confirmed on Bitcoin",
+            )
+            .await?;
             tracing::info!(
                 "Retry finishWithdrawHappyPath later for {instance_id}:{graph_id} as take1 tx not confirmed on btc yet"
             );
@@ -5712,8 +5923,15 @@ async fn handle_take1_sent_committee(
     if goat_confirmed_height < take1_height {
         let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
             * (take1_height - goat_confirmed_height);
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::GoatSpvPending,
+            "take1 block is not available through GOAT SPV",
+        )
+        .await?;
         tracing::info!(
             "Retry finishWithdrawHappyPath later for {instance_id}:{graph_id} as take1 tx block not posted to goat spv contract yet"
         );
@@ -5877,8 +6095,15 @@ async fn handle_take2_sent_committee(
     if withdraw_status == WithdrawStatus::Initialized {
         // Kickoff not posted yet, wait for it
         let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) * 6; // wait for 6 blocks
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::WithdrawKickoffPending,
+            "withdraw is initialized but kickoff has not been posted",
+        )
+        .await?;
         tracing::info!(
             "Retry finishWithdrawUnhappyPath later for {instance_id}:{graph_id} as kickoff not posted yet"
         );
@@ -5894,8 +6119,15 @@ async fn handle_take2_sent_committee(
         Some(height) => height as u64,
         None => {
             let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 block
-            push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-                .await?;
+            push_local_unhandled_messages_with_reason(
+                ctx.local_db,
+                graph_id,
+                &message,
+                delay_secs as usize,
+                MessageDeferReason::BitcoinConfirmationPending,
+                "take2 transaction is not confirmed on Bitcoin",
+            )
+            .await?;
             tracing::info!(
                 "Retry finishWithdrawUnhappyPath later for {instance_id}:{graph_id} as take2 tx not confirmed on btc yet"
             );
@@ -5906,8 +6138,15 @@ async fn handle_take2_sent_committee(
     if goat_confirmed_height < take2_height {
         let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
             * (take2_height - goat_confirmed_height);
-        push_local_unhandled_messages(ctx.local_db, graph_id, &message, delay_secs as usize)
-            .await?;
+        push_local_unhandled_messages_with_reason(
+            ctx.local_db,
+            graph_id,
+            &message,
+            delay_secs as usize,
+            MessageDeferReason::GoatSpvPending,
+            "take2 block is not available through GOAT SPV",
+        )
+        .await?;
         tracing::info!(
             "Retry finishWithdrawUnhappyPath later for {instance_id}:{graph_id} as take2 tx block not posted to goat spv contract yet"
         );
