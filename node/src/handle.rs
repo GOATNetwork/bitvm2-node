@@ -5432,10 +5432,10 @@ async fn handle_wrongly_challenge_timeout_verifier(
             graph.parameters.instance_parameters.network,
             &graph.parameters.timelock_config,
         ) as u64;
-    let goat_confirmed_height = ctx.goat_client.btc_spv_latest_height().await?;
-    if goat_confirmed_height < disprove_height {
+    let bitcoin_height = ctx.btc_client.get_height().await? as u64;
+    if bitcoin_height < disprove_height {
         let retry_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
-            * (disprove_height - goat_confirmed_height);
+            * (disprove_height - bitcoin_height);
         push_local_unhandled_messages(ctx.local_db, graph_id, &message, retry_secs as usize)
             .await?;
         tracing::info!(
