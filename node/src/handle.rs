@@ -40,6 +40,7 @@ use goat::wots::{Wots, Wots96};
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm};
 use std::sync::Arc;
+use std::time::Instant;
 use store::localdb::LocalDB;
 use store::{GraphStatus, SerializableTxid};
 use uuid::Uuid;
@@ -1863,7 +1864,24 @@ pub(crate) async fn handle_soldering_proof_payload_operator(
     soldering_proof_ready: &SolderingProofReady,
     payload: &[u8],
 ) -> Result<()> {
+    let decode_started_at = Instant::now();
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "payload_decode",
+        outcome = "started",
+        verifier_index = soldering_proof_ready.verifier_index,
+        payload_len = payload.len(),
+        "decoding soldering proof payload"
+    );
     let payload = decode_soldering_proof_payload(soldering_proof_ready, payload)?;
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "payload_decode",
+        outcome = "completed",
+        verifier_index = soldering_proof_ready.verifier_index,
+        elapsed_ms = decode_started_at.elapsed().as_millis(),
+        "decoded soldering proof payload"
+    );
     handle_compact_soldering_proof_operator(ctx, soldering_proof_ready, payload).await
 }
 
@@ -1918,8 +1936,26 @@ async fn handle_compact_soldering_proof_operator(
     }
     let setup_package = candidate.setup_package.clone();
     let claimed_finalized_indices = candidate.selected_circuit_indexes.clone();
+    let expand_started_at = Instant::now();
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "payload_expand",
+        outcome = "started",
+        verifier_index,
+        "expanding compact soldering proof"
+    );
     let (opened, finalized, soldering) = expand_compact_soldering_proof_payload(payload)
         .context("expand compact soldering proof payload")?;
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "payload_expand",
+        outcome = "completed",
+        verifier_index,
+        opened_instances = opened.len(),
+        finalized_instances = finalized.len(),
+        elapsed_ms = expand_started_at.elapsed().as_millis(),
+        "expanded compact soldering proof"
+    );
 
     let vk = crate::vk::get_vk().await.context("load Groth16 verifying key for BABE validation")?;
     let static_input = derive_operator_static_input()?;
@@ -1933,6 +1969,16 @@ async fn handle_compact_soldering_proof_operator(
             .context("BABE soldering builder is not initialized for Operator")?,
     );
 
+    let verification_started_at = Instant::now();
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "setup_verify",
+        outcome = "started",
+        verifier_index,
+        opened_instances = opened.len(),
+        finalized_instances = finalized.len(),
+        "verifying verifier soldering proof"
+    );
     tokio::task::spawn_blocking(move || {
         verify_real_setup(
             &soldering_builder,
@@ -1947,6 +1993,14 @@ async fn handle_compact_soldering_proof_operator(
     })
     .await
     .context("real BABE setup verification task failed")??;
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "setup_verify",
+        outcome = "completed",
+        verifier_index,
+        elapsed_ms = verification_started_at.elapsed().as_millis(),
+        "verified verifier soldering proof"
+    );
 
     tracing::info!(
         event = "operator_graph_creation",
@@ -1962,8 +2016,24 @@ async fn handle_compact_soldering_proof_operator(
         bail!("each verifier must contribute exactly {BABE_M_CC} finalized BABE instances");
     }
     let epk = &setup_package.commits[finalized[0].index].epk;
+    let gc_data_started_at = Instant::now();
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "gc_data_extract",
+        outcome = "started",
+        verifier_index,
+        "building BABE prover state and extracting GC data"
+    );
     let prover_state = build_babe_prover_state(&setup_package, finalized, soldering)?;
     let gc_data = extract_gc_circuit_data(verifier_pubkey, epk, &prover_state.h_msgs)?;
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "gc_data_extract",
+        outcome = "completed",
+        verifier_index,
+        elapsed_ms = gc_data_started_at.elapsed().as_millis(),
+        "extracted GC data from soldering proof"
+    );
     let Some(bitvm_gc_circuit_datas) = record_candidate_gc_data(
         operator_state,
         verifier_pubkey,
@@ -2031,6 +2101,15 @@ async fn handle_compact_soldering_proof_operator(
     let prekickoff_params =
         build_prekickoff_params(ctx.btc_client, graph_nonce, cur_prekickoff_txn).await?;
 
+    let graph_build_started_at = Instant::now();
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "graph_build",
+        outcome = "started",
+        verifier_slots = bitvm_gc_circuit_datas.len(),
+        graph_nonce,
+        "building graph parameters from verified soldering proofs"
+    );
     let mut graph_params = build_graph_params(
         ctx.local_db,
         ctx.goat_client,
@@ -2057,6 +2136,14 @@ async fn handle_compact_soldering_proof_operator(
     operator_pre_sign(operator_master_key.master_keypair(), &mut graph)?;
 
     let graph = graph.to_simplified()?;
+    tracing::info!(
+        event = "operator_soldering_proof",
+        stage = "graph_build",
+        outcome = "completed",
+        graph_nonce,
+        elapsed_ms = graph_build_started_at.elapsed().as_millis(),
+        "built operator-pre-signed graph"
+    );
     let definition_hash = hex::encode(graph.parameters_hash()?);
     tracing::info!(
         event = "operator_graph_creation",
