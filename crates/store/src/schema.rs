@@ -528,8 +528,8 @@ pub struct Message {
 ///
 /// Unlike `Message`, which is used for locally generated compensation work,
 /// this row retains the original sender and is consumed before dispatching the
-/// external message. `content` is cleared once the task reaches a terminal
-/// state; the remaining columns are kept for operational debugging.
+/// external message. Processed content is cleared, while failed content is
+/// retained for manual requeue and later TTL cleanup.
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
 pub struct P2pInboxMessage {
     pub message_id: String,
@@ -543,6 +543,7 @@ pub struct P2pInboxMessage {
     pub attempt_count: i64,
     pub next_retry_at: i64,
     pub lease_until: i64,
+    pub lease_token: String,
     pub last_error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,

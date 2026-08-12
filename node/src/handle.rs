@@ -72,28 +72,36 @@ pub(crate) struct HeavyTaskContext {
 }
 
 pub(crate) enum HeavyTask {
+    GenerateVerifierSetup(InitGraph),
     GenerateSolderingProof(CutCircuits),
+    ValidateVerifierGraph(Box<CreateGraph>),
     VerifySolderingProof(SolderingProofReady),
 }
 
 impl HeavyTask {
     pub(crate) fn kind(&self) -> &'static str {
         match self {
+            Self::GenerateVerifierSetup(_) => "generate_verifier_setup",
             Self::GenerateSolderingProof(_) => "generate_soldering_proof",
+            Self::ValidateVerifierGraph(_) => "validate_verifier_graph",
             Self::VerifySolderingProof(_) => "verify_soldering_proof",
         }
     }
 
     pub(crate) fn message_type(&self) -> &'static str {
         match self {
+            Self::GenerateVerifierSetup(_) => "InitGraph",
             Self::GenerateSolderingProof(_) => "CutCircuits",
+            Self::ValidateVerifierGraph(_) => "CreateGraph",
             Self::VerifySolderingProof(_) => "SolderingProofReady",
         }
     }
 
     pub(crate) fn graph_id(&self) -> Uuid {
         match self {
+            Self::GenerateVerifierSetup(message) => message.graph_id,
             Self::GenerateSolderingProof(message) => message.graph_id,
+            Self::ValidateVerifierGraph(message) => message.graph_id,
             Self::VerifySolderingProof(message) => message.graph_id,
         }
     }
@@ -104,8 +112,14 @@ pub(crate) fn heavy_task_from_content(
     actor: &Actor,
 ) -> Option<HeavyTask> {
     match (content, actor) {
+        (GOATMessageContent::InitGraph(message), Actor::Verifier) => {
+            Some(HeavyTask::GenerateVerifierSetup(message.clone()))
+        }
         (GOATMessageContent::CutCircuits(message), Actor::Verifier) => {
             Some(HeavyTask::GenerateSolderingProof(message.clone()))
+        }
+        (GOATMessageContent::CreateGraph(message), Actor::Verifier) => {
+            Some(HeavyTask::ValidateVerifierGraph(Box::new(message.clone())))
         }
         (GOATMessageContent::SolderingProofReady(message), Actor::Operator) => {
             Some(HeavyTask::VerifySolderingProof(message.clone()))
@@ -117,12 +131,17 @@ pub(crate) fn heavy_task_from_content(
 pub(crate) fn is_heavy_task_message_type(message_type: &str, actor: &Actor) -> bool {
     matches!(
         (message_type, actor),
-        ("SolderingProofReady", Actor::Operator) | ("CutCircuits", Actor::Verifier)
+        ("SolderingProofReady", Actor::Operator)
+            | ("InitGraph" | "CutCircuits", Actor::Verifier)
+            | ("CreateGraph", Actor::Verifier)
     )
 }
 
 pub(crate) async fn run_heavy_task(context: &HeavyTaskContext, task: HeavyTask) -> Result<()> {
     match task {
+        HeavyTask::GenerateVerifierSetup(message) => {
+            handle_init_graph_verifier(context, message.instance_id, message.graph_id).await
+        }
         HeavyTask::GenerateSolderingProof(message) => {
             handle_cut_circuits_verifier(
                 context,
@@ -131,6 +150,16 @@ pub(crate) async fn run_heavy_task(context: &HeavyTaskContext, task: HeavyTask) 
                 &message.verifier_pubkey,
                 message.verifier_index,
                 &message.selected_circuit_indexes,
+            )
+            .await
+        }
+        HeavyTask::ValidateVerifierGraph(message) => {
+            handle_create_graph_verifier(
+                context,
+                message.instance_id,
+                message.graph_id,
+                message.graph_nonce,
+                &message.graph,
             )
             .await
         }
@@ -251,9 +280,6 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
         (GOATMessageContent::ConfirmInstance(ConfirmInstance { instance_id }), _) => {
             handle_confirm_instance_default(ctx, *instance_id).await
         }
-        (GOATMessageContent::InitGraph(InitGraph { instance_id, graph_id }), Actor::Verifier) => {
-            handle_init_graph_verifier(ctx, *instance_id, *graph_id).await
-        }
         (
             GOATMessageContent::GenCircuits(GenCircuits {
                 instance_id,
@@ -275,15 +301,6 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
         (content, actor) if heavy_task_from_content(content, actor).is_some() => {
             bail!("heavy task must be dispatched through the durable P2P inbox")
         }
-        (
-            GOATMessageContent::CreateGraph(CreateGraph {
-                instance_id,
-                graph_id,
-                graph_nonce,
-                graph,
-            }),
-            Actor::Verifier,
-        ) => handle_create_graph_verifier(ctx, *instance_id, *graph_id, *graph_nonce, graph).await,
         (
             GOATMessageContent::CreateGraph(CreateGraph {
                 instance_id,
@@ -1472,17 +1489,17 @@ async fn handle_confirm_instance_operator(
     Ok(())
 }
 
-// generate garbled circuits and broadcast GenCircuits.
+// Generate garbled circuits and enqueue GenCircuits without blocking the swarm.
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_init_graph_verifier(
-    ctx: &mut HandlerContext<'_>,
+    context: &HeavyTaskContext,
     instance_id: Uuid,
     graph_id: Uuid,
 ) -> Result<()> {
     let verifier_master_key = VerifierMasterKey::new(get_bitvm_key()?);
     let verifier_pubkey = verifier_master_key.master_keypair().public_key().into();
 
-    let saved_verifier_state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
+    let saved_verifier_state = load_babe_setup_state(&context.local_db, instance_id, graph_id)?
         .and_then(|state| state.verifier)
         .filter(|state| state.verifier_pubkey == verifier_pubkey);
     let verifier_state = if let Some(saved) = saved_verifier_state {
@@ -1507,17 +1524,29 @@ async fn handle_init_graph_verifier(
     };
 
     let setup_package = verifier_state.setup_package.clone();
-    update_babe_setup_state(ctx.local_db, instance_id, graph_id, |state| {
+    update_babe_setup_state(&context.local_db, instance_id, graph_id, |state| {
         state.verifier = Some(verifier_state);
     })?;
 
-    let message_content = GOATMessageContent::GenCircuits(GenCircuits {
-        instance_id,
-        graph_id,
-        verifier_pubkey,
-        setup_package,
-    });
-    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Operator, message_content)).await?;
+    let gen_circuits = GenCircuits { instance_id, graph_id, verifier_pubkey, setup_package };
+    let outbox_id = format!(
+        "gen-circuits:{}:{}:{}",
+        gen_circuits.instance_id, gen_circuits.graph_id, gen_circuits.verifier_pubkey,
+    );
+    let message = GOATMessage::new(Actor::Operator, GOATMessageContent::GenCircuits(gen_circuits));
+    let serialized = message.serialize_message().await?;
+    context
+        .local_db
+        .acquire()
+        .await?
+        .enqueue_p2p_outbox_message(&outbox_id, message.content.event_type(), &serialized)
+        .await?;
+    tracing::info!(
+        event = "verifier_gc_setup",
+        outcome = "enqueued",
+        outbox_id,
+        "enqueued GenCircuits for swarm publication"
+    );
 
     Ok(())
 }
@@ -2347,7 +2376,7 @@ async fn handle_confirm_instance_default(
 
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_create_graph_verifier(
-    ctx: &mut HandlerContext<'_>,
+    context: &HeavyTaskContext,
     instance_id: Uuid,
     graph_id: Uuid,
     graph_nonce: u64,
@@ -2375,7 +2404,9 @@ async fn handle_create_graph_verifier(
 
     let full_graph = BitvmGcGraph::from_simplified(graph)?;
     validate_verifier_slot(&full_graph, verifier_index)?;
-    let Some(verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
+    verify_graph_operator_pre_signatures(&full_graph)
+        .context("verify operator pre-signatures before endorsing graph parameters")?;
+    let Some(verifier_state) = load_babe_setup_state(&context.local_db, instance_id, graph_id)?
         .and_then(|state| state.verifier)
     else {
         tracing::warn!(
@@ -2433,7 +2464,8 @@ async fn handle_create_graph_verifier(
 
     let canonical_graph_params_hash = graph.canonical_graph_params_hash()?;
     let signature = sign_verifier_graph_params(verifier_master_key.master_keypair(), graph)?;
-    let message_content =
+    let message = GOATMessage::new(
+        Actor::Committee,
         GOATMessageContent::VerifierGraphParamsEndorsement(VerifierGraphParamsEndorsement {
             instance_id,
             graph_id,
@@ -2441,8 +2473,31 @@ async fn handle_create_graph_verifier(
             verifier_index,
             canonical_graph_params_hash,
             signature,
-        });
-    send_to_peer(ctx.swarm, GOATMessage::new(Actor::Committee, message_content)).await?;
+        }),
+    );
+    let serialized = message.serialize_message().await?;
+    let endorsement_outbox_id =
+        format!("verifier-graph-params-endorsement:{graph_id}:{verifier_index}");
+    context
+        .local_db
+        .acquire()
+        .await?
+        .enqueue_p2p_outbox_message(
+            &endorsement_outbox_id,
+            message.content.event_type(),
+            &serialized,
+        )
+        .await?;
+
+    tracing::info!(
+        event = "verifier_graph_validation",
+        outcome = "endorsement_enqueued",
+        instance_id = %instance_id,
+        graph_id = %graph_id,
+        verifier_index,
+        endorsement_outbox_id,
+        "validated CreateGraph and enqueued verifier graph params endorsement"
+    );
     Ok(())
 }
 

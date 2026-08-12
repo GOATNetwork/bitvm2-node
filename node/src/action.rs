@@ -35,6 +35,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use store::localdb::LocalDB;
 use store::{MessageState, P2pInboxMessage};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -46,29 +47,53 @@ pub struct GOATMessage {
 const GOAT_MESSAGE_BIN_PREFIX: &[u8] = b"GOATBIN1";
 const TRANSIENT_PEGIN_RETRY_DELAY_SECS: usize = 30;
 const P2P_INBOX_BATCH_SIZE: i64 = 8;
-const P2P_INBOX_LEASE_SECS: i64 = 30 * 60;
-const P2P_INBOX_MAX_ATTEMPTS: i64 = 10;
+const P2P_INBOX_LEASE_SECS: i64 = 5 * 60;
+const P2P_INBOX_LEASE_RENEW_INTERVAL_SECS: u64 = 60;
 const P2P_INBOX_ENQUEUE_ATTEMPTS: usize = 3;
 
-static HEAVY_TASK_WORKER_ACTIVE: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+struct ActiveHeavyTask {
+    message_id: String,
+    lease_token: String,
+}
 
-struct HeavyTaskPermit;
+static ACTIVE_HEAVY_TASK: LazyLock<Mutex<Option<ActiveHeavyTask>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+struct HeavyTaskPermit {
+    message_id: String,
+    lease_token: String,
+}
 
 impl Drop for HeavyTaskPermit {
     fn drop(&mut self) {
-        if let Ok(mut active) = HEAVY_TASK_WORKER_ACTIVE.lock() {
-            *active = false;
+        if let Ok(mut active) = ACTIVE_HEAVY_TASK.lock()
+            && active.as_ref().is_some_and(|active| {
+                active.message_id == self.message_id && active.lease_token == self.lease_token
+            })
+        {
+            *active = None;
         }
     }
 }
 
-fn try_acquire_heavy_task_permit() -> Option<HeavyTaskPermit> {
-    let mut active = HEAVY_TASK_WORKER_ACTIVE.lock().ok()?;
-    if *active {
+fn active_heavy_task_message_ids() -> Vec<String> {
+    ACTIVE_HEAVY_TASK
+        .lock()
+        .ok()
+        .and_then(|active| active.as_ref().map(|active| vec![active.message_id.clone()]))
+        .unwrap_or_default()
+}
+
+fn try_acquire_heavy_task_permit(message_id: &str, lease_token: &str) -> Option<HeavyTaskPermit> {
+    let mut active = ACTIVE_HEAVY_TASK.lock().ok()?;
+    if active.is_some() {
         return None;
     }
-    *active = true;
-    Some(HeavyTaskPermit)
+    *active = Some(ActiveHeavyTask {
+        message_id: message_id.to_owned(),
+        lease_token: lease_token.to_owned(),
+    });
+    Some(HeavyTaskPermit { message_id: message_id.to_owned(), lease_token: lease_token.to_owned() })
 }
 
 /// Stable retry categories shared by P2P inbox consumers and protocol
@@ -772,6 +797,61 @@ fn p2p_retryable_dispatch_error(
     None
 }
 
+fn log_stale_p2p_inbox_lease(message_id: &str, lease_token: &str, operation: &str) {
+    tracing::warn!(
+        event = "p2p_inbox",
+        outcome = "stale_lease",
+        message_id,
+        lease_token,
+        operation,
+        "ignored P2P inbox state update from a stale lease"
+    );
+}
+
+async fn renew_p2p_inbox_lease_until_cancelled(
+    local_db: LocalDB,
+    message_id: String,
+    lease_token: String,
+    cancellation: CancellationToken,
+) -> bool {
+    let mut interval =
+        tokio::time::interval(Duration::from_secs(P2P_INBOX_LEASE_RENEW_INTERVAL_SECS));
+    interval.tick().await;
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => return true,
+            _ = interval.tick() => {
+                let renewal = match local_db.acquire().await {
+                    Ok(mut storage) => storage
+                        .renew_p2p_inbox_lease(
+                            &message_id,
+                            &lease_token,
+                            current_time_secs() + P2P_INBOX_LEASE_SECS,
+                        )
+                        .await,
+                    Err(error) => Err(error),
+                };
+                match renewal {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        log_stale_p2p_inbox_lease(&message_id, &lease_token, "renew");
+                        return false;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            event = "p2p_inbox",
+                            outcome = "lease_renew_failed",
+                            message_id,
+                            error = %error,
+                            "failed to renew P2P inbox lease; will retry before expiry"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_p2p_inbox_messages(
     swarm: &mut Swarm<AllBehaviours>,
@@ -784,9 +864,15 @@ async fn handle_p2p_inbox_messages(
     metrics_state: &MetricsState,
 ) -> Result<()> {
     let now = current_time_secs();
+    let active_heavy_task_ids = active_heavy_task_message_ids();
     let mut storage = local_db.start_immediate_transaction().await?;
     let messages = storage
-        .claim_p2p_inbox_messages(now, now + P2P_INBOX_LEASE_SECS, P2P_INBOX_BATCH_SIZE)
+        .claim_p2p_inbox_messages(
+            now,
+            now + P2P_INBOX_LEASE_SECS,
+            P2P_INBOX_BATCH_SIZE,
+            &active_heavy_task_ids,
+        )
         .await?;
     storage.commit().await?;
 
@@ -794,14 +880,18 @@ async fn handle_p2p_inbox_messages(
         let from_peer_id = match PeerId::from_str(&message.from_peer) {
             Ok(peer_id) => peer_id,
             Err(error) => {
-                local_db
+                let updated = local_db
                     .acquire()
                     .await?
                     .fail_p2p_inbox_message(
                         &message.message_id,
+                        &message.lease_token,
                         &format!("invalid stored source peer: {error}"),
                     )
                     .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "fail");
+                }
                 continue;
             }
         };
@@ -810,23 +900,38 @@ async fn handle_p2p_inbox_messages(
             let decoded = match GOATMessage::deserialize_message(&message.content).await {
                 Ok(message) => message,
                 Err(error) => {
-                    local_db
+                    let updated = local_db
                         .acquire()
                         .await?
-                        .fail_p2p_inbox_message(&message.message_id, &error.to_string())
+                        .fail_p2p_inbox_message(
+                            &message.message_id,
+                            &message.lease_token,
+                            &error.to_string(),
+                        )
                         .await?;
+                    if !updated {
+                        log_stale_p2p_inbox_lease(
+                            &message.message_id,
+                            &message.lease_token,
+                            "fail",
+                        );
+                    }
                     continue;
                 }
             };
             let Some(task) = heavy_task_from_content(decoded.content(), &actor) else {
-                local_db
+                let updated = local_db
                     .acquire()
                     .await?
                     .fail_p2p_inbox_message(
                         &message.message_id,
+                        &message.lease_token,
                         &format!("inbox message type does not match {} content", message.msg_type),
                     )
                     .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "fail");
+                }
                 continue;
             };
             Some(task)
@@ -841,21 +946,26 @@ async fn handle_p2p_inbox_messages(
             let soldering_builder = soldering_builder.clone();
             let metrics_state = metrics_state.clone();
             let message_id = message.message_id.clone();
+            let lease_token = message.lease_token.clone();
             let attempt_count = message.attempt_count;
             let task_type = heavy_task.message_type();
             let task_kind = heavy_task.kind();
             let graph_id = heavy_task.graph_id();
-            let Some(permit) = try_acquire_heavy_task_permit() else {
+            let Some(permit) = try_acquire_heavy_task_permit(&message_id, &lease_token) else {
                 let retry_after_secs = 5;
-                local_db
+                let updated = local_db
                     .acquire()
                     .await?
                     .defer_p2p_inbox_message(
                         &message_id,
+                        &lease_token,
                         current_time_secs() + retry_after_secs,
                         RetryableDispatchReason::ResourceLocked.code(),
                     )
                     .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "defer");
+                }
                 tracing::debug!(
                     event = "p2p_inbox",
                     outcome = "deferred",
@@ -869,6 +979,13 @@ async fn handle_p2p_inbox_messages(
             };
             tokio::spawn(async move {
                 let _permit = permit;
+                let lease_cancellation = CancellationToken::new();
+                let lease_renewal = tokio::spawn(renew_p2p_inbox_lease_until_cancelled(
+                    local_db.clone(),
+                    message_id.clone(),
+                    lease_token.clone(),
+                    lease_cancellation.clone(),
+                ));
                 let context = HeavyTaskContext {
                     local_db: local_db.clone(),
                     btc_client,
@@ -878,6 +995,17 @@ async fn handle_p2p_inbox_messages(
                     from_peer_id,
                 };
                 let result = run_heavy_task(&context, heavy_task).await;
+                lease_cancellation.cancel();
+                let lease_is_current = match lease_renewal.await {
+                    Ok(lease_is_current) => lease_is_current,
+                    Err(error) => {
+                        tracing::error!(error = %error, message_id, "P2P inbox lease renewal task failed");
+                        false
+                    }
+                };
+                if !lease_is_current {
+                    return;
+                }
                 metrics_state.record_message_dispatch(
                     task_type,
                     if result.is_ok() { "success" } else { "failed" },
@@ -886,6 +1014,7 @@ async fn handle_p2p_inbox_messages(
                     &local_db,
                     &metrics_state,
                     &message_id,
+                    &lease_token,
                     task_type,
                     attempt_count,
                     result,
@@ -909,14 +1038,18 @@ async fn handle_p2p_inbox_messages(
         let raw_message_id = match hex::decode(&message.message_id) {
             Ok(message_id) => MessageId(message_id),
             Err(error) => {
-                local_db
+                let updated = local_db
                     .acquire()
                     .await?
                     .fail_p2p_inbox_message(
                         &message.message_id,
+                        &message.lease_token,
                         &format!("invalid stored message id: {error}"),
                     )
                     .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "fail");
+                }
                 continue;
             }
         };
@@ -939,13 +1072,35 @@ async fn handle_p2p_inbox_messages(
         let mut storage = local_db.acquire().await?;
         match result {
             Ok(()) => {
-                storage.complete_p2p_inbox_message(&message.message_id).await?;
+                if !storage
+                    .complete_p2p_inbox_message(&message.message_id, &message.lease_token)
+                    .await?
+                {
+                    log_stale_p2p_inbox_lease(
+                        &message.message_id,
+                        &message.lease_token,
+                        "complete",
+                    );
+                }
             }
-            Err(error) if message.attempt_count < P2P_INBOX_MAX_ATTEMPTS => {
+            Err(error) => {
                 let Some((reason, requested_retry_after_secs)) =
                     p2p_retryable_dispatch_error(&error)
                 else {
-                    storage.fail_p2p_inbox_message(&message.message_id, &error.to_string()).await?;
+                    if !storage
+                        .fail_p2p_inbox_message(
+                            &message.message_id,
+                            &message.lease_token,
+                            &error.to_string(),
+                        )
+                        .await?
+                    {
+                        log_stale_p2p_inbox_lease(
+                            &message.message_id,
+                            &message.lease_token,
+                            "fail",
+                        );
+                    }
                     tracing::warn!(
                         event = "p2p_inbox",
                         outcome = "failed",
@@ -959,13 +1114,17 @@ async fn handle_p2p_inbox_messages(
                 };
                 let retry_after_secs = requested_retry_after_secs
                     .unwrap_or_else(|| p2p_retry_delay_secs(message.attempt_count));
-                storage
+                if !storage
                     .retry_p2p_inbox_message(
                         &message.message_id,
+                        &message.lease_token,
                         current_time_secs() + retry_after_secs,
                         &error.to_string(),
                     )
-                    .await?;
+                    .await?
+                {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "retry");
+                }
                 metrics_state.record_message_retry();
                 tracing::warn!(
                     event = "p2p_inbox",
@@ -979,18 +1138,6 @@ async fn handle_p2p_inbox_messages(
                     "deferred cached P2P message for retry"
                 );
             }
-            Err(error) => {
-                storage.fail_p2p_inbox_message(&message.message_id, &error.to_string()).await?;
-                tracing::warn!(
-                    event = "p2p_inbox",
-                    outcome = "failed",
-                    message_id = %message.message_id,
-                    message_type = %message.msg_type,
-                    attempt_count = message.attempt_count,
-                    error = %error,
-                    "cached P2P message failed permanently"
-                );
-            }
         }
     }
     Ok(())
@@ -1000,6 +1147,7 @@ async fn finish_p2p_inbox_attempt(
     local_db: &LocalDB,
     metrics_state: &MetricsState,
     message_id: &str,
+    lease_token: &str,
     message_type: &str,
     attempt_count: i64,
     result: Result<()>,
@@ -1007,23 +1155,34 @@ async fn finish_p2p_inbox_attempt(
     let mut storage = local_db.acquire().await?;
     match result {
         Ok(()) => {
-            storage.complete_p2p_inbox_message(message_id).await?;
+            if !storage.complete_p2p_inbox_message(message_id, lease_token).await? {
+                log_stale_p2p_inbox_lease(message_id, lease_token, "complete");
+            }
         }
-        Err(error) if attempt_count < P2P_INBOX_MAX_ATTEMPTS => {
+        Err(error) => {
             let Some((reason, requested_retry_after_secs)) = p2p_retryable_dispatch_error(&error)
             else {
-                storage.fail_p2p_inbox_message(message_id, &error.to_string()).await?;
+                if !storage
+                    .fail_p2p_inbox_message(message_id, lease_token, &error.to_string())
+                    .await?
+                {
+                    log_stale_p2p_inbox_lease(message_id, lease_token, "fail");
+                }
                 return Ok(());
             };
             let retry_after_secs =
                 requested_retry_after_secs.unwrap_or_else(|| p2p_retry_delay_secs(attempt_count));
-            storage
+            if !storage
                 .retry_p2p_inbox_message(
                     message_id,
+                    lease_token,
                     current_time_secs() + retry_after_secs,
                     &error.to_string(),
                 )
-                .await?;
+                .await?
+            {
+                log_stale_p2p_inbox_lease(message_id, lease_token, "retry");
+            }
             metrics_state.record_message_retry();
             tracing::warn!(
                 event = "p2p_inbox",
@@ -1036,9 +1195,6 @@ async fn finish_p2p_inbox_attempt(
                 error = %error,
                 "deferred cached P2P message for retry"
             );
-        }
-        Err(error) => {
-            storage.fail_p2p_inbox_message(message_id, &error.to_string()).await?;
         }
     }
     Ok(())

@@ -52,6 +52,7 @@ fn p2p_inbox_message_from_row(row: &SqliteRow) -> Result<P2pInboxMessage, sqlx::
         attempt_count: row.try_get("attempt_count")?,
         next_retry_at: row.try_get("next_retry_at")?,
         lease_until: row.try_get("lease_until")?,
+        lease_token: row.try_get("lease_token")?,
         last_error: row.try_get("last_error")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
@@ -2614,8 +2615,8 @@ impl<'a> StorageProcessor<'a> {
         let result = sqlx::query(
             "INSERT INTO p2p_inbox \
                 (message_id, business_id, actor, from_peer, msg_type, content, content_size, \
-                 state, attempt_count, next_retry_at, lease_until, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', 0, 0, 0, ?, ?) \
+                    state, attempt_count, next_retry_at, lease_until, lease_token, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', 0, 0, 0, '', ?, ?) \
              ON CONFLICT(message_id) DO NOTHING",
         )
         .bind(&message.message_id)
@@ -2639,33 +2640,41 @@ impl<'a> StorageProcessor<'a> {
         now: i64,
         lease_until: i64,
         limit: i64,
+        excluded_message_ids: &[String],
     ) -> anyhow::Result<Vec<P2pInboxMessage>> {
-        let rows = sqlx::query(
+        let excluded_predicate = if excluded_message_ids.is_empty() {
+            String::new()
+        } else {
+            format!(" AND message_id NOT IN ({})", create_place_holders(excluded_message_ids))
+        };
+        let query = format!(
             "SELECT message_id, business_id, actor, from_peer, msg_type, content, content_size, \
-                    state, attempt_count, next_retry_at, lease_until, last_error, created_at, updated_at \
+                    state, attempt_count, next_retry_at, lease_until, lease_token, last_error, created_at, updated_at \
              FROM p2p_inbox \
-             WHERE (state = 'Pending' AND next_retry_at <= ?) \
-                OR (state = 'Processing' AND lease_until <= ?) \
+             WHERE ((state = 'Pending' AND next_retry_at <= ?) \
+                OR (state = 'Processing' AND lease_until <= ?)){excluded_predicate} \
              ORDER BY created_at ASC \
-             LIMIT ?",
-        )
-        .bind(now)
-        .bind(now)
-        .bind(limit)
-        .fetch_all(self.conn())
-        .await?;
+             LIMIT ?"
+        );
+        let mut query = sqlx::query(&query).bind(now).bind(now);
+        for message_id in excluded_message_ids {
+            query = query.bind(message_id);
+        }
+        let rows = query.bind(limit).fetch_all(self.conn()).await?;
 
         let mut claimed = Vec::with_capacity(rows.len());
         for row in rows {
             let mut message = p2p_inbox_message_from_row(&row)?;
+            let lease_token = Uuid::new_v4().to_string();
             let result = sqlx::query(
                 "UPDATE p2p_inbox \
-                 SET state = 'Processing', attempt_count = attempt_count + 1, lease_until = ?, updated_at = ? \
+                 SET state = 'Processing', attempt_count = attempt_count + 1, lease_until = ?, lease_token = ?, updated_at = ? \
                  WHERE message_id = ? \
                    AND ((state = 'Pending' AND next_retry_at <= ?) \
                      OR (state = 'Processing' AND lease_until <= ?))",
             )
             .bind(lease_until)
+            .bind(&lease_token)
             .bind(now)
             .bind(&message.message_id)
             .bind(now)
@@ -2676,6 +2685,7 @@ impl<'a> StorageProcessor<'a> {
                 message.state = "Processing".to_owned();
                 message.attempt_count += 1;
                 message.lease_until = lease_until;
+                message.lease_token = lease_token;
                 message.updated_at = now;
                 claimed.push(message);
             }
@@ -2683,15 +2693,20 @@ impl<'a> StorageProcessor<'a> {
         Ok(claimed)
     }
 
-    pub async fn complete_p2p_inbox_message(&mut self, message_id: &str) -> anyhow::Result<bool> {
+    pub async fn complete_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        lease_token: &str,
+    ) -> anyhow::Result<bool> {
         let result = sqlx::query(
             "UPDATE p2p_inbox \
              SET state = 'Processed', content = X'', lease_until = 0, next_retry_at = 0, \
                  updated_at = ? \
-             WHERE message_id = ? AND state = 'Processing'",
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
         )
         .bind(get_current_timestamp_secs())
         .bind(message_id)
+        .bind(lease_token)
         .execute(self.conn())
         .await?;
         Ok(result.rows_affected() > 0)
@@ -2700,18 +2715,20 @@ impl<'a> StorageProcessor<'a> {
     pub async fn retry_p2p_inbox_message(
         &mut self,
         message_id: &str,
+        lease_token: &str,
         next_retry_at: i64,
         error: &str,
     ) -> anyhow::Result<bool> {
         let result = sqlx::query(
             "UPDATE p2p_inbox \
              SET state = 'Pending', lease_until = 0, next_retry_at = ?, last_error = ?, updated_at = ? \
-             WHERE message_id = ? AND state = 'Processing'",
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
         )
         .bind(next_retry_at)
         .bind(error.chars().take(1024).collect::<String>())
         .bind(get_current_timestamp_secs())
         .bind(message_id)
+        .bind(lease_token)
         .execute(self.conn())
         .await?;
         Ok(result.rows_affected() > 0)
@@ -2722,6 +2739,7 @@ impl<'a> StorageProcessor<'a> {
     pub async fn defer_p2p_inbox_message(
         &mut self,
         message_id: &str,
+        lease_token: &str,
         next_retry_at: i64,
         reason: &str,
     ) -> anyhow::Result<bool> {
@@ -2729,12 +2747,13 @@ impl<'a> StorageProcessor<'a> {
             "UPDATE p2p_inbox \
              SET state = 'Pending', attempt_count = MAX(attempt_count - 1, 0), lease_until = 0, \
                  next_retry_at = ?, last_error = ?, updated_at = ? \
-             WHERE message_id = ? AND state = 'Processing'",
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
         )
         .bind(next_retry_at)
         .bind(reason)
         .bind(get_current_timestamp_secs())
         .bind(message_id)
+        .bind(lease_token)
         .execute(self.conn())
         .await?;
         Ok(result.rows_affected() > 0)
@@ -2743,15 +2762,50 @@ impl<'a> StorageProcessor<'a> {
     pub async fn fail_p2p_inbox_message(
         &mut self,
         message_id: &str,
+        lease_token: &str,
         error: &str,
     ) -> anyhow::Result<bool> {
         let result = sqlx::query(
             "UPDATE p2p_inbox \
-             SET state = 'Failed', content = X'', lease_until = 0, next_retry_at = 0, \
+             SET state = 'Failed', lease_until = 0, next_retry_at = 0, \
                  last_error = ?, updated_at = ? \
-             WHERE message_id = ? AND state = 'Processing'",
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
         )
         .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .bind(lease_token)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn renew_p2p_inbox_lease(
+        &mut self,
+        message_id: &str,
+        lease_token: &str,
+        lease_until: i64,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox SET lease_until = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
+        )
+        .bind(lease_until)
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .bind(lease_token)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn requeue_p2p_inbox_message(&mut self, message_id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Pending', attempt_count = 0, next_retry_at = 0, lease_until = 0, \
+                 lease_token = '', last_error = NULL, updated_at = ? \
+             WHERE message_id = ? AND state = 'Failed' AND length(content) > 0",
+        )
         .bind(get_current_timestamp_secs())
         .bind(message_id)
         .execute(self.conn())
