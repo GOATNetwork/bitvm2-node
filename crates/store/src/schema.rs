@@ -524,6 +524,30 @@ pub struct Message {
     pub created_at: i64,
 }
 
+/// A durable copy of a message received from the P2P network.
+///
+/// Unlike `Message`, which is used for locally generated compensation work,
+/// this row retains the original sender and is consumed before dispatching the
+/// external message. `content` is cleared once the task reaches a terminal
+/// state; the remaining columns are kept for operational debugging.
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct P2pInboxMessage {
+    pub message_id: String,
+    pub business_id: Option<Uuid>,
+    pub actor: String,
+    pub from_peer: String,
+    pub msg_type: String,
+    pub content: Vec<u8>,
+    pub content_size: i64,
+    pub state: String,
+    pub attempt_count: i64,
+    pub next_retry_at: i64,
+    pub lease_until: i64,
+    pub last_error: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Clone, Debug, FromRow)]
 pub struct MessageDebugOverview {
     pub message_id: String,

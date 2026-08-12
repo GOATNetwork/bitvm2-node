@@ -3,9 +3,9 @@ use crate::{
     BridgeOutGlobalStats, EventWatchMetricsSnapshot, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
     GraphRawData, GraphStatus, GraphStatusSource, GraphStatusTransitionOutcome, Instance,
     LongRunningTaskProof, Message, MessageDebugOverview, MessageDebugReason, MetricsStateCount,
-    Node, NodeAlertMetricsSnapshot, NodesOverview, OperatorProof, PeginGraphProcessData,
-    PeginInstanceProcessData, PendingGraphInit, SequencerSetHashChange, SequencerSetScanState,
-    SerializableTxid, WatchContract, WatchtowerProof,
+    Node, NodeAlertMetricsSnapshot, NodesOverview, OperatorProof, P2pInboxMessage,
+    PeginGraphProcessData, PeginInstanceProcessData, PendingGraphInit, SequencerSetHashChange,
+    SequencerSetScanState, SerializableTxid, WatchContract, WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -35,6 +35,25 @@ fn message_from_row(row: &SqliteRow) -> Result<Message, sqlx::Error> {
         weight: row.try_get("weight")?,
         lock_time_until: row.try_get("lock_time_until")?,
         created_at: row.try_get("created_at")?,
+    })
+}
+
+fn p2p_inbox_message_from_row(row: &SqliteRow) -> Result<P2pInboxMessage, sqlx::Error> {
+    Ok(P2pInboxMessage {
+        message_id: row.try_get("message_id")?,
+        business_id: row.try_get("business_id")?,
+        actor: row.try_get("actor")?,
+        from_peer: row.try_get("from_peer")?,
+        msg_type: row.try_get("msg_type")?,
+        content: row.try_get("content")?,
+        content_size: row.try_get("content_size")?,
+        state: row.try_get("state")?,
+        attempt_count: row.try_get("attempt_count")?,
+        next_retry_at: row.try_get("next_retry_at")?,
+        lease_until: row.try_get("lease_until")?,
+        last_error: row.try_get("last_error")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
     })
 }
 
@@ -2567,6 +2586,139 @@ impl<'a> StorageProcessor<'a> {
         .execute(self.conn())
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// Persist an externally received P2P message before it is dispatched.
+    /// Replays of the same gossipsub message are deliberately ignored so a
+    /// terminal row cannot be repopulated with its (potentially large) content.
+    pub async fn insert_p2p_inbox_message(
+        &mut self,
+        message: &P2pInboxMessage,
+    ) -> anyhow::Result<bool> {
+        let now = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "INSERT INTO p2p_inbox \
+                (message_id, business_id, actor, from_peer, msg_type, content, content_size, \
+                 state, attempt_count, next_retry_at, lease_until, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', 0, 0, 0, ?, ?) \
+             ON CONFLICT(message_id) DO NOTHING",
+        )
+        .bind(&message.message_id)
+        .bind(message.business_id)
+        .bind(&message.actor)
+        .bind(&message.from_peer)
+        .bind(&message.msg_type)
+        .bind(&message.content)
+        .bind(message.content_size)
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Claim ready work with a lease. The state predicate on the update keeps
+    /// this safe when more than one worker observes the same pending rows.
+    pub async fn claim_p2p_inbox_messages(
+        &mut self,
+        now: i64,
+        lease_until: i64,
+        limit: i64,
+    ) -> anyhow::Result<Vec<P2pInboxMessage>> {
+        let rows = sqlx::query(
+            "SELECT message_id, business_id, actor, from_peer, msg_type, content, content_size, \
+                    state, attempt_count, next_retry_at, lease_until, last_error, created_at, updated_at \
+             FROM p2p_inbox \
+             WHERE (state = 'Pending' AND next_retry_at <= ?) \
+                OR (state = 'Processing' AND lease_until <= ?) \
+             ORDER BY created_at ASC \
+             LIMIT ?",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(limit)
+        .fetch_all(self.conn())
+        .await?;
+
+        let mut claimed = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut message = p2p_inbox_message_from_row(&row)?;
+            let result = sqlx::query(
+                "UPDATE p2p_inbox \
+                 SET state = 'Processing', attempt_count = attempt_count + 1, lease_until = ?, updated_at = ? \
+                 WHERE message_id = ? \
+                   AND ((state = 'Pending' AND next_retry_at <= ?) \
+                     OR (state = 'Processing' AND lease_until <= ?))",
+            )
+            .bind(lease_until)
+            .bind(now)
+            .bind(&message.message_id)
+            .bind(now)
+            .bind(now)
+            .execute(self.conn())
+            .await?;
+            if result.rows_affected() > 0 {
+                message.state = "Processing".to_owned();
+                message.attempt_count += 1;
+                message.lease_until = lease_until;
+                message.updated_at = now;
+                claimed.push(message);
+            }
+        }
+        Ok(claimed)
+    }
+
+    pub async fn complete_p2p_inbox_message(&mut self, message_id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Processed', content = X'', lease_until = 0, next_retry_at = 0, \
+                 updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn retry_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        next_retry_at: i64,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Pending', lease_until = 0, next_retry_at = ?, last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(next_retry_at)
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn fail_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Failed', content = X'', lease_until = 0, next_retry_at = 0, \
+                 last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     /// Record that a chain-derived graph message has been durably enqueued.

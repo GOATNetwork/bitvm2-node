@@ -1745,16 +1745,27 @@ async fn handle_soldering_proof_ready_operator(
         return Ok(());
     }
 
-    let state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
-        .ok_or_else(|| anyhow!("missing BABE setup state for pending graph {graph_id}"))?;
-    let operator_state = state
-        .operator
-        .as_ref()
-        .ok_or_else(|| anyhow!("missing operator BABE setup state for pending graph {graph_id}"))?;
-    let frozen = operator_state
-        .frozen_verifier_pubkeys
-        .as_ref()
-        .ok_or_else(|| anyhow!("operator verifier membership is not frozen"))?;
+    let state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?.ok_or_else(|| {
+        retryable_dispatch_error(
+            RetryableDispatchReason::DependencyPending,
+            Some(30),
+            format!("missing BABE setup state for pending graph {graph_id}"),
+        )
+    })?;
+    let operator_state = state.operator.as_ref().ok_or_else(|| {
+        retryable_dispatch_error(
+            RetryableDispatchReason::DependencyPending,
+            Some(30),
+            format!("missing operator BABE setup state for pending graph {graph_id}"),
+        )
+    })?;
+    let frozen = operator_state.frozen_verifier_pubkeys.as_ref().ok_or_else(|| {
+        retryable_dispatch_error(
+            RetryableDispatchReason::DependencyPending,
+            Some(30),
+            "operator verifier membership is not frozen",
+        )
+    })?;
     let verifier_pubkey = frozen.get(verifier_index).ok_or_else(|| {
         anyhow!("SolderingProofReady verifier index {verifier_index} out of range")
     })?;
@@ -1804,7 +1815,11 @@ async fn handle_soldering_proof_ready_operator(
                 error = %err,
                 "failed to read soldering proof payload from store"
             );
-            return Err(err).context("read soldering proof payload from store");
+            return Err(retryable_dispatch_error(
+                RetryableDispatchReason::PayloadNotReady,
+                Some(30),
+                format!("read soldering proof payload from store: {err}"),
+            ));
         }
     };
     tracing::info!(
@@ -1912,16 +1927,28 @@ async fn handle_compact_soldering_proof_operator(
         return Ok(());
     }
 
-    let mut state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
-        .ok_or_else(|| anyhow!("missing BABE setup state for pending graph {graph_id}"))?;
-    let operator_state = state
-        .operator
-        .as_mut()
-        .ok_or_else(|| anyhow!("missing operator BABE setup state for pending graph {graph_id}"))?;
-    let frozen = operator_state
-        .frozen_verifier_pubkeys
-        .as_ref()
-        .ok_or_else(|| anyhow!("operator verifier membership is not frozen"))?;
+    let mut state =
+        load_babe_setup_state(ctx.local_db, instance_id, graph_id)?.ok_or_else(|| {
+            retryable_dispatch_error(
+                RetryableDispatchReason::DependencyPending,
+                Some(30),
+                format!("missing BABE setup state for pending graph {graph_id}"),
+            )
+        })?;
+    let operator_state = state.operator.as_mut().ok_or_else(|| {
+        retryable_dispatch_error(
+            RetryableDispatchReason::DependencyPending,
+            Some(30),
+            format!("missing operator BABE setup state for pending graph {graph_id}"),
+        )
+    })?;
+    let frozen = operator_state.frozen_verifier_pubkeys.as_ref().ok_or_else(|| {
+        retryable_dispatch_error(
+            RetryableDispatchReason::DependencyPending,
+            Some(30),
+            "operator verifier membership is not frozen",
+        )
+    })?;
     let verifier_pubkey = *frozen
         .get(verifier_index)
         .ok_or_else(|| anyhow!("SolderingProof verifier index {verifier_index} out of range"))?;
@@ -2174,50 +2201,6 @@ async fn handle_compact_soldering_proof_operator(
         "stored operator-pre-signed graph definition"
     );
 
-    let mut storage = match ctx.local_db.acquire().await {
-        Ok(storage) => storage,
-        Err(error) => {
-            tracing::error!(
-                event = "operator_graph_creation",
-                outcome = "failed",
-                stage = "pending_session_delete",
-                graph_nonce,
-                definition_hash = %definition_hash,
-                error = %error,
-                "failed to acquire database connection to delete pending graph session"
-            );
-            return Err(error)
-                .context("acquire database connection to delete pending graph session");
-        }
-    };
-    let deleted_pending_sessions = match storage
-        .delete_pending_graph_init(&instance_id, &local_operator_pubkey.to_string())
-        .await
-    {
-        Ok(rows) => rows,
-        Err(error) => {
-            tracing::error!(
-                event = "operator_graph_creation",
-                outcome = "failed",
-                stage = "pending_session_delete",
-                graph_nonce,
-                definition_hash = %definition_hash,
-                error = %error,
-                "failed to delete pending graph session after definition persistence"
-            );
-            return Err(error).context("delete pending graph session after definition persistence");
-        }
-    };
-    tracing::info!(
-        event = "operator_graph_creation",
-        outcome = "completed",
-        stage = "pending_session_delete",
-        graph_nonce,
-        definition_hash = %definition_hash,
-        deleted_pending_sessions,
-        "deleted pending graph session after definition persistence"
-    );
-
     let message_content =
         GOATMessageContent::CreateGraph(CreateGraph { instance_id, graph_id, graph_nonce, graph });
     let message_id =
@@ -2233,7 +2216,11 @@ async fn handle_compact_soldering_proof_operator(
                     error = %error,
                     "failed to publish CreateGraph"
                 );
-                return Err(error).context("publish CreateGraph");
+                return Err(retryable_dispatch_error(
+                    RetryableDispatchReason::PublishFailed,
+                    Some(30),
+                    format!("publish CreateGraph: {error}"),
+                ));
             }
         };
     tracing::info!(
@@ -2244,6 +2231,26 @@ async fn handle_compact_soldering_proof_operator(
         definition_hash = %definition_hash,
         message_id = ?message_id,
         "published CreateGraph to the local gossipsub mesh"
+    );
+
+    // Keep the pending session until the graph notification has been accepted
+    // by gossipsub. If publishing fails, the inbox retry can rebuild from the
+    // persisted BABE state instead of losing the only recovery trigger.
+    let mut storage = ctx.local_db.acquire().await.context(
+        "acquire database connection to delete pending graph session after CreateGraph publish",
+    )?;
+    let deleted_pending_sessions = storage
+        .delete_pending_graph_init(&instance_id, &local_operator_pubkey.to_string())
+        .await
+        .context("delete pending graph session after CreateGraph publish")?;
+    tracing::info!(
+        event = "operator_graph_creation",
+        outcome = "completed",
+        stage = "pending_session_delete",
+        graph_nonce,
+        definition_hash = %definition_hash,
+        deleted_pending_sessions,
+        "deleted pending graph session after CreateGraph publish"
     );
 
     Ok(())
