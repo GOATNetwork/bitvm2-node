@@ -183,8 +183,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     set_node_metrics_state(metrics_state.clone());
     let handler = BitvmNodeProcessor {
         local_db: local_db.clone(),
-        btc_client: BTCClient::new(get_network(), get_btc_url_from_env().as_deref()),
-        goat_client: GOATClient::new(env::goat_config_from_env().await, env::get_goat_network()),
+        btc_client: Arc::new(BTCClient::new(get_network(), get_btc_url_from_env().as_deref())),
+        goat_client: Arc::new(GOATClient::new(
+            env::goat_config_from_env().await,
+            env::get_goat_network(),
+        )),
         http_client: HttpAsyncClient::new(None),
         soldering_builder: matches!(actor, Actor::Verifier | Actor::Operator)
             .then(|| Arc::new(BabeBundleBuilder::new())),

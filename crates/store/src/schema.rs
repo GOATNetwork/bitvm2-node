@@ -548,6 +548,19 @@ pub struct P2pInboxMessage {
     pub updated_at: i64,
 }
 
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct P2pOutboxMessage {
+    pub message_id: String,
+    pub msg_type: String,
+    pub content: Vec<u8>,
+    pub state: String,
+    pub attempt_count: i64,
+    pub next_retry_at: i64,
+    pub lease_until: i64,
+    pub last_error: Option<String>,
+    pub created_at: i64,
+}
+
 #[derive(Clone, Debug, FromRow)]
 pub struct MessageDebugOverview {
     pub message_id: String,

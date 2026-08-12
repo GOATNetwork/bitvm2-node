@@ -16,8 +16,8 @@ use store::localdb::LocalDB;
 
 pub struct BitvmNodeProcessor {
     pub local_db: LocalDB,
-    pub btc_client: BTCClient,
-    pub goat_client: GOATClient,
+    pub btc_client: Arc<BTCClient>,
+    pub goat_client: Arc<GOATClient>,
     pub http_client: HttpAsyncClient,
     pub soldering_builder: Option<Arc<BabeBundleBuilder>>,
     pub metrics_state: MetricsState,

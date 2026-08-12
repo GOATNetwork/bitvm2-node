@@ -4,8 +4,9 @@ use crate::{
     GraphRawData, GraphStatus, GraphStatusSource, GraphStatusTransitionOutcome, Instance,
     LongRunningTaskProof, Message, MessageDebugOverview, MessageDebugReason, MetricsStateCount,
     Node, NodeAlertMetricsSnapshot, NodesOverview, OperatorProof, P2pInboxMessage,
-    PeginGraphProcessData, PeginInstanceProcessData, PendingGraphInit, SequencerSetHashChange,
-    SequencerSetScanState, SerializableTxid, WatchContract, WatchtowerProof,
+    P2pOutboxMessage, PeginGraphProcessData, PeginInstanceProcessData, PendingGraphInit,
+    SequencerSetHashChange, SequencerSetScanState, SerializableTxid, WatchContract,
+    WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -54,6 +55,20 @@ fn p2p_inbox_message_from_row(row: &SqliteRow) -> Result<P2pInboxMessage, sqlx::
         last_error: row.try_get("last_error")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn p2p_outbox_message_from_row(row: &SqliteRow) -> Result<P2pOutboxMessage, sqlx::Error> {
+    Ok(P2pOutboxMessage {
+        message_id: row.try_get("message_id")?,
+        msg_type: row.try_get("msg_type")?,
+        content: row.try_get("content")?,
+        state: row.try_get("state")?,
+        attempt_count: row.try_get("attempt_count")?,
+        next_retry_at: row.try_get("next_retry_at")?,
+        lease_until: row.try_get("lease_until")?,
+        last_error: row.try_get("last_error")?,
+        created_at: row.try_get("created_at")?,
     })
 }
 
@@ -2702,6 +2717,29 @@ impl<'a> StorageProcessor<'a> {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Return claimed work to the queue without charging it as a processing
+    /// attempt. This is used when capacity is unavailable before dispatch.
+    pub async fn defer_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        next_retry_at: i64,
+        reason: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Pending', attempt_count = MAX(attempt_count - 1, 0), lease_until = 0, \
+                 next_retry_at = ?, last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(next_retry_at)
+        .bind(reason)
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn fail_p2p_inbox_message(
         &mut self,
         message_id: &str,
@@ -2710,6 +2748,149 @@ impl<'a> StorageProcessor<'a> {
         let result = sqlx::query(
             "UPDATE p2p_inbox \
              SET state = 'Failed', content = X'', lease_until = 0, next_retry_at = 0, \
+                 last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn insert_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        msg_type: &str,
+        content: &[u8],
+    ) -> anyhow::Result<bool> {
+        let now = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "INSERT INTO p2p_outbox \
+                (message_id, msg_type, content, state, attempt_count, next_retry_at, lease_until, created_at, updated_at) \
+             VALUES (?, ?, ?, 'Pending', 0, 0, 0, ?, ?) \
+             ON CONFLICT(message_id) DO NOTHING",
+        )
+        .bind(message_id)
+        .bind(msg_type)
+        .bind(content)
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Enqueue an outbound message, allowing a terminal message to be
+    /// deliberately announced again while preserving an in-flight attempt.
+    pub async fn enqueue_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        msg_type: &str,
+        content: &[u8],
+    ) -> anyhow::Result<bool> {
+        let now = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "INSERT INTO p2p_outbox \
+                (message_id, msg_type, content, state, attempt_count, next_retry_at, lease_until, created_at, updated_at) \
+             VALUES (?, ?, ?, 'Pending', 0, 0, 0, ?, ?) \
+             ON CONFLICT(message_id) DO UPDATE SET \
+                msg_type = excluded.msg_type, content = excluded.content, state = 'Pending', \
+                attempt_count = 0, next_retry_at = 0, lease_until = 0, last_error = NULL, updated_at = excluded.updated_at \
+             WHERE p2p_outbox.state IN ('Processed', 'Failed')",
+        )
+        .bind(message_id)
+        .bind(msg_type)
+        .bind(content)
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn claim_p2p_outbox_messages(
+        &mut self,
+        now: i64,
+        lease_until: i64,
+        limit: i64,
+    ) -> anyhow::Result<Vec<P2pOutboxMessage>> {
+        let rows = sqlx::query(
+            "SELECT message_id, msg_type, content, state, attempt_count, next_retry_at, lease_until, last_error, created_at \
+             FROM p2p_outbox \
+             WHERE (state = 'Pending' AND next_retry_at <= ?) \
+                OR (state = 'Processing' AND lease_until <= ?) \
+             ORDER BY created_at ASC LIMIT ?",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(limit)
+        .fetch_all(self.conn())
+        .await?;
+        let mut claimed = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut message = p2p_outbox_message_from_row(&row)?;
+            let result = sqlx::query(
+                "UPDATE p2p_outbox SET state = 'Processing', attempt_count = attempt_count + 1, lease_until = ?, updated_at = ? \
+                 WHERE message_id = ? AND ((state = 'Pending' AND next_retry_at <= ?) \
+                    OR (state = 'Processing' AND lease_until <= ?))",
+            )
+            .bind(lease_until)
+            .bind(now)
+            .bind(&message.message_id)
+            .bind(now)
+            .bind(now)
+            .execute(self.conn())
+            .await?;
+            if result.rows_affected() > 0 {
+                message.state = "Processing".to_owned();
+                message.attempt_count += 1;
+                message.lease_until = lease_until;
+                claimed.push(message);
+            }
+        }
+        Ok(claimed)
+    }
+
+    pub async fn complete_p2p_outbox_message(&mut self, message_id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_outbox SET state = 'Processed', content = X'', lease_until = 0, next_retry_at = 0, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn retry_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        next_retry_at: i64,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_outbox SET state = 'Pending', lease_until = 0, next_retry_at = ?, last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(next_retry_at)
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn fail_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_outbox SET state = 'Failed', content = X'', lease_until = 0, next_retry_at = 0, \
                  last_error = ?, updated_at = ? \
              WHERE message_id = ? AND state = 'Processing'",
         )

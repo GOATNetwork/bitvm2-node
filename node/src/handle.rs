@@ -48,8 +48,8 @@ use uuid::Uuid;
 pub struct HandlerContext<'a> {
     pub swarm: &'a mut Swarm<AllBehaviours>,
     pub local_db: &'a LocalDB,
-    pub btc_client: &'a BTCClient,
-    pub goat_client: &'a GOATClient,
+    pub btc_client: &'a Arc<BTCClient>,
+    pub goat_client: &'a Arc<GOATClient>,
     pub http_client: &'a HttpAsyncClient,
     pub soldering_builder: &'a Option<Arc<BabeBundleBuilder>>,
     pub metrics_state: &'a MetricsState,
@@ -57,6 +57,95 @@ pub struct HandlerContext<'a> {
     pub from_peer_id: PeerId,
     pub id: MessageId,
     pub is_self_peer: bool,
+}
+
+/// Owned resources for work that must not run on the swarm event loop. It
+/// deliberately excludes `Swarm`: heavy work persists its follow-up protocol
+/// notifications to the durable P2P outbox instead.
+pub(crate) struct HeavyTaskContext {
+    pub local_db: LocalDB,
+    pub btc_client: Arc<BTCClient>,
+    pub goat_client: Arc<GOATClient>,
+    pub soldering_builder: Option<Arc<BabeBundleBuilder>>,
+    pub metrics_state: MetricsState,
+    pub from_peer_id: PeerId,
+}
+
+pub(crate) enum HeavyTask {
+    GenerateSolderingProof(CutCircuits),
+    VerifySolderingProof(SolderingProofReady),
+}
+
+impl HeavyTask {
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Self::GenerateSolderingProof(_) => "generate_soldering_proof",
+            Self::VerifySolderingProof(_) => "verify_soldering_proof",
+        }
+    }
+
+    pub(crate) fn message_type(&self) -> &'static str {
+        match self {
+            Self::GenerateSolderingProof(_) => "CutCircuits",
+            Self::VerifySolderingProof(_) => "SolderingProofReady",
+        }
+    }
+
+    pub(crate) fn graph_id(&self) -> Uuid {
+        match self {
+            Self::GenerateSolderingProof(message) => message.graph_id,
+            Self::VerifySolderingProof(message) => message.graph_id,
+        }
+    }
+}
+
+pub(crate) fn heavy_task_from_content(
+    content: &GOATMessageContent,
+    actor: &Actor,
+) -> Option<HeavyTask> {
+    match (content, actor) {
+        (GOATMessageContent::CutCircuits(message), Actor::Verifier) => {
+            Some(HeavyTask::GenerateSolderingProof(message.clone()))
+        }
+        (GOATMessageContent::SolderingProofReady(message), Actor::Operator) => {
+            Some(HeavyTask::VerifySolderingProof(message.clone()))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn is_heavy_task_message_type(message_type: &str, actor: &Actor) -> bool {
+    matches!(
+        (message_type, actor),
+        ("SolderingProofReady", Actor::Operator) | ("CutCircuits", Actor::Verifier)
+    )
+}
+
+pub(crate) async fn run_heavy_task(context: &HeavyTaskContext, task: HeavyTask) -> Result<()> {
+    match task {
+        HeavyTask::GenerateSolderingProof(message) => {
+            handle_cut_circuits_verifier(
+                context,
+                message.instance_id,
+                message.graph_id,
+                &message.verifier_pubkey,
+                message.verifier_index,
+                &message.selected_circuit_indexes,
+            )
+            .await
+        }
+        HeavyTask::VerifySolderingProof(message) => {
+            handle_soldering_proof_ready_operator(
+                context,
+                message.instance_id,
+                message.graph_id,
+                message.verifier_index,
+                message.payload_hash,
+                message.total_len,
+            )
+            .await
+        }
+    }
 }
 
 fn committee_instance_keys_envelope_path(instance_id: Uuid) -> std::path::PathBuf {
@@ -183,45 +272,8 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
             )
             .await
         }
-        (
-            GOATMessageContent::CutCircuits(CutCircuits {
-                instance_id,
-                graph_id,
-                verifier_pubkey,
-                verifier_index,
-                selected_circuit_indexes,
-            }),
-            Actor::Verifier,
-        ) => {
-            handle_cut_circuits_verifier(
-                ctx,
-                *instance_id,
-                *graph_id,
-                verifier_pubkey,
-                *verifier_index,
-                selected_circuit_indexes,
-            )
-            .await
-        }
-        (
-            GOATMessageContent::SolderingProofReady(SolderingProofReady {
-                instance_id,
-                graph_id,
-                verifier_index,
-                payload_hash,
-                total_len,
-            }),
-            Actor::Operator,
-        ) => {
-            handle_soldering_proof_ready_operator(
-                ctx,
-                *instance_id,
-                *graph_id,
-                *verifier_index,
-                *payload_hash,
-                *total_len,
-            )
-            .await
+        (content, actor) if heavy_task_from_content(content, actor).is_some() => {
+            bail!("heavy task must be dispatched through the durable P2P inbox")
         }
         (
             GOATMessageContent::CreateGraph(CreateGraph {
@@ -1601,10 +1653,10 @@ async fn handle_gen_circuits_operator(
     Ok(())
 }
 
-// generate proofs for the chosen GC and broadcast SolderingProof.
+// Generate proofs for the chosen GC and enqueue SolderingProofReady.
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %instance_id, graph_id = %graph_id))]
 async fn handle_cut_circuits_verifier(
-    ctx: &mut HandlerContext<'_>,
+    context: &HeavyTaskContext,
     instance_id: Uuid,
     graph_id: Uuid,
     verifier_pubkey: &PublicKey,
@@ -1621,7 +1673,7 @@ async fn handle_cut_circuits_verifier(
         return Ok(());
     }
 
-    let Some(mut verifier_state) = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?
+    let Some(mut verifier_state) = load_babe_setup_state(&context.local_db, instance_id, graph_id)?
         .and_then(|state| state.verifier)
     else {
         tracing::warn!(
@@ -1648,14 +1700,7 @@ async fn handle_cut_circuits_verifier(
         if verifier_state.finalized_indices != *selected_circuit_indexes {
             bail!("CutCircuits finalized indices conflict with persisted selection");
         }
-        send_to_peer(
-            ctx.swarm,
-            GOATMessage::new(
-                Actor::Operator,
-                GOATMessageContent::SolderingProofReady(soldering_proof_ready),
-            ),
-        )
-        .await?;
+        enqueue_soldering_proof_ready(context, soldering_proof_ready).await?;
 
         return Ok(());
     }
@@ -1669,7 +1714,8 @@ async fn handle_cut_circuits_verifier(
     let selected_indices = selected_circuit_indexes.clone();
     let package_for_opening = setup_package.clone();
     let soldering_builder = Arc::clone(
-        ctx.soldering_builder
+        context
+            .soldering_builder
             .as_ref()
             .context("BABE soldering builder is not initialized for Verifier")?,
     );
@@ -1698,25 +1744,48 @@ async fn handle_cut_circuits_verifier(
     verifier_state.finalized_indices = selected_circuit_indexes.clone();
     verifier_state.soldering_proof_ready = Some(soldering_proof_ready.clone());
 
-    update_babe_setup_state(ctx.local_db, instance_id, graph_id, |state| {
+    update_babe_setup_state(&context.local_db, instance_id, graph_id, |state| {
         state.verifier = Some(verifier_state);
     })?;
 
-    send_to_peer(
-        ctx.swarm,
-        GOATMessage::new(
-            Actor::Operator,
-            GOATMessageContent::SolderingProofReady(soldering_proof_ready),
-        ),
-    )
-    .await?;
+    enqueue_soldering_proof_ready(context, soldering_proof_ready).await?;
 
     Ok(())
 }
 
+async fn enqueue_soldering_proof_ready(
+    context: &HeavyTaskContext,
+    soldering_proof_ready: SolderingProofReady,
+) -> Result<()> {
+    let outbox_id = format!(
+        "soldering-proof-ready:{}:{}:{}",
+        soldering_proof_ready.graph_id,
+        soldering_proof_ready.verifier_index,
+        hex::encode(soldering_proof_ready.payload_hash),
+    );
+    let message = GOATMessage::new(
+        Actor::Operator,
+        GOATMessageContent::SolderingProofReady(soldering_proof_ready),
+    );
+    let serialized = message.serialize_message().await?;
+    context
+        .local_db
+        .acquire()
+        .await?
+        .enqueue_p2p_outbox_message(&outbox_id, message.content.event_type(), &serialized)
+        .await?;
+    tracing::info!(
+        event = "verifier_soldering_proof",
+        outcome = "enqueued",
+        outbox_id,
+        "enqueued SolderingProofReady for swarm publication"
+    );
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
-async fn handle_soldering_proof_ready_operator(
-    ctx: &mut HandlerContext<'_>,
+pub(crate) async fn handle_soldering_proof_ready_operator(
+    context: &HeavyTaskContext,
     instance_id: Uuid,
     graph_id: Uuid,
     verifier_index: usize,
@@ -1731,7 +1800,7 @@ async fn handle_soldering_proof_ready_operator(
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
     if !pending_graph_belongs_to_operator(
-        ctx.local_db,
+        &context.local_db,
         instance_id,
         graph_id,
         &local_operator_pubkey,
@@ -1745,13 +1814,14 @@ async fn handle_soldering_proof_ready_operator(
         return Ok(());
     }
 
-    let state = load_babe_setup_state(ctx.local_db, instance_id, graph_id)?.ok_or_else(|| {
-        retryable_dispatch_error(
-            RetryableDispatchReason::DependencyPending,
-            Some(30),
-            format!("missing BABE setup state for pending graph {graph_id}"),
-        )
-    })?;
+    let state =
+        load_babe_setup_state(&context.local_db, instance_id, graph_id)?.ok_or_else(|| {
+            retryable_dispatch_error(
+                RetryableDispatchReason::DependencyPending,
+                Some(30),
+                format!("missing BABE setup state for pending graph {graph_id}"),
+            )
+        })?;
     let operator_state = state.operator.as_ref().ok_or_else(|| {
         retryable_dispatch_error(
             RetryableDispatchReason::DependencyPending,
@@ -1777,11 +1847,11 @@ async fn handle_soldering_proof_ready_operator(
     if candidate.verifier_index != Some(verifier_index) {
         bail!("selected verifier candidate index does not match SolderingProofReady slot");
     }
-    let verifier_peer_id = ctx.from_peer_id.to_bytes();
+    let verifier_peer_id = context.from_peer_id.to_bytes();
     if candidate.verifier_peer_id != verifier_peer_id {
         tracing::warn!(
             "Ignore SolderingProofReady for {instance_id}:{graph_id}: sender {} does not own verifier slot {verifier_index}",
-            ctx.from_peer_id
+            context.from_peer_id
         );
         return Ok(());
     }
@@ -1795,7 +1865,7 @@ async fn handle_soldering_proof_ready_operator(
         &payload_hash,
     )?;
     tracing::info!(
-        from_peer_id = %ctx.from_peer_id,
+        from_peer_id = %context.from_peer_id,
         instance_id = %instance_id,
         graph_id = %graph_id,
         verifier_index,
@@ -1833,8 +1903,8 @@ async fn handle_soldering_proof_ready_operator(
         "read soldering proof payload from store, start processing"
     );
     let result =
-        handle_soldering_proof_payload_operator(ctx, &soldering_proof_ready, &payload).await;
-    ctx.metrics_state.record_pegin_graph_setup(result.is_ok());
+        handle_soldering_proof_payload_operator(context, &soldering_proof_ready, &payload).await;
+    context.metrics_state.record_pegin_graph_setup(result.is_ok());
     result
 }
 
@@ -1875,7 +1945,7 @@ fn decode_soldering_proof_payload(
 }
 
 pub(crate) async fn handle_soldering_proof_payload_operator(
-    ctx: &mut HandlerContext<'_>,
+    context: &HeavyTaskContext,
     soldering_proof_ready: &SolderingProofReady,
     payload: &[u8],
 ) -> Result<()> {
@@ -1897,13 +1967,13 @@ pub(crate) async fn handle_soldering_proof_payload_operator(
         elapsed_ms = decode_started_at.elapsed().as_millis(),
         "decoded soldering proof payload"
     );
-    handle_compact_soldering_proof_operator(ctx, soldering_proof_ready, payload).await
+    handle_compact_soldering_proof_operator(context, soldering_proof_ready, payload).await
 }
 
 // verify Verifier SolderingProof, build Graph and broadcast CreateGraph.
 #[tracing::instrument(level = "info", skip_all, fields(instance_id = %soldering_proof_ready.instance_id, graph_id = %soldering_proof_ready.graph_id))]
 async fn handle_compact_soldering_proof_operator(
-    ctx: &mut HandlerContext<'_>,
+    context: &HeavyTaskContext,
     soldering_proof_ready: &SolderingProofReady,
     payload: CompactSolderingProofPayload,
 ) -> Result<()> {
@@ -1913,7 +1983,7 @@ async fn handle_compact_soldering_proof_operator(
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let local_operator_pubkey = operator_master_key.master_keypair().public_key().into();
     if !pending_graph_belongs_to_operator(
-        ctx.local_db,
+        &context.local_db,
         instance_id,
         graph_id,
         &local_operator_pubkey,
@@ -1928,7 +1998,7 @@ async fn handle_compact_soldering_proof_operator(
     }
 
     let mut state =
-        load_babe_setup_state(ctx.local_db, instance_id, graph_id)?.ok_or_else(|| {
+        load_babe_setup_state(&context.local_db, instance_id, graph_id)?.ok_or_else(|| {
             retryable_dispatch_error(
                 RetryableDispatchReason::DependencyPending,
                 Some(30),
@@ -1991,7 +2061,8 @@ async fn handle_compact_soldering_proof_operator(
     let finalized_for_validation = finalized.clone();
     let soldering_for_validation = soldering.clone();
     let soldering_builder = Arc::clone(
-        ctx.soldering_builder
+        context
+            .soldering_builder
             .as_ref()
             .context("BABE soldering builder is not initialized for Operator")?,
     );
@@ -2077,7 +2148,8 @@ async fn handle_compact_soldering_proof_operator(
             .filter(|candidate| candidate.gc_data.is_some())
             .count();
         let expected_slots = operator_state.candidates.len();
-        if let Err(error) = save_babe_setup_state(ctx.local_db, instance_id, graph_id, &state) {
+        if let Err(error) = save_babe_setup_state(&context.local_db, instance_id, graph_id, &state)
+        {
             tracing::error!(
                 event = "operator_graph_creation",
                 outcome = "failed",
@@ -2098,7 +2170,7 @@ async fn handle_compact_soldering_proof_operator(
         );
         return Ok(());
     };
-    if let Err(error) = save_babe_setup_state(ctx.local_db, instance_id, graph_id, &state) {
+    if let Err(error) = save_babe_setup_state(&context.local_db, instance_id, graph_id, &state) {
         tracing::error!(
             event = "operator_graph_creation",
             outcome = "failed",
@@ -2116,17 +2188,19 @@ async fn handle_compact_soldering_proof_operator(
         "all verifier soldering proofs are ready to build the graph"
     );
 
-    let instance_params = get_instance_parameters(ctx.local_db, instance_id)
+    let instance_params = get_instance_parameters(&context.local_db, instance_id)
         .await?
         .ok_or_else(|| anyhow!("Instance parameters not found for {instance_id}"))?;
 
     let (graph_nonce, cur_prekickoff_txn) =
-        match get_current_prekickoff_tx(ctx.local_db, &local_operator_pubkey).await? {
+        match get_current_prekickoff_tx(&context.local_db, &local_operator_pubkey).await? {
             Some((graph_nonce, prekickoff_tx)) => (graph_nonce, prekickoff_tx),
-            None => (0, build_genesis_prekickoff_tx(ctx.btc_client, ctx.goat_client).await?),
+            None => {
+                (0, build_genesis_prekickoff_tx(&context.btc_client, &context.goat_client).await?)
+            }
         };
     let prekickoff_params =
-        build_prekickoff_params(ctx.btc_client, graph_nonce, cur_prekickoff_txn).await?;
+        build_prekickoff_params(&context.btc_client, graph_nonce, cur_prekickoff_txn).await?;
 
     let graph_build_started_at = Instant::now();
     tracing::info!(
@@ -2138,8 +2212,8 @@ async fn handle_compact_soldering_proof_operator(
         "building graph parameters from verified soldering proofs"
     );
     let mut graph_params = build_graph_params(
-        ctx.local_db,
-        ctx.goat_client,
+        &context.local_db,
+        &context.goat_client,
         instance_params,
         prekickoff_params,
         bitvm_gc_circuit_datas,
@@ -2180,7 +2254,7 @@ async fn handle_compact_soldering_proof_operator(
         definition_hash = %definition_hash,
         "storing operator-pre-signed graph definition"
     );
-    if let Err(error) = store_operator_presigned_graph(ctx.local_db, &graph).await {
+    if let Err(error) = store_operator_presigned_graph(&context.local_db, &graph).await {
         tracing::error!(
             event = "operator_graph_creation",
             outcome = "failed",
@@ -2201,48 +2275,35 @@ async fn handle_compact_soldering_proof_operator(
         "stored operator-pre-signed graph definition"
     );
 
-    let message_content =
-        GOATMessageContent::CreateGraph(CreateGraph { instance_id, graph_id, graph_nonce, graph });
-    let message_id =
-        match send_to_peer(ctx.swarm, GOATMessage::new(Actor::All, message_content)).await {
-            Ok(message_id) => message_id,
-            Err(error) => {
-                tracing::error!(
-                    event = "operator_graph_creation",
-                    outcome = "failed",
-                    stage = "create_graph_publish",
-                    graph_nonce,
-                    definition_hash = %definition_hash,
-                    error = %error,
-                    "failed to publish CreateGraph"
-                );
-                return Err(retryable_dispatch_error(
-                    RetryableDispatchReason::PublishFailed,
-                    Some(30),
-                    format!("publish CreateGraph: {error}"),
-                ));
-            }
-        };
+    let message = GOATMessage::new(
+        Actor::All,
+        GOATMessageContent::CreateGraph(CreateGraph { instance_id, graph_id, graph_nonce, graph }),
+    );
+    let serialized = message.serialize_message().await?;
+    let outbox_id = format!("create-graph:{graph_id}");
+    let mut storage = context.local_db.acquire().await?;
+    storage
+        .insert_p2p_outbox_message(&outbox_id, message.content.event_type(), &serialized)
+        .await?;
+    drop(storage);
     tracing::info!(
         event = "operator_graph_creation",
-        outcome = "published",
-        stage = "create_graph_publish",
+        outcome = "enqueued",
+        stage = "create_graph_outbox",
         graph_nonce,
         definition_hash = %definition_hash,
-        message_id = ?message_id,
-        "published CreateGraph to the local gossipsub mesh"
+        outbox_id,
+        "enqueued CreateGraph for swarm publication"
     );
 
-    // Keep the pending session until the graph notification has been accepted
-    // by gossipsub. If publishing fails, the inbox retry can rebuild from the
-    // persisted BABE state instead of losing the only recovery trigger.
-    let mut storage = ctx.local_db.acquire().await.context(
-        "acquire database connection to delete pending graph session after CreateGraph publish",
-    )?;
+    // The outbox is durable before this cleanup. A process crash before
+    // insertion leaves the session for inbox recovery; a crash after insertion
+    // leaves the outbox for swarm publication.
+    let mut storage = context.local_db.acquire().await?;
     let deleted_pending_sessions = storage
         .delete_pending_graph_init(&instance_id, &local_operator_pubkey.to_string())
         .await
-        .context("delete pending graph session after CreateGraph publish")?;
+        .context("delete pending graph session after CreateGraph outbox enqueue")?;
     tracing::info!(
         event = "operator_graph_creation",
         outcome = "completed",
@@ -2250,7 +2311,7 @@ async fn handle_compact_soldering_proof_operator(
         graph_nonce,
         definition_hash = %definition_hash,
         deleted_pending_sessions,
-        "deleted pending graph session after CreateGraph publish"
+        "deleted pending graph session after CreateGraph outbox enqueue"
     );
 
     Ok(())

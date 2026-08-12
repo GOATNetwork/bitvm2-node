@@ -3,7 +3,10 @@
 #![allow(clippy::collapsible_else_if)]
 
 use crate::env::get_local_node_info;
-use crate::handle::{HandlerContext, dispatch as handle_dispatch};
+use crate::handle::{
+    HandlerContext, HeavyTaskContext, dispatch as handle_dispatch, heavy_task_from_content,
+    is_heavy_task_message_type, run_heavy_task,
+};
 use crate::metrics_service::MetricsState;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
@@ -26,7 +29,6 @@ use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -48,27 +50,25 @@ const P2P_INBOX_LEASE_SECS: i64 = 30 * 60;
 const P2P_INBOX_MAX_ATTEMPTS: i64 = 10;
 const P2P_INBOX_ENQUEUE_ATTEMPTS: usize = 3;
 
-static SOLDERING_PROOF_GRAPH_LOCKS: LazyLock<Mutex<HashSet<Uuid>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static HEAVY_TASK_WORKER_ACTIVE: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
 
-struct SolderingProofGraphLock {
-    graph_id: Uuid,
-}
+struct HeavyTaskPermit;
 
-impl Drop for SolderingProofGraphLock {
+impl Drop for HeavyTaskPermit {
     fn drop(&mut self) {
-        if let Ok(mut locks) = SOLDERING_PROOF_GRAPH_LOCKS.lock() {
-            locks.remove(&self.graph_id);
+        if let Ok(mut active) = HEAVY_TASK_WORKER_ACTIVE.lock() {
+            *active = false;
         }
     }
 }
 
-fn try_acquire_soldering_proof_graph_lock(graph_id: Uuid) -> Option<SolderingProofGraphLock> {
-    let mut locks = SOLDERING_PROOF_GRAPH_LOCKS.lock().ok()?;
-    if !locks.insert(graph_id) {
+fn try_acquire_heavy_task_permit() -> Option<HeavyTaskPermit> {
+    let mut active = HEAVY_TASK_WORKER_ACTIVE.lock().ok()?;
+    if *active {
         return None;
     }
-    Some(SolderingProofGraphLock { graph_id })
+    *active = true;
+    Some(HeavyTaskPermit)
 }
 
 /// Stable retry categories shared by P2P inbox consumers and protocol
@@ -776,8 +776,8 @@ fn p2p_retryable_dispatch_error(
 async fn handle_p2p_inbox_messages(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
     http_client: &HttpAsyncClient,
     soldering_builder: &Option<Arc<BabeBundleBuilder>>,
     actor: Actor,
@@ -805,6 +805,107 @@ async fn handle_p2p_inbox_messages(
                 continue;
             }
         };
+        let is_heavy_task_message = is_heavy_task_message_type(&message.msg_type, &actor);
+        let heavy_task = if is_heavy_task_message {
+            let decoded = match GOATMessage::deserialize_message(&message.content).await {
+                Ok(message) => message,
+                Err(error) => {
+                    local_db
+                        .acquire()
+                        .await?
+                        .fail_p2p_inbox_message(&message.message_id, &error.to_string())
+                        .await?;
+                    continue;
+                }
+            };
+            let Some(task) = heavy_task_from_content(decoded.content(), &actor) else {
+                local_db
+                    .acquire()
+                    .await?
+                    .fail_p2p_inbox_message(
+                        &message.message_id,
+                        &format!("inbox message type does not match {} content", message.msg_type),
+                    )
+                    .await?;
+                continue;
+            };
+            Some(task)
+        } else {
+            None
+        };
+
+        if let Some(heavy_task) = heavy_task {
+            let local_db = local_db.clone();
+            let btc_client = Arc::clone(btc_client);
+            let goat_client = Arc::clone(goat_client);
+            let soldering_builder = soldering_builder.clone();
+            let metrics_state = metrics_state.clone();
+            let message_id = message.message_id.clone();
+            let attempt_count = message.attempt_count;
+            let task_type = heavy_task.message_type();
+            let task_kind = heavy_task.kind();
+            let graph_id = heavy_task.graph_id();
+            let Some(permit) = try_acquire_heavy_task_permit() else {
+                let retry_after_secs = 5;
+                local_db
+                    .acquire()
+                    .await?
+                    .defer_p2p_inbox_message(
+                        &message_id,
+                        current_time_secs() + retry_after_secs,
+                        RetryableDispatchReason::ResourceLocked.code(),
+                    )
+                    .await?;
+                tracing::debug!(
+                    event = "p2p_inbox",
+                    outcome = "deferred",
+                    reason = RetryableDispatchReason::ResourceLocked.code(),
+                    message_id,
+                    retry_after_secs,
+                    task_kind,
+                    "deferred heavy task while the worker is busy"
+                );
+                continue;
+            };
+            tokio::spawn(async move {
+                let _permit = permit;
+                let context = HeavyTaskContext {
+                    local_db: local_db.clone(),
+                    btc_client,
+                    goat_client,
+                    soldering_builder,
+                    metrics_state: metrics_state.clone(),
+                    from_peer_id,
+                };
+                let result = run_heavy_task(&context, heavy_task).await;
+                metrics_state.record_message_dispatch(
+                    task_type,
+                    if result.is_ok() { "success" } else { "failed" },
+                );
+                if let Err(error) = finish_p2p_inbox_attempt(
+                    &local_db,
+                    &metrics_state,
+                    &message_id,
+                    task_type,
+                    attempt_count,
+                    result,
+                )
+                .await
+                {
+                    tracing::error!(error = %error, message_id, "failed to persist heavy task result");
+                }
+            });
+            tracing::info!(
+                event = "p2p_inbox",
+                outcome = "heavy_task_started",
+                message_id = %message.message_id,
+                graph_id = %graph_id,
+                message_type = task_type,
+                task_kind,
+                "started background heavy task"
+            );
+            continue;
+        }
         let raw_message_id = match hex::decode(&message.message_id) {
             Ok(message_id) => MessageId(message_id),
             Err(error) => {
@@ -818,35 +919,6 @@ async fn handle_p2p_inbox_messages(
                     .await?;
                 continue;
             }
-        };
-
-        let soldering_lock = if message.msg_type == "SolderingProofReady" {
-            match message.business_id.and_then(try_acquire_soldering_proof_graph_lock) {
-                Some(lock) => Some(lock),
-                None => {
-                    let retry_after_secs = 5;
-                    local_db
-                        .acquire()
-                        .await?
-                        .retry_p2p_inbox_message(
-                            &message.message_id,
-                            current_time_secs() + retry_after_secs,
-                            RetryableDispatchReason::ResourceLocked.code(),
-                        )
-                        .await?;
-                    tracing::debug!(
-                        event = "p2p_inbox",
-                        outcome = "deferred",
-                        reason = RetryableDispatchReason::ResourceLocked.code(),
-                        message_id = %message.message_id,
-                        retry_after_secs,
-                        "deferred soldering proof while its graph lock is held"
-                    );
-                    continue;
-                }
-            }
-        } else {
-            None
         };
 
         let result = recv_and_dispatch(
@@ -863,7 +935,6 @@ async fn handle_p2p_inbox_messages(
             metrics_state,
         )
         .await;
-        drop(soldering_lock);
 
         let mut storage = local_db.acquire().await?;
         match result {
@@ -925,12 +996,129 @@ async fn handle_p2p_inbox_messages(
     Ok(())
 }
 
+async fn finish_p2p_inbox_attempt(
+    local_db: &LocalDB,
+    metrics_state: &MetricsState,
+    message_id: &str,
+    message_type: &str,
+    attempt_count: i64,
+    result: Result<()>,
+) -> Result<()> {
+    let mut storage = local_db.acquire().await?;
+    match result {
+        Ok(()) => {
+            storage.complete_p2p_inbox_message(message_id).await?;
+        }
+        Err(error) if attempt_count < P2P_INBOX_MAX_ATTEMPTS => {
+            let Some((reason, requested_retry_after_secs)) = p2p_retryable_dispatch_error(&error)
+            else {
+                storage.fail_p2p_inbox_message(message_id, &error.to_string()).await?;
+                return Ok(());
+            };
+            let retry_after_secs =
+                requested_retry_after_secs.unwrap_or_else(|| p2p_retry_delay_secs(attempt_count));
+            storage
+                .retry_p2p_inbox_message(
+                    message_id,
+                    current_time_secs() + retry_after_secs,
+                    &error.to_string(),
+                )
+                .await?;
+            metrics_state.record_message_retry();
+            tracing::warn!(
+                event = "p2p_inbox",
+                outcome = "deferred",
+                reason = reason.code(),
+                message_id,
+                message_type,
+                attempt_count,
+                retry_after_secs,
+                error = %error,
+                "deferred cached P2P message for retry"
+            );
+        }
+        Err(error) => {
+            storage.fail_p2p_inbox_message(message_id, &error.to_string()).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_p2p_outbox_messages(
+    swarm: &mut Swarm<AllBehaviours>,
+    local_db: &LocalDB,
+) -> Result<()> {
+    let now = current_time_secs();
+    let mut storage = local_db.start_immediate_transaction().await?;
+    let messages = storage
+        .claim_p2p_outbox_messages(now, now + P2P_INBOX_LEASE_SECS, P2P_INBOX_BATCH_SIZE)
+        .await?;
+    storage.commit().await?;
+
+    for message in messages {
+        let outbound = match GOATMessage::deserialize_message(&message.content).await {
+            Ok(message) => message,
+            Err(error) => {
+                local_db
+                    .acquire()
+                    .await?
+                    .fail_p2p_outbox_message(&message.message_id, &error.to_string())
+                    .await?;
+                tracing::error!(
+                    event = "p2p_outbox",
+                    outcome = "failed",
+                    message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    error = %error,
+                    "discarded corrupt durable outbound P2P message"
+                );
+                continue;
+            }
+        };
+        let result = send_to_peer(swarm, outbound).await;
+        let mut storage = local_db.acquire().await?;
+        match result {
+            Ok(_) => {
+                storage.complete_p2p_outbox_message(&message.message_id).await?;
+                tracing::info!(
+                    event = "p2p_outbox",
+                    outcome = "published",
+                    message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    "published durable outbound P2P message"
+                );
+            }
+            Err(error) => {
+                let retry_after_secs = p2p_retry_delay_secs(message.attempt_count);
+                storage
+                    .retry_p2p_outbox_message(
+                        &message.message_id,
+                        current_time_secs() + retry_after_secs,
+                        &error.to_string(),
+                    )
+                    .await?;
+                tracing::warn!(
+                    event = "p2p_outbox",
+                    outcome = "deferred",
+                    message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    attempt_count = message.attempt_count,
+                    retry_after_secs,
+                    error = %error,
+                    "deferred outbound P2P message"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_self_p2p_msg(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
     http_client: &HttpAsyncClient,
     soldering_builder: &Option<Arc<BabeBundleBuilder>>,
     actor: Actor,
@@ -1070,6 +1258,7 @@ pub async fn handle_self_p2p_msg(
             }
         }
     }
+    handle_p2p_outbox_messages(swarm, local_db).await?;
     handle_p2p_inbox_messages(
         swarm,
         local_db,
@@ -1092,8 +1281,8 @@ pub async fn handle_self_p2p_msg(
 pub async fn recv_and_dispatch(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
     http_client: &HttpAsyncClient,
     soldering_builder: &Option<Arc<BabeBundleBuilder>>,
     actor: Actor,
