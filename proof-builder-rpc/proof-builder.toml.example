@@ -1,3 +1,9 @@
+[api_auth]
+# Required. Accepts compressed (66 hex chars) or x-only (64 hex chars) secp256k1 public keys.
+# Populate both lists before starting proof-builder-rpc; empty lists fail closed.
+trusted_operator_public_keys = []
+trusted_watchtower_public_keys = []
+
 [header_chain]
 enable = false 
 init_input = false 

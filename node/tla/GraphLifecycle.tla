@@ -1,6 +1,6 @@
 ---- MODULE GraphLifecycle ----
 (***************************************************************************)
-(* Formal model of a single BitVM2 graph's `status` column, built from the *)
+(* Formal model of a single BitVM graph's `status` column, built from the *)
 (* ACTUAL Rust implementation (not the README, which was found to be      *)
 (* stale in several ways - see git history / PR description for details). *)
 (* Every action below cites the exact code it models.                     *)

@@ -1,4 +1,4 @@
-# BitVM2 Circuits
+# BitVM Circuits
 
 ## Overview
 
@@ -203,7 +203,7 @@ RUST_LOG=info cargo run --package watchtower-proof --bin watchtower-proof -r -- 
 * Simutate a withdraw challenge
 
 ```bash
-cd crates/bitvm2-ga
+cd crates/bitvm-gc
 cargo test -r test_take2
 ```
 
@@ -251,4 +251,4 @@ input, while the dynamic public input is committed after the watchtower challeng
 * included-watchtower: a 256-bit bitmask; each bit flags a valid watchtower inside operator proof.
 * execution-layer-block-number: the block number that including `proceedWithdraw`(Peg-out) transaction of GOAT Network's execution layer(Geth).
 * watchtower-challenge-info: list of watchtower's challenge transaction id and compressed public key, i.e: [wachtower_info.json](./data/watchtower/watchtower_info.json).
-* watchtower-challenge-init-txid: the watchtower challenge init transaction id in GOAT's BitVM2 graph.
+* watchtower-challenge-init-txid: the watchtower challenge init transaction id in GOAT's BitVM graph.

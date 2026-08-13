@@ -10,6 +10,8 @@ use thiserror::Error;
 use zkm_sdk::{HashableKey, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
 use zkm_sdk::{ZKMProvingKey, ZKMVerifyingKey};
 
+pub mod api_auth;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProofRequest {
     HeaderChainProofRequest {

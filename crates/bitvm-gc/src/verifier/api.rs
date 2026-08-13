@@ -133,10 +133,6 @@ pub fn build_challenge_incomplete_kickoff_tx(
     Ok((tx, anchor_added))
 }
 
-pub fn verify_prover_assertion(_graph: &BitvmGcGraph, _operator_assert_txin: TxIn) -> Result<bool> {
-    todo!("verify operator assertion")
-}
-
 fn split_operator_assert_wots_and_extra_data(
     mut operator_assertion: RawWitness,
 ) -> Result<(RawWitness, Vec<u8>, Vec<u8>)> {

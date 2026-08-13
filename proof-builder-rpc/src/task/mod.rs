@@ -15,6 +15,7 @@ use crate::task::{
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
+use anyhow::Context;
 use bitcoin::{BlockHash, Network, Txid};
 use client::btc_chain::BTCClient;
 use std::collections::HashSet;
@@ -192,10 +193,15 @@ pub(crate) async fn run_generate_proof_tasks(
 
 pub(crate) async fn fetch_next_commit_task_index(local_db: &LocalDB) -> anyhow::Result<usize> {
     let mut storage_processor = local_db.acquire().await?;
-    let index = storage_processor
-        .find_all_running_task_proofs_by_name(CommitChainProofBuilder::name())
-        .await?;
-    Ok(index.len())
+    let latest_proof = storage_processor
+        .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
+        .await?
+        .context("latest Commit proof record is missing")?;
+    latest_proof
+        .extra
+        .context("latest Commit proof next index is missing")?
+        .parse()
+        .context("invalid latest Commit proof next index")
 }
 
 pub(crate) async fn fetch_latest_long_running_task(
@@ -558,7 +564,7 @@ pub(crate) async fn create_long_running_task(
         .await
 }
 
-/// Persists a Commit proof, replacing prior Commit records for a Genesis replay.
+/// Persists a Commit proof and its next input index, replacing prior records for a replay.
 pub(crate) async fn create_commit_chain_proof(
     local_db: &LocalDB,
     start: i64,
@@ -569,6 +575,7 @@ pub(crate) async fn create_commit_chain_proof(
     cycles: u64,
     chain_name: String,
     replace_existing: bool,
+    next_commit_index: usize,
     total_time_to_proof: i64,
     proving_time: i64,
     proof_state: ProofState,
@@ -611,7 +618,7 @@ pub(crate) async fn create_commit_chain_proof(
             total_time_to_proof,
             proving_time,
             zkm_version,
-            extra: None,
+            extra: Some(next_commit_index.to_string()),
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
@@ -993,6 +1000,7 @@ mod tests {
             2,
             CommitChainProofBuilder::name(),
             true,
+            2,
             3,
             4,
             ProofState::Proven,
@@ -1039,6 +1047,7 @@ mod tests {
                 2,
                 "invalid-chain".to_string(),
                 true,
+                99,
                 3,
                 4,
                 ProofState::Proven,
@@ -1060,7 +1069,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_watchtower_task() {
         let db_path = std::env::var("TEST_DB")
-            .unwrap_or("sqlite:/tmp/.bitvm2-node-sd.db?mode=rwc".to_string());
+            .unwrap_or("sqlite:/tmp/.bitvm-node-sd.db?mode=rwc".to_string());
         let local_db = create_local_db(&db_path).await;
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
@@ -1085,7 +1094,7 @@ mod tests {
     async fn test_add_operator_proof() {
         tracing_subscriber::fmt::init();
         let db_path =
-            std::env::var("TEST_DB").unwrap_or("sqlite:.bitvm2-node-sd.db?mode=rwc".to_string());
+            std::env::var("TEST_DB").unwrap_or("sqlite:.bitvm-node-sd.db?mode=rwc".to_string());
         let local_db = create_local_db(&db_path).await;
         let instance_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();
         let graph_id = Uuid::from_str("00112233445566778899aabbccddeeff").unwrap();

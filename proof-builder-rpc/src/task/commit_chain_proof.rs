@@ -81,6 +81,13 @@ pub(crate) fn spawn_commit_chain_proof_task(
                             }
                         };
                     }
+                    let next_commit_index = if starts_from_genesis {
+                        commits.len()
+                    } else {
+                        args.start.checked_add(commits.len()).ok_or_else(|| {
+                            anyhow::anyhow!("Commit proof next index overflow")
+                        })?
+                    };
                     let block_start = commits.first().unwrap().block_height as i64;
                     let ctx =
                         ProofRequest::CommitChainProofRequest {
@@ -127,6 +134,7 @@ pub(crate) fn spawn_commit_chain_proof_task(
                         cycles,
                         CommitChainProofBuilder::name(),
                         starts_from_genesis,
+                        next_commit_index,
                         proving_duration as i64,
                         proving_time as i64,
                         store::ProofState::Proven,

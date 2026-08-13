@@ -74,7 +74,7 @@ jobs:
       - name: Collect binaries
         run: |
           BINS=(
-            "target/release/bitvm2-noded"
+            "target/release/bitvm-noded"
             "target/release/sequencer-set-publish"
             "target/release/challenge"
             "target/release/send-rbf"
@@ -106,7 +106,7 @@ jobs:
             fi
           done
 
-          ARCHIVE_NAME="bitvm2-node-${VERSION}-${PLATFORM}.tar.gz"
+          ARCHIVE_NAME="bitvm-node-${VERSION}-${PLATFORM}.tar.gz"
           tar -czf "release-artifacts/${ARCHIVE_NAME}" -C "$STAGING_DIR" .
           $CHECKSUM_CMD "release-artifacts/${ARCHIVE_NAME}" > "release-artifacts/${ARCHIVE_NAME}.sha256"
 

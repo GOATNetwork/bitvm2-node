@@ -88,6 +88,7 @@ use bitvm_lib::babe_adapter::{
 use bitvm_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
 use client::http_client::async_client::HttpAsyncClient;
+use proof_builder::api_auth::{ProofBuilderAuthRole, sign_proof_builder_request};
 use proof_builder::{
     OperatorProofRequest, OperatorProofResponse, ProofData, WatchtowerProofRequest,
     WatchtowerProofResponse, WatchtowerProofTimeoutUpdateRequest,
@@ -2393,6 +2394,16 @@ fn gen_watchtower_commitment(graph_id: Uuid, proof_data: ProofData) -> Result<Ve
 }
 
 // proof network
+/// Builds fresh Proof Builder authentication headers for one outbound request attempt.
+fn proof_builder_auth_headers<B: Serialize>(
+    keypair: &Keypair,
+    role: ProofBuilderAuthRole,
+    path: &str,
+    body: &B,
+) -> Result<Vec<(String, String)>> {
+    Ok(sign_proof_builder_request(keypair, role, "POST", path, body)?.to_header_pairs())
+}
+
 /// Returns:
 /// - `Ok(Some(WatchtowerCommitment), _)` if watchtower proof is available
 /// - `Ok(None, wait_secs)` if watchtower proof is not yet available, with suggested wait time
@@ -2420,15 +2431,25 @@ pub async fn get_watchtower_commitment(
         )?;
         let url = base_url.join(NODES_WATCHTOWER_BASE)?;
 
+        let payload = WatchtowerProofRequest {
+            instance_id: instance_id.to_string(),
+            graph_id: graph_id.to_string(),
+            public_key: env::get_node_pubkey()?.to_string(),
+            challenge_init_txid: challenge_init_txid.0.to_string(),
+            execution_layer_block_number: graph.proceed_withdraw_height, // NOTE: this number may be zero
+        };
+        let auth_keypair = get_bitvm_key()?;
         let response = http_client
-            .post_response_json::<WatchtowerProofResponse, WatchtowerProofRequest>(
+            .post_response_json_with_dynamic_headers::<WatchtowerProofResponse, _, _>(
                 url.as_str(),
-                &WatchtowerProofRequest {
-                    instance_id: instance_id.to_string(),
-                    graph_id: graph_id.to_string(),
-                    public_key: env::get_node_pubkey()?.to_string(),
-                    challenge_init_txid: challenge_init_txid.0.to_string(),
-                    execution_layer_block_number: graph.proceed_withdraw_height, // NOTE: this number may be zero
+                &payload,
+                || {
+                    proof_builder_auth_headers(
+                        &auth_keypair,
+                        ProofBuilderAuthRole::Watchtower,
+                        NODES_WATCHTOWER_BASE,
+                        &payload,
+                    )
                 },
             )
             .await?;
@@ -2718,23 +2739,33 @@ pub async fn get_operator_proof(
             .ok_or_else(|| anyhow::anyhow!("failed to get proof_build_rpc_host"))?,
     )?;
     let operator_url = base_url.join(NODES_OPERATOR_BASE)?;
+    let payload = OperatorProofRequest {
+        instance_id: instance_id.to_string(),
+        graph_id: graph_id.to_string(),
+        operator_committed_blockhash,
+        execution_layer_block_number: graph.proceed_withdraw_height,
+        watchtower_challenge_txids,
+        included_watchtowers,
+        watchtower_challenge_init_txid: watchtower_challenge_init_txid.0.to_string(),
+        watchtower_challenge_pubkeys: bitvm_graph
+            .parameters
+            .watchtower_pubkeys
+            .iter()
+            .map(|pk| pk.public_key(secp256k1::Parity::Even).to_string())
+            .collect(),
+    };
+    let auth_keypair = get_bitvm_key()?;
     let operator_response = http_client
-        .post_response_json::<OperatorProofResponse, OperatorProofRequest>(
+        .post_response_json_with_dynamic_headers::<OperatorProofResponse, _, _>(
             operator_url.as_str(),
-            &OperatorProofRequest {
-                instance_id: instance_id.to_string(),
-                graph_id: graph_id.to_string(),
-                operator_committed_blockhash,
-                execution_layer_block_number: graph.proceed_withdraw_height,
-                watchtower_challenge_txids,
-                included_watchtowers,
-                watchtower_challenge_init_txid: watchtower_challenge_init_txid.0.to_string(),
-                watchtower_challenge_pubkeys: bitvm_graph
-                    .parameters
-                    .watchtower_pubkeys
-                    .iter()
-                    .map(|pk| pk.public_key(secp256k1::Parity::Even).to_string())
-                    .collect(),
+            &payload,
+            || {
+                proof_builder_auth_headers(
+                    &auth_keypair,
+                    ProofBuilderAuthRole::Operator,
+                    NODES_OPERATOR_BASE,
+                    &payload,
+                )
             },
         )
         .await?;
@@ -3826,6 +3857,9 @@ pub async fn notify_to_cancel_proof_task(
         warn!("notify_to_cancel_proof_task: input wrong message type:{msg_type}");
         return Ok(());
     }
+    if get_actor() != Actor::Watchtower {
+        return Ok(());
+    }
 
     let host = match get_proof_build_rpc_host() {
         Some(host) => Url::parse(&host)?,
@@ -3852,14 +3886,23 @@ pub async fn notify_to_cancel_proof_task(
         let notify_result = match msg_type {
             MessageType::WatchtowerChallengeInitSent => {
                 let url = host.join(PROOFS_WATCHTOWER_PROOF_TIMEOUT)?;
+                let payload = WatchtowerProofTimeoutUpdateRequest {
+                    instance_id: graph.instance_id.to_string(),
+                    graph_id: graph.graph_id.to_string(),
+                    public_key: get_node_pubkey()?.to_string(),
+                };
+                let auth_keypair = get_bitvm_key()?;
                 let response  = http_client
-                    .post_response_json::<WatchtowerProofTimeoutUpdateResponse, WatchtowerProofTimeoutUpdateRequest>(
+                    .post_response_json_with_dynamic_headers::<WatchtowerProofTimeoutUpdateResponse, _, _>(
                         url.as_str(),
-                        &WatchtowerProofTimeoutUpdateRequest {
-                            instance_id: graph.instance_id.to_string(),
-                            graph_id: graph.graph_id.to_string(),
-                            public_key: get_node_pubkey()?.to_string(),
-
+                        &payload,
+                        || {
+                            proof_builder_auth_headers(
+                                &auth_keypair,
+                                ProofBuilderAuthRole::Watchtower,
+                                PROOFS_WATCHTOWER_PROOF_TIMEOUT,
+                                &payload,
+                            )
                         },
                     )
                     .await?;

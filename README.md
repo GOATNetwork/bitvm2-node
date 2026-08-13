@@ -1,6 +1,6 @@
-# GOAT Bitvm2 Node
+# GOAT BitVM Node
 
-GOAT Network's BitVM2 bridge implementation. See [GOAT BitVM2 Whitepaper](https://www.goat.network/bitvm2-whitepaper) for more details.
+GOAT Network's BitVM bridge implementation. See [GOAT BitVM Whitepaper](https://www.goat.network/bitvm2-whitepaper) for more details.
 
 ## Layout
 

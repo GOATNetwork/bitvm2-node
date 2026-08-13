@@ -67,6 +67,27 @@ impl HttpAsyncClient {
         response.json::<T>().await.map_err(|e| anyhow!("failed to deserialize response:{e}"))
     }
 
+    /// Posts JSON while rebuilding caller-supplied headers for every retry attempt.
+    pub async fn post_response_json_with_dynamic_headers<
+        T: serde::de::DeserializeOwned,
+        B: serde::Serialize,
+        F: Fn() -> anyhow::Result<Vec<(String, String)>>,
+    >(
+        &self,
+        url: &str,
+        body: &B,
+        header_factory: F,
+    ) -> anyhow::Result<T> {
+        let response = self.post_with_retry_and_dynamic_headers(url, body, &header_factory).await?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let message = response.text().await?;
+            return Err(Error::HttpResponse { status, message }.into());
+        }
+
+        response.json::<T>().await.map_err(|e| anyhow!("failed to deserialize response:{e}"))
+    }
+
     pub async fn post_opt_response_json<T: serde::de::DeserializeOwned, B: serde::Serialize>(
         &self,
         url: &str,
@@ -113,6 +134,37 @@ impl HttpAsyncClient {
 
         loop {
             match self.client.post(url).json(body).send().await? {
+                resp if attempts < self.max_retries
+                    && RETRYABLE_ERROR_CODES.contains(&resp.status().as_u16()) =>
+                {
+                    tokio::time::sleep(delay).await;
+                    attempts += 1;
+                    delay *= 2;
+                }
+                resp => return Ok(resp),
+            }
+        }
+    }
+
+    /// Sends one JSON request and regenerates dynamic headers before each retry.
+    async fn post_with_retry_and_dynamic_headers<
+        B: serde::Serialize,
+        F: Fn() -> anyhow::Result<Vec<(String, String)>>,
+    >(
+        &self,
+        url: &str,
+        body: &B,
+        header_factory: &F,
+    ) -> anyhow::Result<Response> {
+        let mut delay = BASE_BACKOFF_MILLIS;
+        let mut attempts = 0;
+
+        loop {
+            let mut request = self.client.post(url).json(body);
+            for (name, value) in header_factory()? {
+                request = request.header(name, value);
+            }
+            match request.send().await? {
                 resp if attempts < self.max_retries
                     && RETRYABLE_ERROR_CODES.contains(&resp.status().as_u16()) =>
                 {

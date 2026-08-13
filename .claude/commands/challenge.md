@@ -31,7 +31,7 @@ Use the `/run-challenger-node` skill to start one, or see `deployment/README.md`
 
 5. Check if the `challenge` binary exists at `./bin/challenge`. If not, run:
    ```bash
-   .claude/commands/install-bitvm2.sh install
+   .claude/commands/install-bitvm.sh install
    ```
 
 6. Run the command using the pre-built binary:

@@ -1,3 +1,8 @@
+[api_auth]
+# Fill these lists with the public keys derived from the deployed nodes' BITVM_SECRET values.
+trusted_operator_public_keys = []
+trusted_watchtower_public_keys = []
+
 [header_chain]
 enable = true
 init_input = true 

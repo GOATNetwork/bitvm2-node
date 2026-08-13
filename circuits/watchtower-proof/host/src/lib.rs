@@ -109,17 +109,31 @@ pub async fn fetch_target_block(
     bitcoin_network: Network,
 ) -> anyhow::Result<(u32, Block, Transaction)> {
     let btc_client = client::btc_chain::BTCClient::new(bitcoin_network, Some(esplora_url));
-    let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid).unwrap();
-
-    let latest_sequencer_commit_tx =
-        btc_client.get_tx(&latest_sequencer_commit_txid).await.unwrap().unwrap();
-    // TODO: replace it by `get_raw_transaction_info`
-    let tx_merkle_proof =
-        btc_client.get_merkle_proof(&latest_sequencer_commit_txid).await.unwrap().unwrap();
-
-    let block_pos = tx_merkle_proof.block_height;
+    let latest_sequencer_commit_txid = Txid::from_str(latest_sequencer_commit_txid)
+        .context("invalid latest sequencer commitment txid")?;
+    let tx_info = btc_client
+        .get_tx_info(&latest_sequencer_commit_txid)
+        .await
+        .with_context(|| {
+            format!("failed to fetch transaction info for {latest_sequencer_commit_txid}")
+        })?
+        .with_context(|| format!("transaction {latest_sequencer_commit_txid} not found"))?;
+    anyhow::ensure!(
+        tx_info.status.confirmed,
+        "transaction {latest_sequencer_commit_txid} is not confirmed"
+    );
+    let block_pos =
+        tx_info.status.block_height.context("confirmed transaction is missing its block height")?;
+    let block_hash =
+        tx_info.status.block_hash.context("confirmed transaction is missing its block hash")?;
     tracing::info!("block height: {block_pos}");
-    let target_block = btc_client.get_block_by_height(block_pos).await.unwrap();
+    let target_block = btc_client
+        .get_block_by_hash(&block_hash)
+        .await
+        .with_context(|| format!("failed to fetch block {block_hash}"))?
+        .with_context(|| format!("block {block_hash} not found"))?;
+    let latest_sequencer_commit_tx = tx_info.to_tx();
+
     Ok((block_pos, target_block, latest_sequencer_commit_tx))
 }
 
@@ -345,5 +359,35 @@ impl ProofBuilder for WatchtowerProofBuilder {
         std::fs::write(format!("{}.vk_hash.bin", output), self.verifying_key.bytes32())?;
         std::fs::write(format!("{}.zkm_version.bin", output), zkm_version)?;
         Ok((public_value_hex, proof_size))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires public testnet4 Esplora"]
+    async fn fetch_target_block_from_testnet4() -> anyhow::Result<()> {
+        let (block_num, block, tx) = fetch_target_block(
+            "https://mempool.space/testnet4/api",
+            "c2d816940391da550af23c7924f8d9ecd276cdf6a22a164fc44443f5eba6d4b5",
+            Network::Testnet4,
+        )
+        .await?;
+        // println!("fetch_target_block result: {block_num:#?}, {block:#?}, {tx:#?}");
+
+        assert_eq!(block_num, 146920);
+        assert_eq!(
+            block.block_hash(),
+            bitcoin::BlockHash::from_str(
+                "00000000000000024f1da869c78a77e4b88043ca8ed57f76fb79d180578897a8"
+            )?
+        );
+        assert_eq!(
+            tx.compute_txid().to_string(),
+            "c2d816940391da550af23c7924f8d9ecd276cdf6a22a164fc44443f5eba6d4b5"
+        );
+        Ok(())
     }
 }

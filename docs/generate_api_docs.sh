@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# BitVM2 Node API Documentation Generation Script
+# BitVM Node API Documentation Generation Script
 # Generate complete API documentation using rust-doc
 
 set -e
 
-echo "Starting BitVM2 Node API documentation generation..."
+echo "Starting BitVM Node API documentation generation..."
 
 # Check if we're in the correct directory
 if [ ! -f "Cargo.toml" ]; then
@@ -38,8 +38,8 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "Documentation locations:"
     echo "   - HTML documentation: $DOCS_DIR/index.html"
-    echo "   - Main documentation: $DOCS_DIR/bitvm2_noded/index.html"
-    echo "   - RPC service docs: $DOCS_DIR/bitvm2_noded/rpc_service/index.html"
+    echo "   - Main documentation: $DOCS_DIR/bitvm_noded/index.html"
+    echo "   - RPC service docs: $DOCS_DIR/bitvm_noded/rpc_service/index.html"
     echo ""
     echo "View documentation:"
     echo "   - Open in browser: $DOCS_DIR/index.html"
@@ -72,10 +72,10 @@ if [ $? -eq 0 ]; then
         echo "   Checking for alternative locations..."
         
         # Look for documentation in other possible locations
-        if [ -d "$DOCS_DIR/bitvm2_noded" ]; then
-            echo "   Found documentation in: $DOCS_DIR/bitvm2_noded/"
-            if [ -f "$DOCS_DIR/bitvm2_noded/index.html" ]; then
-                echo "   Main documentation: $DOCS_DIR/bitvm2_noded/index.html"
+        if [ -d "$DOCS_DIR/bitvm_noded" ]; then
+            echo "   Found documentation in: $DOCS_DIR/bitvm_noded/"
+            if [ -f "$DOCS_DIR/bitvm_noded/index.html" ]; then
+                echo "   Main documentation: $DOCS_DIR/bitvm_noded/index.html"
             fi
         fi
     fi

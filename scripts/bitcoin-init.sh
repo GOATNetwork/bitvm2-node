@@ -39,12 +39,12 @@ $BTC loadwallet $WALLET_NAME
 $BTC --rpcwallet=$WALLET_NAME walletpassphrase $WALLET_PASSPHRASE 600
 
 #address="bcrt1q7tr8sl50zanztcrps35hakqpe7gmfzedhhnxcspj7n0ks5lyrnhs6m8ewg"
-## For bitvm2-ga tests
-address_bitvm2="bcrt1qhnmlpxyxdntekge4u24m4a7yk6elc3zs4v89e7fqja8vagfnrs8sq28cwd"
+## For bitvm-gc tests
+address_bitvm="bcrt1qhnmlpxyxdntekge4u24m4a7yk6elc3zs4v89e7fqja8vagfnrs8sq28cwd"
 ## fund the address
 #$BTC --rpcwallet=$WALLET_NAME -generate 101
 #$BTC --rpcwallet=$WALLET_NAME sendtoaddress $address 20
-$BTC --rpcwallet=$WALLET_NAME -regtest sendtoaddress $address_bitvm2 20
+$BTC --rpcwallet=$WALLET_NAME -regtest sendtoaddress $address_bitvm 20
 
 # Install watch
 apt-get update
