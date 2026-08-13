@@ -37,7 +37,6 @@ use verifiable_circuit_babe::verifier::BABEVerifier;
 /// Number of Wots96 digit signatures expected by the GOAT GC-V2 connector.
 pub const WOTS_SIG_COUNT: usize = Wots96::TOTAL_DIGIT_LEN as usize;
 pub const BABE_N_CC: usize = 181;
-// TODO: use verifiable_circuit_babe::babe::M_CC instead
 pub const BABE_M_CC: usize = 7;
 
 pub type OpenedInstanceSeeds = Vec<(usize, u64)>;

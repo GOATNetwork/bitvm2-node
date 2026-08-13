@@ -763,7 +763,6 @@ pub async fn get_instance(
 pub async fn get_instances_overview(
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<InstanceOverviewResponse> {
-    // todo update bridge out calc
     let mut storage_process =
         app_state.local_db.acquire().await.api_error("INSTANCE_OVERVIEW_ERROR")?;
 

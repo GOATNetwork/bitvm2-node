@@ -193,6 +193,84 @@ pub fn load_upgrade_commits(
     Ok(commits)
 }
 
+/// Validates that `commits` is the complete ordered history represented by `output`.
+fn validate_full_commit_history(
+    commits: &[CircuitCommit],
+    output: &CommitChainCircuitOutput,
+) -> anyhow::Result<()> {
+    let genesis_txid = output.chain_state.genesis_txid;
+    let first_commit = commits.first().context("full commit history must be non-empty")?;
+    anyhow::ensure!(
+        first_commit.commit_txn.compute_txid().to_byte_array() == genesis_txid,
+        "full commit history must start at the proof's fixed Genesis"
+    );
+
+    for (index, commit) in commits.iter().enumerate() {
+        anyhow::ensure!(
+            commit.genesis_txid == genesis_txid,
+            "full commit history commit {index} has a different Genesis"
+        );
+    }
+
+    for (index, commits) in commits.windows(2).enumerate() {
+        let previous_txid = commits[0].commit_txn.compute_txid();
+        let next_input = commits[1].commit_txn.input.first().with_context(|| {
+            format!("full commit history commit {} has no update input", index + 1)
+        })?;
+        anyhow::ensure!(
+            next_input.previous_output.txid == previous_txid
+                && next_input.previous_output.vout == 0,
+            "full commit history commit {} does not spend the previous commit",
+            index + 1
+        );
+    }
+
+    let latest_txid =
+        commits.last().context("full commit history must be non-empty")?.commit_txn.compute_txid();
+    anyhow::ensure!(
+        latest_txid == output.chain_state.commit_txn.compute_txid(),
+        "full commit history tip does not match the proof output"
+    );
+    Ok(())
+}
+
+/// Builds the complete Genesis-to-tip history for the proof being saved.
+fn build_full_commit_history(
+    input_proof: &str,
+    circuit_input: &CommitChainCircuitInput,
+    output_public_values: &[u8],
+) -> anyhow::Result<Vec<CircuitCommit>> {
+    anyhow::ensure!(!circuit_input.commits.is_empty(), "commit proof input must be non-empty");
+    let current_output = decode_commit_chain_circuit_output(output_public_values);
+
+    let full_commits = match &circuit_input.prev_proof {
+        CommitChainPrevProofType::GenesisBlock => circuit_input.commits.clone(),
+        CommitChainPrevProofType::PrevProof => {
+            let previous_output =
+                decode_commit_chain_circuit_output(&circuit_input.zkm_public_values);
+            let history_path = format!("{input_proof}.all-commits");
+            let mut previous_commits: Vec<CircuitCommit> = serde_json::from_slice(
+                &std::fs::read(&history_path)
+                    .with_context(|| format!("read {history_path} error"))?,
+            )
+            .with_context(|| format!("parse {history_path} error"))?;
+            let previous_tip = previous_commits
+                .last()
+                .context("previous full commit history must be non-empty")?;
+            anyhow::ensure!(
+                previous_tip.commit_txn.compute_txid()
+                    == previous_output.chain_state.commit_txn.compute_txid(),
+                "previous full commit history tip does not match the predecessor proof output"
+            );
+            previous_commits.extend(circuit_input.commits.iter().cloned());
+            previous_commits
+        }
+    };
+
+    validate_full_commit_history(&full_commits, &current_output)?;
+    Ok(full_commits)
+}
+
 /// A program that aggregates the proofs of the simple program.
 pub struct CommitChainProofBuilder {
     client: ProverClient,
@@ -333,7 +411,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         _cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<(String, usize)> {
-        let ProofRequest::CommitChainProofRequest { output_proof, .. } = ctx else {
+        let ProofRequest::CommitChainProofRequest { input_proof, output_proof, .. } = ctx else {
             anyhow::bail!("Invalid commit chain input");
         };
         //fs::write(&output_proof, bincode::serialize(&proof)?)?;
@@ -344,21 +422,25 @@ impl ProofBuilder for CommitChainProofBuilder {
         //tracing::info!("Generate proof successfully, proof: {:?}", proof);
         //Ok((public_value_hex, proof_size))
 
+        let circuit_input: CommitChainCircuitInput = bincode::deserialize(input)?;
+        let public_values = proof.public_values.to_vec();
+        let full_commits = build_full_commit_history(input_proof, &circuit_input, &public_values)?;
+
         std::fs::write(output_proof, proof.bytes())?;
-        let public_value_hex = hex::encode(proof.public_values.to_vec());
+        let public_value_hex = hex::encode(&public_values);
         let proof_size = proof.bytes().len();
         let zkm_version = proof.zkm_version.clone();
-        std::fs::write(
-            format!("{}.public_inputs.bin", output_proof),
-            proof.public_values.to_vec(),
-        )?;
+        std::fs::write(format!("{}.public_inputs.bin", output_proof), public_values)?;
         std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
         std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
-        let circuit_input: CommitChainCircuitInput = bincode::deserialize(input)?;
-        std::fs::write(
-            format!("{}.commits", output_proof),
-            serde_json::to_vec(&circuit_input.commits)?,
-        )?;
+        let latest_commit =
+            circuit_input.commits.last().context("commit proof input must be non-empty")?;
+        let commits_path = format!("{output_proof}.commits");
+        std::fs::write(&commits_path, serde_json::to_vec(std::slice::from_ref(latest_commit))?)
+            .with_context(|| format!("write {commits_path} error"))?;
+        let full_commits_path = format!("{output_proof}.all-commits");
+        std::fs::write(&full_commits_path, serde_json::to_vec(&full_commits)?)
+            .with_context(|| format!("write {full_commits_path} error"))?;
         Ok((public_value_hex, proof_size))
     }
 }
