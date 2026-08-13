@@ -4,7 +4,7 @@ set -euo pipefail
 REPO="GOATNetwork/bitvm2-node"
 API_URL="https://api.github.com/repos/${REPO}/releases"
 INSTALL_DIR="./bin"
-VERSION_FILE=".bitvm2-version"
+VERSION_FILE=".bitvm-version"
 
 usage() {
     cat <<EOF
@@ -71,7 +71,7 @@ do_install() {
     local platform
     platform="$(detect_platform)"
 
-    local tarball="bitvm2-node-${version}-${platform}.tar.gz"
+    local tarball="bitvm-node-${version}-${platform}.tar.gz"
     local base_url="https://github.com/${REPO}/releases/download/${version}"
     local url="${base_url}/${tarball}"
     local sha_url="${url}.sha256"
