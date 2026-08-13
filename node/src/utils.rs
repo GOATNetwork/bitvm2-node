@@ -68,7 +68,7 @@ use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::localdb::{GraphQuery, GraphRuntimeUpdate, InstanceQuery, LocalDB, StorageProcessor};
 
 use crate::env;
@@ -112,6 +112,7 @@ use zkm_verifier::{
 
 pub const SELF_SENDER: &str = "self";
 const BRIDGE_OUT_INSTANCE_ID_PREFIX: [u8; 4] = *b"BOID";
+const BABE_SETUP_STATE_ORPHAN_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub(crate) fn load_committee_instance_keypair(
     committee_master_key: &CommitteeMasterKey,
@@ -5915,6 +5916,23 @@ pub(crate) fn update_babe_setup_state(
     Ok(state)
 }
 
+fn babe_setup_state_is_stale(path: &Path, now: SystemTime) -> Result<bool> {
+    let modified = std::fs::metadata(path)
+        .with_context(|| format!("read BABE setup state metadata {}", path.display()))?
+        .modified()
+        .with_context(|| format!("read BABE setup state modified time {}", path.display()))?;
+    Ok(now.duration_since(modified).unwrap_or_default() >= BABE_SETUP_STATE_ORPHAN_RETENTION)
+}
+
+fn should_cleanup_babe_setup_state(status: Option<GraphStatus>, is_stale: bool) -> bool {
+    match status {
+        Some(status) if status.is_closed() => true,
+        Some(status) if status.is_obsoleted() => is_stale,
+        None => is_stale,
+        Some(_) => false,
+    }
+}
+
 pub(crate) async fn cleanup_babe_setup_states(
     local_db: &LocalDB,
     payload_store: &str,
@@ -5929,6 +5947,7 @@ pub(crate) async fn cleanup_babe_setup_states(
         }
     };
     let mut storage = local_db.acquire().await?;
+    let now = SystemTime::now();
     let mut deleted = 0;
     for instance_dir in instance_dirs {
         let instance_dir = instance_dir?;
@@ -5951,18 +5970,32 @@ pub(crate) async fn cleanup_babe_setup_states(
             else {
                 continue;
             };
-            let Some(graph) = storage.find_graph(&graph_id).await? else {
-                continue;
+            let is_stale = babe_setup_state_is_stale(&path, now)?;
+            let status = match storage.find_graph(&graph_id).await? {
+                Some(graph) if graph.instance_id == instance_id => {
+                    let Ok(status) = GraphStatus::from_str(&graph.status) else {
+                        warn!(
+                            "Skip BABE setup cleanup for {graph_id}: invalid graph status {}",
+                            graph.status
+                        );
+                        continue;
+                    };
+                    Some(status)
+                }
+                Some(graph) => {
+                    warn!(
+                        "BABE setup state {graph_id} belongs to {instance_id}, but the stored graph belongs to {}",
+                        graph.instance_id
+                    );
+                    None
+                }
+                None => None,
             };
-            let Ok(status) = GraphStatus::from_str(&graph.status) else {
-                warn!(
-                    "Skip BABE setup cleanup for {graph_id}: invalid graph status {}",
-                    graph.status
-                );
+            if !should_cleanup_babe_setup_state(status, is_stale) {
                 continue;
-            };
-            if graph.instance_id != instance_id || !status.is_closed() {
-                continue;
+            }
+            if status.is_none() {
+                warn!("Cleaning stale orphan BABE setup state for {instance_id}:{graph_id}");
             }
             let Some(state) = load_babe_setup_state_from_path(&path)? else {
                 continue;
