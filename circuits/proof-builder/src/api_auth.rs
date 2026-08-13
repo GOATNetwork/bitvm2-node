@@ -63,6 +63,7 @@ pub fn normalize_public_key(value: &str) -> anyhow::Result<XOnlyPublicKey> {
 }
 
 /// Signs one Proof Builder request with a fresh nonce and the caller's node key.
+#[allow(clippy::too_many_arguments)]
 pub fn sign_proof_builder_request<B: Serialize>(
     keypair: &Keypair,
     role: ProofBuilderAuthRole,
@@ -93,6 +94,7 @@ pub fn sign_proof_builder_request<B: Serialize>(
 }
 
 /// Verifies the cryptographic binding of one Proof Builder request.
+#[allow(clippy::too_many_arguments)]
 pub fn verify_proof_builder_request_signature<B: Serialize>(
     role: ProofBuilderAuthRole,
     method: &str,
