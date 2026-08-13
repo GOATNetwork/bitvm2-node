@@ -8,7 +8,7 @@
 //! - --db-path: local SQLite path (e.g., sqlite:/tmp/bitvm-node.db)
 //! - --actor: Committee | Operator | Verifier | Watchtower | All
 //! - --message-json or --message-file (one required)
-//! - --business-id (optional; inferred from content when possible)
+//! - --business-id (optional; inferred from content when unambiguous)
 //!
 //! Example:
 //! - cargo run -p bitvm-noded --bin update-db -- \
@@ -39,7 +39,7 @@ struct Args {
     #[arg(long, value_parser = parse_actor)]
     actor: Actor,
 
-    /// Business id used for message_id (graph_id or instance_id). If omitted, try to infer from content.
+    /// Business id used for message_id (graph_id or instance_id). If omitted, infer it when unambiguous.
     #[arg(long)]
     business_id: Option<String>,
 
@@ -80,10 +80,10 @@ fn infer_business_id(content: &GOATMessageContent) -> Option<Uuid> {
     match content {
         GOATMessageContent::PeginRequest(v) => Some(v.instance_id),
         GOATMessageContent::ConfirmInstance(v) => Some(v.instance_id),
-        GOATMessageContent::InitGraph(v) => Some(v.instance_id),
-        GOATMessageContent::GenCircuits(v) => Some(v.instance_id),
-        GOATMessageContent::CutCircuits(v) => Some(v.instance_id),
-        GOATMessageContent::SolderingProofReady(v) => Some(v.instance_id),
+        GOATMessageContent::InitGraph(v) => Some(v.graph_id),
+        GOATMessageContent::GenCircuits(v) => Some(v.graph_id),
+        GOATMessageContent::CutCircuits(v) => Some(v.graph_id),
+        GOATMessageContent::SolderingProofReady(v) => Some(v.graph_id),
         GOATMessageContent::VerifierGraphParamsEndorsement(v) => Some(v.graph_id),
         GOATMessageContent::CreateGraph(v) => Some(v.graph_id),
         GOATMessageContent::NonceGeneration(v) => Some(v.graph_id),
@@ -114,9 +114,9 @@ fn infer_business_id(content: &GOATMessageContent) -> Option<Uuid> {
         GOATMessageContent::Take2Sent(v) => Some(v.graph_id),
         GOATMessageContent::SyncGraphRequest(v) => Some(v.graph_id),
         GOATMessageContent::SyncGraph(v) => Some(v.graph_id),
-        GOATMessageContent::InstanceDiscarded(v) => {
-            v.graph_infos.first().map(|(graph_id, _, _)| *graph_id)
-        }
+        // This payload may refer to multiple graphs, so it has no canonical
+        // business id. Require callers to provide --business-id explicitly.
+        GOATMessageContent::InstanceDiscarded(_) => None,
         GOATMessageContent::RequestNodeInfo(_) | GOATMessageContent::ResponseNodeInfo(_) => None,
         GOATMessageContent::Tick => None,
     }
