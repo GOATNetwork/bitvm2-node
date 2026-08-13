@@ -14,6 +14,24 @@ Initial parameters are read from `proof-builder.toml` (see [proof-builder.toml](
 
 Field descriptions for the configuration are available in the circuits documentation: [circuits README](../circuits/README.md).
 
+The four Operator/Watchtower task endpoints require signed requests. Configure the trusted node
+public keys before startup; keys may be compressed or x-only secp256k1 public keys:
+
+```toml
+[api_auth]
+trusted_operator_public_keys = ["<operator-public-key>"]
+trusted_watchtower_public_keys = ["<watchtower-public-key>"]
+```
+
+Both lists are required and must be non-empty. Nodes sign requests with their existing
+`BITVM_SECRET`; no private key is configured on the Proof Builder. Deploy signing-capable nodes
+before enabling the authenticated Proof Builder so that in-flight proof polling is not rejected.
+
+Authenticated requests carry `x-proof-auth-timestamp`, `x-proof-auth-nonce`,
+`x-proof-auth-public-key`, and `x-proof-auth-signature`. The signature binds the caller role,
+HTTP method, route, timestamp, nonce, and canonical JSON body. Rust callers should use
+`proof_builder::api_auth::sign_proof_builder_request`; each retry must generate a new nonce.
+
 ## Failure recovery
 
 Long-running proof tasks (stored in the `long_running_task_proof` table) — such as header-chain, commit-chain, and state-chain proofs — can be recovered from the database. Recovery notes:

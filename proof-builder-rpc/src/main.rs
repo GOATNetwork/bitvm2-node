@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let opt = Opts::parse();
 
     let cfg = ProofBuilderConfig::new(&opt.config)?;
+    let trusted_api_keys = cfg.api_auth.trusted_keys()?;
     println!("proof builder config: {:?}", cfg);
 
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
@@ -50,7 +51,14 @@ async fn main() -> anyhow::Result<()> {
     let opt_rpc_addr = opt.rpc_addr.clone();
     info!("start api server");
     task_handles.push(tokio::spawn(async move {
-        match api::serve(opt_rpc_addr, local_db_clone1, api_metrics_state, cancel_token_clone).await
+        match api::serve(
+            opt_rpc_addr,
+            local_db_clone1,
+            api_metrics_state,
+            trusted_api_keys,
+            cancel_token_clone,
+        )
+        .await
         {
             Ok(tag) => Ok(tag),
             Err(e) => {

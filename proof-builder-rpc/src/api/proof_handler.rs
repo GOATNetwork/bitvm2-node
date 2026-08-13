@@ -1,6 +1,7 @@
 use crate::api::ApiState;
 use crate::api::metrics_service::ApiResultGuard;
 use crate::api::response::{ApiErrorExt, ApiResult, ok_response};
+use crate::api::routes;
 use crate::api::validation::InputValidator;
 use crate::task::{
     add_operator_task, add_watchtower_task, find_operator_task, find_watchtower_task,
@@ -8,6 +9,8 @@ use crate::task::{
 };
 use axum::Json;
 use axum::extract::{Query, State};
+use axum::http::HeaderMap;
+use proof_builder::api_auth::ProofBuilderAuthRole;
 use proof_builder::{
     ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
     OperatorProofTimeoutUpdateRequest, OperatorProofTimeoutUpdateResponse, ProofData, ProofDesc,
@@ -21,6 +24,14 @@ use tracing::info;
 /// Marks validation failures as invalid API results while preserving the original result.
 fn record_invalid<T, E>(api_result: &mut ApiResultGuard, result: Result<T, E>) -> Result<T, E> {
     result.inspect_err(|_| api_result.set("invalid"))
+}
+
+/// Marks authentication failures as unauthorized API results while preserving the response.
+fn record_unauthorized<T, E>(
+    api_result: &mut ApiResultGuard,
+    result: Result<T, E>,
+) -> Result<T, E> {
+    result.inspect_err(|_| api_result.set("unauthorized"))
 }
 
 #[axum::debug_handler]
@@ -170,9 +181,21 @@ pub(super) async fn get_operator_proof_task_desc(
 #[axum::debug_handler]
 pub(super) async fn post_operator_proof_task(
     State(api_state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(payload): Json<OperatorProofRequest>,
 ) -> ApiResult<OperatorProofResponse> {
     let mut api_result = api_state.metrics_state.api_result("operator_submit");
+    record_unauthorized(
+        &mut api_result,
+        api_state.auth.authorize(
+            &headers,
+            ProofBuilderAuthRole::Operator,
+            "POST",
+            routes::v1::PROOFS_OPERATOR_PROOF,
+            &payload,
+            None,
+        ),
+    )?;
     let instance_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.instance_id, "instance_id"),
@@ -239,9 +262,21 @@ pub(super) async fn post_operator_proof_task(
 #[axum::debug_handler]
 pub(super) async fn update_operator_proof_task_timeout(
     State(api_state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(payload): Json<OperatorProofTimeoutUpdateRequest>,
 ) -> ApiResult<OperatorProofTimeoutUpdateResponse> {
     let mut api_result = api_state.metrics_state.api_result("operator_timeout");
+    record_unauthorized(
+        &mut api_result,
+        api_state.auth.authorize(
+            &headers,
+            ProofBuilderAuthRole::Operator,
+            "POST",
+            routes::v1::PROOFS_OPERATOR_PROOF_TIMEOUT,
+            &payload,
+            None,
+        ),
+    )?;
     let instance_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.instance_id, "instance_id"),
@@ -283,9 +318,21 @@ pub(super) async fn update_operator_proof_task_timeout(
 #[axum::debug_handler]
 pub(super) async fn post_watchtower_proof_task(
     State(api_state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(payload): Json<WatchtowerProofRequest>,
 ) -> ApiResult<WatchtowerProofResponse> {
     let mut api_result = api_state.metrics_state.api_result("watchtower_submit");
+    record_unauthorized(
+        &mut api_result,
+        api_state.auth.authorize(
+            &headers,
+            ProofBuilderAuthRole::Watchtower,
+            "POST",
+            routes::v1::PROOFS_WATCHTOWER_PROOF,
+            &payload,
+            Some(&payload.public_key),
+        ),
+    )?;
     let instance_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.instance_id, "instance_id"),
@@ -357,9 +404,21 @@ pub(super) async fn post_watchtower_proof_task(
 #[axum::debug_handler]
 pub(super) async fn update_watchtower_proof_task_timeout(
     State(api_state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(payload): Json<WatchtowerProofTimeoutUpdateRequest>,
 ) -> ApiResult<WatchtowerProofTimeoutUpdateResponse> {
     let mut api_result = api_state.metrics_state.api_result("watchtower_timeout");
+    record_unauthorized(
+        &mut api_result,
+        api_state.auth.authorize(
+            &headers,
+            ProofBuilderAuthRole::Watchtower,
+            "POST",
+            routes::v1::PROOFS_WATCHTOWER_PROOF_TIMEOUT,
+            &payload,
+            Some(&payload.public_key),
+        ),
+    )?;
     let instance_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.instance_id, "instance_id"),
