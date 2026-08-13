@@ -3,7 +3,10 @@
 #![allow(clippy::collapsible_else_if)]
 
 use crate::env::get_local_node_info;
-use crate::handle::{HandlerContext, dispatch as handle_dispatch};
+use crate::handle::{
+    HandlerContext, HeavyTaskContext, dispatch as handle_dispatch, heavy_task_from_content,
+    is_heavy_task_message_type, run_heavy_task,
+};
 use crate::metrics_service::MetricsState;
 use crate::middleware::AllBehaviours;
 use crate::rpc_service::current_time_secs;
@@ -17,16 +20,22 @@ use bitvm_lib::committee::*;
 use bitvm_lib::types::{BitvmGcGraph, SimplifiedBitvmGcGraph};
 use client::goat_chain::DisproveTxType;
 use client::http_client::async_client::HttpAsyncClient;
-use client::{btc_chain::BTCClient, goat_chain::GOATClient};
+use client::{
+    btc_chain::{BTCClient, BtcRpcTimeoutError},
+    goat_chain::GOATClient,
+};
 use libp2p::gossipsub::MessageId;
 use libp2p::{PeerId, Swarm, gossipsub};
 use musig2::{PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::Instant;
-use store::MessageState;
+use std::fmt;
+use std::str::FromStr;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 use store::localdb::LocalDB;
+use store::{MessageState, P2pInboxMessage};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -37,6 +46,208 @@ pub struct GOATMessage {
 
 const GOAT_MESSAGE_BIN_PREFIX: &[u8] = b"GOATBIN1";
 const TRANSIENT_PEGIN_RETRY_DELAY_SECS: usize = 30;
+const P2P_INBOX_BATCH_SIZE: i64 = 8;
+const P2P_INBOX_LEASE_SECS: i64 = 5 * 60;
+const P2P_INBOX_LEASE_RENEW_INTERVAL_SECS: u64 = 60;
+const P2P_INBOX_ENQUEUE_ATTEMPTS: usize = 3;
+
+struct ActiveHeavyTask {
+    message_id: String,
+    lease_token: String,
+}
+
+static ACTIVE_HEAVY_TASK: LazyLock<Mutex<Option<ActiveHeavyTask>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+struct HeavyTaskPermit {
+    message_id: String,
+    lease_token: String,
+}
+
+impl Drop for HeavyTaskPermit {
+    fn drop(&mut self) {
+        if let Ok(mut active) = ACTIVE_HEAVY_TASK.lock()
+            && active.as_ref().is_some_and(|active| {
+                active.message_id == self.message_id && active.lease_token == self.lease_token
+            })
+        {
+            *active = None;
+        }
+    }
+}
+
+fn active_heavy_task_message_ids() -> Vec<String> {
+    ACTIVE_HEAVY_TASK
+        .lock()
+        .ok()
+        .and_then(|active| active.as_ref().map(|active| vec![active.message_id.clone()]))
+        .unwrap_or_default()
+}
+
+fn try_acquire_heavy_task_permit(message_id: &str, lease_token: &str) -> Option<HeavyTaskPermit> {
+    let mut active = ACTIVE_HEAVY_TASK.lock().ok()?;
+    if active.is_some() {
+        return None;
+    }
+    *active = Some(ActiveHeavyTask {
+        message_id: message_id.to_owned(),
+        lease_token: lease_token.to_owned(),
+    });
+    Some(HeavyTaskPermit { message_id: message_id.to_owned(), lease_token: lease_token.to_owned() })
+}
+
+/// Stable retry categories shared by P2P inbox consumers and protocol
+/// handlers. A handler must opt into retrying; all other failures are treated
+/// as terminal and retained as `Failed` inbox records.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RetryableDispatchReason {
+    StorageBusy,
+    ExternalRpcUnavailable,
+    PayloadNotReady,
+    DependencyPending,
+    PublishFailed,
+    ResourceLocked,
+}
+
+impl RetryableDispatchReason {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::StorageBusy => "storage_busy",
+            Self::ExternalRpcUnavailable => "external_rpc_unavailable",
+            Self::PayloadNotReady => "payload_not_ready",
+            Self::DependencyPending => "dependency_pending",
+            Self::PublishFailed => "publish_failed",
+            Self::ResourceLocked => "resource_locked",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RetryableDispatchError {
+    pub reason: RetryableDispatchReason,
+    pub retry_after_secs: Option<i64>,
+    detail: String,
+}
+
+impl fmt::Display for RetryableDispatchError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "retryable {}: {}", self.reason.code(), self.detail)
+    }
+}
+
+impl std::error::Error for RetryableDispatchError {}
+
+pub fn retryable_dispatch_error(
+    reason: RetryableDispatchReason,
+    retry_after_secs: Option<i64>,
+    detail: impl fmt::Display,
+) -> anyhow::Error {
+    anyhow::Error::new(RetryableDispatchError {
+        reason,
+        retry_after_secs,
+        detail: detail.to_string(),
+    })
+}
+
+fn is_retryable_http_status(status: u16) -> bool {
+    status == 429 || (500..=599).contains(&status)
+}
+
+fn is_retryable_reqwest_error(error: &reqwest::Error) -> bool {
+    error.is_timeout()
+        || error.is_connect()
+        || error.status().is_some_and(|status| is_retryable_http_status(status.as_u16()))
+}
+
+/// Only classify transport-level RPC failures. Contract reverts, malformed
+/// responses and application errors are intentionally left terminal.
+fn is_retryable_external_rpc_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(error) = cause.downcast_ref::<reqwest::Error>() {
+            return is_retryable_reqwest_error(error);
+        }
+        if cause.downcast_ref::<BtcRpcTimeoutError>().is_some() {
+            return true;
+        }
+        if let Some(error) = cause.downcast_ref::<esplora_client::Error>() {
+            return match error {
+                // esplora-client uses reqwest 0.11 while this crate uses
+                // reqwest 0.12, so this check must remain inline instead of
+                // sharing the 0.12 helper above.
+                esplora_client::Error::Reqwest(error) => {
+                    error.is_timeout()
+                        || error.is_connect()
+                        || error
+                            .status()
+                            .is_some_and(|status| is_retryable_http_status(status.as_u16()))
+                }
+                esplora_client::Error::HttpResponse { status, .. } => {
+                    is_retryable_http_status(*status)
+                }
+                _ => false,
+            };
+        }
+        if let Some(error) = cause.downcast_ref::<alloy::transports::TransportError>() {
+            // GOAT uses an HTTP Alloy provider. A transport error means the
+            // request did not receive a valid RPC result; RPC ErrorResp is
+            // deliberately excluded by this predicate.
+            return error.is_transport_error();
+        }
+        false
+    })
+}
+
+fn classify_retryable_dispatch_error(error: anyhow::Error) -> anyhow::Error {
+    if error.chain().any(|cause| cause.downcast_ref::<RetryableDispatchError>().is_some())
+        || !is_retryable_external_rpc_error(&error)
+    {
+        return error;
+    }
+    retryable_dispatch_error(RetryableDispatchReason::ExternalRpcUnavailable, None, error)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum MessageDeferReason {
+    TransientStorageRetry,
+    RecoveryRepublish,
+    PreviousGraphPending,
+    CommitteeNoncesPending,
+    CommitteeEndorsementsPending,
+    BitcoinTransactionPending,
+    BitcoinConfirmationPending,
+    GoatSpvPending,
+    ProofPending,
+    ProtocolInputsPending,
+    TimelockPending,
+    WithdrawKickoffPending,
+    ChainStatePending,
+    ValidationRetry,
+    GraphSyncPending,
+    HandlerError,
+}
+
+impl MessageDeferReason {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TransientStorageRetry => "transient_storage_retry",
+            Self::RecoveryRepublish => "recovery_republish",
+            Self::PreviousGraphPending => "previous_graph_pending",
+            Self::CommitteeNoncesPending => "committee_nonces_pending",
+            Self::CommitteeEndorsementsPending => "committee_endorsements_pending",
+            Self::BitcoinTransactionPending => "bitcoin_transaction_pending",
+            Self::BitcoinConfirmationPending => "bitcoin_confirmation_pending",
+            Self::GoatSpvPending => "goat_spv_pending",
+            Self::ProofPending => "proof_pending",
+            Self::ProtocolInputsPending => "protocol_inputs_pending",
+            Self::TimelockPending => "timelock_pending",
+            Self::WithdrawKickoffPending => "withdraw_kickoff_pending",
+            Self::ChainStatePending => "chain_state_pending",
+            Self::ValidationRetry => "validation_retry",
+            Self::GraphSyncPending => "graph_sync_pending",
+            Self::HandlerError => "handler_error",
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum GOATMessageContent {
@@ -478,12 +689,592 @@ impl GOATMessage {
         .await?
     }
 }
+
+/// Persist externally received P2P messages before dispatching them. The
+/// network event loop only decodes and enqueues; protocol work runs from the
+/// durable inbox on a regular tick.
+pub async fn enqueue_p2p_message(
+    local_db: &LocalDB,
+    actor: Actor,
+    from_peer_id: PeerId,
+    id: MessageId,
+    message: &[u8],
+    metrics_state: &MetricsState,
+) -> Result<()> {
+    let decoded = match GOATMessage::deserialize_message(message).await {
+        Ok(message) => {
+            metrics_state.record_p2p_receive(true);
+            message
+        }
+        Err(error) => {
+            metrics_state.record_p2p_receive(false);
+            return Err(error).context("decode inbound P2P message before enqueue");
+        }
+    };
+    let message_id = hex::encode(&id.0);
+    let inbox_message = P2pInboxMessage {
+        message_id: message_id.clone(),
+        business_id: decoded.content.pegin_retry_business_id(),
+        actor: actor.to_string(),
+        from_peer: from_peer_id.to_string(),
+        msg_type: decoded.content.event_type().to_owned(),
+        content: message.to_vec(),
+        content_size: message.len() as i64,
+        ..Default::default()
+    };
+    let mut inserted = None;
+    for attempt in 1..=P2P_INBOX_ENQUEUE_ATTEMPTS {
+        let result = async {
+            let mut storage = local_db.acquire().await?;
+            storage.insert_p2p_inbox_message(&inbox_message).await
+        }
+        .await;
+        match result {
+            Ok(value) => {
+                inserted = Some(value);
+                break;
+            }
+            Err(error)
+                if is_retryable_sqlite_error(&error) && attempt < P2P_INBOX_ENQUEUE_ATTEMPTS =>
+            {
+                tracing::warn!(
+                    event = "p2p_inbox",
+                    outcome = "enqueue_retry",
+                    message_id = %message_id,
+                    attempt,
+                    error = %error,
+                    "retrying transient P2P inbox insert"
+                );
+                tokio::time::sleep(Duration::from_millis(50 * attempt as u64)).await;
+            }
+            Err(error) => return Err(error).context("persist inbound P2P message"),
+        }
+    }
+    let inserted = inserted.expect("P2P inbox insert loop exits only after success or error");
+    if let Err(error) = update_node_timestamp(local_db, &from_peer_id.to_string()).await {
+        tracing::warn!(
+            event = "p2p_inbox",
+            outcome = "peer_timestamp_update_failed",
+            message_id = %message_id,
+            from_peer_id = %from_peer_id,
+            error = %error,
+            "stored inbound P2P message but failed to update peer timestamp"
+        );
+    }
+    tracing::info!(
+        event = "p2p_inbox",
+        outcome = if inserted { "enqueued" } else { "duplicate" },
+        message_id = %message_id,
+        message_type = %inbox_message.msg_type,
+        from_peer_id = %from_peer_id,
+        content_size = message.len(),
+        "received P2P message"
+    );
+    Ok(())
+}
+
+fn p2p_retry_delay_secs(attempt_count: i64) -> i64 {
+    match attempt_count {
+        ..=1 => 10,
+        2 => 30,
+        3 => 60,
+        4 => 120,
+        _ => 300,
+    }
+}
+
+fn p2p_retryable_dispatch_error(
+    error: &anyhow::Error,
+) -> Option<(RetryableDispatchReason, Option<i64>)> {
+    if let Some(retryable) =
+        error.chain().find_map(|cause| cause.downcast_ref::<RetryableDispatchError>())
+    {
+        return Some((retryable.reason, retryable.retry_after_secs));
+    }
+    if is_retryable_sqlite_error(error) {
+        return Some((RetryableDispatchReason::StorageBusy, None));
+    }
+    None
+}
+
+fn log_stale_p2p_inbox_lease(message_id: &str, lease_token: &str, operation: &str) {
+    tracing::warn!(
+        event = "p2p_inbox",
+        outcome = "stale_lease",
+        message_id,
+        lease_token,
+        operation,
+        "ignored P2P inbox state update from a stale lease"
+    );
+}
+
+async fn renew_p2p_inbox_lease_until_cancelled(
+    local_db: LocalDB,
+    message_id: String,
+    lease_token: String,
+    cancellation: CancellationToken,
+) -> bool {
+    let mut interval =
+        tokio::time::interval(Duration::from_secs(P2P_INBOX_LEASE_RENEW_INTERVAL_SECS));
+    interval.tick().await;
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => return true,
+            _ = interval.tick() => {
+                let renewal = match local_db.acquire().await {
+                    Ok(mut storage) => storage
+                        .renew_p2p_inbox_lease(
+                            &message_id,
+                            &lease_token,
+                            current_time_secs() + P2P_INBOX_LEASE_SECS,
+                        )
+                        .await,
+                    Err(error) => Err(error),
+                };
+                match renewal {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        log_stale_p2p_inbox_lease(&message_id, &lease_token, "renew");
+                        return false;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            event = "p2p_inbox",
+                            outcome = "lease_renew_failed",
+                            message_id,
+                            error = %error,
+                            "failed to renew P2P inbox lease; will retry before expiry"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_p2p_inbox_messages(
+    swarm: &mut Swarm<AllBehaviours>,
+    local_db: &LocalDB,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
+    http_client: &HttpAsyncClient,
+    soldering_builder: &Option<Arc<BabeBundleBuilder>>,
+    actor: Actor,
+    metrics_state: &MetricsState,
+) -> Result<()> {
+    let now = current_time_secs();
+    let active_heavy_task_ids = active_heavy_task_message_ids();
+    let mut storage = local_db.start_immediate_transaction().await?;
+    let messages = storage
+        .claim_p2p_inbox_messages(
+            now,
+            now + P2P_INBOX_LEASE_SECS,
+            P2P_INBOX_BATCH_SIZE,
+            &active_heavy_task_ids,
+        )
+        .await?;
+    storage.commit().await?;
+
+    for message in messages {
+        let from_peer_id = match PeerId::from_str(&message.from_peer) {
+            Ok(peer_id) => peer_id,
+            Err(error) => {
+                let updated = local_db
+                    .acquire()
+                    .await?
+                    .fail_p2p_inbox_message(
+                        &message.message_id,
+                        &message.lease_token,
+                        &format!("invalid stored source peer: {error}"),
+                    )
+                    .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "fail");
+                }
+                continue;
+            }
+        };
+        let is_heavy_task_message = is_heavy_task_message_type(&message.msg_type, &actor);
+        let heavy_task = if is_heavy_task_message {
+            let decoded = match GOATMessage::deserialize_message(&message.content).await {
+                Ok(message) => message,
+                Err(error) => {
+                    let updated = local_db
+                        .acquire()
+                        .await?
+                        .fail_p2p_inbox_message(
+                            &message.message_id,
+                            &message.lease_token,
+                            &error.to_string(),
+                        )
+                        .await?;
+                    if !updated {
+                        log_stale_p2p_inbox_lease(
+                            &message.message_id,
+                            &message.lease_token,
+                            "fail",
+                        );
+                    }
+                    continue;
+                }
+            };
+            let Some(task) = heavy_task_from_content(decoded.content(), &actor) else {
+                let updated = local_db
+                    .acquire()
+                    .await?
+                    .fail_p2p_inbox_message(
+                        &message.message_id,
+                        &message.lease_token,
+                        &format!("inbox message type does not match {} content", message.msg_type),
+                    )
+                    .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "fail");
+                }
+                continue;
+            };
+            Some(task)
+        } else {
+            None
+        };
+
+        if let Some(heavy_task) = heavy_task {
+            let local_db = local_db.clone();
+            let btc_client = Arc::clone(btc_client);
+            let goat_client = Arc::clone(goat_client);
+            let soldering_builder = soldering_builder.clone();
+            let metrics_state = metrics_state.clone();
+            let message_id = message.message_id.clone();
+            let lease_token = message.lease_token.clone();
+            let attempt_count = message.attempt_count;
+            let task_type = heavy_task.message_type();
+            let task_kind = heavy_task.kind();
+            let graph_id = heavy_task.graph_id();
+            let Some(permit) = try_acquire_heavy_task_permit(&message_id, &lease_token) else {
+                let retry_after_secs = 5;
+                let updated = local_db
+                    .acquire()
+                    .await?
+                    .defer_p2p_inbox_message(
+                        &message_id,
+                        &lease_token,
+                        current_time_secs() + retry_after_secs,
+                        RetryableDispatchReason::ResourceLocked.code(),
+                    )
+                    .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "defer");
+                }
+                tracing::debug!(
+                    event = "p2p_inbox",
+                    outcome = "deferred",
+                    reason = RetryableDispatchReason::ResourceLocked.code(),
+                    message_id,
+                    retry_after_secs,
+                    task_kind,
+                    "deferred heavy task while the worker is busy"
+                );
+                continue;
+            };
+            tokio::spawn(async move {
+                let _permit = permit;
+                let lease_cancellation = CancellationToken::new();
+                let lease_renewal = tokio::spawn(renew_p2p_inbox_lease_until_cancelled(
+                    local_db.clone(),
+                    message_id.clone(),
+                    lease_token.clone(),
+                    lease_cancellation.clone(),
+                ));
+                let context = HeavyTaskContext {
+                    local_db: local_db.clone(),
+                    btc_client,
+                    goat_client,
+                    soldering_builder,
+                    metrics_state: metrics_state.clone(),
+                    from_peer_id,
+                };
+                let result = run_heavy_task(&context, heavy_task).await;
+                lease_cancellation.cancel();
+                let lease_is_current = match lease_renewal.await {
+                    Ok(lease_is_current) => lease_is_current,
+                    Err(error) => {
+                        tracing::error!(error = %error, message_id, "P2P inbox lease renewal task failed");
+                        false
+                    }
+                };
+                if !lease_is_current {
+                    return;
+                }
+                metrics_state.record_message_dispatch(
+                    task_type,
+                    if result.is_ok() { "success" } else { "failed" },
+                );
+                if let Err(error) = finish_p2p_inbox_attempt(
+                    &local_db,
+                    &metrics_state,
+                    &message_id,
+                    &lease_token,
+                    task_type,
+                    attempt_count,
+                    result,
+                )
+                .await
+                {
+                    tracing::error!(error = %error, message_id, "failed to persist heavy task result");
+                }
+            });
+            tracing::info!(
+                event = "p2p_inbox",
+                outcome = "heavy_task_started",
+                message_id = %message.message_id,
+                graph_id = %graph_id,
+                message_type = task_type,
+                task_kind,
+                "started background heavy task"
+            );
+            continue;
+        }
+        let raw_message_id = match hex::decode(&message.message_id) {
+            Ok(message_id) => MessageId(message_id),
+            Err(error) => {
+                let updated = local_db
+                    .acquire()
+                    .await?
+                    .fail_p2p_inbox_message(
+                        &message.message_id,
+                        &message.lease_token,
+                        &format!("invalid stored message id: {error}"),
+                    )
+                    .await?;
+                if !updated {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "fail");
+                }
+                continue;
+            }
+        };
+
+        let result = recv_and_dispatch(
+            swarm,
+            local_db,
+            btc_client,
+            goat_client,
+            http_client,
+            soldering_builder,
+            actor.clone(),
+            from_peer_id,
+            raw_message_id,
+            &message.content,
+            metrics_state,
+        )
+        .await;
+
+        let mut storage = local_db.acquire().await?;
+        match result {
+            Ok(()) => {
+                if !storage
+                    .complete_p2p_inbox_message(&message.message_id, &message.lease_token)
+                    .await?
+                {
+                    log_stale_p2p_inbox_lease(
+                        &message.message_id,
+                        &message.lease_token,
+                        "complete",
+                    );
+                }
+            }
+            Err(error) => {
+                let Some((reason, requested_retry_after_secs)) =
+                    p2p_retryable_dispatch_error(&error)
+                else {
+                    if !storage
+                        .fail_p2p_inbox_message(
+                            &message.message_id,
+                            &message.lease_token,
+                            &error.to_string(),
+                        )
+                        .await?
+                    {
+                        log_stale_p2p_inbox_lease(
+                            &message.message_id,
+                            &message.lease_token,
+                            "fail",
+                        );
+                    }
+                    tracing::warn!(
+                        event = "p2p_inbox",
+                        outcome = "failed",
+                        message_id = %message.message_id,
+                        message_type = %message.msg_type,
+                        attempt_count = message.attempt_count,
+                        error = %error,
+                        "cached P2P message failed permanently"
+                    );
+                    continue;
+                };
+                let retry_after_secs = requested_retry_after_secs
+                    .unwrap_or_else(|| p2p_retry_delay_secs(message.attempt_count));
+                if !storage
+                    .retry_p2p_inbox_message(
+                        &message.message_id,
+                        &message.lease_token,
+                        current_time_secs() + retry_after_secs,
+                        &error.to_string(),
+                    )
+                    .await?
+                {
+                    log_stale_p2p_inbox_lease(&message.message_id, &message.lease_token, "retry");
+                }
+                metrics_state.record_message_retry();
+                tracing::warn!(
+                    event = "p2p_inbox",
+                    outcome = "deferred",
+                    reason = reason.code(),
+                    message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    attempt_count = message.attempt_count,
+                    retry_after_secs,
+                    error = %error,
+                    "deferred cached P2P message for retry"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn finish_p2p_inbox_attempt(
+    local_db: &LocalDB,
+    metrics_state: &MetricsState,
+    message_id: &str,
+    lease_token: &str,
+    message_type: &str,
+    attempt_count: i64,
+    result: Result<()>,
+) -> Result<()> {
+    let mut storage = local_db.acquire().await?;
+    match result {
+        Ok(()) => {
+            if !storage.complete_p2p_inbox_message(message_id, lease_token).await? {
+                log_stale_p2p_inbox_lease(message_id, lease_token, "complete");
+            }
+        }
+        Err(error) => {
+            let Some((reason, requested_retry_after_secs)) = p2p_retryable_dispatch_error(&error)
+            else {
+                if !storage
+                    .fail_p2p_inbox_message(message_id, lease_token, &error.to_string())
+                    .await?
+                {
+                    log_stale_p2p_inbox_lease(message_id, lease_token, "fail");
+                }
+                return Ok(());
+            };
+            let retry_after_secs =
+                requested_retry_after_secs.unwrap_or_else(|| p2p_retry_delay_secs(attempt_count));
+            if !storage
+                .retry_p2p_inbox_message(
+                    message_id,
+                    lease_token,
+                    current_time_secs() + retry_after_secs,
+                    &error.to_string(),
+                )
+                .await?
+            {
+                log_stale_p2p_inbox_lease(message_id, lease_token, "retry");
+            }
+            metrics_state.record_message_retry();
+            tracing::warn!(
+                event = "p2p_inbox",
+                outcome = "deferred",
+                reason = reason.code(),
+                message_id,
+                message_type,
+                attempt_count,
+                retry_after_secs,
+                error = %error,
+                "deferred cached P2P message for retry"
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn handle_p2p_outbox_messages(
+    swarm: &mut Swarm<AllBehaviours>,
+    local_db: &LocalDB,
+) -> Result<()> {
+    let now = current_time_secs();
+    let mut storage = local_db.start_immediate_transaction().await?;
+    let messages = storage
+        .claim_p2p_outbox_messages(now, now + P2P_INBOX_LEASE_SECS, P2P_INBOX_BATCH_SIZE)
+        .await?;
+    storage.commit().await?;
+
+    for message in messages {
+        let outbound = match GOATMessage::deserialize_message(&message.content).await {
+            Ok(message) => message,
+            Err(error) => {
+                local_db
+                    .acquire()
+                    .await?
+                    .fail_p2p_outbox_message(&message.message_id, &error.to_string())
+                    .await?;
+                tracing::error!(
+                    event = "p2p_outbox",
+                    outcome = "failed",
+                    message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    error = %error,
+                    "discarded corrupt durable outbound P2P message"
+                );
+                continue;
+            }
+        };
+        let result = send_to_peer(swarm, outbound).await;
+        let mut storage = local_db.acquire().await?;
+        match result {
+            Ok(_) => {
+                storage.complete_p2p_outbox_message(&message.message_id).await?;
+                tracing::info!(
+                    event = "p2p_outbox",
+                    outcome = "published",
+                    message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    "published durable outbound P2P message"
+                );
+            }
+            Err(error) => {
+                let retry_after_secs = p2p_retry_delay_secs(message.attempt_count);
+                storage
+                    .retry_p2p_outbox_message(
+                        &message.message_id,
+                        current_time_secs() + retry_after_secs,
+                        &error.to_string(),
+                    )
+                    .await?;
+                tracing::warn!(
+                    event = "p2p_outbox",
+                    outcome = "deferred",
+                    message_id = %message.message_id,
+                    message_type = %message.msg_type,
+                    attempt_count = message.attempt_count,
+                    retry_after_secs,
+                    error = %error,
+                    "deferred outbound P2P message"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_self_p2p_msg(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
     http_client: &HttpAsyncClient,
     soldering_builder: &Option<Arc<BabeBundleBuilder>>,
     actor: Actor,
@@ -536,7 +1327,6 @@ pub async fn handle_self_p2p_msg(
             id.clone(),
             &message.content,
             metrics_state,
-            false,
         )
         .await
         {
@@ -598,6 +1388,22 @@ pub async fn handle_self_p2p_msg(
                     "failed to process local message; deferred for retry"
                 );
                 let mut storage_processor = local_db.acquire().await?;
+                if let Err(reason_error) = storage_processor
+                    .upsert_message_debug_reason(
+                        &message.message_id,
+                        MessageDeferReason::HandlerError.code(),
+                        &err.to_string(),
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        event = "local_message_queue",
+                        outcome = "debug_reason_store_failed",
+                        queued_message_id = %message.message_id,
+                        error = %reason_error,
+                        "failed to persist local message debug reason"
+                    );
+                }
                 storage_processor
                     .update_messages_lock_time_until(
                         &message.message_id,
@@ -608,6 +1414,18 @@ pub async fn handle_self_p2p_msg(
             }
         }
     }
+    handle_p2p_outbox_messages(swarm, local_db).await?;
+    handle_p2p_inbox_messages(
+        swarm,
+        local_db,
+        btc_client,
+        goat_client,
+        http_client,
+        soldering_builder,
+        actor,
+        metrics_state,
+    )
+    .await?;
     Ok(())
 }
 
@@ -619,8 +1437,8 @@ pub async fn handle_self_p2p_msg(
 pub async fn recv_and_dispatch(
     swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
-    btc_client: &BTCClient,
-    goat_client: &GOATClient,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
     http_client: &HttpAsyncClient,
     soldering_builder: &Option<Arc<BabeBundleBuilder>>,
     actor: Actor,
@@ -628,28 +1446,10 @@ pub async fn recv_and_dispatch(
     id: MessageId,
     message: &[u8],
     metrics_state: &MetricsState,
-    is_p2p_receive: bool,
 ) -> Result<()> {
-    let is_local_queue_message = id == GOATMessage::default_message_id();
-    if !is_local_queue_message {
-        update_node_timestamp(local_db, &from_peer_id.to_string()).await?;
-    }
     // Determine whether the message comes from this node itself to optionally skip validations
     let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
-    let message = match GOATMessage::deserialize_message(message).await {
-        Ok(message) => {
-            if is_p2p_receive {
-                metrics_state.record_p2p_receive(true);
-            }
-            message
-        }
-        Err(error) => {
-            if is_p2p_receive {
-                metrics_state.record_p2p_receive(false);
-            }
-            return Err(error);
-        }
-    };
+    let message = GOATMessage::deserialize_message(message).await?;
     let message_type = message.content.event_type();
     let role = actor.to_string();
     let from_peer_id_string = from_peer_id.to_string();
@@ -667,40 +1467,9 @@ pub async fn recv_and_dispatch(
         id,
         is_self_peer,
     };
-    let result = match handle_dispatch(&mut handler_ctx, message.content()).await {
-        Err(error) if !is_local_queue_message && is_retryable_sqlite_error(&error) => {
-            if let Some(business_id) = message.content.pegin_retry_business_id() {
-                match push_local_unhandled_messages(
-                    local_db,
-                    business_id,
-                    &message,
-                    TRANSIENT_PEGIN_RETRY_DELAY_SECS,
-                )
-                .await
-                {
-                    Ok(()) => {
-                        tracing::warn!(
-                            event = "pegin_message_retry",
-                            outcome = "deferred",
-                            role = %role,
-                            message_type,
-                            business_id = %business_id,
-                            retry_after_secs = TRANSIENT_PEGIN_RETRY_DELAY_SECS,
-                            error = %error,
-                            "deferred pegin message after a transient SQLite failure"
-                        );
-                        Ok(())
-                    }
-                    Err(queue_error) => Err(error.context(format!(
-                        "failed to enqueue transient pegin message retry: {queue_error}"
-                    ))),
-                }
-            } else {
-                Err(error)
-            }
-        }
-        result => result,
-    };
+    let result = handle_dispatch(&mut handler_ctx, message.content())
+        .await
+        .map_err(classify_retryable_dispatch_error);
     metrics_state
         .record_message_dispatch(message_type, if result.is_ok() { "success" } else { "failed" });
     match &result {
@@ -848,16 +1617,22 @@ pub async fn send_to_peer(
                 error = %err,
                 "failed to publish protocol message"
             );
-            Err(err.into())
+            Err(retryable_dispatch_error(
+                RetryableDispatchReason::PublishFailed,
+                Some(10),
+                format!("publish {message_type} to {target_actor}: {err}"),
+            ))
         }
     }
 }
 
-pub async fn push_local_unhandled_messages(
+pub async fn push_local_unhandled_messages_with_reason(
     local_db: &LocalDB,
     business_id: Uuid,
     message: &GOATMessage,
     delay_secs: usize,
+    reason: MessageDeferReason,
+    reason_detail: &str,
 ) -> Result<()> {
     let mut storage_processor = local_db.acquire().await?;
     let actor = message.actor.clone();
@@ -874,6 +1649,30 @@ pub async fn push_local_unhandled_messages(
         delay_secs as i64,
     )
     .await?;
+    let persist_result = match storage_processor
+        .find_message_by_business_id(&business_id, message.content.event_type())
+        .await
+    {
+        Ok(Some(queued_message)) => {
+            storage_processor
+                .upsert_message_debug_reason(
+                    &queued_message.message_id,
+                    reason.code(),
+                    reason_detail,
+                )
+                .await
+        }
+        Ok(None) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = persist_result {
+        tracing::warn!(
+            event = "local_message_queue",
+            outcome = "debug_reason_store_failed",
+            error = %error,
+            "failed to persist local message defer reason"
+        );
+    }
     if delay_secs > 0
         && let Some(metrics_state) = crate::metrics_service::node_metrics_state()
     {
@@ -913,8 +1712,15 @@ pub(crate) async fn get_graph_or_defer(
                 "submitted"
             };
             let delay_secs: usize = 60; // 1 min default retry
-            if let Err(error) =
-                push_local_unhandled_messages(local_db, graph_id, message, delay_secs).await
+            if let Err(error) = push_local_unhandled_messages_with_reason(
+                local_db,
+                graph_id,
+                message,
+                delay_secs,
+                MessageDeferReason::GraphSyncPending,
+                "graph is missing locally; requested SyncGraph from a relayer",
+            )
+            .await
             {
                 tracing::error!(
                     event = "graph_resolution",

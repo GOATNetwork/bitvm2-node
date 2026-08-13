@@ -3079,6 +3079,7 @@ dependencies = [
  "bitcoin-script",
  "bitvm 0.1.0 (git+https://github.com/GOATNetwork/BitVM.git?branch=gc-v2)",
  "bitvm-gc",
+ "blake3",
  "borsh",
  "cbft-rpc",
  "clap",
@@ -5568,7 +5569,7 @@ dependencies = [
 [[package]]
 name = "garbled-snark-verifier"
 version = "0.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fgoat-bitvm3#f1999e03899ae43d46f191d288d898151653e6dc"
+source = "git+https://github.com/KSlashh/bitvm2-gc?branch=patch-deps#f61f30e43be8c68b95421a14462ad95d36250e2e"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -12205,7 +12206,7 @@ dependencies = [
 [[package]]
 name = "soldering-host"
 version = "1.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fgoat-bitvm3#f1999e03899ae43d46f191d288d898151653e6dc"
+source = "git+https://github.com/KSlashh/bitvm2-gc?branch=patch-deps#f61f30e43be8c68b95421a14462ad95d36250e2e"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -13906,7 +13907,7 @@ dependencies = [
 [[package]]
 name = "verifiable-circuit-babe"
 version = "0.0.1"
-source = "git+https://github.com/GOATNetwork/bitvm2-gc?branch=feat%2Fgoat-bitvm3#f1999e03899ae43d46f191d288d898151653e6dc"
+source = "git+https://github.com/KSlashh/bitvm2-gc?branch=patch-deps#f61f30e43be8c68b95421a14462ad95d36250e2e"
 dependencies = [
  "aes",
  "ark-bn254",

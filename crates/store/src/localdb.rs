@@ -2,10 +2,11 @@ use crate::utils::{QueryBuilder, QueryParam, create_place_holders};
 use crate::{
     BridgeOutGlobalStats, EventWatchMetricsSnapshot, GoatTxRecord, Graph, GraphBtcTxVoutMonitor,
     GraphRawData, GraphStatus, GraphStatusSource, GraphStatusTransitionOutcome, Instance,
-    LongRunningTaskProof, Message, MetricsStateCount, Node, NodeAlertMetricsSnapshot,
-    NodesOverview, OperatorProof, PeginGraphProcessData, PeginInstanceProcessData,
-    PendingGraphInit, SequencerSetHashChange, SequencerSetScanState, SerializableTxid,
-    WatchContract, WatchtowerProof,
+    LongRunningTaskProof, Message, MessageDebugOverview, MessageDebugReason, MetricsStateCount,
+    Node, NodeAlertMetricsSnapshot, NodesOverview, OperatorProof, P2pInboxMessage,
+    P2pOutboxMessage, PeginGraphProcessData, PeginInstanceProcessData, PendingGraphInit,
+    SequencerSetHashChange, SequencerSetScanState, SerializableTxid, WatchContract,
+    WatchtowerProof,
 };
 
 use indexmap::IndexMap;
@@ -34,6 +35,40 @@ fn message_from_row(row: &SqliteRow) -> Result<Message, sqlx::Error> {
         message_version: row.try_get("message_version")?,
         weight: row.try_get("weight")?,
         lock_time_until: row.try_get("lock_time_until")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn p2p_inbox_message_from_row(row: &SqliteRow) -> Result<P2pInboxMessage, sqlx::Error> {
+    Ok(P2pInboxMessage {
+        message_id: row.try_get("message_id")?,
+        business_id: row.try_get("business_id")?,
+        actor: row.try_get("actor")?,
+        from_peer: row.try_get("from_peer")?,
+        msg_type: row.try_get("msg_type")?,
+        content: row.try_get("content")?,
+        content_size: row.try_get("content_size")?,
+        state: row.try_get("state")?,
+        attempt_count: row.try_get("attempt_count")?,
+        next_retry_at: row.try_get("next_retry_at")?,
+        lease_until: row.try_get("lease_until")?,
+        lease_token: row.try_get("lease_token")?,
+        last_error: row.try_get("last_error")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn p2p_outbox_message_from_row(row: &SqliteRow) -> Result<P2pOutboxMessage, sqlx::Error> {
+    Ok(P2pOutboxMessage {
+        message_id: row.try_get("message_id")?,
+        msg_type: row.try_get("msg_type")?,
+        content: row.try_get("content")?,
+        state: row.try_get("state")?,
+        attempt_count: row.try_get("attempt_count")?,
+        next_retry_at: row.try_get("next_retry_at")?,
+        lease_until: row.try_get("lease_until")?,
+        last_error: row.try_get("last_error")?,
         created_at: row.try_get("created_at")?,
     })
 }
@@ -2421,6 +2456,120 @@ impl<'a> StorageProcessor<'a> {
         })
     }
 
+    pub async fn find_message_debug_overviews(
+        &mut self,
+        business_id: &Uuid,
+    ) -> anyhow::Result<Vec<MessageDebugOverview>> {
+        Ok(sqlx::query_as::<_, MessageDebugOverview>(
+            r#"SELECT m.message_id,
+                      m.actor,
+                      m.msg_type,
+                      m.state,
+                      m.lock_time_until,
+                      m.created_at,
+                      m.updated_at,
+                      COALESCE(reason_counts.reason_count, 0) AS reason_count,
+                      latest_reason.reason_code AS last_reason_code,
+                      latest_reason.reason_detail AS last_reason_detail,
+                      latest_reason.last_seen_at AS last_reason_seen_at
+               FROM message m
+               LEFT JOIN (
+                    SELECT message_id, COUNT(*) AS reason_count
+                    FROM message_debug_reason
+                    GROUP BY message_id
+               ) reason_counts ON reason_counts.message_id = m.message_id
+               LEFT JOIN message_debug_reason latest_reason
+                    ON latest_reason.rowid = (
+                        SELECT rowid
+                        FROM message_debug_reason
+                        WHERE message_id = m.message_id
+                        ORDER BY last_seen_at DESC, occurrences DESC, reason_code ASC
+                        LIMIT 1
+                    )
+               WHERE m.business_id = ?
+               ORDER BY m.updated_at DESC"#,
+        )
+        .bind(business_id)
+        .fetch_all(self.conn())
+        .await?)
+    }
+
+    pub async fn find_message_debug_overview(
+        &mut self,
+        message_id: &str,
+    ) -> anyhow::Result<Option<MessageDebugOverview>> {
+        Ok(sqlx::query_as::<_, MessageDebugOverview>(
+            r#"SELECT m.message_id,
+                      m.actor,
+                      m.msg_type,
+                      m.state,
+                      m.lock_time_until,
+                      m.created_at,
+                      m.updated_at,
+                      COALESCE(reason_counts.reason_count, 0) AS reason_count,
+                      latest_reason.reason_code AS last_reason_code,
+                      latest_reason.reason_detail AS last_reason_detail,
+                      latest_reason.last_seen_at AS last_reason_seen_at
+               FROM message m
+               LEFT JOIN (
+                    SELECT message_id, COUNT(*) AS reason_count
+                    FROM message_debug_reason
+                    GROUP BY message_id
+               ) reason_counts ON reason_counts.message_id = m.message_id
+               LEFT JOIN message_debug_reason latest_reason
+                    ON latest_reason.rowid = (
+                        SELECT rowid
+                        FROM message_debug_reason
+                        WHERE message_id = m.message_id
+                        ORDER BY last_seen_at DESC, occurrences DESC, reason_code ASC
+                        LIMIT 1
+                    )
+               WHERE m.message_id = ?"#,
+        )
+        .bind(message_id)
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    pub async fn find_message_debug_reasons(
+        &mut self,
+        message_id: &str,
+    ) -> anyhow::Result<Vec<MessageDebugReason>> {
+        Ok(sqlx::query_as::<_, MessageDebugReason>(
+            "SELECT reason_code, reason_detail, first_seen_at, last_seen_at, occurrences \
+             FROM message_debug_reason WHERE message_id = ? \
+             ORDER BY last_seen_at DESC, reason_code ASC",
+        )
+        .bind(message_id)
+        .fetch_all(self.conn())
+        .await?)
+    }
+
+    pub async fn upsert_message_debug_reason(
+        &mut self,
+        message_id: &str,
+        reason_code: &str,
+        reason_detail: &str,
+    ) -> anyhow::Result<()> {
+        let now = get_current_timestamp_secs();
+        sqlx::query(
+            "INSERT INTO message_debug_reason \
+                (message_id, reason_code, reason_detail, first_seen_at, last_seen_at, occurrences) \
+             VALUES (?, ?, ?, ?, ?, 1) \
+             ON CONFLICT(message_id, reason_code, reason_detail) DO UPDATE SET \
+                 last_seen_at = excluded.last_seen_at, \
+                 occurrences = message_debug_reason.occurrences + 1",
+        )
+        .bind(message_id)
+        .bind(reason_code)
+        .bind(reason_detail.chars().take(512).collect::<String>())
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
     pub async fn upsert_message(&mut self, msg: Message) -> anyhow::Result<bool> {
         let current_time = get_current_timestamp_secs();
         let res = sqlx::query(
@@ -2453,6 +2602,358 @@ impl<'a> StorageProcessor<'a> {
         .execute(self.conn())
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// Persist an externally received P2P message before it is dispatched.
+    /// Replays of the same gossipsub message are deliberately ignored so a
+    /// terminal row cannot be repopulated with its (potentially large) content.
+    pub async fn insert_p2p_inbox_message(
+        &mut self,
+        message: &P2pInboxMessage,
+    ) -> anyhow::Result<bool> {
+        let now = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "INSERT INTO p2p_inbox \
+                (message_id, business_id, actor, from_peer, msg_type, content, content_size, \
+                    state, attempt_count, next_retry_at, lease_until, lease_token, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', 0, 0, 0, '', ?, ?) \
+             ON CONFLICT(message_id) DO NOTHING",
+        )
+        .bind(&message.message_id)
+        .bind(message.business_id)
+        .bind(&message.actor)
+        .bind(&message.from_peer)
+        .bind(&message.msg_type)
+        .bind(&message.content)
+        .bind(message.content_size)
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Claim ready work with a lease. The state predicate on the update keeps
+    /// this safe when more than one worker observes the same pending rows.
+    pub async fn claim_p2p_inbox_messages(
+        &mut self,
+        now: i64,
+        lease_until: i64,
+        limit: i64,
+        excluded_message_ids: &[String],
+    ) -> anyhow::Result<Vec<P2pInboxMessage>> {
+        let excluded_predicate = if excluded_message_ids.is_empty() {
+            String::new()
+        } else {
+            format!(" AND message_id NOT IN ({})", create_place_holders(excluded_message_ids))
+        };
+        let query = format!(
+            "SELECT message_id, business_id, actor, from_peer, msg_type, content, content_size, \
+                    state, attempt_count, next_retry_at, lease_until, lease_token, last_error, created_at, updated_at \
+             FROM p2p_inbox \
+             WHERE ((state = 'Pending' AND next_retry_at <= ?) \
+                OR (state = 'Processing' AND lease_until <= ?)){excluded_predicate} \
+             ORDER BY created_at ASC \
+             LIMIT ?"
+        );
+        let mut query = sqlx::query(&query).bind(now).bind(now);
+        for message_id in excluded_message_ids {
+            query = query.bind(message_id);
+        }
+        let rows = query.bind(limit).fetch_all(self.conn()).await?;
+
+        let mut claimed = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut message = p2p_inbox_message_from_row(&row)?;
+            let lease_token = Uuid::new_v4().to_string();
+            let result = sqlx::query(
+                "UPDATE p2p_inbox \
+                 SET state = 'Processing', attempt_count = attempt_count + 1, lease_until = ?, lease_token = ?, updated_at = ? \
+                 WHERE message_id = ? \
+                   AND ((state = 'Pending' AND next_retry_at <= ?) \
+                     OR (state = 'Processing' AND lease_until <= ?))",
+            )
+            .bind(lease_until)
+            .bind(&lease_token)
+            .bind(now)
+            .bind(&message.message_id)
+            .bind(now)
+            .bind(now)
+            .execute(self.conn())
+            .await?;
+            if result.rows_affected() > 0 {
+                message.state = "Processing".to_owned();
+                message.attempt_count += 1;
+                message.lease_until = lease_until;
+                message.lease_token = lease_token;
+                message.updated_at = now;
+                claimed.push(message);
+            }
+        }
+        Ok(claimed)
+    }
+
+    pub async fn complete_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        lease_token: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Processed', content = X'', lease_until = 0, next_retry_at = 0, \
+                 updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
+        )
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .bind(lease_token)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn retry_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        lease_token: &str,
+        next_retry_at: i64,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Pending', lease_until = 0, next_retry_at = ?, last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
+        )
+        .bind(next_retry_at)
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .bind(lease_token)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Return claimed work to the queue without charging it as a processing
+    /// attempt. This is used when capacity is unavailable before dispatch.
+    pub async fn defer_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        lease_token: &str,
+        next_retry_at: i64,
+        reason: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Pending', attempt_count = MAX(attempt_count - 1, 0), lease_until = 0, \
+                 next_retry_at = ?, last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
+        )
+        .bind(next_retry_at)
+        .bind(reason)
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .bind(lease_token)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn fail_p2p_inbox_message(
+        &mut self,
+        message_id: &str,
+        lease_token: &str,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Failed', lease_until = 0, next_retry_at = 0, \
+                 last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
+        )
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .bind(lease_token)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn renew_p2p_inbox_lease(
+        &mut self,
+        message_id: &str,
+        lease_token: &str,
+        lease_until: i64,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox SET lease_until = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing' AND lease_token = ?",
+        )
+        .bind(lease_until)
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .bind(lease_token)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn requeue_p2p_inbox_message(&mut self, message_id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_inbox \
+             SET state = 'Pending', attempt_count = 0, next_retry_at = 0, lease_until = 0, \
+                 lease_token = '', last_error = NULL, updated_at = ? \
+             WHERE message_id = ? AND state = 'Failed' AND length(content) > 0",
+        )
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn insert_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        msg_type: &str,
+        content: &[u8],
+    ) -> anyhow::Result<bool> {
+        let now = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "INSERT INTO p2p_outbox \
+                (message_id, msg_type, content, state, attempt_count, next_retry_at, lease_until, created_at, updated_at) \
+             VALUES (?, ?, ?, 'Pending', 0, 0, 0, ?, ?) \
+             ON CONFLICT(message_id) DO NOTHING",
+        )
+        .bind(message_id)
+        .bind(msg_type)
+        .bind(content)
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Enqueue an outbound message, allowing a terminal message to be
+    /// deliberately announced again while preserving an in-flight attempt.
+    pub async fn enqueue_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        msg_type: &str,
+        content: &[u8],
+    ) -> anyhow::Result<bool> {
+        let now = get_current_timestamp_secs();
+        let result = sqlx::query(
+            "INSERT INTO p2p_outbox \
+                (message_id, msg_type, content, state, attempt_count, next_retry_at, lease_until, created_at, updated_at) \
+             VALUES (?, ?, ?, 'Pending', 0, 0, 0, ?, ?) \
+             ON CONFLICT(message_id) DO UPDATE SET \
+                msg_type = excluded.msg_type, content = excluded.content, state = 'Pending', \
+                attempt_count = 0, next_retry_at = 0, lease_until = 0, last_error = NULL, updated_at = excluded.updated_at \
+             WHERE p2p_outbox.state IN ('Processed', 'Failed')",
+        )
+        .bind(message_id)
+        .bind(msg_type)
+        .bind(content)
+        .bind(now)
+        .bind(now)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn claim_p2p_outbox_messages(
+        &mut self,
+        now: i64,
+        lease_until: i64,
+        limit: i64,
+    ) -> anyhow::Result<Vec<P2pOutboxMessage>> {
+        let rows = sqlx::query(
+            "SELECT message_id, msg_type, content, state, attempt_count, next_retry_at, lease_until, last_error, created_at \
+             FROM p2p_outbox \
+             WHERE (state = 'Pending' AND next_retry_at <= ?) \
+                OR (state = 'Processing' AND lease_until <= ?) \
+             ORDER BY created_at ASC LIMIT ?",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(limit)
+        .fetch_all(self.conn())
+        .await?;
+        let mut claimed = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut message = p2p_outbox_message_from_row(&row)?;
+            let result = sqlx::query(
+                "UPDATE p2p_outbox SET state = 'Processing', attempt_count = attempt_count + 1, lease_until = ?, updated_at = ? \
+                 WHERE message_id = ? AND ((state = 'Pending' AND next_retry_at <= ?) \
+                    OR (state = 'Processing' AND lease_until <= ?))",
+            )
+            .bind(lease_until)
+            .bind(now)
+            .bind(&message.message_id)
+            .bind(now)
+            .bind(now)
+            .execute(self.conn())
+            .await?;
+            if result.rows_affected() > 0 {
+                message.state = "Processing".to_owned();
+                message.attempt_count += 1;
+                message.lease_until = lease_until;
+                claimed.push(message);
+            }
+        }
+        Ok(claimed)
+    }
+
+    pub async fn complete_p2p_outbox_message(&mut self, message_id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_outbox SET state = 'Processed', content = X'', lease_until = 0, next_retry_at = 0, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn retry_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        next_retry_at: i64,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_outbox SET state = 'Pending', lease_until = 0, next_retry_at = ?, last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(next_retry_at)
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn fail_p2p_outbox_message(
+        &mut self,
+        message_id: &str,
+        error: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE p2p_outbox SET state = 'Failed', content = X'', lease_until = 0, next_retry_at = 0, \
+                 last_error = ?, updated_at = ? \
+             WHERE message_id = ? AND state = 'Processing'",
+        )
+        .bind(error.chars().take(1024).collect::<String>())
+        .bind(get_current_timestamp_secs())
+        .bind(message_id)
+        .execute(self.conn())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     /// Record that a chain-derived graph message has been durably enqueued.
@@ -3707,6 +4208,54 @@ mod tests {
                 .unwrap()
                 .count,
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_message_debug_reasons_are_deduplicated() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+        let business_id = Uuid::new_v4();
+
+        sqlx::query(
+            "INSERT INTO message (message_id, business_id, actor, msg_type, content, state, lock_time_until, created_at, updated_at) VALUES (?, ?, 'Operator', 'AssertReady', X'00', 'Pending', 30, 10, 20)",
+        )
+        .bind("message-debug-1")
+        .bind(business_id)
+        .execute(s.conn())
+        .await
+        .unwrap();
+
+        for _ in 0..2 {
+            s.upsert_message_debug_reason(
+                "message-debug-1",
+                "operator_proof_pending",
+                "operator proof is not ready",
+            )
+            .await
+            .unwrap();
+        }
+        s.upsert_message_debug_reason(
+            "message-debug-1",
+            "handler_error",
+            "proof RPC request timed out",
+        )
+        .await
+        .unwrap();
+
+        let messages = s.find_message_debug_overviews(&business_id).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].reason_count, 2);
+
+        let reasons = s.find_message_debug_reasons("message-debug-1").await.unwrap();
+        assert_eq!(reasons.len(), 2);
+        assert!(reasons.iter().any(|reason| {
+            reason.reason_code == "operator_proof_pending" && reason.occurrences == 2
+        }));
+        assert!(
+            reasons
+                .iter()
+                .any(|reason| reason.reason_code == "handler_error" && reason.occurrences == 1)
         );
     }
 

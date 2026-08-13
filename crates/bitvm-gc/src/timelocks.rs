@@ -19,13 +19,13 @@ pub const NODE_BITCOIN_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
 };
 pub const NODE_TESTNET_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
     connector_z: 100,
-    connector_a: 16,
-    prover_connector: 20,
-    connector_d: 40,
+    connector_a: 6,
+    prover_connector: 16,
+    connector_d: 32,
     watchtower_challenge: 20,
-    operator_ack: 32,
-    operator_commit: 40,
-    connector_f: 52,
+    operator_ack: 28,
+    operator_commit: 42,
+    connector_f: 56,
 };
 pub const NODE_SIGNET_TIMELOCK_CONFIG: TimelockConfig = TimelockConfig {
     connector_z: 6,
@@ -66,20 +66,85 @@ pub fn estimated_block_interval_secs(network: Network) -> i64 {
     }
 }
 
-const MIN_REACTION_SECS: i64 = 3600;
+/// Non-serialized timing policy used to validate the on-chain timelock config.
+///
+/// A graph commits to the CSV values, while every node applies this local network
+/// policy before accepting those values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProtocolTimingBudget {
+    /// Confirmation depth required before downstream Bitcoin evidence is used.
+    pub evidence_confirmations: u32,
+    /// Event discovery, P2P propagation, scheduling, and local signing.
+    pub reaction_blocks: u32,
+    /// P99 time for a watchtower to retrieve and prepare its proof commitment.
+    pub watchtower_proof_blocks: u32,
+    /// Target blocks for a transaction to be included, including fee bumping.
+    pub inclusion_blocks: u32,
+    /// Reorg and transient service failure allowance.
+    pub safety_blocks: u32,
+}
 
-fn min_reaction_blocks(network: Network) -> u32 {
+impl ProtocolTimingBudget {
+    const fn action_window(self) -> u32 {
+        self.reaction_blocks
+            .saturating_add(self.inclusion_blocks)
+            .saturating_add(self.safety_blocks)
+    }
+
+    const fn watchtower_proof_window(self) -> u32 {
+        self.action_window().saturating_add(self.watchtower_proof_blocks)
+    }
+
+    const fn confirmed_action_window(self) -> u32 {
+        self.evidence_confirmations
+            .saturating_add(self.inclusion_blocks)
+            .saturating_add(self.safety_blocks)
+    }
+}
+
+const BITCOIN_TIMING_BUDGET: ProtocolTimingBudget = ProtocolTimingBudget {
+    evidence_confirmations: 6,
+    reaction_blocks: 6,
+    watchtower_proof_blocks: 24,
+    inclusion_blocks: 6,
+    safety_blocks: 6,
+};
+
+const TESTNET_TIMING_BUDGET: ProtocolTimingBudget = ProtocolTimingBudget {
+    evidence_confirmations: 10,
+    reaction_blocks: 2,
+    watchtower_proof_blocks: 12,
+    inclusion_blocks: 2,
+    safety_blocks: 2,
+};
+
+const SIGNET_TIMING_BUDGET: ProtocolTimingBudget = ProtocolTimingBudget {
+    evidence_confirmations: 1,
+    reaction_blocks: 1,
+    watchtower_proof_blocks: 2,
+    inclusion_blocks: 1,
+    safety_blocks: 1,
+};
+
+const REGTEST_TIMING_BUDGET: ProtocolTimingBudget = ProtocolTimingBudget {
+    evidence_confirmations: 0,
+    reaction_blocks: 1,
+    watchtower_proof_blocks: 0,
+    inclusion_blocks: 0,
+    safety_blocks: 0,
+};
+
+pub fn protocol_timing_budget(network: Network) -> ProtocolTimingBudget {
     match network {
-        Network::Bitcoin | Network::Testnet | Network::Testnet4 => {
-            let interval = estimated_block_interval_secs(network);
-            ((MIN_REACTION_SECS + interval - 1) / interval) as u32
-        }
-        Network::Signet | Network::Regtest => 1,
+        Network::Bitcoin => BITCOIN_TIMING_BUDGET,
+        Network::Testnet | Network::Testnet4 => TESTNET_TIMING_BUDGET,
+        Network::Signet => SIGNET_TIMING_BUDGET,
+        Network::Regtest => REGTEST_TIMING_BUDGET,
     }
 }
 
 pub fn validate_timelock_config(network: Network, config: &TimelockConfig) -> Result<()> {
-    let min_blocks = min_reaction_blocks(network);
+    let budget = protocol_timing_budget(network);
     for (name, value) in [
         ("connector_z", config.connector_z),
         ("connector_a", config.connector_a),
@@ -90,10 +155,10 @@ pub fn validate_timelock_config(network: Network, config: &TimelockConfig) -> Re
         ("operator_commit", config.operator_commit),
         ("connector_f", config.connector_f),
     ] {
-        if value < min_blocks {
+        if value < budget.reaction_blocks {
             bail!(
-                "timelock_config.{name} must be at least {min_blocks} blocks \
-                 (~{MIN_REACTION_SECS}s reaction window), got {value}"
+                "timelock_config.{name} must be at least {} reaction blocks, got {value}",
+                budget.reaction_blocks,
             );
         }
     }
@@ -105,52 +170,66 @@ pub fn validate_timelock_config(network: Network, config: &TimelockConfig) -> Re
         );
     }
 
-    ensure_reaction_margin(
-        "prover_connector",
-        config.prover_connector,
-        "connector_d",
-        config.connector_d,
-        min_blocks,
+    let action_window = budget.action_window();
+    ensure_at_least("connector_a", config.connector_a, action_window)?;
+    ensure_at_least(
+        "watchtower_challenge",
+        config.watchtower_challenge,
+        budget.watchtower_proof_window(),
     )?;
-    ensure_gt("connector_a", config.connector_a, "min_reaction_blocks", min_blocks)?;
-    ensure_lt(
+    ensure_gap_at_least(
         "watchtower_challenge",
         config.watchtower_challenge,
         "operator_ack",
         config.operator_ack,
+        action_window,
     )?;
-    ensure_lt("operator_ack", config.operator_ack, "operator_commit", config.operator_commit)?;
-    ensure_lt("operator_commit", config.operator_commit, "connector_f", config.connector_f)?;
+    ensure_gap_at_least(
+        "max(watchtower_challenge, operator_ack)",
+        config.watchtower_challenge.max(config.operator_ack),
+        "operator_commit",
+        config.operator_commit,
+        budget.confirmed_action_window(),
+    )?;
+    ensure_at_least("prover_connector", config.prover_connector, action_window)?;
+    ensure_gap_at_least(
+        "prover_connector",
+        config.prover_connector,
+        "connector_d",
+        config.connector_d,
+        action_window,
+    )?;
+    ensure_gap_at_least(
+        "operator_commit",
+        config.operator_commit,
+        "connector_f",
+        config.connector_f,
+        budget.confirmed_action_window(),
+    )?;
 
     Ok(())
 }
 
-fn ensure_reaction_margin(
+fn ensure_gap_at_least(
     left_name: &str,
     left: u32,
     right_name: &str,
     right: u32,
-    min_margin: u32,
+    required_blocks: u32,
 ) -> Result<()> {
-    if left.saturating_add(min_margin) >= right {
+    let actual_blocks = right.saturating_sub(left);
+    if actual_blocks < required_blocks {
         bail!(
-            "timelock_config.{left_name} must be more than {min_margin} blocks less than \
-             timelock_config.{right_name}"
+            "timelock_config.{right_name} - timelock_config.{left_name} must be at least \
+             {required_blocks} blocks, got {actual_blocks}"
         );
     }
     Ok(())
 }
 
-fn ensure_lt(left_name: &str, left: u32, right_name: &str, right: u32) -> Result<()> {
-    if left >= right {
-        bail!("timelock_config.{left_name} must be < timelock_config.{right_name}");
-    }
-    Ok(())
-}
-
-fn ensure_gt(left_name: &str, left: u32, right_name: &str, right: u32) -> Result<()> {
-    if left <= right {
-        bail!("timelock_config.{left_name} must be > {right_name} ({right})");
+fn ensure_at_least(name: &str, value: u32, required_blocks: u32) -> Result<()> {
+    if value < required_blocks {
+        bail!("timelock_config.{name} must be at least {required_blocks} blocks, got {value}");
     }
     Ok(())
 }

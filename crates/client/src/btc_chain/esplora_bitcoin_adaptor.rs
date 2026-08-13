@@ -1,15 +1,33 @@
 use crate::btc_chain::bitcoin_adaptor::BitcoinAdaptor;
 use crate::timeout_config::get_btc_request_timeout_secs;
-use anyhow::anyhow;
 use bitcoin::block::Header;
 use bitcoin::{Address as BtcAddress, Block, Network, Transaction, Txid};
 use esplora_client::{AsyncClient, Builder, MerkleProof, Tx, Utxo};
+use std::fmt;
 use std::future::Future;
 use std::time::Duration;
 use tracing::warn;
 
 const TEST_URL: &str = "https://mempool.space/testnet/api";
 const MAIN_URL: &str = "https://mempool.space/api";
+
+#[derive(Debug)]
+pub struct BtcRpcTimeoutError {
+    pub request_name: &'static str,
+    pub timeout_secs: u64,
+}
+
+impl fmt::Display for BtcRpcTimeoutError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "esplora request timeout: {}, timeout_secs={}",
+            self.request_name, self.timeout_secs
+        )
+    }
+}
+
+impl std::error::Error for BtcRpcTimeoutError {}
 
 pub fn get_esplora_url(network: Network) -> &'static str {
     match network {
@@ -49,10 +67,11 @@ impl EsploraBitcoinAdaptor {
                     timeout_secs = self.request_timeout.as_secs(),
                     "esplora request timeout"
                 );
-                Err(anyhow!(
-                    "esplora request timeout: {request_name}, timeout_secs={} ",
-                    self.request_timeout.as_secs()
-                ))
+                Err(BtcRpcTimeoutError {
+                    request_name,
+                    timeout_secs: self.request_timeout.as_secs(),
+                }
+                .into())
             }
         }
     }

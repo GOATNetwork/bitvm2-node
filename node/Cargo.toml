@@ -134,3 +134,6 @@ header-chain = { workspace = true }
 state-chain = { workspace = true }
 verifier = { workspace = true }
 cbft-rpc = { workspace = true }
+
+[dev-dependencies]
+blake3 = "=1.8.5"

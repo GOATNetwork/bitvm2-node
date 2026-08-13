@@ -147,6 +147,7 @@ pub async fn instance_settings(
 /// {}
 /// ```
 #[axum::debug_handler]
+// TODO(auth): Add caller authorization or rate limiting before exposing this write endpoint publicly.
 pub async fn bridge_in_request_tag(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeInPrepareRequest>,
@@ -269,6 +270,7 @@ pub async fn bridge_in_request_tag(
 /// {}
 /// ```
 #[axum::debug_handler]
+// TODO(auth): Add caller authorization or rate limiting before exposing this write endpoint publicly.
 pub async fn bridge_out_init_tag(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<BridgeOutInitTagRequest>,
@@ -1570,6 +1572,7 @@ pub async fn get_graph_neighbor_ids(
 /// }
 /// ```
 #[axum::debug_handler]
+// TODO(auth): Require authorization before returning a locally constructed cancellation PSBT.
 pub async fn get_unsigned_pegin_txn(
     Path(instance_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
@@ -1627,6 +1630,7 @@ pub async fn send_challenge(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<SendChallengeResponse> {
+    // TODO(auth): Replace shared node-key authentication with caller-scoped authorization.
     verify_request_auth(&headers)?;
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
@@ -1681,6 +1685,7 @@ pub async fn send_verifier_challenge(
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<SendVerifierChallengeResponse> {
+    // TODO(auth): Replace shared node-key authentication with caller-scoped authorization.
     verify_request_auth(&headers)?;
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
@@ -1794,6 +1799,7 @@ pub async fn pegout(
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<PegoutRequest>,
 ) -> ApiResult<PegoutResponse> {
+    // TODO(auth): Replace shared node-key authentication with caller-scoped authorization.
     verify_request_auth(&headers)?;
     let operator_pubkey = get_node_pubkey().api_error("PEGOUT_ERROR")?.to_string();
     let operator_goat_addr = get_node_goat_address()

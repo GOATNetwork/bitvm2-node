@@ -2606,6 +2606,22 @@ fn load_part_stark_vk_for_zkm_version(zkm_version: &str) -> Result<Vec<u8>> {
     Ok(Vec::from(zkm_verifier::Groth16Verifier::get_part_stark_vk(zkm_version)))
 }
 
+fn convert_operator_proof_to_ark(
+    proof: &ZKMProofWithPublicValues,
+    vk_hash: &str,
+) -> Result<zkm_verifier::ArkProof> {
+    let part_stark_vk = load_part_stark_vk_for_zkm_version(&proof.zkm_version)?;
+    convert_ark_imm_wrap_vk(proof, vk_hash, &IMM_GROTH16_VK_BYTES, &part_stark_vk)
+        .map_err(|err| anyhow!("failed to convert operator proof to ark format: {err}"))
+}
+
+pub fn operator_assert_dynamic_input(public_inputs: &[ark_bn254::Fr]) -> Result<ark_bn254::Fr> {
+    if public_inputs.len() != 2 {
+        bail!("operator proof has {} public inputs; expected 2", public_inputs.len());
+    }
+    Ok(public_inputs[1])
+}
+
 fn combined_operator_vk_hash(operator_vk_hash: &str, zkm_version: &str) -> Result<[u8; 32]> {
     if !operator_vk_hash.starts_with("0x") {
         bail!("configured operator vk hash must use 0x-prefixed Ziren encoding");
@@ -2789,10 +2805,7 @@ pub async fn get_operator_proof(
         bail!("operator proof constant does not match graph setup");
     }
 
-    let part_stark_vk = load_part_stark_vk_for_zkm_version(&proof.zkm_version)?;
-    let ark_proof =
-        convert_ark_imm_wrap_vk(&proof, &proof_data.vk, &IMM_GROTH16_VK_BYTES, &part_stark_vk)
-            .map_err(|e| anyhow!("failed to convert operator proof to ark format: {e}"))?;
+    let ark_proof = convert_operator_proof_to_ark(&proof, &proof_data.vk)?;
     let Some(static_input) = ark_proof.public_inputs.first() else {
         bail!("operator proof has no public inputs");
     };
@@ -6081,10 +6094,16 @@ pub struct OperatorBabeSetupState {
 #[cfg(test)]
 mod commit_pubin_tests {
     use super::*;
+    use ark_serialize::CanonicalSerialize;
     use bitcoin::BlockHash;
     use client::btc_chain::BTCClient;
     use esplora_client::{Tx, TxStatus, Vin};
     use store::SerializableTxid;
+
+    const TEST_OPERATOR_PROOF_FIXTURE: &[u8] =
+        include_bytes!("../testdata/test-operator-proof.bin");
+    const TEST_OPERATOR_PROOF_FIXTURE_VK: &str =
+        "0x00ba1ff974eb6e5890f238f8a11c1aeff2d5f4a68a860274bcb602c3c5c681b7";
 
     fn make_txid(byte: u8) -> Txid {
         Txid::from_slice(&[byte; 32]).unwrap()
@@ -6127,6 +6146,33 @@ mod commit_pubin_tests {
             },
             fee: 0,
         }
+    }
+
+    #[test]
+    fn assert_ready_extracts_blake3_xd_from_operator_proof() {
+        assert_eq!(TEST_OPERATOR_PROOF_FIXTURE.len(), 1_498);
+        let proof: ZKMProofWithPublicValues =
+            bincode::deserialize(TEST_OPERATOR_PROOF_FIXTURE).unwrap();
+
+        let ark_proof =
+            convert_operator_proof_to_ark(&proof, TEST_OPERATOR_PROOF_FIXTURE_VK).unwrap();
+        let public_inputs: PublicInputs = ark_proof.public_inputs.into();
+        let dynamic_input = operator_assert_dynamic_input(&public_inputs).unwrap();
+
+        let outputs = decode_operator_public_outputs(&proof.public_values.to_vec()).unwrap();
+        let mut pubin = [0u8; 96];
+        pubin[..32].copy_from_slice(&outputs.btc_best_block_hash);
+        pubin[32..64].copy_from_slice(&outputs.constant);
+        pubin[64..].copy_from_slice(&outputs.included_watchtowers);
+
+        let mut expected_xd = *blake3::hash(&pubin).as_bytes();
+        expected_xd[0] &= 0x1f;
+        let mut actual_xd = Vec::new();
+        dynamic_input.serialize_uncompressed(&mut actual_xd).unwrap();
+        // `pi1_xd_to_wots96_msg` serializes the field element most-significant byte first,
+        // whereas the public-input digest is defined in little-endian order.
+        actual_xd.reverse();
+        assert_eq!(actual_xd, expected_xd);
     }
 
     #[tokio::test]

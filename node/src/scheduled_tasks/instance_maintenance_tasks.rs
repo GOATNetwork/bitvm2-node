@@ -1,6 +1,6 @@
 use crate::action::{
-    ConfirmInstance, GOATMessage, GOATMessageContent, PeginConfirmNonce, PeginConfirmPartialSig,
-    PeginRequest, PostReady, push_local_unhandled_messages,
+    ConfirmInstance, GOATMessage, GOATMessageContent, MessageDeferReason, PeginConfirmNonce,
+    PeginConfirmPartialSig, PeginRequest, PostReady, push_local_unhandled_messages_with_reason,
 };
 use crate::env::{
     COMMITTEE_INSTANCE_KEYS_DIR, get_bitvm_key, get_committee_instance_key_delete_timelock_blocks,
@@ -589,7 +589,15 @@ pub async fn pegin_confirm_recovery_monitor(
                     endorse_sig,
                 }),
             );
-            push_local_unhandled_messages(local_db, instance_id, &message, 0).await?;
+            push_local_unhandled_messages_with_reason(
+                local_db,
+                instance_id,
+                &message,
+                0,
+                MessageDeferReason::RecoveryRepublish,
+                "re-publishing persisted pegin-confirm partial signature",
+            )
+            .await?;
             tracing::info!(
                 event = "pegin_confirm_recovery",
                 action = "republish_partial_signature",
@@ -641,7 +649,15 @@ pub async fn pegin_confirm_recovery_monitor(
                 nonce_sig,
             }),
         );
-        push_local_unhandled_messages(local_db, instance_id, &message, 0).await?;
+        push_local_unhandled_messages_with_reason(
+            local_db,
+            instance_id,
+            &message,
+            0,
+            MessageDeferReason::RecoveryRepublish,
+            "re-publishing persisted pegin-confirm nonce",
+        )
+        .await?;
         tracing::info!(
             event = "pegin_confirm_recovery",
             action = "republish_nonce",
